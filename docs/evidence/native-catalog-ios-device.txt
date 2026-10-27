@@ -1,0 +1,168 @@
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	﻿2026-10-27T06:18:56.7056460Z ##[group]Run device_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for group in d["devices"].values() for v in group if v["name"].startswith("iPhone")))')
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:18:56.7057700Z [36;1mdevice_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for group in d["devices"].values() for v in group if v["name"].startswith("iPhone")))')[0m
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:18:56.7058510Z [36;1mxcrun simctl boot "$device_id" || xcrun simctl bootstatus "$device_id" -b[0m
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:18:56.7058860Z [36;1mxcrun simctl bootstatus "$device_id" -b[0m
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:18:56.7059160Z [36;1mcd apps/mobile[0m
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:18:56.7059550Z [36;1mflutter test integration_test/native_flow_test.dart -d "$device_id" --reporter expanded[0m
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:18:56.7107340Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:18:56.7107730Z ##[endgroup]
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:33.5175620Z Monitoring boot status for iPhone 17 Pro (58FBEAC1-8EC6-4E83-B597-D6801A423A50).
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:33.5978410Z [2026-10-27 06:19:33 +0000] Status=2, isTerminal=NO, Elapsed=00:33.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:33.8523420Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:33.9421600Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:34.2238840Z 		Migration Elapsed:00:19 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:34.3046220Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:34.5512110Z [2026-10-27 06:19:34 +0000] Status=2, isTerminal=NO, Elapsed=00:34.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:34.5516960Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:34.6355630Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:34.7169930Z 		Migration Elapsed:00:20 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:34.7985600Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:35.5358830Z [2026-10-27 06:19:35 +0000] Status=2, isTerminal=NO, Elapsed=00:35.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:35.6170320Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:35.7014630Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:35.7845060Z 		Migration Elapsed:00:21 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:35.8662550Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:36.5226550Z [2026-10-27 06:19:36 +0000] Status=2, isTerminal=NO, Elapsed=00:36.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:36.6051290Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:36.6863570Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:36.6864660Z 		Migration Elapsed:00:22 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:36.7726230Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:37.5809650Z [2026-10-27 06:19:37 +0000] Status=2, isTerminal=NO, Elapsed=00:37.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:37.5810590Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:37.6625420Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:37.7447050Z 		Migration Elapsed:00:23 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:37.7477900Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:38.4302690Z [2026-10-27 06:19:38 +0000] Status=2, isTerminal=NO, Elapsed=00:38.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:38.4426060Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:38.5354830Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:38.5464360Z 		Migration Elapsed:00:24 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:38.5628370Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:39.4085000Z [2026-10-27 06:19:39 +0000] Status=2, isTerminal=NO, Elapsed=00:39.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:39.4210240Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:39.4256590Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:39.4323410Z 		Migration Elapsed:00:25 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:39.4339240Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:40.3892120Z [2026-10-27 06:19:40 +0000] Status=2, isTerminal=NO, Elapsed=00:40.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:40.3892860Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:40.3893880Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:40.3895640Z 		Migration Elapsed:00:26 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:40.3896010Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:41.4024380Z [2026-10-27 06:19:41 +0000] Status=2, isTerminal=NO, Elapsed=00:41.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:41.4025640Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:41.4026600Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:41.4027260Z 		Migration Elapsed:00:27 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:41.4027630Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:42.3948210Z [2026-10-27 06:19:42 +0000] Status=2, isTerminal=NO, Elapsed=00:42.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:42.3950620Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:42.3951460Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:42.3952440Z 		Migration Elapsed:00:28 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:42.3952880Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:43.4031220Z [2026-10-27 06:19:43 +0000] Status=2, isTerminal=NO, Elapsed=00:43.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:43.4035930Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:43.4037440Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:43.4039060Z 		Migration Elapsed:00:29 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:43.4039310Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:44.4227150Z [2026-10-27 06:19:44 +0000] Status=2, isTerminal=NO, Elapsed=00:44.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:44.4233280Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:44.4233890Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:44.4271750Z 		Migration Elapsed:00:30 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:44.4272030Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:45.5832100Z [2026-10-27 06:19:45 +0000] Status=2, isTerminal=NO, Elapsed=00:45.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:45.5951000Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:45.5979600Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:45.5980340Z 		Migration Elapsed:00:31 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:45.5980730Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:46.3829040Z [2026-10-27 06:19:46 +0000] Status=2, isTerminal=NO, Elapsed=00:46.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:46.3829700Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:46.3830470Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:46.3831200Z 		Migration Elapsed:00:32 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:46.3831410Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:47.5125110Z [2026-10-27 06:19:47 +0000] Status=2, isTerminal=NO, Elapsed=00:47.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:47.5194150Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:47.5195620Z 		Reason:Running plugin com.apple.-0LaunchServicesMigrator (00LaunchServicesMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:47.5196620Z 		Migration Elapsed:00:33 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:47.5197110Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:50.4422370Z [2026-10-27 06:19:50 +0000] Status=2, isTerminal=NO, Elapsed=00:50.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:50.7769110Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:50.7798370Z 		Reason:Running plugin com.apple.securityd.KeychainMigrator (KeychainMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:50.8615600Z 		Migration Elapsed:00:34 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:50.9422340Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:51.4431060Z [2026-10-27 06:19:51 +0000] Status=2, isTerminal=NO, Elapsed=00:51.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:51.6206850Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:51.8963910Z 		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:52.0161030Z 		Migration Elapsed:00:36 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:52.1867040Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:53.0335270Z [2026-10-27 06:19:52 +0000] Status=2, isTerminal=NO, Elapsed=00:52.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:53.1948180Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:53.2774090Z 		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:53.3621310Z 		Migration Elapsed:00:38 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:53.4467640Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:58.3885290Z [2026-10-27 06:19:57 +0000] Status=2, isTerminal=NO, Elapsed=00:58.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:58.4717500Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:58.5537760Z 		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:58.8005890Z 		Migration Elapsed:00:39 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:58.8006480Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:58.8007400Z [2026-10-27 06:19:58 +0000] Status=2, isTerminal=NO, Elapsed=00:58.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:58.8801310Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:58.9610290Z 		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.0411730Z 		Migration Elapsed:00:44 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.2036610Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.2845960Z [2026-10-27 06:19:58 +0000] Status=2, isTerminal=NO, Elapsed=00:59.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.3667880Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.3668770Z 		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.4487920Z 		Migration Elapsed:00:44 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.6120320Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.6917380Z [2026-10-27 06:19:59 +0000] Status=2, isTerminal=NO, Elapsed=00:59.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.7752980Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:19:59.8539910Z 		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:00.0196950Z 		Migration Elapsed:00:45 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:00.1002400Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:00.5963420Z [2026-10-27 06:20:00 +0000] Status=2, isTerminal=NO, Elapsed=01:00.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:00.5964890Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:00.6775440Z 		Reason:Running plugin com.apple.MobileGestalt.MobileGestaltMigrator (MobileGestaltMigrator.migrator, user-agnostic)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:00.7612830Z 		Migration Elapsed:00:46 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:01.0098590Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:02.4482720Z [2026-10-27 06:20:01 +0000] Status=2, isTerminal=NO, Elapsed=01:01.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:02.5334520Z 	Waiting on Data Migration
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:02.6961320Z 		Reason:Running plugin com.apple.locationd.migrator (CoreLocationMigrator.migrator)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:02.8600750Z 		Migration Elapsed:00:47 seconds
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:02.9414420Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:03.4366520Z [2026-10-27 06:20:03 +0000] Status=4, isTerminal=NO, Elapsed=01:03.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:03.5188350Z 	Waiting on System App
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:03.5997770Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:03.6816280Z [2026-10-27 06:20:03 +0000] Status=4, isTerminal=NO, Elapsed=01:03.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:03.6823000Z 	Waiting on System App
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:03.8432520Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:04.9699900Z [2026-10-27 06:20:04 +0000] Status=4, isTerminal=NO, Elapsed=01:04.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:05.0066410Z 	Waiting on System App
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:05.0523520Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:16.5160310Z [2026-10-27 06:20:15 +0000] Status=4294967295, isTerminal=YES, Elapsed=01:14.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:17.6679170Z 	Finished
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:18.4210770Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:38.9584970Z Resolving dependencies...
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.1784010Z Downloading packages...
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.8623070Z   characters 1.4.0 (1.4.1 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9460000Z   clock 1.1.2 (1.1.3 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9462920Z   intl 0.20.2 (0.20.3 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9463880Z   matcher 0.12.17 (0.12.20 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9464600Z   material_color_utilities 0.11.1 (0.13.1 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9465070Z   meta 1.16.0 (1.19.0 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9466130Z   path_provider_linux 2.2.1 (2.2.2 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9466540Z   path_provider_platform_interface 2.1.2 (2.1.3 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9466820Z   platform 3.1.6 (3.2.0 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9467080Z   shared_preferences 2.5.3 (2.5.6 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9467770Z   shared_preferences_android 2.4.23 (2.5.3 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9468830Z   shared_preferences_foundation 2.5.6 (2.6.1 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9469110Z   stack_trace 1.12.1 (1.12.2 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9469360Z   test_api 0.7.6 (0.7.15 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9469750Z   vector_math 2.2.0 (2.4.4 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9469950Z   web 1.1.1 (1.1.2 available)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9470120Z Got dependencies!
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9470580Z 16 packages have newer versions incompatible with dependency constraints.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:40.9501470Z Try `flutter pub outdated` for more information.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:20:43.7701640Z 00:00 +0: loading /Users/runner/work/EV/EV/apps/mobile/integration_test/native_flow_test.dart
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:23:12.1199680Z Running Xcode build...                                          
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:23:12.1336690Z Xcode build done.                                           114.3s
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:24:43.6979940Z 00:00 +0: device HTTP authentication, pagination and persistent RTL/themes across roles
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:24:57.0696870Z 00:13 +1: (tearDownAll)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic HTTP fixtures)	2026-10-27T06:25:29.4120720Z 00:45 +1: All tests passed!
