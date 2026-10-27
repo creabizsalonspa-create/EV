@@ -34,6 +34,7 @@ jobs:
         run: EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - run: npm run test:vendor
       - run: EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming
+      - run: npm run test:ocpi-provisioning
       - run: npm run test:invoices
       - run: npm run test:tariffs
       - run: npm run test:managed-gate

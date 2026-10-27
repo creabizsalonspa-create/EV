@@ -1,10 +1,13 @@
 <?php
 
 use App\Http\Controllers\OcpiController;
+use App\Http\Controllers\OcpiProvisioningController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/api/roaming/locations', [OcpiController::class, 'locations'])->middleware('throttle:catalog');
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api/ocpi')->group(function () {
+    Route::get('/connection-options', [OcpiProvisioningController::class, 'connections']);
+    Route::get('/owner-options', [OcpiProvisioningController::class, 'owners']);
     Route::get('/providers', [OcpiController::class, 'providers']);
     Route::post('/providers', [OcpiController::class, 'create']);
     Route::patch('/providers/{provider}/authorization', [OcpiController::class, 'authorization']);

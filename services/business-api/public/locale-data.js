@@ -1571,4 +1571,39 @@ window.EV_MESSAGES = {
         en: "Sign-out could not be confirmed. Reconnect and retry.",
         ar: "تعذر تأكيد تسجيل الخروج. أعد الاتصال ثم حاول مجدداً.",
     },
+    "Register roaming provider": {
+        en: "Register roaming provider",
+        ar: "تسجيل مزوّد تجوال",
+    },
+    "Roaming registration disclaimer": {
+        en: "Only approved server connections can be assigned. Credentials and endpoint configuration stay on the server. Registration starts revoked and makes no partner request.",
+        ar: "يمكن إسناد اتصالات الخادم المعتمدة فقط. تبقى بيانات الاعتماد وإعدادات الاتصال على الخادم. يبدأ التسجيل دون تفويض ولا يُرسل طلباً للشريك.",
+    },
+    "No approved roaming connections": {
+        en: "No unassigned validated server connection is available. An operator must provision approved connection metadata and credentials securely before registration.",
+        ar: "لا يوجد اتصال خادم صالح وغير مسند. يجب إعداد بيانات الاتصال المعتمدة وبيانات الاعتماد بأمان قبل التسجيل.",
+    },
+    "Approved connection": { en: "Approved connection", ar: "الاتصال المعتمد" },
+    "Provider vendor": { en: "Provider vendor", ar: "مشغّل المزوّد" },
+    "Search provider vendors": {
+        en: "Search provider vendors",
+        ar: "البحث عن مشغّلي المزوّدين",
+    },
+    "Provider name": { en: "Provider name", ar: "اسم المزوّد" },
+    "No provider vendors": {
+        en: "No vendors match this search.",
+        ar: "لا يوجد مشغّلون مطابقون للبحث.",
+    },
+    "Roaming registration confirmation": {
+        en: "Register this provider with the selected vendor and approved connection? It remains revoked until separately authorized. No partner request will be made.",
+        ar: "هل تريد تسجيل المزوّد للمشغّل والاتصال المعتمد المحددين؟ سيبقى دون تفويض حتى إجازته بشكل منفصل. لن يُرسل طلب للشريك.",
+    },
+    "Roaming registration uncertain": {
+        en: "Registration was not confirmed. Refresh providers before trying again; it may already have been saved.",
+        ar: "لم يتم تأكيد التسجيل. حدّث المزوّدين قبل المحاولة مجدداً؛ ربما حُفظ التسجيل بالفعل.",
+    },
+    "Roaming registration unavailable": {
+        en: "Connection registration options could not be loaded. Existing provider operations remain available.",
+        ar: "تعذر تحميل خيارات تسجيل الاتصال. تظل عمليات المزوّدين الحالية متاحة.",
+    },
 };

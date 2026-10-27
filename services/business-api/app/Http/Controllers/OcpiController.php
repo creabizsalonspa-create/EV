@@ -27,7 +27,7 @@ class OcpiController extends Controller
     {
         abort_unless(in_array($r->user()->role, ['vendor', 'admin']), 403);
 
-        return OcpiProvider::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id))->paginate(25);
+        return OcpiProvider::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id))->orderByDesc('id')->paginate(25);
     }
 
     public function create(Request $r, PartnerClient $client)

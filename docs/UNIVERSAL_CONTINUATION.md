@@ -35,6 +35,7 @@ EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:localization
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:web-session
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:vendor
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:roaming
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:ocpi-provisioning
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:invoices
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:tariffs
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:managed-gate
@@ -61,3 +62,5 @@ Current integrated branch preserves b0c43be and frontend through 0fe9e75. Source
 Read REQUIREMENT_STATUS.md for the complete PRD bullet mapping and the connector-identity/maintenance findings. The owner’s MASTER_CONTINUATION.md remains the standing objective; no claim of complete commercial software or inactive background execution is made.
 
 Native CI now uses macos-15/Xcode16.4/iOS18.5 and passed at 890b081. Do not infer latest iOS26/store readiness from this baseline. Web generation isolation and pending logout use no persistent credentials; delayed private responses must never repopulate a changed account. Keep the dedicated web-session ordering tests in CI.
+
+Current active-agent ownership is exclusive per NON_FINANCE_CONTINUATION.md: Agent 1 financial/commercial logic and backend/web/admin finance; Agent 2 EV/non-financial platform and native API consumption. Do not duplicate the other workstream. Native inventory source cabac72 passed hosted Android/iOS + iPhone TLS/Keychain integration with a fresh run-owned simulator, plus Linux actual-Laravel inventory acceptance. Later checks are revision-specific.

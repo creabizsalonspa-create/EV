@@ -153,6 +153,176 @@ window.createRoamingWorkspace = ({
         privateRoot.replaceChildren();
         privateRoot.hidden = true;
     }
+    async function registration(parent, epoch, signal) {
+        const box = document.createElement("section");
+        box.dataset.ocpiRegistration = "";
+        parent.append(box);
+        box.append(
+            ui("h3", "Register roaming provider"),
+            ui("p", "Roaming registration disclaimer"),
+            ui("p", "Loading…"),
+        );
+        try {
+            const [connections, owners] = await Promise.all([
+                api("ocpi/connection-options", "GET", undefined, signal),
+                api("ocpi/owner-options?page=1", "GET", undefined, signal),
+            ]);
+            if (epoch !== generation || !box.isConnected) return;
+            box.replaceChildren(
+                ui("h3", "Register roaming provider"),
+                ui("p", "Roaming registration disclaimer"),
+            );
+            const options = connections.data.filter(
+                (c) => c.configuration_valid && !c.assigned,
+            );
+            if (!options.length) {
+                box.append(ui("p", "No approved roaming connections"));
+                return;
+            }
+            const form = document.createElement("form");
+            const field = (label, name, control) => {
+                const wrapper = ui("label", label);
+                control.name = name;
+                control.required = true;
+                wrapper.append(control);
+                form.append(wrapper);
+                return control;
+            };
+            const connection = field(
+                "Approved connection",
+                "connection_key",
+                document.createElement("select"),
+            );
+            for (const option of options) {
+                const node = raw("option", option.key);
+                node.value = option.key;
+                connection.append(node);
+            }
+            const owner = field(
+                "Provider vendor",
+                "owner_id",
+                document.createElement("select"),
+            );
+            const ownerStatus = document.createElement("div");
+            const ownerSearch = document.createElement("input");
+            ownerSearch.name = "owner_search";
+            ownerSearch.maxLength = 80;
+            const searchLabel = ui("label", "Search provider vendors");
+            searchLabel.append(ownerSearch);
+            form.append(searchLabel, ownerStatus);
+            let ownerPage = 1,
+                ownerGeneration = 0;
+            async function showOwners(result) {
+                owner.replaceChildren();
+                for (const item of result.data) {
+                    const node = raw("option", `${item.name} · #${item.id}`);
+                    node.value = item.id;
+                    owner.append(node);
+                }
+                owner.disabled = !result.data.length;
+                ownerStatus.replaceChildren();
+                if (!result.data.length)
+                    ownerStatus.append(ui("span", "No provider vendors"));
+                pager(ownerStatus, result, async (page) => {
+                    ownerPage = page;
+                    await loadOwners();
+                });
+            }
+            async function loadOwners() {
+                const version = ++ownerGeneration;
+                owner.disabled = true;
+                save.disabled = true;
+                ownerStatus.replaceChildren(ui("p", "Loading…"));
+                try {
+                    const result = await api(
+                        `ocpi/owner-options?page=${ownerPage}&q=${encodeURIComponent(ownerSearch.value.trim())}`,
+                        "GET",
+                        undefined,
+                        signal,
+                    );
+                    if (
+                        epoch !== generation ||
+                        version !== ownerGeneration ||
+                        !box.isConnected
+                    )
+                        return;
+                    await showOwners(result);
+                } catch (e) {
+                    if (
+                        epoch === generation &&
+                        version === ownerGeneration &&
+                        box.isConnected
+                    ) {
+                        owner.replaceChildren();
+                        ownerStatus.replaceChildren(
+                            ui("p", "Roaming load failed"),
+                        );
+                        button(ownerStatus, "Retry", loadOwners);
+                    }
+                } finally {
+                    if (
+                        epoch === generation &&
+                        version === ownerGeneration &&
+                        box.isConnected
+                    )
+                        save.disabled = !owner.value;
+                }
+            }
+            button(form, "Search provider vendors", async () => {
+                ownerPage = 1;
+                await loadOwners();
+            });
+            const name = field(
+                "Provider name",
+                "name",
+                document.createElement("input"),
+            );
+            name.maxLength = 150;
+            const save = ui("button", "Register roaming provider");
+            save.type = "submit";
+            form.append(save);
+            form.onsubmit = async (event) => {
+                event.preventDefault();
+                if (
+                    owner.disabled ||
+                    save.disabled ||
+                    !form.reportValidity() ||
+                    !owner.value ||
+                    !confirm(EvLocale.text("Roaming registration confirmation"))
+                )
+                    return;
+                for (const control of form.elements) control.disabled = true;
+                try {
+                    await api("ocpi/providers", "POST", {
+                        name: name.value.trim(),
+                        owner_id: Number(owner.value),
+                        connection_key: connection.value,
+                        authorized: false,
+                    });
+                    if (epoch === generation) await providers();
+                } catch (e) {
+                    if (epoch === generation && box.isConnected) {
+                        box.replaceChildren(
+                            ui("h3", "Register roaming provider"),
+                            ui("p", "Roaming registration uncertain"),
+                        );
+                        button(box, "Refresh", () => providers());
+                        notice(e);
+                    }
+                }
+            };
+            box.append(form);
+            await showOwners(owners);
+            save.disabled = !owner.value;
+        } catch (e) {
+            if (epoch === generation && box.isConnected) {
+                box.replaceChildren(
+                    ui("p", "Roaming registration unavailable"),
+                );
+                button(box, "Retry", () => providers());
+            }
+        }
+    }
     async function providers(page = 1) {
         clear();
         if (!["vendor", "admin"].includes(actor()?.role)) return;
@@ -178,6 +348,9 @@ window.createRoamingWorkspace = ({
                 ui("p", "Roaming operator disclaimer"),
             );
             button(privateRoot, "Refresh", () => providers(page));
+            if (actor()?.role === "admin")
+                await registration(privateRoot, epoch, request.signal);
+            if (epoch !== generation) return;
             const detail = document.createElement("div");
             detail.dataset.roamingDetail = "";
             for (const provider of result.data) {

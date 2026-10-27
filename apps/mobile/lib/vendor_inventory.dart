@@ -103,7 +103,9 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
         ),
       ),
     );
-    if (mounted) await load(page: data?.current ?? 1);
+    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+      await load(page: data?.current ?? 1);
+    }
   }
 
   Future<void> maintenance(Map<String, dynamic> row) async {

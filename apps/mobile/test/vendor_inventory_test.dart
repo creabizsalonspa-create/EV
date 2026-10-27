@@ -253,4 +253,46 @@ void main() {
       expect(find.text('Connector 1'), findsNothing);
     },
   );
+  testWidgets(
+    'nested authentication expiry returns to the public root without reloading removed scopes',
+    (tester) async {
+      final api = InventoryApi();
+      addTearDown(api.close);
+      var expiredCalls = 0;
+      await tester.pumpWidget(
+        app(
+          Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => VendorInventoryView(
+                      api: api,
+                      onExpired: () => expiredCalls++,
+                    ),
+                  ),
+                ),
+                child: const Text('Public root'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Public root'));
+      await tester.pumpAndSettle();
+      for (final label in ['Sites', 'Chargers', 'Connectors']) {
+        await tester.tap(find.widgetWithText(FilledButton, label));
+        await tester.pumpAndSettle();
+      }
+      final prior = api.requests.length;
+      api.expired = true;
+      await tester.tap(find.byTooltip('Refresh'));
+      await tester.pumpAndSettle();
+      expect(expiredCalls, 1);
+      expect(api.requests.length, prior + 1);
+      expect(find.text('Public root'), findsOneWidget);
+      expect(find.text('Literal <company>'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

@@ -1,5 +1,22 @@
 # Internal QA — universal integration checkpoint
 
+## Admin OCPI connection association and native expiry-navigation checkpoint
+
+Admin can register providers against existing approved server connection aliases using a validated connection selector and paginated/searchable vendor names/IDs. Credential values, token variable names, endpoint origins and raw connection metadata never enter this API/UI. Only structurally valid, unassigned connections are selectable. Registration starts unauthorized/revoked and makes no partner request; existing explicit authorization/negotiation/sync remain separate operations. Newest-first provider paging exposes newly registered records. This does not implement credentials provisioning/rotation or full bilateral OCPI roles.
+
+Private generations and abort signals cover all new options and forms. Registration requires confirmation; a lost acknowledgement removes resubmission controls and requires authoritative refresh. A real-backend fixture commits creation then drops its response, proving one retained registration without replay. Selector failure leaves existing provider operations usable. Backend guards retain admin-only selectors/creation, vendor-role owners, server-configured aliases and unique connections. Owner choices return only ID/name, never email or private account fields.
+
+Native inventory now also avoids reloading parent scopes when nested authentication expiry pops all routes to the root. A dedicated regression proves one expiry callback, no additional removed-scope requests and no remaining private rows.
+
+Verified locally: **121 Laravel tests / 5,898 assertions**, Pint **132 files**; OCPI suite **17 / 86**. Full native analysis clean and **46 unit/widget passes / 2 explicit default live-only skips**, with **9 inventory unit/widget cases**; separate actual-Laravel inventory test remains **1 pass**. Existing real roaming, frontend-contract and localization browser suites pass, as does the new isolated actual-Laravel registration/lost-ack/selector-failure/RTL test. Its server uses synthetic injected connection metadata and no partner requests; `--no-reload` is required so Laravel's serve command retains those injected test settings. No production environment file is changed.
+
+Hosted **cabac72** native run **40506100423 is green**: Android debug, unsigned iOS simulator artifacts, Linux actual-Laravel inventory test and **1 iPhone TLS/Keychain/partner/invoice/Arabic-pricing/RTL scenario**. Fresh run-owned simulator creation/boot/cleanup passed after prior pre-Dart failures on reused devices; this single pass is evidence at that revision, not a blanket guarantee against future runner failures. Current source adds only the independently tested nested-expiry regression and OCPI work; its own CI must be assessed separately. Evidence: ocpi-provisioning-* and native-inventory-hosted-*.
+
+Financial PR #4 at **60a5dd0** has both platform and PostgreSQL checks green, but shared continuation documentation conflicts with the newer EV branch. Preserve both accounts' commits and records through a separate integration PR; do not edit or recreate financial business logic. All standing ownership boundaries in NON_FINANCE_CONTINUATION remain exclusive while both agents are active.
+
+Next EV scope remains explicit connector/source/EVSE mapping and parallel reservations, operational reconciliation and actual authorization lifecycle, complete OCPI interoperability, maps, full native company/KYC/staff/creation and non-financial Admin/security workflows. Real partner/hardware/signing/legal acceptance is still unverified; this is not a finished platform.
+
+
 ## Native company inventory and maintenance checkpoint — verified locally
 
 Customer-role staff and vendor owners can open Company inventory from the shared native Account menu. Paginated company → site → charger → connector routes use existing tenant-scoped APIs and derived permission hints. User names/addresses/reasons stay literal; source/status labels and all controls are EN/AR with inherited RTL/themes. Connector availability remains explicitly unknown and the interface never provisions hardware or sends a charger command.
