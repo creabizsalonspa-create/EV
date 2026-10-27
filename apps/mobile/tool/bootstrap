@@ -9,6 +9,6 @@ if [[ ! -d android || ! -d ios ]]; then
   if [[ ! -d android ]]; then cp -R "$platform_tmp/creabiz_ev/android" ./android; fi
   if [[ ! -d ios ]]; then cp -R "$platform_tmp/creabiz_ev/ios" ./ios; fi
 fi
-flutter pub get
+if [[ -f pubspec.lock ]]; then flutter pub get --enforce-lockfile; else flutter pub get; fi
 flutter analyze
-flutter test
+flutter test --reporter expanded

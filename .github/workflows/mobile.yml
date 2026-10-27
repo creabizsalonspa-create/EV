@@ -1,4 +1,4 @@
-name: Native client validation (unverified until run)
+name: Native client validation
 on:
   workflow_dispatch:
   push:
@@ -35,3 +35,18 @@ jobs:
       - run: flutter build ios --simulator --no-codesign
         if: runner.os == 'macOS'
         working-directory: apps/mobile
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: creabiz-android-debug
+          path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+      - name: Archive unsigned simulator application
+        if: runner.os == 'macOS'
+        run: tar -czf "$RUNNER_TEMP/creabiz-ios-simulator.tar.gz" -C apps/mobile/build/ios/iphonesimulator Runner.app
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: creabiz-ios-simulator
+          path: ${{ runner.temp }}/creabiz-ios-simulator.tar.gz
+          if-no-files-found: error

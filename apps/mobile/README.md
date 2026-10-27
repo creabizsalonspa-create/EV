@@ -1,16 +1,24 @@
-# Shared customer/vendor native client — unverified source checkpoint
+# Shared customer/vendor native client — development checkpoint
 
-This is the first shared Android/iOS client source, not completed applications. The existing Laravel web application remains the tested customer/vendor/admin surface. No admin mobile app is provided: admin accounts are directed to the web workspace. No APK/AAB/IPA has been built or verified.
+One Flutter package serves customer and vendor roles. Admin remains web-only. This is an incomplete native application, not a final mobile release.
 
-The source uses the existing session/CSRF API through a same-origin `dart:io` HttpClient. Cookies, passwords and CSRF tokens are kept in memory; passwords are cleared after sign-in. Redirects and remote plaintext origins are rejected, normal TLS validation is retained, and mutations are never automatically replayed. Release mode requires HTTPS. A session ends when the process closes; secure persistent native authentication remains a backend/client milestone.
+## Verified capabilities and limits
 
-Source workflows: register/sign in, role-aware customer/vendor shell, first-page catalog with truthful provenance, confirmed UTC half-hour simulator reservation, scoped reservation/session lists, cancellation and simulator start/stop, garage creation, support-ticket creation/list, vendor simulator-station creation, sign-out and in-memory Light/Dark/System selection. These workflows **have not been compiled, analyzed, widget-tested or run on a device** in this cloud task. API/widget test sources are included for execution when Flutter is available. Full filters/pagination, recovery/verification, fleet UI, support threads, notification feed, vendor meter entry, persistent settings, Arabic, maps, all commerce/KYC/staff/analytics/native integrations and device accessibility acceptance remain unfinished.
+Flutter **3.35.7 / Dart 3.9.2**, official source SHA `adc901062556672b4138e18a4dc62a4be8f4b3c2`. Local analyzer passed with no issues; **3 tests passed** (origin security, actual local HTTP cookie/CSRF/rotation protocol, unavailable-service widget). Initial and repeated bootstrap passed. Platform projects and the dependency lock are retained in source.
 
-## Reproduce when SDK access is available
+Hosted [native run 40454501304](https://github.com/creabizsalonspa-create/EV/actions/runs/40454501304), source `a547379aa623a229b919dbbd6595424783ebc2bb`, passed Linux/macOS analysis/tests, Android **debug APK** compilation and an unsigned **iOS simulator** build. These builds had no deployment URL: the unavailable-service state is expected. They do not prove device login or business integration. They did not produce an AAB or signed IPA; signing/store delivery remains external. Artifact retention is added to the following workflow revision; only claim downloadable files after that run uploads them.
 
-Use official Flutter **3.35.7**, source tag verified by `git ls-remote` at `adc901062556672b4138e18a4dc62a4be8f4b3c2` (Dart >=3.9). Do not pull the previously oversized Flutter container. `tool/bootstrap` creates official Android/iOS shells in a temporary template and copies only missing platform directories, preserving lib/test/pubspec; it then runs pub get, analysis and tests. Platform shells are generated and ignored at this source checkpoint. The pubspec uses only Flutter SDK dependencies; commit the generated pubspec.lock after the first successful toolchain run. Bootstrap/CI are supplied but **unexecuted** here.
+Source workflows: register/sign in, role-aware shell, first-page catalog with provenance, confirmed UTC half-hour simulator reservations, scoped reservation/session lists, cancellation and simulator start/stop, garage creation, support-ticket creation/list, vendor simulator-station creation, sign-out and in-memory Light/Dark/System selection. Live authenticated native workflows **have not been exercised against a deployed service or physical device**. Full filters/pagination, recovery/verification, fleet UI, support threads, notification feed, vendor meter entry, persistent settings, Arabic, maps, commerce/KYC/staff/analytics/native integrations and device accessibility remain unfinished.
+
+## Reproduce
+
+The cloud SDK is at `/workspace/.tools/flutter`; use writable caches without changing HOME:
 
 ```sh
+export PATH="/workspace/.tools/flutter/bin:$PATH"
+export PUB_CACHE=/workspace/.cache/ev-pub-cache
+export XDG_CONFIG_HOME=/workspace/.cache/ev-config
+export ANALYZER_STATE_LOCATION_OVERRIDE=/workspace/.cache/ev-analyzer
 ./apps/mobile/tool/bootstrap
 cd apps/mobile
 flutter run --dart-define=EV_API_BASE_URL=https://your-authorized-development-origin.example
@@ -19,10 +27,12 @@ flutter build apk --debug --dart-define=EV_API_BASE_URL=https://your-authorized-
 flutter build ios --simulator --no-codesign
 ```
 
-The example hostname is a configuration placeholder, not an endpoint. Provide an authorized development deployment with HTTPS and reachable APIs. A configuration-free build displays an unavailable-service state and cannot sign in. Debug-only HTTP is loopback-only; Android emulators need an HTTPS tunnel/authorized development origin or explicit local port forwarding. No certificate bypass, default password or public test backend is included. Never use production for synthetic test flows.
+The example hostname is a configuration placeholder, not an endpoint. Provide an authorized development deployment with HTTPS and reachable APIs. Debug-only HTTP is loopback-only; Android emulators need an HTTPS development origin or explicit local port forwarding. No certificate bypass, default password or public test backend exists. Never use production for synthetic test flows.
 
-## Current blocker and CI
+`tool/bootstrap` preserves existing platforms/source, creates official platform shells in a temporary template only if missing, uses `flutter pub get --enforce-lockfile` when the lock exists, then runs analysis/tests. To format in this sandbox use `dart --suppress-analytics format lib test`; direct Dart analytics otherwise attempts to write to the read-only home directory. Android SDK/Gradle and Xcode builds were verified on hosted runners, not installed as host capabilities in this Linux cloud machine.
 
-2026-10-27: official SDK metadata at `storage.googleapis.com/flutter_infra_release/flutter/releases/releases_linux.json` returned HTTP 403. Host Flutter and Dart are absent; ~15 GiB disk is available. Saved an additive request for `storage.googleapis.com` in environment settings while preserving `api.github.com` and package-manager presets. Save/review must apply the domain before retrying. No SDK download/build is claimed.
+## Security and remaining work
 
-`.github/workflows/mobile.yml` prepares the pinned official SDK on Linux/macOS, generates platform shells, runs analyzer/tests and attempts Android debug + unsigned iOS simulator builds. Hosted execution is not verified because GitHub API access remains Forbidden. Release signing, App Store/Play permissions, device/network integration and production QA are separate external requirements; no signing credentials belong in source.
+The native same-origin HttpClient uses existing session/CSRF APIs. Cookies/passwords/tokens remain in memory; passwords clear after sign-in. Redirects and remote plaintext origins are rejected, normal TLS validation remains enabled, and mutations are never replayed automatically. Release mode requires HTTPS and Android INTERNET permission is declared. Session persistence is not implemented; secure native authentication/storage is a further milestone. Generated launcher/splash assets are Flutter defaults and must be replaced with approved owned branding before release.
+
+Earlier SDK metadata requests returned 403, then 404 after network changes. Lightweight official Git source bootstrap successfully retrieved engine artifacts; that route resolved the SDK blocker without a large container pull or verification bypass. Environment settings contain additive GitHub/Flutter/artifact-host requirements; saving a draft is separate from publication. Local and hosted evidence is in docs/evidence/native-*; full acceptance is still outstanding.

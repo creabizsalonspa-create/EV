@@ -40,7 +40,7 @@ Requirements committed as `c8c2dd5`; implementation commit is the Git commit con
 | Customer web | IN_PROGRESS | account/catalog/reservation/simulation/garage/fleet/support UI, email status and Light/Dark/System themes; partial Arabic |
 | Vendor web | IN_PROGRESS | basic inventory/reservation/simulation UI |
 | Admin web | IN_PROGRESS | counts/audit, regional configuration and support workflow; full administration remains |
-| Customer/vendor Flutter Android+iOS | BLOCKED_EXTERNAL | SDK archive domain denied; full Flutter image unpack ran out of storage; no source/build artifacts yet |
+| Customer/vendor Flutter Android+iOS | IN_PROGRESS | Shared source/platforms/lock; local analyzer + 3 tests passed; hosted Android debug and unsigned iOS simulator builds passed; complete features/device integration/signing remain |
 | CI/CD/security/performance/observability/backups | IN_PROGRESS | expanded CI definition, CSP and scoped limits; hosted CI and independent security/operational QA remain |
 | Physical charger acceptance | BLOCKED_EXTERNAL | approved site/device/firmware and safety authorization needed; not hardware tested |
 | Actual roaming acceptance | BLOCKED_EXTERNAL | bilateral operator access and credentials required |
@@ -92,3 +92,13 @@ Web implementation now has role-aware responsive navigation, card catalog with q
 Shared Flutter source now exists in `apps/mobile` for customer/vendor session authentication, catalog, simulator booking/session actions, garage, support and vendor station creation. **SOURCE_ONLY_UNVERIFIED**: Flutter/Dart are absent and the official SDK metadata endpoint still returns HTTP 403. Current free workspace disk is about 15 GiB; no oversized image retry was performed. Official Flutter 3.35.7 Git tag resolved successfully; bootstrap and Linux/macOS CI are prepared but unrun. No platform shells, analyzer pass, widget/client test pass, APK, AAB or IPA is claimed. Native pagination, recovery/verification, fleet/notification/thread UI, persistence, Arabic, full role modules and device integration remain unfinished.
 
 Latest required follow-up: apply/review saved API/Flutter network additions in environment settings; resume SDK installation and native analyzer/tests/builds once available. Continue independently with the web/localization/contract tasks in docs/FRONTEND.md. Do not wait for Agent 1 to implement already testable frontend work. The full platform and frontend are **not ready for final owner acceptance**.
+
+## SDK and native validation recovery — supersedes earlier blockers
+
+After the frontend push, GitHub API access recovered. Inspected both open PRs: #1 integrates platform-foundation into EV; **draft PR #2** stacks development/frontend on development/identity-and-themes. Frontend source **a547379** is pushed, with identity predecessor **f4feac7** preserved separately. No merge or force push was performed.
+
+Official metadata changed from 403 to 404, but cloning pinned Flutter source and its normal engine bootstrap succeeded. Flutter **3.35.7/Dart 3.9.2** is installed at /workspace/.tools/flutter. Writable PUB_CACHE/XDG_CONFIG_HOME/ANALYZER_STATE_LOCATION_OVERRIDE resolve read-only-home constraints without replacing HOME or bypassing verification. Local initial/repeated bootstrap, frozen pub dependency installation, analyzer (no issues) and **3 native tests passed**; evidence/native-local.txt. Generated Android/iOS platform projects and pubspec.lock are now retained; Android INTERNET permission and product display names are configured.
+
+Hosted native run **40454501304** passed both OS jobs, including Android debug APK and unsigned iOS simulator compilation for a547379. Hosted platform run **40454501232** also passed. Machine-readable head/step evidence is retained in docs/evidence/native-ci-a547379.json and platform-ci-a547379.json. These are compilation checks with no deployment URL, not end-to-end native business/device acceptance. Native artifact retention is added for subsequent runs; AAB, signed IPA, physical device/charger/store acceptance and the unfinished modules above remain outstanding.
+
+Next: retrieve retained debug/simulator outputs after the revised CI run, exercise native APIs against an authorized HTTPS development service, then continue pagination/recovery/fleet/notifications/persistence/Arabic and full role workflows. The old SDK and GitHub API blockers are historical and must not prevent further independent development. Publication/fresh-task restoration and local Android/Xcode capability remain unverified.
