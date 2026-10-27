@@ -1,5 +1,10 @@
 # Full platform progress — universal integration
 
+## Active ownership — final owner directive, 28 October 2026 (Dubai)
+
+Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.
+
+
 ## Agent2 charger admission, operational recovery and EV downgrade repair
 
 Restored parallel ownership is active: Agent1 exclusively owns financial/commercial rules; Agent2 owns EV/web/Flutter/non-financial modules and integration. Agent1 PR7 at6f2103e is green and has been reviewed for contracts/changed paths/core services; combined integration follows this EV checkpoint. Explicit shared-file coordination is recorded at https://github.com/creabizsalonspa-create/EV/pull/7#issuecomment-6454928052. Financial source files were not modified.
@@ -16,6 +21,11 @@ Next: finish combined review/testing/integration of Finance PR7 without altering
 The owner restores two active workstreams. Agent1 exclusively owns financial/commercial business logic, controllers, accounting services, financial migrations and financial web/Admin workflows. Agent2 owns EV/OCPP/OCPI, all customer/vendor web and Flutter integration, non-financial Admin, operations/security, engagement and fleets, consuming verified finance APIs without modifying their source of truth. Agent2 owns development/fullstack-continuation and integration QA. Agent1 works on a separate finance branch; inspect its new PR and coordinate shared-file edits before integration. Merge only tested changes through PRs; preserve both branches and never force-push/reset another account's work. Earlier sole-owner instructions below are historical and superseded by this explicit reassignment. Shared EV route/client edits in this session are additive; finance routes/controllers/services/migrations are excluded. No new finance PR was visible on the initial fetch; do not wait for it to continue EV work.
 
 Continue from6d0e33c without rebuilding canonical mapping, parallel reservations, arrival/expiry or applied-source command reconciliation. Immediate new work: secure charger admission/provisioning and no-source-evidence operations. No hardware/live PSP/partner/store acceptance is inferred. Full original requirements remain in force.
+
+
+## Agent1 finance v2 — 2026-10-28
+
+Owner restored exclusive financial/commercial ownership to Agent1. New branch `development/finance-commercial-v2` is based on integrated6d0e33c, preserving both merged finance and latest EV source. Durable provider uncertainty/recovery, invoice-wide holds, authoritative GET reconciliation, immutable subscription credits and connected financial UI are verified: Laravel204/6845, PostgreSQL118/6096, combined concurrency27/346, Composer strict valid and Pint208 files. Financial browser passes both themes/RTL, credit-driven entitlement revocation and prior workflows. Detailed source/evidence and unfinished financial requirements: FINANCE_COMMERCIAL_CONTINUATION.md, PAYMENT_RECOVERY.md, SUBSCRIPTION_CREDITS.md. This is not final acceptance. EV downgrade issue6 is reported, not fixed by Agent1. Earlier reports below remain historical.
 
 
 ## Verified continuation checkpoint — source `ff086b0`

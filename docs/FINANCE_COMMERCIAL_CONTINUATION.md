@@ -1,8 +1,25 @@
 # Agent 1 finance/commercial continuation
 
-## Current handoff override
+## Active ownership — final owner directive, 28 October 2026 (Dubai)
 
-The owner’s latest MASTER_AGENT2_CONTINUATION.md makes Agent 2 the sole active maintainer of the entire remaining platform, including this financial/commercial system, until explicitly reassigned. Agent 1 is temporarily unavailable. The exclusive split below is historical. Extend the existing merged architecture and immutable accounting; do not duplicate it. This canonical-topology checkpoint leaves financial business rules unchanged and verifies the existing financial/PG/browser suites alongside new EVSE resource identity.
+Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.
+
+
+## Current owner assignment — 2026-10-28
+
+The owner explicitly restored Agent 1's exclusive financial/commercial responsibility. Agent 2 retains EV/roaming/Flutter/non-financial ownership. The intervening sole-Agent-2 handoff is superseded by this direct owner instruction.
+
+Active branch: `development/finance-commercial-v2`, created from the latest integrated `development/fullstack-continuation` at `6d0e33cefdd80094fc7d443b14a4b5db84c4ee67`. PR4 and PR5 are merged and historical. A new finance PR must target the current integration branch. No edits are pushed directly to Agent 2's branch.
+
+Uncommitted recovery/credit work from the old branch was archived and hash-verified (31 source files) before stashing and applying to this fresh base. The stash remains intact. Shared provider/route conflicts were resolved by preserving both the latest charging registrations and additive financial registrations. This work is in progress and needs combined verification before a completion claim.
+
+## Current verified v2 milestone
+
+Durable PSP uncertainty/recovery and subscription credit notes are implemented on the latest integrated base, with financial UI, APIs, immutable accounting and connected browser coverage. Current executed evidence: full Laravel204 tests/6845 assertions; PostgreSQL feature suite118/6096; complete PostgreSQL concurrency suite27/346 (includes existing EV regression cases plus new process-crash/overlap and credit races). Composer strict validation passes. Pint passes208 files. The scheduler lists both preserved charging commands and the new bounded financial recovery command. The financial browser passes credit/refund/entitlement revocation and recovery privacy together with existing checkout/dispute/settlement/CSV/theme/RTL flows. External PSPs remain HTTP-faked; no live-money or merchant-sandbox claim.
+
+See PAYMENT_RECOVERY.md and SUBSCRIPTION_CREDITS.md. SQLite charging downgrade issue6 is owned by Agent2 and remains open; the new finance tests isolate forward migrations and do not represent it as fixed. Registered scheduling is not deployed cron acceptance.
+
+Next financial implementation is authorized saved mandates, recurring collection and retry/dunning (new work, not yet verified at this checkpoint), followed by hosted SCA completion, proration/package/corporate billing policies, payout-provider workflows, legal/configurable documents and advanced financial acceptance. Full commercial scope remains IN_PROGRESS.
 
 ## Historical Agent 1 checkpoint
 

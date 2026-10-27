@@ -76,6 +76,8 @@ Route::post('/v1/charging-sessions/{session}/reconcile', [CsmsSessionController:
 Route::post('/v1/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start'])->middleware(['auth:sanctum', 'throttle:platform-api']);
 Route::post('/v1/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop'])->middleware(['auth:sanctum', 'throttle:platform-api']);
 
-Route::post('/internal/charger-ingress/authenticate', [ChargerIngressController::class, 'authenticate'])->middleware('throttle:platform-api');
+Route::post('/internal/charger-ingress/authenticate', [ChargerIngressController::class, 'authenticate'])->middleware('throttle:charger-admission');
 
 Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/charging_operations.php');
+
+require __DIR__.'/subscription_credit_webhooks.php';

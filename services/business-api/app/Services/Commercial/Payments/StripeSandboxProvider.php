@@ -12,9 +12,15 @@ class StripeSandboxProvider implements PaymentProvider
     {
         $secret = config('payments.stripe_test_secret');
         abort_unless(! app()->environment('production') && is_string($secret) && preg_match('/^sk_test_[A-Za-z0-9]+$/D', $secret), 503, 'Stripe test-mode credentials are not configured. Live keys are prohibited.');
+        if ($method === 'post' && in_array($path, ['/payment_intents', '/refunds'], true)) {
+            $data['metadata'] = ($data['metadata'] ?? []) + PaymentRecovery::metadata();
+        }
+        if ($method !== 'get') {
+            PaymentRecovery::sent();
+        }
         try {
             $response = Http::baseUrl('https://api.stripe.com/v1')->withToken($secret)->asForm()->acceptJson()
-                ->withHeaders(['Stripe-Version' => '2024-06-20', 'Idempotency-Key' => hash('sha256', 'creabiz-test:'.$key)])
+                ->withHeaders(['Stripe-Version' => '2024-06-20', 'Idempotency-Key' => hash('sha256', 'creabiz-test:'.PaymentRecovery::providerKey($key))])
                 ->withOptions(['allow_redirects' => false])->connectTimeout(5)->timeout(20)->{$method}($path, $data);
         } catch (ConnectionException $e) {
             abort(503, 'Provider outcome is uncertain. Retry the same operation key; do not create a replacement payment.');
@@ -24,7 +30,17 @@ class StripeSandboxProvider implements PaymentProvider
         }
         abort_unless($response->successful(), 503, 'Stripe test provider is unavailable; retry with the same operation key.');
         $body = $response->json();
-        abort_unless(is_array($body) && ($body['livemode'] ?? null) === false, 502, 'Provider did not confirm a test-mode result.');
+        $list = $method === 'get' && in_array($path, ['/payment_intents/search', '/refunds'], true) && is_array($body) && is_array($body['data'] ?? null);
+        if ($list) {
+            foreach ($body['data'] as $item) {
+                abort_unless(is_array($item) && ($item['livemode'] ?? null) === false, 502, 'Expected test-mode recovery evidence.');
+            }
+        }
+        abort_unless(is_array($body) && (($body['livemode'] ?? null) === false || $list), 502, 'Provider did not confirm a test-mode result.');
+
+        if ($method !== 'get') {
+            PaymentRecovery::observe($body);
+        }
 
         return $body;
     }
@@ -72,6 +88,49 @@ class StripeSandboxProvider implements PaymentProvider
         abort_unless(is_string($result['id'] ?? null) && preg_match('/^re_[A-Za-z0-9]+$/D', $result['id']) && ($result['payment_intent'] ?? null) === $reference && (int) ($result['amount'] ?? -1) === $amount && ($result['status'] ?? null) === 'succeeded', 409, 'Test refund is not confirmed; reconcile before posting.');
 
         return ['reference' => $result['id'], 'status' => 'refunded'];
+    }
+
+    /** Read-only authoritative test-provider evidence; never interprets absence as permission to resend. */
+    public function recoveryEvidence(object $intent, object $checkout): array
+    {
+        $prior = $intent->observation ? json_decode($intent->observation, true, 16, JSON_THROW_ON_ERROR) : [];
+        $knownPayment = preg_match('/^pi_[A-Za-z0-9]+$/D', $checkout->provider_reference) === 1;
+        $reference = $intent->kind !== 'refund' && $knownPayment ? $checkout->provider_reference : ($prior['id'] ?? $checkout->provider_reference);
+        if ($intent->kind === 'refund') {
+            if (is_string($reference) && preg_match('/^re_[A-Za-z0-9]+$/D', $reference)) {
+                $object = $this->request('/refunds/'.$reference, [], 'read-refund:'.$intent->id, 'get');
+                abort_unless(($object['id'] ?? null) === $reference, 409, 'Provider refund identity mismatch.');
+            } else {
+                abort_unless(preg_match('/^pi_[A-Za-z0-9]+$/D', $checkout->provider_reference), 409, 'Missing capture reference for refund recovery.');
+                $list = $this->request('/refunds', ['payment_intent' => $checkout->provider_reference, 'limit' => 100], 'find-refund:'.$intent->id, 'get');
+                abort_unless(is_array($list['data'] ?? null), 502, 'Invalid provider recovery listing.');
+                $matches = array_values(array_filter($list['data'], fn ($row) => (string) ($row['metadata']['creabiz_recovery'] ?? '') === (string) $intent->id));
+                abort_unless(count($matches) === 1, 409, 'Provider refund identity is not uniquely established; no retry was sent.');
+                $object = $matches[0];
+            }
+            abort_unless(($object['payment_intent'] ?? null) === $checkout->provider_reference, 409, 'Refund belongs to another capture.');
+            abort_unless((string) ($object['metadata']['creabiz_recovery'] ?? '') === (string) $intent->id, 409, 'Refund belongs to another recovery request.');
+        } elseif (is_string($reference) && preg_match('/^pi_[A-Za-z0-9]+$/D', $reference)) {
+            $object = $this->request('/payment_intents/'.$reference, [], 'read-intent:'.$intent->id, 'get');
+            abort_unless(($object['id'] ?? null) === $reference, 409, 'Provider payment identity mismatch.');
+        } else {
+            $list = $this->request('/payment_intents/search', ['query' => "metadata['creabiz_recovery']:'".(int) $intent->id."'", 'limit' => 100], 'find-intent:'.$intent->id, 'get');
+            abort_unless(is_array($list['data'] ?? null), 502, 'Invalid provider recovery listing.');
+            $matches = array_values(array_filter($list['data'], fn ($row) => (string) ($row['metadata']['creabiz_recovery'] ?? '') === (string) $intent->id));
+            abort_unless(count($matches) === 1, 409, 'Provider payment identity is not uniquely established; no retry was sent.');
+            $object = $matches[0];
+        }
+        if ($intent->kind !== 'refund') {
+            if ($knownPayment) {
+                abort_unless(($object['id'] ?? null) === $checkout->provider_reference, 409, 'Recovery belongs to another payment.');
+            } else {
+                abort_unless(($object['metadata']['creabiz_checkout'] ?? null) === $checkout->provider_reference, 409, 'Recovered authorization belongs to another checkout.');
+            }
+        }
+        abort_unless(is_string($object['id'] ?? null) && preg_match($intent->kind === 'refund' ? '/^re_[A-Za-z0-9]+$/D' : '/^pi_[A-Za-z0-9]+$/D', $object['id']), 409, 'Invalid provider recovery identity.');
+        abort_unless((int) ($object['amount'] ?? -1) === (int) $intent->amount_minor && strtoupper($object['currency'] ?? '') === $intent->currency, 409, 'Recovery evidence amount or currency mismatch.');
+
+        return array_intersect_key($object, array_flip(['id', 'livemode', 'status', 'amount', 'amount_received', 'amount_capturable', 'currency', 'payment_intent', 'metadata']));
     }
 
     public function inspect(string $reference): array

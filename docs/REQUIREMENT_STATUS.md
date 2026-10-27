@@ -1,5 +1,10 @@
 # Requirement-by-requirement continuation status
 
+## Active ownership — final owner directive, 28 October 2026 (Dubai)
+
+Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.
+
+
 Latest owner MASTER_AGENT2_CONTINUATION supersedes the older split: Agent2 owns the complete remaining scope including finance. Canonical direct-managed EVSE/connector/source mapping, parallel EVSE reservations/active-session exclusion and corresponding web/native config/selection are now SIMULATED_TESTED/INTEGRATED_TESTED; see CANONICAL_TOPOLOGY and current PROGRESS/QA. OCPI identity/action authority, source freshness/production operations, check-in/unused-booking lifecycle and the full remaining PRD are still IN_PROGRESS. No percentages or production/hardware acceptance are inferred.
 
 Current integration includes Agent 1 finance PR #4 through `7de6c4e` via merged PR #5 (`0444ed1`). Financial implemented/remaining details are authoritative in FINANCE_COMMERCIAL_CONTINUATION, PAYMENT_GATEWAYS, SUBSCRIPTIONS, SETTLEMENTS and FINANCE_MOBILE_CONTRACT; older row descriptions below predate that integration and do not supersede those verified owner records. Financial requirements remain IN_PROGRESS, not production accepted. Agent 2 exclusively continues EV/non-financial software and native API consumption; see NON_FINANCE_CONTINUATION. Latest whole-source verification: PROGRESS/QA.

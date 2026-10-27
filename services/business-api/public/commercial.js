@@ -31,6 +31,12 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     "finance/report",
                     "finance/invoices",
                 );
+            if (
+                path.startsWith("commercial/settlements") ||
+                path.startsWith("commercial/vendors/") ||
+                path.startsWith("commercial/adjustments/")
+            )
+                paths.push("commercial/settlements");
             for (const key of cache.keys())
                 if (paths.some((p) => key.startsWith(p + "?")))
                     cache.delete(key);
@@ -161,6 +167,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         value,
         type,
         required,
+        maxLength: ["reason", "note", "resolution"].includes(name) ? 500 : 100,
     });
     async function load() {
         const current = ++epoch;
@@ -703,6 +710,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         for (const subscription of owned) {
             const row = document.createElement("div");
             row.className = "finance-row";
+            row.dataset.subscriptionId = String(subscription.id);
             row.append(
                 text("h4", `#${subscription.id} · ${subscription.status}`),
             );
@@ -752,6 +760,93 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             `${invoice.number} · ${money(invoice.total_minor, invoice.currency, invoice.minor_units)}`,
                         ),
                     );
+                    if (invoice.paid) {
+                        content.append(
+                            text(
+                                "p",
+                                `${invoice.currency} ${EvMoney.format(Number(invoice.refunded_minor || 0), Number(invoice.minor_units))} · Refunds / المسترد`,
+                            ),
+                        );
+                        button(
+                            content,
+                            "View subscription credit notes",
+                            "عرض الإشعارات الدائنة للاشتراك",
+                            async () => {
+                                const notes = await api(
+                                    `commercial/subscriptions/${subscription.id}/credits`,
+                                );
+                                if (current !== epoch) return;
+                                content
+                                    .querySelector("[data-credit-notes]")
+                                    ?.remove();
+                                const list = document.createElement("div");
+                                list.dataset.creditNotes = "";
+                                if (!notes.data.length)
+                                    list.append(ui("p", "No records."));
+                                for (const note of notes.data) {
+                                    const item =
+                                        document.createElement("article");
+                                    item.className = "finance-row";
+                                    item.append(
+                                        text("h4", note.number),
+                                        text(
+                                            "p",
+                                            money(
+                                                note.amount_minor,
+                                                note.currency,
+                                                note.minor_units,
+                                            ),
+                                        ),
+                                        text("p", note.reason),
+                                    );
+                                    list.append(item);
+                                }
+                                content.append(list);
+                            },
+                        );
+                        const refundable =
+                            invoice.total_minor - (invoice.refunded_minor || 0);
+                        if (actor.role === "admin" && refundable > 0)
+                            form(
+                                content,
+                                [
+                                    field(
+                                        "amount",
+                                        "Refund amount",
+                                        "مبلغ الاسترداد",
+                                        EvMoney.format(
+                                            refundable,
+                                            Number(invoice.minor_units),
+                                        ),
+                                    ),
+                                    field("reason", "Reason", "السبب"),
+                                ],
+                                "Refund subscription invoice",
+                                "استرداد فاتورة الاشتراك",
+                                async (data, key) => {
+                                    const amount = EvMoney.parse(
+                                        data.amount,
+                                        Number(invoice.minor_units),
+                                        2000000000,
+                                    );
+                                    if (!amount)
+                                        throw Error(
+                                            "Enter an exact positive amount.",
+                                        );
+                                    await api(
+                                        `commercial/subscriptions/${subscription.id}/credits`,
+                                        "POST",
+                                        {
+                                            invoice_id: invoice.id,
+                                            amount_minor: amount,
+                                            reason: data.reason,
+                                            idempotency_key: key,
+                                        },
+                                    );
+                                    await load();
+                                },
+                            );
+                    }
                     const pendingCheckout = subscriptionCheckouts.some(
                         (c) =>
                             c.invoice_id === invoice.id &&
@@ -1055,11 +1150,22 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 },
             );
         }
+        const recoveryPanel = panel("Payment reliability", "موثوقية المدفوعات");
+        mountPaymentRecovery({
+            container: recoveryPanel,
+            api,
+            ui,
+            actor: () => actor,
+        });
         if (operations) await settlements(operations, current);
     }
     async function settlements(parent, current) {
-        const list = await api("commercial/settlements");
+        const activeCache = cache,
+            key = "commercial/settlements?";
+        const list =
+            activeCache.get(key) || (await api("commercial/settlements"));
         if (current !== epoch) return;
+        activeCache.set(key, list);
         form(
             parent,
             [

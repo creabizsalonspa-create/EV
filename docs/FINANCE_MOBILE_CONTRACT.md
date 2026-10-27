@@ -25,3 +25,8 @@ Vendor statements: `GET commercial/vendors/{id}/statement?currency=AED`, includi
 ## Evidence and gates
 
 Connected web workflow, Laravel API tests and actual PostgreSQL concurrent-process tests are recorded in `docs/evidence/finance-commercial`. No external merchant sandbox, real payment, bank payout, mobile consuming-screen acceptance, tax/legal approval or final commercial completion is implied. Agent 2 should add native tests against these same source records when integrating screens. Keep mock, test-contract and externally verified states visually distinct.
+
+
+## Finance v2 additive contracts
+
+Latest ownership is Agent1 finance / Agent2 EV and native. `PAYMENT_RECOVERY.md` documents private recovery list/history and read-only provider reconciliation; clients must retain uncertain states and never open replacement charging checkouts around an unresolved invoice hold. `SUBSCRIPTION_CREDITS.md` documents Admin-only subscription refunds and owner-visible immutable credit notes. Subscription invoice/detail responses add refunded/net/credit-state fields; a fully refunded current paid cycle revokes paid entitlements server-side. Refresh shared subscription state after a credit; do not cache a permanent paid flag. Currency precision remains immutable-source data. No native financial logic should be recreated.

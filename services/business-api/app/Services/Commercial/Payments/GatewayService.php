@@ -47,6 +47,7 @@ class GatewayService
 
                 return $old;
             }
+            abort_if(DB::table('payment_recovery_intents as p')->join('gateway_checkouts as c', 'c.id', '=', 'p.checkout_id')->where('p.scope', 'charging')->where('c.invoice_id', $invoice->id)->whereIn('p.status', ['executing', 'uncertain', 'needs_review'])->exists(), 409, 'Resolve the prior provider outcome before opening another checkout.');
             $due = $this->finance->summary($invoice)['amount_due_minor'];
             abort_unless($amount > 0 && $amount <= $due, 409, 'Checkout exceeds the invoice balance.');
             $id = DB::table('gateway_checkouts')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $actor, 'provider' => config('payments.provider'), 'provider_reference' => 'checkout_'.Str::ulid(), 'request_key' => $requestKey, 'fingerprint' => $fingerprint, 'currency' => $invoice->currency, 'amount_minor' => $amount, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
@@ -62,7 +63,7 @@ class GatewayService
         $initial = DB::table('gateway_checkouts')->find($checkoutId);
         abort_unless($initial, 404);
 
-        return DB::transaction(function () use ($initial, $actor, $kind, $key, $amount, $token, $reason, $provider) {
+        return app(PaymentRecovery::class)->run('charging', $initial, $actor, $kind, $key, [$kind, $amount ?? (int) $initial->amount_minor, $token, $reason], fn () => DB::transaction(function () use ($initial, $actor, $kind, $key, $amount, $token, $reason, $provider) {
             // Invoice is the serialization root, shared with legacy payments/refunds.
             $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
             $checkout = DB::table('gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
@@ -121,7 +122,7 @@ class GatewayService
             $this->audit($actor, $kind, $checkout->id);
 
             return DB::table('gateway_checkouts')->find($checkout->id);
-        }, 3);
+        }, 3));
     }
 
     public function webhook(string $raw, string $timestamp, string $signature): array
@@ -186,6 +187,34 @@ class GatewayService
     {
         abort_unless(config('payments.provider') === 'stripe_test', 409, 'Use the matching provider webhook.');
         $event = (new StripeSandboxProvider)->verifyWebhook($raw, $signature);
+
+        return $this->applyProviderEvidence($event, $raw);
+    }
+
+    public function recoverFromProvider(object $intent): array
+    {
+        $this->provider();
+        abort_unless(config('payments.provider') === 'stripe_test' && $intent->scope === 'charging', 409);
+        $checkout = DB::table('gateway_checkouts')->find($intent->checkout_id);
+        abort_unless($checkout && $checkout->provider === 'stripe_test', 404);
+        $object = (new StripeSandboxProvider)->recoveryEvidence($intent, $checkout);
+        if ($intent->kind === 'cancel') {
+            return app(PaymentRecovery::class)->applyCancellation($intent, $object);
+        }
+        $type = match ($intent->kind) {
+            'refund' => 'refund.updated','capture' => 'payment_intent.succeeded','authorize' => ($object['status'] ?? '') === 'requires_capture' ? 'payment_intent.amount_capturable_updated' : 'payment_intent.payment_failed',default => null
+        };
+        abort_unless($type, 409, 'Cancellation requires separate final cancellation evidence.');
+        abort_unless($intent->kind !== 'authorize' || in_array($object['status'] ?? '', ['requires_capture', 'requires_payment_method'], true), 409, 'Authorization outcome is not final.');
+        $object['metadata']['creabiz_checkout'] = $checkout->provider_reference;
+        $object['metadata']['creabiz_recovery'] = (string) $intent->id;
+        $event = ['id' => 'inspection_'.hash('sha256', json_encode([$intent->id, $object], JSON_THROW_ON_ERROR)), 'type' => $type, 'data' => ['object' => $object]];
+
+        return $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR)) + ['provenance' => 'TEST_PROVIDER_GET', 'external_provider_verified' => false];
+    }
+
+    private function applyProviderEvidence(array $event, string $raw): array
+    {
         $type = $event['type'] ?? '';
         if (! in_array($type, ['payment_intent.succeeded', 'payment_intent.amount_capturable_updated', 'payment_intent.payment_failed', 'refund.updated'], true)) {
             return ['accepted' => true, 'ignored' => true, 'evidence' => 'STRIPE_TEST_CONTRACT'];
@@ -251,6 +280,7 @@ class GatewayService
                         DB::table('gateway_operations')->insert(['checkout_id' => $checkout->id, 'request_key' => hash('sha256', 'stripe-operation:'.$providerReference), 'fingerprint' => hash('sha256', $providerReference.':'.$amount), 'kind' => $kind, 'amount_minor' => $amount, 'provider_reference' => $providerReference, 'payment_id' => $payment?->id, 'refund_id' => $refund?->id, 'created_at' => now()]);
                     }
                 }
+                app(PaymentRecovery::class)->resolveEvidence('charging', (int) $checkout->id, $type === 'refund.updated' ? 'refund' : ($type === 'payment_intent.succeeded' ? 'capture' : 'authorize'), ['id' => $object['id'], 'amount' => $amount, 'currency' => strtoupper($object['currency']), 'recovery_id' => $object['metadata']['creabiz_recovery'] ?? null]);
                 DB::table('gateway_webhook_events')->insert(['provider_event_id' => $eventId, 'fingerprint' => $hash, 'checkout_id' => $initial->id, 'type' => $type, 'created_at' => now()]);
 
                 return ['accepted' => true, 'duplicate' => false, 'evidence' => 'STRIPE_TEST_CONTRACT'];
