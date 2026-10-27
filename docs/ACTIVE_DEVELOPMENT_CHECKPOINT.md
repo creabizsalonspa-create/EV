@@ -33,3 +33,4 @@ External gates: physical chargers and firmware interoperability; real PSP/mandat
 ## Subsequent native slice
 
 Branch `development/native-finance-recovery` adds the tested canonical native payment-recovery queue/history/inspection workflow. Local Flutter 77 passed / six live-only skips, analysis clean, plus separate real-Laravel client test passed. Integration candidate and native slice still require hosted validation and PR merges. Next implementation remains saved mandates, recurring collection and dunning in the existing architecture.
+Integration CI additionally exposed a post-rotation upstream station-identity cleanup race (HTTP 502 on the new TLS upgrade). The test now uses bounded transport-only backoff after proven revocation, refuses to retry 401/429 and sends no OCPP frame until an upgrade succeeds; it then verifies the new BootNotification. Local TLS/mTLS checks passed. CI must rerun; this is not permission to resend charging commands.
