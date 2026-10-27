@@ -65,6 +65,7 @@ async function signedEvent(payload, expectedStatus = 200) {
   );
   return json;
 }
+const canonicalTargets = process.env.EV_CANONICAL_TARGETS === "1";
 function event(session, station, version, tx, type, sequence, meter, at) {
   return {
     event_id:
@@ -80,6 +81,12 @@ function event(session, station, version, tx, type, sequence, meter, at) {
     sequence,
     meter_wh: meter,
     occurred_at: at,
+    ...(canonicalTargets
+      ? {
+          source_evse_number: version === "1.6" ? 0 : 5,
+          source_connector_number: 7,
+        }
+      : {}),
   };
 }
 async function sourceTransaction(station, tx) {
@@ -119,10 +126,18 @@ async function session(version, actors) {
   const fixture = JSON.parse(
     (
       await execFile("./scripts/php", [
-        "artisan",
-        "platform:charging-fixture",
-        String(customer.user.id),
-        String(station.id),
+        ...(canonicalTargets
+          ? [
+              "tests/Fixtures/protocol-canonical.php",
+              String(station.id),
+              String(customer.user.id),
+            ]
+          : [
+              "artisan",
+              "platform:charging-fixture",
+              String(customer.user.id),
+              String(station.id),
+            ]),
       ])
     ).stdout.trim(),
   );
@@ -164,7 +179,11 @@ async function session(version, actors) {
   try {
     await charger.connect();
     await charger.boot();
-    await charger.status();
+    await charger.status(
+      "Available",
+      canonicalTargets ? 7 : 1,
+      canonicalTargets ? 5 : 1,
+    );
     const auth = await charger.call(
       "Authorize",
       version === "1.6"
@@ -190,10 +209,14 @@ async function session(version, actors) {
       version === "1.6" ? remote.payload.idTag : remote.payload.idToken.idToken,
       tag,
     );
+    assert.equal(
+      version === "1.6" ? remote.payload.connectorId : remote.payload.evseId,
+      canonicalTargets ? (version === "1.6" ? 7 : 5) : 1,
+    );
     const startedAt = new Date().toISOString();
     if (version === "1.6") {
       const response = await charger.call("StartTransaction", {
-        connectorId: 1,
+        connectorId: canonicalTargets ? 7 : 1,
         idTag: tag,
         meterStart: 1000,
         timestamp: startedAt,
@@ -212,7 +235,10 @@ async function session(version, actors) {
           chargingState: "Charging",
           remoteStartId: pending.start_command.id,
         },
-        evse: { id: 1, connectorId: 1 },
+        evse: {
+          id: canonicalTargets ? 5 : 1,
+          connectorId: canonicalTargets ? 7 : 1,
+        },
         idToken: { idToken: tag, type: "Central" },
         meterValue: [
           {
@@ -269,7 +295,7 @@ async function session(version, actors) {
     const periodicAt = new Date().toISOString();
     if (version === "1.6")
       await charger.call("MeterValues", {
-        connectorId: 1,
+        connectorId: canonicalTargets ? 7 : 1,
         transactionId: Number(transactionId),
         meterValue: [
           {
@@ -292,7 +318,10 @@ async function session(version, actors) {
         triggerReason: "MeterValuePeriodic",
         seqNo: 1,
         transactionInfo: { transactionId, chargingState: "Charging" },
-        evse: { id: 1, connectorId: 1 },
+        evse: {
+          id: canonicalTargets ? 5 : 1,
+          connectorId: canonicalTargets ? 7 : 1,
+        },
         meterValue: [
           {
             timestamp: periodicAt,
@@ -409,7 +438,10 @@ async function session(version, actors) {
           chargingState: "Idle",
           stoppedReason: "Remote",
         },
-        evse: { id: 1, connectorId: 1 },
+        evse: {
+          id: canonicalTargets ? 5 : 1,
+          connectorId: canonicalTargets ? 7 : 1,
+        },
         meterValue: [
           {
             timestamp: endedAt,
@@ -546,6 +578,7 @@ async function session(version, actors) {
     console.log(
       JSON.stringify({
         evidence: "SIMULATED_CSMS_BUSINESS",
+        canonical_targets: canonicalTargets,
         continuous_consumer: useConsumer,
         daemon_restart_verified: useDaemon,
         protocol: version,

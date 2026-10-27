@@ -811,6 +811,202 @@ window.createVendorWorkspace = ({
                 button(row, "Open connectors", () =>
                     connectors(company, charger, row, operational, epoch),
                 );
+                button(row, "Canonical EVSE mapping", () =>
+                    topology(company, charger, row, operational, epoch),
+                );
+                p.append(row);
+            },
+            1,
+            epoch,
+        );
+    }
+    async function topology(company, charger, parent, operational, epoch) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-topology]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.topology = "";
+        parent.append(pane);
+        pane.append(
+            ui("h3", "Canonical EVSE mapping"),
+            ui("p", "Canonical mapping disclaimer"),
+        );
+        const path = `companies/${company.id}/chargers/${charger.id}`;
+        const request = async (path, method, body) => {
+            try {
+                return await api(base + path, method, body, controller?.signal);
+            } catch (error) {
+                if (
+                    valid(epoch) &&
+                    pane.isConnected &&
+                    (!error.status || error.status >= 500)
+                ) {
+                    pane.replaceChildren(
+                        ui("p", "Mapping outcome unconfirmed"),
+                    );
+                    button(pane, "Refresh", () =>
+                        topology(company, charger, parent, operational, epoch),
+                    );
+                }
+                throw error;
+            }
+        };
+        if (company.capabilities.inventory_write && operational)
+            form(
+                pane,
+                "Create EVSE",
+                [
+                    {
+                        name: "number",
+                        label: "EVSE number",
+                        type: "number",
+                        min: 1,
+                        limit: 1000,
+                    },
+                    {
+                        name: "mode",
+                        label: "Simulator mode",
+                        choices: {
+                            application: "Application simulator",
+                            csms: "CSMS simulator",
+                        },
+                    },
+                    {
+                        name: "binding_id",
+                        label: "Provisioned source binding ID",
+                        type: "number",
+                        optional: true,
+                    },
+                    {
+                        name: "source_evse_number",
+                        label: "Source EVSE number",
+                        type: "number",
+                        min: 0,
+                        limit: 1000,
+                        value: 0,
+                    },
+                ],
+                async (data) => {
+                    if (!confirm(EvLocale.text("Canonical mapping disclaimer")))
+                        return;
+                    await request(`${path}/evses`, "POST", {
+                        number: Number(data.number),
+                        mode: data.mode,
+                        binding_id: data.binding_id
+                            ? Number(data.binding_id)
+                            : null,
+                        source_evse_number: Number(data.source_evse_number),
+                    });
+                    if (valid(epoch))
+                        await topology(
+                            company,
+                            charger,
+                            parent,
+                            operational,
+                            epoch,
+                        );
+                },
+            );
+        const sources = document.createElement("div");
+        pane.append(ui("h4", "Provisioned simulator sources"), sources);
+        await paged(
+            sources,
+            `${path}/source-options`,
+            (source, p) =>
+                p.append(raw("p", `#${source.id} · OCPP ${source.protocol}`)),
+            1,
+            epoch,
+        );
+        const list = document.createElement("div");
+        pane.append(list);
+        await paged(
+            list,
+            `${path}/evses`,
+            (evse, p) => {
+                const row = document.createElement("article");
+                row.dataset.evseId = evse.id;
+                row.append(
+                    ui("h4", "EVSE {number}", { number: evse.number }),
+                    raw("p", `#${evse.id}`),
+                    ui(
+                        "p",
+                        evse.mode === "csms"
+                            ? "CSMS simulator"
+                            : "Application simulator",
+                    ),
+                );
+                if (company.capabilities.inventory_write && operational)
+                    button(row, "Map connector", async () => {
+                        row.querySelector("[data-mapping-choices]")?.remove();
+                        const choices = document.createElement("div");
+                        choices.dataset.mappingChoices = "";
+                        row.append(choices);
+                        await paged(
+                            choices,
+                            `${path}/connectors`,
+                            (connector, p) => {
+                                const choice = document.createElement("div");
+                                choice.dataset.connectorId = connector.id;
+                                choice.append(
+                                    raw(
+                                        "p",
+                                        `${connector.connector_number} · ${connector.connector_type} · ${connector.max_power_kw} kW`,
+                                    ),
+                                );
+                                if (connector.canonical_mapping_id)
+                                    choice.append(
+                                        ui("p", "Connector already mapped"),
+                                    );
+                                else
+                                    form(
+                                        choice,
+                                        "Map connector",
+                                        evse.mode === "csms"
+                                            ? [
+                                                  {
+                                                      name: "source_connector_number",
+                                                      label: "Source connector number",
+                                                      type: "number",
+                                                      limit: 100,
+                                                  },
+                                              ]
+                                            : [],
+                                        async (data) => {
+                                            if (
+                                                !confirm(
+                                                    EvLocale.text(
+                                                        "Canonical mapping disclaimer",
+                                                    ),
+                                                )
+                                            )
+                                                return;
+                                            await request(
+                                                `${path}/evses/${evse.id}/connectors/${connector.id}/mapping`,
+                                                "POST",
+                                                {
+                                                    source_connector_number:
+                                                        evse.mode === "csms"
+                                                            ? Number(
+                                                                  data.source_connector_number,
+                                                              )
+                                                            : null,
+                                                },
+                                            );
+                                            if (valid(epoch))
+                                                await topology(
+                                                    company,
+                                                    charger,
+                                                    parent,
+                                                    operational,
+                                                    epoch,
+                                                );
+                                        },
+                                    );
+                                p.append(choice);
+                            },
+                            1,
+                            epoch,
+                        );
+                    });
                 p.append(row);
             },
             1,

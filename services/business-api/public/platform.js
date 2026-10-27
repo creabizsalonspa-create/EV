@@ -222,6 +222,103 @@ async function identity() {
 }
 let stationRequest = null,
     stationQuery = "";
+function reservationForm(s, mapping = null) {
+    let f = document.createElement("form"),
+        l = ui("label", "UTC start (00 or 30 minutes)"),
+        i = document.createElement("input");
+    i.type = "datetime-local";
+    i.step = 1800;
+    i.required = true;
+    l.append(i);
+    f.append(l);
+    let b = ui("button", "Reserve simulator slot");
+    f.append(b);
+    let bookingKey = crypto.randomUUID();
+    f.onsubmit = async (e) => {
+        e.preventDefault();
+        b.disabled = true;
+        try {
+            await api("reservations", "POST", {
+                station_id: s.id,
+                ...(mapping ? { connector_mapping_id: mapping.id } : {}),
+                starts_at:
+                    i.value.length === 16 ? i.value + ":00Z" : i.value + "Z",
+                idempotency_key: bookingKey,
+            });
+            bookingKey = crypto.randomUUID();
+            notice(
+                "Simulation inventory reserved. No physical charger command was sent.",
+            );
+            await bookings();
+        } catch (e) {
+            notice(e);
+        } finally {
+            b.disabled = false;
+        }
+    };
+    return f;
+}
+async function connectorChoices(station, root, page = 1) {
+    const identity = client.sessionEpoch;
+    root.replaceChildren(ui("p", "Loading…"));
+    try {
+        const result = await api(
+            `stations/${station.id}/connectors?page=${page}`,
+        );
+        if (!root.isConnected || identity !== client.sessionEpoch) return;
+        root.replaceChildren(ui("p", "Connector choice disclaimer"));
+        for (const option of result.data) {
+            const row = document.createElement("div");
+            row.dataset.mappingId = option.id;
+            row.append(
+                ui("h4", "EVSE {evse} · Connector {connector}", {
+                    evse: option.evse_number,
+                    connector: option.connector_number,
+                }),
+                node(
+                    "p",
+                    `${option.connector_type} · ${option.max_power_kw} kW`,
+                ),
+            );
+            if (option.reservable && user?.role === "customer")
+                row.append(reservationForm(station, option));
+            else
+                row.append(
+                    ui(
+                        "p",
+                        option.reservable
+                            ? "Sign in to reserve connector"
+                            : "Connector currently unavailable",
+                    ),
+                );
+            root.append(row);
+        }
+        root.append(
+            ui("p", "Page {page} of {last} · {total} records", {
+                page: result.current_page,
+                last: result.last_page,
+                total: result.total,
+            }),
+        );
+        for (const [label, target, enabled] of [
+            ["Previous", page - 1, page > 1],
+            ["Next", page + 1, page < result.last_page],
+        ]) {
+            const button = ui("button", label);
+            button.type = "button";
+            button.disabled = !enabled;
+            button.onclick = () => connectorChoices(station, root, target);
+            root.append(button);
+        }
+    } catch (error) {
+        if (root.isConnected && identity === client.sessionEpoch) {
+            root.replaceChildren(ui("p", "Roaming load failed"));
+            const retry = ui("button", "Retry");
+            retry.onclick = () => connectorChoices(station, root, page);
+            root.append(retry);
+        }
+    }
+}
 async function stations(query = "") {
     stationRequest?.abort();
     const request = new AbortController();
@@ -286,7 +383,15 @@ async function stations(query = "") {
             ),
             node(
                 "p",
-                s.connector_type + " · " + s.power_kw + " kW · " + s.country,
+                s.reservation_policy === "canonical"
+                    ? EvLocale.text("Mapped connector capabilities") +
+                          " · " +
+                          s.country
+                    : s.connector_type +
+                          " · " +
+                          s.power_kw +
+                          " kW · " +
+                          s.country,
             ),
         );
         const details = document.createElement("details");
@@ -301,40 +406,14 @@ async function stations(query = "") {
         a.append(details);
         if (s.reservation_policy === "managed_blocked")
             a.append(ui("p", "Managed reservations unavailable"));
-        if (s.reservable && user?.role === "customer") {
-            let f = document.createElement("form"),
-                l = ui("label", "UTC start (00 or 30 minutes)"),
-                i = document.createElement("input");
-            i.type = "datetime-local";
-            i.step = 1800;
-            i.required = true;
-            l.append(i);
-            f.append(l);
-            let b = ui("button", "Reserve simulator slot");
-            f.append(b);
-            f.onsubmit = async (e) => {
-                e.preventDefault();
-                b.disabled = true;
-                try {
-                    await api("reservations", "POST", {
-                        station_id: s.id,
-                        starts_at:
-                            i.value.length === 16
-                                ? i.value + ":00Z"
-                                : i.value + "Z",
-                        idempotency_key: crypto.randomUUID(),
-                    });
-                    notice(
-                        "Simulation inventory reserved. No physical charger command was sent.",
-                    );
-                    await bookings();
-                } catch (e) {
-                    notice(e);
-                } finally {
-                    b.disabled = false;
-                }
-            };
-            a.append(f);
+        if (s.reservable && user?.role === "customer")
+            a.append(reservationForm(s));
+        if (s.reservation_policy === "canonical") {
+            const choices = document.createElement("div"),
+                button = ui("button", "Choose connector");
+            button.type = "button";
+            button.onclick = () => connectorChoices(s, choices);
+            a.append(button, choices);
         }
         el("stations").append(a);
     }

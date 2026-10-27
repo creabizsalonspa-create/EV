@@ -7,6 +7,7 @@ use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Services\Charging\ConnectorTopology;
 use App\Services\Charging\StationGate;
 use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
@@ -69,11 +70,15 @@ class SimulationController extends Controller
             abort_unless(now()->gte($start) && now()->lt($start->addMinutes(30)), 409, 'Outside reserved slot.');
             $station = Station::findOrFail($b->station_id);
             abort_unless($station->source === 'simulator', 409);
-            app(StationGate::class)->requireReady($station);
+            app(StationGate::class)->requireReady($station, $b->connector_mapping_id);
+            if ($b->connector_mapping_id) {
+                abort_if(app(ConnectorTopology::class)->binding($b) !== null, 409, 'Use the mapped CSMS start.');
+            }
             // Capture the test tariff once; future pricing changes cannot reprice this session.
+            abort_if($b->charging_evse_id && ChargingSession::where('charging_evse_id', $b->charging_evse_id)->whereIn('status', ['pending_start', 'charging', 'stopping'])->exists(), 409, 'This EVSE still has an unresolved session.');
             $finance = app(FinanceService::class);
             $tariff = $finance->activeTariff($station);
-            $s = ChargingSession::create(['reservation_id' => $b->id, 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
+            $s = ChargingSession::create(['reservation_id' => $b->id, 'charging_evse_id' => $b->charging_evse_id, 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
             $finance->snapshotSession($s, $tariff);
             $this->audit($r, 'simulation.started', $s->id);
 

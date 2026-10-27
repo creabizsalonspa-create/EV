@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
 import 'catalog.dart';
+import 'connector_choices.dart';
 import 'roaming.dart';
 import 'invoice_history.dart';
 import 'tariffs.dart';
@@ -346,7 +347,7 @@ class _WorkspaceState extends State<Workspace> {
       builder: (context) => AlertDialog(
         title: Text(s.t('reserveConfirm')),
         content: Text(
-          '${station.name}\n${slot.toIso8601String()}\n${s.t('reservationTerms')}',
+          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${s.t('reservationTerms')}',
         ),
         actions: [
           TextButton(
@@ -367,14 +368,24 @@ class _WorkspaceState extends State<Workspace> {
         method: 'POST',
         body: {
           'station_id': station.id,
+          if (station.mappingId != null)
+            'connector_mapping_id': station.mappingId,
           'starts_at': slot.toIso8601String().replaceFirst('.000Z', 'Z'),
           'idempotency_key':
               'mobile-${DateTime.now().microsecondsSinceEpoch}-${station.id}',
         },
       );
-      if (mounted) setState(() => tab = 1);
+      if (mounted) {
+        setState(() => tab = 1);
+        if (station.mappingId != null && Navigator.of(context).canPop())
+          Navigator.of(context).pop();
+      }
       await load();
     });
+    if (mounted && station.mappingId != null && error != null)
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.t(error!))));
   }
 
   Future<void> recovery() async {
@@ -762,6 +773,21 @@ class _WorkspaceState extends State<Workspace> {
             children: [
               CatalogView(
                 key: catalogKey,
+                onChooseConnectors: (station) => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ConnectorChoicesView(
+                      station: station,
+                      loader: (page) async => ApiPage.fromJson(
+                        await api!.request(
+                          'stations/${station.id}/connectors',
+                          query: {'page': '$page'},
+                        ),
+                        (v) => v,
+                      ),
+                      onReserve: reserve,
+                    ),
+                  ),
+                ),
                 onRoaming: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => RoamingView(

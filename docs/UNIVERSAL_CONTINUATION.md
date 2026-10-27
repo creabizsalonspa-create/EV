@@ -1,5 +1,7 @@
 # Continue the complete platform
 
+Current owner directive: Agent2 is sole active full-project maintainer, including finance, until the owner explicitly reassigns it. Read MASTER_AGENT2_CONTINUATION.md before historical split instructions. Current canonical topology source and exact verification are in PROGRESS/QA/CANONICAL_TOPOLOGY; do not recreate it. Continue unused booking/check-in lifecycle, then production OCPP/OCPI, maps, full applications and complete financial/commercial requirements.
+
 All authorized accounts are full-stack maintainers. Continue existing verified work; do not restart or permanently divide backend/frontend ownership. Preserve all changes and push each verified checkpoint. No background execution is promised after a task stops.
 
 ## Resume task
@@ -68,3 +70,5 @@ Current active-agent ownership is exclusive per NON_FINANCE_CONTINUATION.md: Age
 ## Latest coordinated integration
 
 PR #5 merged finance PR #4 through `7de6c4e` while preserving Agent 2 EV work through `41e350c`. Merge `0444ed1` matches the green source candidate `613534e`; source platform/PG runs40509969233/40509962767 passed. Integrated native build/device run40508611589 passed at `ccb38fa`, and native source remains identical. Follow current PROGRESS/QA and exclusive ownership in NON_FINANCE_CONTINUATION; older candidate notes are historical. Exact next EV work is explicit connector/EVSE mapping and parallel booking, source/token/operations recovery, complete OCPI, maps and native company/Admin parity. Finance APIs/logic remain owned by Agent 1; only consume them in Flutter.
+
+Additional checks: `services/business-api/tests/Postgres/run-connectors`; `EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:connectors`; `node tests/native-topology.cjs` with the documented Flutter environment; `EV_CANONICAL_TARGETS=1 EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs`. Run auth-bearing suites sequentially. Setup applies the additive topology migration; do not force rollback parallel history.

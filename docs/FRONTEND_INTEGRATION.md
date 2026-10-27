@@ -35,3 +35,7 @@ Web company operations are now independent of the global vendor-role panel. Serv
 ## OCPI client interfaces
 
 Web partner discovery and Flutter Discover → Partner locations consume `/api/roaming/locations` with same-origin numeric pagination. Both reject changed public capability flags and retain partner-reported provenance. Authenticated vendor/admin web Roaming operations uses owner-scoped providers and normalized records, with explicit confirmations before negotiation/sync and admin authorization changes. Server configuration remains the sole source of connection origins/tokens. No auto-polling, command replay, remote-charging capability or billing eligibility is inferred. Provider creation/configuration and operator mobile screens remain unfinished. Tests: `npm run test:roaming`, native `test/roaming_test.dart`, synthetic TLS/device integration; live partner conformance is separate.
+
+## Canonical topology continuation
+
+See [CANONICAL_TOPOLOGY.md](CANONICAL_TOPOLOGY.md) for new scoped EVSE/mapping APIs, connector choices, immutable source/booking snapshots, parallel capacity and protocol proof. Legacy contracts/history remain; direct-managed sources are simulation-tested only. Current owner handoff is MASTER_AGENT2_CONTINUATION.md, which supersedes historical account restrictions.

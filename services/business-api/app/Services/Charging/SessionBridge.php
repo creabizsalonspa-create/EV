@@ -3,6 +3,8 @@
 namespace App\Services\Charging;
 
 use App\Models\ChargerCommand;
+use App\Models\Charging\ConnectorMapping;
+use App\Models\Charging\Evse;
 use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
@@ -35,7 +37,8 @@ class SessionBridge
         abort_unless($reservation->user_id === $actor, 404);
 
         return DB::transaction(function () use ($reservation, $actor) {
-            $binding = DB::table('csms_bindings')->where('station_id', $reservation->station_id)->lockForUpdate()->first();
+            Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
+            $binding = app(ConnectorTopology::class)->binding($reservation, true);
             abort_unless($binding, 409, 'No CSMS simulator binding.');
             $r = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
             $old = ChargingSession::where('reservation_id', $r->id)->first();
@@ -49,14 +52,17 @@ class SessionBridge
             abort_unless($r->status === 'confirmed' && now()->gte($start) && now()->lt($start->addMinutes(30)), 409, 'Outside the confirmed reservation window.');
             $station = Station::findOrFail($r->station_id);
             abort_unless($station->source === 'simulator' && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/', $binding->identifier), 409, 'Only provisioned simulated chargers are enabled.');
-            app(StationGate::class)->requireReady($station);
-            abort_if(SessionLink::where('binding_id', $binding->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'An unresolved charging session already owns this simulator.');
+            app(StationGate::class)->requireReady($station, $r->connector_mapping_id);
+            abort_if(SessionLink::where('binding_id', $binding->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->when($r->connector_mapping_id, fn ($q) => $q->where(function ($q) use ($r) {
+                $q->whereNull('connector_mapping_id')->orWhereIn('connector_mapping_id', ConnectorMapping::where('evse_id', $r->charging_evse_id)->select('id'));
+            }))->exists(), 409, 'An unresolved charging session already owns this simulator.');
+            abort_if($r->charging_evse_id && ChargingSession::where('charging_evse_id', $r->charging_evse_id)->whereIn('status', ['pending_start', 'charging', 'stopping'])->exists(), 409, 'This EVSE still has an unresolved session.');
             $finance = app(FinanceService::class);
             $tariff = $finance->activeTariff($station);
-            $s = ChargingSession::create(['reservation_id' => $r->id, 'status' => 'pending_start', 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
+            $s = ChargingSession::create(['reservation_id' => $r->id, 'charging_evse_id' => $r->charging_evse_id, 'status' => 'pending_start', 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
             $finance->snapshotSession($s, $tariff);
             $c = $this->command($actor, $station->id, 'start', ['session_id' => $s->id, 'id_token' => 'EV-SIM-'.$s->id], 'csms-session:'.$s->id.':start');
-            $link = SessionLink::create(['charging_session_id' => $s->id, 'binding_id' => $binding->id, 'start_command_id' => $c->id, 'protocol' => $binding->protocol, 'identifier' => $binding->identifier, 'last_sequence' => -1]);
+            $link = SessionLink::create(['charging_session_id' => $s->id, 'binding_id' => $binding->id, 'start_command_id' => $c->id, 'connector_mapping_id' => $r->connector_mapping_id, 'protocol' => $binding->protocol, 'identifier' => $binding->identifier, 'last_sequence' => -1]);
             $this->audit($actor, 'csms.session_requested', $s->id);
 
             return $this->summary($link);
@@ -129,10 +135,20 @@ class SessionBridge
         $at = CarbonImmutable::parse($v['occurred_at'])->utc();
         abort_if($v['protocol'] === '1.6' && (! ctype_digit($v['transaction_id']) || (int) $v['transaction_id'] > 2147483647), 422, 'Invalid OCPP 1.6 transaction identifier.');
         abort_if($at->gt(now()->addMinutes(5)), 422, 'Source event time is in the future.');
-        $hash = hash('sha256', json_encode([(int) $v['session_id'], $v['identifier'], $v['protocol'], $v['transaction_id'], $v['type'], (int) $v['sequence'], (int) $v['meter_wh'], $at->format('Y-m-d\TH:i:s.u\Z')], JSON_THROW_ON_ERROR));
+        $identity = [(int) $v['session_id'], $v['identifier'], $v['protocol'], $v['transaction_id'], $v['type'], (int) $v['sequence'], (int) $v['meter_wh'], $at->format('Y-m-d\TH:i:s.u\Z')];
+        if (array_key_exists('source_evse_number', $v) || array_key_exists('source_connector_number', $v)) {
+            $identity[] = $v['source_evse_number'] ?? null;
+            $identity[] = $v['source_connector_number'] ?? null;
+        }
+        $hash = hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR));
 
         return DB::transaction(function () use ($v, $at, $hash) {
             $link = SessionLink::where('charging_session_id', $v['session_id'])->lockForUpdate()->firstOrFail();
+            if ($link->connector_mapping_id) {
+                $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
+                $evse = Evse::findOrFail($map->evse_id);
+                abort_unless(($v['source_connector_number'] ?? null) === $map->source_connector_number && ($v['source_evse_number'] ?? null) === $evse->source_evse_number && $evse->binding_id === $link->binding_id, 409, 'Canonical source target mismatch.');
+            }
             abort_unless($link->closed_without_dispatch_at === null, 409, 'This request was closed before dispatch; unexpected source activity requires reconciliation.');
             abort_unless(hash_equals($link->identifier, $v['identifier']) && $link->protocol === $v['protocol'], 409, 'CSMS binding mismatch.');
             $old = DB::table('csms_inbox_events')->where('event_id', $v['event_id'])->first();

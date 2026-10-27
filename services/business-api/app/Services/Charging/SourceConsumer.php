@@ -2,6 +2,8 @@
 
 namespace App\Services\Charging;
 
+use App\Models\Charging\ConnectorMapping;
+use App\Models\Charging\Evse;
 use App\Models\Charging\SessionLink;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
@@ -55,6 +57,11 @@ class SourceConsumer
         $payload = ['event_id' => 'source-'.hash('sha256', implode('|', [$link->id, $tx['transactionId'], $type, $sequence])),
             'session_id' => $link->charging_session_id, 'identifier' => $link->identifier, 'protocol' => $link->protocol,
             'transaction_id' => (string) $tx['transactionId'], 'type' => $type, 'sequence' => $sequence, 'meter_wh' => $meter, 'occurred_at' => $at];
+        if ($link->connector_mapping_id) {
+            $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
+            $payload['source_connector_number'] = $map->source_connector_number;
+            $payload['source_evse_number'] = Evse::findOrFail($map->evse_id)->source_evse_number;
+        }
         $raw = json_encode($payload, JSON_THROW_ON_ERROR);
         $timestamp = (string) time();
         $response = Http::timeout(15)->withoutRedirecting()->withHeaders(['Accept' => 'application/json', 'X-EV-Timestamp' => $timestamp, 'X-EV-Signature' => hash_hmac('sha256', $timestamp.'.'.$raw, $key)])
@@ -95,6 +102,32 @@ class SourceConsumer
             ($link->protocol === '2.0.1' && (int) $tx['remoteStartId'] !== (int) $link->start_command_id) ||
             CarbonImmutable::parse($tx['startTime'])->lt($link->created_at->subSeconds(2))) {
             throw new RuntimeException('Source correlation conflict requires reconciliation.');
+        }
+        if ($link->connector_mapping_id) {
+            $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
+            $evse = Evse::findOrFail($map->evse_id);
+            if ($evse->binding_id !== $link->binding_id) {
+                throw new RuntimeException('Mapped source identity conflict.');
+            }
+            if ($link->protocol === '1.6') {
+                $proof = $this->graph('query($tx:Int!){Transactions(where:{id:{_eq:$tx},tenantId:{_eq:1}}){connectorId}}', ['tx' => $tx['id']])['Transactions'];
+                $connector = $this->graph('query($id:Int!,$station:Int!){Connectors(where:{id:{_eq:$id},tenantId:{_eq:1},stationId:{_eq:$station}}){connectorId}}', ['id' => $proof[0]['connectorId'] ?? 0, 'station' => $identity['ChargingStations'][0]['id']])['Connectors'];
+                if (count($connector) !== 1 || (int) $connector[0]['connectorId'] !== $map->source_connector_number) {
+                    throw new RuntimeException('Source connector mismatch.');
+                }
+            } else {
+                // CitrineOS 2.1 normalized transaction/EVSE projections do not retain
+                // protocol EVSE numbers. Verify the authenticated persisted Started call.
+                $proof = $this->graph('query($station:Int!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:"TransactionEvent"},payload:{_contains:$match}},limit:2){payload}}', ['station' => $identity['ChargingStations'][0]['id'], 'match' => ['eventType' => 'Started', 'transactionInfo' => ['transactionId' => (string) $tx['transactionId'], 'remoteStartId' => (int) $link->start_command_id]]])['OCPPMessages'];
+                if (! $proof) {
+                    throw new RuntimeException('Source target proof is unavailable.');
+                }
+                foreach ($proof as $row) {
+                    if (($row['payload']['evse']['id'] ?? null) !== $evse->source_evse_number || ($row['payload']['evse']['connectorId'] ?? null) !== $map->source_connector_number) {
+                        throw new RuntimeException('Source EVSE/connector mismatch.');
+                    }
+                }
+            }
         }
         $count = 0;
         $baseline = self::wh($tx['meterStart'], 'kWh');

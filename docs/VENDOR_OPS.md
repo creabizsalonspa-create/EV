@@ -68,3 +68,7 @@ The site form offers scoped paginated/searched simulator station choices without
 ## Native inventory maintenance
 
 `apps/mobile/lib/vendor_inventory.dart` consumes company/site/charger/connector pages and existing PATCH maintenance. Owners and consented customer-role staff retain the same backend scopes; derived read/write/operational hints do not replace current server authorization. Native does not provision equipment or infer live availability. Read-only traversal, confirmation/reason, uncertain-write refresh, expiry/revocation/disposal and Arabic phone layout are covered by unit/widget tests and a separate actual-Laravel client acceptance test. Native full KYC/company/staff and inventory creation are still separate unfinished workflows.
+
+## Canonical topology continuation
+
+See [CANONICAL_TOPOLOGY.md](CANONICAL_TOPOLOGY.md) for new scoped EVSE/mapping APIs, connector choices, immutable source/booking snapshots, parallel capacity and protocol proof. Legacy contracts/history remain; direct-managed sources are simulation-tested only. Current owner handoff is MASTER_AGENT2_CONTINUATION.md, which supersedes historical account restrictions.

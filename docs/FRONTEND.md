@@ -1,5 +1,18 @@
 # Frontend implementation and continuation
 
+## Canonical EVSE/connector/source mapping and parallel reservations
+
+Latest owner directive makes Agent 2 sole active maintainer of the complete remaining product, including finance; MASTER_AGENT2_CONTINUATION.md is now retained and linked from AGENTS. Historical exclusive splits are preserved but superseded. On entry, SessionBridge.php and mobile.yml had no uncommitted edits and matched `ccd5e2e`; current changes are intentional implementation, with no verified/user code discarded.
+
+Added explicit company/site/catalog station/charge-point/EVSE/inventory-connector/source mappings, immutable resource identities and safe activation around existing legacy history. Different EVSEs book/start independently; alternate plugs on one EVSE share slot and unresolved-session capacity. DB partial unique indexes, locked admission and payload-bound replay prevent overbooking. Multiple charge points choose their own source binding; CSMS commands and signed events carry/prove mapped targets instead of hard-coded1. Stops/final meters and existing unsent expiry remain preserved. Station tariffs/accounting logic stay unchanged.
+
+Customer web and Flutter now choose actual mapped connector capabilities; vendor/Admin web and vendor/staff Flutter can page, create EVSEs and confirm mapping against existing scoped inventory/source bindings. Private source/KYC/maintenance information stays out of public choices, and uncertain configuration writes require refresh. Source-network OCPI discovery remains non-actionable pending full authorized interoperation.
+
+Verified locally: Laravel172 /6,499; PostgreSQL topology9 /135 plus4 actual booking races /52; existing PostgreSQL financial/managed/vendor97 /5,866 and combined process suites19 /235. Native analysis clean,54 unit/widget passes /3 explicit default live skips; actual-Laravel native topology1 pass. New real browser topology flow and existing browser regressions pass. Both OCPP protocols use source connector7 /EVSE5 through actual restarted observation to the unchanged2,500Wh/one329-minor-unit simulated invoice/payment/refund. No real hardware/money occurred. Current hosted builds/CI are pending until this source is pushed and executed.
+
+See CANONICAL_TOPOLOGY.md and canonical-topology-* evidence. Next active slice is self-reported check-in and safe expiry of unused bookings, preserving the proven unsent-CSMS policy; production OCPP credentials/token/recovery, complete OCPI, maps and all remaining customer/vendor/Admin/financial/commercial scope follow. Not a final release.
+
+
 ## Admin OCPI connection association and native expiry-navigation checkpoint
 
 Admin can register providers against existing approved server connection aliases using a validated connection selector and paginated/searchable vendor names/IDs. Credential values, token variable names, endpoint origins and raw connection metadata never enter this API/UI. Only structurally valid, unassigned connections are selectable. Registration starts unauthorized/revoked and makes no partner request; existing explicit authorization/negotiation/sync remain separate operations. Newest-first provider paging exposes newly registered records. This does not implement credentials provisioning/rotation or full bilateral OCPI roles.

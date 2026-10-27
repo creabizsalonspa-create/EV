@@ -46,3 +46,7 @@ For each feature provide an implementation pointer and tests. For each deployed 
 ## Standing continuation objective
 
 The owner’s master instructions are retained in [docs/MASTER_CONTINUATION.md](docs/MASTER_CONTINUATION.md). Continue the full backend/web/mobile/admin scope on `development/fullstack-continuation` independently; preserve existing work, verify and push substantial checkpoints, and move to the next unfinished requirement within the active session. Simulated acceptance does not replace real integration software, and no background execution or full completion may be claimed without evidence. Read the latest progress and QA checkpoint before resuming.
+
+## Current owner directive — sole active Agent 2
+
+The newer [MASTER_AGENT2_CONTINUATION.md](docs/MASTER_AGENT2_CONTINUATION.md) supersedes the historical exclusive workstream split while Agent 1 is unavailable. Agent 2 owns the complete remaining software, including financial/commercial work, until the owner explicitly reassigns it. Preserve and extend merged finance rather than creating another implementation. First finish canonical charging and safe multi-resource reservations, then continue the complete PRD through tested, pushed milestones. Retain all truth/safety/release gates.

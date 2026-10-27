@@ -196,12 +196,12 @@ class SimulatedCharger {
     assert.equal(result.status, "Accepted");
     return result;
   }
-  status(status = "Available") {
+  status(status = "Available", connector = 1, evse = 1) {
     return this.call(
       "StatusNotification",
       this.version === "1.6"
         ? {
-            connectorId: 1,
+            connectorId: connector,
             errorCode: status === "Faulted" ? "PowerSwitchFailure" : "NoError",
             status,
             timestamp: new Date().toISOString(),
@@ -209,8 +209,8 @@ class SimulatedCharger {
         : {
             timestamp: new Date().toISOString(),
             connectorStatus: status,
-            evseId: 1,
-            connectorId: 1,
+            evseId: evse,
+            connectorId: connector,
           },
     );
   }

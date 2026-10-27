@@ -2,6 +2,7 @@
 
 namespace App\Services\Charging;
 
+use App\Models\Charging\ConnectorMapping;
 use App\Models\Station;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
@@ -11,7 +12,7 @@ use App\Services\VendorOps\VendorAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
-/** The existing charging transport has one connector target; never guess among inventory assets. */
+/** Admission for legacy stations and explicit canonical EVSE/connector targets. */
 class StationGate
 {
     public function __construct(private VendorAccess $access) {}
@@ -45,7 +46,7 @@ class StationGate
         $singleIds = $counts->filter(fn ($row) => (int) $row->connector_count === 1)->pluck('first_id');
         $connectors = VendorConnector::whereIn('id', $singleIds)->get()->keyBy('id');
         $chargers = VendorCharger::whereIn('id', $connectors->pluck('charger_id'))->get()->keyBy('id');
-        $bindings = DB::table('csms_bindings')->whereIn('station_id', $stations->pluck('id'))->get()->keyBy('station_id');
+        $bindings = DB::table('csms_bindings')->whereIn('station_id', $stations->pluck('id'))->get()->groupBy('station_id');
         $timezones = DB::table('regions')->pluck('timezone', 'country');
         $result = [];
         foreach ($stations as $station) {
@@ -58,18 +59,29 @@ class StationGate
             $count = $counts->get($site->id);
             $candidate = $count && (int) $count->connector_count === 1 ? $connectors->only([$count->first_id]) : collect();
             $company = $companies->get($site->company_id);
-            $ready = $this->ready($station, $site, $company, $candidate, $chargers, $bindings->get($station->id), $company ? $timezones->get($company->country) : null);
+            $ready = ($bindings->get($station->id)?->count() ?? 0) <= 1 && $this->ready($station, $site, $company, $candidate, $chargers, $bindings->get($station->id)?->first(), $company ? $timezones->get($company->country) : null);
             $result[$station->id] = $ready ? 'managed_ready' : 'managed_blocked';
+        }
+
+        foreach (ConnectorMapping::whereIn('station_id', $stations->pluck('id'))->pluck('station_id')->unique() as $id) {
+            $result[$id] = 'canonical';
         }
 
         return $result;
     }
 
     /** Call only inside a booking/start transaction. Stop and source finalization must remain available. */
-    public function requireReady(Station $station): void
+    public function requireReady(Station $station, ?int $mappingId = null): void
     {
         $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
         abort_unless($station->source === 'simulator', 409, 'Only simulator charging admission is enabled.');
+        if ($mappingId !== null) {
+            app(ConnectorTopology::class)->target($station, $mappingId, true);
+
+            return;
+        }
+        abort_if(ConnectorMapping::where('station_id', $station->id)->exists(), 409, 'Choose an explicit connector.');
+        abort_if(DB::table('csms_bindings')->where('station_id', $station->id)->count() > 1, 409, 'Legacy source is ambiguous; use canonical mapping.');
         $site = VendorSite::where('station_id', $station->id)->first();
         if (! $site) {
             return;

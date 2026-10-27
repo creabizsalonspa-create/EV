@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController as A;
+use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
@@ -63,3 +64,5 @@ Route::post('/payments/mock/webhook', [PaymentGatewayController::class, 'webhook
 Route::post('/payments/stripe-test/webhook', [PaymentGatewayController::class, 'stripeWebhook'])->middleware('throttle:platform-api');
 
 require __DIR__.'/subscription_webhooks.php';
+
+Route::get('/v1/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');

@@ -1,0 +1,10 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/connector_topology_test.dart
+00:00 +0: canonical resource localization contracts match
+00:00 +1: customer selects an explicit mapped connector with actual capabilities
+00:01 +2: Arabic pagination failure clears stale choices and retries the failed page
+00:01 +3: disposed connector page ignores a late response
+00:02 +4: vendor creates a real payload with Arabic digits and refreshed immutable identity
+00:03 +5: mapping an application connector requires confirmation and has no source target
+00:04 +6: read-only staff cannot create or map identities
+00:04 +7: uncertain EVSE creation cannot replay without authoritative refresh
+00:04 +8: All tests passed!

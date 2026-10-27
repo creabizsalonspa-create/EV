@@ -1,5 +1,11 @@
 # Agent 1 finance/commercial continuation
 
+## Current handoff override
+
+The owner’s latest MASTER_AGENT2_CONTINUATION.md makes Agent 2 the sole active maintainer of the entire remaining platform, including this financial/commercial system, until explicitly reassigned. Agent 1 is temporarily unavailable. The exclusive split below is historical. Extend the existing merged architecture and immutable accounting; do not duplicate it. This canonical-topology checkpoint leaves financial business rules unchanged and verifies the existing financial/PG/browser suites alongside new EVSE resource identity.
+
+## Historical Agent 1 checkpoint
+
 Updated 2026-10-27. **Financial workstream IN_PROGRESS. Not a final release or 100% completion.**
 
 ## Coordination and source

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\VendorOpsController as V;
 use Illuminate\Support\Facades\Route;
 
@@ -27,3 +28,8 @@ Route::patch('/companies/{company}/chargers/{charger}/connectors/{connector}/mai
 
 Route::patch('/companies/{company}', [V::class, 'updateCompany']);
 Route::get('/companies/{company}/reviews', [V::class, 'reviews']);
+
+Route::get('/companies/{company}/chargers/{charger}/evses', [ConnectorTopologyController::class, 'evses']);
+Route::get('/companies/{company}/chargers/{charger}/source-options', [ConnectorTopologyController::class, 'sources']);
+Route::post('/companies/{company}/chargers/{charger}/evses', [ConnectorTopologyController::class, 'createEvse']);
+Route::post('/companies/{company}/chargers/{charger}/evses/{evse}/connectors/{connector}/mapping', [ConnectorTopologyController::class, 'map']);

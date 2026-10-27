@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
       - run: ./scripts/setup
       - run: ./scripts/php /usr/bin/composer validate --strict
@@ -49,6 +49,9 @@ jobs:
       - run: npm run test:invoices
       - run: npm run test:tariffs
       - run: npm run test:managed-gate
+      - run: npm run test:connectors
+      - name: Canonical non-default OCPP source targets
+        run: EV_CANONICAL_TARGETS=1 EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - if: failure()
         run: docker logs --tail 100 ev-business-api
 
@@ -64,3 +67,10 @@ jobs:
           name: postgres-finance-evidence
           path: artifacts/finance-postgres/*.txt
           if-no-files-found: error
+
+  connector-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/setup
+      - run: services/business-api/tests/Postgres/run-connectors

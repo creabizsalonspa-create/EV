@@ -31,6 +31,7 @@ class Station {
   final int powerKw;
   final bool reservable;
   final String? reservationPolicy;
+  final int? mappingId, evseNumber, connectorNumber;
   Station.fromJson(Map<String, dynamic> json)
     : id = json['id'] as int,
       name = json['name'] as String,
@@ -38,7 +39,21 @@ class Station {
       source = json['evidence'] as String,
       powerKw = json['power_kw'] as int,
       reservable = json['reservable'] == true,
-      reservationPolicy = json['reservation_policy'] as String?;
+      reservationPolicy = json['reservation_policy'] as String?,
+      mappingId = null,
+      evseNumber = null,
+      connectorNumber = null;
+  Station.forConnector(Station parent, Map<String, dynamic> option)
+    : id = parent.id,
+      name = parent.name,
+      connector = option['connector_type'] as String,
+      source = parent.source,
+      powerKw = option['max_power_kw'] as int,
+      reservable = option['reservable'] == true,
+      reservationPolicy = 'canonical',
+      mappingId = option['id'] as int,
+      evseNumber = option['evse_number'] as int,
+      connectorNumber = option['connector_number'] as int;
 }
 
 /// Native-only same-origin session client; persistence is opt-in and encrypted.

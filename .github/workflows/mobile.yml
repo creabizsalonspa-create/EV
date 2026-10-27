@@ -2,9 +2,33 @@ name: Native client validation
 on:
   workflow_dispatch:
   push:
-    paths: ["apps/mobile/**", ".github/workflows/mobile.yml", "tests/native-inventory.cjs", "services/business-api/tests/Fixtures/native-inventory.php", "services/business-api/app/Http/Controllers/VendorOpsController.php", "services/business-api/app/Services/VendorOps/**", "services/business-api/routes/vendor_ops.php"]
+    paths:
+      [
+        "apps/mobile/**",
+        ".github/workflows/mobile.yml",
+        "tests/native-inventory.cjs",
+        "tests/native-topology.cjs",
+        "services/business-api/tests/Fixtures/canonical-topology.php",
+        "services/business-api/app/Http/Controllers/ConnectorTopologyController.php",
+        "services/business-api/tests/Fixtures/native-inventory.php",
+        "services/business-api/app/Http/Controllers/VendorOpsController.php",
+        "services/business-api/app/Services/VendorOps/**",
+        "services/business-api/routes/vendor_ops.php",
+      ]
   pull_request:
-    paths: ["apps/mobile/**", ".github/workflows/mobile.yml", "tests/native-inventory.cjs", "services/business-api/tests/Fixtures/native-inventory.php", "services/business-api/app/Http/Controllers/VendorOpsController.php", "services/business-api/app/Services/VendorOps/**", "services/business-api/routes/vendor_ops.php"]
+    paths:
+      [
+        "apps/mobile/**",
+        ".github/workflows/mobile.yml",
+        "tests/native-inventory.cjs",
+        "tests/native-topology.cjs",
+        "services/business-api/tests/Fixtures/canonical-topology.php",
+        "services/business-api/app/Http/Controllers/ConnectorTopologyController.php",
+        "services/business-api/tests/Fixtures/native-inventory.php",
+        "services/business-api/app/Http/Controllers/VendorOpsController.php",
+        "services/business-api/app/Services/VendorOps/**",
+        "services/business-api/routes/vendor_ops.php",
+      ]
 permissions:
   contents: read
 jobs:
@@ -59,6 +83,7 @@ jobs:
           ./scripts/setup
           ./scripts/start
           node tests/native-inventory.cjs
+          node tests/native-topology.cjs
       - run: flutter build ios --simulator --no-codesign
         if: runner.os == 'macOS'
         working-directory: apps/mobile

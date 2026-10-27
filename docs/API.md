@@ -116,3 +116,7 @@ Session lists add start_admission_blocked and can_cancel_before_dispatch as UI h
 ## Admin OCPI association options
 
 `GET /api/ocpi/connection-options` is admin-only and returns approved configured aliases with `configuration_valid` and `assigned`, plus `external_requests_made=false` and `partner_acceptance_verified=false`. Validation checks existing server config without a network request. No origin/endpoint, token value or token variable name is returned. `GET /api/ocpi/owner-options?q=<name>&page=N` is admin-only, paginated at25, vendor-role only and returns ID/name only; q is bounded at80 characters. Existing `POST /api/ocpi/providers` performs provider registration; the Admin web flow sends `authorized=false`, then requires separate explicit authorization. Duplicate aliases cannot create another provider. Registration does not call a partner. These admin web endpoints are not exposed as native Admin functionality.
+
+## Canonical topology continuation
+
+See [CANONICAL_TOPOLOGY.md](CANONICAL_TOPOLOGY.md) for new scoped EVSE/mapping APIs, connector choices, immutable source/booking snapshots, parallel capacity and protocol proof. Legacy contracts/history remain; direct-managed sources are simulation-tested only. Current owner handoff is MASTER_AGENT2_CONTINUATION.md, which supersedes historical account restrictions.

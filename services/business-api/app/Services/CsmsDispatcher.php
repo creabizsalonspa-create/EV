@@ -3,6 +3,9 @@
 namespace App\Services;
 
 use App\Models\ChargerCommand;
+use App\Models\Charging\ConnectorMapping;
+use App\Models\Charging\Evse;
+use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -32,7 +35,7 @@ class CsmsDispatcher
                     }
                     if (! $blocked) {
                         try {
-                            app(StationGate::class)->requireReady(Station::findOrFail($c->station_id));
+                            app(StationGate::class)->requireReady(Station::findOrFail($c->station_id), isset($booking) ? $booking->connector_mapping_id : null);
                         } catch (HttpException $e) {
                             if ($e->getStatusCode() !== 409) {
                                 throw $e;
@@ -60,7 +63,33 @@ class CsmsDispatcher
             return ChargerCommand::findOrFail($id);
         }
         try {
-            $b = DB::table('csms_bindings')->where('station_id', $command->station_id)->first();
+            $link = isset($command->payload['session_id']) ? SessionLink::where('charging_session_id', $command->payload['session_id'])->first() : null;
+            if ($link) {
+                if (($command->action === 'start' ? $link->start_command_id : $link->stop_command_id) !== $command->id) {
+                    throw new \RuntimeException('Command lineage mismatch');
+                }
+                $b = DB::table('csms_bindings')->where('id', $link->binding_id)->first();
+                if (! $b || $link->identifier !== $b->identifier || $link->protocol !== $b->protocol || $b->station_id !== $command->station_id) {
+                    throw new \RuntimeException('Source lineage mismatch');
+                }
+            } else {
+                $bindings = DB::table('csms_bindings')->where('station_id', $command->station_id)->get();
+                if ($bindings->count() !== 1 || ConnectorMapping::where('station_id', $command->station_id)->exists()) {
+                    throw new \RuntimeException('Explicit session target required');
+                }
+                $b = $bindings->first();
+            }
+            $sourceConnector = 1;
+            $sourceEvse = 1;
+            if ($link?->connector_mapping_id) {
+                $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
+                $evse = Evse::findOrFail($map->evse_id);
+                if ($map->station_id !== $command->station_id || $evse->binding_id !== $b->id) {
+                    throw new \RuntimeException('Mapping lineage mismatch');
+                }
+                $sourceConnector = $map->source_connector_number;
+                $sourceEvse = $evse->source_evse_number;
+            }
             if (! $b || ! preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/', $b->identifier)) {
                 throw new \RuntimeException('Invalid simulator binding');
             }
@@ -75,10 +104,10 @@ class CsmsDispatcher
                 if ($command->action === 'stop' && ! ctype_digit($command->payload['transaction_id'])) {
                     throw new \RuntimeException('OCPP 1.6 transaction id must be numeric');
                 }
-                $payload = $command->action === 'start' ? ['idTag' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'connectorId' => 1] : ['transactionId' => (int) $command->payload['transaction_id']];
+                $payload = $command->action === 'start' ? ['idTag' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'connectorId' => $sourceConnector] : ['transactionId' => (int) $command->payload['transaction_id']];
             } else {
                 $action = $command->action === 'start' ? 'requestStartTransaction' : 'requestStopTransaction';
-                $payload = $command->action === 'start' ? ['idToken' => ['idToken' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'type' => 'Central'], 'remoteStartId' => $command->id, 'evseId' => 1] : ['transactionId' => $command->payload['transaction_id']];
+                $payload = $command->action === 'start' ? ['idToken' => ['idToken' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'type' => 'Central'], 'remoteStartId' => $command->id, 'evseId' => $sourceEvse] : ['transactionId' => $command->payload['transaction_id']];
             }
             $response = Http::withToken($token)->timeout(25)->post($base.'/ocpp/'.$b->protocol.'/evdriver/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload)->throw();
             $confirmation = $response->json();

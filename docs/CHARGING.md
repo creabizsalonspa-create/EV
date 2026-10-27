@@ -87,3 +87,7 @@ Apply migration `2026_10_27_100001_create_charging_request_expirations` before u
 The standard Laravel scheduler registers `csms:expire-unsent --limit=100 --scheduled` every minute with overlap protection. A service manager/cron must execute Laravel `schedule:run` each minute (or supervise `schedule:work`); processes do not survive restoration. Scheduled mode cannot target an individual reservation; it stores a non-secret cache cursor to advance through bounded pages, resetting after a full pass. Cache loss repeats an idempotent scan. Use a suitable shared cache for multi-worker scheduling; database locks still enforce one closure. No scheduler has been deployed to production. Roll back code/workers together and retain operational evidence; schema down removes this evidence table and is not a data-preserving production rollback.
 
 Customer/vendor web and native display the localized `expired_unstarted` state with no start/stop/cancel/invoice actions. Existing source-active sessions are untouched. This does not implement full no-show, occupancy policy, real token revocation or financial penalties.
+
+## Canonical topology continuation
+
+See [CANONICAL_TOPOLOGY.md](CANONICAL_TOPOLOGY.md) for new scoped EVSE/mapping APIs, connector choices, immutable source/booking snapshots, parallel capacity and protocol proof. Legacy contracts/history remain; direct-managed sources are simulation-tested only. Current owner handoff is MASTER_AGENT2_CONTINUATION.md, which supersedes historical account restrictions.

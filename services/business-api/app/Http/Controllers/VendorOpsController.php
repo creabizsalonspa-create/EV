@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Charging\ConnectorMapping;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -292,7 +293,10 @@ class VendorOpsController extends Controller
         $this->access->require($r->user(), $company, 'inventory.read');
         abort_unless($charger->company_id === $company->id, 404);
 
-        return VendorConnector::where('charger_id', $charger->id)->paginate(25)->through(fn ($c) => $c->toArray() + ['availability' => 'unknown', 'remote_control_enabled' => false]);
+        $page = VendorConnector::where('charger_id', $charger->id)->paginate(25);
+        $maps = ConnectorMapping::whereIn('connector_id', $page->getCollection()->pluck('id'))->get()->keyBy('connector_id');
+
+        return $page->through(fn ($c) => $c->toArray() + ['availability' => 'unknown', 'remote_control_enabled' => false, 'canonical_mapping_id' => $maps->get($c->id)?->id]);
     }
 
     public function createConnector(Request $r, VendorCompany $company, VendorCharger $charger)

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ChargerCommandController;
+use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\PlatformController as P;
@@ -99,3 +100,5 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start']);
     Route::post('/api/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop']);
 });
+
+Route::get('/api/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');

@@ -1606,4 +1606,67 @@ window.EV_MESSAGES = {
         en: "Connection registration options could not be loaded. Existing provider operations remain available.",
         ar: "تعذر تحميل خيارات تسجيل الاتصال. تظل عمليات المزوّدين الحالية متاحة.",
     },
+    "Choose connector": { en: "Choose connector", ar: "اختيار الموصل" },
+    "Connector choice disclaimer": {
+        en: "Simulated inventory. Connectors on one EVSE share capacity; availability is not live.",
+        ar: "مخزون تجريبي. تتشارك موصلات وحدة EVSE الواحدة السعة؛ التوافر غير مباشر.",
+    },
+    "EVSE {evse} \u00b7 Connector {connector}": {
+        en: "EVSE {evse} \u00b7 Connector {connector}",
+        ar: "وحدة EVSE {evse} · الموصل {connector}",
+    },
+    "Connector currently unavailable": {
+        en: "This simulator connector cannot accept new reservations.",
+        ar: "هذا الموصل التجريبي لا يقبل حجوزات جديدة.",
+    },
+    "Sign in to reserve connector": {
+        en: "Sign in as a customer to reserve this simulator connector.",
+        ar: "سجّل الدخول كعميل لحجز هذا الموصل التجريبي.",
+    },
+    "Canonical EVSE mapping": {
+        en: "Canonical EVSE mapping",
+        ar: "ربط وحدات EVSE المعتمد",
+    },
+    "Canonical mapping disclaimer": {
+        en: "Mapping identity is immutable. Current legacy bookings and unresolved sessions must finish before activation. Simulators only; no hardware command is sent.",
+        ar: "هوية الربط غير قابلة للتعديل. يجب انتهاء الحجوزات القديمة والجلسات غير المحسومة قبل التفعيل. محاكاة فقط؛ لا يُرسل أمر لجهاز فعلي.",
+    },
+    "Create EVSE": { en: "Create EVSE", ar: "إنشاء وحدة EVSE" },
+    "EVSE number": { en: "EVSE number", ar: "رقم وحدة EVSE" },
+    "Simulator mode": { en: "Simulator mode", ar: "نمط المحاكاة" },
+    "Application simulator": {
+        en: "Application simulator",
+        ar: "محاكاة التطبيق",
+    },
+    "CSMS simulator": { en: "CSMS simulator", ar: "محاكاة CSMS" },
+    "Provisioned source binding ID": {
+        en: "Provisioned source binding ID (CSMS only)",
+        ar: "معرّف اتصال المصدر المُجهّز (CSMS فقط)",
+    },
+    "Source EVSE number": {
+        en: "Source EVSE number (0 for OCPP 1.6)",
+        ar: "رقم EVSE في المصدر (0 لبروتوكول OCPP 1.6)",
+    },
+    "Provisioned simulator sources": {
+        en: "Provisioned simulator sources",
+        ar: "مصادر المحاكاة المُجهّزة",
+    },
+    "EVSE {number}": { en: "EVSE {number}", ar: "وحدة EVSE {number}" },
+    "Map connector": { en: "Map connector", ar: "ربط الموصل" },
+    "Connector already mapped": {
+        en: "Connector already mapped",
+        ar: "الموصل مربوط بالفعل",
+    },
+    "Source connector number": {
+        en: "Source connector number",
+        ar: "رقم الموصل في المصدر",
+    },
+    "Mapping outcome unconfirmed": {
+        en: "The mapping may have been saved. Refresh authoritative records before submitting again.",
+        ar: "ربما حُفظ الربط. حدّث السجلات المعتمدة قبل إعادة الإرسال.",
+    },
+    "Mapped connector capabilities": {
+        en: "Mapped connectors · choose a connector for capabilities",
+        ar: "موصلات معتمدة · اختر موصلاً لعرض مواصفاته",
+    },
 };

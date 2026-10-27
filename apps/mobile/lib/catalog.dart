@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'topology_strings.dart';
 
 typedef CatalogLoader =
     Future<ApiPage<Station>> Function(CatalogFilter filter, int page);
@@ -51,6 +52,7 @@ class CatalogController extends ChangeNotifier {
 class CatalogView extends StatefulWidget {
   final CatalogLoader loader;
   final VoidCallback? onRoaming;
+  final void Function(Station)? onChooseConnectors;
   final bool customer;
   final bool busy;
   final Future<void> Function(Station) onReserve;
@@ -58,6 +60,7 @@ class CatalogView extends StatefulWidget {
     super.key,
     required this.loader,
     this.onRoaming,
+    this.onChooseConnectors,
     required this.customer,
     this.busy = false,
     required this.onReserve,
@@ -279,12 +282,21 @@ class CatalogViewState extends State<CatalogView> {
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         Text(
-                          '${station.connector} · ${station.powerKw} kW',
+                          station.reservationPolicy == 'canonical' ? topologyText(context,'capabilities') : '${station.connector} · ${station.powerKw} kW',
                           textDirection: TextDirection.ltr,
                         ),
                         Text(s.t('unknownAvailability')),
                         if (station.reservationPolicy == 'managed_blocked')
                           Text(s.t('managedUnavailable')),
+                        if (station.reservationPolicy == 'canonical' &&
+                            widget.customer &&
+                            widget.onChooseConnectors != null)
+                          FilledButton.tonal(
+                            onPressed: controller.loading || widget.busy
+                                ? null
+                                : () => widget.onChooseConnectors!(station),
+                            child: Text(topologyText(context, 'choose')),
+                          ),
                         if (station.reservable && widget.customer)
                           FilledButton(
                             onPressed: controller.loading || widget.busy
