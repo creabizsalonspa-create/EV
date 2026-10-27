@@ -1448,4 +1448,72 @@ window.EV_MESSAGES = {
     Refresh: { en: "Refresh", ar: "تحديث" },
     Search: { en: "Search", ar: "بحث" },
     "Open company": { en: "Open company", ar: "فتح الشركة" },
+    "Simulated pricing": { en: "Simulated pricing", ar: "التسعير التجريبي" },
+    "Tariff disclaimer": {
+        en: "Pricing is limited to simulator stations. Real charging and payments are not enabled.",
+        ar: "التسعير متاح للمحطات التجريبية فقط. الشحن الفعلي والمدفوعات غير مفعلة.",
+    },
+    "Tariff snapshot disclaimer": {
+        en: "New versions apply at session start. Existing session quotes and invoices stay unchanged.",
+        ar: "تسري الإصدارات الجديدة عند بدء الجلسة. تظل أسعار الجلسات والفواتير السابقة دون تغيير.",
+    },
+    "Manage pricing": { en: "Manage pricing", ar: "إدارة التسعير" },
+    "No pricing stations": {
+        en: "No owned simulator stations available for pricing.",
+        ar: "لا توجد محطات تجريبية تابعة لك متاحة للتسعير.",
+    },
+    "Pricing load failed": {
+        en: "Unable to load pricing. Please retry.",
+        ar: "تعذر تحميل التسعير. يرجى المحاولة مجدداً.",
+    },
+    "Refresh pricing history": {
+        en: "Refresh pricing history",
+        ar: "تحديث سجل التسعير",
+    },
+    "Publish pricing version": {
+        en: "Publish pricing version",
+        ar: "نشر إصدار التسعير",
+    },
+    "Price per kWh": { en: "Price per kWh", ar: "السعر لكل كيلوواط ساعة" },
+    "Tax percentage": { en: "Tax (%) · 0–100", ar: "الضريبة (%) · ٠–١٠٠" },
+    "Commission percentage": {
+        en: "Commission (%) · 0–100",
+        ar: "العمولة (%) · ٠–١٠٠",
+    },
+    "Commission policy retained": {
+        en: "The administrator commission policy is retained automatically.",
+        ar: "يتم الاحتفاظ تلقائياً بسياسة العمولة التي حددها المسؤول.",
+    },
+    "Invalid exact price": {
+        en: "Use an exact non-negative price within the displayed limits and currency precision.",
+        ar: "أدخل سعراً دقيقاً غير سالب ضمن الحدود والدقة العشرية المعروضة للعملة.",
+    },
+    "Pricing rejected; correct or wait": {
+        en: "Publishing was rejected. Correct the values or wait before trying again.",
+        ar: "تم رفض النشر. صحح القيم أو انتظر قبل المحاولة مجدداً.",
+    },
+    "Pricing outcome uncertain": {
+        en: "Refresh pricing history before submitting again. The previous version may already have been saved.",
+        ar: "حدّث سجل التسعير قبل الإرسال مجدداً. قد يكون الإصدار السابق قد حُفظ بالفعل.",
+    },
+    "Pricing region missing": {
+        en: "Configure the matching country/currency before publishing pricing.",
+        ar: "يجب إعداد الدولة والعملة المتطابقتين قبل نشر التسعير.",
+    },
+    "No pricing versions": {
+        en: "No pricing versions published.",
+        ar: "لم يتم نشر إصدارات تسعير.",
+    },
+    "Pricing version {id}": {
+        en: "Pricing version {id}",
+        ar: "إصدار التسعير {id}",
+    },
+    "Pricing percentages": {
+        en: "Tax: {tax}% · Commission: {commission}%",
+        ar: "الضريبة: {tax}% · العمولة: {commission}%",
+    },
+    "Pricing maximum": {
+        en: "Maximum price: {amount} {currency} per kWh",
+        ar: "الحد الأقصى للسعر: {amount} {currency} لكل كيلوواط ساعة",
+    },
 };

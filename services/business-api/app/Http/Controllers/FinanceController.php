@@ -12,6 +12,7 @@ use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Services\Finance\FinanceService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -25,26 +26,64 @@ class FinanceController extends Controller
 
     public function tariffs(Request $r, Station $station)
     {
-        abort_unless($r->user()->role === 'admin' || $station->vendor_id === $r->user()->id, 404);
+        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id), 404);
 
-        return TariffVersion::where('station_id', $station->id)->orderByDesc('id')->paginate(25);
+        $region = DB::table('regions')->where('country', $station->country)->where('currency', $station->currency)->first();
+
+        return response()->json(TariffVersion::where('station_id', $station->id)->orderByDesc('id')->paginate(25)->toArray() + [
+            'pricing_context' => ['currency' => $station->currency, 'minor_units' => $region ? (int) $region->minor_units : null, 'evidence' => $station->source === 'simulator' ? 'SIMULATED' : 'DISCOVERY_ONLY'],
+        ]);
+    }
+
+    public function stations(Request $r)
+    {
+        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
+        $regions = DB::table('regions')->get()->keyBy(fn ($r) => $r->country.':'.$r->currency);
+
+        return Station::where('source', 'simulator')->when($r->user()->role !== 'admin', fn ($q) => $q->where('vendor_id', $r->user()->id))
+            ->orderByDesc('id')->paginate(25)->through(fn ($s) => [
+                'id' => $s->id, 'name' => $s->name, 'country' => $s->country, 'currency' => $s->currency,
+                'minor_units' => isset($regions[$s->country.':'.$s->currency]) ? (int) $regions[$s->country.':'.$s->currency]->minor_units : null,
+                'evidence' => 'SIMULATED',
+            ]);
     }
 
     public function createTariff(Request $r, Station $station)
     {
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id), 404);
-        abort_unless($station->source === 'simulator', 409, 'Only simulated tariffs are enabled.');
-        $v = $r->validate(['rate_minor_per_kwh' => 'required|integer|between:0,1000000', 'tax_bps' => 'required|integer|between:0,10000', 'commission_bps' => 'required|integer|between:0,10000']);
+        $v = $r->validate(['rate_minor_per_kwh' => 'required|integer|between:0,1000000', 'tax_bps' => 'required|integer|between:0,10000', 'commission_bps' => 'required|integer|between:0,10000', 'idempotency_key' => 'sometimes|required|string|max:100', 'expected_minor_units' => 'sometimes|required|integer|between:0,3', 'expected_currency' => ['sometimes', 'required', 'string', 'regex:/^[A-Z]{3}$/']]);
         abort_if($r->user()->role !== 'admin' && (int) $v['commission_bps'] !== 0, 403, 'Only administrators configure commission.');
-        $region = DB::table('regions')->where('country', $station->country)->where('currency', $station->currency)->first();
-        abort_unless($region, 409, 'Configure the matching region/currency first.');
+        $key = isset($v['idempotency_key']) ? hash('sha256', $r->user()->id.':'.$v['idempotency_key']) : null;
+        $fingerprint = hash('sha256', json_encode([$station->id, (int) $v['rate_minor_per_kwh'], (int) $v['tax_bps'], (int) $v['commission_bps'], isset($v['expected_minor_units']) ? (int) $v['expected_minor_units'] : null, $v['expected_currency'] ?? null], JSON_THROW_ON_ERROR));
+        $expectedUnits = isset($v['expected_minor_units']) ? (int) $v['expected_minor_units'] : null;
+        $expectedCurrency = $v['expected_currency'] ?? null;
+        unset($v['idempotency_key'], $v['expected_minor_units'], $v['expected_currency']);
+        try {
+            return DB::transaction(function () use ($r, $station, $v, $key, $fingerprint, $expectedUnits, $expectedCurrency) {
+                // All publishers serialize on the station; a vendor price change cannot erase a commission policy.
+                $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
+                abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id), 404);
+                abort_unless($station->source === 'simulator', 409, 'Only simulated tariffs are enabled.');
+                if ($key && ($old = TariffVersion::where('publishing_key', $key)->first())) {
+                    abort_unless(hash_equals($old->publishing_fingerprint, $fingerprint), 409, 'Tariff publishing key payload mismatch.');
 
-        return DB::transaction(function () use ($r, $station, $v, $region) {
-            $t = TariffVersion::create($v + ['station_id' => $station->id, 'created_by' => $r->user()->id, 'currency' => $station->currency, 'minor_units' => $region->minor_units, 'effective_from' => now()]);
-            DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.simulated_tariff_published', 'subject' => (string) $t->id, 'created_at' => now()]);
+                    return response()->json($old, 201);
+                }
+                $region = DB::table('regions')->where('country', $station->country)->where('currency', $station->currency)->lockForUpdate()->first();
+                abort_unless($region, 409, 'Configure the matching region/currency first.');
+                abort_if(($expectedUnits !== null && $expectedUnits !== (int) $region->minor_units) || ($expectedCurrency !== null && $expectedCurrency !== $station->currency), 409, 'Pricing currency or precision changed; refresh the station.');
+                $values = $v;
+                if ($r->user()->role !== 'admin') {
+                    $values['commission_bps'] = TariffVersion::where('station_id', $station->id)->where('effective_from', '<=', now())->orderByDesc('effective_from')->orderByDesc('id')->value('commission_bps') ?? 0;
+                }
+                $t = TariffVersion::create($values + ['station_id' => $station->id, 'created_by' => $r->user()->id, 'currency' => $station->currency, 'minor_units' => $region->minor_units, 'effective_from' => now(), 'publishing_key' => $key, 'publishing_fingerprint' => $key ? $fingerprint : null]);
+                DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.simulated_tariff_published', 'subject' => (string) $t->id, 'created_at' => now()]);
 
-            return response()->json($t, 201);
-        });
+                return response()->json($t, 201);
+            }, 3);
+        } catch (UniqueConstraintViolationException $e) {
+            abort(409, 'Tariff publishing key conflict; refresh history before publishing again.');
+        }
     }
 
     public function invoices(Request $r)

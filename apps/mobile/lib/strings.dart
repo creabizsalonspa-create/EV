@@ -16,6 +16,29 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'pricing': 'Simulated pricing',
+    'tariffDisclaimer':
+        'Pricing is limited to simulator stations. Real charging and payments are not enabled.',
+    'tariffSnapshot':
+        'New versions apply at session start. Existing session quotes and invoices stay unchanged.',
+    'refreshPricing': 'Refresh pricing history',
+    'pricePerKwh': 'Price per kWh ({currency})',
+    'taxPercent': 'Tax (%) · 0–100',
+    'commissionRetained':
+        'The administrator commission policy is retained automatically.',
+    'publishPricing': 'Publish pricing version',
+    'invalidExactPrice':
+        'Use an exact non-negative price within the displayed limits and currency precision.',
+    'pricingUncertain':
+        'Refresh pricing history before submitting again. The previous version may already have been saved.',
+    'pricingRegionMissing':
+        'Configure the matching country/currency before publishing pricing.',
+    'noPricingVersions': 'No pricing versions published.',
+    'noPricingStations': 'No owned simulator stations available for pricing.',
+    'pricingVersion': 'Pricing version {id}',
+    'pricingPercentages': 'Tax: {tax}% · Commission: {commission}%',
+    'pricingMaximum': 'Maximum price: {amount} {currency} per kWh',
+
     'filterInvoices': 'Filter invoices',
     'invoiceHistory': 'Invoice history',
     'invoicePrefix': 'Invoice number prefix',
@@ -261,6 +284,29 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'pricing': 'التسعير التجريبي',
+    'tariffDisclaimer':
+        'التسعير متاح للمحطات التجريبية فقط. الشحن الفعلي والمدفوعات غير مفعلة.',
+    'tariffSnapshot':
+        'تسري الإصدارات الجديدة عند بدء الجلسة. تظل أسعار الجلسات والفواتير السابقة دون تغيير.',
+    'refreshPricing': 'تحديث سجل التسعير',
+    'pricePerKwh': 'السعر لكل كيلوواط ساعة ({currency})',
+    'taxPercent': 'الضريبة (%) · ٠–١٠٠',
+    'commissionRetained':
+        'يتم الاحتفاظ تلقائياً بسياسة العمولة التي حددها المسؤول.',
+    'publishPricing': 'نشر إصدار التسعير',
+    'invalidExactPrice':
+        'أدخل سعراً دقيقاً غير سالب ضمن الحدود والدقة العشرية المعروضة للعملة.',
+    'pricingUncertain':
+        'حدّث سجل التسعير قبل الإرسال مجدداً. قد يكون الإصدار السابق قد حُفظ بالفعل.',
+    'pricingRegionMissing':
+        'يجب إعداد الدولة والعملة المتطابقتين قبل نشر التسعير.',
+    'noPricingVersions': 'لم يتم نشر إصدارات تسعير.',
+    'noPricingStations': 'لا توجد محطات تجريبية تابعة لك متاحة للتسعير.',
+    'pricingVersion': 'إصدار التسعير {id}',
+    'pricingPercentages': 'الضريبة: {tax}% · العمولة: {commission}%',
+    'pricingMaximum': 'الحد الأقصى للسعر: {amount} {currency} لكل كيلوواط ساعة',
+
     'filterInvoices': 'تصفية الفواتير',
     'invoiceHistory': 'سجل الفواتير',
     'invoicePrefix': 'بداية رقم الفاتورة',

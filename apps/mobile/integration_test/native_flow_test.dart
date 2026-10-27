@@ -26,6 +26,7 @@ void main() {
       var role = 'customer';
       var authenticated = 0;
       var loggedIn = false;
+      var pricingAmount = 125, pricingVersion = 1;
       final subscription = server.listen((request) async {
         request.response.headers.contentType = ContentType.json;
         final path = request.uri.path;
@@ -83,6 +84,61 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/finance/stations') {
+          result = {
+            'data': [
+              {
+                'id': 8,
+                'name': 'Device pricing station',
+                'currency': 'AED',
+                'minor_units': 2,
+                'evidence': 'SIMULATED',
+              },
+            ],
+            'current_page': 1,
+            'last_page': 1,
+            'total': 1,
+          };
+        } else if (path == '/api/stations/8/tariffs') {
+          if (request.method == 'POST') {
+            expectSync(role, 'vendor');
+            expectSync(
+              request.headers.value('X-CSRF-TOKEN'),
+              'synthetic-device-csrf',
+            );
+            final body = jsonDecode(await utf8.decoder.bind(request).join());
+            expectSync(body['commission_bps'], 0);
+            expectSync(body['expected_minor_units'], 2);
+            expectSync(body['expected_currency'], 'AED');
+            expectSync(
+              body['idempotency_key'],
+              matches(RegExp(r'^[a-f0-9]{32}$')),
+            );
+            pricingAmount = body['rate_minor_per_kwh'] as int;
+            result = {'id': ++pricingVersion};
+          } else {
+            result = {
+              'data': [
+                {
+                  'id': pricingVersion,
+                  'rate_minor_per_kwh': pricingAmount,
+                  'tax_bps': 500,
+                  'commission_bps': 1250,
+                  'minor_units': 2,
+                  'currency': 'AED',
+                  'effective_from': '2026-10-27T00:00:00Z',
+                },
+              ],
+              'current_page': 1,
+              'last_page': 1,
+              'total': 1,
+              'pricing_context': {
+                'currency': 'AED',
+                'minor_units': 2,
+                'evidence': 'SIMULATED',
+              },
+            };
+          }
         } else if (path == '/api/finance/invoices' ||
             path == '/api/finance/invoices/7') {
           expectSync(request.method, 'GET');
@@ -301,6 +357,25 @@ void main() {
       expect(authenticated, 2);
       expect(secondApi.remembered, isFalse);
       expect(find.byTooltip('إنشاء'), findsOneWidget);
+      await tester.tap(find.byTooltip('الحساب'));
+      await settle();
+      await tester.tap(find.text('التسعير التجريبي'));
+      await settle();
+      await tester.tap(find.text('Device pricing station'));
+      await settle();
+      await tester.enterText(find.byType(TextFormField).at(0), '٢٫٥٠');
+      await tester.enterText(find.byType(TextFormField).at(1), '٥');
+      await tester.ensureVisible(find.text('نشر إصدار التسعير'));
+      await tester.tap(find.text('نشر إصدار التسعير'));
+      await settle();
+      expect(pricingAmount, 250);
+      expect(find.text('2.50 AED / kWh'), findsOneWidget);
+      await tester.pageBack();
+      await settle();
+      await tester.pageBack();
+      await settle();
+      debugPrint('DEVICE: exact Arabic vendor pricing verified');
+
       expect(
         Directionality.of(tester.element(find.byType(Workspace))),
         TextDirection.rtl,

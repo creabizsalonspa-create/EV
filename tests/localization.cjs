@@ -16,7 +16,12 @@ const fs = require("node:fs"),
     assert.deepEqual(variables(value.en), variables(value.ar), key);
   }
   // Literal UI labels in the new workspaces must have both resources; never scan user text.
-  for (const file of ["vendor-ops.js", "roaming.js", "invoice-history.js"]) {
+  for (const file of [
+    "vendor-ops.js",
+    "roaming.js",
+    "invoice-history.js",
+    "tariffs.js",
+  ]) {
     const source = fs.readFileSync(
       "services/business-api/public/" + file,
       "utf8",

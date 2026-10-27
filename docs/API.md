@@ -100,3 +100,9 @@ Reservation rows now include csms_bound; scoped session rows include csms_linked
 ## Invoice history filters
 
 `GET /api/finance/invoices` and `/api/v1/finance/invoices` preserve existing role/tenant pagination and accept optional `q` (literal alphanumeric/hyphen invoice-number prefix, max 80), uppercase three-letter `currency`, `from` and `to` (`YYYY-MM-DD`, years 0001–9999). Dates are inclusive UTC calendar days; reversed/invalid ranges return 422. `GET .../finance/invoices/{id}` returns scoped immutable invoice/summary plus read-only payment/refund records; clients render only appropriate amount/time/reason fields, never idempotency/fingerprint metadata. No real PSP processing is implied by SIMULATED records.
+
+## Scoped pricing and publish identity
+
+`GET /api/finance/stations` (also `/api/v1`) is vendor/admin-only and paginated. Each item projects id/name/country/currency/minor_units/evidence, with null precision for missing matching region configuration. `GET stations/{id}/tariffs` requires current vendor ownership or admin and adds `pricing_context` without changing existing rows/pagination.
+
+Existing tariff POST fields remain rate_minor_per_kwh/tax_bps/commission_bps. Optional idempotency_key (nonempty max100), expected_minor_units (0–3) and expected_currency (uppercase ISO-shaped code) add retry/precondition safety. Identity hashes are never returned. Matching retries return the original 201 without another audit/version; changed payload or stale currency/precision returns409. Vendor commission_bps must be zero and means retain administrator policy; admin may set commission. Existing clients omitting the new fields keep compatible append behavior, so new clients should always supply them.

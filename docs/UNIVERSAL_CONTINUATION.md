@@ -34,6 +34,8 @@ EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:frontend
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:localization
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:vendor
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:roaming
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:invoices
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:tariffs
 node tests/charging-session.cjs
 node tests/charging-business.cjs
 ```

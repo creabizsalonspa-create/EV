@@ -4,6 +4,7 @@ import 'api.dart';
 import 'catalog.dart';
 import 'roaming.dart';
 import 'invoice_history.dart';
+import 'tariffs.dart';
 import 'preferences.dart';
 import 'strings.dart';
 import 'support.dart';
@@ -830,6 +831,15 @@ class _WorkspaceState extends State<Workspace> {
               onSelected: (value) {
                 if (value == 'profile') {
                   profile();
+                } else if (value == 'tariffs') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => TariffWorkspaceView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'invoices') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -876,6 +886,12 @@ class _WorkspaceState extends State<Workspace> {
                 }
               },
               itemBuilder: (_) => [
+                if (account!.role == 'vendor')
+                  PopupMenuItem(
+                    value: 'tariffs',
+                    enabled: !busy,
+                    child: Text(s.t('pricing')),
+                  ),
                 PopupMenuItem(
                   value: 'invoices',
                   enabled: !busy,

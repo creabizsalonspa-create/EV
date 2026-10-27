@@ -8,7 +8,8 @@
     "test:localization": "node tests/localization.cjs",
     "test:vendor": "node tests/vendor-workspace.cjs",
     "test:roaming": "node tests/roaming-workspace.cjs",
-    "test:invoices": "node tests/invoice-history.cjs"
+    "test:invoices": "node tests/invoice-history.cjs",
+    "test:tariffs": "node tests/money-input.cjs && node tests/tariffs.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

@@ -26,6 +26,7 @@ function clearPrivateViews() {
     vendorWorkspace.clear();
     roamingWorkspace.clear();
     invoiceHistory.clear();
+    tariffWorkspace.clear();
     commandRequest?.abort();
     el("commands-state").textContent = "";
     delete el("commands-state").dataset.i18n;
@@ -166,6 +167,7 @@ async function identity() {
     await vendorWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
     await invoiceHistory.setActor(user);
+    await tariffWorkspace.setActor(user);
     if (user?.role === "admin") await adminOverview();
     if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
@@ -727,6 +729,12 @@ const roamingWorkspace = createRoamingWorkspace({
 });
 const invoiceHistory = createInvoiceHistory({
     root: el("invoice-history"),
+    api,
+    ui,
+    actor: () => user,
+});
+const tariffWorkspace = createTariffWorkspace({
+    root: el("tariff-operations"),
     api,
     ui,
     actor: () => user,

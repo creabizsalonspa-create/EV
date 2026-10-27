@@ -1,0 +1,11 @@
+
+> test:tariffs
+> node tests/money-input.cjs && node tests/tariffs.cjs
+
+PASS: exact EN/Arabic/Persian monetary input, 0–3 currency digits, no silent rounding or ambiguous separators, bounded integer round trips.
+PASS: real Laravel paginated pricing inventory, admin commission retention, exact Arabic price/tax publishing, committed lost-ack idempotency, immutable three-version history, role/tenant isolation, RTL phone layout and logout cleanup.
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

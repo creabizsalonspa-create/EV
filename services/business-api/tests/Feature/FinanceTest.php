@@ -200,6 +200,44 @@ class FinanceTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']))->postJson($path, $v + ['effective_from' => '1990-01-01'])->assertCreated();
     }
 
+    public function test_vendor_pricing_retains_admin_commission_and_publish_retries_are_payload_bound(): void
+    {
+        $f = $this->fixture();
+        $base = '/finance-test-api/stations/'.$f[2]->id.'/tariffs';
+        $body = ['rate_minor_per_kwh' => 250, 'tax_bps' => 500, 'commission_bps' => 0, 'idempotency_key' => 'vendor-publish'];
+        $first = $this->actingAs($f[0])->postJson($base, $body)->assertCreated()->assertJsonPath('commission_bps', 1000)->assertJsonMissingPath('publishing_key')->assertJsonMissingPath('publishing_fingerprint')->json();
+        $this->postJson($base, array_map(fn ($v) => (string) $v, $body))->assertCreated()->assertJsonPath('id', $first['id']);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'finance.simulated_tariff_published')->count());
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->postJson($base, ['rate_minor_per_kwh' => 300, 'tax_bps' => 500, 'commission_bps' => 2000, 'idempotency_key' => 'policy'])->assertCreated();
+        $this->actingAs($f[0])->postJson($base, $body)->assertCreated()->assertJsonPath('id', $first['id'])->assertJsonPath('commission_bps', 1000);
+        $this->postJson($base, array_replace($body, ['idempotency_key' => 'next-price']))->assertCreated()->assertJsonPath('commission_bps', 2000);
+        $this->postJson($base, array_replace($body, ['rate_minor_per_kwh' => 251]))->assertConflict();
+        $this->postJson($base, array_replace($body, ['idempotency_key' => 'stale-precision', 'expected_minor_units' => 3, 'expected_currency' => 'AED']))->assertConflict();
+        $this->postJson($base, array_replace($body, ['idempotency_key' => 'stale-currency', 'expected_minor_units' => 2, 'expected_currency' => 'USD']))->assertConflict();
+        $this->assertSame(1000, SessionQuote::first()->commission_bps);
+        $this->assertDatabaseCount('finance_tariff_versions', 4);
+        $this->assertSame(3, DB::table('audit_events')->where('action', 'finance.simulated_tariff_published')->count());
+    }
+
+    public function test_pricing_station_selector_is_role_scoped_and_requires_matching_currency_configuration(): void
+    {
+        $f = $this->fixture();
+        $base = '/finance-test-api/finance/stations';
+        $this->actingAs($f[0])->getJson($base)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.evidence', 'SIMULATED')->assertJsonPath('data.0.minor_units', 2);
+        $this->actingAs($f[1])->getJson($base)->assertForbidden();
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($base)->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($base)->assertOk()->assertJsonCount(1, 'data');
+        $f[0]->role = 'customer';
+        $f[0]->save();
+        $this->actingAs($f[0])->getJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs')->assertNotFound();
+        $f[0]->role = 'vendor';
+        $f[0]->save();
+        $f[2]->update(['currency' => 'USD']);
+        $this->actingAs($f[0])->getJson($base)->assertOk()->assertJsonPath('data.0.minor_units', null);
+        $this->postJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs', ['rate_minor_per_kwh' => 250, 'tax_bps' => 500, 'commission_bps' => 0])->assertConflict();
+    }
+
     public function test_numeric_form_tariffs_keep_integer_contract_and_snapshot_comparisons(): void
     {
         $f = $this->fixture(tariff: false);

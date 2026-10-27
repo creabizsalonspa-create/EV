@@ -63,3 +63,11 @@ The full-stack continuation executed the isolated runner successfully after corr
 ## Web/native read-only history
 
 Web Invoice history supports all authenticated roles; native Account → Invoice history supports customer/vendor roles. Both use scoped numeric pages and invoice-prefix/currency/UTC date filters, then GET existing document detail without reissuing it. Detail includes recorded simulated collections/refunds; vendor/admin web additionally shows immutable allocation snapshots explicitly before refunds and without payout claims. Logout/expiry removes private records. Read-only UI acceptance is distinct from payment checkout, refund mutations, PSP integrations and commercial settlements, which remain unfinished. Tests: FinanceTest history filter/privacy cases, `npm run test:invoices`, native invoice/history tests and opted-in real-Laravel smoke.
+
+## Versioned pricing interfaces and commission authority
+
+`GET finance/stations` lists only owned simulator stations for vendors and all simulator stations for admin, with current currency precision or null when regional configuration does not match. Customer-role company staff are not implicitly granted finance permissions. Tariff history returns additive `pricing_context` (current currency, minor_units, provenance); the old pagination remains. Native Account → Simulated pricing is vendor-only; Super Admin pricing remains web-only.
+
+Vendor publication must still send commission_bps=0 as its permission sentinel; the server now retains the current commission policy. Only an admin may change that policy. Clients publish decimal prices/tax percentages through exact integer conversion, send a fresh intent identity and expected currency/precision, and retain history/inputs on appropriate failures. Existing session quotes and invoice allocations remain immutable. These are simulated price versions, not legal tariff approval or settled earnings.
+
+Additive migration 080001 adds nullable publishing hashes to existing tariff versions without modifying old records. Rollback drops only the new unique index/columns; preserve database backups and immutable finance. Test evidence includes committed lost-ack replay and PostgreSQL concurrent same-station publication. Region and station locks protect current precision and commission; unique publishing identity binds actor/station/payload.

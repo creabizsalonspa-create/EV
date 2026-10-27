@@ -309,6 +309,47 @@ void main() {
           ),
           throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
         );
+        final pricingStations = await vendor.request(
+          'finance/stations',
+          query: {'page': '2'},
+        );
+        expect(pricingStations['total'], 26);
+        expect(pricingStations['data'].single['id'], station['id']);
+        final versions = await vendor.request(
+          'stations/${station['id']}/tariffs',
+        );
+        final context = versions['pricing_context'];
+        expect(context['evidence'], 'SIMULATED');
+        final priceBody = <String, dynamic>{
+          'rate_minor_per_kwh': 250,
+          'tax_bps': 500,
+          'commission_bps': 0,
+          'idempotency_key': 'native-price-$run',
+          'expected_minor_units': context['minor_units'],
+          'expected_currency': context['currency'],
+        };
+        final priceVersion = await vendor.request(
+          'stations/${station['id']}/tariffs',
+          method: 'POST',
+          body: priceBody,
+        );
+        final replay = await vendor.request(
+          'stations/${station['id']}/tariffs',
+          method: 'POST',
+          body: priceBody,
+        );
+        expect(replay['id'], priceVersion['id']);
+        expect(priceVersion.containsKey('publishing_key'), false);
+        expect(
+          (await customer.request(
+            'finance/invoices/${invoice['id']}',
+          ))['invoice']['total_minor'],
+          150,
+        );
+        await expectLater(
+          customer.request('finance/stations'),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 403)),
+        );
         // Operator-only test fixture for an actual support notification; no admin mobile UI.
         final adminRole = await Process.run('../../scripts/php', [
           'artisan',

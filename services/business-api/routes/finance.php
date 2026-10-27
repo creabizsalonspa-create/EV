@@ -4,6 +4,7 @@ use App\Http\Controllers\FinanceController as F;
 use Illuminate\Support\Facades\Route;
 
 // Load under the parent application's authenticated/throttled api or api/v1 prefix.
+Route::get('/finance/stations', [F::class, 'stations']);
 Route::get('/stations/{station}/tariffs', [F::class, 'tariffs']);
 Route::post('/stations/{station}/tariffs', [F::class, 'createTariff']);
 Route::get('/finance/invoices', [F::class, 'invoices']);
