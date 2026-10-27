@@ -28,6 +28,7 @@ jobs:
       - run: ./scripts/charging-bridge-setup
       - run: node tests/charging-session.cjs
       - run: node tests/charging-business.cjs
+      - run: node tests/charging-client.cjs
       - name: Verify continuous source ingestion and restart
         run: EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - if: failure()

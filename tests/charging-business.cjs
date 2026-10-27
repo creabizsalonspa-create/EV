@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { BusinessClient } = require("./helpers/business-client.cjs");
 const fs = require("node:fs");
 const { randomUUID, createHash, createHmac } = require("node:crypto");
 const { promisify } = require("node:util");
@@ -36,62 +37,8 @@ async function consume(link) {
   await execFile("./scripts/csms-consume", ["--once", "--link=" + link.id]);
 }
 async function latestSession(client, id) {
+  await new Promise((resolve) => setTimeout(resolve, 250));
   return (await client.request("simulations")).data.find((s) => s.id === id);
-}
-class BusinessClient {
-  constructor() {
-    this.cookies = new Map();
-    this.csrf = null;
-    this.user = null;
-  }
-  async request(path, method = "GET", body) {
-    const r = await fetch(base + "/api/" + path, {
-      method,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        Cookie: [...this.cookies].map(([k, v]) => k + "=" + v).join("; "),
-        ...(this.csrf ? { "X-CSRF-TOKEN": this.csrf } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
-    });
-    for (const c of r.headers.getSetCookie()) {
-      const kv = c.split(";")[0],
-        n = kv.indexOf("=");
-      this.cookies.set(kv.slice(0, n), kv.slice(n + 1));
-    }
-    const data = r.status === 204 ? null : await r.json();
-    assert(
-      r.ok,
-      method +
-        " " +
-        path +
-        " failed (" +
-        r.status +
-        "): " +
-        (data?.message || "Request rejected"),
-    );
-    return data;
-  }
-  async register(role) {
-    this.csrf = (await this.request("csrf")).token;
-    const email = "protocol-" + role + "-" + randomUUID() + "@example.test";
-    this.user = await this.request("register", "POST", {
-      name: "Protocol QA " + role,
-      email,
-      password: randomUUID() + "aA9!",
-    });
-    this.csrf = (await this.request("csrf")).token;
-    if (role !== "customer")
-      await execFile("./scripts/php", [
-        "artisan",
-        "platform:role",
-        email,
-        role,
-      ]);
-    return this;
-  }
 }
 async function signedEvent(payload, expectedStatus = 200) {
   const raw = JSON.stringify(payload),
