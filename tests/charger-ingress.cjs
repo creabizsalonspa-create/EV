@@ -191,8 +191,22 @@ const { createIngress } = require("../services/charger-ingress/server.cjs");
           });
         });
         assert.equal((await connect(f, protocol, f.secret)).status, 401);
-        const next = await connect(f, protocol, rotated.secret);
-        assert.equal(next.status, 101);
+        // CitrineOS may still be releasing its station-identity lock after
+        // the revoked transport closes. Retry only this new TLS upgrade,
+        // never a BootNotification or charging command, and never a 401/429.
+        let next;
+        for (const delay of [0, 100, 250, 500, 1000]) {
+          if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+          next = await connect(f, protocol, rotated.secret);
+          if (next.status !== 502) break;
+        }
+        assert.equal(
+          next.status,
+          101,
+          "Rotated credential reconnect must finish upstream identity cleanup",
+        );
+        const reconnectedBoot = await boot(next.socket, protocol);
+        assert.equal(reconnectedBoot[2].status, "Accepted");
         execFileSync(
           "./scripts/php",
           [
