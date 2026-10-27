@@ -1,5 +1,10 @@
 # Requirement-by-requirement continuation status
 
+## Current evidence, 28 October 2026 (Dubai)
+
+Finance PR #7 is integrated via PR #8 (00685cc); do not rebuild recovery/credit accounting. Canonical topology, reservation lifecycle, source reconciliation and secure admission/operational cases are implemented with their cited tests. Subscription in-app dunning and native recovery/notices are INTEGRATED_TESTED locally with hosted validation pending; see SUBSCRIPTION_DUNNING.md and ACTIVE_DEVELOPMENT_CHECKPOINT.md. Saved mandates, recurring collection, full production CSMS registration/token authority, full OCPI interoperability, maps, complete vendor/Admin/loyalty/security/release workflows remain IN_PROGRESS. No row is PRODUCTION_READY or HARDWARE_TESTED. Older descriptions below are historical snapshots, not an instruction to rebuild completed modules. Agent 2 is the sole active full-scope owner.
+
+
 ## Active ownership — final owner directive, 28 October 2026 (Dubai)
 
 Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.

@@ -51,6 +51,34 @@ class RecoveryApi extends FixtureApi {
   }
 }
 
+class DunningApi extends RecoveryApi {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    expect(path, 'commercial/subscription-notices');
+    expect(method, 'GET');
+    return {
+      'data': [
+        {
+          'id': 1,
+          'number': 'TEST-SUB-1',
+          'stage': 3,
+          'attention': 'recovery_required',
+          'total_minor': 525,
+          'currency': 'AED',
+        },
+      ],
+      'current_page': 1,
+      'last_page': 1,
+      'total': 1,
+    };
+  }
+}
+
 Widget app(RecoveryApi api, {VoidCallback? expired, bool ar = false}) =>
     MaterialApp(
       locale: Locale(ar ? 'ar' : 'en'),
@@ -60,6 +88,27 @@ Widget app(RecoveryApi api, {VoidCallback? expired, bool ar = false}) =>
     );
 
 void main() {
+  testWidgets(
+    'subscription reminders render authoritative recovery hold and offer no collection action',
+    (t) async {
+      await t.pumpWidget(
+        MaterialApp(
+          home: PaymentRecoveryView(
+            api: DunningApi(),
+            onExpired: () {},
+            subscriptionNotices: true,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.text('TEST-SUB-1'), findsOneWidget);
+      expect(find.textContaining('existing uncertain payment'), findsOneWidget);
+      expect(find.text('Inspect provider status'), findsNothing);
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.textContaining('525 AED'), findsOneWidget);
+    },
+  );
+
   test(
     'payment recovery translations have parity',
     () => expect(recoveryEn.keys.toSet(), recoveryAr.keys.toSet()),

@@ -10,6 +10,9 @@ on:
         "tests/native-topology.cjs",
         "tests/native-charger-operations.cjs",
         "tests/native-payment-recovery.cjs",
+        "tests/native-subscription-dunning.cjs",
+        "tests/native-connected.cjs",
+        "services/business-api/tests/Fixtures/subscription-dunning.php",
         "services/business-api/tests/Fixtures/payment-recovery-native.php",
         "services/business-api/tests/Fixtures/charger-operations.php",
         "services/business-api/app/Http/Controllers/ChargerAdmissionController.php",
@@ -33,6 +36,9 @@ on:
         "tests/native-topology.cjs",
         "tests/native-charger-operations.cjs",
         "tests/native-payment-recovery.cjs",
+        "tests/native-subscription-dunning.cjs",
+        "tests/native-connected.cjs",
+        "services/business-api/tests/Fixtures/subscription-dunning.php",
         "services/business-api/tests/Fixtures/payment-recovery-native.php",
         "services/business-api/tests/Fixtures/charger-operations.php",
         "services/business-api/app/Http/Controllers/ChargerAdmissionController.php",
@@ -100,11 +106,7 @@ jobs:
         run: |
           ./scripts/setup
           ./scripts/start
-          node tests/native-inventory.cjs
-          node tests/native-topology.cjs
-          node tests/native-charger-operations.cjs
-          node tests/native-payment-recovery.cjs
-          node tests/native-reservation-lifecycle.cjs
+          node tests/native-connected.cjs
       - run: flutter build ios --simulator --no-codesign
         if: runner.os == 'macOS'
         working-directory: apps/mobile

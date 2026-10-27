@@ -892,6 +892,16 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'subscriptionNotices') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PaymentRecoveryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                        subscriptionNotices: true,
+                      ),
+                    ),
+                  );
                 } else if (value == 'paymentRecovery') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -958,6 +968,11 @@ class _WorkspaceState extends State<Workspace> {
                     enabled: !busy,
                     child: Text(s.t('pricing')),
                   ),
+                PopupMenuItem(
+                  value: 'subscriptionNotices',
+                  enabled: !busy,
+                  child: Text(recoveryText(context, 'notices')),
+                ),
                 PopupMenuItem(
                   value: 'paymentRecovery',
                   enabled: !busy,

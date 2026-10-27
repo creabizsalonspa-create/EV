@@ -1,5 +1,14 @@
 # Agent 1 finance/commercial continuation
 
+## Subscription dunning and CI request pacing — current slice
+
+Implemented immutable, bounded 1/3/7-day in-app subscription reminders; canonical subscription locking and unique invoice/stage prevent duplicate workers, delayed scans avoid reminder bursts and waiting invoices cannot starve new due notices. Paid/cancelled/zero-price/unresolved-provider invoices are suppressed. Scoped web/native EN/AR notices read current payment/recovery state without charging, mutating entitlements or inventing external delivery. See SUBSCRIPTION_DUNNING.md.
+
+Local verification: Laravel 227 tests / 7180 assertions; PostgreSQL financial core 126 / 6164 plus 31 process races / 403 (including simultaneous dunning workers); Flutter 78 passed / seven live-only skips, clean analysis; six separately executed connected native suites passed; new EN/AR390px browser notice check passed. Commercial regression rerun is recorded in the current checkpoint. Production limiters remain unchanged: connected native batches respect ten logins/IP/minute, and complex browser finance reads are paced under 60/user/minute. Hosted CI for this new slice is required before merge. Saved mandates, automatic recurring collection and external notification delivery remain unfinished.
+
+Finance PR #7 head 6f2103e is fully integrated through merged PR #8 at 00685cca87c5262715eba0d98855564d4b1dded5. Final integration platform/finance/connector CI passed (40598832424 /40598840859); its unchanged native source passed Android/iOS/iOS UI (40597931320). Agent 2 owns all remaining software under the final owner directive; prior split records are historical.
+
+
 ## Active ownership — final owner directive, 28 October 2026 (Dubai)
 
 Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.

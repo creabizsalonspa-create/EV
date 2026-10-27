@@ -12,6 +12,7 @@ class FinanceScheduleProvider extends ServiceProvider
         $this->app->afterResolving(Schedule::class, function (Schedule $schedule) {
             $command = 'commercial:reconcile-payments --limit=100'.(config('payments.recovery_provider_poll') ? ' --provider' : '');
             $schedule->command($command)->everyMinute()->withoutOverlapping(5);
+            $schedule->command('commercial:subscription-dunning --limit=100')->hourly()->withoutOverlapping(10);
         });
     }
 }

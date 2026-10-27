@@ -1,5 +1,14 @@
 # Internal QA — universal integration checkpoint
 
+## Subscription dunning and CI request pacing — current slice
+
+Implemented immutable, bounded 1/3/7-day in-app subscription reminders; canonical subscription locking and unique invoice/stage prevent duplicate workers, delayed scans avoid reminder bursts and waiting invoices cannot starve new due notices. Paid/cancelled/zero-price/unresolved-provider invoices are suppressed. Scoped web/native EN/AR notices read current payment/recovery state without charging, mutating entitlements or inventing external delivery. See SUBSCRIPTION_DUNNING.md.
+
+Local verification: Laravel 227 tests / 7180 assertions; PostgreSQL financial core 126 / 6164 plus 31 process races / 403 (including simultaneous dunning workers); Flutter 78 passed / seven live-only skips, clean analysis; six separately executed connected native suites passed; new EN/AR390px browser notice check passed. Commercial browser regression passed after pacing the later read batch. Production limiters remain unchanged: connected native batches respect ten logins/IP/minute, and complex browser finance reads are paced under 60/user/minute. Hosted CI for this new slice is required before merge. Saved mandates, automatic recurring collection and external notification delivery remain unfinished.
+
+Finance PR #7 head 6f2103e is fully integrated through merged PR #8 at 00685cca87c5262715eba0d98855564d4b1dded5. Final integration platform/finance/connector CI passed (40598832424 /40598840859); its unchanged native source passed Android/iOS/iOS UI (40597931320). Agent 2 owns all remaining software under the final owner directive; prior split records are historical.
+
+
 ## Native payment recovery — verified implementation
 
 Canonical Flutter customer/vendor account menu now opens the tenant-scoped payment recovery queue and paginated audit history. Provider inspection requires explicit confirmation and calls the existing read-only provider-reconciliation API; it never creates a charge/refund, accepts card credentials or infers invoice payment from operation completion. Errors clear private rows, 401/419 invalidate the session, disposal fences late responses, lost responses never replay POSTs, and both English/Arabic RTL are supported. The UI renders an allowlist, not arbitrary provider payloads.

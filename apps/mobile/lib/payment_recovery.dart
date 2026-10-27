@@ -4,6 +4,15 @@ import 'strings.dart';
 
 const recoveryEn = {
   'title': 'Payment recovery',
+  'notices': 'Subscription notices',
+  'stage': 'Reminder stage',
+  'payment_due': 'Payment due: review your subscription checkout',
+  'recovery_required':
+      'Review the existing uncertain payment before further action',
+  'settled': 'Invoice settled',
+  'cancelled': 'Subscription cancelled',
+  'dunningNotice':
+      'In-app reminders only. No automatic collection was attempted. Current invoice status comes from the server.',
   'notice':
       'Test-provider evidence only. A completed operation does not necessarily mean a paid invoice. Inspecting status never initiates a new charge or refund.',
   'empty': 'No payment recovery operations.',
@@ -39,6 +48,14 @@ const recoveryEn = {
 };
 const recoveryAr = {
   'title': 'استرداد عمليات الدفع',
+  'notices': 'تنبيهات الاشتراك',
+  'stage': 'مرحلة التذكير',
+  'payment_due': 'دفعة مستحقة: راجع دفع الاشتراك',
+  'recovery_required': 'راجع عملية الدفع غير المؤكدة قبل أي إجراء آخر',
+  'settled': 'سُددت الفاتورة',
+  'cancelled': 'أُلغي الاشتراك',
+  'dunningNotice':
+      'تذكيرات داخل التطبيق فقط. لم تُجر محاولة تحصيل تلقائية. حالة الفاتورة الحالية مصدرها الخادم.',
   'notice':
       'أدلة مزود الاختبار فقط. اكتمال العملية لا يعني بالضرورة سداد الفاتورة. فحص الحالة لا ينشئ دفعة أو استرداداً جديداً.',
   'empty': 'لا توجد عمليات دفع للمراجعة.',
@@ -84,11 +101,13 @@ class PaymentRecoveryView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
   final int? intent;
+  final bool subscriptionNotices;
   const PaymentRecoveryView({
     super.key,
     required this.api,
     required this.onExpired,
     this.intent,
+    this.subscriptionNotices = false,
   });
   @override
   State<PaymentRecoveryView> createState() => _RecoveryState();
@@ -100,7 +119,9 @@ class _RecoveryState extends State<PaymentRecoveryView> {
   bool busy = false, uncertain = false;
   int generation = 0, target = 1;
   String t(String key) => recoveryText(context, key);
-  String get endpoint => widget.intent == null
+  String get endpoint => widget.subscriptionNotices
+      ? 'commercial/subscription-notices'
+      : widget.intent == null
       ? 'commercial/payment-recovery'
       : 'commercial/payment-recovery/${widget.intent}/events';
   @override
@@ -191,7 +212,15 @@ class _RecoveryState extends State<PaymentRecoveryView> {
     final s = EvStrings.of(context), page = data;
     return Scaffold(
       appBar: AppBar(
-        title: Text(t(widget.intent == null ? 'title' : 'history')),
+        title: Text(
+          t(
+            widget.subscriptionNotices
+                ? 'notices'
+                : widget.intent == null
+                ? 'title'
+                : 'history',
+          ),
+        ),
       ),
       body: RefreshIndicator(
         onRefresh: () => load(page: target),
@@ -199,7 +228,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
-            Text(t('notice')),
+            Text(t(widget.subscriptionNotices ? 'dunningNotice' : 'notice')),
             if (busy) const LinearProgressIndicator(),
             if (uncertain)
               Semantics(liveRegion: true, child: Text(t('unknown'))),
@@ -211,57 +240,76 @@ class _RecoveryState extends State<PaymentRecoveryView> {
             if (page != null && page.items.isEmpty)
               Text(t(widget.intent == null ? 'empty' : 'none')),
             for (final row in page?.items ?? <Map<String, dynamic>>[])
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '#${row['id']} · ${t('status')}: ${t('${row['status']}')}',
-                      ),
-                      Text('${row['created_at'] ?? ''}'),
-                      if (widget.intent == null) ...[
+              if (widget.subscriptionNotices)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${row['number']}'),
+                        Text('${t('stage')}: ${row['stage']}'),
+                        Text(t('${row['attention']}')),
                         Text(
-                          '${t('scope')}: ${t('${row['scope']}')} · ${t('kind')}: ${t(row['kind'] == 'cancel' ? 'cancelOperation' : '${row['kind']}')}',
+                          '${t('amount')}: ${row['total_minor']} ${row['currency']}',
                         ),
+                        Text('${row['created_at']}'),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          '${t('amount')}: ${row['amount_minor']} ${row['currency']}',
+                          '#${row['id']} · ${t('status')}: ${t('${row['status']}')}',
                         ),
-                        // Deliberate allowlist: never render arbitrary server JSON or
-                        // private provider identity, lease, observation or fingerprint.
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            TextButton(
-                              onPressed: busy
-                                  ? null
-                                  : () => Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => PaymentRecoveryView(
-                                          api: widget.api,
-                                          onExpired: widget.onExpired,
-                                          intent: row['id'] as int,
-                                        ),
-                                      ),
-                                    ),
-                              child: Text(t('history')),
-                            ),
-                            if (row['provider'] == 'stripe_test' &&
-                                row['status'] != 'completed')
-                              OutlinedButton(
+                        Text('${row['created_at'] ?? ''}'),
+                        if (widget.intent == null) ...[
+                          Text(
+                            '${t('scope')}: ${t('${row['scope']}')} · ${t('kind')}: ${t(row['kind'] == 'cancel' ? 'cancelOperation' : '${row['kind']}')}',
+                          ),
+                          Text(
+                            '${t('amount')}: ${row['amount_minor']} ${row['currency']}',
+                          ),
+                          // Deliberate allowlist: never render arbitrary server JSON or
+                          // private provider identity, lease, observation or fingerprint.
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              TextButton(
                                 onPressed: busy
                                     ? null
-                                    : () => inspect(row['id'] as int),
-                                child: Text(t('inspect')),
+                                    : () => Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => PaymentRecoveryView(
+                                            api: widget.api,
+                                            onExpired: widget.onExpired,
+                                            intent: row['id'] as int,
+                                          ),
+                                        ),
+                                      ),
+                                child: Text(t('history')),
                               ),
-                          ],
-                        ),
+                              if (row['provider'] == 'stripe_test' &&
+                                  row['status'] != 'completed')
+                                OutlinedButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => inspect(row['id'] as int),
+                                  child: Text(t('inspect')),
+                                ),
+                            ],
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
             if (page != null)
               Wrap(
                 spacing: 12,
