@@ -51,6 +51,7 @@ jobs:
       - run: npm run test:managed-gate
       - run: npm run test:connectors
       - run: npm run test:reservation-lifecycle
+      - run: npm run test:command-recovery
       - name: Canonical non-default OCPP source targets
         run: EV_CANONICAL_TARGETS=1 EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - if: failure()

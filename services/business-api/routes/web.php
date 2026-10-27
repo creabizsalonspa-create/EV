@@ -100,6 +100,7 @@ require __DIR__.'/ocpi.php';
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start']);
     Route::post('/api/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop']);
+    Route::post('/api/charging-sessions/{session}/reconcile', [CsmsSessionController::class, 'reconcile']);
 });
 
 Route::get('/api/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');

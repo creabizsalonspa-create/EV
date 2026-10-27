@@ -1682,4 +1682,32 @@ window.EV_MESSAGES = {
         en: "Reservation window ended without a linked charging session",
         ar: "انتهى موعد الحجز دون جلسة شحن مرتبطة",
     },
+    source_observed: {
+        en: "Source outcome observed",
+        ar: "رُصدت النتيجة في المصدر",
+    },
+    "Start transport · {status}": {
+        en: "Start transport · {status}",
+        ar: "نقل طلب البدء · {status}",
+    },
+    "Stop transport · {status}": {
+        en: "Stop transport · {status}",
+        ar: "نقل طلب الإيقاف · {status}",
+    },
+    "Source outcome disclaimer": {
+        en: "Authenticated simulator evidence shows the requested state. This does not prove command acceptance or physical charging.",
+        ar: "تُظهر أدلة المحاكي الموثّقة الحالة المطلوبة. هذا لا يثبت قبول الأمر أو الشحن الفعلي.",
+    },
+    "Reconcile received evidence": {
+        en: "Reconcile received evidence",
+        ar: "مطابقة الأدلة المستلمة",
+    },
+    "Source evidence reconciled": {
+        en: "Source evidence reconciled. No command sent.",
+        ar: "تمت مطابقة أدلة المصدر. لم يُرسل أمر.",
+    },
+    "No new applied source evidence": {
+        en: "No new applied source evidence. No command sent.",
+        ar: "لا توجد أدلة مصدر مطبقة جديدة. لم يُرسل أمر.",
+    },
 };

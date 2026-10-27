@@ -142,7 +142,7 @@ class SessionBridge
         }
         $hash = hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR));
 
-        return DB::transaction(function () use ($v, $at, $hash) {
+        $result = DB::transaction(function () use ($v, $at, $hash) {
             $link = SessionLink::where('charging_session_id', $v['session_id'])->lockForUpdate()->firstOrFail();
             if ($link->connector_mapping_id) {
                 $map = ConnectorMapping::findOrFail($link->connector_mapping_id);
@@ -209,5 +209,8 @@ class SessionBridge
 
             return ['outcome' => $outcome, 'session_id' => $s->id, 'status' => $s->status, 'energy_wh' => $s->energy_wh];
         }, 3);
+        app(CommandReconciler::class)->forSession((int) $v['session_id']);
+
+        return $result;
     }
 }

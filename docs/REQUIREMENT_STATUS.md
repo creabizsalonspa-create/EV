@@ -60,3 +60,5 @@ The charging review and subsequent implementation now enforce company/license/ma
 Then continue full PSP interfaces/sandbox acceptance, commercial subscriptions/settlements/loyalty/maps and complete mobile company/operator workflows. Zero live OCPI partners and no real PSP/hardware/signing acceptance are configured; those prerequisites do not excuse independent missing software.
 
 Arrival/unused booking lifecycle now implemented across Laravel/web/Flutter with PostgreSQL race evidence; see RESERVATION_LIFECYCLE.md. This does not close the overall charging/product acceptance requirement.
+
+Source-backed command reconciliation now records exact applied-inbox proof and never retries uncertain commands. Versioned native bearer start/stop/reconcile share existing scope/admission. See COMMAND_RECOVERY.md for implemented behavior and exact unfinished production recovery/security/real-source acceptance scope.

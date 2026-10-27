@@ -98,7 +98,8 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500]);
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('charger_commands', 1); // Observing never dispatches/creates commands.
-        $this->assertSame('pending', DB::table('charger_commands')->value('status'));
+        $this->assertSame('source_observed', DB::table('charger_commands')->value('status'));
+        $this->assertDatabaseHas('command_source_observations', ['prior_status' => 'pending', 'observed_state' => 'started', 'command_acceptance_verified' => false]);
     }
 
     public function test_ambiguous_source_identity_is_rejected_without_advancing_business_state(): void

@@ -4,6 +4,7 @@ use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Models\Reservation;
 use App\Models\User;
+use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\ReservationLifecycle;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
@@ -31,7 +32,9 @@ try {
     $request = Request::create('/api/reservations', 'POST', $body);
     $request->setUserResolver(fn () => $actor);
     $operation = $argv[5] ?? 'reserve';
-    if ($operation === 'arrival') {
+    if ($operation === 'reconcile') {
+        echo (int) app(CommandReconciler::class)->forCommand((int) $body['command_id']);
+    } elseif ($operation === 'arrival') {
         echo app(ReservationLifecycleController::class)->checkIn($request, Reservation::findOrFail($body['reservation_id']), app(ReservationLifecycle::class))->getStatusCode();
     } elseif ($operation === 'expire') {
         echo app(ReservationLifecycle::class)->expire(1, $body['reservation_id'])['expired'];

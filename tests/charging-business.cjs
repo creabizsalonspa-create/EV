@@ -574,6 +574,8 @@ async function session(version, actors) {
       assert.equal(row.status, "stopped");
       assert.equal(row.energy_wh, 2500);
       assert.equal(row.total_minor, 313);
+      assert.equal(row.start_command_status, "source_observed");
+      assert.equal(row.stop_command_status, "source_observed");
     }
     console.log(
       JSON.stringify({
@@ -585,6 +587,9 @@ async function session(version, actors) {
         station: name,
         session_id: sessionId,
         source_transaction_id: transactionId,
+        source_outcome_reconciled: true,
+        command_acceptance_verified: false,
+
         current_slot_reservation: "operator_test_fixture",
         authenticated_event_inbox: true,
         source: "CitrineOS GraphQL transaction and persisted meters",

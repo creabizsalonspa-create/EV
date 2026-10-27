@@ -55,6 +55,32 @@ class _SessionsViewState extends State<SessionsView> {
     }
   }
 
+  Future<void> reconcile(int id) async {
+    if (!await confirmAction(
+          context,
+          'reconcileEvidence',
+          'reconcileConsent',
+        ) ||
+        !mounted)
+      return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await widget.api.request(
+        'charging-sessions/$id/reconcile',
+        method: 'POST',
+        body: {},
+      );
+      if (mounted) await load(page: data?.current ?? 1);
+    } catch (e) {
+      if (mounted) failed(e);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> meter(Map<String, dynamic> row) async {
     final initial = (row['energy_wh'] as num).toInt();
     final result = await apiForm(
@@ -191,6 +217,47 @@ class _SessionsViewState extends State<SessionsView> {
                       }),
                     ),
                     if (row['csms_linked'] == true) Text(s.t('sourceControls')),
+                    if (row['csms_linked'] == true) ...[
+                      if (row['start_command_status'] != null)
+                        Text(
+                          s.t('transportStart', {
+                            'status': s.t(row['start_command_status']),
+                          }),
+                        ),
+                      if (row['stop_command_status'] != null)
+                        Text(
+                          s.t('transportStop', {
+                            'status': s.t(row['stop_command_status']),
+                          }),
+                        ),
+                      if ([
+                        row['start_command_status'],
+                        row['stop_command_status'],
+                      ].contains('source_observed'))
+                        Text(s.t('sourceOutcome')),
+                      if (![
+                            "cancelled",
+                            "expired_unstarted",
+                          ].contains(row['status']) &&
+                          [
+                            row['start_command_status'],
+                            row['stop_command_status'],
+                          ].any(
+                            (v) => [
+                              "pending",
+                              "dispatching",
+                              "outcome_unknown",
+                              "submitted",
+                              "rejected",
+                            ].contains(v),
+                          ))
+                        TextButton(
+                          onPressed: busy
+                              ? null
+                              : () => reconcile(row['id'] as int),
+                          child: Text(s.t('reconcileEvidence')),
+                        ),
+                    ],
                     if (row['start_admission_blocked'] == true)
                       Text(s.t('startAdmissionBlocked')),
                     if (widget.role == 'customer' &&

@@ -15,7 +15,8 @@
     "test:ocpi-provisioning": "node tests/ocpi-provisioning.cjs",
     "test:commercial": "node tests/commercial-workspace.cjs",
     "test:connectors": "node tests/canonical-topology.cjs",
-    "test:reservation-lifecycle": "node tests/reservation-lifecycle.cjs"
+    "test:reservation-lifecycle": "node tests/reservation-lifecycle.cjs",
+    "test:command-recovery": "node tests/command-recovery.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

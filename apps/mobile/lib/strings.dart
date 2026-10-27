@@ -277,6 +277,18 @@ class EvStrings {
     "stopCsmsConsent":
         "Queue a stop request and wait for the source final meter. No physical charger or payment is connected.",
     "csmsSimulation": "CSMS SIMULATION",
+    "source_observed": "Source outcome observed",
+    "submitted": "Submitted to transport",
+    "dispatching": "Dispatching",
+    "outcome_unknown": "Outcome unknown",
+    "rejected": "Rejected by transport",
+    "transportStart": "Start transport: {status}",
+    "transportStop": "Stop transport: {status}",
+    "sourceOutcome":
+        "Authenticated simulator evidence shows the requested state. Command acceptance and physical charging are not verified.",
+    "reconcileEvidence": "Reconcile received evidence",
+    "reconcileConsent":
+        "Check already received authenticated evidence only? This sends no charger command and does not fetch new source events.",
     "sourceControls":
         "Source meters are authoritative. Pending and stopping states require source confirmation; refresh to check.",
     "pending_start": "Waiting for source start",
@@ -551,6 +563,18 @@ class EvStrings {
     "stopCsmsConsent":
         "إرسال طلب إيقاف وانتظار قراءة العداد النهائية من المصدر. لا يوجد شاحن فعلي أو دفع متصل.",
     "csmsSimulation": "محاكاة CSMS",
+    "source_observed": "رُصدت النتيجة في المصدر",
+    "submitted": "قُدم للنقل",
+    "dispatching": "جارٍ الإرسال",
+    "outcome_unknown": "النتيجة غير معروفة",
+    "rejected": "رفضه النقل",
+    "transportStart": "نقل طلب البدء: {status}",
+    "transportStop": "نقل طلب الإيقاف: {status}",
+    "sourceOutcome":
+        "تُظهر أدلة المحاكي الموثّقة الحالة المطلوبة. لم يُتحقق من قبول الأمر أو الشحن الفعلي.",
+    "reconcileEvidence": "مطابقة الأدلة المستلمة",
+    "reconcileConsent":
+        "هل تريد فحص الأدلة الموثقة المستلمة فقط؟ لا يُرسل أمر شاحن ولا تُجلب أحداث مصدر جديدة.",
     "sourceControls":
         "قراءات المصدر هي المعتمدة. حالات الانتظار والإيقاف تتطلب تأكيد المصدر؛ حدّث للتحقق.",
     "pending_start": "بانتظار بدء المصدر",

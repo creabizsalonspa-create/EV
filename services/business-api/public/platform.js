@@ -519,6 +519,57 @@ async function simulations() {
             },
         );
         if (s.csms_linked) a.append(ui("p", "Source controls disclaimer"));
+        if (s.csms_linked) {
+            for (const [label, value] of [
+                ["Start transport · {status}", s.start_command_status],
+                ["Stop transport · {status}", s.stop_command_status],
+            ])
+                if (value)
+                    a.append(ui("p", label, { status: { translate: value } }));
+            if (
+                [s.start_command_status, s.stop_command_status].includes(
+                    "source_observed",
+                )
+            )
+                a.append(ui("p", "Source outcome disclaimer"));
+            if (
+                [s.start_command_status, s.stop_command_status].some((value) =>
+                    [
+                        "pending",
+                        "dispatching",
+                        "outcome_unknown",
+                        "submitted",
+                        "rejected",
+                    ].includes(value),
+                ) &&
+                !["cancelled", "expired_unstarted"].includes(s.status)
+            ) {
+                const reconcile = ui("button", "Reconcile received evidence");
+                reconcile.onclick = async () => {
+                    reconcile.disabled = true;
+                    try {
+                        const result = await api(
+                            `charging-sessions/${s.id}/reconcile`,
+                            "POST",
+                            {},
+                        );
+                        await simulations();
+                        notice(
+                            EvLocale.text(
+                                result.reconciled
+                                    ? "Source evidence reconciled"
+                                    : "No new applied source evidence",
+                            ),
+                        );
+                    } catch (error) {
+                        notice(error);
+                    } finally {
+                        if (reconcile.isConnected) reconcile.disabled = false;
+                    }
+                };
+                a.append(reconcile);
+            }
+        }
         if (s.start_admission_blocked)
             a.append(ui("p", "Start admission blocked"));
         if (user.role === "customer" && s.can_cancel_before_dispatch) {

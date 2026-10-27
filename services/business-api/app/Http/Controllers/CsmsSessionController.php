@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
+use App\Models\Station;
+use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\SessionBridge;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
@@ -18,6 +21,18 @@ class CsmsSessionController extends Controller
     public function stop(Request $r, ChargingSession $session, SessionBridge $bridge)
     {
         return response()->json($bridge->stop($session, $r->user()->id, $r->user()->role), 202);
+    }
+
+    public function reconcile(Request $r, ChargingSession $session, SessionBridge $bridge, CommandReconciler $reconciler)
+    {
+        $reservation = Reservation::findOrFail($session->reservation_id);
+        $station = Station::findOrFail($reservation->station_id);
+        abort_unless($r->user()->id === $reservation->user_id || ($r->user()->role === 'vendor' && $r->user()->id === $station->vendor_id) || $r->user()->role === 'admin', 404);
+        $bridge->enabled();
+        $link = SessionLink::where('charging_session_id', $session->id)->firstOrFail();
+        $count = $reconciler->forSession($session->id);
+
+        return response()->json(['reconciled' => $count, 'source' => 'authenticated_applied_inbox_only', 'network_requests' => 0, 'command_acceptance_verified' => false, 'summary' => $bridge->summary($link->refresh())]);
     }
 
     public function event(Request $r, SessionBridge $bridge)

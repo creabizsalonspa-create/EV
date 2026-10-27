@@ -69,3 +69,8 @@ require __DIR__.'/subscription_webhooks.php';
 Route::get('/v1/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');
 
 Route::post('/v1/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+
+Route::post('/v1/charging-sessions/{session}/reconcile', [CsmsSessionController::class, 'reconcile'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+
+Route::post('/v1/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+Route::post('/v1/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop'])->middleware(['auth:sanctum', 'throttle:platform-api']);

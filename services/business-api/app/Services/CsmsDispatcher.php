@@ -9,6 +9,7 @@ use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\StationGate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -20,12 +21,21 @@ class CsmsDispatcher
     public function dispatch(int $id): ChargerCommand
     {
         abort_unless(config('csms.simulator_enabled') && ! app()->environment('production'), 503, 'Simulator dispatch is disabled.');
+        app(CommandReconciler::class)->forCommand($id);
         $stationId = ChargerCommand::findOrFail($id)->station_id;
         $command = DB::transaction(function () use ($id, $stationId) {
             Station::whereKey($stationId)->lockForUpdate()->firstOrFail();
             $c = ChargerCommand::whereKey($id)->lockForUpdate()->firstOrFail();
             abort_unless($c->station_id === $stationId, 409, 'Command station changed.');
             if ($c->status === 'pending') {
+                if (isset($c->payload['session_id'])) {
+                    $linked = SessionLink::where('charging_session_id', $c->payload['session_id'])->first();
+                    if ($linked && ($linked->closed_without_dispatch_at !== null || ($c->action === 'start' ? $linked->started_at !== null : $linked->ended_at !== null))) {
+                        $c->update(['failure_code' => 'source_observation_requires_reconciliation']);
+
+                        return null;
+                    }
+                }
                 if ($c->action === 'start') {
                     $blocked = null;
                     if (isset($c->payload['session_id'])) {
@@ -63,6 +73,8 @@ class CsmsDispatcher
             return null;
         });
         if (! $command) {
+            app(CommandReconciler::class)->forCommand($id);
+
             return ChargerCommand::findOrFail($id);
         }
         try {
@@ -116,10 +128,22 @@ class CsmsDispatcher
             $confirmation = $response->json();
             $submitted = is_array($confirmation) && count($confirmation) === 1 && ($confirmation[0]['success'] ?? null) === true;
             $rejected = is_array($confirmation) && count($confirmation) === 1 && ($confirmation[0]['success'] ?? null) === false;
-            $command->update(['status' => $submitted ? 'submitted' : ($rejected ? 'rejected' : 'outcome_unknown'), 'confirmation' => $confirmation, 'failure_code' => $submitted ? null : ($rejected ? 'csms_rejected_dispatch' : 'unexpected_confirmation')]);
+            DB::transaction(function () use ($command, $submitted, $rejected, $confirmation) {
+                $current = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
+                if (! in_array($current->status, ['dispatching', 'source_observed'], true)) {
+                    return;
+                }
+                // Retain a late transport reply without replacing stronger source evidence.
+                $current->confirmation = $confirmation;
+                if ($current->status === 'dispatching') {
+                    $current->status = $submitted ? 'submitted' : ($rejected ? 'rejected' : 'outcome_unknown');
+                    $current->failure_code = $submitted ? null : ($rejected ? 'csms_rejected_dispatch' : 'unexpected_confirmation');
+                }
+                $current->save();
+            }, 3);
         } catch (\Throwable $e) {
             // A timeout can occur after delivery. Never replay an uncertain start automatically.
-            $command->update(['status' => 'outcome_unknown', 'failure_code' => 'dispatch_requires_reconciliation']);
+            ChargerCommand::whereKey($command->id)->where('status', 'dispatching')->update(['status' => 'outcome_unknown', 'failure_code' => 'dispatch_requires_reconciliation']);
         }
 
         return $command->fresh();
