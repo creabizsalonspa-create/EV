@@ -1,0 +1,17 @@
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\ServiceProvider;
+
+class FinanceScheduleProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        $this->app->afterResolving(Schedule::class, function (Schedule $schedule) {
+            $command = 'commercial:reconcile-payments --limit=100'.(config('payments.recovery_provider_poll') ? ' --provider' : '');
+            $schedule->command($command)->everyMinute()->withoutOverlapping(5);
+        });
+    }
+}

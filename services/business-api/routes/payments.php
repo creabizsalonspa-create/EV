@@ -11,3 +11,5 @@ Route::get('/commercial/cases', [G::class, 'cases']);
 Route::post('/commercial/cases', [G::class, 'createCase']);
 Route::post('/commercial/cases/{case}/resolve', [G::class, 'resolveCase']);
 Route::get('/commercial/reconciliation/{invoice}', [G::class, 'reconciliation']);
+
+require __DIR__.'/payment_recovery.php';

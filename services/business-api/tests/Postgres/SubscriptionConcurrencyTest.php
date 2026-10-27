@@ -40,7 +40,7 @@ class SubscriptionConcurrencyTest extends TestCase
     private function race(string $operation, int $entity, int $actor, int $invoice = 0, bool $differentKeys = false): array
     {
         $table = match ($operation) {
-            'enroll' => 'commercial_subscriptions', 'renew' => 'commercial_subscription_invoices', 'pay', 'gateway_capture' => 'commercial_subscription_receipts'
+            'enroll' => 'commercial_subscriptions', 'renew' => 'commercial_subscription_invoices', 'pay', 'gateway_capture' => 'commercial_subscription_receipts', 'credit' => 'subscription_credits'
         };
         DB::unprepared('CREATE FUNCTION subscription_test_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.5); RETURN NEW; END; $$');
         DB::unprepared('CREATE TRIGGER subscription_test_delay BEFORE INSERT ON '.$table.' FOR EACH ROW EXECUTE FUNCTION subscription_test_delay()');
@@ -160,5 +160,34 @@ class SubscriptionConcurrencyTest extends TestCase
         $this->assertSame(1, DB::table('subscription_gateway_operations')->where('kind', 'capture')->count());
         $this->assertSame(2, DB::table('commercial_subscription_ledger')->where('kind', 'payment')->count());
         $this->assertTrue(app(SubscriptionService::class)->summary($s['subscription']->id)['ledger_balanced']);
+    }
+
+    public function test_racing_subscription_credit_retries_post_one_immutable_refund(): void
+    {
+        [$customer, $plan] = $this->fixture();
+        $admin = User::where('role', 'admin')->firstOrFail();
+        $service = app(SubscriptionService::class);
+        $s = $service->subscribe($customer, $plan->id, 'fixture');
+        $invoice = $s['invoices']->first()->id;
+        $service->mockPay($customer, $s['subscription']->id, $invoice, 'succeeded', 'pay');
+        $this->assertSame(['200', '200'], $this->race('credit', $s['subscription']->id, $admin->id, $invoice));
+        $this->assertDatabaseCount('subscription_credits', 1);
+        $this->assertSame(1050, (int) DB::table('subscription_credits')->sum('amount_minor'));
+        $summary = $service->summary($s['subscription']->id);
+        $this->assertTrue($summary['ledger_balanced']);
+        $this->assertFalse($summary['entitlements_active']);
+    }
+
+    public function test_racing_distinct_subscription_credit_keys_cannot_exceed_capture(): void
+    {
+        [$customer, $plan] = $this->fixture();
+        $admin = User::where('role', 'admin')->firstOrFail();
+        $service = app(SubscriptionService::class);
+        $s = $service->subscribe($customer, $plan->id, 'fixture');
+        $invoice = $s['invoices']->first()->id;
+        $service->mockPay($customer, $s['subscription']->id, $invoice, 'succeeded', 'pay');
+        $this->assertSame(['200', '409'], $this->race('credit', $s['subscription']->id, $admin->id, $invoice, true));
+        $this->assertDatabaseCount('subscription_credits', 1);
+        $this->assertSame(0, $service->summary($s['subscription']->id)['net_collected_minor']);
     }
 }

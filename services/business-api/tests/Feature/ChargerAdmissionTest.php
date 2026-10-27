@@ -23,7 +23,7 @@ class ChargerAdmissionTest extends TestCase
 
     private function fixture(string $protocol = '1.6', ?string $pin = null): array
     {
-        config(['csms.ingress_enabled' => true, 'csms.ingress_secret' => self::KEY]);
+        config(['csms.ingress_allow_local_http' => false, 'csms.ingress_enabled' => true, 'csms.ingress_secret' => self::KEY]);
         Cache::flush();
         $owner = User::factory()->create(['role' => 'vendor']);
         $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Admission fixture', 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
@@ -45,7 +45,7 @@ class ChargerAdmissionTest extends TestCase
         $nonce ??= (string) Str::uuid();
         $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTPS' => $secure ? 'on' : 'off', 'HTTP_AUTHORIZATION' => $auth, 'HTTP_X_EV_INGRESS_TIME' => $ts, 'HTTP_X_EV_INGRESS_NONCE' => $nonce, 'HTTP_X_EV_INGRESS_SIGNATURE' => hash_hmac('sha256', $ts."\n".$nonce."\n".$auth."\n".$body, $key ?? self::KEY)];
 
-        return $this->call('POST', '/api/internal/charger-ingress/authenticate', [], [], [], $headers, $body);
+        return $this->call('POST', ($secure ? 'https://localhost' : 'http://localhost').'/api/internal/charger-ingress/authenticate', [], [], [], $headers, $body);
     }
 
     public static function protocols(): array
@@ -127,5 +127,16 @@ class ChargerAdmissionTest extends TestCase
         $this->postJson($base.'/credential', ['expected_version' => 1, 'days' => 1])->assertNotFound();
         $this->deleteJson($base.'/credential')->assertNotFound();
         $this->assertSame(1, AdmissionProfile::first()->credential_version);
+    }
+
+    public function test_dedicated_identity_budget_is_enforced_and_recovers_after_window(): void
+    {
+        [,,,,$secret] = $this->fixture();
+        for ($i = 0; $i < 20; $i++) {
+            $this->admission($secret)->assertNoContent();
+        }
+        $this->admission($secret)->assertStatus(429);
+        $this->travel(61)->seconds();
+        $this->admission($secret)->assertNoContent();
     }
 }
