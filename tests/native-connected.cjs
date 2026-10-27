@@ -23,7 +23,6 @@ const { spawnSync } = require("node:child_process");
         await new Promise((resolve) => setTimeout(resolve, wait));
       }
     }
-    started = performance.now();
     for (const suite of group) {
       const result = spawnSync(process.execPath, ["tests/" + suite + ".cjs"], {
         stdio: "inherit",
@@ -31,6 +30,9 @@ const { spawnSync } = require("node:child_process");
       if (result.error) throw result.error;
       if (result.status !== 0) process.exit(result.status || 1);
     }
+    // Measure from completion: fixture/bootstrap time before the first login
+    // must not shorten the server's actual authentication window.
+    started = performance.now();
   }
 })().catch((error) => {
   console.error(error.message);

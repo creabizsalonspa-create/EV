@@ -21,6 +21,6 @@ Verification commands:
 - `node tests/native-connected.cjs`
 - pinned Flutter `flutter analyze` / `flutter test`
 
-The connected native runner batches nine and five synthetic logins with a real authentication-window boundary, preserving production's ten/IP/minute limit. It never clears limiter storage or retries login/payment mutations. The commercial browser suite similarly paces a later bulk read refresh under the unchanged 60/user/minute limit.
+The connected native runner batches nine and five synthetic logins with a full authentication-window boundary after the previous batch completes, preserving production's ten/IP/minute limit. It never clears limiter storage or retries login/payment mutations. The commercial browser suite similarly paces a later bulk read refresh under the unchanged 60/user/minute limit.
 
 Immediate remaining finance task: provider-owned hosted mandate enrollment with consent/revocation, authenticated customer/SetupIntent identity binding, off-session collection through the existing durable recovery/receipt architecture, decline/backoff and SCA handling. Never introduce a second payment state machine or infer a mandate from a client-supplied PaymentMethod. Email/push reminders, preferences and delivery-provider acceptance also remain unfinished. Existing renewal invoicing is explicit; this worker does not schedule or charge renewals.
