@@ -1,5 +1,16 @@
 # Full platform progress — universal integration
 
+## Known-unsent charging expiry checkpoint — verified locally
+
+Added a bounded simulator-only expiry service, `csms:expire-unsent` command and minute scheduler registration. At the exact 30-minute window end, only a locked pending start with no admitted dispatch, source transaction/inbox/meter/energy/end or calculated total can close. Reservation/session become `expired_unstarted`; the command becomes cancelled with `expired_before_dispatch`; source `ended_at` and transaction remain null. A separate uniquely keyed system-expiry record preserves operational evidence without attributing customer cancellation. Existing billing/ledger records are untouched. Binding reuse and observer exclusion follow the existing closure contract.
+
+Scheduled batches use a cached ID cursor, revisit after the end and survive cache loss safely, so unresolved records cannot starve later eligible requests. Cache is an optimization; reservation/command/link/session locks and unique evidence remain authoritative. A supervised Laravel scheduler must actually run; registration alone is not a deployed worker. Simulator bridge feature gates and production denial remain enforced. No hardware command, authorization-token revocation or financial posting is performed. Uncertain/admitted/source-active starts require reconciliation; no-session no-show/check-in and complete production lifecycle remain unfinished.
+
+Verified: **118 Laravel tests / 5,862 assertions**; PostgreSQL finance/managed/vendor **55 tests / 5,400 assertions**, plus **4 process-concurrency tests / 54 assertions** including two simultaneous expiry workers closing once. Native analysis clean and **37 unit/widget passes / 1 default live-only skip** at the expiry source. Real browser linked-company/maintenance/cancel/CLI-expiry/replay/shared EN/AR state and localization suites pass. Both OCPP protocols still produce the same single simulated source-backed invoice/payment/refund reconciliation. No finance implementation file changed. Evidence: `unsent-expiry-*`.
+
+The later native inventory work is a separate checkpoint. Source `940ccbf` has both platform CI runs green; native PR execution still has a pre-Dart simulator log-reader/VM-service launch timeout at the pinned baseline, distinct from the earlier successful device run. Do not report all hosted native runs green.
+
+
 ## Hosted CI selector follow-up
 
 At `62b4d51`, push platform validation passed (40502188767), while PR validation (40502194030) exposed a timing-sensitive strict locator: newly created station headings legitimately exist in both catalog and tariff workspaces. The browser acceptance assertion now scopes to `#stations`, preserving its exact-name assertion and production behavior. No throttles or application permissions were relaxed. The full real-Laravel browser suite passed locally with the scoped assertion; evidence: `docs/evidence/catalog-selector-browser.txt`.

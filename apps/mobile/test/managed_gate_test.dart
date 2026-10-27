@@ -8,6 +8,7 @@ import 'test_support.dart';
 
 class UndispatchedApi extends FixtureApi {
   bool cancelled = false;
+  bool expired = false;
   @override
   Future<dynamic> request(
     String path, {
@@ -27,13 +28,15 @@ class UndispatchedApi extends FixtureApi {
         {
           'id': 7,
           'reservation_id': 9,
-          'status': cancelled ? 'cancelled' : 'pending_start',
+          'status': expired
+              ? 'expired_unstarted'
+              : (cancelled ? 'cancelled' : 'pending_start'),
           'energy_wh': 0,
           'total_minor': 0,
           'currency': 'AED',
           'csms_linked': true,
-          'start_admission_blocked': !cancelled,
-          'can_cancel_before_dispatch': !cancelled,
+          'start_admission_blocked': !cancelled && !expired,
+          'can_cancel_before_dispatch': !cancelled && !expired,
         },
       ],
       'current_page': 1,
@@ -44,6 +47,34 @@ class UndispatchedApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets(
+    'expired unsent session is localized in Arabic and offers no charging or cancellation controls',
+    (tester) async {
+      final api = UndispatchedApi()..expired = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Scaffold(
+            body: SessionsView(api: api, role: 'customer', onExpired: () {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('انتهى الحجز قبل بدء الشحن'), findsOneWidget);
+      expect(find.text('إلغاء طلب البدء غير المُرسل'), findsNothing);
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.byType(OutlinedButton), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'customer can confirm cancellation of a provably undispatched start and refresh its state',
     (tester) async {

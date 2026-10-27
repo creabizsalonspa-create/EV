@@ -66,6 +66,19 @@ class SessionBridge
     /** Caller holds the authorized reservation lock; never cancel an admitted or uncertain dispatch. */
     public function cancelUndispatched(ChargingSession $session, Reservation $reservation): void
     {
+        $this->closeUndispatched($session, $reservation, 'customer_cancelled_before_dispatch', 'cancelled');
+    }
+
+    public function expireUndispatched(ChargingSession $session, Reservation $reservation): void
+    {
+        $this->enabled();
+        $start = CarbonImmutable::parse($reservation->starts_at, 'UTC');
+        abort_unless($reservation->status === 'confirmed' && now()->gte($start->addMinutes(30)), 409, 'Reservation window has not expired.');
+        $this->closeUndispatched($session, $reservation, 'reservation_expired_before_dispatch', 'expired_unstarted');
+    }
+
+    private function closeUndispatched(ChargingSession $session, Reservation $reservation, string $reason, string $status): void
+    {
         if (DB::transactionLevel() === 0) {
             throw new \LogicException('Cancellation requires a transaction.');
         }
@@ -74,10 +87,11 @@ class SessionBridge
         $command = ChargerCommand::whereKey($candidate->start_command_id)->lockForUpdate()->firstOrFail();
         $link = SessionLink::whereKey($candidate->id)->lockForUpdate()->firstOrFail();
         $session = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
-        abort_unless($link->start_command_id === $command->id && $command->status === 'pending' && $command->action === 'start' && $command->station_id === $reservation->station_id && (int) ($command->payload['session_id'] ?? 0) === $session->id && $session->status === 'pending_start' && (int) $session->energy_wh === 0 && $link->transaction_id === null && $link->started_at === null && $link->ended_at === null && $link->last_sequence === -1 && $link->last_meter_wh === null && $link->stop_command_id === null && $link->closed_without_dispatch_at === null, 409, 'An admitted or uncertain charging start requires reconciliation; cancellation is unavailable.');
-        $command->update(['status' => 'cancelled', 'failure_code' => 'cancelled_before_dispatch']);
-        $session->update(['status' => 'cancelled']);
-        $link->update(['closed_without_dispatch_at' => now(), 'closure_reason' => 'customer_cancelled_before_dispatch']);
+        abort_unless($link->start_command_id === $command->id && $command->status === 'pending' && $command->action === 'start' && $command->station_id === $reservation->station_id && (int) ($command->payload['session_id'] ?? 0) === $session->id && $session->reservation_id === $reservation->id && $session->status === 'pending_start' && $session->stopped_at === null && $session->total_minor === null && (int) $session->energy_wh === 0 && $link->transaction_id === null && $link->started_at === null && $link->ended_at === null && $link->last_sequence === -1 && $link->last_meter_wh === null && $link->stop_command_id === null && $link->closed_without_dispatch_at === null, 409, 'An admitted or uncertain charging start requires reconciliation; cancellation is unavailable.');
+        abort_if(DB::table('csms_inbox_events')->where('link_id', $link->id)->exists(), 409, 'Observed source activity requires reconciliation.');
+        $command->update(['status' => 'cancelled', 'failure_code' => $status === 'cancelled' ? 'cancelled_before_dispatch' : 'expired_before_dispatch']);
+        $session->update(['status' => $status]);
+        $link->update(['closed_without_dispatch_at' => now(), 'closure_reason' => $reason]);
     }
 
     public function stop(ChargingSession $session, int $actor, string $role): array

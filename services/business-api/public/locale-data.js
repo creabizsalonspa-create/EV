@@ -870,6 +870,10 @@ window.EV_MESSAGES = {
         en: "Source controls disclaimer",
         ar: "قراءات المصدر معتمدة. حالات الانتظار والإيقاف تتطلب تأكيد المصدر. محاكاة فقط؛ لا يوجد شحن فعلي أو دفع.",
     },
+    expired_unstarted: {
+        en: "Expired before charging started",
+        ar: "انتهى الحجز قبل بدء الشحن",
+    },
     pending_start: {
         en: "Waiting for source start",
         ar: "بانتظار بدء المصدر",

@@ -1,0 +1,7 @@
+# Current coordinated continuation scope
+
+The owner assigned Agent 1 the active financial/commercial workstream on `development/finance-commercial`: payments, subscriptions, commissions, billing, refunds and settlements. Continue all other backend/web/Android/iOS/admin scope on `development/fullstack-continuation`. This is current task coordination, not a permanent restriction on either account's full-stack responsibilities.
+
+Fetch both branches and inspect changed paths before editing shared files. Do not edit Agent 1's active finance controllers/services/routes/migrations/client modules. Review its completed PR, run combined tests and safely integrate only verified work; never force-push or overwrite either branch. At this checkpoint `d1f843d` is visible on the finance branch, but no completed finance PR was available, so it has not been merged. Continue independent non-finance work without waiting.
+
+Implemented independently: proven-unsent local charging expiry, bounded scheduled scan, system operational evidence and EN/AR terminal UI. In progress next: native company/site/charger/connector inventory navigation and permission-gated maintenance using existing APIs. Remaining priorities retain full connector identity/parallel booking, source/command recovery, OCPI credentials/roles/commands, maps, full native company/KYC/staff, remaining Admin/security/operations and complete product requirements. No real hardware or partner authority is inferred.

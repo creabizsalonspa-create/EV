@@ -292,9 +292,59 @@ const { chromium } = require("playwright"),
     assert.equal(sessions.data[0].status, "cancelled");
     assert.equal(sessions.data[0].start_command_status, "cancelled");
     assert.equal(sessions.data[0].can_cancel_before_dispatch, false);
+    const expiryFixture = JSON.parse(
+      execFileSync(
+        "./scripts/php",
+        ["tests/Fixtures/unsent-expiry.php", run, String(fixture.station_id)],
+        { encoding: "utf8" },
+      ),
+    );
+    const expiryResult = JSON.parse(
+      execFileSync(
+        "./scripts/php",
+        [
+          "artisan",
+          "csms:expire-unsent",
+          "--reservation=" + expiryFixture.reservation_id,
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+    assert.equal(expiryResult.expired, 1);
+    assert.equal(expiryResult.evidence, "SIMULATED_CSMS");
+    const replay = JSON.parse(
+      execFileSync(
+        "./scripts/php",
+        [
+          "artisan",
+          "csms:expire-unsent",
+          "--reservation=" + expiryFixture.reservation_id,
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+    assert.equal(replay.expired, 0);
+    await customer.reload();
+    const expiredCard = customer
+      .locator("#simulation-list article")
+      .filter({ hasText: "#" + expiryFixture.session_id + " ·" });
+    await expiredCard
+      .filter({ hasText: "Expired before charging started" })
+      .waitFor();
+    assert.equal(await expiredCard.getByRole("button").count(), 0);
+    await customer.locator("#language").click();
+    await expiredCard
+      .filter({ hasText: "انتهى الحجز قبل بدء الشحن" })
+      .waitFor();
+    await owner.reload();
+    await owner
+      .locator("#simulation-list article")
+      .filter({ hasText: "#" + expiryFixture.session_id + " ·" })
+      .filter({ hasText: "Expired before charging started" })
+      .waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: real Laravel owner-scoped catalog linking, literal station names across Arabic, empty-site admission block, matching connector recovery and maintenance blocking in customer UI; no private reasons leaked; RTL phone layout; actual pending-CSMS cancellation without dispatch.",
+      "PASS: real Laravel owner-scoped catalog linking, literal station names across Arabic, empty-site admission block, matching connector recovery and maintenance blocking in customer UI; no private reasons leaked; RTL phone layout; actual pending-CSMS cancellation and targeted CLI expiry without dispatch; idempotent replay and shared customer/vendor EN/AR terminal state.",
     );
   } finally {
     await browser.close();
