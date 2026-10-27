@@ -144,7 +144,7 @@ const { randomUUID } = require("node:crypto");
       await f.locator(`[name=${key}]`).fill(value);
     await f.locator("[name=source]").selectOption("simulator");
     await f.locator("button").click();
-    await vendor.page
+    await vendor.page.locator("#stations")
       .getByRole("heading", { name: "Browser station " + run, exact: true })
       .waitFor();
     const customer = await account("Customer");

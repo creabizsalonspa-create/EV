@@ -1,5 +1,12 @@
 # Internal QA — universal integration checkpoint
 
+## Hosted CI selector follow-up
+
+At `62b4d51`, push platform validation passed (40502188767), while PR validation (40502194030) exposed a timing-sensitive strict locator: newly created station headings legitimately exist in both catalog and tariff workspaces. The browser acceptance assertion now scopes to `#stations`, preserving its exact-name assertion and production behavior. No throttles or application permissions were relaxed. The full real-Laravel browser suite passed locally with the scoped assertion; evidence: `docs/evidence/catalog-selector-browser.txt`.
+
+Native baseline push `890b081` passed Android/iOS builds and the complete iPhone integration scenario (40499612397). Its separate PR native run (40499622088) timed out before any Dart device phase, with a simulator log-reader/debug-connection failure, despite the same pinned Xcode16.4/iOS18.5 baseline. This intermittent hosted launch issue remains unresolved; the successful run must not be described as proof that every PR/device run passes. The newer `62b4d51` native run is tracked separately.
+
+
 ## Web account-context response isolation checkpoint
 
 Added protected-response generations before headers/status handling and after JSON/body completion. Logout, login intent, expiry and verified principal/role changes invalidate older private work; stale 401/204/error responses cannot affect a newer account, and public catalog reads can finish independently. Unknown identity payloads fail closed. Raw private-file expiry handlers also respect their workspace generation. No request is automatically replayed and production CSRF/cookies/rate limits are unchanged.
