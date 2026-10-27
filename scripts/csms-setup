@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/../services/csms"
+python3 - <<'PY'
+from pathlib import Path
+import secrets,os
+p=Path('.env')
+if not p.exists():
+ fd=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+ with os.fdopen(fd,'w') as f:
+  f.write('CSMS_DB_PASSWORD='+secrets.token_hex(32)+'\nCSMS_BROKER_PASSWORD='+secrets.token_hex(32)+'\n')
+PY
+docker compose pull
+docker compose up -d

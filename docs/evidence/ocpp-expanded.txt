@@ -1,0 +1,6 @@
+
+> test:ocpp
+> node tests/ocpp.cjs
+
+{"business_outbox":"submitted","protocol":"ocpp1.6","evidence":"SIMULATED_PROTOCOL_TEST","station":"ev-test-ocpp16-ae48f091","boot":"Accepted","heartbeat_status_tested":true,"incoming_calls":2}
+{"business_outbox":"submitted","protocol":"ocpp2.0.1","evidence":"SIMULATED_PROTOCOL_TEST","station":"ev-test-ocpp201-c67c4f91","boot":"Accepted","heartbeat_status_tested":true,"incoming_calls":2}

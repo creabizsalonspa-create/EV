@@ -1,0 +1,51 @@
+name: ev-csms
+services:
+  database:
+    image: postgis/postgis:16-3.5@sha256:94146ac37bc61e2322f88016056c5920729cb8c64c8542ed590af8fc2abdac07
+    environment:
+      POSTGRES_DB: citrine
+      POSTGRES_USER: citrine
+      POSTGRES_PASSWORD: ${CSMS_DB_PASSWORD:?Run scripts/csms-setup}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U citrine -d citrine']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  broker:
+    image: rabbitmq:3.13-management-alpine@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
+    environment:
+      RABBITMQ_DEFAULT_USER: ev
+      RABBITMQ_DEFAULT_PASS: ${CSMS_BROKER_PASSWORD:?Run scripts/csms-setup}
+    volumes:
+      - broker:/var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  citrine:
+    image: ghcr.io/citrineos/citrineos-server:v2.1.0@sha256:45aedf1e5908ea9aeea29028790bfaeb51a6baf5d7c5fefb94d00e549a7aeece
+    environment:
+      APP_NAME: all
+      DB_STRATEGY: migrate
+      CITRINEOS_HOST: 0.0.0.0
+      CITRINEOS_DATABASE_HOST: database
+      CITRINEOS_DATABASE_PASSWORD: ${CSMS_DB_PASSWORD}
+      CITRINEOS_MESSAGEBROKER_AMQP_URL: amqp://ev:${CSMS_BROKER_PASSWORD}@broker:5672
+      CITRINEOS_FILEACCESS_LOCAL_DEFAULTFILEPATH: /usr/local/apps/citrineos/apps/ocpp-server/dist/assets
+      CITRINEOS_AUTH_MODE: localDev
+    volumes:
+      - ./websocket-servers.json:/usr/local/apps/citrineos/apps/ocpp-server/dist/assets/websocket-servers.json:ro
+    ports:
+      - 127.0.0.1:8080:8080
+      - 127.0.0.1:8081:8081
+    depends_on:
+      database:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+volumes:
+  database:
+  broker:

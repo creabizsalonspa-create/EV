@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+exec docker run --rm --network host --user "$(id -u):$(id -g)" -e CSMS_SIMULATOR_ENABLED=true -v "$root:/app" -w /app/services/business-api --entrypoint php composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc artisan csms:dispatch "$@"

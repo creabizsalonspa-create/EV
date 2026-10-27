@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+if docker inspect ev-business-api >/dev/null 2>&1; then
+  docker start ev-business-api >/dev/null
+else
+  docker run -d --name ev-business-api --user "$(id -u):$(id -g)" -p 127.0.0.1:8000:8000 -v "$root:/app" -w /app/services/business-api --entrypoint php composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc artisan serve --host=0.0.0.0 --port=8000 >/dev/null
+fi
+for attempt in {1..30}; do
+  if curl --fail --silent http://127.0.0.1:8000/up >/dev/null; then
+    curl --fail --silent -H 'Accept: application/json' http://127.0.0.1:8000/api/stations
+    exit 0
+  fi
+  sleep 1
+done
+docker logs --tail 30 ev-business-api
+exit 1

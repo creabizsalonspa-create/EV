@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/../services/csms"
+docker compose up -d
+for attempt in {1..60}; do
+  if curl --fail --silent http://127.0.0.1:8080/docs/json > /tmp/ev-csms-readiness.json; then
+    python3 - <<'PY'
+import json
+with open('/tmp/ev-csms-readiness.json') as f: d=json.load(f)
+assert '/ocpp/1.6/evdriver/remoteStartTransaction' in d['paths']
+assert '/ocpp/2.0.1/evdriver/requestStartTransaction' in d['paths']
+print('CitrineOS API schema ready; run npm run test:ocpp for functional validation.')
+PY
+    exit 0
+  fi
+  sleep 1
+done
+echo 'CitrineOS did not pass readiness within 60 seconds. Inspect logs locally without exposing secrets.' >&2
+exit 1
