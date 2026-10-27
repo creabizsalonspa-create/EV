@@ -786,4 +786,76 @@ window.EV_MESSAGES = {
         en: "Email not verified",
         ar: "البريد غير مؤكد",
     },
+    "Charger command history": {
+        en: "Charger command history",
+        ar: "سجل أوامر الشواحن",
+    },
+    "Command history disclaimer": {
+        en: "Command history disclaimer",
+        ar: "نتائج نقل أوامر المحاكاة المسجلة فقط. الإقرار لا يثبت جلسة شحن أو طاقة مسلّمة أو دفعاً.",
+    },
+    "Refresh command history": {
+        en: "Refresh command history",
+        ar: "تحديث سجل الأوامر",
+    },
+    "Loading command history…": {
+        en: "Loading command history…",
+        ar: "جارٍ تحميل سجل الأوامر…",
+    },
+    "Command #{id}": {
+        en: "Command #{id}",
+        ar: "الأمر #{id}",
+    },
+    "Station #{id}": {
+        en: "Station #{id}",
+        ar: "المحطة #{id}",
+    },
+    "Command action: {action}": {
+        en: "Command action: {action}",
+        ar: "إجراء الأمر: {action}",
+    },
+    "Transport status: {status}": {
+        en: "Transport status: {status}",
+        ar: "حالة النقل: {status}",
+    },
+    "No recorded commands.": {
+        en: "No recorded commands.",
+        ar: "لا توجد أوامر مسجلة.",
+    },
+    "Page {page} of {last} · {total} commands": {
+        en: "Page {page} of {last} · {total} commands",
+        ar: "الصفحة {page} من {last} · {total} أمر",
+    },
+    start: {
+        en: "start",
+        ar: "بدء",
+    },
+    stop: {
+        en: "stop",
+        ar: "إيقاف",
+    },
+    sent: {
+        en: "sent",
+        ar: "أُرسل",
+    },
+    failed: {
+        en: "failed",
+        ar: "فشل",
+    },
+    submitted: {
+        en: "Submitted to transport",
+        ar: "قُدم للنقل",
+    },
+    rejected: {
+        en: "Rejected by transport",
+        ar: "رفضه النقل",
+    },
+    outcome_unknown: {
+        en: "Outcome unknown",
+        ar: "النتيجة غير معروفة",
+    },
+    dispatching: {
+        en: "Dispatching",
+        ar: "جارٍ الإرسال",
+    },
 };

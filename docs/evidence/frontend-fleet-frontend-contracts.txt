@@ -2,7 +2,7 @@
 > test:frontend
 > node tests/frontend.cjs
 
-PASS: isolated frontend contract fixtures; paginated catalog preserves filters, safe text rendering, role navigation, 503 recovery, offline/online state, 390/768/1440px layouts, RTL; zero page errors. Fixtures are not live data.
+PASS: isolated frontend contract fixtures; paginated catalog preserves filters, safe text rendering, role navigation, read-only admin/vendor command history with pagination/Arabic/retry/auth cleanup, 503 recovery, offline/online state, 390/768/1440px layouts, RTL; zero page errors. Fixtures are not live data.
 npm notice
 npm notice New major version of npm available! 11.9.0 -> 12.2.1
 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1

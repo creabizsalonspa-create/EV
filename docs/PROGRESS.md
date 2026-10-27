@@ -8,6 +8,8 @@ Opt-in HTTPS session persistence uses flutter_secure_storage 9.2.4 (iOS device-o
 
 Web English/Arabic resources cover authentication/recovery, catalog, bookings/sessions, garage, fleets, support/inbox and admin regions/metrics/audit controls. Explicit text/attribute bindings preserve typed fields and user content. Language persists locally with RTL and storage-denied fallback. Formal translation/accessibility acceptance remains outstanding.
 
+Vendor and Super Admin web now include **read-only charger command history** from GET /api/charger-commands, with scoped API pagination, refresh/loading/retry states and EN/AR transport-status labels. No command is issued, replayed or automatically reconciled. Submitted/rejected/unknown transport states never claim a charging session, energy delivery or payment. Customer access hides the workspace; 401/419 clear private records. Browser contracts cover these boundaries.
+
 Local verification: Flutter analyzer clean; **21 unit/widget tests passed, 1 explicitly live-only skipped**; separate **1 real-Laravel native integration passed** (now includes fleet membership/privacy/revoke and vendor meter authorization/conflicts/stop); Laravel **37 tests / 279 assertions passed**. Chromium real-backend, frontend-contract and new localization suites passed. Hosted Android/iOS build and native Keychain device-test results will be recorded after CI completes. No backend controller/migration/business rule changed.
 
 Next implementation: native recovery/deep-link consumption using an agreed link contract, richer available-API account/garage workflow and lifecycle QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
@@ -15,7 +17,7 @@ Next implementation: native recovery/deep-link consumption using an agreed link 
 
 Updated 2026-10-27. Full scope remains mandatory. No production release or final acceptance requested.
 
-## Evidence checkpoint
+## Foundation evidence checkpoint (historical)
 
 Requirements committed as `c8c2dd5`; implementation commit is the Git commit containing this document. Exact revisions are available from Git history. Current local environment: Linux/Docker, pinned PHP 8.5.12/Composer 2.10.3, Laravel 12.70.1, SQLite, Node 24.19, system Chromium driven by Playwright 1.62.1.
 
