@@ -64,3 +64,7 @@ Admin changes_requested is allowed from approved or suspended to support audited
 ## Catalog linking and charging policy
 
 The site form offers scoped paginated/searched simulator station choices without translating user names. Selecting a station copies its country/timezone/coordinates; an empty selection preserves an independent inventory site. Linking immediately gates new bookings/starts until one matching simulator connector is configured. Company approval, current local-date license, maintenance/type/power and binding protocol/connector-1 are enforced. Multiple targets are conservatively blocked until source mappings exist. Stop/finalization are never disabled by company maintenance. Legacy unlinked inventory and full native company workflows remain separate continuation work.
+
+## Native inventory maintenance
+
+`apps/mobile/lib/vendor_inventory.dart` consumes company/site/charger/connector pages and existing PATCH maintenance. Owners and consented customer-role staff retain the same backend scopes; derived read/write/operational hints do not replace current server authorization. Native does not provision equipment or infer live availability. Read-only traversal, confirmation/reason, uncertain-write refresh, expiry/revocation/disposal and Arabic phone layout are covered by unit/widget tests and a separate actual-Laravel client acceptance test. Native full KYC/company/staff and inventory creation are still separate unfinished workflows.

@@ -1,4 +1,3 @@
-
 > test:localization
 > node tests/localization.cjs
 

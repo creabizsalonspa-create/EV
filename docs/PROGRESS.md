@@ -1,5 +1,18 @@
 # Full platform progress — universal integration
 
+## Native company inventory and maintenance checkpoint — verified locally
+
+Customer-role staff and vendor owners can open Company inventory from the shared native Account menu. Paginated company → site → charger → connector routes use existing tenant-scoped APIs and derived permission hints. User names/addresses/reasons stay literal; source/status labels and all controls are EN/AR with inherited RTL/themes. Connector availability remains explicitly unknown and the interface never provisions hardware or sends a charger command.
+
+Authorized writers can block new starts or remove maintenance with a required literal reason and explicit confirmation. Unapproved/expired companies cannot use the hinted release action; the server independently checks current scope and approval, including revocation. Responses are refreshed authoritatively, not applied optimistically. Lost acknowledgement clears private rows, warns that the mutation may have committed and requires a GET refresh before another explicit action; no PATCH is automatically replayed. Scope failures clear records, authentication expiry calls the shared handler and returns to the root, and disposed routes ignore late responses.
+
+Verified: Flutter analysis clean, **45 unit/widget passes / 2 explicit default live-only skips**, including **8 new inventory unit/widget cases**; separate actual-Laravel native inventory **1 passed**, proving owner maintenance, customer-role read-only staff, unauthorized release rejection and authoritative recovery. The prior expiry checkpoint remains **118 Laravel / 5,862 assertions**, PostgreSQL **55 / 5,400** plus **4 concurrency / 54**; both protocol source-backed integration flows passed. Pint now covers **129 files** including the new isolated fixture. No financial logic/API/client file was changed.
+
+CI now runs the actual native inventory client against local Laravel on Linux and builds Android/iOS. The pre-Dart macOS log-reader/VM-service failure recurred on `940ccbf`; fresh per-run iPhone18.5 simulator creation/boot/cleanup now replaces preinstalled device reuse as a diagnostic correction. Hosted execution of this revision is pending; do not call the launch issue resolved or latest builds verified until those runs pass. No physical device/signing/store acceptance is implied. Evidence: native-inventory-*.
+
+Still unfinished: native company create/edit/KYC/evidence/staff invitation workflows, inventory creation/linking, actual provisioning/live health, full connector/source mapping and parallel reservations, complete OCPI roles and maps. Agent 1 exclusively owns financial/commercial logic and backend/web/admin finance; Agent 2 owns EV/non-financial software and may consume completed finance APIs in Flutter. Finance `d1f843d` is not integrated without a completed verified PR.
+
+
 ## Known-unsent charging expiry checkpoint — verified locally
 
 Added a bounded simulator-only expiry service, `csms:expire-unsent` command and minute scheduler registration. At the exact 30-minute window end, only a locked pending start with no admitted dispatch, source transaction/inbox/meter/energy/end or calculated total can close. Reservation/session become `expired_unstarted`; the command becomes cancelled with `expired_before_dispatch`; source `ended_at` and transaction remain null. A separate uniquely keyed system-expiry record preserves operational evidence without attributing customer cancellation. Existing billing/ledger records are untouched. Binding reuse and observer exclusion follow the existing closure contract.

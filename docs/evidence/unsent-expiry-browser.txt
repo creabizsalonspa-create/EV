@@ -1,4 +1,3 @@
-
 > test:managed-gate
 > node tests/managed-gate.cjs
 

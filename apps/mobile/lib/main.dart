@@ -10,6 +10,7 @@ import 'strings.dart';
 import 'support.dart';
 import 'fleet.dart';
 import 'sessions.dart';
+import 'vendor_inventory.dart';
 import 'session_vault.dart';
 
 Future<void> main() async {
@@ -831,6 +832,15 @@ class _WorkspaceState extends State<Workspace> {
               onSelected: (value) {
                 if (value == 'profile') {
                   profile();
+                } else if (value == 'inventory') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => VendorInventoryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'tariffs') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -886,6 +896,11 @@ class _WorkspaceState extends State<Workspace> {
                 }
               },
               itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'inventory',
+                  enabled: !busy,
+                  child: Text(inventoryText(context, 'companies')),
+                ),
                 if (account!.role == 'vendor')
                   PopupMenuItem(
                     value: 'tariffs',
