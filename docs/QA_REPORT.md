@@ -1,5 +1,8 @@
 # Internal QA — universal integration checkpoint
 
+Current implementation checkpoint:478a06e28d0706e8fcd6114b60a1e0b6bddda314. See ACTIVE_DEVELOPMENT_CHECKPOINT for exact tested source, live PR #10 CI evidence, migrations, ownership and next action. The additional generic native real-Laravel API smoke passed after the six fixture suites (seven live-only cases are separately opted in, not counted from skips). Further record updates are documentation/evidence only unless the Git diff says otherwise.
+
+
 Production credential-issuance boundary now rejects plaintext requests before rotating/disclosing any secret (owner authorization still runs first). HTTPS issuance remains supported; local simulator behavior is preserved. Targeted admission8/171, combined Laravel228/7192, PostgreSQL connector core39/579 and11 independent-process races/152 passed. Financial core126/6164 +31 races/403 and native80/default7 skips are separately recorded; hosted verification must cover the final pushed source. Production TLS termination must be represented by a correctly configured trusted proxy; untrusted forwarded headers are not a bypass.
 
 

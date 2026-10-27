@@ -1,5 +1,18 @@
 # Requirement-by-requirement continuation status
 
+## Current implementation evidence (source478a06e; see PR #10 checks)
+
+| Sub-requirement | Status | Evidence and precise remaining boundary |
+|---|---|---|
+| Canonical topology, independent EVSE capacity, arrival/expiry | INTEGRATED_TESTED | CANONICAL_TOPOLOGY, RESERVATION_LIFECYCLE, COMMAND_RECOVERY; physical occupancy/hardware acceptance remains external |
+| Secure OCPP admission and investigation | IN_PROGRESS | TLS/mTLS, rotating/revocable credentials, production HTTPS and web/native cases/source proof tested; upstream production registration/JWT/rider authorization, certificate lifecycle and full monitoring remain unfinished |
+| Durable payment recovery and subscription credits | SIMULATED_TESTED | Full Finance PR #7 integrated through PR #8; canonical provider-bound recovery/immutable accounting, web and native recovery tested using mock/HTTP contracts; no merchant acceptance |
+| Subscription in-app dunning | INTEGRATED_TESTED | SUBSCRIPTION_DUNNING; backend/web/Flutter and PostgreSQL worker races; no automatic collection, renewal scheduling or external delivery |
+| Saved mandates and off-session collection | NOT_STARTED | No provider-hosted enrollment/customer binding/consent mandate or recurring collection worker exists; implement next in the existing canonical architecture |
+| Native commercial parity | IN_PROGRESS | Invoice/recovery/notice integration exists; full checkout, plan/subscription actions, credit/refund/dispute/settlement workflows remain unfinished |
+| Full OCPI, interactive maps, remaining vendor/Admin/engagement/security/release | IN_PROGRESS | Preserve existing scoped implementations and source labels; inspect module docs and finish original requirement rows below; no hardware/production readiness inferred |
+
+
 ## Current evidence, 28 October 2026 (Dubai)
 
 Finance PR #7 is integrated via PR #8 (00685cc); do not rebuild recovery/credit accounting. Canonical topology, reservation lifecycle, source reconciliation and secure admission/operational cases are implemented with their cited tests. Subscription in-app dunning and native recovery/notices are INTEGRATED_TESTED locally with hosted validation pending; see SUBSCRIPTION_DUNNING.md and ACTIVE_DEVELOPMENT_CHECKPOINT.md. Saved mandates, recurring collection, full production CSMS registration/token authority, full OCPI interoperability, maps, complete vendor/Admin/loyalty/security/release workflows remain IN_PROGRESS. No row is PRODUCTION_READY or HARDWARE_TESTED. Older descriptions below are historical snapshots, not an instruction to rebuild completed modules. Agent 2 is the sole active full-scope owner.

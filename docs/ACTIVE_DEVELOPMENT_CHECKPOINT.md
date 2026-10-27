@@ -1,5 +1,54 @@
 # Active development checkpoint
 
+Owner: **Agent 2, complete financial and non-financial software**, until the owner explicitly reassigns it. Full original PRODUCT_REQUIREMENTS scope remains required. Do not restart or rebuild completed modules.
+
+## Source and integration
+
+- Latest locally tested implementation commit: `478a06e28d0706e8fcd6114b60a1e0b6bddda314`.
+- Main integration branch: `development/fullstack-continuation`. Slice branch: `development/subscription-dunning`, [PR #10](https://github.com/creabizsalonspa-create/EV/pull/10). Fetch actual head and check PR merge state before editing; documentation-only commits may follow the tested implementation.
+- Finance PR #7 head `6f2103ee43b3e9569063f8ac65cf0fb9017f9d25` is integrated in full through merged PR #8 at `00685cca87c5262715eba0d98855564d4b1dded5`. Core payment/subscription/credit/accounting services remain byte-identical to that finance head. Preserve original branches and both histories. Native PR #9 source60999f5 is included in PR #10; do not implement a competing copy.
+- Full-platform draft [PR #3](https://github.com/creabizsalonspa-create/EV/pull/3) remains the continuation review, not a final release.
+
+## Latest completed slices
+
+Secure TLS charger admission/provisioning with one-time versioned credentials, revocation, optional mTLS pinning, production HTTPS issuance/callback guards, web/native controls and encrypted operational investigation/source-proof audit without blind resend or forced capacity release. Existing canonical topology, parallel EVSE reservations, arrival/expiry, source-backed command reconciliation and financial software are preserved. SQLite downgrade issue #6 has independent guarded rollback evidence and is closed.
+
+Canonical Flutter now consumes tenant-scoped financial recovery/history/provider inspection and subscription notices. It never infers invoice payment from operation completion, stores charger/payment secrets or retries a lost financial mutation. Exact amount presentation uses validated server precision and the existing decimal formatter. EN/AR RTL, empty/error states, expiry and response-generation fencing are tested.
+
+Durable in-app subscription dunning records immutable day1/3/7 notices, prevents duplicate workers and reminder bursts, avoids bounded-scan starvation, and suppresses paid/cancelled/zero-price/uncertain-provider invoices. Backend/web/Flutter read current invoice/recovery state. No automatic collection, renewal scheduler, grace entitlement, email, SMS or push delivery is claimed.
+
+## Verification and live CI evidence
+
+Local implementation478a06e: Laravel228 tests /7192 assertions; PostgreSQL connector39 /579 plus11 process races /152; financial126 /6164 plus31 process races /403. Flutter80 full unit/widget passes /seven explicit live-only skips, nine targeted recovery tests and clean analysis. All six fixture-driven real-Laravel native suites passed; the seventh generic native API smoke separately passed fleets/meters/bookings/pagination/privacy. Full commercial browser and new EN/AR390px dunning browser passed, as did preceding OCPP1.6/2.0.1 canonical restarted-source/meter/invoice simulations and actual loopback TLS/mTLS ingress tests. Composer strict and schedule registration passed.
+
+[PR #10 current checks](https://github.com/creabizsalonspa-create/EV/pull/10/checks) are the authoritative live result; do not infer hosted acceptance from local counts. Recorded implementation runs: platform [40602428662](https://github.com/creabizsalonspa-create/EV/actions/runs/40602428662) / [40602434887](https://github.com/creabizsalonspa-create/EV/actions/runs/40602434887); native [40602428875](https://github.com/creabizsalonspa-create/EV/actions/runs/40602428875) / [40602435213](https://github.com/creabizsalonspa-create/EV/actions/runs/40602435213). Check source SHA and exact completed job conclusions before merge/release. Final documentation-only verification is distinguishable by Git diff from implementation478a06e.
+
+No current local failures or uncommitted implementation changes at this checkpoint. Historical CI failures (HTTPS fixture, upstream reconnect cleanup, aggregate loopback HTTP429) are retained in prior records. Test pacing now respects unchanged production limits; no limiter cache clear or blind mutation replay. Older cancelled native runs were superseded, not counted as passes. Android/iOS artifacts are debug/unsigned simulator outputs; signing/store/device acceptance is not established. No local Android SDK/Xcode exists.
+
+## Exact next implementation
+
+1. Finish checking the current PR #10 source; merge normally only after combined verification, preserve its full ancestry and inspect updated remote main. Update/close superseded PR #9 as appropriate. If already merged, skip this step.
+2. Implement **provider-hosted saved mandate enrollment, consent and revocation** with server-owned customer/SetupIntent identity binding. Then extend the canonical gateway/recovery/receipt architecture for off-session collection, SCA/decline handling, bounded dunning/retry and external notification delivery. Do not infer a mandate from a client-supplied PaymentMethod; do not create a second ledger/state machine.
+3. Continue production CSMS upstream identity/JWT/rider-token authorization, certificate lifecycle, real command recovery/monitoring; authorized OCPI interoperability; interactive maps; remaining customer/vendor/Admin/KYC/staff/fleet/loyalty/security/deployment/release workflows in REQUIREMENT_STATUS.
+
+## Commands and contracts
+
+`./scripts/setup`, `./scripts/start`, `./scripts/csms-start`, `./scripts/charging-setup`, `./scripts/charging-bridge-setup` preserve existing environment/data. Use pinned `./scripts/php` and Flutter3.35.7 under `/workspace/.tools/flutter/bin`, with workspace PUB_CACHE/XDG_CONFIG_HOME/analyzer cache settings. Never reset HOME, force-push, delete old volumes or reseed existing business data.
+
+Run `./scripts/php artisan test`, `./scripts/php vendor/bin/pint --test`, Composer strict validation, `services/business-api/tests/Postgres/run-finance`, `.../run-connectors`, repo npm browser/protocol suites, `node tests/charger-ingress.cjs`, `node tests/charger-operations.cjs`, `node tests/subscription-dunning.cjs`, `node tests/native-connected.cjs`, Flutter analysis/tests and the opt-in generic API smoke. Run authentication-bearing suites sequentially. The connected runner waits a full authentication window after the prior batch completes. Supervise source observation through `./scripts/csms-consume`; web inspection uses private Graph URL/network attachment established by charging-setup.
+
+Migrations: admission/cases/events2026_10_30_000001/000002; finance recovery/credits2026_10_28_150001/160001; dunning2026_10_30_100001. See CHARGER_ADMISSION, PAYMENT_RECOVERY, SUBSCRIPTION_CREDITS, FINANCE_MOBILE_CONTRACT and SUBSCRIPTION_DUNNING. The hourly `commercial:subscription-dunning --limit=100` schedule requires a supervised scheduler; registration is not a running worker. Core finance/lifecycle schedules remain intact.
+
+## Incomplete and external acceptance
+
+Software remains **IN_PROGRESS**: mandates/automatic collection, full native commercial workflows, production CSMS/rider authority, OCPI interoperability, maps, complete vendor/Admin/fleet/engagement/security/notification/release scope. Missing credentials do not block independent software implementation. No completion percentage or final-release claim is made.
+
+External gates: real chargers/firmware/meters; merchant PSP/3DS/mandate and payout acceptance; bilateral roaming contracts/credentials; production infrastructure/security/restore acceptance; mobile signing, physical devices and stores. Current hosted SDKs validate the recorded debug/simulator contract, not current app-store eligibility. Environment configuration is saved as a draft, not applied/published; fresh-task and Docker-volume restoration remain independently unverified.
+
+<details><summary>Historical checkpoint records (superseded; retain for audit)</summary>
+
+# Active development checkpoint
+
 Production credential-issuance boundary now rejects plaintext requests before rotating/disclosing any secret (owner authorization still runs first). HTTPS issuance remains supported; local simulator behavior is preserved. Targeted admission8/171, combined Laravel228/7192, PostgreSQL connector core39/579 and11 independent-process races/152 passed. Financial core126/6164 +31 races/403 and native80/default7 skips are separately recorded; hosted verification must cover the final pushed source. Production TLS termination must be represented by a correctly configured trusted proxy; untrusted forwarded headers are not a bypass.
 
 
@@ -44,3 +93,5 @@ External gates: physical chargers and firmware interoperability; real PSP/mandat
 
 Branch `development/native-finance-recovery` adds the tested canonical native payment-recovery queue/history/inspection workflow. Local Flutter 77 passed / six live-only skips, analysis clean, plus separate real-Laravel client test passed. Integration candidate and native slice still require hosted validation and PR merges. Next implementation remains saved mandates, recurring collection and dunning in the existing architecture.
 Integration CI additionally exposed a post-rotation upstream station-identity cleanup race (HTTP 502 on the new TLS upgrade). The test now uses bounded transport-only backoff after proven revocation, refuses to retry 401/429 and sends no OCPP frame until an upgrade succeeds; it then verifies the new BootNotification. Local TLS/mTLS checks passed. CI must rerun; this is not permission to resend charging commands.
+
+</details>
