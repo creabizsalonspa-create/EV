@@ -5,6 +5,7 @@ namespace App\Services\Commercial;
 use App\Models\User;
 use App\Services\Finance\Money;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -174,6 +175,7 @@ class SubscriptionService
                 $update = ['cancel_at_period_end' => false];
             } else {
                 abort_unless($action === 'cancel_now', 422);
+                abort_if(DB::table('subscription_gateway_checkouts')->where('subscription_id', $id)->whereIn('status', ['pending', 'authorized', 'action_required'])->exists(), 409, 'Cancel or reconcile the gateway checkout before cancelling the subscription.');
                 $update = ['status' => 'cancelled', 'cancelled_at' => now(), 'cancel_at_period_end' => false, 'next_plan_id' => null];
             }
             DB::table('commercial_subscriptions')->where('id', $id)->update($update + ['updated_at' => now()]);
@@ -201,10 +203,9 @@ class SubscriptionService
             abort_unless($i, 404);
             abort_if(DB::table('commercial_subscription_receipts')->where('invoice_id', $invoiceId)->exists(), 409, 'Invoice already paid.');
             abort_unless((int) $i->cycle_number === (int) $s->cycle_number + 1, 409, 'Invoice is not the next billing cycle.');
+            abort_if(DB::table('subscription_gateway_checkouts')->where('invoice_id', $invoiceId)->whereIn('status', ['pending', 'authorized', 'action_required'])->exists(), 409, 'Resolve the gateway checkout before using manual mock settlement.');
             if ($outcome === 'succeeded') {
-                DB::table('commercial_subscription_receipts')->insert(['invoice_id' => $invoiceId, 'provider_reference' => 'mock_sub_'.Str::ulid(), 'amount_minor' => $i->total_minor, 'currency' => $i->currency, 'evidence' => 'MOCK_PROVIDER', 'created_at' => now()]);
-                $this->ledger($invoiceId, 'payment', [['cash:mock_subscription', (int) $i->total_minor, 0], ['subscription_receivable', 0, (int) $i->total_minor]]);
-                DB::table('commercial_subscriptions')->where('id', $id)->update(['plan_id' => $i->plan_id, 'next_plan_id' => null, 'status' => 'active', 'cycle_number' => $i->cycle_number, 'period_start' => $i->period_start, 'period_end' => $i->period_end, 'updated_at' => now()]);
+                $this->settleReceipt($s, $i, 'mock_sub_'.Str::ulid(), 'MOCK_PROVIDER');
             } else {
                 DB::table('commercial_subscriptions')->where('id', $id)->update(['status' => 'past_due', 'updated_at' => now()]);
             }
@@ -212,6 +213,44 @@ class SubscriptionService
 
             return $this->summary($id);
         }, 3);
+    }
+
+    private function settleReceipt(object $subscription, object $invoice, string $reference, string $evidence): object
+    {
+        $receipt = DB::table('commercial_subscription_receipts')->insertGetId(['invoice_id' => $invoice->id, 'provider_reference' => $reference, 'amount_minor' => $invoice->total_minor, 'currency' => $invoice->currency, 'evidence' => $evidence, 'created_at' => now()]);
+        $account = $evidence === 'STRIPE_TEST_CONTRACT' ? 'cash:stripe_test_subscription' : 'cash:mock_subscription';
+        $this->ledger($invoice->id, 'payment', [[$account, (int) $invoice->total_minor, 0], ['subscription_receivable', 0, (int) $invoice->total_minor]]);
+        DB::table('commercial_subscriptions')->where('id', $subscription->id)->update(['plan_id' => $invoice->plan_id, 'next_plan_id' => null, 'status' => 'active', 'cycle_number' => $invoice->cycle_number, 'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end, 'updated_at' => now()]);
+
+        return DB::table('commercial_subscription_receipts')->find($receipt);
+    }
+
+    /** Internal settlement boundary: only invoke after server-confirmed capture or authenticated provider evidence. */
+    public function recordProviderReceipt(int $subscription, int $invoice, string $reference, int $amount, string $currency, string $evidence, ?int $actor): object
+    {
+        abort_if(app()->environment('production'), 503, 'Subscription test settlement is disabled in production.');
+        abort_unless(in_array($evidence, ['MOCK_PROVIDER', 'STRIPE_TEST_CONTRACT'], true), 422);
+        try {
+            return DB::transaction(function () use ($subscription, $invoice, $reference, $amount, $currency, $evidence, $actor) {
+                $s = DB::table('commercial_subscriptions')->where('id', $subscription)->lockForUpdate()->first();
+                abort_unless($s, 404);
+                $i = DB::table('commercial_subscription_invoices')->where('subscription_id', $subscription)->where('id', $invoice)->first();
+                abort_unless($i, 404);
+                abort_unless((int) $i->total_minor === $amount && $i->currency === $currency, 409, 'Provider settlement does not match subscription invoice.');
+                if ($old = DB::table('commercial_subscription_receipts')->where('invoice_id', $invoice)->first()) {
+                    abort_unless($old->provider_reference === $reference && (int) $old->amount_minor === $amount && $old->currency === $currency && $old->evidence === $evidence, 409, 'Subscription invoice already settled by another provider operation.');
+
+                    return $old;
+                }
+                abort_unless($s->status !== 'cancelled' && (int) $i->cycle_number === (int) $s->cycle_number + 1, 409, 'Subscription invoice is not the next payable cycle.');
+                $receipt = $this->settleReceipt($s, $i, $reference, $evidence);
+                $this->event($subscription, $actor, 'provider_payment_succeeded', ['invoice_id' => $invoice, 'receipt_id' => $receipt->id, 'evidence' => $evidence]);
+
+                return $receipt;
+            }, 3);
+        } catch (UniqueConstraintViolationException $e) {
+            abort(409, 'Provider capture identity was already used; reconcile before retrying.');
+        }
     }
 
     public function renew(int $id): array
@@ -253,6 +292,9 @@ class SubscriptionService
         $ledger = DB::table('commercial_subscription_ledger')->whereIn('invoice_id', $invoices->pluck('id'));
         $balanced = (int) (clone $ledger)->sum('debit_minor') === (int) (clone $ledger)->sum('credit_minor');
 
-        return ['ledger_balanced' => $balanced, 'subscription' => $s, 'plan' => $this->plan($s->plan_id), 'invoices' => $invoices, 'entitlements' => $enabled ? $current->entitlements : [], 'entitlements_active' => (bool) $enabled, 'billing_provider' => 'MOCK_PROVIDER', 'real_payment_processed' => false];
+        $receipts = DB::table('commercial_subscription_receipts')->whereIn('invoice_id', $invoices->pluck('id'))->orderBy('id')->get();
+        $provider = $receipts->last()?->evidence ?? 'MOCK_PROVIDER';
+
+        return ['receipts' => $receipts, 'ledger_balanced' => $balanced, 'subscription' => $s, 'plan' => $this->plan($s->plan_id), 'invoices' => $invoices, 'entitlements' => $enabled ? $current->entitlements : [], 'entitlements_active' => (bool) $enabled, 'billing_provider' => $provider, 'real_payment_processed' => false];
     }
 }

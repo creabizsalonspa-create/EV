@@ -68,4 +68,14 @@ class CommercialFinanceTest extends TestCase
         $this->postJson("/api/finance/refund-requests/$id/review", ['decision' => 'approve', 'note' => 'Approved'])->assertStatus(503);
         $this->assertDatabaseCount('finance_refunds', 0);
     }
+
+    public function test_native_and_cookie_clients_share_financial_records_and_report_filters(): void
+    {
+        [$customer,$vendor,$invoice] = $this->fixture();
+        $token = $customer->createToken('finance-contract', ['*'])->plainTextToken;
+        $this->withHeader('Authorization', 'Bearer '.$token)->getJson('/api/v1/finance/report?to='.now()->toDateString())->assertOk()->assertJsonPath('groups.0.net_collected_minor', 100);
+        $request = $this->postJson('/api/v1/finance/invoices/'.$invoice->id.'/refund-requests', ['amount_minor' => 10, 'reason' => 'Native contract', 'idempotency_key' => 'native'])->assertCreated()->json();
+        $this->withHeader('Authorization', '')->actingAs($vendor)->getJson('/api/finance/refund-requests')->assertOk()->assertJsonPath('data.0.id', $request['id']);
+        $this->getJson('/api/finance/report?from=2026-02-02&to=2026-01-01')->assertUnprocessable();
+    }
 }

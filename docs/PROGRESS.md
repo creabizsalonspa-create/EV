@@ -1,5 +1,10 @@
 # Full platform progress — universal integration
 
+## Latest Agent 1 financial checkpoint
+
+Finance-only branch/PR4 now includes provider-backed subscription capture into immutable receipts/entitlements, signed callback recovery, grouped exact reports and connected financial workflows. Current executed results: Laravel148/6220, PostgreSQL85/5758 and14 independent-process races/168 assertions; financial browser checks include disputes, settlement approval/test payout, subscription gateway capture, CSV, both themes, three widths and Arabic RTL. Screenshots/evidence are committed. This remains an incomplete commercial workstream: durable payment recovery, hosted SCA, off-session/dunning, subscription credit notes, external disputes/payouts and corporate billing remain. See [FINANCE_COMMERCIAL_CONTINUATION.md](FINANCE_COMMERCIAL_CONTINUATION.md) for precise scope, evidence and next tasks. Agent 2's EV/native ownership is unchanged.
+
+
 ## Finance/commercial branch checkpoint — 2026-10-27
 
 Dedicated `development/finance-commercial` from `940ccbf`; Agent 1 owns finance only. Agent 2 owns the EV platform and native application integration. New connected customer/vendor/admin financial workspace, mock checkout/authorization/capture/cancellation/refunds, signed webhooks, immutable credit notes and dispute decisions, plan versions/cycles/failed-payment retry/paid entitlements, commission statements/scheduled settlement approval and signed adjustments are implemented and tested in the scope described by `FINANCE_COMMERCIAL_CONTINUATION.md`. Stripe test-mode HTTP adapter is contract-tested without merchant credentials. Real payouts remain disabled. No final-completion claim.
