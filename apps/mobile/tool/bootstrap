@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+# Generate only platform shells; preserve application source, tests and pubspec.
+platform_tmp=$(mktemp -d)
+trap 'rm -rf "$platform_tmp"' EXIT
+if [[ ! -d android || ! -d ios ]]; then
+  flutter create --platforms=android,ios --org com.creabiz --project-name creabiz_ev "$platform_tmp/creabiz_ev"
+  if [[ ! -d android ]]; then cp -R "$platform_tmp/creabiz_ev/android" ./android; fi
+  if [[ ! -d ios ]]; then cp -R "$platform_tmp/creabiz_ev/ios" ./ios; fi
+fi
+if [[ -f pubspec.lock ]]; then flutter pub get --enforce-lockfile; else flutter pub get; fi
+flutter analyze
+flutter test --reporter expanded

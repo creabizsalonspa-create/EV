@@ -204,12 +204,10 @@ const { randomUUID } = require("node:crypto");
       .fill(outsider.email);
     await customer.page
       .locator("#fleet-detail button")
-      .filter({ hasText: "Invite existing account" })
+      .filter({ hasText: "دعوة حساب موجود" })
       .click();
     await customer.page.waitForFunction(() =>
-      document
-        .querySelector("#notice")
-        .textContent.includes("Invitation recorded"),
+      document.querySelector("#notice").textContent.includes("سُجلت الدعوة"),
     );
     await outsider.page.reload();
     await outsider.page.locator("#fleet-invitations button").click();
@@ -220,6 +218,21 @@ const { randomUUID } = require("node:crypto");
     assert.equal(
       await outsider.page.locator("#vehicle-list").textContent(),
       "",
+    );
+    await customer.page
+      .locator('#fleet-detail input[data-i18n-aria="Cost center code"]')
+      .fill("QA");
+    await customer.page
+      .locator('#fleet-detail input[data-i18n-aria="Cost center name"]')
+      .fill("Browser operations");
+    await customer.page
+      .locator("#fleet-detail")
+      .getByRole("button", { name: "إضافة مركز تكلفة" })
+      .click();
+    await customer.page.locator("#fleet-assign").waitFor();
+    await customer.page.locator("#fleet-assign button").click();
+    await customer.page.waitForFunction(() =>
+      document.querySelector("#fleet-detail").textContent.includes("المركبة #"),
     );
     await customer.page
       .locator("#support-create [name=subject]")
@@ -240,8 +253,22 @@ const { randomUUID } = require("node:crypto");
     await vendor.page.reload();
     await vendor.page.locator("#admin").waitFor({ state: "visible" });
     await vendor.page.waitForFunction(() =>
-      document.querySelector("#overview").textContent.includes("audit_events"),
+      document.querySelector("#overview").textContent.includes("Audit history"),
     );
+    await vendor.page.locator("#audit-search").fill("station.created");
+    assert((await vendor.page.locator("#overview tbody tr").count()) > 0);
+    assert(
+      (await vendor.page.locator("#overview tbody tr").allTextContents()).every(
+        (text) => text.includes("station.created"),
+      ),
+    );
+    const auditDownload = vendor.page.waitForEvent("download");
+    await vendor.page.locator("#audit-export").click();
+    assert.equal(
+      (await auditDownload).suggestedFilename(),
+      "creabiz-audit.csv",
+    );
+    await vendor.page.locator("#audit-search").fill("");
     await vendor.page
       .locator("#ticket-list button")
       .filter({ hasText: "Browser support " + run })
@@ -276,6 +303,26 @@ const { randomUUID } = require("node:crypto");
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    // Simulate an expired session response, then verify private DOM is cleared.
+    await customer.page.route("**/api/me", (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "Unauthenticated." }),
+      }),
+    );
+    await customer.page.locator("#refresh-identity").click();
+    await customer.page.locator("#account").waitFor({ state: "visible" });
+    assert.equal(await customer.page.locator("#garage").isVisible(), false);
+    assert.equal(
+      await customer.page.locator("#vehicle-list").textContent(),
+      "",
+    );
+    assert.equal(
+      await customer.page.locator("#fleet-detail").textContent(),
+      "",
+    );
+    assert.equal(await customer.page.locator("#who").textContent(), "");
     const restricted = await browser.newContext();
     await restricted.addInitScript(() => {
       Object.defineProperty(window, "localStorage", {

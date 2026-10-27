@@ -6,3 +6,8 @@
 - Playwright 1.62.1 and Prettier 3.9.10: development dependencies (Apache-2.0 and MIT respectively), pinned by package-lock.json. Browser binaries retain their upstream licenses.
 
 This inventory does not assign an open-source license to the owner's business documents or proprietary application code. No CodeCanyon source or license was supplied or used. Commercial release requires the complete dependency and image license/SBOM review described in docs/QA_REPORT.md.
+
+- Flutter SDK/framework 3.35.7, official source `adc901062556672b4138e18a4dc62a4be8f4b3c2`: BSD-3-Clause, The Flutter Authors. Used for the shared native client and generated Android/iOS project templates; notice retained in third_party/Flutter-BSD-3-Clause.txt. Default generated launcher/launch assets remain development placeholders and are not approved Crea-Biz release branding. Dart/engine/native transitive license notices and complete binary SBOM/distribution review remain release requirements.
+- shared_preferences 2.5.3: BSD-3-Clause, The Flutter Authors; retained notice in third_party/SharedPreferences-BSD-3-Clause.txt. Used only for non-secret theme/locale preferences. Platform implementations are locked in apps/mobile/pubspec.lock; release dependency/SBOM review remains required.
+
+- flutter_secure_storage 9.2.4: BSD-3-Clause, German Saprykin and contributors; retained notice in third_party/FlutterSecureStorage-BSD-3-Clause.txt. Opt-in native session-cookie storage uses iOS Keychain and Android encrypted preferences/Keystore. Transitive/platform packages are pinned in apps/mobile/pubspec.lock; full release SBOM review remains required.

@@ -8,7 +8,7 @@ All endpoints are same-origin JSON, `Accept: application/json`. Mutations use La
 | POST /api/login | Public | email, password; regenerates session; 200 |
 | POST /api/logout | Session | invalidates session and rotates CSRF; 204 |
 | GET /api/me | Session | identity; 200 |
-| GET /api/stations | Public | optional connector_type CCS2/Type2/CHAdeMO, country, min_power_kw; paginated 25; unknown availability, remote_control=false |
+| GET /api/stations | Public | optional q (name, max 100), connector_type CCS2/Type2/CHAdeMO, country, min_power_kw, page; paginated 25; unknown availability, remote_control=false |
 | POST /api/stations | Vendor | name, country uppercase 2 chars, currency uppercase 3 chars, IANA timezone, latitude, longitude, source discovery/simulator, connector_type, power_kw 1–1000; 201 |
 | GET/POST /api/vehicles | Session | own records only; create name + connector_type; 201 |
 | GET /api/reservations | Session | own customer records, own-station vendor records, admin all; paginated |
@@ -64,3 +64,27 @@ Named rate-limit budgets separate authentication (10/minute), recovery (5), gene
 ## Web appearance
 
 The shared web UI supports Light/Dark/System through the header Appearance control. The selected preference is browser-local (`creabiz.theme`) and defaults to the operating system. System changes apply immediately; choices synchronize across tabs. Storage denial falls back to the current page. The preference also applies to verification and password-reset pages before styles load. Native clients, full design-system review, complete Arabic translation and formal accessibility acceptance remain outstanding.
+
+## Frontend integration checkpoint
+
+The web client continues to use the existing endpoints without backend contract changes. Catalog pagination follows only the returned query string on the same fixed `/api/stations` endpoint; it never fetches a returned foreign origin. Admin cards/table consume `GET /api/admin/overview` counts plus `audit_events`. Fleet vehicle assignment submits `vehicle_id` and `cost_center_id` to the existing same-fleet endpoint. UI-only hiding never replaces server authorization.
+
+The initial native source uses the same session-cookie/CSRF endpoints, keeps credentials in memory, refreshes CSRF after login, and requires a reachable HTTPS origin in release builds. This integration is source-only and unverified on devices. It does not introduce bearer-token APIs, native secure persistence or web admin access.
+
+Backend coordination requirements (not implemented endpoints or approved contracts): multi-connector station/EVSE/connector identifiers with reservation/control targeting; verified vendor organization/staff permissions and KYC review states; authenticated session event/energy lifecycle; versioned tariff quote + currency/minor-unit rules; idempotent hosted-payment intent/invoice/settlement APIs; authenticated discovery/availability provenance and freshness; outbound OCPI capability negotiation. Frontend modules remain incomplete until the backend defines/implements these, and must not invent live data or successful finance states.
+
+## Native pagination, settings and support UI contracts
+
+Native catalog sends only existing `q`, `connector_type`, uppercase `country`, `min_power_kw` and `page`; it trusts `current_page`/`last_page`/`total` and never follows server pagination URLs to a different origin. Distance/price/live-availability filtering remains unavailable, not simulated. Other native list views use their existing page parameter. Native preferences store only theme/locale locally; an explicit profile save sends name + the selected locale through PATCH /api/profile. No cookie/token persistence or new auth endpoint is introduced.
+
+Native recovery/verification send existing requests; link consumption still uses the signed-in web flow, not an invented native deep-link contract. Support threads use existing GET /api/support/{id} messages pagination and POST messages; notifications use existing feed/read routes. No admin mobile surface is created. Web audit CSV is generated locally from filtered latest-50 API records, not a complete historical export. Full export, connector targeting, finance and authorized map/live integration contracts remain backend coordination work.
+
+## Current native fleet, simulator and session integration
+
+Native fleet UI consumes existing GET/POST fleets, GET fleet-invitations, POST invitation accept, GET fleet details, POST invitations/cost-centers/vehicles and DELETE member. Invitation response is deliberately nonenumerating; acceptance is explicit. Driver detail hides other members/vehicles; assignment chooses only acting-user vehicles, paginated. Revocation removes assignments. Existing contracts do not support re-inviting revoked memberships, center editing/deletion, arbitrary manager vehicle assignment or unassignment; coordinate with backend rather than invent endpoints.
+
+Vendor session UI consumes paginated GET simulations, PUT simulations/{id}/meter with integer cumulative energy_wh (0..1000000, never decreasing), POST simulations/{id}/stop. Server ownership and stopped-session conflicts remain authoritative. Estimates are SIMULATED, not invoices or processed payments.
+
+Current native auth supersedes earlier in-memory-only checkpoint: optional encrypted persistence uses existing HTTPS server-expiring Secure/HttpOnly cookies with fresh GET me and CSRF on restore. No bearer/refresh endpoint is introduced; server session lifetime/revocation remains authoritative. Plaintext loopback tests cannot enable persistence. Existing native recovery/verification requests still hand link consumption to web; mobile deep-link contract is unfinished.
+
+Vendor/admin web additionally reads GET /api/charger-commands with page query, displaying only ID, station ID, action and transport status. It never follows returned pagination origins or exposes raw payload/confirmation/idempotency data. No bind/create/dispatch/replay control is introduced. pending/dispatching/submitted/rejected/outcome_unknown are transport states; none proves physical energy, completed charging or commercial success. Existing API scoping remains authoritative.

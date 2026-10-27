@@ -1,0 +1,3 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/live_api_test.dart
+00:00 +0: native client exercises actual Laravel roles, bookings and privacy
+00:04 +1: All tests passed!

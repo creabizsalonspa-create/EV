@@ -1,0 +1,20 @@
+name: creabiz_ev
+publish_to: none
+description: Shared Crea-Biz customer and vendor native client; development integration checkpoint.
+version: 0.1.0+1
+environment:
+  sdk: '>=3.9.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  shared_preferences: 2.5.3
+  flutter_secure_storage: 9.2.4
+dev_dependencies:
+  integration_test:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true

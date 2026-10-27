@@ -1,8 +1,23 @@
 # Internal QA checkpoint — development continues
 
+## Current frontend continuation — 2026-10-27
+
+Implemented native paginated fleets/invitations, explicit acceptance, owner-only invitation/revocation and cost centers, own-vehicle assignment across vehicle pages, and member-scoped detail. Vendor simulator session pages now edit cumulative Wh with monotonic validation, retain input after conflicts and confirm stop. All new screens use shared English/Arabic resources and existing backend authorization/contracts.
+
+Opt-in HTTPS session persistence uses flutter_secure_storage 9.2.4 (iOS device-only unlocked Keychain; Android encrypted preferences/Keystore with backups disabled). Only secure, HTTP-only, unexpired server cookies are stored, bound to origin and capped at 24 hours per snapshot. Password/CSRF/account data are not persisted. Restore requires fresh /me and CSRF; expiry/rejection clears private views. Serialized vault operations prevent late saves after logout. Storage failure has no plaintext fallback; deletion failure does not falsely report logout.
+
+Web English/Arabic resources cover authentication/recovery, catalog, bookings/sessions, garage, fleets, support/inbox and admin regions/metrics/audit controls. Explicit text/attribute bindings preserve typed fields and user content. Language persists locally with RTL and storage-denied fallback. Formal translation/accessibility acceptance remains outstanding.
+
+Vendor and Super Admin web now include **read-only charger command history** from GET /api/charger-commands, with scoped API pagination, refresh/loading/retry states and EN/AR transport-status labels. No command is issued, replayed or automatically reconciled. Submitted/rejected/unknown transport states never claim a charging session, energy delivery or payment. Customer access hides the workspace; 401/419 clear private records. Browser contracts cover these boundaries.
+
+Local verification: Flutter analyzer clean; **21 unit/widget tests passed, 1 explicitly live-only skipped**; separate **1 real-Laravel native integration passed** (now includes fleet membership/privacy/revoke and vendor meter authorization/conflicts/stop); Laravel **37 tests / 279 assertions passed**. Chromium real-backend, frontend-contract and new localization suites passed. Hosted Android/iOS build and native Keychain device-test results will be recorded after CI completes. No backend controller/migration/business rule changed.
+
+Next implementation: native recovery/deep-link consumption using an agreed link contract, richer available-API account/garage workflow and lifecycle QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
+
+
 **Overall: NOT READY FOR FINAL ACCEPTANCE.** This report covers implemented development workflows; it does not certify the full platform. Full scope is retained in PRODUCT_REQUIREMENTS.md and PROGRESS.md.
 
-## Executed checks
+## Foundation checks (historical)
 
 | Check | Outcome | Evidence |
 |---|---|---|
@@ -62,3 +77,61 @@ This continuation supersedes the earlier 31-test count for the current source. B
 - Initial test exposed middleware overriding the verification page's referrer policy; corrected shared headers for verification and reset links. Another test reused an old in-memory authenticated user between requests; corrected the test to reload the user as a fresh HTTP request does. Final runs above passed.
 
 Current environment supports the implemented local web/backend/simulator workflow. Email delivery, verified-only production access policies, 2FA, KYC/native clients and the full release gates above remain outstanding. Cloud install/start instructions were saved for review, not published; fresh-task/volume restoration is not verified. GitHub Git fetch and PR-head inspection succeeded; GraphQL PR listing returned Forbidden. No PR review state or hosted CI result is inferred from the Git refs.
+
+## Frontend assignment checkpoint — 2026-10-27
+
+Branch `development/frontend`, base `f4feac7`; the exact frontend implementation is the commit containing this section. Backend controllers, migrations, business rules and CSMS services were unchanged after the frontend assignment.
+
+| Check | Actual result |
+|---|---|
+| Backend regression | **37 passed, 279 assertions**; evidence/frontend-backend.txt |
+| Real-backend Chromium workflow | **Passed**; evidence/frontend-browser.txt; existing flows plus email/theme checks, fleet vehicle assignment and private DOM cleanup on a mocked expired-session response |
+| Isolated frontend contract suite | **Passed**; evidence/frontend-contracts.txt; query-preserving pagination, safe text rendering, role navigation, service-error recovery, offline/online, 390/768/1440px and RTL; fixtures are test-only |
+| PHP style and Composer lock/schema | **Passed**, 59 files and strict Composer validation |
+| JavaScript syntax, shell bootstrap syntax, diff whitespace | **Passed** with node --check, bash -n and git diff --check |
+| Visual inspection | Light desktop and dark 390px screenshots inspected locally; not formal design/WCAG acceptance |
+| OCPP regression | Both protocols passed at the identity checkpoint in this session; no CSMS/backend code changed during frontend work |
+| Flutter analysis/unit/widget tests | **UNRUN**; test sources present, SDK absent and metadata access HTTP 403 |
+| Android/iOS platform generation and builds | **UNRUN**; bootstrap + CI supplied, no native artifacts |
+| Hosted CI, Firefox/WebKit, physical devices, full accessibility/performance | **UNVERIFIED / UNRUN** |
+
+Native code is explicitly an unverified source checkpoint, not completed mobile functionality. Its first mandatory follow-up is SDK installation, actual analyzer/test execution and repair, then device/network/build validation. Current native limits, generated-platform strategy, HTTPS deployment requirement and unfinished UI modules are in apps/mobile/README.md. Complete frontend acceptance is not requested.
+
+Git operations were rechecked before work: remote development and PR #1 head shared `e7e4833`; GitHub GraphQL metadata returned Forbidden. Identity work pushed as `f4feac7` before branching. Push/PR outcomes for this frontend checkpoint must be established from subsequent Git commands; no hosted PR state or CI success is inferred from a local commit.
+
+## Recovered native toolchain and hosted evidence — supersedes UNRUN entries above
+
+For source **a547379**, hosted [native run 40454501304](https://github.com/creabizsalonspa-create/EV/actions/runs/40454501304) completed successfully on Linux/macOS: Flutter bootstrap, analysis, tests, Android debug APK and unsigned iOS simulator compilation. [Platform run 40454501232](https://github.com/creabizsalonspa-create/EV/actions/runs/40454501232) also passed. `native-ci-a547379.json` and `platform-ci-a547379.json` record exact head SHA, jobs and step conclusions. Earlier statements that hosted execution could not be inspected are historical.
+
+Local official-source SDK installation succeeded using writable package/config/analyzer caches. Initial and repeated bootstrap passed. Analyzer: **no issues**; native test runner: **3 passed**, nonzero, completed (`evidence/native-local.txt`). Tests cover native origin restrictions, actual local HTTP session/CSRF rotation and missing-service widget state. They do not exercise all source workflows or physical devices. Dart source formatted with the supported --suppress-analytics option. Platform projects and lockfile are retained in the follow-up commit; XML/plist syntax verified.
+
+Builds used no service URL and establish compilation only. No AAB/signed IPA, store acceptance, native-device login, physical charging, real payments, complete native themes/persistence/localization or complete mobile feature acceptance is claimed. CI artifact upload is added to the next workflow revision and requires successful verification before asserting files can be retrieved. No verification bypass or credential copying occurred.
+
+Native real-service protocol smoke: **1 test passed** against disposable loopback Laravel, covering actual session/CSRF and customer/vendor booking/privacy operations (`evidence/native-live-api.txt`). This is distinct from the 3 default unit/widget tests; the live test is skipped by default without the explicit dart define. It proves the native HttpClient contract against this backend, not physical-device UI behavior or deployed HTTPS reachability. No backend changes were needed.
+
+Final artifact evidence: source **060f20c** passed native run **40455350676**, including successful debug-APK and unsigned-simulator archive uploads; platform run **40455350704** passed. Exact head/step/retention data is in evidence/native-ci-060f20c.json, native-artifacts-060f20c.json and platform-ci-060f20c.json. Local artifact retrieval was denied by the GitHub storage host; no local archive inspection is claimed. The cloud draft now requests that observed host without broadening to a wildcard. Test-only follow-up **ba5cd5d** preserves the same application code and adds the locally passing real-service smoke. The latest app is not device-tested, signed, store-approved or fully implemented.
+
+## Native catalog/preferences/localization and continued frontend modules
+
+Base 178a9e0; the commit containing this section is the implementation checkpoint. All backend contracts/source are preserved.
+
+- Flutter analyzer: **no issues** (native-catalog-analyze.txt).
+- Flutter default suite: **14 passed / 1 skipped** (native-catalog-tests.txt). Covers encoded HTTP queries, same-origin pagination, stale-response/disposal races, exact failed-page retry, persistent theme/locale across controller/app recreation, OS brightness, corrupt/failed storage, dictionary/interpolation parity, all filter controls and clear/validation, preserved tab state, 320/900px Arabic vendor layout, session-expiry cleanup, public support replies/closed states and inbox/read/thread navigation.
+- Opted-in real Laravel smoke: **1 passed** (native-catalog-live.txt). Creates 26 uniquely named simulator stations to prove real 25+1 server pages, checks combined connector/country/minimum-power search, then existing auth/bookings/tenant/privacy and new public thread/notification/read operations. It rejects non-loopback hosts; operator-only CLI fixture promotion does not create an admin mobile UI.
+- Backend regression: **37 passed, 279 assertions**. Real-backend Chromium suite passed with current admin audit filter/download behavior. Isolated web contract suite passed with filtered CSV content/formula escaping and no-result export controls (native-catalog-backend/browser/web-contracts.txt).
+- PHP style and diff/JS syntax checks passed. No backend changes or lockfile updates outside the native package. Native pubspec/lock now include pinned shared_preferences and SDK localization/integration_test support, with normal package verification and retained license.
+- The clear-filter regression test initially found stale text restored by Form.reset; reset now occurs before clearing controllers and the final suite passed. Analyzer findings were corrected rather than suppressed.
+
+Native CI execution/build/device outcomes will be appended after the pushed source runs. The iOS device fixture test is intentionally distinct from the real-Laravel protocol test: it verifies native integration and platform-persisted settings on a simulator, not a physical phone or deployed HTTPS service. Android/iOS release signing, stores, full app features, real network/device integrations and complete accessibility/performance acceptance remain unfinished.
+
+Async follow-up: support callbacks now ignore expiration from disposed/stale requests, preventing an old 401 from clearing a later screen. The added regression passed; final local default suite is **15 passed / 1 skipped**, with analyzer clean. native-catalog-tests/analyze.txt now contain this final local run. Other previously recorded backend/live/browser results remain applicable; no corresponding backend/browser code changed in the follow-up.
+
+The first hosted simulator fixture run failed with Flutter's `Guarded function conflict`: an HTTP callback used guarded expect() while pumpAndSettle was active. Corrected the two callback checks to Flutter's supported expectSync(), retaining the exact CSRF/cookie assertions. This is a test-harness correction; no application logic or backend contract was bypassed. Android and iOS application compilation/uploads passed before the simulator test. A fresh simulator run is required to establish the corrected device result.
+
+## Final corrected native CI — passed
+
+Source **d454a6875e4eee1af8f6d7c681f861d918df12a8**: native run **40460073960** completed **success** on both OS jobs. Android debug APK and unsigned iOS simulator application built/uploaded. The corrected iPhone-simulator integration runner executed **1 test, passed** (`00:45 +1: All tests passed!`), recorded in evidence/native-catalog-ios-device.txt. This validates on-device synthetic HTTP auth, server page navigation, platform preference reload and Arabic/dark role UI; it does not replace actual-Laravel/physical-phone/HTTPS acceptance. No assertion was removed. Platform run **40460073970** also completed success.
+
+CI head/job/step metadata and nonexpired artifact details are retained in native-catalog-ci.json, native-catalog-platform-ci.json and native-catalog-artifacts.json. Artifact names are creabiz-android-debug and creabiz-ios-simulator; neither is an AAB/signed IPA. The ordinary simulator application is archived before the integration fixture app is built. Hosted compilation does not establish a configured service deployment or production readiness.
+
+Final local checks: analyzer no issues; 15 default tests passed with the one live test explicitly skipped; actual-Laravel live test separately passed; 37 backend tests/279 assertions plus both Chromium suites passed. Application code remains unchanged after the validated source; subsequent edits are evidence/handoff documentation only. Full release gates remain open as tracked in progress.
