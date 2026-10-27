@@ -39,9 +39,7 @@ void main() {
   test(
     'secure HTTP-only cookies restore through real TLS and fresh me/CSRF; logout, origin and expiry are enforced',
     () async {
-      final context = SecurityContext()
-        ..useCertificateChainBytes(utf8.encode(fixtureCertificate))
-        ..usePrivateKeyBytes(utf8.encode(fixturePrivateKey));
+      final context = fixtureServerContext();
       final server = await HttpServer.bindSecure(
         InternetAddress.loopbackIPv4,
         0,
@@ -101,10 +99,7 @@ void main() {
       });
       final base = Uri.parse('https://127.0.0.1:${server.port}'),
           vault = MemoryVault();
-      HttpClient trusted() => HttpClient(
-        context: SecurityContext()
-          ..setTrustedCertificatesBytes(utf8.encode(fixtureCertificate)),
-      );
+      HttpClient trusted() => HttpClient(context: fixtureClientContext());
       final first = EvApi(base, http: trusted(), vault: vault);
       final second = EvApi(base, http: trusted(), vault: vault);
       final untrusted = EvApi(base);

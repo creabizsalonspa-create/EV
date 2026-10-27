@@ -17,9 +17,7 @@ void main() {
   testWidgets(
     'device trusted-TLS sign-in, Keychain restore/logout, pagination and persistent RTL/themes',
     (tester) async {
-      final serverContext = SecurityContext()
-        ..useCertificateChainBytes(utf8.encode(fixtureCertificate))
-        ..usePrivateKeyBytes(utf8.encode(fixturePrivateKey));
+      final serverContext = fixtureServerContext();
       final server = await HttpServer.bindSecure(
         InternetAddress.loopbackIPv4,
         0,
@@ -112,10 +110,7 @@ void main() {
       final origin = Uri.parse('https://127.0.0.1:${server.port}');
       final vault = DeviceSessionVault();
       await vault.delete(origin.origin);
-      HttpClient trusted() => HttpClient(
-        context: SecurityContext()
-          ..setTrustedCertificatesBytes(utf8.encode(fixtureCertificate)),
-      );
+      HttpClient trusted() => HttpClient(context: fixtureClientContext());
       final firstApi = EvApi(origin, http: trusted(), vault: vault);
       final secondApi = EvApi(origin, http: trusted(), vault: vault);
       addTearDown(() async {

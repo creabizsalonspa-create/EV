@@ -35,7 +35,7 @@ jobs:
           if ! ./apps/mobile/tool/bootstrap 2>&1 | tee "$RUNNER_TEMP/native-validation.log"; then
             python3 - "$RUNNER_TEMP/native-validation.log" <<'PY'
           import pathlib, sys
-          detail = pathlib.Path(sys.argv[1]).read_text()[-24000:]
+          detail = pathlib.Path(sys.argv[1]).read_text()[-3600:]
           detail = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
           print('::error title=Native validation failure::' + detail)
           PY
