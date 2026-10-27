@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -23,7 +24,7 @@ class SourceConsumerTest extends TestCase
 
     private function link(): SessionLink
     {
-        config(['csms.session_bridge_enabled' => true, 'csms.event_secret' => self::KEY, 'csms.graphql_secret' => self::KEY]);
+        config(['csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql', 'csms.session_bridge_enabled' => true, 'csms.event_secret' => self::KEY, 'csms.graphql_secret' => self::KEY]);
         $vendor = User::factory()->create(['role' => 'vendor']);
         $customer = User::factory()->create();
         $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Consumer fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
@@ -34,7 +35,13 @@ class SourceConsumerTest extends TestCase
         return SessionLink::firstOrFail();
     }
 
-    public function test_source_authentication_signed_delivery_restart_cursor_and_final_reconciliation(): void
+    public static function inboxModes(): array
+    {
+        return [[false], [true]];
+    }
+
+    #[DataProvider('inboxModes')]
+    public function test_source_authentication_signed_delivery_restart_cursor_and_final_reconciliation(bool $localInbox): void
     {
         $link = $this->link();
         $at = now()->startOfSecond();
@@ -46,7 +53,7 @@ class SourceConsumerTest extends TestCase
         ];
         $loseEndResponse = false;
         Http::preventStrayRequests();
-        Http::fake(function (Request $request) use (&$tx, $rows, $link, &$loseEndResponse) {
+        Http::fake(function (Request $request) use (&$tx, $rows, $link, &$loseEndResponse, $localInbox) {
             if ($request->url() === 'http://127.0.0.1:8095/v1/graphql') {
                 $this->assertSame(self::KEY, $request->header('x-hasura-admin-secret')[0]);
                 $query = $request['query'];
@@ -63,6 +70,7 @@ class SourceConsumerTest extends TestCase
 
                 return Http::response(['data' => ['MeterValues' => array_values(array_filter($rows, fn ($r) => $r['id'] > $request['variables']['after']))]]);
             }
+            $this->assertFalse($localInbox, 'Local inbox must not make a nested HTTP callback.');
             $this->assertSame('http://127.0.0.1:8000/api/internal/csms/events', $request->url());
             $stamp = $request->header('X-EV-Timestamp')[0];
             $this->assertSame(hash_hmac('sha256', $stamp.'.'.$request->body(), self::KEY), $request->header('X-EV-Signature')[0]);
@@ -77,24 +85,29 @@ class SourceConsumerTest extends TestCase
             return Http::response($response->json(), $response->getStatusCode());
         });
         $consumer = app(SourceConsumer::class);
-        $this->assertSame(2, $consumer->consume($link));
+        $this->assertSame(2, $consumer->consume($link, $localInbox));
         $this->assertSame(2, $link->source_meter_cursor);
         $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'charging', 'energy_wh' => 1500]);
         $this->assertDatabaseCount('finance_invoices', 0);
-        $this->assertSame(0, (new SourceConsumer)->consume($link->fresh()));
+        $this->assertSame(0, (new SourceConsumer)->consume($link->fresh(), $localInbox));
         $tx['isActive'] = false;
         $tx['endTime'] = $at->addSeconds(2)->toIso8601String();
         $tx['totalKwh'] = '2.500000';
-        $loseEndResponse = true;
-        try {
-            $consumer->consume($link);
-            $this->fail('Lost acknowledgement was ignored.');
-        } catch (RuntimeException) {
-            $this->assertDatabaseCount('finance_invoices', 1);
-            $this->assertSame(2, $link->source_meter_cursor);
+        if ($localInbox) {
+            $this->assertSame(1, $consumer->consume($link, true));
+            $this->assertSame(0, $consumer->consume($link->fresh(), true));
+        } else {
+            $loseEndResponse = true;
+            try {
+                $consumer->consume($link, $localInbox);
+                $this->fail('Lost acknowledgement was ignored.');
+            } catch (RuntimeException) {
+                $this->assertDatabaseCount('finance_invoices', 1);
+                $this->assertSame(2, $link->source_meter_cursor);
+            }
+            // Retry the exact persisted source identity after a lost response.
+            $this->assertSame(1, $consumer->consume($link->fresh(), $localInbox));
         }
-        // Retry the exact persisted source identity after a lost response.
-        $this->assertSame(1, $consumer->consume($link->fresh()));
         $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500]);
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('charger_commands', 1); // Observing never dispatches/creates commands.

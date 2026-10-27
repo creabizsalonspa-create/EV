@@ -8,6 +8,10 @@ on:
         ".github/workflows/mobile.yml",
         "tests/native-inventory.cjs",
         "tests/native-topology.cjs",
+        "tests/native-charger-operations.cjs",
+        "services/business-api/tests/Fixtures/charger-operations.php",
+        "services/business-api/app/Http/Controllers/ChargerAdmissionController.php",
+        "services/business-api/app/Http/Controllers/ChargingOperationsController.php",
         "tests/native-reservation-lifecycle.cjs",
         "services/business-api/tests/Fixtures/reservation-lifecycle.php",
         "services/business-api/app/Services/Charging/**",
@@ -25,6 +29,10 @@ on:
         ".github/workflows/mobile.yml",
         "tests/native-inventory.cjs",
         "tests/native-topology.cjs",
+        "tests/native-charger-operations.cjs",
+        "services/business-api/tests/Fixtures/charger-operations.php",
+        "services/business-api/app/Http/Controllers/ChargerAdmissionController.php",
+        "services/business-api/app/Http/Controllers/ChargingOperationsController.php",
         "tests/native-reservation-lifecycle.cjs",
         "services/business-api/tests/Fixtures/reservation-lifecycle.php",
         "services/business-api/app/Services/Charging/**",
@@ -90,6 +98,7 @@ jobs:
           ./scripts/start
           node tests/native-inventory.cjs
           node tests/native-topology.cjs
+          node tests/native-charger-operations.cjs
           node tests/native-reservation-lifecycle.cjs
       - run: flutter build ios --simulator --no-codesign
         if: runner.os == 'macOS'

@@ -1,5 +1,12 @@
 # Current coordinated continuation scope
 
+## Restored parallel ownership — owner directive, 28 October 2026 (Dubai)
+
+The owner restores two active workstreams. Agent1 exclusively owns financial/commercial business logic, controllers, accounting services, financial migrations and financial web/Admin workflows. Agent2 owns EV/OCPP/OCPI, all customer/vendor web and Flutter integration, non-financial Admin, operations/security, engagement and fleets, consuming verified finance APIs without modifying their source of truth. Agent2 owns development/fullstack-continuation and integration QA. Agent1 works on a separate finance branch; inspect its new PR and coordinate shared-file edits before integration. Merge only tested changes through PRs; preserve both branches and never force-push/reset another account's work. Earlier sole-owner instructions below are historical and superseded by this explicit reassignment. Shared EV route/client edits in this session are additive; finance routes/controllers/services/migrations are excluded. No new finance PR was visible on the initial fetch; do not wait for it to continue EV work.
+
+Continue from6d0e33c without rebuilding canonical mapping, parallel reservations, arrival/expiry or applied-source command reconciliation. Immediate new work: secure charger admission/provisioning and no-source-evidence operations. No hardware/live PSP/partner/store acceptance is inferred. Full original requirements remain in force.
+
+
 ## Current owner directive — sole active agent
 
 The owner’s newer [MASTER_AGENT2_CONTINUATION.md](MASTER_AGENT2_CONTINUATION.md) supersedes the historical exclusive split below. Agent 1 is temporarily unavailable; Agent 2 owns the entire remaining backend/web/native/Admin/OCPP/OCPI/financial/commercial scope until the owner explicitly reassigns it. Preserve and extend the merged financial architecture; do not recreate it. First complete canonical EVSE/connector/source mapping and parallel reservations, then continue full requirements autonomously. Simulator/contract tests remain separate from hardware/merchant/partner acceptance.

@@ -1304,6 +1304,129 @@ async function adminOverview() {
     container.append(metrics, tools, scroll);
 }
 
+async function openOperationalCase(command, parent, actor, signal) {
+    parent.querySelector("[data-operational-case]")?.remove();
+    const panel = document.createElement("section");
+    panel.dataset.operationalCase = "";
+    parent.append(panel);
+    const live = () => user === actor && panel.isConnected && !signal.aborted;
+    const path = `charging-operations/${command.id}`;
+    panel.append(
+        ui("h4", "Operational recovery"),
+        ui("p", "Operational recovery disclaimer"),
+    );
+    const state = await api(path + "/case", "GET", undefined, signal);
+    if (!live()) return;
+    const refresh = () => openOperationalCase(command, parent, actor, signal);
+    const refreshButton = ui("button", "Refresh");
+    refreshButton.type = "button";
+    refreshButton.onclick = () => refresh().catch(notice);
+    panel.append(refreshButton);
+    if (state.case)
+        panel.append(
+            ui("p", "Recovery case: {state}", {
+                state: { translate: "recovery." + state.case.state },
+            }),
+        );
+    const form = document.createElement("form"),
+        label = ui("label", "Operator recovery note"),
+        note = document.createElement("textarea");
+    note.required = true;
+    note.minLength = 10;
+    note.maxLength = 2000;
+    label.append(note);
+    form.append(label);
+    let choice;
+    if (state.case) {
+        choice = document.createElement("select");
+        for (const value of [
+            "investigating",
+            "awaiting_source",
+            ...(state.source_observed ? ["resolved"] : []),
+        ]) {
+            const option = new Option("", value);
+            EvLocale.bind(option, "recovery." + value);
+            choice.append(option);
+        }
+        form.append(choice);
+    }
+    const save = ui(
+        "button",
+        state.case ? "Save recovery review" : "Open recovery case",
+    );
+    save.type = "submit";
+    form.append(save);
+    panel.append(form);
+    form.onsubmit = async (event) => {
+        event.preventDefault();
+        save.disabled = true;
+        try {
+            await api(
+                path + "/case",
+                state.case ? "PATCH" : "POST",
+                {
+                    note: note.value,
+                    ...(state.case ? { state: choice.value } : {}),
+                },
+                signal,
+            );
+            if (live()) await refresh();
+        } catch (error) {
+            if (live()) {
+                panel.replaceChildren(ui("p", "Recovery outcome unconfirmed"));
+                panel.append(refreshButton);
+                notice(error);
+            }
+        } finally {
+            if (save.isConnected) save.disabled = false;
+        }
+    };
+    if (state.case && state.can_inspect) {
+        const inspect = ui("button", "Inspect authenticated simulator source");
+        inspect.type = "button";
+        inspect.onclick = async () => {
+            inspect.disabled = true;
+            try {
+                await api(path + "/inspect-source", "POST", {}, signal);
+                if (live()) await refresh();
+            } catch (error) {
+                if (live()) notice(error);
+            } finally {
+                if (inspect.isConnected) inspect.disabled = false;
+            }
+        };
+        panel.append(inspect);
+    }
+    const history = document.createElement("div");
+    panel.append(history);
+    async function events(page) {
+        const data =
+            page === 1
+                ? state
+                : await api(
+                      path + "/case?page=" + page,
+                      "GET",
+                      undefined,
+                      signal,
+                  );
+        if (!live()) return;
+        history.replaceChildren();
+        for (const event of data.events?.data || []) {
+            const row = document.createElement("article");
+            row.append(
+                document.createTextNode(event.action + " · " + event.note),
+            );
+            history.append(row);
+        }
+        if (data.events?.current_page < data.events?.last_page) {
+            const next = ui("button", "Next");
+            next.type = "button";
+            next.onclick = () => events(page + 1).catch(notice);
+            history.append(next);
+        }
+    }
+    await events(1);
+}
 async function commandHistory(page = 1) {
     if (!["vendor", "admin"].includes(user?.role)) return;
     commandRequest?.abort();
@@ -1328,6 +1451,7 @@ async function commandHistory(page = 1) {
         commandPage = result.current_page;
         for (const row of result.data) {
             const card = document.createElement("article");
+            card.dataset.commandId = row.id;
             card.append(
                 ui("h3", "Command #{id}", { id: row.id }),
                 ui("p", "Station #{id}", { id: row.station_id }),
@@ -1338,6 +1462,25 @@ async function commandHistory(page = 1) {
                     status: { translate: row.status },
                 }),
             );
+            if (
+                [
+                    "dispatching",
+                    "submitted",
+                    "outcome_unknown",
+                    "rejected",
+                    "source_observed",
+                ].includes(row.status)
+            ) {
+                const recovery = ui("button", "Operational recovery");
+                recovery.type = "button";
+                recovery.onclick = () =>
+                    openOperationalCase(row, card, actor, request.signal).catch(
+                        (e) => {
+                            if (user === actor) notice(e);
+                        },
+                    );
+                card.append(recovery);
+            }
             list.append(card);
         }
         if (!result.data.length) empty("command-list", "No recorded commands.");

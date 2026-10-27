@@ -20,6 +20,8 @@ for p,data in [(business,b),(bridge,c)]:
 source=c.get('CHARGING_HASURA_ADMIN_SECRET','').strip('\"\'')
 if source and not b.get('CSMS_GRAPHQL_SECRET'):
  with business.open('a') as f:f.write('\nCSMS_GRAPHQL_SECRET='+source+'\n')
+if 'CSMS_GRAPHQL_URL' not in b:
+ with business.open('a') as f:f.write('CSMS_GRAPHQL_URL=http://charging-graphql:8080/v1/graphql\n')
 if 'CSMS_SESSION_BRIDGE_ENABLED' not in b:
  with business.open('a') as f:f.write('CSMS_SESSION_BRIDGE_ENABLED=true\n')
 print('Local simulator event bindings configured; no credentials printed. Existing values preserved.')

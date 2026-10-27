@@ -2,16 +2,21 @@
 
 namespace App\Services\Charging;
 
+use App\Http\Controllers\CsmsSessionController;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\Charging\SessionLink;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 /** Restartable local-simulator observer. Never dispatches or retries commands. */
 class SourceConsumer
 {
+    private bool $localInbox = false;
+
     private function graph(string $query, array $variables): array
     {
         $key = (string) config('csms.graphql_secret');
@@ -19,7 +24,7 @@ class SourceConsumer
             throw new RuntimeException('Source authentication is not configured.');
         }
         $response = Http::timeout(15)->withoutRedirecting()->withHeaders(['x-hasura-admin-secret' => $key])
-            ->post('http://127.0.0.1:8095/v1/graphql', compact('query', 'variables'));
+            ->post(config('csms.graphql_url'), compact('query', 'variables'));
         if (! $response->successful() || $response->json('errors') || ! is_array($response->json('data'))) {
             throw new RuntimeException('Authenticated source query failed.');
         }
@@ -64,17 +69,28 @@ class SourceConsumer
         }
         $raw = json_encode($payload, JSON_THROW_ON_ERROR);
         $timestamp = (string) time();
-        $response = Http::timeout(15)->withoutRedirecting()->withHeaders(['Accept' => 'application/json', 'X-EV-Timestamp' => $timestamp, 'X-EV-Signature' => hash_hmac('sha256', $timestamp.'.'.$raw, $key)])
-            ->withBody($raw, 'application/json')->post('http://127.0.0.1:8000/api/internal/csms/events');
-        if (! $response->successful()) {
-            throw new RuntimeException('Signed inbox rejected source event ('.$response->status().').');
+        if ($this->localInbox) {
+            // Preserve signed authentication, payload validation and the named
+            // inbox throttle without making a nested HTTP call into this worker.
+            $request = Request::create('/api/internal/csms/events', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_EV_TIMESTAMP' => $timestamp, 'HTTP_X_EV_SIGNATURE' => hash_hmac('sha256', $timestamp.'.'.$raw, $key)], $raw);
+            $result = app(ThrottleRequests::class)->handle($request, fn ($r) => app(CsmsSessionController::class)->event($r, app(SessionBridge::class)), 'csms-events');
+            if (! $result->isSuccessful()) {
+                throw new RuntimeException('Signed local inbox rejected source event.');
+            }
+        } else {
+            $response = Http::timeout(15)->withoutRedirecting()->withHeaders(['Accept' => 'application/json', 'X-EV-Timestamp' => $timestamp, 'X-EV-Signature' => hash_hmac('sha256', $timestamp.'.'.$raw, $key)])
+                ->withBody($raw, 'application/json')->post('http://127.0.0.1:8000/api/internal/csms/events');
+            if (! $response->successful()) {
+                throw new RuntimeException('Signed inbox rejected source event ('.$response->status().').');
+            }
         }
         // Inbox commit owns the durable cursor; never advance it on HTTP failure.
         $link->refresh();
     }
 
-    public function consume(SessionLink $link): int
+    public function consume(SessionLink $link, bool $localInbox = false): int
     {
+        $this->localInbox = $localInbox;
         app(SessionBridge::class)->enabled();
         $link->refresh();
         if ($link->closed_without_dispatch_at !== null) {

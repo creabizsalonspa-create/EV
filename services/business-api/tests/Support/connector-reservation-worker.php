@@ -1,9 +1,14 @@
 <?php
 
+use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ChargingOperationsController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\ReservationLifecycleController;
+use App\Models\ChargerCommand;
 use App\Models\Reservation;
 use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\ReservationLifecycle;
 use Illuminate\Contracts\Console\Kernel;
@@ -32,7 +37,13 @@ try {
     $request = Request::create('/api/reservations', 'POST', $body);
     $request->setUserResolver(fn () => $actor);
     $operation = $argv[5] ?? 'reserve';
-    if ($operation === 'reconcile') {
+    if ($operation === 'revoke') {
+        echo app(ChargerAdmissionController::class)->revoke($request, VendorCompany::findOrFail($body['company_id']), VendorCharger::findOrFail($body['charger_id']))->getStatusCode();
+    } elseif ($operation === 'credential') {
+        echo app(ChargerAdmissionController::class)->credential($request, VendorCompany::findOrFail($body['company_id']), VendorCharger::findOrFail($body['charger_id']))->getStatusCode();
+    } elseif ($operation === 'case') {
+        echo app(ChargingOperationsController::class)->open($request, ChargerCommand::findOrFail($body['command_id']))->getStatusCode();
+    } elseif ($operation === 'reconcile') {
         echo (int) app(CommandReconciler::class)->forCommand((int) $body['command_id']);
     } elseif ($operation === 'arrival') {
         echo app(ReservationLifecycleController::class)->checkIn($request, Reservation::findOrFail($body['reservation_id']), app(ReservationLifecycle::class))->getStatusCode();

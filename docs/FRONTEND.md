@@ -220,3 +220,7 @@ See [RESERVATION_LIFECYCLE.md](RESERVATION_LIFECYCLE.md) for the implemented cus
 ## Received source evidence and command recovery
 
 See [COMMAND_RECOVERY.md](COMMAND_RECOVERY.md): source-observed state, immutable proof, scoped web/native reconciliation and bounded operational recovery. No uncertain command is resent and no command/hardware acceptance is claimed.
+
+## Secure charger admission and no-source case operations
+
+See [CHARGER_ADMISSION.md](CHARGER_ADMISSION.md) for new scoped APIs, owner/Admin web and vendor Flutter controls, TLS/mTLS simulation evidence, credential/version/replay safeguards, source inspection and remaining production boundaries. Financial truth remains Agent1-owned.

@@ -49,7 +49,7 @@ return new class extends Migration
     public function down(): void
     {
         // Parallel bookings cannot be collapsed to the old single-station key.
-        if (DB::table('charging_connector_mappings')->exists() || DB::table('csms_bindings')->select('station_id')->groupBy('station_id')->havingRaw('COUNT(*) > 1')->exists()) {
+        if (DB::table('charging_evses')->exists() || DB::table('csms_bindings')->whereNotNull('vendor_charger_id')->exists() || DB::table('charging_connector_mappings')->exists() || DB::table('csms_bindings')->select('station_id')->groupBy('station_id')->havingRaw('COUNT(*) > 1')->exists()) {
             throw new RuntimeException('Canonical topology has history; use a reviewed data-preserving rollback.');
         }
         Schema::table('csms_session_links', fn (Blueprint $t) => $t->dropConstrainedForeignId('connector_mapping_id'));
@@ -64,6 +64,9 @@ return new class extends Migration
         DB::statement("CREATE UNIQUE INDEX reservations_active_slot ON reservations (station_id, starts_at) WHERE status = 'confirmed'");
         Schema::dropIfExists('charging_connector_mappings');
         Schema::dropIfExists('charging_evses');
+        // SQLite cannot drop an indexed column while its separate unique index exists.
+        // Execute this separately, before Laravel's foreign-key/column rebuild.
+        Schema::table('csms_bindings', fn (Blueprint $t) => $t->dropUnique(['vendor_charger_id']));
         Schema::table('csms_bindings', function (Blueprint $t) {
             $t->dropConstrainedForeignId('vendor_charger_id');
             $t->dropIndex(['station_id']);

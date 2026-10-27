@@ -106,3 +106,5 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
 Route::get('/api/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');
 
 Route::post('/api/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/charging_operations.php');

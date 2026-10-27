@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ChargerAdmissionController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\VendorOpsController as V;
 use Illuminate\Support\Facades\Route;
@@ -33,3 +34,8 @@ Route::get('/companies/{company}/chargers/{charger}/evses', [ConnectorTopologyCo
 Route::get('/companies/{company}/chargers/{charger}/source-options', [ConnectorTopologyController::class, 'sources']);
 Route::post('/companies/{company}/chargers/{charger}/evses', [ConnectorTopologyController::class, 'createEvse']);
 Route::post('/companies/{company}/chargers/{charger}/evses/{evse}/connectors/{connector}/mapping', [ConnectorTopologyController::class, 'map']);
+
+Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'show']);
+Route::post('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'configure']);
+Route::post('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'credential']);
+Route::delete('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'revoke']);

@@ -1710,4 +1710,101 @@ window.EV_MESSAGES = {
         en: "No new applied source evidence. No command sent.",
         ar: "لا توجد أدلة مصدر مطبقة جديدة. لم يُرسل أمر.",
     },
+    "Secure charger admission": {
+        en: "Secure charger admission",
+        ar: "قبول الشاحن الآمن",
+    },
+    "Admission disclaimer": {
+        en: "Admission credentials only. Upstream CSMS registration and physical charging are not verified.",
+        ar: "بيانات قبول الاتصال فقط. لم يُتحقق من تسجيل CSMS أو الشحن الفعلي.",
+    },
+    "Refresh admission": { en: "Refresh admission", ar: "تحديث القبول" },
+    "Prepare identity": { en: "Prepare identity", ar: "إعداد الهوية" },
+    "Charger identity": { en: "Charger identity", ar: "هوية الشاحن" },
+    "Certificate SHA-256 (optional)": {
+        en: "Certificate SHA-256 (optional)",
+        ar: "بصمة الشهادة SHA-256 (اختياري)",
+    },
+    "Credential version: {version}": {
+        en: "Credential version: {version}",
+        ar: "إصدار بيانات الدخول: {version}",
+    },
+    "Admission enabled": { en: "Admission enabled", ar: "قبول الاتصال مفعّل" },
+    "Admission disabled": {
+        en: "Admission disabled",
+        ar: "قبول الاتصال معطّل",
+    },
+    "Admission rotation": {
+        en: "Invalidate the old credential and display a new secret once for 30 seconds? A lost reply requires refresh and a new explicit rotation.",
+        ar: "هل تريد إبطال بيانات الدخول السابقة وإظهار سر جديد مرة واحدة لمدة 30 ثانية؟ عند فقد الرد يلزم التحديث والتدوير مجدداً بشكل صريح.",
+    },
+    "Admission revocation": {
+        en: "Deny new connections and disconnect at the next ingress recheck? This does not stop physical charging.",
+        ar: "هل تريد منع الاتصالات الجديدة وإغلاق الاتصال عند فحص البوابة التالي؟ هذا لا يوقف الشحن الفعلي.",
+    },
+    "Issue / rotate credential": {
+        en: "Issue / rotate credential",
+        ar: "إصدار / تدوير بيانات الدخول",
+    },
+    "Revoke credential": { en: "Revoke credential", ar: "إبطال بيانات الدخول" },
+    "One-time credential notice": {
+        en: "Save this secret securely now. It is shown once for 30 seconds and is never saved in browser storage.",
+        ar: "احفظ السر بأمان الآن. يظهر مرة واحدة لمدة 30 ثانية ولا يُحفظ في تخزين المتصفح.",
+    },
+    "One-time charger secret": {
+        en: "One-time charger secret",
+        ar: "سر الشاحن لمرة واحدة",
+    },
+    "Hide secret": { en: "Hide secret", ar: "إخفاء السر" },
+    "Credential hidden": {
+        en: "Credential hidden",
+        ar: "تم إخفاء بيانات الدخول",
+    },
+    "Admission outcome unconfirmed": {
+        en: "Outcome unconfirmed. Refresh before any further credential operation.",
+        ar: "النتيجة غير مؤكدة. حدّث البيانات قبل أي عملية أخرى لبيانات الدخول.",
+    },
+    "Operational recovery": {
+        en: "Operational recovery",
+        ar: "الاسترداد التشغيلي",
+    },
+    "Operational recovery disclaimer": {
+        en: "No-source evidence requires investigation. These controls never resend a command or force capacity release. Only authenticated source transitions can finalize a session. Hardware charging is not verified.",
+        ar: "يتطلب غياب أدلة المصدر التحقيق. لا تعيد هذه الأدوات إرسال الأوامر ولا تفرض تحرير السعة. انتقالات المصدر الموثقة فقط تنهي الجلسة. لم يُتحقق من الشحن الفعلي.",
+    },
+    "Operator recovery note": {
+        en: "Operator recovery note",
+        ar: "ملاحظة الاسترداد التشغيلي",
+    },
+    "Recovery case: {state}": {
+        en: "Recovery case: {state}",
+        ar: "حالة الاسترداد: {state}",
+    },
+    "Open recovery case": { en: "Open recovery case", ar: "فتح حالة استرداد" },
+    "Save recovery review": {
+        en: "Save recovery review",
+        ar: "حفظ مراجعة الاسترداد",
+    },
+    "Inspect authenticated simulator source": {
+        en: "Inspect authenticated simulator source",
+        ar: "فحص مصدر المحاكي الموثق",
+    },
+    "Recovery outcome unconfirmed": {
+        en: "Outcome unconfirmed. Refresh this case before another operation.",
+        ar: "النتيجة غير مؤكدة. حدّث الحالة قبل عملية أخرى.",
+    },
+    "recovery.open": { en: "Open", ar: "مفتوحة" },
+    "recovery.investigating": { en: "Investigating", ar: "قيد التحقيق" },
+    "recovery.awaiting_source": {
+        en: "Awaiting source evidence",
+        ar: "بانتظار أدلة المصدر",
+    },
+    "recovery.source_observed": {
+        en: "Source evidence observed",
+        ar: "رُصدت أدلة المصدر",
+    },
+    "recovery.resolved": {
+        en: "Resolved with source evidence",
+        ar: "عولجت بأدلة المصدر",
+    },
 };

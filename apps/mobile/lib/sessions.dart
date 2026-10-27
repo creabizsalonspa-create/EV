@@ -3,6 +3,7 @@ import 'api.dart';
 import 'invoice.dart';
 import 'strings.dart';
 import 'action_form.dart';
+import 'charging_operations.dart';
 
 class SessionsView extends StatefulWidget {
   final EvApi api;
@@ -165,6 +166,21 @@ class _SessionsViewState extends State<SessionsView> {
         padding: const EdgeInsets.all(16),
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
+          if (widget.role == 'vendor')
+            TextButton(
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ChargingOperationsView(
+                          api: widget.api,
+                          onExpired: widget.onExpired,
+                        ),
+                      ),
+                    ),
+              child: Text(opsText(context, 'title')),
+            ),
+
           Text(
             s.t('sessions'),
             style: Theme.of(context).textTheme.headlineLarge,

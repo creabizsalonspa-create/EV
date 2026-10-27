@@ -8,3 +8,5 @@ test-results/
 .dart_tool/
 **/.dart_tool/
 **/build/
+
+/services/charger-ingress/.env

@@ -15,6 +15,11 @@ PY
 docker compose --env-file services/csms/.env --env-file services/csms/charging/.env -f services/csms/compose.yaml -f services/csms/charging/compose.yaml up -d charging-graphql
 for attempt in {1..45};do
  if curl --fail --silent http://127.0.0.1:8095/healthz >/dev/null;then
+  if docker inspect ev-business-api >/dev/null 2>&1; then
+   if ! docker inspect ev-business-api --format '{{json .NetworkSettings.Networks}}' | python3 -c 'import json,sys; sys.exit(0 if "ev-csms_default" in json.load(sys.stdin) else 1)'; then
+    docker network connect ev-csms_default ev-business-api
+   fi
+  fi
   node scripts/charging-metadata.cjs
   exit 0
  fi

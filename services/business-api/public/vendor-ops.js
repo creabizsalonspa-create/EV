@@ -814,11 +814,134 @@ window.createVendorWorkspace = ({
                 button(row, "Canonical EVSE mapping", () =>
                     topology(company, charger, row, operational, epoch),
                 );
+                button(row, "Secure charger admission", () =>
+                    admission(company, charger, row, epoch),
+                );
                 p.append(row);
             },
             1,
             epoch,
         );
+    }
+    async function admission(company, charger, parent, epoch) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-admission]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.admission = "";
+        parent.append(pane);
+        pane.append(
+            ui("h3", "Secure charger admission"),
+            ui("p", "Admission disclaimer"),
+        );
+        const path =
+            base + `companies/${company.id}/chargers/${charger.id}/admission`;
+        const live = () => valid(epoch) && pane.isConnected;
+        const refresh = () => admission(company, charger, parent, epoch);
+        button(pane, "Refresh admission", refresh);
+        const result = await api(path, "GET", undefined, controller?.signal);
+        if (!live()) return;
+        const profile = result.profile;
+        if (!profile && result.can_manage)
+            form(
+                pane,
+                "Prepare identity",
+                [
+                    { name: "identity", label: "Charger identity", max: 100 },
+                    {
+                        name: "certificate_sha256",
+                        label: "Certificate SHA-256 (optional)",
+                        optional: true,
+                        max: 64,
+                    },
+                ],
+                async (values, _form, e) => {
+                    await api(
+                        path,
+                        "POST",
+                        {
+                            identity: values.identity,
+                            certificate_sha256:
+                                values.certificate_sha256 || null,
+                        },
+                        controller?.signal,
+                    );
+                    if (valid(e) && live()) await refresh();
+                },
+            );
+        if (!profile) return;
+        pane.append(
+            raw("p", profile.identity + " · OCPP " + profile.protocol),
+            ui("p", "Credential version: {version}", {
+                version: profile.credential_version,
+            }),
+            ui(
+                "p",
+                profile.enabled ? "Admission enabled" : "Admission disabled",
+            ),
+        );
+        if (profile.expires_at)
+            pane.append(raw("p", profile.expires_at + " UTC"));
+        async function change(revoke) {
+            if (
+                !confirm(
+                    EvLocale.text(
+                        revoke ? "Admission revocation" : "Admission rotation",
+                    ),
+                )
+            )
+                return;
+            try {
+                const reply = await api(
+                    path + "/credential",
+                    revoke ? "DELETE" : "POST",
+                    revoke
+                        ? undefined
+                        : {
+                              expected_version: profile.credential_version,
+                              days: 30,
+                          },
+                    controller?.signal,
+                );
+                if (!live()) return;
+                if (revoke) {
+                    await refresh();
+                    return;
+                }
+                // Never store a charger credential in local/session storage or notices.
+                pane.replaceChildren(ui("p", "One-time credential notice"));
+                const secret = document.createElement("textarea");
+                secret.readOnly = true;
+                secret.value = reply.secret;
+                secret.autocomplete = "off";
+                secret.setAttribute(
+                    "aria-label",
+                    EvLocale.text("One-time charger secret"),
+                );
+                pane.append(secret);
+                const hide = () => {
+                    secret.value = "";
+                    pane.replaceChildren(ui("p", "Credential hidden"));
+                    if (live()) button(pane, "Refresh admission", refresh);
+                };
+                button(pane, "Hide secret", hide);
+                setTimeout(() => {
+                    secret.value = "";
+                    if (live()) hide();
+                }, 30000);
+            } catch (error) {
+                if (live()) {
+                    pane.replaceChildren(
+                        ui("p", "Admission outcome unconfirmed"),
+                    );
+                    button(pane, "Refresh admission", refresh);
+                }
+                throw error;
+            }
+        }
+        if (result.can_manage) {
+            button(pane, "Issue / rotate credential", () => change(false));
+            button(pane, "Revoke credential", () => change(true));
+        }
     }
     async function topology(company, charger, parent, operational, epoch) {
         if (!valid(epoch)) return;

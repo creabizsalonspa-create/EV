@@ -1,0 +1,3 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/live_charger_operations_test.dart
+00:00 +0: native actual Laravel prepares, rotates and revokes admission and quarantines unknown command
+00:01 +1: All tests passed!

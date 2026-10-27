@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'vendor_topology.dart';
+import 'charger_admission.dart';
 import 'topology_strings.dart';
 
 /// Existing company inventory APIs; no hardware command or inferred live state.
@@ -267,6 +268,28 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                       await load(page: data?.current ?? 1);
                                   },
                             child: Text(topologyText(context, 'title')),
+                          ),
+                        if (level == 2)
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () async {
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => ChargerAdmissionView(
+                                          api: widget.api,
+                                          company: widget.company!,
+                                          charger: row,
+                                          onExpired: widget.onExpired,
+                                        ),
+                                      ),
+                                    );
+                                    if (mounted &&
+                                        ModalRoute.of(context)?.isCurrent ==
+                                            true)
+                                      await load(page: data?.current ?? 1);
+                                  },
+                            child: Text(admissionText(context, 'title')),
                           ),
                         if (level == 3) ...[
                           Text(

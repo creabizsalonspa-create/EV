@@ -52,6 +52,10 @@ jobs:
       - run: npm run test:connectors
       - run: npm run test:reservation-lifecycle
       - run: npm run test:command-recovery
+      - name: Charger admission and no-source operational recovery
+        run: |
+          node tests/charger-ingress.cjs
+          node tests/charger-operations.cjs
       - name: Canonical non-default OCPP source targets
         run: EV_CANONICAL_TARGETS=1 EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - if: failure()
