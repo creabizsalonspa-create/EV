@@ -140,6 +140,24 @@ class SimulatedCharger {
       );
     });
   }
+  async reconnect() {
+    // isOnline=false can precede the upstream socket-registry cleanup. Retry
+    // only connection handshakes; never resend protocol commands/transactions.
+    const deadline = Date.now() + 12000;
+    let last;
+    do {
+      try {
+        await this.connect();
+        return;
+      } catch (error) {
+        last = error;
+        if (!error.message.includes("handshake rejected")) throw error;
+        this.socket.close();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    } while (Date.now() < deadline);
+    throw new Error("Simulator reconnect did not converge: " + last.message);
+  }
   call(action, payload, id = randomUUID()) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

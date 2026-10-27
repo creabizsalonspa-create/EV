@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Bound a hosted simulator launch and retain diagnostics before job timeout."""
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+output = Path(os.environ['RUNNER_TEMP']) / 'native-device.log'
+device = os.environ['EV_IOS_DEVICE_ID']
+command = ['flutter', 'test', 'integration_test/native_flow_test.dart', '-d', device,
+           '--reporter', 'expanded', '--verbose']
+with output.open('w') as log:
+    process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
+                               start_new_session=True)
+    try:
+        result = process.wait(timeout=660)
+    except subprocess.TimeoutExpired:
+        print('Simulator UI launch/test exceeded 11 minutes; collecting diagnostics.', flush=True)
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+        result = 124
+# Surface useful runner output; the complete file remains an ordinary CI artifact.
+print('\n'.join(output.read_text(errors='replace').splitlines()[-100:]))
+sys.exit(result)

@@ -66,3 +66,9 @@ Added frontend scope includes read-only scoped vendor/admin command history with
 ## Charging CI 429 correction
 
 The hosted continuous-session test exhausted the existing per-account budget while polling. The synthetic integration client now respects a bounded Retry-After once for a received 429, snapshots the identical serialized request body, and never retries transport uncertainty or 503 command outcomes. Poll cadence is reduced. Production rate-limit configuration is unchanged. Focused request tests cover immutable payload, repeated/invalid limits and no uncertain-command replay; both continuous protocol/restart/invoice flows pass locally. Hosted rerun is required for the new revision. Evidence: charging-rate-limit-contract.txt and charging-rate-limit-protocols.txt.
+
+## Reconnect and hosted simulator diagnostics
+
+The rate-limit correction passed hosted platform run 40476705397. A parallel run exposed the upstream interval between isOnline=false and socket-registry cleanup. Protocol tests now retry only rejected reconnect handshakes within 12 seconds, then still require accepted boot, heartbeat, stop, final energy and persisted fault recovery. Initial connection and all charging commands are unchanged. Both local protocol tests pass; server rate limits and charger command replay rules remain intact.
+
+Hosted native builds passed, but some iPhone runner attempts timed out before the Dart test began. CI now records Xcode/runtime selection, prefers an installed iOS 18 simulator when available, bounds Flutter launch below the job timeout and retains verbose/screenshot/Runner diagnostics. No certificate or test assertion is bypassed. New device-run results must be recorded separately.

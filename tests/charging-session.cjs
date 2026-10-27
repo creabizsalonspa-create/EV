@@ -173,7 +173,7 @@ async function session(version) {
         d.ChargingStations[0].isOnline === false
       );
     }, "disconnected station state");
-    await charger.connect().catch((e) => {
+    await charger.reconnect().catch((e) => {
       throw new Error(version + " reconnect: " + e.message);
     });
     await charger.boot();
