@@ -1,5 +1,10 @@
 # Internal QA — universal integration checkpoint
 
+## Agent1 finance v2 — 2026-10-28
+
+Owner restored exclusive financial/commercial ownership to Agent1. New branch `development/finance-commercial-v2` is based on integrated6d0e33c, preserving both merged finance and latest EV source. Durable provider uncertainty/recovery, invoice-wide holds, authoritative GET reconciliation, immutable subscription credits and connected financial UI are verified: Laravel204/6845, PostgreSQL118/6096, combined concurrency27/346, Composer strict valid and Pint208 files. Financial browser passes both themes/RTL, credit-driven entitlement revocation and prior workflows. Detailed source/evidence and unfinished financial requirements: FINANCE_COMMERCIAL_CONTINUATION.md, PAYMENT_RECOVERY.md, SUBSCRIPTION_CREDITS.md. This is not final acceptance. EV downgrade issue6 is reported, not fixed by Agent1. Earlier reports below remain historical.
+
+
 ## Verified continuation checkpoint — source `ff086b0`
 
 **Pushed software/test source `ff086b0f9550e65d6292de313014f95a18ad6031` passed all current hosted checks.** Platform runs [40528029126](https://github.com/creabizsalonspa-create/EV/actions/runs/40528029126) and40528022514 passed business/browser/OCPP, PostgreSQL finance and topology/lifecycle/recovery races. Native run [40528029448](https://github.com/creabizsalonspa-create/EV/actions/runs/40528029448) passed Android debug, unsigned iOS simulator,63 unit/widget cases per runner with4 explicit default live-only skips,3 separate actual-Laravel native cases and the complete iPhone synthetic TLS/Keychain/customer/vendor/Arabic-pricing scenario. Build artifacts and digests are retained in continuation-hosted-checkpoint.json. This follow-up changes documentation/evidence only; application and test source remain the verified checkpoint.

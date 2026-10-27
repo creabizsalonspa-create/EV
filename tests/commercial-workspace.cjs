@@ -141,6 +141,16 @@ const assert = require("node:assert/strict");
     await root
       .getByText("Commercial " + run + " · Active / فعال", { exact: true })
       .waitFor();
+    const subscriptionId = await root
+      .getByRole("heading", { name: /#\d+ · active/ })
+      .textContent()
+      .then((value) => Number(value.match(/#(\d+)/)[1]));
+    await root
+      .getByRole("button", { name: "Load recovery records", exact: true })
+      .click();
+    await root
+      .getByText("No payment recovery records", { exact: true })
+      .waitFor();
     const vendor = await login("vendor"),
       vr = vendor.locator("#commercial-finance");
     const request = vr.locator(".finance-row").filter({
@@ -229,12 +239,57 @@ const assert = require("node:assert/strict");
       .getByText(/SIM-SET-/)
       .last()
       .waitFor();
+    await admin.waitForFunction(
+      () => !document.querySelector("#commercial-finance").inert,
+    );
+    const subAdmin = rootAdmin.locator(
+      `[data-subscription-id="${subscriptionId}"]`,
+    );
+    await subAdmin
+      .getByRole("button", { name: "Manage subscription", exact: true })
+      .click();
+    const credit = subAdmin.locator("form").filter({
+      has: admin.getByRole("button", {
+        name: "Refund subscription invoice",
+        exact: true,
+      }),
+    });
+    await credit
+      .locator("[name=reason]")
+      .fill("Full subscription refund " + run);
+    await credit
+      .getByRole("button", { name: "Refund subscription invoice", exact: true })
+      .click();
+    await rootAdmin
+      .getByRole("heading", {
+        name: new RegExp("#" + subscriptionId + " · cancelled"),
+      })
+      .waitFor();
     await root
       .getByRole("button", { name: "Refresh finance", exact: true })
       .click();
-    await customer.waitForFunction(
-      () => !document.querySelector("#commercial-finance").inert,
-    );
+    await root
+      .getByRole("heading", {
+        name: new RegExp("#" + subscriptionId + " · cancelled"),
+      })
+      .waitFor();
+    await root
+      .getByRole("button", { name: "Manage subscription", exact: true })
+      .click();
+    await root
+      .getByText("Commercial " + run + " · Inactive / غير فعال", {
+        exact: true,
+      })
+      .waitFor();
+    await root
+      .getByRole("button", {
+        name: "View subscription credit notes",
+        exact: true,
+      })
+      .click();
+    await root
+      .getByText("Full subscription refund " + run, { exact: true })
+      .waitFor();
     const download = customer.waitForEvent("download");
     await root
       .getByRole("button", { name: "Download report CSV", exact: true })
@@ -287,7 +342,7 @@ const assert = require("node:assert/strict");
     assert.equal(await root.textContent(), "");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, subscription gateway capture/entitlement, dispute resolution, settlement approval/test payout, CSV download, both themes three widths RTL and logout privacy. MOCK payments only.",
+      "PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, subscription gateway capture/entitlement, immutable subscription credit/refund and entitlement revocation, recovery queue privacy, dispute resolution, settlement approval/test payout, CSV download, both themes three widths RTL and logout privacy. MOCK payments only.",
     );
   } finally {
     await browser.close();

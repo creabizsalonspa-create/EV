@@ -21,3 +21,5 @@ require __DIR__.'/subscriptions.php';
 require __DIR__.'/settlements.php';
 
 require __DIR__.'/subscription_gateway.php';
+
+require __DIR__.'/subscription_credits.php';

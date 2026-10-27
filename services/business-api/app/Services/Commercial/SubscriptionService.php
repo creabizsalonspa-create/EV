@@ -282,11 +282,15 @@ class SubscriptionService
         $s->cancel_at_period_end = (bool) $s->cancel_at_period_end;
         $invoices = DB::table('commercial_subscription_invoices')->where('subscription_id', $id)->orderBy('cycle_number')->get()->map(function ($i) {
             $i->entitlements = json_decode($i->entitlements, true, 512, JSON_THROW_ON_ERROR);
-            $i->paid = DB::table('commercial_subscription_receipts')->where('invoice_id', $i->id)->exists();
+            $receipt = DB::table('commercial_subscription_receipts')->where('invoice_id', $i->id)->first();
+            $i->paid = (bool) $receipt;
+            $i->refunded_minor = (int) DB::table('subscription_credits')->where('invoice_id', $i->id)->sum('amount_minor');
+            $i->net_collected_minor = ($receipt ? (int) $receipt->amount_minor : 0) - $i->refunded_minor;
+            $i->credit_state = $i->refunded_minor === 0 ? 'none' : ($receipt && $i->refunded_minor === (int) $receipt->amount_minor ? 'fully_refunded' : 'partially_refunded');
 
             return $i;
         });
-        $current = $invoices->first(fn ($i) => $i->paid && (int) $i->cycle_number === (int) $s->cycle_number);
+        $current = $invoices->first(fn ($i) => $i->paid && ((int) $i->total_minor === 0 || $i->net_collected_minor > 0) && (int) $i->cycle_number === (int) $s->cycle_number);
         $enabled = $s->status === 'active' && $current && CarbonImmutable::parse($current->period_start)->lessThanOrEqualTo(now()) && CarbonImmutable::parse($current->period_end)->isFuture();
 
         $ledger = DB::table('commercial_subscription_ledger')->whereIn('invoice_id', $invoices->pluck('id'));
@@ -295,6 +299,8 @@ class SubscriptionService
         $receipts = DB::table('commercial_subscription_receipts')->whereIn('invoice_id', $invoices->pluck('id'))->orderBy('id')->get();
         $provider = $receipts->last()?->evidence ?? 'MOCK_PROVIDER';
 
-        return ['receipts' => $receipts, 'ledger_balanced' => $balanced, 'subscription' => $s, 'plan' => $this->plan($s->plan_id), 'invoices' => $invoices, 'entitlements' => $enabled ? $current->entitlements : [], 'entitlements_active' => (bool) $enabled, 'billing_provider' => $provider, 'real_payment_processed' => false];
+        $credits = DB::table('subscription_credits')->where('subscription_id', $id)->orderBy('id')->get();
+
+        return ['credits' => $credits, 'refunded_minor' => (int) $credits->sum('amount_minor'), 'net_collected_minor' => (int) $receipts->sum('amount_minor') - (int) $credits->sum('amount_minor'), 'receipts' => $receipts, 'ledger_balanced' => $balanced, 'subscription' => $s, 'plan' => $this->plan($s->plan_id), 'invoices' => $invoices, 'entitlements' => $enabled ? $current->entitlements : [], 'entitlements_active' => (bool) $enabled, 'billing_provider' => $provider, 'real_payment_processed' => false];
     }
 }

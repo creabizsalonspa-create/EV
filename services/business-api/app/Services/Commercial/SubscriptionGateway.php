@@ -5,6 +5,7 @@ namespace App\Services\Commercial;
 use App\Models\User;
 use App\Services\Commercial\Payments\MockPaymentProvider;
 use App\Services\Commercial\Payments\PaymentProvider;
+use App\Services\Commercial\Payments\PaymentRecovery;
 use App\Services\Commercial\Payments\StripeSandboxProvider;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -84,7 +85,7 @@ class SubscriptionGateway
         $initial = $this->access($actor, $id);
         abort_unless((int) $initial->user_id === $actor->id, 404);
 
-        return DB::transaction(function () use ($actor, $initial, $kind, $key, $token, $provider) {
+        return app(PaymentRecovery::class)->run('subscription', $initial, $actor->id, $kind, $key, [$kind, (int) $initial->amount_minor, $token], fn () => DB::transaction(function () use ($actor, $initial, $kind, $key, $token, $provider) {
             User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
             $s = $this->subscriptions->access($actor, $initial->subscription_id, true);
             $c = DB::table('subscription_gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
@@ -131,7 +132,7 @@ class SubscriptionGateway
             DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update($values);
 
             return DB::table('subscription_gateway_checkouts')->find($c->id);
-        }, 3);
+        }, 3));
     }
 
     public function stripeWebhook(string $raw, string $signature): array
@@ -139,6 +140,35 @@ class SubscriptionGateway
         $this->provider();
         abort_unless(config('payments.provider') === 'stripe_test', 409);
         $event = (new StripeSandboxProvider)->verifyWebhook($raw, $signature);
+
+        return $this->applyProviderEvidence($event, $raw);
+    }
+
+    public function recoverFromProvider(object $intent): array
+    {
+        $this->provider();
+        abort_unless(config('payments.provider') === 'stripe_test' && $intent->scope === 'subscription', 409);
+        $checkout = DB::table('subscription_gateway_checkouts')->find($intent->checkout_id);
+        abort_unless($checkout && $checkout->provider === 'stripe_test', 404);
+        $object = (new StripeSandboxProvider)->recoveryEvidence($intent, $checkout);
+        if ($intent->kind === 'cancel') {
+            return app(PaymentRecovery::class)->applyCancellation($intent, $object);
+        }
+        abort_if($intent->kind === 'refund', 409, 'Use subscription credit reconciliation for refunds.');
+        $type = match ($intent->kind) {
+            'refund' => 'refund.updated','capture' => 'payment_intent.succeeded','authorize' => ($object['status'] ?? '') === 'requires_capture' ? 'payment_intent.amount_capturable_updated' : 'payment_intent.payment_failed',default => null
+        };
+        abort_unless($type, 409, 'Cancellation requires separate final cancellation evidence.');
+        abort_unless($intent->kind !== 'authorize' || in_array($object['status'] ?? '', ['requires_capture', 'requires_payment_method'], true), 409, 'Authorization outcome is not final.');
+        $object['metadata']['creabiz_checkout'] = $checkout->provider_reference;
+        $object['metadata']['creabiz_recovery'] = (string) $intent->id;
+        $event = ['id' => 'inspection_'.hash('sha256', json_encode([$intent->id, $object], JSON_THROW_ON_ERROR)), 'type' => $type, 'data' => ['object' => $object]];
+
+        return $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR)) + ['provenance' => 'TEST_PROVIDER_GET', 'external_provider_verified' => false];
+    }
+
+    private function applyProviderEvidence(array $event, string $raw): array
+    {
         $type = $event['type'] ?? '';
         if (! in_array($type, ['payment_intent.succeeded', 'payment_intent.amount_capturable_updated', 'payment_intent.payment_failed'], true)) {
             return ['accepted' => true, 'ignored' => true, 'evidence' => 'STRIPE_TEST_CONTRACT'];
@@ -183,6 +213,7 @@ class SubscriptionGateway
                 } elseif (in_array($c->status, ['pending', 'action_required', 'authorized'], true)) {
                     DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update(['provider_reference' => $reference, 'status' => 'failed', 'failure_code' => 'payment_declined', 'updated_at' => now()]);
                 }
+                app(PaymentRecovery::class)->resolveEvidence('subscription', (int) $c->id, $type === 'payment_intent.succeeded' ? 'capture' : 'authorize', ['id' => $object['id'], 'amount' => (int) $c->amount_minor, 'currency' => $c->currency, 'recovery_id' => $object['metadata']['creabiz_recovery'] ?? null]);
                 DB::table('subscription_gateway_webhooks')->insert(['provider_event_id' => $eventKey, 'fingerprint' => $hash, 'checkout_id' => $c->id, 'kind' => $type, 'created_at' => now()]);
 
                 return ['accepted' => true, 'duplicate' => false, 'evidence' => 'STRIPE_TEST_CONTRACT'];
@@ -206,7 +237,7 @@ class SubscriptionGateway
         $observation = $c->provider === 'stripe_test' && str_starts_with($c->provider_reference, 'pi_') ? (new StripeSandboxProvider)->inspect($c->provider_reference) : null;
         $matched = $c->status === 'captured' ? $receipt && (int) $receipt->amount_minor === (int) $c->amount_minor && $receipt->currency === $c->currency : ! $receipt;
         if ($observation) {
-            $matched = $matched && $observation['currency'] === $c->currency && $observation['captured_minor'] === ($receipt ? (int) $receipt->amount_minor : 0) && $observation['refunded_minor'] === 0;
+            $matched = $matched && $observation['currency'] === $c->currency && $observation['captured_minor'] === ($receipt ? (int) $receipt->amount_minor : 0) && $observation['refunded_minor'] === (int) DB::table('subscription_credits')->where('invoice_id', $c->invoice_id)->sum('amount_minor');
         }
 
         return ['checkout' => $c, 'receipt' => $receipt, 'observation' => $observation, 'matched' => (bool) $matched, 'evidence' => $c->provider === 'stripe_test' ? 'STRIPE_TEST_CONTRACT' : 'MOCK_PROVIDER', 'external_provider_verified' => false, 'real_payment_processed' => false];
