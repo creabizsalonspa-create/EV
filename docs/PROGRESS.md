@@ -1,5 +1,14 @@
 # Full platform progress — universal integration
 
+## Combined financial/EV integration QA — local source candidate
+
+Integration branch `integration/finance-pr4-ev-continuation` preserves finance PR #4 head `60a5dd0` and EV source `41e350c`. The original branches remain untouched. Shared documentation, npm commands and CI steps retain both workstreams; incoming financial services/tests remain byte-for-byte source-identical. This is integration QA, not independent financial development.
+
+Combined local results: **153 Laravel tests / 6,266 assertions**, Pint **164 files**, Composer strict valid; PostgreSQL relevant workflows **87 / 5,768**, plus **14 independent-process races / 170 assertions**. Actual-Laravel commercial, vendor, invoice-history, managed gate/expiry and OCPI provisioning browsers pass; isolated frontend contracts, account-generation/logout and EN/AR localization pass. The initial broad browser run hit the real per-user read budget after reusing one account as customer/vendor/Admin through many reloads. Admin QA now uses a separate authenticated principal; every audit/support/privacy assertion remains and a new assertion confirms the vendor never receives Admin UI. The corrected full e2e browser passes without modifying, disabling or clearing production rate limits, and without automatically replaying commands.
+
+Additional native-live/OCPP combined regressions and hosted candidate checks are tracked separately before merge. PR #5 remains draft until all gates pass. A failed original candidate CI is retained as failed, not counted as verification. Do not claim integration into the development branch until the PR merge actually occurs.
+
+
 ## Admin OCPI connection association and native expiry-navigation checkpoint
 
 Admin can register providers against existing approved server connection aliases using a validated connection selector and paginated/searchable vendor names/IDs. Credential values, token variable names, endpoint origins and raw connection metadata never enter this API/UI. Only structurally valid, unassigned connections are selectable. Registration starts unauthorized/revoked and makes no partner request; existing explicit authorization/negotiation/sync remain separate operations. Newest-first provider paging exposes newly registered records. This does not implement credentials provisioning/rotation or full bilateral OCPI roles.
