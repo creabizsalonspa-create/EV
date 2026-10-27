@@ -64,3 +64,7 @@ Read REQUIREMENT_STATUS.md for the complete PRD bullet mapping and the connector
 Native CI now uses macos-15/Xcode16.4/iOS18.5 and passed at 890b081. Do not infer latest iOS26/store readiness from this baseline. Web generation isolation and pending logout use no persistent credentials; delayed private responses must never repopulate a changed account. Keep the dedicated web-session ordering tests in CI.
 
 Current active-agent ownership is exclusive per NON_FINANCE_CONTINUATION.md: Agent 1 financial/commercial logic and backend/web/admin finance; Agent 2 EV/non-financial platform and native API consumption. Do not duplicate the other workstream. Native inventory source cabac72 passed hosted Android/iOS + iPhone TLS/Keychain integration with a fresh run-owned simulator, plus Linux actual-Laravel inventory acceptance. Later checks are revision-specific.
+
+## Latest coordinated integration
+
+PR #5 merged finance PR #4 through `7de6c4e` while preserving Agent 2 EV work through `41e350c`. Merge `0444ed1` matches the green source candidate `613534e`; source platform/PG runs40509969233/40509962767 passed. Integrated native build/device run40508611589 passed at `ccb38fa`, and native source remains identical. Follow current PROGRESS/QA and exclusive ownership in NON_FINANCE_CONTINUATION; older candidate notes are historical. Exact next EV work is explicit connector/EVSE mapping and parallel booking, source/token/operations recovery, complete OCPI, maps and native company/Admin parity. Finance APIs/logic remain owned by Agent 1; only consume them in Flutter.

@@ -1,5 +1,7 @@
 # Requirement-by-requirement continuation status
 
+Current integration includes Agent 1 finance PR #4 through `7de6c4e` via merged PR #5 (`0444ed1`). Financial implemented/remaining details are authoritative in FINANCE_COMMERCIAL_CONTINUATION, PAYMENT_GATEWAYS, SUBSCRIPTIONS, SETTLEMENTS and FINANCE_MOBILE_CONTRACT; older row descriptions below predate that integration and do not supersede those verified owner records. Financial requirements remain IN_PROGRESS, not production accepted. Agent 2 exclusively continues EV/non-financial software and native API consumption; see NON_FINANCE_CONTINUATION. Latest whole-source verification: PROGRESS/QA.
+
 Source: PRODUCT_REQUIREMENTS.md, owner MASTER_CONTINUATION.md and the current PROGRESS/QA checkpoint. IDs below follow each original section's bullet order. No completion percentage is inferred from commits or test counts. `IN_PROGRESS` means some software in that requirement remains unfinished, even when the verified subset has substantial acceptance evidence. No row is HARDWARE_TESTED or PRODUCTION_READY.
 
 Pricing source checkpoint: **75451a9**; managed-admission source is recorded by the subsequent PROGRESS/QA checkpoint on development/fullstack-continuation. Preserve apps/mobile and both original development branches. Earlier evidence is revision-specific; PROGRESS/QA records current local and hosted results. All original software scope remains required.
