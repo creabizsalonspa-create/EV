@@ -5,6 +5,9 @@ import 'catalog.dart';
 import 'preferences.dart';
 import 'strings.dart';
 import 'support.dart';
+import 'fleet.dart';
+import 'sessions.dart';
+import 'session_vault.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -91,6 +94,7 @@ class _WorkspaceState extends State<Workspace> {
   String? error;
   String? message;
   bool busy = false;
+  bool keepSignedIn = false, restoring = false, restoreFailed = false;
   int tab = 0;
   int recordPage = 1, recordLast = 1, recordTotal = 0;
   final email = TextEditingController(),
@@ -107,6 +111,7 @@ class _WorkspaceState extends State<Workspace> {
     'sessions',
     'garage',
     'support',
+    'fleet',
   ];
   static const endpoints = [
     'stations',
@@ -114,6 +119,7 @@ class _WorkspaceState extends State<Workspace> {
     'simulations',
     'vehicles',
     'support',
+    'fleets',
   ];
   EvStrings get s => EvStrings.of(context);
 
@@ -122,14 +128,50 @@ class _WorkspaceState extends State<Workspace> {
     super.initState();
     if (widget.initialApi != null) {
       api = widget.initialApi;
+      restoreSaved();
       return;
     }
     const origin = String.fromEnvironment('EV_API_BASE_URL');
     try {
       if (origin.isEmpty) throw ArgumentError('Missing service origin');
-      api = EvApi(Uri.parse(origin));
+      final uri = Uri.parse(origin);
+      api = EvApi(
+        uri,
+        vault: uri.scheme == 'https' ? DeviceSessionVault() : null,
+      );
+      restoreSaved();
     } on ArgumentError {
       error = 'serviceUnavailable';
+    }
+  }
+
+  Future<void> restoreSaved() async {
+    if (api?.canRemember != true) return;
+    setState(() {
+      busy = true;
+      restoring = true;
+      restoreFailed = false;
+      error = null;
+    });
+    try {
+      final user = await api!.restoreSession();
+      if (mounted)
+        setState(() {
+          account = user;
+          keepSignedIn = api!.remembered;
+        });
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          error = errorKey(e);
+          restoreFailed = true;
+        });
+    } finally {
+      if (mounted)
+        setState(() {
+          busy = false;
+          restoring = false;
+        });
     }
   }
 
@@ -138,6 +180,8 @@ class _WorkspaceState extends State<Workspace> {
     Navigator.of(context).popUntil((route) => route.isFirst);
     setState(() {
       account = null;
+      keepSignedIn = false;
+      restoreFailed = false;
       records = [];
       tab = 0;
       name.clear();
@@ -171,7 +215,7 @@ class _WorkspaceState extends State<Workspace> {
   }
 
   Future<void> load({int page = 1}) async {
-    if (tab == 0 || tab == 4) return;
+    if ([0, 2, 4, 5].contains(tab)) return;
     final selectedTab = tab;
     final data = await api!.request(endpoints[tab], query: {'page': '$page'});
     final parsed = ApiPage.fromJson(data, (row) => row);
@@ -198,6 +242,17 @@ class _WorkspaceState extends State<Workspace> {
         await api!.signOut();
         if (mounted) setState(() => error = 'webAdmin');
         return;
+      }
+      if (keepSignedIn) {
+        try {
+          if (!await api!.rememberSession()) {
+            keepSignedIn = false;
+            if (mounted) setState(() => message = 'sessionNotSaved');
+          }
+        } on SessionStorageException {
+          keepSignedIn = false;
+          if (mounted) setState(() => message = 'sessionNotSaved');
+        }
       }
       setState(() {
         account = user;
@@ -537,6 +592,23 @@ class _WorkspaceState extends State<Workspace> {
                   onFieldSubmitted: (_) => login(),
                 ),
                 const SizedBox(height: 24),
+                CheckboxListTile(
+                  key: const Key('keep-signed-in'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(s.t('keepSignedIn')),
+                  subtitle: api?.canRemember == true
+                      ? null
+                      : Text(s.t('secureConnectionOnly')),
+                  value: keepSignedIn,
+                  onChanged: busy || api?.canRemember != true
+                      ? null
+                      : (value) => setState(() => keepSignedIn = value!),
+                ),
+                if (restoreFailed)
+                  TextButton(
+                    onPressed: busy ? null : restoreSaved,
+                    child: Text(s.t('retrySignIn')),
+                  ),
                 FilledButton(
                   key: const Key('auth-submit'),
                   onPressed: busy || api == null ? null : login,
@@ -657,6 +729,10 @@ class _WorkspaceState extends State<Workspace> {
         icon: const Icon(Icons.support_agent),
         label: s.t('support'),
       ),
+      NavigationDestination(
+        icon: const Icon(Icons.groups_outlined),
+        label: s.t('fleet'),
+      ),
     ];
     void select(int value) {
       setState(() {
@@ -688,8 +764,30 @@ class _WorkspaceState extends State<Workspace> {
                       api: api!,
                       onSessionExpired: expiredSession,
                     )
+                  : tab == 5
+                  ? FleetView(
+                      api: api!,
+                      accountId: account!.id,
+                      onExpired: expiredSession,
+                    )
+                  : tab == 2
+                  ? SessionsView(
+                      api: api!,
+                      role: account!.role,
+                      onExpired: expiredSession,
+                    )
                   : recordsView(),
             ],
+          )
+        : restoring
+        ? Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                Text(s.t('restoringSession')),
+              ],
+            ),
           )
         : loginView();
     final wide = MediaQuery.sizeOf(context).width >= 800;
@@ -728,12 +826,21 @@ class _WorkspaceState extends State<Workspace> {
                             : 'verificationRequested';
                       });
                   });
+                } else if (value == 'forget') {
+                  perform(() async {
+                    await api!.forgetSession();
+                    if (mounted)
+                      setState(() {
+                        keepSignedIn = false;
+                        message = 'sessionForgotten';
+                      });
+                  });
                 } else {
                   perform(() async {
                     try {
                       await api!.signOut();
                     } finally {
-                      resetSession();
+                      if (!api!.remembered) resetSession();
                     }
                   });
                 }
@@ -753,6 +860,12 @@ class _WorkspaceState extends State<Workspace> {
                     ),
                   ),
                 ),
+                if (api!.remembered)
+                  PopupMenuItem(
+                    value: 'forget',
+                    enabled: !busy,
+                    child: Text(s.t('forgetSignIn')),
+                  ),
                 PopupMenuItem(
                   value: 'logout',
                   enabled: !busy,

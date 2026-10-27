@@ -1,7 +1,11 @@
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
-    notice = (s) => (el("notice").textContent = s);
+    notice = (value) =>
+        EvLocale.bind(
+            el("notice"),
+            value instanceof Error ? errorMessage(value) : value,
+        );
 const client = new EvApi(csrf);
 async function api(path, method = "GET", data, signal) {
     client.token = csrf;
@@ -40,7 +44,7 @@ function clearPrivateViews() {
         el(id).reset();
 }
 function empty(container, message) {
-    const state = node("p", message);
+    const state = ui("p", message);
     state.className = "empty-state";
     el(container).append(state);
 }
@@ -50,12 +54,27 @@ function renderIdentity() {
     el("signed").hidden = !user;
     el("bookings").hidden = !user;
     el("vendor").hidden = user?.role !== "vendor";
-    el("who").textContent = user ? user.name + " · " + user.role : "";
-    el("email-status").textContent = user
-        ? user.email_verified_at
-            ? "Email verified / البريد مؤكد"
-            : "Email not verified / البريد غير مؤكد"
-        : "";
+    if (user)
+        EvLocale.bind(el("who"), "{name} · {role}", {
+            name: user.name,
+            role: { translate: user.role },
+        });
+    else {
+        el("who").textContent = "";
+        delete el("who").dataset.i18n;
+        delete el("who").dataset.i18nValues;
+    }
+    if (user)
+        EvLocale.bind(
+            el("email-status"),
+            user.email_verified_at
+                ? "Email verified / البريد مؤكد"
+                : "Email not verified / البريد غير مؤكد",
+        );
+    else {
+        el("email-status").textContent = "";
+        delete el("email-status").dataset.i18n;
+    }
     el("verify-email").hidden = !user || !!user.email_verified_at;
     for (const id of ["simulations", "fleets", "garage", "support"])
         el(id).hidden = !user;
@@ -66,19 +85,51 @@ function renderIdentity() {
                 ? !user
                 : user?.role !== n.dataset.access;
     });
-    el("workspace-label").textContent = user
-        ? user.role === "admin"
-            ? "Operations workspace"
-            : user.role === "vendor"
-              ? "Operator workspace"
-              : "Driver workspace"
-        : "Your charging companion";
+    EvLocale.bind(
+        el("workspace-label"),
+        user
+            ? user.role === "admin"
+                ? "Operations workspace"
+                : user.role === "vendor"
+                  ? "Operator workspace"
+                  : "Driver workspace"
+            : "Your charging companion",
+    );
 }
 
 function node(tag, text) {
     let e = document.createElement(tag);
     e.textContent = text;
     return e;
+}
+function ui(tag, key, values = {}) {
+    const element = document.createElement(tag);
+    if (tag === "label")
+        element.append(
+            EvLocale.bind(document.createElement("span"), key, values),
+        );
+    else if (["article", "p"].includes(tag))
+        element.append(
+            EvLocale.bind(document.createElement("span"), key, values),
+        );
+    else EvLocale.bind(element, key, values);
+    return element;
+}
+function errorMessage(error) {
+    return (
+        {
+            401: "Your session has ended. Please sign in again.",
+            419: "Your security session expired. Reload this page before trying again.",
+            429: "Too many requests. Please wait before trying again.",
+            422: "Please check the entered values.",
+            403: "This action is not available for your account.",
+            404: "The record is unavailable.",
+            409: "Refresh the record before repeating this action.",
+        }[error.status] ||
+        (error.status
+            ? "The service is temporarily unavailable. Please retry."
+            : error.message)
+    );
 }
 async function identity() {
     el("ticket-detail").replaceChildren();
@@ -88,7 +139,7 @@ async function identity() {
         user = await api("me");
     } catch (error) {
         user = null;
-        if (error.status !== 401) notice(error.message);
+        if (error.status !== 401) notice(error);
     }
     renderIdentity();
     if (!user) clearPrivateViews();
@@ -108,47 +159,62 @@ async function stations(query = "") {
     const request = new AbortController();
     stationRequest = request;
     el("stations").setAttribute("aria-busy", "true");
-    el("catalog-state").textContent = "Loading stations… / جارٍ تحميل المحطات";
+    EvLocale.bind(
+        el("catalog-state"),
+        "Loading stations… / جارٍ تحميل المحطات",
+    );
     let j;
     try {
         j = await api("stations" + query, "GET", undefined, request.signal);
     } catch (error) {
         if (request.signal.aborted) return;
-        el("catalog-state").textContent = error.message;
+        EvLocale.bind(el("catalog-state"), errorMessage(error));
         el("stations").removeAttribute("aria-busy");
         return;
     }
     if (request.signal.aborted) return;
     el("stations").removeAttribute("aria-busy");
     stationQuery = query;
-    el("catalog-state").textContent =
-        j.total + " stations · availability is unverified / الحالة غير مؤكدة";
+    EvLocale.bind(
+        el("catalog-state"),
+        "{total} stations · availability is unverified / الحالة غير مؤكدة",
+        { total: j.total },
+    );
     el("catalog-pagination").replaceChildren();
     for (const [label, url] of [
         ["Previous / السابق", j.prev_page_url],
         ["Next / التالي", j.next_page_url],
     ]) {
-        const button = node("button", label);
+        const button = ui("button", label);
         button.disabled = !url;
         button.onclick = () => stations(new URL(url, location.origin).search);
         el("catalog-pagination").append(button);
     }
     el("catalog-pagination").append(
-        node("span", "Page " + j.current_page + " / " + j.last_page),
+        ui("span", "Page {current} / {last}", {
+            current: j.current_page,
+            last: j.last_page,
+        }),
     );
     el("stations").replaceChildren();
     if (!j.data.length)
         el("stations").append(
-            node("p", "No stations match. No live network data is connected."),
+            ui("p", "No stations match. No live network data is connected."),
         );
     for (let s of j.data) {
         let a = node("article", "");
         a.className = "station-card";
         a.append(
             node("h3", s.name),
-            Object.assign(node("span", s.evidence + " · " + s.availability), {
-                className: "badge",
-            }),
+            Object.assign(
+                ui("span", "{evidence} · {status}", {
+                    evidence: { translate: s.evidence },
+                    status: { translate: s.availability },
+                }),
+                {
+                    className: "badge",
+                },
+            ),
             node(
                 "p",
                 s.connector_type + " · " + s.power_kw + " kW · " + s.country,
@@ -156,9 +222,9 @@ async function stations(query = "") {
         );
         const details = document.createElement("details");
         details.append(
-            node("summary", "Location & access / الموقع والوصول"),
+            ui("summary", "Location & access / الموقع والوصول"),
             node("p", s.latitude + ", " + s.longitude + " · " + s.currency),
-            node(
+            ui(
                 "p",
                 "Live connector status, commercial tariffs and navigation are not connected.",
             ),
@@ -166,14 +232,14 @@ async function stations(query = "") {
         a.append(details);
         if (s.reservable && user?.role === "customer") {
             let f = document.createElement("form"),
-                l = node("label", "UTC start (00 or 30 minutes)"),
+                l = ui("label", "UTC start (00 or 30 minutes)"),
                 i = document.createElement("input");
             i.type = "datetime-local";
             i.step = 1800;
             i.required = true;
             l.append(i);
             f.append(l);
-            let b = node("button", "Reserve simulator slot");
+            let b = ui("button", "Reserve simulator slot");
             f.append(b);
             f.onsubmit = async (e) => {
                 e.preventDefault();
@@ -192,7 +258,7 @@ async function stations(query = "") {
                     );
                     await bookings();
                 } catch (e) {
-                    notice(e.message);
+                    notice(e);
                 } finally {
                     b.disabled = false;
                 }
@@ -211,29 +277,28 @@ async function bookings() {
             "No reservations yet. Choose a simulator station to try a booking. / لا توجد حجوزات بعد",
         );
     for (let r of j.data) {
-        let a = node(
+        let a = ui(
             "article",
-            "#" +
-                r.id +
-                " · station " +
-                r.station_id +
-                " · " +
-                r.starts_at +
-                " UTC · " +
-                r.status,
+            "#{id} · station {station} · {time} UTC · {status}",
+            {
+                id: r.id,
+                station: r.station_id,
+                time: r.starts_at,
+                status: { translate: r.status },
+            },
         );
         if (user.role === "customer" && r.status === "confirmed") {
-            let b = node("button", "Cancel");
+            let b = ui("button", "Cancel");
             b.onclick = async () => {
                 try {
                     await api("reservations/" + r.id, "DELETE");
                     await bookings();
                 } catch (e) {
-                    notice(e.message);
+                    notice(e);
                 }
             };
             a.append(b);
-            let start = node("button", "Start simulator");
+            let start = ui("button", "Start simulator");
             start.onclick = async () => {
                 try {
                     await api(
@@ -242,7 +307,7 @@ async function bookings() {
                     );
                     await simulations();
                 } catch (e) {
-                    notice(e.message);
+                    notice(e);
                 }
             };
             a.append(start);
@@ -259,28 +324,25 @@ async function simulations() {
             "No simulated sessions yet. Your session history will appear here. / لا توجد جلسات بعد",
         );
     for (let s of j.data) {
-        let a = node(
+        let a = ui(
             "article",
-            "SIMULATED · #" +
-                s.id +
-                " · " +
-                s.status +
-                " · " +
-                s.energy_wh +
-                " Wh · " +
-                (s.total_minor ?? "pending") +
-                " minor units " +
-                s.currency +
-                " · No payment processed",
+            "SIMULATED · #{id} · {status} · {energy} Wh · {cost} minor units {currency} · No payment processed",
+            {
+                id: s.id,
+                status: { translate: s.status },
+                energy: s.energy_wh,
+                cost: s.total_minor ?? { translate: "pending" },
+                currency: s.currency,
+            },
         );
         if (s.status === "charging") {
-            let stop = node("button", "Stop simulation");
+            let stop = ui("button", "Stop simulation");
             stop.onclick = async () => {
                 try {
                     await api("simulations/" + s.id + "/stop", "POST");
                     await simulations();
                 } catch (e) {
-                    notice(e.message);
+                    notice(e);
                 }
             };
             a.append(stop);
@@ -291,11 +353,12 @@ async function simulations() {
                 i.min = s.energy_wh;
                 i.max = 1000000;
                 i.required = true;
-                i.setAttribute(
+                EvLocale.attribute(
+                    i,
                     "aria-label",
                     "Simulated cumulative energy in Wh",
                 );
-                let b = node("button", "Submit simulated meter (Wh)");
+                let b = ui("button", "Submit simulated meter (Wh)");
                 f.append(i, b);
                 f.onsubmit = async (e) => {
                     e.preventDefault();
@@ -305,7 +368,7 @@ async function simulations() {
                         });
                         await simulations();
                     } catch (e) {
-                        notice(e.message);
+                        notice(e);
                     }
                 };
                 a.append(f);
@@ -319,14 +382,10 @@ async function regions() {
     el("region-list").replaceChildren();
     for (let r of j)
         el("region-list").append(
-            node(
+            ui(
                 "p",
-                r.country +
-                    " · " +
-                    r.currency +
-                    " · " +
-                    r.timezone +
-                    " · commerce disabled",
+                "{country} · {currency} · {timezone} · commerce disabled",
+                r,
             ),
         );
 }
@@ -340,19 +399,19 @@ async function fleets() {
         );
     for (let f of j.data) {
         let b = node("button", f.name);
-        b.onclick = () => fleetDetail(f.id).catch((e) => notice(e.message));
+        b.onclick = () => fleetDetail(f.id).catch((e) => notice(e));
         el("fleet-list").append(b);
     }
     let invites = await api("fleet-invitations");
     el("fleet-invitations").replaceChildren();
     for (let i of invites.data) {
-        let b = node("button", "Accept fleet #" + i.fleet_id);
+        let b = ui("button", "Accept fleet #{id}", { id: i.fleet_id });
         b.onclick = async () => {
             try {
                 await api("fleet-invitations/" + i.id + "/accept", "POST");
                 await fleets();
             } catch (e) {
-                notice(e.message);
+                notice(e);
             }
         };
         el("fleet-invitations").append(b);
@@ -365,9 +424,12 @@ async function fleetDetail(id) {
     let owner = j.fleet.owner_id === user.id;
     if (owner) {
         for (let m of j.members) {
-            let row = node("p", "Member #" + m.user_id + " · " + m.status);
+            let row = ui("p", "Member #{id} · {status}", {
+                id: m.user_id,
+                status: { translate: m.status },
+            });
             if (m.status !== "revoked") {
-                let b = node("button", "Revoke");
+                let b = ui("button", "Revoke");
                 b.onclick = async () => {
                     try {
                         await api(
@@ -376,7 +438,7 @@ async function fleetDetail(id) {
                         );
                         await fleetDetail(id);
                     } catch (e) {
-                        notice(e.message);
+                        notice(e);
                     }
                 };
                 row.append(b);
@@ -386,10 +448,10 @@ async function fleetDetail(id) {
         let f = document.createElement("form"),
             i = document.createElement("input");
         i.type = "email";
-        i.placeholder = "Driver email";
-        i.setAttribute("aria-label", "Driver email");
+        EvLocale.attribute(i, "placeholder", "Driver email");
+        EvLocale.attribute(i, "aria-label", "Driver email");
         i.required = true;
-        f.append(i, node("button", "Invite existing account"));
+        f.append(i, ui("button", "Invite existing account"));
         f.onsubmit = async (e) => {
             e.preventDefault();
             try {
@@ -402,19 +464,19 @@ async function fleetDetail(id) {
                 );
                 await fleetDetail(id);
             } catch (e) {
-                notice(e.message);
+                notice(e);
             }
         };
         d.append(f);
         let cf = document.createElement("form"),
             code = document.createElement("input"),
             name = document.createElement("input");
-        code.placeholder = "Cost center code";
-        code.setAttribute("aria-label", "Cost center code");
-        name.placeholder = "Cost center name";
-        name.setAttribute("aria-label", "Cost center name");
+        EvLocale.attribute(code, "placeholder", "Cost center code");
+        EvLocale.attribute(code, "aria-label", "Cost center code");
+        EvLocale.attribute(name, "placeholder", "Cost center name");
+        EvLocale.attribute(name, "aria-label", "Cost center name");
         code.required = name.required = true;
-        cf.append(code, name, node("button", "Add cost center"));
+        cf.append(code, name, ui("button", "Add cost center"));
         cf.onsubmit = async (e) => {
             e.preventDefault();
             try {
@@ -424,26 +486,30 @@ async function fleetDetail(id) {
                 });
                 await fleetDetail(id);
             } catch (e) {
-                notice(e.message);
+                notice(e);
             }
         };
         d.append(cf);
     }
     for (let c of j.cost_centers)
         d.append(
-            node("p", "Cost center #" + c.id + " · " + c.code + " · " + c.name),
+            ui("p", "Cost center #{id} · {code} · {name}", {
+                id: c.id,
+                code: c.code,
+                name: c.name,
+            }),
         );
     if (j.cost_centers.length) {
         const own = await api("vehicles");
         if (own.data.length) {
             const form = document.createElement("form");
             form.id = "fleet-assign";
-            const vehicleLabel = node("label", "Your vehicle / مركبتك"),
+            const vehicleLabel = ui("label", "Your vehicle / مركبتك"),
                 vehicle = document.createElement("select");
             vehicle.name = "vehicle_id";
             for (const v of own.data) vehicle.append(new Option(v.name, v.id));
             vehicleLabel.append(vehicle);
-            const centerLabel = node("label", "Cost center / مركز التكلفة"),
+            const centerLabel = ui("label", "Cost center / مركز التكلفة"),
                 center = document.createElement("select");
             center.name = "cost_center_id";
             for (const c of j.cost_centers)
@@ -452,7 +518,7 @@ async function fleetDetail(id) {
             form.append(
                 vehicleLabel,
                 centerLabel,
-                node("button", "Assign vehicle"),
+                ui("button", "Assign vehicle"),
             );
             form.onsubmit = async (event) => {
                 event.preventDefault();
@@ -464,7 +530,7 @@ async function fleetDetail(id) {
                     );
                     await fleetDetail(id);
                 } catch (error) {
-                    notice(error.message);
+                    notice(error);
                 }
             };
             d.append(form);
@@ -472,13 +538,10 @@ async function fleetDetail(id) {
     }
     for (let v of j.vehicles)
         d.append(
-            node(
-                "p",
-                "Vehicle #" +
-                    v.vehicle_id +
-                    " · cost center #" +
-                    v.cost_center_id,
-            ),
+            ui("p", "Vehicle #{vehicle} · cost center #{center}", {
+                vehicle: v.vehicle_id,
+                center: v.cost_center_id,
+            }),
         );
 }
 el("fleet-create").onsubmit = async (e) => {
@@ -487,7 +550,7 @@ el("fleet-create").onsubmit = async (e) => {
         await api("fleets", "POST", Object.fromEntries(new FormData(e.target)));
         await fleets();
     } catch (e) {
-        notice(e.message);
+        notice(e);
     }
 };
 el("region-config").onsubmit = async (e) => {
@@ -501,7 +564,7 @@ el("region-config").onsubmit = async (e) => {
         await regions();
         notice("Configuration saved. Commercial activation remains disabled.");
     } catch (e) {
-        notice(e.message);
+        notice(e);
     }
 };
 el("account").onsubmit = async (e) => {
@@ -518,7 +581,7 @@ el("account").onsubmit = async (e) => {
         await stations();
         notice("Signed in.");
     } catch (e) {
-        notice(e.message);
+        notice(e);
     }
 };
 el("logout").onclick = async () => {
@@ -529,14 +592,14 @@ el("logout").onclick = async () => {
         await identity();
         await stations();
     } catch (error) {
-        notice(error.message);
+        notice(error);
     }
 };
 el("filters").onsubmit = (e) => {
     e.preventDefault();
     let q = new URLSearchParams();
     for (let [k, v] of new FormData(e.target)) if (v) q.set(k, v);
-    stations("?" + q).catch((e) => notice(e.message));
+    stations("?" + q).catch((e) => notice(e));
 };
 el("station-form").onsubmit = async (e) => {
     e.preventDefault();
@@ -549,22 +612,14 @@ el("station-form").onsubmit = async (e) => {
         await stations();
         notice("Station registered.");
     } catch (e) {
-        notice(e.message);
+        notice(e);
     }
-};
-el("language").onclick = () => {
-    let ar = document.documentElement.lang !== "ar";
-    document.documentElement.lang = ar ? "ar" : "en";
-    document.documentElement.dir = ar ? "rtl" : "ltr";
-    document
-        .querySelectorAll("[data-en]")
-        .forEach((n) => (n.textContent = n.dataset[ar ? "ar" : "en"]));
 };
 (async () => {
     await identity();
     await stations();
     await regions();
-})().catch((e) => notice(e.message));
+})().catch((e) => notice(e));
 
 el("forgot-password").onsubmit = async (e) => {
     e.preventDefault();
@@ -579,7 +634,7 @@ el("forgot-password").onsubmit = async (e) => {
             ).message,
         );
     } catch (e) {
-        notice(e.message);
+        notice(e);
     }
 };
 
@@ -603,7 +658,7 @@ el("vehicle-create").onsubmit = async (e) => {
         );
         await garage();
     } catch (e) {
-        notice(e.message);
+        notice(e);
     }
 };
 el("profile-form").onsubmit = async (e) => {
@@ -614,35 +669,40 @@ el("profile-form").onsubmit = async (e) => {
             "PATCH",
             Object.fromEntries(new FormData(e.target)),
         );
+        EvLocale.set(user.locale);
         notice("Profile updated.");
         await identity();
     } catch (e) {
-        notice(e.message);
+        notice(e);
     }
 };
 async function support() {
     const j = await api("support");
     el("ticket-list").replaceChildren();
     for (const t of j.data) {
-        const b = node(
-            "button",
-            "#" + t.id + " · " + t.subject + " · " + t.status,
-        );
-        b.onclick = () => ticketDetail(t.id).catch((e) => notice(e.message));
+        const b = ui("button", "#{id} · {subject} · {status}", {
+            id: t.id,
+            subject: t.subject,
+            status: { translate: t.status },
+        });
+        b.onclick = () => ticketDetail(t.id).catch((e) => notice(e));
         el("ticket-list").append(b);
     }
     const n = await api("notifications");
     el("notifications").replaceChildren();
     for (const m of n.data) {
-        const row = node("p", m.kind + " · ticket #" + m.support_ticket_id);
+        const row = ui("p", "{kind} · ticket #{id}", {
+            kind: { translate: m.kind },
+            id: m.support_ticket_id,
+        });
         if (!m.read_at) {
-            const b = node("button", "Mark read");
+            const b = ui("button", "Mark read");
             b.onclick = async () => {
                 try {
                     await api("notifications/" + m.id + "/read", "POST");
                     await support();
                 } catch (e) {
-                    notice(e.message);
+                    notice(e);
                 }
             };
             row.append(b);
@@ -653,7 +713,12 @@ async function support() {
 async function ticketDetail(id) {
     const j = await api("support/" + id),
         d = el("ticket-detail");
-    d.replaceChildren(node("h3", j.ticket.subject + " · " + j.ticket.status));
+    d.replaceChildren(
+        ui("h3", "{subject} · {status}", {
+            subject: j.ticket.subject,
+            status: { translate: j.ticket.status },
+        }),
+    );
     for (const m of j.messages.data)
         d.append(node("p", (m.internal ? "INTERNAL · " : "") + m.body));
     if (j.ticket.status !== "closed") {
@@ -661,10 +726,10 @@ async function ticketDetail(id) {
             body = document.createElement("textarea");
         body.required = true;
         body.maxLength = 5000;
-        body.setAttribute("aria-label", "Reply message");
-        f.append(body, node("button", "Reply"));
+        EvLocale.attribute(body, "aria-label", "Reply message");
+        f.append(body, ui("button", "Reply"));
         if (user.role === "admin") {
-            const label = node("label", "Internal note"),
+            const label = ui("label", "Internal note"),
                 check = document.createElement("input");
             check.type = "checkbox";
             check.name = "internal";
@@ -681,7 +746,7 @@ async function ticketDetail(id) {
                 await support();
                 await ticketDetail(id);
             } catch (e) {
-                notice(e.message);
+                notice(e);
             }
         };
         d.append(f);
@@ -689,18 +754,22 @@ async function ticketDetail(id) {
     if (user.role === "admin") {
         const f = document.createElement("form"),
             select = document.createElement("select");
-        select.setAttribute("aria-label", "Ticket status");
+        EvLocale.attribute(select, "aria-label", "Ticket status");
         for (const value of ["open", "in_progress", "resolved", "closed"]) {
-            const o = node("option", value);
+            const o = ui("option", value);
             o.value = value;
             select.append(o);
         }
         const reason = document.createElement("input");
         reason.required = true;
         reason.maxLength = 1000;
-        reason.placeholder = "Reason shared with requester";
-        reason.setAttribute("aria-label", "Reason for status change");
-        f.append(select, reason, node("button", "Update ticket status"));
+        EvLocale.attribute(
+            reason,
+            "placeholder",
+            "Reason shared with requester",
+        );
+        EvLocale.attribute(reason, "aria-label", "Reason for status change");
+        f.append(select, reason, ui("button", "Update ticket status"));
         f.onsubmit = async (e) => {
             e.preventDefault();
             try {
@@ -711,7 +780,7 @@ async function ticketDetail(id) {
                 await support();
                 await ticketDetail(id);
             } catch (e) {
-                notice(e.message);
+                notice(e);
             }
         };
         d.append(f);
@@ -728,7 +797,7 @@ el("support-create").onsubmit = async (e) => {
         await support();
         await ticketDetail(t.id);
     } catch (e) {
-        notice(e.message);
+        notice(e);
     }
 };
 
@@ -737,13 +806,12 @@ el("verify-email").onclick = async () => {
     try {
         notice((await api("email/verification-notification", "POST")).message);
     } catch (e) {
-        notice(e.message);
+        notice(e);
     } finally {
         el("verify-email").disabled = false;
     }
 };
-el("refresh-identity").onclick = () =>
-    identity().catch((e) => notice(e.message));
+el("refresh-identity").onclick = () => identity().catch((e) => notice(e));
 if (new URLSearchParams(location.search).get("verification") === "signin")
     notice(
         "Sign in to the account that received the email, then reopen its verification link.",
@@ -770,24 +838,24 @@ async function adminOverview() {
         ["simulations", "Simulated sessions / الجلسات التجريبية"],
     ]) {
         const card = node("article", "");
-        card.append(node("span", label), node("strong", String(data[key])));
+        card.append(ui("span", label), node("strong", String(data[key])));
         metrics.append(card);
     }
     const table = document.createElement("table");
     table.className = "audit-table";
     table.append(
-        node("caption", "Audit history / سجل التدقيق — latest 50 events"),
+        ui("caption", "Audit history / سجل التدقيق — latest 50 events"),
     );
     const head = document.createElement("thead"),
         headers = document.createElement("tr");
     for (const label of ["Event", "Actor", "Record", "Time (UTC)"])
-        headers.append(node("th", label));
+        headers.append(ui("th", label));
     head.append(headers);
     table.append(head);
     const body = document.createElement("tbody");
     const tools = node("div", "");
     tools.className = "audit-tools";
-    const label = node("label", "Filter latest events / تصفية أحدث الأحداث");
+    const label = ui("label", "Filter latest events / تصفية أحدث الأحداث");
     const search = document.createElement("input");
     search.id = "audit-search";
     search.type = "search";
@@ -796,7 +864,7 @@ async function adminOverview() {
     const count = node("p", "");
     count.id = "audit-count";
     count.setAttribute("role", "status");
-    const exportButton = node("button", "Export filtered CSV / تصدير النتائج");
+    const exportButton = ui("button", "Export filtered CSV / تصدير النتائج");
     exportButton.type = "button";
     exportButton.id = "audit-export";
     let visible = [];
@@ -815,11 +883,11 @@ async function adminOverview() {
                 row.append(node("td", String(event[key])));
             body.append(row);
         }
-        count.textContent =
-            visible.length +
-            " / " +
-            data.audit_events.length +
-            " latest events / أحدث الأحداث";
+        EvLocale.bind(
+            count,
+            "{visible} / {total} latest events / أحدث الأحداث",
+            { visible: visible.length, total: data.audit_events.length },
+        );
         exportButton.disabled = visible.length === 0;
     }
     search.oninput = render;
@@ -853,7 +921,7 @@ async function adminOverview() {
     scroll.className = "table-scroll";
     scroll.tabIndex = 0;
     scroll.setAttribute("role", "region");
-    scroll.setAttribute("aria-label", "Audit history");
+    EvLocale.attribute(scroll, "aria-label", "Audit history");
     scroll.append(table);
     container.append(metrics, tools, scroll);
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'session_vault.dart';
 
 class ApiException implements Exception {
   final int status;
@@ -38,15 +39,157 @@ class Station {
       reservable = json['reservable'] == true;
 }
 
-/// Native-only same-origin session client. Credentials remain in memory.
+/// Native-only same-origin session client; persistence is opt-in and encrypted.
 /// No mock stations, bearer shortcuts, certificate overrides or automatic replay.
 class EvApi {
   final Uri base;
   final HttpClient _http;
   final Map<String, Cookie> _cookies = {};
   String? _csrf;
+  final SessionVault? vault;
+  bool _remembered = false;
+  int _epoch = 0;
+  Future<void> _vaultTail = Future.value();
+  bool get canRemember => base.scheme == 'https' && vault != null;
+  bool get remembered => _remembered;
 
-  EvApi(this.base, {HttpClient? http}) : _http = http ?? HttpClient() {
+  Future<T> _vaultOperation<T>(Future<T> Function() action) {
+    final result = _vaultTail.then((_) => action());
+    _vaultTail = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  bool _validCookie(Cookie c) {
+    final domain = c.domain?.replaceFirst(RegExp(r'^\.'), '');
+    return (domain == null ||
+            domain == base.host ||
+            base.host.endsWith('.$domain')) &&
+        (c.path == null || c.path == '/' || c.path == '/api');
+  }
+
+  Future<void> forgetSession() async {
+    // Invalidate pending saves before deletion; a late response cannot recreate it.
+    _epoch++;
+    try {
+      if (vault != null)
+        await _vaultOperation(() => vault!.delete(base.origin));
+      _remembered = false;
+    } catch (_) {
+      throw const SessionStorageException();
+    }
+  }
+
+  Future<bool> rememberSession() async {
+    if (!canRemember) return false;
+    final epoch = _epoch;
+    final now = DateTime.now().toUtc();
+    // Persist only server-expiring, secure, HTTP-only credentials, never XSRF.
+    final cookies = _cookies.values
+        .where(
+          (c) =>
+              c.httpOnly &&
+              c.secure &&
+              _validCookie(c) &&
+              c.expires != null &&
+              c.expires!.isAfter(now),
+        )
+        .toList();
+    if (cookies.isEmpty) {
+      if (_remembered) await forgetSession();
+      return false;
+    }
+    final expires = cookies
+        .map((c) => c.expires!.toUtc())
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final ceiling = now.add(const Duration(hours: 24));
+    final value = jsonEncode({
+      'version': 1,
+      'origin': base.origin,
+      'saved_at': now.toIso8601String(),
+      'expires': (expires.isBefore(ceiling) ? expires : ceiling)
+          .toIso8601String(),
+      'cookies': cookies.map((c) => c.toString()).toList(),
+    });
+    try {
+      final saved = await _vaultOperation(() async {
+        if (epoch != _epoch) return false;
+        await vault!.write(base.origin, value);
+        return epoch == _epoch;
+      });
+      if (saved) _remembered = true;
+      return saved;
+    } catch (_) {
+      _remembered = false;
+      throw const SessionStorageException();
+    }
+  }
+
+  Future<Account?> restoreSession() async {
+    if (!canRemember) return null;
+    String? raw;
+    try {
+      raw = await _vaultOperation(() => vault!.read(base.origin));
+    } catch (_) {
+      throw const SessionStorageException();
+    }
+    if (raw == null) return null;
+    final now = DateTime.now().toUtc();
+    try {
+      if (raw.length > 65536) throw const FormatException();
+      final data = jsonDecode(raw);
+      final saved = DateTime.parse(data['saved_at'] as String).toUtc();
+      final expiry = DateTime.parse(data['expires'] as String).toUtc();
+      if (data['version'] != 1 ||
+          data['origin'] != base.origin ||
+          !expiry.isAfter(now) ||
+          saved.isAfter(now.add(const Duration(minutes: 1))) ||
+          expiry.isAfter(saved.add(const Duration(hours: 24))))
+        throw const FormatException();
+      final values = data['cookies'] as List;
+      if (values.isEmpty || values.length > 16) throw const FormatException();
+      final cookies = values
+          .map((v) => Cookie.fromSetCookieValue(v as String))
+          .toList();
+      if (cookies.any(
+        (c) =>
+            !c.httpOnly ||
+            !c.secure ||
+            !_validCookie(c) ||
+            c.expires == null ||
+            !c.expires!.isAfter(now),
+      ))
+        throw const FormatException();
+      _cookies.clear();
+      for (final cookie in cookies) {
+        _cookies[cookie.name] = cookie;
+      }
+    } catch (_) {
+      await forgetSession();
+      _cookies.clear();
+      _csrf = null;
+      return null;
+    }
+    try {
+      final current = Account.fromJson(
+        Map<String, dynamic>.from(await request('me') as Map),
+      );
+      if (!['customer', 'vendor'].contains(current.role)) {
+        await signOut();
+        return null;
+      }
+      await csrf();
+      await rememberSession();
+      return current;
+    } on ApiException catch (e) {
+      _cookies.clear();
+      _csrf = null;
+      if ([401, 419].contains(e.status)) return null;
+      rethrow;
+    }
+  }
+
+  EvApi(this.base, {HttpClient? http, this.vault})
+    : _http = http ?? HttpClient() {
     const release = bool.fromEnvironment('dart.vm.product');
     final loopback = ['localhost', '127.0.0.1', '::1'].contains(base.host);
     if (base.host.isEmpty ||
@@ -71,7 +214,11 @@ class EvApi {
     if (!RegExp(r'^[a-z0-9/-]+$').hasMatch(path)) {
       throw ArgumentError('Invalid API path');
     }
+    final epoch = _epoch;
     try {
+      _cookies.removeWhere(
+        (_, c) => c.expires != null && !c.expires!.isAfter(DateTime.now()),
+      );
       final req = await _http.openUrl(
         method,
         base
@@ -89,7 +236,12 @@ class EvApi {
       if (_csrf != null) req.headers.set('X-CSRF-TOKEN', _csrf!);
       if (body != null) req.write(jsonEncode(body));
       final response = await req.close().timeout(const Duration(seconds: 25));
+      if (epoch != _epoch) {
+        await response.drain<void>();
+        throw const ApiException(409, 'Session changed.');
+      }
       for (final cookie in response.cookies) {
+        if (!_validCookie(cookie)) continue;
         if ((cookie.maxAge != null && cookie.maxAge! <= 0) ||
             (cookie.expires?.isBefore(DateTime.now()) ?? false)) {
           _cookies.remove(cookie.name);
@@ -101,14 +253,23 @@ class EvApi {
           .transform(utf8.decoder)
           .join()
           .timeout(const Duration(seconds: 25));
-      if (response.statusCode == 401) {
+      if ([401, 419].contains(response.statusCode)) {
         _cookies.clear();
         _csrf = null;
-        throw const ApiException(
-          401,
+        try {
+          await forgetSession();
+        } on SessionStorageException {
+          _remembered = false;
+        }
+        throw ApiException(
+          response.statusCode,
           'Your session ended. Please sign in again.',
         );
       }
+      if (_remembered &&
+          response.statusCode >= 200 &&
+          response.statusCode < 300)
+        await rememberSession();
       if (response.statusCode == 204) return null;
       dynamic data;
       try {
@@ -144,6 +305,9 @@ class EvApi {
   }
 
   Future<Account> signIn(String email, String password, {String? name}) async {
+    await forgetSession();
+    _cookies.clear();
+    _csrf = null;
     await csrf();
     final data = await request(
       name == null ? 'login' : 'register',
@@ -159,6 +323,7 @@ class EvApi {
   }
 
   Future<void> signOut() async {
+    await forgetSession();
     try {
       await request('logout', method: 'POST');
     } finally {
@@ -185,7 +350,13 @@ class EvApi {
         .toList();
   }
 
-  void close() => _http.close(force: true);
+  void close() {
+    _epoch++;
+    _remembered = false;
+    _cookies.clear();
+    _csrf = null;
+    _http.close(force: true);
+  }
 }
 
 class CatalogFilter {

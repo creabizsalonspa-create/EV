@@ -98,7 +98,7 @@ const assert = require("node:assert/strict");
     await page.waitForFunction(() =>
       document
         .querySelector("#catalog-state")
-        .textContent.includes("Catalog temporarily unavailable"),
+        .textContent.includes("The service is temporarily unavailable"),
     );
     assert.equal(
       await page.locator("#stations").getAttribute("aria-busy"),

@@ -20,6 +20,7 @@ jobs:
       - run: ./scripts/start
       - run: npm run test:e2e
       - run: npm run test:frontend
+      - run: npm run test:localization
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
       - run: npm run test:ocpp

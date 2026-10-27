@@ -12,10 +12,21 @@ document.getElementById("reset-password").onsubmit = async (e) => {
             body: JSON.stringify(Object.fromEntries(new FormData(e.target))),
         });
         const d = await r.json();
-        document.getElementById("status").textContent = d.message;
+        EvLocale.bind(
+            document.getElementById("status"),
+            r.ok
+                ? "Password reset. Sign in with your new password."
+                : r.status === 422
+                  ? "Please check the entered values."
+                  : r.status === 429
+                    ? "Too many requests. Please wait before trying again."
+                    : "Network error. Please retry.",
+        );
         if (r.ok) e.target.reset();
     } catch {
-        document.getElementById("status").textContent =
-            "Network error. Please retry.";
+        EvLocale.bind(
+            document.getElementById("status"),
+            "Network error. Please retry.",
+        );
     }
 };

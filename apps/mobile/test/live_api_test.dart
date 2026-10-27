@@ -7,7 +7,7 @@ import 'package:creabiz_ev/api.dart';
 void main() {
   const origin = String.fromEnvironment('EV_NATIVE_SMOKE_URL');
   test(
-    'native client exercises actual Laravel roles, bookings and privacy',
+    'native client exercises Laravel fleets, meters, bookings and privacy',
     () async {
       final base = Uri.parse(origin);
       expect(
@@ -165,6 +165,122 @@ void main() {
           outsider.request('support/${ticket['id']}'),
           throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
         );
+        final fleet = await customer.request(
+          'fleets',
+          method: 'POST',
+          body: {'name': 'Native fleet $run', 'country': 'AE'},
+        );
+        final center = await customer.request(
+          'fleets/${fleet['id']}/cost-centers',
+          method: 'POST',
+          body: {'code': 'OPS', 'name': 'Operations'},
+        );
+        await customer.request(
+          'fleets/${fleet['id']}/invitations',
+          method: 'POST',
+          body: {'email': 'outsider-$run@example.test'},
+        );
+        final invitation = (await outsider.request(
+          'fleet-invitations',
+        ))['data'].single;
+        await expectLater(
+          outsider.request('fleets/${fleet['id']}'),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+        );
+        await outsider.request(
+          'fleet-invitations/${invitation['id']}/accept',
+          method: 'POST',
+        );
+        final driverVehicle = await outsider.request(
+          'vehicles',
+          method: 'POST',
+          body: {'name': 'Fleet driver EV', 'connector_type': 'CCS2'},
+        );
+        await outsider.request(
+          'fleets/${fleet['id']}/vehicles',
+          method: 'POST',
+          body: {
+            'vehicle_id': driverVehicle['id'],
+            'cost_center_id': center['id'],
+          },
+        );
+        final driverFleet = await outsider.request('fleets/${fleet['id']}');
+        expect(driverFleet['members'], isEmpty);
+        expect(
+          driverFleet['vehicles'].single['vehicle_id'],
+          driverVehicle['id'],
+        );
+        await expectLater(
+          outsider.request(
+            'fleets/${fleet['id']}/cost-centers',
+            method: 'POST',
+            body: {'code': 'DENIED', 'name': 'Not owner'},
+          ),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+        );
+        await customer.request(
+          'fleets/${fleet['id']}/members/${invitation['id']}',
+          method: 'DELETE',
+        );
+        expect(
+          (await customer.request('fleets/${fleet['id']}'))['vehicles'],
+          isEmpty,
+        );
+        await expectLater(
+          outsider.request('fleets/${fleet['id']}'),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+        );
+        // Move only this synthetic booking into its active slot via local fixture setup.
+        // No clock overrides, production endpoint changes or physical charger commands.
+        final fixture = await Process.run('../../scripts/php', [
+          '-r',
+          "require 'vendor/autoload.php'; \$app = require 'bootstrap/app.php'; \$app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); \$now = Carbon\\CarbonImmutable::now('UTC'); App\\Models\\Reservation::whereKey(${reservation['id']})->update(['starts_at' => \$now->startOfHour()->addMinutes(intdiv(\$now->minute, 30) * 30)->format('Y-m-d H:i:s')]);",
+        ]);
+        expect(fixture.exitCode, 0, reason: fixture.stderr.toString());
+        final session = await customer.request(
+          'reservations/${reservation['id']}/simulate-start',
+          method: 'POST',
+        );
+        expect(
+          (await vendor.request(
+            'simulations',
+          ))['data'].any((v) => v['id'] == session['id']),
+          isTrue,
+        );
+        await expectLater(
+          customer.request(
+            'simulations/${session['id']}/meter',
+            method: 'PUT',
+            body: {'energy_wh': 1500},
+          ),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 403)),
+        );
+        await vendor.request(
+          'simulations/${session['id']}/meter',
+          method: 'PUT',
+          body: {'energy_wh': 1500},
+        );
+        await expectLater(
+          vendor.request(
+            'simulations/${session['id']}/meter',
+            method: 'PUT',
+            body: {'energy_wh': 1000},
+          ),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+        );
+        final stopped = await customer.request(
+          'simulations/${session['id']}/stop',
+          method: 'POST',
+        );
+        expect(stopped['total_minor'], 150);
+        await expectLater(
+          vendor.request(
+            'simulations/${session['id']}/meter',
+            method: 'PUT',
+            body: {'energy_wh': 2000},
+          ),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+        );
         // Operator-only test fixture for an actual support notification; no admin mobile UI.
         final adminRole = await Process.run('../../scripts/php', [
           'artisan',
@@ -194,8 +310,20 @@ void main() {
           )['read_at'],
           isNotNull,
         );
+        final cancellable = await customer.request(
+          'reservations',
+          method: 'POST',
+          body: {
+            ...booking,
+            'starts_at': slot
+                .add(const Duration(minutes: 30))
+                .toIso8601String()
+                .replaceFirst('.000Z', 'Z'),
+            'idempotency_key': 'cancel-$run',
+          },
+        );
         await customer.request(
-          'reservations/${reservation['id']}',
+          'reservations/${cancellable['id']}',
           method: 'DELETE',
         );
         expect(

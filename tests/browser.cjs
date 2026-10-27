@@ -204,12 +204,10 @@ const { randomUUID } = require("node:crypto");
       .fill(outsider.email);
     await customer.page
       .locator("#fleet-detail button")
-      .filter({ hasText: "Invite existing account" })
+      .filter({ hasText: "دعوة حساب موجود" })
       .click();
     await customer.page.waitForFunction(() =>
-      document
-        .querySelector("#notice")
-        .textContent.includes("Invitation recorded"),
+      document.querySelector("#notice").textContent.includes("سُجلت الدعوة"),
     );
     await outsider.page.reload();
     await outsider.page.locator("#fleet-invitations button").click();
@@ -222,19 +220,19 @@ const { randomUUID } = require("node:crypto");
       "",
     );
     await customer.page
-      .locator('#fleet-detail input[aria-label="Cost center code"]')
+      .locator('#fleet-detail input[data-i18n-aria="Cost center code"]')
       .fill("QA");
     await customer.page
-      .locator('#fleet-detail input[aria-label="Cost center name"]')
+      .locator('#fleet-detail input[data-i18n-aria="Cost center name"]')
       .fill("Browser operations");
     await customer.page
       .locator("#fleet-detail")
-      .getByRole("button", { name: "Add cost center" })
+      .getByRole("button", { name: "إضافة مركز تكلفة" })
       .click();
     await customer.page.locator("#fleet-assign").waitFor();
     await customer.page.locator("#fleet-assign button").click();
     await customer.page.waitForFunction(() =>
-      document.querySelector("#fleet-detail").textContent.includes("Vehicle #"),
+      document.querySelector("#fleet-detail").textContent.includes("المركبة #"),
     );
     await customer.page
       .locator("#support-create [name=subject]")

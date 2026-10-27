@@ -17,3 +17,9 @@
 14. Persist only native appearance/locale through shared_preferences 2.5.3; credentials remain in memory. Load preferences before production rendering, use Flutter localization delegates for Arabic Material UI/RTL, and verify resource-key/interpolation parity. Storage failure must be visible and must not claim settings were saved.
 15. Device tests use a clearly isolated synthetic on-device HTTP server to validate native transport/UI/platform preferences on an iOS simulator. Keep these separate from actual-Laravel protocol tests and from unperformed physical-device/deployed-HTTPS acceptance. Preserve ordinary app artifacts before building/running integration fixtures so test apps are never distributed as product artifacts.
 16. Super Admin audit search/CSV export is limited to the latest 50 events the current API supplies. Export only filtered rows, escape CSV and formula prefixes, and retain server authorization; full historical export requires a future backend contract.
+
+## 2026-10-27 — finite native cookie persistence and explicit web localization
+
+Reuse Laravel session identity without introducing bearer tokens or modifying backend work. Opt-in secure cookies are encrypted by flutter_secure_storage 9.2.4, origin-bound, server-expiring and restored only after fresh identity/CSRF checks. Android backup is disabled; no plaintext fallback or stored password/CSRF. Test-only synthetic TLS certificates are explicitly trusted in fixture clients; application trust is unchanged. License retained in third_party.
+
+Web localization binds only declared UI resources/attributes. It never scans/replaces arbitrary DOM text, which could translate station names, support messages or alter form values. EN/AR direction and choice persist locally; the language switch preserves active user input and authorization visibility.

@@ -1,5 +1,18 @@
 # Internal QA checkpoint — development continues
 
+## Current frontend continuation — 2026-10-27
+
+Implemented native paginated fleets/invitations, explicit acceptance, owner-only invitation/revocation and cost centers, own-vehicle assignment across vehicle pages, and member-scoped detail. Vendor simulator session pages now edit cumulative Wh with monotonic validation, retain input after conflicts and confirm stop. All new screens use shared English/Arabic resources and existing backend authorization/contracts.
+
+Opt-in HTTPS session persistence uses flutter_secure_storage 9.2.4 (iOS device-only unlocked Keychain; Android encrypted preferences/Keystore with backups disabled). Only secure, HTTP-only, unexpired server cookies are stored, bound to origin and capped at 24 hours per snapshot. Password/CSRF/account data are not persisted. Restore requires fresh /me and CSRF; expiry/rejection clears private views. Serialized vault operations prevent late saves after logout. Storage failure has no plaintext fallback; deletion failure does not falsely report logout.
+
+Web English/Arabic resources cover authentication/recovery, catalog, bookings/sessions, garage, fleets, support/inbox and admin regions/metrics/audit controls. Explicit text/attribute bindings preserve typed fields and user content. Language persists locally with RTL and storage-denied fallback. Formal translation/accessibility acceptance remains outstanding.
+
+Local verification: Flutter analyzer clean; **20 unit/widget tests passed, 1 explicitly live-only skipped**; separate **1 real-Laravel native integration passed** (now includes fleet membership/privacy/revoke and vendor meter authorization/conflicts/stop); Laravel **37 tests / 279 assertions passed**. Chromium real-backend, frontend-contract and new localization suites passed. Hosted Android/iOS build and native Keychain device-test results will be recorded after CI completes. No backend controller/migration/business rule changed.
+
+Next implementation: native recovery/deep-link consumption using an agreed link contract, richer available-API account/garage workflow and lifecycle QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
+
+
 **Overall: NOT READY FOR FINAL ACCEPTANCE.** This report covers implemented development workflows; it does not certify the full platform. Full scope is retained in PRODUCT_REQUIREMENTS.md and PROGRESS.md.
 
 ## Executed checks

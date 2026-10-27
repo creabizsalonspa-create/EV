@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'session_vault.dart';
 
 class EvStrings {
   final bool arabic;
@@ -153,6 +154,63 @@ class EvStrings {
     'messageSent': 'Reply sent',
     'more': 'More',
     'back': 'Back',
+    "confirm": "Confirm",
+    "fleet": "Fleet",
+    "myFleets": "My fleets",
+    "invitations": "Invitations",
+    "createFleet": "Create fleet",
+    "fleetName": "Fleet name",
+    "fleetNumber": "Fleet #{id}",
+    "fleetOwner": "Fleet owner",
+    "fleetMember": "Fleet member",
+    "manageFleet": "View fleet",
+    "acceptInvitation": "Accept invitation",
+    "fleetConsent":
+        "Join this fleet? Its owner can see vehicles you assign and their cost centers.",
+    "inviteMember": "Invite an existing account",
+    "invitationRecorded":
+        "Invitation recorded if the account is eligible. Acceptance is required.",
+    "members": "Members",
+    "memberNumber": "Account #{id}",
+    "driver": "Driver",
+    "invited": "Invited",
+    "active": "Active",
+    "revoked": "Revoked",
+    "revokeMember": "Revoke membership",
+    "revokeConsent":
+        "Revoke this membership? The member’s assigned vehicles will be removed from this fleet.",
+    "costCenters": "Cost centers",
+    "costCenter": "Cost center",
+    "costCenterCode": "Cost center code",
+    "addCostCenter": "Add cost center",
+    "invalidCode": "Use letters, numbers, hyphens or underscores.",
+    "noCostCenters":
+        "The fleet owner must create a cost center before vehicles can be assigned.",
+    "fleetVehicles": "Assigned vehicles",
+    "ownVehicleOnly": "You can assign only your own vehicles to this fleet.",
+    "assignVehicle": "Assign your vehicle",
+    "chooseVehicle": "Choose your vehicle",
+    "vehicleCenter": "Vehicle #{vehicle} · cost center #{center}",
+    "submitMeter": "Submit simulated meter",
+    "cumulativeWh": "Cumulative energy (Wh)",
+    "meterRange":
+        "Use a whole number at least equal to the current reading and at most 1,000,000.",
+    "meterDisclaimer":
+        "Simulator readings and cost estimates only. No physical charger, invoice or payment is connected.",
+    "stopConsent":
+        "Stop this simulation and freeze its test cost estimate? No payment is processed.",
+    "reservationNumber": "Reservation #{id}",
+    "keepSignedIn": "Keep me signed in",
+    "secureConnectionOnly": "Saved sign-in is available on secure connections.",
+    "restoringSession": "Checking saved sign-in…",
+    "retrySignIn": "Retry saved sign-in",
+    "sessionNotSaved":
+        "You are signed in for this visit. Saved sign-in is unavailable; please try again later.",
+    "secureStorageError":
+        "Secure storage is unavailable. Unlock your device and retry. Refresh records before repeating any action.",
+    "forgetSignIn": "Forget saved sign-in",
+    "sessionForgotten":
+        "Saved sign-in removed. Your current session remains open.",
   };
   static const ar = <String, String>{
     'brand': 'كريا بيز للشحن',
@@ -291,11 +349,67 @@ class EvStrings {
     'messageSent': 'تم إرسال الرد',
     'more': 'المزيد',
     'back': 'رجوع',
+    "confirm": "تأكيد",
+    "fleet": "الأسطول",
+    "myFleets": "أساطيلي",
+    "invitations": "الدعوات",
+    "createFleet": "إنشاء أسطول",
+    "fleetName": "اسم الأسطول",
+    "fleetNumber": "الأسطول #{id}",
+    "fleetOwner": "مالك الأسطول",
+    "fleetMember": "عضو الأسطول",
+    "manageFleet": "عرض الأسطول",
+    "acceptInvitation": "قبول الدعوة",
+    "fleetConsent":
+        "الانضمام إلى هذا الأسطول؟ يمكن لمالكه رؤية المركبات التي تعينها ومراكز تكلفتها.",
+    "inviteMember": "دعوة حساب موجود",
+    "invitationRecorded": "سُجلت الدعوة إذا كان الحساب مؤهلاً. يلزم قبولها.",
+    "members": "الأعضاء",
+    "memberNumber": "الحساب #{id}",
+    "driver": "سائق",
+    "invited": "مدعو",
+    "active": "نشط",
+    "revoked": "ملغى",
+    "revokeMember": "إلغاء العضوية",
+    "revokeConsent":
+        "إلغاء هذه العضوية؟ ستُزال مركبات العضو المعينة من هذا الأسطول.",
+    "costCenters": "مراكز التكلفة",
+    "costCenter": "مركز التكلفة",
+    "costCenterCode": "رمز مركز التكلفة",
+    "addCostCenter": "إضافة مركز تكلفة",
+    "invalidCode": "استخدم أحرفاً لاتينية أو أرقاماً أو شرطات أو شرطات سفلية.",
+    "noCostCenters": "يجب أن ينشئ مالك الأسطول مركز تكلفة قبل تعيين المركبات.",
+    "fleetVehicles": "المركبات المعينة",
+    "ownVehicleOnly": "يمكنك تعيين مركباتك الخاصة فقط لهذا الأسطول.",
+    "assignVehicle": "تعيين مركبتك",
+    "chooseVehicle": "اختر مركبتك",
+    "vehicleCenter": "المركبة #{vehicle} · مركز التكلفة #{center}",
+    "submitMeter": "إرسال قراءة تجريبية",
+    "cumulativeWh": "الطاقة التراكمية (واط ساعة)",
+    "meterRange":
+        "أدخل عدداً صحيحاً لا يقل عن القراءة الحالية ولا يتجاوز 1,000,000.",
+    "meterDisclaimer":
+        "قراءات محاكاة وتقديرات تكلفة فقط. لا يوجد شاحن فعلي أو فاتورة أو دفع متصل.",
+    "stopConsent":
+        "إيقاف هذه المحاكاة وتثبيت تقدير تكلفتها التجريبية؟ لن تُعالج أي مدفوعات.",
+    "reservationNumber": "الحجز #{id}",
+    "keepSignedIn": "إبقائي مسجلاً للدخول",
+    "secureConnectionOnly": "حفظ تسجيل الدخول متاح على الاتصالات الآمنة.",
+    "restoringSession": "جارٍ التحقق من تسجيل الدخول المحفوظ…",
+    "retrySignIn": "إعادة محاولة تسجيل الدخول المحفوظ",
+    "sessionNotSaved":
+        "أنت مسجل للدخول لهذه الزيارة. تعذر حفظ تسجيل الدخول؛ حاول لاحقاً.",
+    "secureStorageError":
+        "التخزين الآمن غير متاح. افتح قفل جهازك وحاول مجدداً. حدّث السجلات قبل تكرار أي إجراء.",
+    "forgetSignIn": "نسيان تسجيل الدخول المحفوظ",
+    "sessionForgotten":
+        "أُزيل تسجيل الدخول المحفوظ. جلستك الحالية ما زالت مفتوحة.",
   };
 }
 
 String errorKey(Object error) {
   // UI translates status classes; raw server diagnostics remain in the API layer.
+  if (error is SessionStorageException) return 'secureStorageError';
   if (error is! ApiException) return 'genericError';
   return switch (error.status) {
     0 => 'offline',
