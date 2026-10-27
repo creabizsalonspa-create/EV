@@ -4,16 +4,18 @@
 import 'dart:convert';
 import 'dart:io';
 
-SecurityContext fixtureServerContext() {
-  final context = SecurityContext();
-  if (Platform.isIOS) {
-    // dart:io on iOS requires PKCS12 containing both key and certificate chain.
+SecurityContext fixtureServerContext({bool? usePkcs12}) {
+  // The pinned engine's BoringSSL loader needs the certificate chain set
+  // separately even when the private key is read from a PKCS12 bundle.
+  final context = SecurityContext()
+    ..useCertificateChainBytes(utf8.encode(fixtureCertificate));
+  if (usePkcs12 ?? Platform.isIOS) {
+    // Also exercised explicitly by the host TLS test, not only on devices.
     context.usePrivateKeyBytes(
       base64Decode(fixturePkcs12),
       password: 'synthetic-fixture-only',
     );
   } else {
-    context.useCertificateChainBytes(utf8.encode(fixtureCertificate));
     context.usePrivateKeyBytes(utf8.encode(fixturePrivateKey));
   }
   return context;

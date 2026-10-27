@@ -109,7 +109,7 @@ void main() {
   test(
     'secure HTTP-only cookies restore through real TLS and fresh me/CSRF; logout, origin and expiry are enforced',
     () async {
-      final context = fixtureServerContext();
+      final context = fixtureServerContext(usePkcs12: true);
       final server = await HttpServer.bindSecure(
         InternetAddress.loopbackIPv4,
         0,
