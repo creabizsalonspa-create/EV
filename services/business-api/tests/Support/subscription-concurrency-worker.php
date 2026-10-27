@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Services\Commercial\SubscriptionGateway;
 use App\Services\Commercial\SubscriptionService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
@@ -26,9 +27,11 @@ if (! is_file($gate)) {
 try {
     $service = app(SubscriptionService::class);
     $actor = User::findOrFail((int) $actorId);
+    config(['payments.provider' => 'mock']);
     match ($operation) {
         'enroll' => $service->subscribe($actor, (int) $entityId, $key),
         'renew' => $service->renew((int) $entityId),
+        'gateway_capture' => app(SubscriptionGateway::class)->operate($actor, (int) $entityId, 'capture', $key, null),
         'pay' => $service->mockPay($actor, (int) $entityId, (int) $invoiceId, 'succeeded', $key),
         default => throw new LogicException('Unknown concurrency operation'),
     };

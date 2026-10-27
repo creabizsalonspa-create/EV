@@ -3,6 +3,7 @@
 namespace Tests\Postgres;
 
 use App\Models\User;
+use App\Services\Commercial\SubscriptionGateway;
 use App\Services\Commercial\SubscriptionService;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +40,7 @@ class SubscriptionConcurrencyTest extends TestCase
     private function race(string $operation, int $entity, int $actor, int $invoice = 0, bool $differentKeys = false): array
     {
         $table = match ($operation) {
-            'enroll' => 'commercial_subscriptions', 'renew' => 'commercial_subscription_invoices', 'pay' => 'commercial_subscription_receipts'
+            'enroll' => 'commercial_subscriptions', 'renew' => 'commercial_subscription_invoices', 'pay', 'gateway_capture' => 'commercial_subscription_receipts'
         };
         DB::unprepared('CREATE FUNCTION subscription_test_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.5); RETURN NEW; END; $$');
         DB::unprepared('CREATE TRIGGER subscription_test_delay BEFORE INSERT ON '.$table.' FOR EACH ROW EXECUTE FUNCTION subscription_test_delay()');
@@ -144,5 +145,20 @@ class SubscriptionConcurrencyTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_receipts', 1);
         $this->assertSame(1, DB::table('commercial_subscription_events')->where('kind', 'renewal_invoiced')->count());
         $this->assertFalse($service->summary($id)['entitlements_active']);
+    }
+
+    public function test_racing_gateway_captures_share_single_receipt_and_payment_journal(): void
+    {
+        config(['payments.provider' => 'mock']);
+        [$customer, $plan] = $this->fixture();
+        $s = app(SubscriptionService::class)->subscribe($customer, $plan->id, 'fixture');
+        $gateway = app(SubscriptionGateway::class);
+        $c = $gateway->checkout($customer, $s['subscription']->id, $s['invoices']->first()->id, 'checkout');
+        $gateway->operate($customer, $c->id, 'authorize', 'authorize', 'mock_success');
+        $this->assertSame(['200', '200'], $this->race('gateway_capture', $c->id, $customer->id, 0, true));
+        $this->assertDatabaseCount('commercial_subscription_receipts', 1);
+        $this->assertSame(1, DB::table('subscription_gateway_operations')->where('kind', 'capture')->count());
+        $this->assertSame(2, DB::table('commercial_subscription_ledger')->where('kind', 'payment')->count());
+        $this->assertTrue(app(SubscriptionService::class)->summary($s['subscription']->id)['ledger_balanced']);
     }
 }

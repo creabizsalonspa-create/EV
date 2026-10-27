@@ -35,7 +35,17 @@ jobs:
       - run: npm run test:vendor
       - run: EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming
       - run: npm run test:ocpi-provisioning
-      - run: npm run test:commercial
+      - name: Financial browser workflows
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/finance-commercial
+          npm run test:commercial | tee artifacts/finance-commercial/browser.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: finance-browser-evidence
+          path: artifacts/finance-commercial
+          if-no-files-found: warn
       - run: npm run test:invoices
       - run: npm run test:tariffs
       - run: npm run test:managed-gate

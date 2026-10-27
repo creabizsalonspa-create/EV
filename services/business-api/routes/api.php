@@ -61,3 +61,5 @@ Route::post('/internal/csms/events', [CsmsSessionController::class, 'event'])->m
 Route::post('/payments/mock/webhook', [PaymentGatewayController::class, 'webhook'])->middleware('throttle:platform-api');
 
 Route::post('/payments/stripe-test/webhook', [PaymentGatewayController::class, 'stripeWebhook'])->middleware('throttle:platform-api');
+
+require __DIR__.'/subscription_webhooks.php';

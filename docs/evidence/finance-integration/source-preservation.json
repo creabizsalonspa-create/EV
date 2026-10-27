@@ -1,6 +1,6 @@
 {
   "finance_pr": 4,
-  "finance_head": "60a5dd022ca0be7e568ff54c1deb416eaf07e39d",
+  "finance_head": "7de6c4ebf2af9985c2df9d9e78e7bf51927499fc",
   "identical_source_files": [
     {
       "path": "services/business-api/app/Console/Commands/RenewSubscriptions.php",
@@ -8,7 +8,7 @@
     },
     {
       "path": "services/business-api/app/Http/Controllers/CommercialFinanceController.php",
-      "blob": "7ece198f9a94d751ecf6e6c850098456860d921a"
+      "blob": "acec5e64b0a092c147c799f663ed6493001ca5ba"
     },
     {
       "path": "services/business-api/app/Http/Controllers/FinanceController.php",
@@ -25,6 +25,10 @@
     {
       "path": "services/business-api/app/Http/Controllers/SubscriptionController.php",
       "blob": "012491ab49a5812632c605ad290361ffad25d6e0"
+    },
+    {
+      "path": "services/business-api/app/Http/Controllers/SubscriptionGatewayController.php",
+      "blob": "6b01edeb06a019c7e81484df7a48f31fe62a2d36"
     },
     {
       "path": "services/business-api/app/Services/Commercial/Payments/GatewayService.php",
@@ -47,8 +51,12 @@
       "blob": "f59f1a2bf7ebb8aab01357ff6a9e3f707af7a2f4"
     },
     {
+      "path": "services/business-api/app/Services/Commercial/SubscriptionGateway.php",
+      "blob": "2bf4649f9ac718ff084947b4eae933c9ba16f7cb"
+    },
+    {
       "path": "services/business-api/app/Services/Commercial/SubscriptionService.php",
-      "blob": "fc55c53777a2e65d96de3d0e2aecb2a59b08e130"
+      "blob": "3ba245010dd898d65d16f1a3a59cbc8c65c38f57"
     },
     {
       "path": "services/business-api/config/payments.php",
@@ -75,8 +83,12 @@
       "blob": "651ef74ba72cc6684e2a23b6d947d471d9dd5fe6"
     },
     {
+      "path": "services/business-api/database/migrations/2026_10_28_140001_create_subscription_gateway.php",
+      "blob": "20568f3a990babb00e2af97b2b92181de7ee9564"
+    },
+    {
       "path": "services/business-api/public/commercial.js",
-      "blob": "26e6f20b2014e19712a55ef580c28d339217b99d"
+      "blob": "962c9f2d3f279e397514bea3326de63ef595a7d6"
     },
     {
       "path": "services/business-api/public/platform.css",
@@ -92,7 +104,7 @@
     },
     {
       "path": "services/business-api/routes/api.php",
-      "blob": "bce07c173caa6639549cabe39f91225ce0565965"
+      "blob": "9aeb34b9f9c0d030620d7e6eea00ae0b83f609bb"
     },
     {
       "path": "services/business-api/routes/commercial_finance.php",
@@ -100,7 +112,7 @@
     },
     {
       "path": "services/business-api/routes/finance.php",
-      "blob": "d9e75369977de341c7c19f4ecfab680009baf219"
+      "blob": "17789ad9600be53fa2f3d81682a39d2254e75738"
     },
     {
       "path": "services/business-api/routes/payments.php",
@@ -111,12 +123,20 @@
       "blob": "15b1ff1784a893563c8ce817bacc2bf0e184a5a6"
     },
     {
+      "path": "services/business-api/routes/subscription_gateway.php",
+      "blob": "998cd94f45d320d7289fcc57febf61f7a5db25f5"
+    },
+    {
+      "path": "services/business-api/routes/subscription_webhooks.php",
+      "blob": "8c2c38761d6e352aa393c65e0583c3996c408be9"
+    },
+    {
       "path": "services/business-api/routes/subscriptions.php",
       "blob": "a54df6f850a39ccfa497ac25110c9e62bf786469"
     },
     {
       "path": "services/business-api/tests/Feature/CommercialFinanceTest.php",
-      "blob": "a5ed47c829e49d8b42828433c9e5f724c88daf7a"
+      "blob": "798cd9cc721cd228591d668c1f866e7310f367e2"
     },
     {
       "path": "services/business-api/tests/Feature/PaymentGatewayTest.php",
@@ -129,6 +149,10 @@
     {
       "path": "services/business-api/tests/Feature/StripeSandboxTest.php",
       "blob": "105c861d5f992dc1ea5bcc911e90b76307af79e1"
+    },
+    {
+      "path": "services/business-api/tests/Feature/SubscriptionGatewayTest.php",
+      "blob": "2498e93622274e31b744e97930673994cea19fde"
     },
     {
       "path": "services/business-api/tests/Feature/SubscriptionTest.php",
@@ -144,7 +168,7 @@
     },
     {
       "path": "services/business-api/tests/Postgres/SubscriptionConcurrencyTest.php",
-      "blob": "187392b720a40bac3fd57e3fe3499865a057fbcd"
+      "blob": "25769539f84899728d2050dcf058de63fdae729d"
     },
     {
       "path": "services/business-api/tests/Postgres/run-finance",
@@ -160,11 +184,11 @@
     },
     {
       "path": "services/business-api/tests/Support/subscription-concurrency-worker.php",
-      "blob": "a942149d52da676422bc6a007be627dbb56313c4"
+      "blob": "6a92d5fd5bbe3fe7107a96a61e2765f91faeb988"
     },
     {
       "path": "tests/commercial-workspace.cjs",
-      "blob": "40bd207972301af411cda9fc95471fd7cf5019c3"
+      "blob": "2367c7138addaeadfabae8d2e97b603e22b1c31c"
     }
   ]
 }

@@ -16,8 +16,11 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     paths.push("finance/report", "finance/invoices");
             } else if (path.startsWith("commercial/plans"))
                 paths.push("commercial/plans");
-            else if (path.startsWith("commercial/subscriptions"))
-                paths.push("commercial/subscriptions");
+            else if (path.startsWith("commercial/subscription"))
+                paths.push(
+                    "commercial/subscriptions",
+                    "commercial/subscription-checkouts",
+                );
             else if (path.includes("refund-requests")) {
                 paths.push("finance/refund-requests");
                 if (path.endsWith("/review"))
@@ -47,6 +50,8 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         epoch++;
         controller?.abort();
         root.replaceChildren();
+        root.inert = false;
+        root.removeAttribute("aria-busy");
         root.hidden = true;
         actor = null;
         pages = {};
@@ -69,6 +74,9 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         parent.append(b);
         b.onclick = async () => {
             b.disabled = true;
+            const account = actor?.id;
+            root.inert = true;
+            root.setAttribute("aria-busy", "true");
             try {
                 await action();
             } catch (e) {
@@ -76,6 +84,10 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     status(e.message);
             } finally {
                 b.disabled = false;
+                if (actor?.id === account) {
+                    root.inert = false;
+                    root.removeAttribute("aria-busy");
+                }
             }
         };
         return b;
@@ -118,6 +130,9 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         f.onsubmit = async (event) => {
             event.preventDefault();
             submit.disabled = true;
+            const account = actor?.id;
+            root.inert = true;
+            root.setAttribute("aria-busy", "true");
             const current = epoch;
             try {
                 await action(Object.fromEntries(new FormData(f)), key);
@@ -130,6 +145,10 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     status(e.message);
             } finally {
                 submit.disabled = false;
+                if (actor?.id === account) {
+                    root.inert = false;
+                    root.removeAttribute("aria-busy");
+                }
             }
         };
         parent.append(f);
@@ -201,6 +220,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             call("commercial/subscriptions"),
             call("commercial/checkouts"),
             call("commercial/cases"),
+            call("commercial/subscription-checkouts"),
         ]);
         if (current !== epoch || signal.aborted) return;
         function result(index, target) {
@@ -214,17 +234,26 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     "commercial/subscriptions",
                     "commercial/checkouts",
                     "commercial/cases",
+                    "commercial/subscription-checkouts",
                 ];
                 const data = r.value,
                     path = paths[index];
                 if (data.last_page > 1) {
                     const pager = document.createElement("div");
                     pager.className = "finance-pagination";
+                    const labels = [
+                        ["Overview", "نظرة عامة"],
+                        ["Invoices", "الفواتير"],
+                        ["Refund requests", "طلبات الاسترداد"],
+                        ["Plans", "الخطط"],
+                        ["Subscriptions", "الاشتراكات"],
+                        ["Payments", "المدفوعات"],
+                        ["Disputes", "الاعتراضات"],
+                        ["Subscription payments", "مدفوعات الاشتراك"],
+                    ];
                     pager.append(
-                        text(
-                            "p",
-                            `${path.split("/").pop()} · ${data.current_page} / ${data.last_page}`,
-                        ),
+                        translated("p", ...labels[index]),
+                        text("p", `${data.current_page} / ${data.last_page}`),
                     );
                     if (data.current_page > 1)
                         button(pager, "Previous", "السابق", async () => {
@@ -634,6 +663,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 );
             invoices.append(row);
         }
+        const subscriptionCheckouts = result(7, subscriptions)?.data || [];
         const plans = result(3, subscriptions)?.data || [],
             owned = result(4, subscriptions)?.data || [];
         for (const plan of plans) {
@@ -697,7 +727,17 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         `${detail.subscription.period_start || "—"} → ${detail.subscription.period_end || "—"} · ${detail.subscription.cancel_at_period_end ? "Cancellation scheduled / إلغاء مجدول" : ""}`,
                     ),
                 );
-                content.append(text("p", JSON.stringify(detail.entitlements)));
+                for (const [feature, value] of Object.entries(
+                    detail.entitlements,
+                )) {
+                    const label = feature.replaceAll("_", " ");
+                    content.append(
+                        text(
+                            "p",
+                            `${label}: ${typeof value === "boolean" ? (value ? "Included / مشمول" : "Unavailable / غير متاح") : value}`,
+                        ),
+                    );
+                }
                 if (detail.subscription.next_plan_id)
                     content.append(
                         text(
@@ -712,7 +752,43 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             `${invoice.number} · ${money(invoice.total_minor, invoice.currency, invoice.minor_units)}`,
                         ),
                     );
-                    if (!invoice.paid && subscription.status !== "cancelled")
+                    const pendingCheckout = subscriptionCheckouts.some(
+                        (c) =>
+                            c.invoice_id === invoice.id &&
+                            [
+                                "pending",
+                                "authorized",
+                                "action_required",
+                            ].includes(c.status),
+                    );
+                    if (
+                        !invoice.paid &&
+                        subscription.status !== "cancelled" &&
+                        !pendingCheckout &&
+                        subscription.user_id === actor.id
+                    )
+                        form(
+                            content,
+                            [],
+                            "Open subscription checkout",
+                            "فتح دفع الاشتراك",
+                            async (_, key) => {
+                                await api(
+                                    `commercial/subscriptions/${subscription.id}/checkouts`,
+                                    "POST",
+                                    {
+                                        invoice_id: invoice.id,
+                                        idempotency_key: key,
+                                    },
+                                );
+                                await load();
+                            },
+                        );
+                    if (
+                        !invoice.paid &&
+                        subscription.status !== "cancelled" &&
+                        !pendingCheckout
+                    )
                         form(
                             content,
                             [
@@ -809,6 +885,101 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     },
                 );
             });
+            subscriptions.append(row);
+        }
+        for (const checkout of subscriptionCheckouts) {
+            const row = document.createElement("div");
+            row.className = "finance-row";
+            row.dataset.subscriptionCheckout = String(checkout.id);
+            row.append(
+                text(
+                    "h4",
+                    `Subscription checkout / دفع الاشتراك #${checkout.id} · ${checkout.status}`,
+                ),
+            );
+            if (checkout.user_id === actor.id) {
+                if (
+                    checkout.status === "pending" &&
+                    checkout.provider === "mock"
+                )
+                    form(
+                        row,
+                        [
+                            {
+                                name: "token",
+                                en: "Test outcome",
+                                ar: "نتيجة الاختبار",
+                                options: [
+                                    ["mock_success", "Success / نجاح"],
+                                    ["mock_decline", "Declined / مرفوض"],
+                                ],
+                            },
+                        ],
+                        "Authorize subscription payment",
+                        "تفويض دفع الاشتراك",
+                        async (data, key) => {
+                            await api(
+                                `commercial/subscription-checkouts/${checkout.id}/authorize`,
+                                "POST",
+                                { ...data, idempotency_key: key },
+                            );
+                            await load();
+                        },
+                    );
+                if (checkout.status === "authorized")
+                    form(
+                        row,
+                        [],
+                        "Capture subscription payment",
+                        "تحصيل دفع الاشتراك",
+                        async (_, key) => {
+                            await api(
+                                `commercial/subscription-checkouts/${checkout.id}/capture`,
+                                "POST",
+                                { idempotency_key: key },
+                            );
+                            await load();
+                        },
+                    );
+                if (
+                    ["pending", "authorized", "action_required"].includes(
+                        checkout.status,
+                    )
+                )
+                    form(
+                        row,
+                        [],
+                        "Cancel subscription checkout",
+                        "إلغاء دفع الاشتراك",
+                        async (_, key) => {
+                            await api(
+                                `commercial/subscription-checkouts/${checkout.id}/cancel`,
+                                "POST",
+                                { idempotency_key: key },
+                            );
+                            await load();
+                        },
+                    );
+            }
+            button(
+                row,
+                "Reconcile subscription payment",
+                "مطابقة دفع الاشتراك",
+                async () => {
+                    const d = await api(
+                        `commercial/subscription-checkouts/${checkout.id}/reconciliation`,
+                    );
+                    if (current !== epoch) return;
+                    row.append(
+                        text(
+                            "p",
+                            d.matched
+                                ? "Matched / متطابق"
+                                : "Reconciliation required / المطابقة مطلوبة",
+                        ),
+                    );
+                },
+            );
             subscriptions.append(row);
         }
         if (actor.role === "admin") {
