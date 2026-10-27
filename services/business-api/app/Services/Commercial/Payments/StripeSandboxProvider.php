@@ -94,7 +94,8 @@ class StripeSandboxProvider implements PaymentProvider
     public function recoveryEvidence(object $intent, object $checkout): array
     {
         $prior = $intent->observation ? json_decode($intent->observation, true, 16, JSON_THROW_ON_ERROR) : [];
-        $reference = $prior['id'] ?? $checkout->provider_reference;
+        $knownPayment = preg_match('/^pi_[A-Za-z0-9]+$/D', $checkout->provider_reference) === 1;
+        $reference = $intent->kind !== 'refund' && $knownPayment ? $checkout->provider_reference : ($prior['id'] ?? $checkout->provider_reference);
         if ($intent->kind === 'refund') {
             if (is_string($reference) && preg_match('/^re_[A-Za-z0-9]+$/D', $reference)) {
                 $object = $this->request('/refunds/'.$reference, [], 'read-refund:'.$intent->id, 'get');
@@ -102,19 +103,29 @@ class StripeSandboxProvider implements PaymentProvider
             } else {
                 abort_unless(preg_match('/^pi_[A-Za-z0-9]+$/D', $checkout->provider_reference), 409, 'Missing capture reference for refund recovery.');
                 $list = $this->request('/refunds', ['payment_intent' => $checkout->provider_reference, 'limit' => 100], 'find-refund:'.$intent->id, 'get');
+                abort_unless(is_array($list['data'] ?? null), 502, 'Invalid provider recovery listing.');
                 $matches = array_values(array_filter($list['data'], fn ($row) => (string) ($row['metadata']['creabiz_recovery'] ?? '') === (string) $intent->id));
                 abort_unless(count($matches) === 1, 409, 'Provider refund identity is not uniquely established; no retry was sent.');
                 $object = $matches[0];
             }
             abort_unless(($object['payment_intent'] ?? null) === $checkout->provider_reference, 409, 'Refund belongs to another capture.');
+            abort_unless((string) ($object['metadata']['creabiz_recovery'] ?? '') === (string) $intent->id, 409, 'Refund belongs to another recovery request.');
         } elseif (is_string($reference) && preg_match('/^pi_[A-Za-z0-9]+$/D', $reference)) {
             $object = $this->request('/payment_intents/'.$reference, [], 'read-intent:'.$intent->id, 'get');
             abort_unless(($object['id'] ?? null) === $reference, 409, 'Provider payment identity mismatch.');
         } else {
             $list = $this->request('/payment_intents/search', ['query' => "metadata['creabiz_recovery']:'".(int) $intent->id."'", 'limit' => 100], 'find-intent:'.$intent->id, 'get');
+            abort_unless(is_array($list['data'] ?? null), 502, 'Invalid provider recovery listing.');
             $matches = array_values(array_filter($list['data'], fn ($row) => (string) ($row['metadata']['creabiz_recovery'] ?? '') === (string) $intent->id));
             abort_unless(count($matches) === 1, 409, 'Provider payment identity is not uniquely established; no retry was sent.');
             $object = $matches[0];
+        }
+        if ($intent->kind !== 'refund') {
+            if ($knownPayment) {
+                abort_unless(($object['id'] ?? null) === $checkout->provider_reference, 409, 'Recovery belongs to another payment.');
+            } else {
+                abort_unless(($object['metadata']['creabiz_checkout'] ?? null) === $checkout->provider_reference, 409, 'Recovered authorization belongs to another checkout.');
+            }
         }
         abort_unless(is_string($object['id'] ?? null) && preg_match($intent->kind === 'refund' ? '/^re_[A-Za-z0-9]+$/D' : '/^pi_[A-Za-z0-9]+$/D', $object['id']), 409, 'Invalid provider recovery identity.');
         abort_unless((int) ($object['amount'] ?? -1) === (int) $intent->amount_minor && strtoupper($object['currency'] ?? '') === $intent->currency, 409, 'Recovery evidence amount or currency mismatch.');

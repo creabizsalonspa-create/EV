@@ -289,4 +289,49 @@ class PaymentRecoveryTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
         Http::assertSentCount(1);
     }
+
+    public function test_malformed_capture_response_cannot_redirect_reconciliation_to_another_payment(): void
+    {
+        [$user, , $checkout] = $this->fixture();
+        $requests = [];
+        Http::fake(function ($request) use (&$requests) {
+            $requests[] = [$request->method(), $request->url()];
+            if ($request->method() === 'POST') {
+                return Http::response(['id' => 'pi_other', 'livemode' => false, 'status' => 'succeeded', 'amount' => 100, 'amount_received' => 100, 'currency' => 'aed']);
+            }
+            if ($request->url() === 'https://api.stripe.com/v1/payment_intents/pi_recovery') {
+                return Http::response(['id' => 'pi_recovery', 'livemode' => false, 'status' => 'requires_capture', 'amount' => 100, 'amount_received' => 0, 'amount_capturable' => 100, 'currency' => 'aed']);
+            }
+
+            return Http::response(['id' => 'pi_other', 'livemode' => false, 'status' => 'succeeded', 'amount' => 100, 'amount_received' => 100, 'currency' => 'aed']);
+        });
+        $this->failure(fn () => app(GatewayService::class)->operate($checkout->id, $user->id, 'capture', 'wrong-response-identity'), 409);
+        $intent = DB::table('payment_recovery_intents')->sole();
+        $this->assertSame('uncertain', $intent->status);
+        $this->failure(fn () => app(PaymentRecovery::class)->reconcileProvider($intent->id), 409);
+        $this->assertSame([
+            ['POST', 'https://api.stripe.com/v1/payment_intents/pi_recovery/capture'],
+            ['GET', 'https://api.stripe.com/v1/payment_intents/pi_recovery'],
+        ], $requests, 'Malformed observations must not override the authoritative checkout identity.');
+        Http::assertNotSent(fn ($request) => $request->url() === 'https://api.stripe.com/v1/payment_intents/pi_other');
+        $this->assertSame('uncertain', DB::table('payment_recovery_intents')->sole()->status);
+        $this->assertSame('pi_recovery', DB::table('gateway_checkouts')->find($checkout->id)->provider_reference);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('gateway_webhook_events', 0);
+    }
+
+    public function test_refund_lookup_requires_its_own_recovery_metadata_even_on_same_capture(): void
+    {
+        [$owner,$invoice,$checkout] = $this->fixture(true);
+        $intent = (object) ['id' => 999, 'kind' => 'refund', 'observation' => json_encode(['id' => 're_wrong']), 'amount_minor' => 25, 'currency' => 'AED'];
+        Http::fake(['api.stripe.com/v1/refunds/re_wrong' => Http::response(['id' => 're_wrong', 'livemode' => false, 'status' => 'succeeded', 'amount' => 25, 'currency' => 'aed', 'payment_intent' => 'pi_recovery', 'metadata' => ['creabiz_recovery' => '998']])]);
+        try {
+            (new StripeSandboxProvider)->recoveryEvidence($intent, $checkout);
+            $this->fail('Another refund request was accepted.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
 }

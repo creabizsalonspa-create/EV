@@ -37,3 +37,7 @@ Current evidence is recorded in `docs/evidence/finance-v2` and the finance conti
 The SQLite canonical topology downgrade issue discovered by transaction-free fixtures is reported for Agent2 at https://github.com/creabizsalonspa-create/EV/issues/6. Financial tests rebuild only guarded disposable databases using forward migrations; they do not claim that EV downgrade is fixed or verified.
 
 External merchant sandbox acceptance, real callbacks, operational scheduler deployment, load/incident acceptance and production activation remain unverified. Hosted SCA, recurring mandates/dunning, payouts, corporate billing and broader commercial policies are separate required workstreams, not excused merely by missing external credentials.
+
+## Identity hardening follow-up
+
+A rejected POSTresponse can leave a sanitized but unvalidated object ID. Read-only reconciliation now prioritizes the checkout's established PaymentIntent, rejects a mismatched GET identity, requires original checkout metadata for otherwise unknown authorizations, and binds refund observations to the exact recovery-request metadata. An unrelated successful payment/refund with the same currency and amount cannot resolve an uncertain operation. The regression reproduced the wrong-identity problem before the fix; the targeted recovery/payment/subscription/credit suite then passed37 tests/388 assertions. First v2 hosted push+PR checks at41f304d passed platform, financial PostgreSQL and connector PostgreSQL jobs; later revisions retain their own CI evidence.
