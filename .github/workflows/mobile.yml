@@ -12,10 +12,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select supported Xcode 16.4
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test -d /Applications/Xcode_16.4.app/Contents/Developer
+          export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
       - uses: actions/setup-java@v4
         if: runner.os == 'Linux'
         with:
@@ -69,7 +77,7 @@ jobs:
         run: |
           xcodebuild -version
           xcrun simctl list runtimes
-          device_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; groups=sorted(d.items(), key=lambda x: ("iOS-18" not in x[0],x[0])); print(next(v["udid"] for _,group in groups for v in group if v["name"].startswith("iPhone")))')
+          device_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"].get("com.apple.CoreSimulator.SimRuntime.iOS-18-5",[]); phones=sorted((v for v in d if v["name"].startswith("iPhone")),key=lambda v:v["name"]!="iPhone 16"); assert phones,"Required iOS 18.5 runtime is missing"; print(phones[0]["udid"])')
           echo "EV_IOS_DEVICE_ID=$device_id" >> "$GITHUB_ENV"
           xcrun simctl boot "$device_id" || true
           xcrun simctl bootstatus "$device_id" -b

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bound a hosted simulator launch and retain diagnostics before job timeout."""
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -25,5 +26,11 @@ with output.open('w') as log:
             process.wait()
         result = 124
 # Surface useful runner output; the complete file remains an ordinary CI artifact.
-print('\n'.join(output.read_text(errors='replace').splitlines()[-100:]))
+lines=output.read_text(errors='replace').splitlines()
+if result:
+    if not any('DEVICE:' in line for line in lines):
+        print('No Dart device phase started; inspect simulator launch/debug transport diagnostics.')
+    relevant=[line for line in lines if re.search(r'DEVICE:|[Ee]rror|[Ff]ail|[Ll]aunch|debug connection|VM Service|Installing',line)]
+    print('\n'.join(relevant[-80:]))
+print('\n'.join(lines[-100:]))
 sys.exit(result)
