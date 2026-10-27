@@ -35,6 +35,7 @@ jobs:
       - run: EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming
       - run: npm run test:invoices
       - run: npm run test:tariffs
+      - run: npm run test:managed-gate
       - if: failure()
         run: docker logs --tail 100 ev-business-api
 

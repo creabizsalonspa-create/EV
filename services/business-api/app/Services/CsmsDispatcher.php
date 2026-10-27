@@ -3,8 +3,14 @@
 namespace App\Services;
 
 use App\Models\ChargerCommand;
+use App\Models\ChargingSession;
+use App\Models\Reservation;
+use App\Models\Station;
+use App\Services\Charging\StationGate;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class CsmsDispatcher
 {
@@ -14,6 +20,34 @@ class CsmsDispatcher
         $command = DB::transaction(function () use ($id) {
             $c = ChargerCommand::whereKey($id)->lockForUpdate()->firstOrFail();
             if ($c->status === 'pending') {
+                if ($c->action === 'start') {
+                    $blocked = null;
+                    if (isset($c->payload['session_id'])) {
+                        $session = ChargingSession::findOrFail($c->payload['session_id']);
+                        $booking = Reservation::findOrFail($session->reservation_id);
+                        $start = CarbonImmutable::parse($booking->starts_at, 'UTC');
+                        if ($booking->status !== 'confirmed' || ! now()->gte($start) || ! now()->lt($start->addMinutes(30))) {
+                            $blocked = 'pre_dispatch_window_unavailable';
+                        }
+                    }
+                    if (! $blocked) {
+                        try {
+                            app(StationGate::class)->requireReady(Station::findOrFail($c->station_id));
+                        } catch (HttpException $e) {
+                            if ($e->getStatusCode() !== 409) {
+                                throw $e;
+                            }
+                            $blocked = 'pre_dispatch_company_gate';
+                        }
+                    }
+                    if ($blocked) {
+                        $c->failure_code = $blocked;
+                        $c->save();
+
+                        return null; // Still pending and provably not sent; never claim a source transaction ended.
+                    }
+                }
+                $c->failure_code = null;
                 $c->status = 'dispatching';
                 $c->save();
 

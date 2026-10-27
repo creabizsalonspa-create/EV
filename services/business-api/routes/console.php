@@ -67,7 +67,7 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
     try {
         do {
             $failed = 0;
-            $links = SessionLink::whereNull('ended_at')->when($id, fn ($q) => $q->whereKey((int) $id));
+            $links = SessionLink::whereNull('ended_at')->whereNull('closed_without_dispatch_at')->when($id, fn ($q) => $q->whereKey((int) $id));
             foreach ($links->lazyById(100) as $link) {
                 try {
                     $count = app(SourceConsumer::class)->consume($link);

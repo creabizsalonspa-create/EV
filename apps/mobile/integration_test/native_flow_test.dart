@@ -283,7 +283,7 @@ void main() {
       await settle();
       expect(find.text('Device partner fixture 2'), findsOneWidget);
       expect(find.text('Live availability is unknown.'), findsOneWidget);
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint('DEVICE: read-only partner pagination verified');
       await tester.tap(find.byTooltip('Account'));
@@ -300,9 +300,9 @@ void main() {
       await settle();
       expect(find.text('SIM-DEVICE-INVOICE'), findsOneWidget);
       expect(find.text('Amount due: 105 minor units AED'), findsOneWidget);
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton));
       await settle();
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint('DEVICE: scoped read-only invoice history verified');
 
@@ -370,9 +370,9 @@ void main() {
       await settle();
       expect(pricingAmount, 250);
       expect(find.text('2.50 AED / kWh'), findsOneWidget);
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton));
       await settle();
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint('DEVICE: exact Arabic vendor pricing verified');
 

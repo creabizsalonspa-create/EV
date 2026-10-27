@@ -44,9 +44,9 @@ class VendorAccess
         abort_unless($this->licenseValid($company), 409, 'Company license has expired.');
     }
 
-    public function licenseValid(VendorCompany $company): bool
+    public function licenseValid(VendorCompany $company, ?string $timezone = null): bool
     {
-        $timezone = DB::table('regions')->where('country', $company->country)->value('timezone');
+        $timezone ??= DB::table('regions')->where('country', $company->country)->value('timezone');
         if (! is_string($timezone)) {
             return false;
         }

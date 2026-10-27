@@ -69,6 +69,10 @@ class SourceConsumer
     public function consume(SessionLink $link): int
     {
         app(SessionBridge::class)->enabled();
+        $link->refresh();
+        if ($link->closed_without_dispatch_at !== null) {
+            return 0;
+        }
         if (! preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $link->identifier) || ! in_array($link->protocol, ['1.6', '2.0.1'], true)) {
             throw new RuntimeException('Only provisioned local simulators are supported.');
         }

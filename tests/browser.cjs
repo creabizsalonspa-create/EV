@@ -80,6 +80,11 @@ const { randomUUID } = require("node:crypto");
       "light",
     );
     await theme.selectOption("dark");
+    // Reload restores identity asynchronously; theme scripts do not imply account readiness.
+    await vendor.page
+      .locator("#email-status")
+      .filter({ hasText: "Email not verified" })
+      .waitFor();
     assert.match(
       await vendor.page.locator("#email-status").textContent(),
       /Email not verified/,

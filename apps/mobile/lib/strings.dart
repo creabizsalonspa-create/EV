@@ -16,6 +16,14 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'startAdmissionBlocked':
+        'This start has not been dispatched because admission is unavailable. Refresh or cancel the undispatched reservation.',
+    'cancelUndispatched': 'Cancel undispatched start',
+    'cancelUndispatchedConsent':
+        'Cancel this reservation and its start only if dispatch has not begun? Dispatched or uncertain commands require reconciliation.',
+
+    'managedUnavailable':
+        'Reservations and new starts are temporarily unavailable for this managed simulator.',
     'pricing': 'Simulated pricing',
     'tariffDisclaimer':
         'Pricing is limited to simulator stations. Real charging and payments are not enabled.',
@@ -284,6 +292,14 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'startAdmissionBlocked':
+        'لم يتم إرسال طلب البدء لأن شروط السماح غير متاحة. حدّث الحالة أو ألغِ الحجز الذي لم يُرسل طلبه.',
+    'cancelUndispatched': 'إلغاء طلب البدء غير المرسل',
+    'cancelUndispatchedConsent':
+        'هل تريد إلغاء الحجز وطلب البدء إذا لم يبدأ الإرسال؟ الأوامر المرسلة أو غير المؤكدة تتطلب المطابقة.',
+
+    'managedUnavailable':
+        'الحجوزات وبدء الجلسات الجديدة غير متاحة مؤقتاً لهذه المحطة التجريبية المُدارة.',
     'pricing': 'التسعير التجريبي',
     'tariffDisclaimer':
         'التسعير متاح للمحطات التجريبية فقط. الشحن الفعلي والمدفوعات غير مفعلة.',

@@ -30,13 +30,15 @@ class Station {
   final String source;
   final int powerKw;
   final bool reservable;
+  final String? reservationPolicy;
   Station.fromJson(Map<String, dynamic> json)
     : id = json['id'] as int,
       name = json['name'] as String,
       connector = json['connector_type'] as String,
       source = json['evidence'] as String,
       powerKw = json['power_kw'] as int,
-      reservable = json['reservable'] == true;
+      reservable = json['reservable'] == true,
+      reservationPolicy = json['reservation_policy'] as String?;
 }
 
 /// Native-only same-origin session client; persistence is opt-in and encrypted.

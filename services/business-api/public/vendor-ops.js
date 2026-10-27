@@ -566,8 +566,8 @@ window.createVendorWorkspace = ({
             ui("p", "Inventory metadata disclaimer"),
             inventory,
         );
-        if (caps.inventory_write && operational)
-            form(
+        if (caps.inventory_write && operational) {
+            const siteForm = form(
                 host,
                 "Create site",
                 [
@@ -605,6 +605,7 @@ window.createVendorWorkspace = ({
                     },
                 ],
                 async (v, f, e) => {
+                    if (v.station_id === "") delete v.station_id;
                     await api(
                         base + "companies/" + company.id + "/sites",
                         "POST",
@@ -613,6 +614,8 @@ window.createVendorWorkspace = ({
                     if (valid(e) && current()) await detail(company);
                 },
             );
+            stationPicker(company, siteForm, epoch);
+        }
         if (caps.inventory_read)
             await paged(
                 inventory,
@@ -630,6 +633,114 @@ window.createVendorWorkspace = ({
             );
         else inventory.append(ui("p", "Inventory access is not granted."));
     }
+    function stationPicker(company, form, epoch) {
+        const label = ui("label", "Catalog station link"),
+            select = document.createElement("select");
+        select.name = "station_id";
+        select.append(ui("option", "No catalog link"));
+        select.options[0].value = "";
+        label.append(select);
+        form.insertBefore(label, form.querySelector("button[type=submit]"));
+        const note = ui("p", "Catalog link gate notice"),
+            controls = document.createElement("div"),
+            search = document.createElement("input");
+        EvLocale.attribute(
+            search,
+            "aria-label",
+            "Search owned catalog stations",
+        );
+        search.maxLength = 100;
+        const searchLabel = ui("label", "Search owned catalog stations");
+        searchLabel.append(search);
+        controls.append(searchLabel);
+        form.append(note, controls);
+        const cache = new Map();
+        let requestVersion = 0;
+        async function load(page = 1) {
+            const version = ++requestVersion;
+            select.setAttribute("aria-busy", "true");
+            try {
+                const result = await api(
+                    base +
+                        "companies/" +
+                        company.id +
+                        "/catalog-stations?" +
+                        new URLSearchParams({
+                            page,
+                            ...(search.value ? { q: search.value } : {}),
+                        }),
+                );
+                if (
+                    !valid(epoch) ||
+                    version !== requestVersion ||
+                    !form.isConnected
+                )
+                    return;
+                const selected = select.value;
+                select.replaceChildren(ui("option", "No catalog link"));
+                select.options[0].value = "";
+                for (const station of result.data) {
+                    cache.set(String(station.id), station);
+                    select.append(
+                        new Option(
+                            station.name + " · " + station.country,
+                            String(station.id),
+                        ),
+                    );
+                }
+                if (
+                    selected &&
+                    cache.has(selected) &&
+                    !result.data.some((s) => String(s.id) === selected)
+                ) {
+                    const station = cache.get(selected);
+                    select.append(
+                        new Option(
+                            station.name + " · " + station.country,
+                            selected,
+                        ),
+                    );
+                }
+                select.value = selected;
+                controls.querySelectorAll("button").forEach((n) => n.remove());
+                button(controls, "Search catalog choices", () => load());
+                button(controls, "Previous catalog choices", () =>
+                    load(result.current_page - 1),
+                ).disabled = result.current_page <= 1;
+                button(controls, "Next catalog choices", () =>
+                    load(result.current_page + 1),
+                ).disabled = result.current_page >= result.last_page;
+            } catch (e) {
+                if (valid(epoch) && form.isConnected) {
+                    controls
+                        .querySelectorAll("button")
+                        .forEach((n) => n.remove());
+                    controls.append(ui("p", "Catalog choices unavailable"));
+                    button(controls, "Retry", () => load(page));
+                }
+            } finally {
+                if (
+                    valid(epoch) &&
+                    version === requestVersion &&
+                    form.isConnected
+                )
+                    select.removeAttribute("aria-busy");
+            }
+        }
+        select.onchange = () => {
+            const station = cache.get(select.value);
+            if (station)
+                for (const name of [
+                    "country",
+                    "timezone",
+                    "latitude",
+                    "longitude",
+                ])
+                    form.elements[name].value = station[name];
+        };
+        load();
+    }
+
     async function chargers(company, site, parent, operational, epoch) {
         parent.querySelector("[data-chargers]")?.remove();
         const pane = document.createElement("div");

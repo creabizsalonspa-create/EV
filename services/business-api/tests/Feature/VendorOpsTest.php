@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
@@ -43,6 +44,23 @@ class VendorOpsTest extends TestCase
     private function charger(VendorCompany $c, VendorSite $s): VendorCharger
     {
         return VendorCharger::create(['company_id' => $c->id, 'site_id' => $s->id, 'asset_reference' => 'ASSET-1', 'manufacturer' => 'Simulator', 'model' => 'Development', 'source' => 'simulator']);
+    }
+
+    public function test_catalog_station_picker_is_scoped_to_company_writers_and_unlinked_owned_simulators(): void
+    {
+        $owner = User::factory()->create();
+        $company = $this->company($owner);
+        $station = Station::create(['vendor_id' => $owner->id, 'name' => 'Literal catalog choice', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+        $base = '/api/vendor-ops/companies/'.$company->id;
+        $this->actingAs($owner)->getJson($base.'/catalog-stations?q=Literal')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $station->id)->assertJsonMissingPath('data.0.vendor_id');
+        $staff = User::factory()->create();
+        VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $staff->id, 'status' => 'active', 'permissions' => ['inventory.read']]);
+        $this->actingAs($staff)->getJson($base.'/catalog-stations')->assertNotFound();
+        VendorCompanyStaff::where('user_id', $staff->id)->firstOrFail()->update(['permissions' => ['inventory.write']]);
+        $this->getJson($base.'/catalog-stations')->assertOk()->assertJsonCount(1, 'data');
+        $this->postJson($base.'/sites', ['name' => 'Linked site', 'country' => 'AE', 'timezone' => 'Asia/Dubai', 'address' => 'Synthetic address', 'latitude' => 25, 'longitude' => 55, 'station_id' => $station->id])->assertCreated();
+        $this->getJson($base.'/catalog-stations')->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs(User::factory()->create())->getJson($base.'/catalog-stations')->assertNotFound();
     }
 
     public function test_onboarding_requires_private_documents_and_explicit_admin_review(): void

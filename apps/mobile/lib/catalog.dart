@@ -283,6 +283,8 @@ class CatalogViewState extends State<CatalogView> {
                           textDirection: TextDirection.ltr,
                         ),
                         Text(s.t('unknownAvailability')),
+                        if (station.reservationPolicy == 'managed_blocked')
+                          Text(s.t('managedUnavailable')),
                         if (station.reservable && widget.customer)
                           FilledButton(
                             onPressed: controller.loading || widget.busy

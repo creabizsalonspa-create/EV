@@ -108,6 +108,28 @@ class _SessionsViewState extends State<SessionsView> {
     }
   }
 
+  Future<void> cancelPending(Map<String, dynamic> row) async {
+    if (!await confirmAction(
+          context,
+          'cancelUndispatched',
+          'cancelUndispatchedConsent',
+        ) ||
+        !mounted)
+      return;
+    setState(() => busy = true);
+    try {
+      await widget.api.request(
+        'reservations/${row['reservation_id']}',
+        method: 'DELETE',
+      );
+      if (mounted) await load(page: data?.current ?? 1);
+    } catch (e) {
+      failed(e);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), p = data;
@@ -169,6 +191,14 @@ class _SessionsViewState extends State<SessionsView> {
                       }),
                     ),
                     if (row['csms_linked'] == true) Text(s.t('sourceControls')),
+                    if (row['start_admission_blocked'] == true)
+                      Text(s.t('startAdmissionBlocked')),
+                    if (widget.role == 'customer' &&
+                        row['can_cancel_before_dispatch'] == true)
+                      OutlinedButton(
+                        onPressed: busy ? null : () => cancelPending(row),
+                        child: Text(s.t('cancelUndispatched')),
+                      ),
                     if (row['status'] == 'stopped')
                       TextButton(
                         onPressed: busy

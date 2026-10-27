@@ -36,6 +36,7 @@ EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:vendor
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:roaming
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:invoices
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:tariffs
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:managed-gate
 node tests/charging-session.cjs
 node tests/charging-business.cjs
 ```
@@ -55,3 +56,5 @@ Native: use pinned Flutter3.35.7/sourceadc901062556672b4138e18a4dc62a4be8f4b3c2 
 5. Premium visual/screenshot/accessibility/device/restore/load/security/staging QA; real release-ready APK/AAB/IPA and final source package only after implementation/verification. Hardware/merchant/operator/signing/legal prerequisites remain explicit.
 
 Current integrated branch preserves b0c43be and frontend through 0fe9e75. Source observer: ./scripts/csms-consume --interval=2 after charging setup + bridge setup. It must restart after restore. Both-protocol daemon restart simulation and isolated PostgreSQL finance/concurrency are now verified locally; current evidence and remaining gates are in PROGRESS/QA. Do not resume retired duplicate native paths from historical CONTINUATION/PROJECT_STATUS; apps/mobile is canonical.
+
+Read REQUIREMENT_STATUS.md for the complete PRD bullet mapping and the connector-identity/maintenance findings. The owner’s MASTER_CONTINUATION.md remains the standing objective; no claim of complete commercial software or inactive background execution is made.

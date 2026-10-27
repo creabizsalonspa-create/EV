@@ -7,6 +7,8 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Charging\SessionBridge;
+use App\Services\Charging\StationGate;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -70,7 +72,10 @@ class PlatformController extends Controller
             $q->where('power_kw', '>=', $v['min_power_kw']);
         }
 
-        return $q->orderByDesc('id')->paginate(25)->through(fn ($s) => array_merge($s->toArray(), ['availability' => 'unknown', 'remote_control' => false, 'reservable' => $s->source === 'simulator', 'evidence' => $s->source === 'simulator' ? 'SIMULATED' : 'DISCOVERY_ONLY']));
+        $page = $q->orderByDesc('id')->paginate(25);
+        $policies = app(StationGate::class)->policies($page->getCollection());
+
+        return $page->through(fn ($s) => array_merge($s->toArray(), ['availability' => 'unknown', 'remote_control' => false, 'reservable' => $s->source === 'simulator' && ($policies[$s->id] ?? 'legacy') !== 'managed_blocked', 'reservation_policy' => $policies[$s->id] ?? 'legacy', 'evidence' => $s->source === 'simulator' ? 'SIMULATED' : 'DISCOVERY_ONLY']));
     }
 
     public function createStation(Request $r)
@@ -133,6 +138,7 @@ class PlatformController extends Controller
         abort_unless(Station::findOrFail($v['station_id'])->source === 'simulator', 409, 'Reservations are unavailable for discovery-only locations.');
         try {
             return DB::transaction(function () use ($r, $v) {
+                app(StationGate::class)->requireReady(Station::findOrFail($v['station_id']));
                 $b = Reservation::create($v + ['user_id' => $r->user()->id]);
                 $this->audit($r, 'reservation.created', (string) $b->id);
 
@@ -151,7 +157,12 @@ class PlatformController extends Controller
 
         return DB::transaction(function () use ($r, $reservation) {
             $reservation = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
-            abort_if(ChargingSession::where('reservation_id', $reservation->id)->exists(), 409, 'A started reservation cannot be cancelled.');
+            if ($reservation->status === 'cancelled') {
+                return $reservation;
+            }
+            if ($session = ChargingSession::where('reservation_id', $reservation->id)->first()) {
+                app(SessionBridge::class)->cancelUndispatched($session, $reservation);
+            }
             $reservation->update(['status' => 'cancelled']);
             $this->audit($r, 'reservation.cancelled', (string) $reservation->id);
 

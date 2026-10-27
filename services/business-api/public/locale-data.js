@@ -1516,4 +1516,49 @@ window.EV_MESSAGES = {
         en: "Maximum price: {amount} {currency} per kWh",
         ar: "الحد الأقصى للسعر: {amount} {currency} لكل كيلوواط ساعة",
     },
+    "Managed reservations unavailable": {
+        en: "Reservations and new starts are temporarily unavailable for this managed simulator.",
+        ar: "الحجوزات وبدء الجلسات الجديدة غير متاحة مؤقتاً لهذه المحطة التجريبية المُدارة.",
+    },
+    "Catalog station link": {
+        en: "Catalog station (optional)",
+        ar: "محطة الدليل (اختياري)",
+    },
+    "No catalog link": { en: "No catalog link", ar: "دون ربط بمحطة الدليل" },
+    "Search owned catalog stations": {
+        en: "Search your catalog stations",
+        ar: "البحث في محطات الدليل التابعة لك",
+    },
+    "Search catalog choices": {
+        en: "Search station choices",
+        ar: "البحث في خيارات المحطات",
+    },
+    "Previous catalog choices": {
+        en: "Previous station choices",
+        ar: "خيارات المحطات السابقة",
+    },
+    "Next catalog choices": {
+        en: "Next station choices",
+        ar: "خيارات المحطات التالية",
+    },
+    "Catalog choices unavailable": {
+        en: "Unable to load station choices. Retry or create an unlinked inventory site.",
+        ar: "تعذر تحميل خيارات المحطات. أعد المحاولة أو أنشئ موقع مخزون غير مرتبط.",
+    },
+    "Catalog link gate notice": {
+        en: "Linking enforces company approval, current license and connector maintenance for new bookings/starts. Configure exactly one matching simulator connector first. Parallel connector targets require explicit mapping and remain unavailable. Active sessions can still stop.",
+        ar: "يطبق الربط شروط اعتماد الشركة وسريان الترخيص وصيانة الموصل على الحجوزات وبدء الجلسات الجديدة. يجب إعداد موصل تجريبي واحد مطابق. الأهداف المتوازية تحتاج ربطاً صريحاً وغير متاحة حالياً. يمكن إيقاف الجلسات النشطة.",
+    },
+    "Start admission blocked": {
+        en: "This start has not been dispatched because admission is unavailable. Refresh or cancel the undispatched reservation.",
+        ar: "لم يتم إرسال طلب البدء لأن شروط السماح غير متاحة. حدّث الحالة أو ألغِ الحجز الذي لم يُرسل طلبه.",
+    },
+    "Cancel undispatched start": {
+        en: "Cancel undispatched start",
+        ar: "إلغاء طلب البدء غير المرسل",
+    },
+    "Cancel undispatched consent": {
+        en: "Cancel this reservation and its start only if dispatch has not begun? Dispatched or uncertain commands require reconciliation.",
+        ar: "هل تريد إلغاء الحجز وطلب البدء إذا لم يبدأ الإرسال؟ الأوامر المرسلة أو غير المؤكدة تتطلب المطابقة.",
+    },
 };

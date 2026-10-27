@@ -49,7 +49,8 @@ class SessionBridge
             abort_unless($r->status === 'confirmed' && now()->gte($start) && now()->lt($start->addMinutes(30)), 409, 'Outside the confirmed reservation window.');
             $station = Station::findOrFail($r->station_id);
             abort_unless($station->source === 'simulator' && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/', $binding->identifier), 409, 'Only provisioned simulated chargers are enabled.');
-            abort_if(SessionLink::where('binding_id', $binding->id)->whereNull('ended_at')->exists(), 409, 'An unresolved charging session already owns this simulator.');
+            app(StationGate::class)->requireReady($station);
+            abort_if(SessionLink::where('binding_id', $binding->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'An unresolved charging session already owns this simulator.');
             $finance = app(FinanceService::class);
             $tariff = $finance->activeTariff($station);
             $s = ChargingSession::create(['reservation_id' => $r->id, 'status' => 'pending_start', 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
@@ -60,6 +61,23 @@ class SessionBridge
 
             return $this->summary($link);
         }, 3);
+    }
+
+    /** Caller holds the authorized reservation lock; never cancel an admitted or uncertain dispatch. */
+    public function cancelUndispatched(ChargingSession $session, Reservation $reservation): void
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Cancellation requires a transaction.');
+        }
+        $candidate = SessionLink::where('charging_session_id', $session->id)->first();
+        abort_unless($candidate, 409, 'A started reservation cannot be cancelled.');
+        $command = ChargerCommand::whereKey($candidate->start_command_id)->lockForUpdate()->firstOrFail();
+        $link = SessionLink::whereKey($candidate->id)->lockForUpdate()->firstOrFail();
+        $session = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
+        abort_unless($link->start_command_id === $command->id && $command->status === 'pending' && $command->action === 'start' && $command->station_id === $reservation->station_id && (int) ($command->payload['session_id'] ?? 0) === $session->id && $session->status === 'pending_start' && (int) $session->energy_wh === 0 && $link->transaction_id === null && $link->started_at === null && $link->ended_at === null && $link->last_sequence === -1 && $link->last_meter_wh === null && $link->stop_command_id === null && $link->closed_without_dispatch_at === null, 409, 'An admitted or uncertain charging start requires reconciliation; cancellation is unavailable.');
+        $command->update(['status' => 'cancelled', 'failure_code' => 'cancelled_before_dispatch']);
+        $session->update(['status' => 'cancelled']);
+        $link->update(['closed_without_dispatch_at' => now(), 'closure_reason' => 'customer_cancelled_before_dispatch']);
     }
 
     public function stop(ChargingSession $session, int $actor, string $role): array
@@ -87,7 +105,7 @@ class SessionBridge
 
     public function summary(SessionLink $link): array
     {
-        return ['session' => ChargingSession::findOrFail($link->charging_session_id), 'link' => ['id' => $link->id, 'protocol' => $link->protocol, 'transaction_id' => $link->transaction_id, 'last_sequence' => $link->last_sequence, 'started_at' => $link->started_at, 'ended_at' => $link->ended_at],
+        return ['session' => ChargingSession::findOrFail($link->charging_session_id), 'link' => ['id' => $link->id, 'protocol' => $link->protocol, 'transaction_id' => $link->transaction_id, 'last_sequence' => $link->last_sequence, 'started_at' => $link->started_at, 'ended_at' => $link->ended_at, 'closed_without_dispatch_at' => $link->closed_without_dispatch_at, 'closure_reason' => $link->closure_reason],
             'start_command' => ChargerCommand::whereKey($link->start_command_id)->first(['id', 'status', 'failure_code']), 'stop_command' => $link->stop_command_id ? ChargerCommand::whereKey($link->stop_command_id)->first(['id', 'status', 'failure_code']) : null, 'evidence' => 'SIMULATED_CSMS', 'physical_charging_verified' => false];
     }
 
@@ -101,6 +119,7 @@ class SessionBridge
 
         return DB::transaction(function () use ($v, $at, $hash) {
             $link = SessionLink::where('charging_session_id', $v['session_id'])->lockForUpdate()->firstOrFail();
+            abort_unless($link->closed_without_dispatch_at === null, 409, 'This request was closed before dispatch; unexpected source activity requires reconciliation.');
             abort_unless(hash_equals($link->identifier, $v['identifier']) && $link->protocol === $v['protocol'], 409, 'CSMS binding mismatch.');
             $old = DB::table('csms_inbox_events')->where('event_id', $v['event_id'])->first();
             if ($old) {

@@ -223,6 +223,7 @@ async function stations(query = "") {
     for (let s of j.data) {
         let a = node("article", "");
         a.className = "station-card";
+        a.dataset.stationId = s.id;
         a.append(
             node("h3", s.name),
             Object.assign(
@@ -249,6 +250,8 @@ async function stations(query = "") {
             ),
         );
         a.append(details);
+        if (s.reservation_policy === "managed_blocked")
+            a.append(ui("p", "Managed reservations unavailable"));
         if (s.reservable && user?.role === "customer") {
             let f = document.createElement("form"),
                 l = ui("label", "UTC start (00 or 30 minutes)"),
@@ -312,6 +315,7 @@ async function bookings() {
                 try {
                     await api("reservations/" + r.id, "DELETE");
                     await bookings();
+                    await simulations();
                 } catch (e) {
                     notice(e);
                 }
@@ -362,6 +366,27 @@ async function simulations() {
             },
         );
         if (s.csms_linked) a.append(ui("p", "Source controls disclaimer"));
+        if (s.start_admission_blocked)
+            a.append(ui("p", "Start admission blocked"));
+        if (user.role === "customer" && s.can_cancel_before_dispatch) {
+            const cancel = ui("button", "Cancel undispatched start");
+            cancel.onclick = async () => {
+                if (!confirm(EvLocale.text("Cancel undispatched consent")))
+                    return;
+                cancel.disabled = true;
+                try {
+                    await api("reservations/" + s.reservation_id, "DELETE");
+                    await bookings();
+                    await simulations();
+                } catch (e) {
+                    notice(e);
+                } finally {
+                    if (cancel.isConnected) cancel.disabled = false;
+                }
+            };
+            a.append(cancel);
+        }
+
         if (s.status === "stopped") {
             const button = ui("button", "View simulated invoice"),
                 details = document.createElement("div");
@@ -740,10 +765,11 @@ const tariffWorkspace = createTariffWorkspace({
     actor: () => user,
 });
 (async () => {
-    await roamingWorkspace.catalog();
+    const publicRoaming = roamingWorkspace.catalog();
     await identity();
     await stations();
     await regions();
+    await publicRoaming;
 })().catch((e) => notice(e));
 
 el("forgot-password").onsubmit = async (e) => {

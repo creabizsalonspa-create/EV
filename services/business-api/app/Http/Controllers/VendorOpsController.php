@@ -222,6 +222,17 @@ class VendorOpsController extends Controller
         });
     }
 
+    public function catalogStations(Request $r, VendorCompany $company)
+    {
+        $this->access->require($r->user(), $company, 'inventory.write');
+        $v = $r->validate(['q' => 'sometimes|string|max:100']);
+
+        return Station::where('vendor_id', $company->owner_id)->where('country', $company->country)->where('source', 'simulator')
+            ->whereNotIn('id', VendorSite::whereNotNull('station_id')->select('station_id'))
+            ->when(isset($v['q']), fn ($q) => $q->where('name', 'like', '%'.$v['q'].'%'))
+            ->orderByDesc('id')->paginate(25)->through(fn ($s) => $s->only(['id', 'name', 'country', 'timezone', 'latitude', 'longitude']));
+    }
+
     public function sites(Request $r, VendorCompany $company)
     {
         $this->access->require($r->user(), $company, 'inventory.read');
@@ -239,6 +250,11 @@ class VendorOpsController extends Controller
         }
 
         return DB::transaction(function () use ($r, $company, $v) {
+            if (isset($v['station_id'])) {
+                $station = Station::whereKey($v['station_id'])->lockForUpdate()->firstOrFail();
+                abort_unless($station->vendor_id === $company->owner_id && $station->country === $v['country'], 404);
+                abort_if(VendorSite::where('station_id', $station->id)->exists(), 409, 'Station is already linked to a company site.');
+            }
             $company = $this->operationalWrite($r, $company);
             $s = VendorSite::create($v + ['company_id' => $company->id]);
             $this->access->audit($r->user(), 'site.created', $s->id);
