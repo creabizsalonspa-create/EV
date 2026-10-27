@@ -28,7 +28,19 @@ jobs:
           test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = adc901062556672b4138e18a4dc62a4be8f4b3c2
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
       - run: flutter --version
-      - run: ./apps/mobile/tool/bootstrap
+      - name: Validate native source and tests
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! ./apps/mobile/tool/bootstrap 2>&1 | tee "$RUNNER_TEMP/native-validation.log"; then
+            python3 - "$RUNNER_TEMP/native-validation.log" <<'PY'
+          import pathlib, sys
+          detail = pathlib.Path(sys.argv[1]).read_text()[-24000:]
+          detail = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Native validation failure::' + detail)
+          PY
+            exit 1
+          fi
       - run: flutter build apk --debug
         if: runner.os == 'Linux'
         working-directory: apps/mobile
@@ -50,7 +62,7 @@ jobs:
           name: creabiz-ios-simulator
           path: ${{ runner.temp }}/creabiz-ios-simulator.tar.gz
           if-no-files-found: error
-      - name: Run native UI integration on iOS simulator (synthetic HTTP fixtures)
+      - name: Run native UI integration on iOS simulator (synthetic TLS fixtures)
         timeout-minutes: 15
         if: runner.os == 'macOS'
         shell: bash
