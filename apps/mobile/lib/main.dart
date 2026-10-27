@@ -1,42 +1,86 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
+import 'catalog.dart';
+import 'preferences.dart';
+import 'strings.dart';
+import 'support.dart';
 
-void main() => runApp(const EvApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final preferences = AppPreferences(DevicePreferenceStore());
+  await preferences.load();
+  runApp(EvApp(preferences: preferences));
+}
 
 class EvApp extends StatefulWidget {
-  const EvApp({super.key});
+  final AppPreferences? preferences;
+  final EvApi? api;
+  const EvApp({super.key, this.preferences, this.api});
   @override
   State<EvApp> createState() => _EvAppState();
 }
 
 class _EvAppState extends State<EvApp> {
-  ThemeMode mode = ThemeMode.system;
+  late final AppPreferences preferences;
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Crea-Biz EV',
-    themeMode: mode,
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff126b63)),
-      useMaterial3: true,
-    ),
-    darkTheme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xff88ded0),
-        brightness: Brightness.dark,
-      ),
-      useMaterial3: true,
-    ),
-    home: Workspace(
-      onTheme: (value) => setState(() => mode = value),
-      theme: mode,
+  void initState() {
+    super.initState();
+    preferences = widget.preferences ?? AppPreferences(DevicePreferenceStore());
+    if (!preferences.ready) preferences.load();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: preferences,
+    builder: (context, _) => MaterialApp(
+      title: 'Crea-Biz EV',
+      themeMode: preferences.theme,
+      locale: preferences.locale,
+      supportedLocales: const [Locale('en'), Locale('ar')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      theme: theme(Brightness.light),
+      darkTheme: theme(Brightness.dark),
+      home: preferences.ready
+          ? Workspace(preferences: preferences, initialApi: widget.api)
+          : const Scaffold(body: Center(child: CircularProgressIndicator())),
     ),
   );
+  ThemeData theme(Brightness brightness) => ThemeData(
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xff126b63),
+      brightness: brightness,
+    ),
+    useMaterial3: true,
+    inputDecorationTheme: const InputDecorationTheme(
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
+    ),
+    cardTheme: const CardThemeData(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(20)),
+      ),
+    ),
+  );
+  @override
+  void dispose() {
+    if (widget.preferences == null) preferences.dispose();
+    super.dispose();
+  }
 }
 
 class Workspace extends StatefulWidget {
-  final ValueChanged<ThemeMode> onTheme;
-  final ThemeMode theme;
-  const Workspace({super.key, required this.onTheme, required this.theme});
+  final AppPreferences preferences;
+  final EvApi? initialApi;
+  const Workspace({super.key, required this.preferences, this.initialApi});
   @override
   State<Workspace> createState() => _WorkspaceState();
 }
@@ -45,20 +89,24 @@ class _WorkspaceState extends State<Workspace> {
   EvApi? api;
   Account? account;
   String? error;
+  String? message;
   bool busy = false;
   int tab = 0;
-  final email = TextEditingController();
-  final password = TextEditingController();
-  final name = TextEditingController();
+  int recordPage = 1, recordLast = 1, recordTotal = 0;
+  final email = TextEditingController(),
+      password = TextEditingController(),
+      name = TextEditingController();
+  final loginForm = GlobalKey<FormState>();
+  final catalogKey = GlobalKey<CatalogViewState>();
+  final supportKey = GlobalKey<SupportViewState>();
   bool registering = false;
   List<Map<String, dynamic>> records = [];
-  List<Station> catalog = [];
   static const screens = [
-    'Discover',
-    'Reservations',
-    'Sessions',
-    'Garage',
-    'Support',
+    'discover',
+    'reservations',
+    'sessions',
+    'garage',
+    'support',
   ];
   static const endpoints = [
     'stations',
@@ -67,17 +115,41 @@ class _WorkspaceState extends State<Workspace> {
     'vehicles',
     'support',
   ];
+  EvStrings get s => EvStrings.of(context);
 
   @override
   void initState() {
     super.initState();
+    if (widget.initialApi != null) {
+      api = widget.initialApi;
+      return;
+    }
     const origin = String.fromEnvironment('EV_API_BASE_URL');
     try {
       if (origin.isEmpty) throw ArgumentError('Missing service origin');
       api = EvApi(Uri.parse(origin));
     } on ArgumentError {
-      error = 'The service is unavailable. Please contact support.';
+      error = 'serviceUnavailable';
     }
+  }
+
+  void resetSession() {
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    setState(() {
+      account = null;
+      records = [];
+      tab = 0;
+      name.clear();
+      password.clear();
+      email.clear();
+      message = null;
+    });
+  }
+
+  void expiredSession() {
+    resetSession();
+    if (mounted) setState(() => error = 'expired');
   }
 
   Future<void> perform(Future<void> Function() task) async {
@@ -85,76 +157,66 @@ class _WorkspaceState extends State<Workspace> {
     setState(() {
       busy = true;
       error = null;
+      message = null;
     });
     try {
       await task();
     } catch (e) {
-      if (mounted)
-        setState(() {
-          error = e is ApiException
-              ? e.message
-              : 'Unable to complete this request. Refresh before trying again.';
-          if (e is ApiException && e.status == 401) {
-            account = null;
-            catalog = [];
-            records = [];
-          }
-        });
+      if (e is ApiException && (e.status == 401 || e.status == 419))
+        resetSession();
+      if (mounted) setState(() => error = errorKey(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }
   }
 
-  Future<void> load() async {
-    final data = await api!.request(endpoints[tab]);
-    if (!mounted) return;
+  Future<void> load({int page = 1}) async {
+    if (tab == 0 || tab == 4) return;
+    final selectedTab = tab;
+    final data = await api!.request(endpoints[tab], query: {'page': '$page'});
+    final parsed = ApiPage.fromJson(data, (row) => row);
+    if (!mounted || tab != selectedTab) return;
     setState(() {
-      if (tab == 0) {
-        catalog = (data['data'] as List)
-            .map((j) => Station.fromJson(Map<String, dynamic>.from(j as Map)))
-            .toList();
-      } else {
-        records = (data['data'] as List)
-            .map((j) => Map<String, dynamic>.from(j as Map))
-            .toList();
-      }
+      records = parsed.items;
+      recordPage = parsed.current;
+      recordLast = parsed.last;
+      recordTotal = parsed.total;
     });
   }
 
-  Future<void> login() => perform(() async {
-    final user = await api!.signIn(
-      email.text.trim(),
-      password.text,
-      name: registering ? name.text.trim() : null,
-    );
-    password.clear();
-    if (!mounted) return;
-    if (user.role == 'admin') {
-      await api!.signOut();
-      throw const ApiException(
-        403,
-        'Use the web operations workspace for this account.',
+  Future<void> login() async {
+    if (!loginForm.currentState!.validate()) return;
+    await perform(() async {
+      final user = await api!.signIn(
+        email.text.trim(),
+        password.text,
+        name: registering ? name.text.trim() : null,
       );
-    }
-    setState(() {
-      account = user;
-      tab = 0;
-      records = [];
+      password.clear();
+      if (!mounted) return;
+      if (user.role == 'admin') {
+        await api!.signOut();
+        if (mounted) setState(() => error = 'webAdmin');
+        return;
+      }
+      setState(() {
+        account = user;
+        tab = 0;
+        records = [];
+      });
     });
-    await load();
-  });
+  }
 
-  Future<Map<String, dynamic>?> form(
+  Future<Map<String, dynamic>?> entry(
     String title,
     Map<String, String> fields,
   ) => showDialog<Map<String, dynamic>>(
     context: context,
-    builder: (_) => _EntryDialog(title: title, fields: fields),
+    builder: (_) => EntryDialog(title: title, fields: fields),
   );
-
   Future<void> create() async {
     Map<String, String> fields;
-    String path;
+    String path, title;
     if (tab == 0 && account?.role == 'vendor') {
       fields = {
         'name': '',
@@ -168,20 +230,30 @@ class _WorkspaceState extends State<Workspace> {
         'source': 'simulator',
       };
       path = 'stations';
+      title = 'createStation';
     } else if (tab == 3) {
       fields = {'name': '', 'connector_type': 'CCS2'};
       path = 'vehicles';
+      title = 'addVehicle';
     } else if (tab == 4) {
       fields = {'subject': '', 'body': ''};
       path = 'support';
+      title = 'openTicket';
     } else {
       return;
     }
-    final values = await form('Create ${screens[tab]}', fields);
+    final values = await entry(s.t(title), fields);
     if (values != null && mounted)
       await perform(() async {
         await api!.request(path, method: 'POST', body: values);
-        await load();
+        if (tab == 0) {
+          await catalogKey.currentState?.refresh();
+        } else if (tab == 4) {
+          await supportKey.currentState?.refresh();
+        } else {
+          await load();
+        }
+        if (mounted) setState(() => message = 'saved');
       });
   }
 
@@ -196,11 +268,11 @@ class _WorkspaceState extends State<Workspace> {
     final time = await showTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 12, minute: 0),
-      helpText: 'UTC start — minute 00 or 30',
+      helpText: s.t('utcTime'),
     );
     if (time == null || !mounted) return;
     if (time.minute != 0 && time.minute != 30) {
-      setState(() => error = 'Choose a UTC half-hour boundary.');
+      setState(() => error = 'halfHour');
       return;
     }
     final slot = DateTime.utc(
@@ -213,18 +285,18 @@ class _WorkspaceState extends State<Workspace> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reserve simulator slot?'),
+        title: Text(s.t('reserveConfirm')),
         content: Text(
-          '${station.name}\n${slot.toIso8601String()}\n30-minute UTC slot. No physical charging or payment.',
+          '${station.name}\n${slot.toIso8601String()}\n${s.t('reservationTerms')}',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(s.t('cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Reserve'),
+            child: Text(s.t('reserve')),
           ),
         ],
       ),
@@ -246,35 +318,43 @@ class _WorkspaceState extends State<Workspace> {
     });
   }
 
-  Widget stationCard(Station station) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Chip(label: Text(station.source)),
-          Text(station.name, style: Theme.of(context).textTheme.titleLarge),
-          Text('${station.connector} · ${station.powerKw} kW'),
-          const Text('Availability unknown. No live network connected.'),
-          if (station.reservable && account?.role == 'customer')
-            FilledButton(
-              onPressed: busy ? null : () => reserve(station),
-              child: const Text('Reserve simulator slot'),
-            ),
-        ],
-      ),
-    ),
-  );
+  Future<void> recovery() async {
+    final values = await entry(s.t('forgot'), {'email': email.text.trim()});
+    if (values == null || !mounted) return;
+    await perform(() async {
+      await api!.csrf();
+      await api!.request('forgot-password', method: 'POST', body: values);
+      if (mounted) setState(() => message = 'recoverySent');
+    });
+  }
+
+  Future<void> profile() async {
+    final values = await entry(s.t('profile'), {'name': account!.name});
+    if (values == null || !mounted) return;
+    await perform(() async {
+      final updated = await api!.request(
+        'profile',
+        method: 'PATCH',
+        body: {...values, 'locale': widget.preferences.locale.languageCode},
+      );
+      if (mounted)
+        setState(
+          () => account = Account.fromJson(
+            Map<String, dynamic>.from(updated as Map),
+          ),
+        );
+    });
+  }
 
   Widget recordCard(Map<String, dynamic> row) {
     final id = row['id'];
     final title = tab == 1
-        ? 'Reservation #$id · ${row['status']}'
+        ? s.t('reservation', {'id': id, 'status': s.t(row['status'])})
         : tab == 2
-        ? 'SIMULATED #$id · ${row['status']}'
+        ? s.t('session', {'id': id, 'status': s.t(row['status'])})
         : tab == 3
         ? '${row['name']}'
-        : '${row['subject']} · ${row['status']}';
+        : '${row['subject']} · ${s.t(row['status'])}';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -283,12 +363,25 @@ class _WorkspaceState extends State<Workspace> {
           children: [
             Text(title, style: Theme.of(context).textTheme.titleMedium),
             if (tab == 1)
-              Text('Station ${row['station_id']} · ${row['starts_at']} UTC'),
+              Text(
+                s.t('stationSlot', {
+                  'id': row['station_id'],
+                  'time': row['starts_at'],
+                }),
+              ),
             if (tab == 2)
               Text(
-                '${row['energy_wh']} Wh · ${row['total_minor'] ?? 'pending'} ${row['currency']} minor units · No payment processed',
+                s.t('energy', {
+                  'energy': row['energy_wh'],
+                  'total': row['total_minor'] ?? s.t('pending'),
+                  'currency': row['currency'],
+                }),
               ),
-            if (tab == 3) Text('${row['connector_type']}'),
+            if (tab == 3)
+              Text(
+                '${row['connector_type']}',
+                textDirection: TextDirection.ltr,
+              ),
             if (tab == 1 &&
                 account?.role == 'customer' &&
                 row['status'] == 'confirmed')
@@ -303,9 +396,9 @@ class _WorkspaceState extends State<Workspace> {
                               'reservations/$id',
                               method: 'DELETE',
                             );
-                            await load();
+                            await load(page: recordPage);
                           }),
-                    child: const Text('Cancel booking'),
+                    child: Text(s.t('cancelBooking')),
                   ),
                   FilledButton(
                     onPressed: busy
@@ -318,7 +411,7 @@ class _WorkspaceState extends State<Workspace> {
                             if (mounted) setState(() => tab = 2);
                             await load();
                           }),
-                    child: const Text('Start simulator'),
+                    child: Text(s.t('startSimulator')),
                   ),
                 ],
               ),
@@ -331,9 +424,9 @@ class _WorkspaceState extends State<Workspace> {
                           'simulations/$id/stop',
                           method: 'POST',
                         );
-                        await load();
+                        await load(page: recordPage);
                       }),
-                child: const Text('Stop simulation'),
+                child: Text(s.t('stopSimulation')),
               ),
           ],
         ),
@@ -341,41 +434,331 @@ class _WorkspaceState extends State<Workspace> {
     );
   }
 
+  Widget recordsView() => RefreshIndicator(
+    onRefresh: () => perform(() => load(page: recordPage)),
+    child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          s.t(screens[tab]),
+          style: Theme.of(context).textTheme.headlineLarge,
+        ),
+        Text(s.t('development')),
+        if (error != null)
+          TextButton(
+            onPressed: busy
+                ? null
+                : () => perform(() => load(page: recordPage)),
+            child: Text(s.t('retry')),
+          ),
+        ...records.map(recordCard),
+        if (!busy && error == null && records.isEmpty)
+          Padding(padding: const EdgeInsets.all(24), child: Text(s.t('empty'))),
+        Text(
+          s.t('page', {
+            'page': recordPage,
+            'last': recordLast,
+            'total': recordTotal,
+          }),
+        ),
+        Wrap(
+          spacing: 12,
+          children: [
+            OutlinedButton(
+              onPressed: busy || recordPage <= 1
+                  ? null
+                  : () => perform(() => load(page: recordPage - 1)),
+              child: Text(s.t('previous')),
+            ),
+            OutlinedButton(
+              onPressed: busy || recordPage >= recordLast
+                  ? null
+                  : () => perform(() => load(page: recordPage + 1)),
+              child: Text(s.t('next')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 96),
+      ],
+    ),
+  );
+  Widget loginView() => Center(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Form(
+          key: loginForm,
+          child: AutofillGroup(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  s.t('tagline'),
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
+                const SizedBox(height: 24),
+                if (registering)
+                  TextFormField(
+                    key: const Key('auth-name'),
+                    controller: name,
+                    decoration: InputDecoration(labelText: s.t('name')),
+                    enabled: !busy,
+                    validator: (v) =>
+                        v!.trim().isEmpty ? s.t('required') : null,
+                  ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('auth-email'),
+                  controller: email,
+                  decoration: InputDecoration(labelText: s.t('email')),
+                  enabled: !busy,
+                  keyboardType: TextInputType.emailAddress,
+                  autofillHints: const [AutofillHints.email],
+                  validator: (v) =>
+                      !RegExp(r'^\S+@\S+\.\S+$').hasMatch(v!.trim())
+                      ? s.t('invalidEmail')
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('auth-password'),
+                  controller: password,
+                  decoration: InputDecoration(labelText: s.t('password')),
+                  enabled: !busy,
+                  obscureText: true,
+                  autofillHints: const [AutofillHints.password],
+                  validator: (v) => v!.isEmpty
+                      ? s.t('required')
+                      : registering && v.length < 12
+                      ? s.t('passwordLength')
+                      : null,
+                  onFieldSubmitted: (_) => login(),
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  key: const Key('auth-submit'),
+                  onPressed: busy || api == null ? null : login,
+                  child: Text(s.t(registering ? 'register' : 'signIn')),
+                ),
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => setState(() => registering = !registering),
+                  child: Text(
+                    s.t(registering ? 'alreadyAccount' : 'createAccount'),
+                  ),
+                ),
+                TextButton(
+                  onPressed: busy || api == null ? null : recovery,
+                  child: Text(s.t('forgot')),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  void settings() => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) => SafeArea(
+      child: AnimatedBuilder(
+        animation: widget.preferences,
+        builder: (context, _) {
+          final t = EvStrings.of(context);
+          final p = widget.preferences;
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  t.t('settings'),
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 20),
+                DropdownButtonFormField<ThemeMode>(
+                  key: ValueKey('theme-choice-${p.theme.name}-${p.saving}'),
+                  initialValue: p.theme,
+                  isExpanded: true,
+                  decoration: InputDecoration(labelText: t.t('appearance')),
+                  items: ThemeMode.values
+                      .map(
+                        (m) => DropdownMenuItem(
+                          value: m,
+                          child: Text(t.t(m.name)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: p.saving ? null : (v) => p.update(theme: v!),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<Locale>(
+                  key: ValueKey(
+                    'language-choice-${p.locale.languageCode}-${p.saving}',
+                  ),
+                  initialValue: p.locale,
+                  isExpanded: true,
+                  decoration: InputDecoration(labelText: t.t('language')),
+                  items: [
+                    DropdownMenuItem(
+                      value: const Locale('en'),
+                      child: Text(t.t('english')),
+                    ),
+                    DropdownMenuItem(
+                      value: const Locale('ar'),
+                      child: Text(t.t('arabic')),
+                    ),
+                  ],
+                  onChanged: p.saving ? null : (v) => p.update(locale: v!),
+                ),
+                if (p.storageError)
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(t.t('storageError')),
+                  ),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(t.t('close')),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    ),
+  );
   @override
   Widget build(BuildContext context) {
     final signedIn = account != null;
+    final destinations = [
+      NavigationDestination(
+        icon: const Icon(Icons.ev_station_outlined),
+        label: s.t('discover'),
+      ),
+      NavigationDestination(
+        icon: const Icon(Icons.event_outlined),
+        label: s.t('bookings'),
+      ),
+      NavigationDestination(
+        icon: const Icon(Icons.bolt),
+        label: s.t('sessions'),
+      ),
+      NavigationDestination(
+        icon: const Icon(Icons.directions_car_outlined),
+        label: s.t('garage'),
+      ),
+      NavigationDestination(
+        icon: const Icon(Icons.support_agent),
+        label: s.t('support'),
+      ),
+    ];
+    void select(int value) {
+      setState(() {
+        tab = value;
+        records = [];
+        recordPage = recordLast = 1;
+        recordTotal = 0;
+        error = null;
+        message = null;
+      });
+      perform(load);
+    }
+
+    Widget content = signedIn
+        ? IndexedStack(
+            index: tab == 0 ? 0 : 1,
+            children: [
+              CatalogView(
+                key: catalogKey,
+                loader: (filter, page) =>
+                    api!.catalog(filter: filter, page: page),
+                customer: account!.role == 'customer',
+                busy: busy,
+                onReserve: reserve,
+              ),
+              tab == 4
+                  ? SupportView(
+                      key: supportKey,
+                      api: api!,
+                      onSessionExpired: expiredSession,
+                    )
+                  : recordsView(),
+            ],
+          )
+        : loginView();
+    final wide = MediaQuery.sizeOf(context).width >= 800;
     return Scaffold(
       appBar: AppBar(
-        title: Text(signedIn ? 'Crea-Biz · ${account!.role}' : 'Crea-Biz EV'),
+        title: Text(
+          signedIn ? '${s.t('brand')} · ${s.t(account!.role)}' : s.t('brand'),
+        ),
         actions: [
-          PopupMenuButton<ThemeMode>(
-            tooltip: 'Appearance',
-            initialValue: widget.theme,
-            onSelected: widget.onTheme,
-            itemBuilder: (_) => ThemeMode.values
-                .map(
-                  (mode) => PopupMenuItem(value: mode, child: Text(mode.name)),
-                )
-                .toList(),
+          IconButton(
+            key: const Key('settings'),
+            tooltip: s.t('settings'),
+            onPressed: settings,
+            icon: const Icon(Icons.tune),
           ),
           if (signedIn)
-            IconButton(
-              tooltip: 'Sign out',
-              icon: const Icon(Icons.logout),
-              onPressed: busy
-                  ? null
-                  : () => perform(() async {
-                      try {
-                        await api!.signOut();
-                      } finally {
-                        if (mounted)
-                          setState(() {
-                            account = null;
-                            records = [];
-                            catalog = [];
-                          });
-                      }
-                    }),
+            PopupMenuButton<String>(
+              tooltip: s.t('account'),
+              onSelected: (value) {
+                if (value == 'profile') {
+                  profile();
+                } else if (value == 'verify') {
+                  perform(() async {
+                    await api!.request(
+                      'email/verification-notification',
+                      method: 'POST',
+                    );
+                    final current = await api!.request('me');
+                    if (mounted)
+                      setState(() {
+                        account = Account.fromJson(
+                          Map<String, dynamic>.from(current as Map),
+                        );
+                        message = account!.emailVerified
+                            ? 'emailVerified'
+                            : 'verificationRequested';
+                      });
+                  });
+                } else {
+                  perform(() async {
+                    try {
+                      await api!.signOut();
+                    } finally {
+                      resetSession();
+                    }
+                  });
+                }
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'profile',
+                  enabled: !busy,
+                  child: Text(s.t('profile')),
+                ),
+                PopupMenuItem(
+                  value: 'verify',
+                  enabled: !busy && !account!.emailVerified,
+                  child: Text(
+                    s.t(
+                      account!.emailVerified ? 'emailVerified' : 'verifyEmail',
+                    ),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'logout',
+                  enabled: !busy,
+                  child: Text(s.t('signOut')),
+                ),
+              ],
             ),
         ],
       ),
@@ -383,121 +766,45 @@ class _WorkspaceState extends State<Workspace> {
         child: Column(
           children: [
             if (busy) const LinearProgressIndicator(),
-            if (error != null)
+            if (error != null ||
+                message != null ||
+                widget.preferences.storageError)
               Padding(
                 padding: const EdgeInsets.all(12),
                 child: Semantics(
                   liveRegion: true,
                   child: Text(
-                    error!,
+                    s.t(error ?? message ?? 'storageError'),
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+                      color: error != null
+                          ? Theme.of(context).colorScheme.error
+                          : null,
                     ),
                   ),
                 ),
               ),
             Expanded(
-              child: signedIn
-                  ? RefreshIndicator(
-                      onRefresh: () => perform(load),
-                      child: ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: [
-                          Text(
-                            screens[tab],
-                            style: Theme.of(context).textTheme.headlineLarge,
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 12),
-                            child: Text(
-                              'Development workspace · simulated charging only.',
-                            ),
-                          ),
-                          if (tab == 0)
-                            ...catalog.map(stationCard)
-                          else
-                            ...records.map(recordCard),
-                          if (!busy &&
-                              (tab == 0 ? catalog.isEmpty : records.isEmpty))
-                            const Padding(
-                              padding: EdgeInsets.all(24),
-                              child: Text(
-                                'No records yet. Pull down to refresh.',
-                              ),
-                            ),
-                          const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: Text(
-                              'Showing the first page. Full catalog filtering and pagination are still under development.',
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : Center(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(24),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 440),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                'Your next charge, connected.',
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.headlineLarge,
-                              ),
-                              const SizedBox(height: 24),
-                              if (registering)
-                                TextField(
-                                  controller: name,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Name',
-                                  ),
-                                  textInputAction: TextInputAction.next,
+              child: wide && signedIn
+                  ? Row(
+                      children: [
+                        NavigationRail(
+                          selectedIndex: tab,
+                          onDestinationSelected: busy ? null : select,
+                          labelType: NavigationRailLabelType.all,
+                          destinations: destinations
+                              .map(
+                                (d) => NavigationRailDestination(
+                                  icon: d.icon,
+                                  label: Text(d.label),
                                 ),
-                              TextField(
-                                controller: email,
-                                decoration: const InputDecoration(
-                                  labelText: 'Email',
-                                ),
-                                keyboardType: TextInputType.emailAddress,
-                                autofillHints: const [AutofillHints.email],
-                              ),
-                              TextField(
-                                controller: password,
-                                decoration: const InputDecoration(
-                                  labelText: 'Password',
-                                ),
-                                obscureText: true,
-                                autofillHints: const [AutofillHints.password],
-                                onSubmitted: (_) => login(),
-                              ),
-                              const SizedBox(height: 24),
-                              FilledButton(
-                                onPressed: busy || api == null ? null : login,
-                                child: Text(
-                                  registering ? 'Register' : 'Sign in',
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: busy
-                                    ? null
-                                    : () => setState(
-                                        () => registering = !registering,
-                                      ),
-                                child: Text(
-                                  registering
-                                      ? 'Already have an account?'
-                                      : 'Create an account',
-                                ),
-                              ),
-                            ],
-                          ),
+                              )
+                              .toList(),
                         ),
-                      ),
-                    ),
+                        const VerticalDivider(width: 1),
+                        Expanded(child: content),
+                      ],
+                    )
+                  : content,
             ),
           ],
         ),
@@ -506,46 +813,18 @@ class _WorkspaceState extends State<Workspace> {
           signedIn &&
               ((tab == 0 && account?.role == 'vendor') || tab == 3 || tab == 4)
           ? FloatingActionButton(
-              tooltip: 'Create',
+              tooltip: s.t('create'),
               onPressed: busy ? null : create,
               child: const Icon(Icons.add),
             )
           : null,
-      bottomNavigationBar: signedIn
+      bottomNavigationBar: signedIn && !wide
           ? NavigationBar(
               selectedIndex: tab,
-              onDestinationSelected: busy
-                  ? null
-                  : (value) {
-                      setState(() {
-                        tab = value;
-                        records = [];
-                        catalog = [];
-                      });
-                      perform(load);
-                    },
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.ev_station_outlined),
-                  label: 'Discover',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.event_outlined),
-                  label: 'Bookings',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.bolt),
-                  label: 'Sessions',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.directions_car_outlined),
-                  label: 'Garage',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.support_agent),
-                  label: 'Support',
-                ),
-              ],
+              labelBehavior:
+                  NavigationDestinationLabelBehavior.onlyShowSelected,
+              onDestinationSelected: busy ? null : select,
+              destinations: destinations,
             )
           : null,
     );
@@ -556,73 +835,111 @@ class _WorkspaceState extends State<Workspace> {
     email.dispose();
     password.dispose();
     name.dispose();
-    api?.close();
+    if (widget.initialApi == null) api?.close();
     super.dispose();
   }
 }
 
-class _EntryDialog extends StatefulWidget {
+class EntryDialog extends StatefulWidget {
   final String title;
   final Map<String, String> fields;
-  const _EntryDialog({required this.title, required this.fields});
+  const EntryDialog({super.key, required this.title, required this.fields});
   @override
-  State<_EntryDialog> createState() => _EntryDialogState();
+  State<EntryDialog> createState() => _EntryDialogState();
 }
 
-class _EntryDialogState extends State<_EntryDialog> {
+class _EntryDialogState extends State<EntryDialog> {
   late final Map<String, TextEditingController> controls;
+  final form = GlobalKey<FormState>();
   @override
   void initState() {
     super.initState();
     controls = widget.fields.map(
-      (key, value) => MapEntry(key, TextEditingController(text: value)),
+      (k, v) => MapEntry(k, TextEditingController(text: v)),
     );
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.title),
-    content: SizedBox(
-      width: 420,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: controls.entries
-              .map(
-                (e) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: TextField(
-                    controller: e.value,
-                    decoration: InputDecoration(
-                      labelText: e.key.replaceAll('_', ' '),
-                      border: const OutlineInputBorder(),
+  Widget build(BuildContext context) {
+    final s = EvStrings.of(context);
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Form(
+            key: form,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: controls.entries
+                  .map(
+                    (e) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: ['source', 'connector_type'].contains(e.key)
+                          ? DropdownButtonFormField<String>(
+                              initialValue: e.value.text,
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: s.t(e.key),
+                              ),
+                              items:
+                                  (e.key == 'source'
+                                          ? ['simulator', 'discovery']
+                                          : ['CCS2', 'Type2', 'CHAdeMO'])
+                                      .map(
+                                        (v) => DropdownMenuItem(
+                                          value: v,
+                                          child: Text(
+                                            v == 'simulator'
+                                                ? s.t('simulated')
+                                                : v == 'discovery'
+                                                ? s.t('discoveryOnly')
+                                                : v,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged: (v) => e.value.text = v!,
+                            )
+                          : TextFormField(
+                              controller: e.value,
+                              decoration: InputDecoration(
+                                labelText: s.t(e.key),
+                              ),
+                              minLines: e.key == 'body' ? 3 : 1,
+                              maxLines: e.key == 'body' ? 6 : 1,
+                              validator: (v) =>
+                                  v!.trim().isEmpty ? s.t('required') : null,
+                            ),
                     ),
-                  ),
-                ),
-              )
-              .toList(),
+                  )
+                  .toList(),
+            ),
+          ),
         ),
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: () => Navigator.pop(
-          context,
-          controls.map((key, value) => MapEntry(key, value.text.trim())),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(s.t('cancel')),
         ),
-        child: const Text('Save'),
-      ),
-    ],
-  );
+        FilledButton(
+          onPressed: () {
+            if (form.currentState!.validate())
+              Navigator.pop(
+                context,
+                controls.map((k, v) => MapEntry(k, v.text.trim())),
+              );
+          },
+          child: Text(s.t('save')),
+        ),
+      ],
+    );
+  }
+
   @override
   void dispose() {
-    for (final control in controls.values) {
-      control.dispose();
-    }
+    for (final c in controls.values) c.dispose();
     super.dispose();
   }
 }

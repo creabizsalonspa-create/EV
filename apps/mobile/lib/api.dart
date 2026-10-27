@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,10 +14,12 @@ class Account {
   final int id;
   final String name;
   final String role;
+  final bool emailVerified;
   Account.fromJson(Map<String, dynamic> json)
     : id = json['id'] as int,
       name = json['name'] as String,
-      role = json['role'] as String;
+      role = json['role'] as String,
+      emailVerified = json['email_verified_at'] != null;
 }
 
 class Station {
@@ -63,12 +66,18 @@ class EvApi {
     String path, {
     String method = 'GET',
     Map<String, dynamic>? body,
+    Map<String, String> query = const {},
   }) async {
     if (!RegExp(r'^[a-z0-9/-]+$').hasMatch(path)) {
       throw ArgumentError('Invalid API path');
     }
     try {
-      final req = await _http.openUrl(method, base.resolve('/api/$path'));
+      final req = await _http.openUrl(
+        method,
+        base
+            .resolve('/api/$path')
+            .replace(queryParameters: query.isEmpty ? null : query),
+      );
       req.followRedirects = false;
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
       req.headers.contentType = ContentType.json;
@@ -119,6 +128,11 @@ class EvApi {
         );
       }
       return data;
+    } on TimeoutException {
+      throw const ApiException(
+        0,
+        'Connection timed out. Refresh before trying an action again.',
+      );
     } on SocketException {
       throw const ApiException(0, 'Unable to connect. Check your connection.');
     }
@@ -153,6 +167,17 @@ class EvApi {
     }
   }
 
+  Future<ApiPage<Station>> catalog({
+    CatalogFilter filter = const CatalogFilter(),
+    int page = 1,
+  }) async {
+    final data = await request(
+      'stations',
+      query: {...filter.query, 'page': '$page'},
+    );
+    return ApiPage.fromJson(data, Station.fromJson);
+  }
+
   Future<List<Station>> stations() async {
     final data = await request('stations');
     return (data['data'] as List)
@@ -161,4 +186,56 @@ class EvApi {
   }
 
   void close() => _http.close(force: true);
+}
+
+class CatalogFilter {
+  final String search;
+  final String connector;
+  final String country;
+  final int? minimumPower;
+  const CatalogFilter({
+    this.search = '',
+    this.connector = '',
+    this.country = '',
+    this.minimumPower,
+  });
+  Map<String, String> get query => {
+    if (search.trim().isNotEmpty) 'q': search.trim(),
+    if (connector.isNotEmpty) 'connector_type': connector,
+    if (country.trim().isNotEmpty) 'country': country.trim().toUpperCase(),
+    if (minimumPower != null) 'min_power_kw': '$minimumPower',
+  };
+}
+
+class ApiPage<T> {
+  final List<T> items;
+  final int current;
+  final int last;
+  final int total;
+  const ApiPage({
+    required this.items,
+    required this.current,
+    required this.last,
+    required this.total,
+  });
+  factory ApiPage.fromJson(
+    dynamic data,
+    T Function(Map<String, dynamic>) parse,
+  ) {
+    if (data is! Map ||
+        data['data'] is! List ||
+        data['current_page'] is! int ||
+        data['last_page'] is! int ||
+        data['total'] is! int) {
+      throw const ApiException(502, 'Invalid pagination response.');
+    }
+    return ApiPage(
+      items: (data['data'] as List)
+          .map((row) => parse(Map<String, dynamic>.from(row as Map)))
+          .toList(),
+      current: data['current_page'] as int,
+      last: data['last_page'] as int,
+      total: data['total'] as int,
+    );
+  }
 }

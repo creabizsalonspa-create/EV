@@ -257,6 +257,20 @@ const { randomUUID } = require("node:crypto");
     await vendor.page.waitForFunction(() =>
       document.querySelector("#overview").textContent.includes("Audit history"),
     );
+    await vendor.page.locator("#audit-search").fill("station.created");
+    assert((await vendor.page.locator("#overview tbody tr").count()) > 0);
+    assert(
+      (await vendor.page.locator("#overview tbody tr").allTextContents()).every(
+        (text) => text.includes("station.created"),
+      ),
+    );
+    const auditDownload = vendor.page.waitForEvent("download");
+    await vendor.page.locator("#audit-export").click();
+    assert.equal(
+      (await auditDownload).suggestedFilename(),
+      "creabiz-audit.csv",
+    );
+    await vendor.page.locator("#audit-search").fill("");
     await vendor.page
       .locator("#ticket-list button")
       .filter({ hasText: "Browser support " + run })

@@ -130,6 +130,60 @@ const assert = require("node:assert/strict");
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    const admin = await context.newPage();
+    admin.on("pageerror", (error) => errors.push(error.message));
+    await admin.route("**/api/**", async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      let body = { data: [], current_page: 1, last_page: 1, total: 0 };
+      if (path === "/api/me")
+        body = {
+          id: 99,
+          name: "Admin fixture",
+          role: "admin",
+          email_verified_at: null,
+        };
+      if (path === "/api/regions") body = [];
+      if (path === "/api/admin/overview")
+        body = {
+          users: 3,
+          stations: 2,
+          reservations: 1,
+          simulations: 0,
+          audit_events: [
+            {
+              action: "support.replied",
+              actor_id: 42,
+              subject: "=SUM(1,1)",
+              created_at: "2026-10-27 00:00:00",
+            },
+            {
+              action: "station.created",
+              actor_id: 11,
+              subject: "other fixture",
+              created_at: "2026-10-26 00:00:00",
+            },
+          ],
+        };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    });
+    await admin.goto(base);
+    await admin.locator("#audit-search").waitFor();
+    await admin.locator("#audit-search").fill("42");
+    assert.equal(await admin.locator("#overview tbody tr").count(), 1);
+    const downloadReady = admin.waitForEvent("download");
+    await admin.locator("#audit-export").click();
+    const download = await downloadReady;
+    const stream = await download.createReadStream();
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    const csv = Buffer.concat(chunks).toString("utf8");
+    assert(csv.includes('"\'=SUM(1,1)"'));
+    assert(!csv.includes("station.created"));
+    await admin.locator("#audit-search").fill("no matching event");
+    assert.equal(await admin.locator("#audit-export").isDisabled(), true);
     assert.deepEqual(errors, []);
     console.log(
       "PASS: isolated frontend contract fixtures; paginated catalog preserves filters, safe text rendering, role navigation, 503 recovery, offline/online state, 390/768/1440px layouts, RTL; zero page errors. Fixtures are not live data.",

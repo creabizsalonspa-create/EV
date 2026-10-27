@@ -8,7 +8,7 @@ All endpoints are same-origin JSON, `Accept: application/json`. Mutations use La
 | POST /api/login | Public | email, password; regenerates session; 200 |
 | POST /api/logout | Session | invalidates session and rotates CSRF; 204 |
 | GET /api/me | Session | identity; 200 |
-| GET /api/stations | Public | optional connector_type CCS2/Type2/CHAdeMO, country, min_power_kw; paginated 25; unknown availability, remote_control=false |
+| GET /api/stations | Public | optional q (name, max 100), connector_type CCS2/Type2/CHAdeMO, country, min_power_kw, page; paginated 25; unknown availability, remote_control=false |
 | POST /api/stations | Vendor | name, country uppercase 2 chars, currency uppercase 3 chars, IANA timezone, latitude, longitude, source discovery/simulator, connector_type, power_kw 1–1000; 201 |
 | GET/POST /api/vehicles | Session | own records only; create name + connector_type; 201 |
 | GET /api/reservations | Session | own customer records, own-station vendor records, admin all; paginated |
@@ -72,3 +72,9 @@ The web client continues to use the existing endpoints without backend contract 
 The initial native source uses the same session-cookie/CSRF endpoints, keeps credentials in memory, refreshes CSRF after login, and requires a reachable HTTPS origin in release builds. This integration is source-only and unverified on devices. It does not introduce bearer-token APIs, native secure persistence or web admin access.
 
 Backend coordination requirements (not implemented endpoints or approved contracts): multi-connector station/EVSE/connector identifiers with reservation/control targeting; verified vendor organization/staff permissions and KYC review states; authenticated session event/energy lifecycle; versioned tariff quote + currency/minor-unit rules; idempotent hosted-payment intent/invoice/settlement APIs; authenticated discovery/availability provenance and freshness; outbound OCPI capability negotiation. Frontend modules remain incomplete until the backend defines/implements these, and must not invent live data or successful finance states.
+
+## Native pagination, settings and support UI contracts
+
+Native catalog sends only existing `q`, `connector_type`, uppercase `country`, `min_power_kw` and `page`; it trusts `current_page`/`last_page`/`total` and never follows server pagination URLs to a different origin. Distance/price/live-availability filtering remains unavailable, not simulated. Other native list views use their existing page parameter. Native preferences store only theme/locale locally; an explicit profile save sends name + the selected locale through PATCH /api/profile. No cookie/token persistence or new auth endpoint is introduced.
+
+Native recovery/verification send existing requests; link consumption still uses the signed-in web flow, not an invented native deep-link contract. Support threads use existing GET /api/support/{id} messages pagination and POST messages; notifications use existing feed/read routes. No admin mobile surface is created. Web audit CSV is generated locally from filtered latest-50 API records, not a complete historical export. Full export, connector targeting, finance and authorized map/live integration contracts remain backend coordination work.

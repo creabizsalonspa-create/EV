@@ -785,17 +785,69 @@ async function adminOverview() {
     head.append(headers);
     table.append(head);
     const body = document.createElement("tbody");
-    for (const event of data.audit_events) {
-        const row = document.createElement("tr");
-        for (const value of [
-            event.action,
-            event.actor_id,
-            event.subject,
-            event.created_at,
-        ])
-            row.append(node("td", String(value)));
-        body.append(row);
+    const tools = node("div", "");
+    tools.className = "audit-tools";
+    const label = node("label", "Filter latest events / تصفية أحدث الأحداث");
+    const search = document.createElement("input");
+    search.id = "audit-search";
+    search.type = "search";
+    search.maxLength = 100;
+    label.append(search);
+    const count = node("p", "");
+    count.id = "audit-count";
+    count.setAttribute("role", "status");
+    const exportButton = node("button", "Export filtered CSV / تصدير النتائج");
+    exportButton.type = "button";
+    exportButton.id = "audit-export";
+    let visible = [];
+    const fields = ["action", "actor_id", "subject", "created_at"];
+    function render() {
+        const term = search.value.trim().toLocaleLowerCase();
+        visible = data.audit_events.filter((event) =>
+            fields.some((key) =>
+                String(event[key]).toLocaleLowerCase().includes(term),
+            ),
+        );
+        body.replaceChildren();
+        for (const event of visible) {
+            const row = document.createElement("tr");
+            for (const key of fields)
+                row.append(node("td", String(event[key])));
+            body.append(row);
+        }
+        count.textContent =
+            visible.length +
+            " / " +
+            data.audit_events.length +
+            " latest events / أحدث الأحداث";
+        exportButton.disabled = visible.length === 0;
     }
+    search.oninput = render;
+    exportButton.onclick = () => {
+        const cell = (value) => {
+            let text = String(value ?? "");
+            if (/^[\s]*[=+\-@]/.test(text)) text = "'" + text;
+            return '"' + text.replaceAll('"', '""') + '"';
+        };
+        const csv = [
+            fields,
+            ...visible.map((event) => fields.map((key) => event[key])),
+        ]
+            .map((row) => row.map(cell).join(","))
+            .join("\r\n");
+        const url = URL.createObjectURL(
+            new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }),
+        );
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "creabiz-audit.csv";
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    tools.append(label, exportButton, count);
+    render();
     table.append(body);
     const scroll = node("div", "");
     scroll.className = "table-scroll";
@@ -803,5 +855,5 @@ async function adminOverview() {
     scroll.setAttribute("role", "region");
     scroll.setAttribute("aria-label", "Audit history");
     scroll.append(table);
-    container.append(metrics, scroll);
+    container.append(metrics, tools, scroll);
 }
