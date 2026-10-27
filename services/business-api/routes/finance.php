@@ -13,3 +13,9 @@ Route::get('/finance/invoices/{invoice}', [F::class, 'show']);
 Route::post('/finance/invoices/{invoice}/simulate-payment', [F::class, 'payment']);
 Route::post('/finance/invoices/{invoice}/simulate-refund', [F::class, 'refund']);
 Route::get('/finance/invoices/{invoice}/journal', [F::class, 'journal']);
+
+require __DIR__.'/commercial_finance.php';
+
+require __DIR__.'/payments.php';
+require __DIR__.'/subscriptions.php';
+require __DIR__.'/settlements.php';

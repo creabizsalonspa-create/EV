@@ -39,6 +39,11 @@ Scheduled batches use a cached ID cursor, revisit after the end and survive cach
 Verified: **118 Laravel tests / 5,862 assertions**; PostgreSQL finance/managed/vendor **55 tests / 5,400 assertions**, plus **4 process-concurrency tests / 54 assertions** including two simultaneous expiry workers closing once. Native analysis clean and **37 unit/widget passes / 1 default live-only skip** at the expiry source. Real browser linked-company/maintenance/cancel/CLI-expiry/replay/shared EN/AR state and localization suites pass. Both OCPP protocols still produce the same single simulated source-backed invoice/payment/refund reconciliation. No finance implementation file changed. Evidence: `unsent-expiry-*`.
 
 The later native inventory work is a separate checkpoint. Source `940ccbf` has both platform CI runs green; native PR execution still has a pre-Dart simulator log-reader/VM-service launch timeout at the pinned baseline, distinct from the earlier successful device run. Do not report all hosted native runs green.
+## Finance/commercial branch checkpoint — 2026-10-27
+
+Dedicated `development/finance-commercial` from `940ccbf`; Agent 1 owns finance only. Agent 2 owns the EV platform and native application integration. New connected customer/vendor/admin financial workspace, mock checkout/authorization/capture/cancellation/refunds, signed webhooks, immutable credit notes and dispute decisions, plan versions/cycles/failed-payment retry/paid entitlements, commission statements/scheduled settlement approval and signed adjustments are implemented and tested in the scope described by `FINANCE_COMMERCIAL_CONTINUATION.md`. Stripe test-mode HTTP adapter is contract-tested without merchant credentials. Real payouts remain disabled. No final-completion claim.
+
+Detailed current evidence and remaining financial requirements: [FINANCE_COMMERCIAL_CONTINUATION.md](FINANCE_COMMERCIAL_CONTINUATION.md). Earlier platform reports below remain historical and are not overwritten as completion claims.
 
 
 ## Hosted CI selector follow-up

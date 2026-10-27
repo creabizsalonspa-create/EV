@@ -1,0 +1,9 @@
+# Verified-head finance integration candidate
+
+Integrates Agent 1 PR #4 at `60a5dd022ca0be7e568ff54c1deb416eaf07e39d` with Agent 2 EV source `41e350c`, using a separate integration branch/PR rather than overwriting either original branch. Both original financial CI jobs are green at that exact head. Future commits on the financial branch remain separate until reviewed and tested.
+
+Only integration conflicts were resolved: both agents’ PROGRESS/QA sections are retained, both commercial and OCPI npm commands are registered, and both CI steps remain enabled. All incoming services/tests files are byte-for-byte the original financial PR blobs; see `docs/evidence/finance-integration/source-preservation.json`. No financial business logic, tests or acceptance assertions were rewritten. Read FINANCE_MOBILE_CONTRACT and Agent 1’s continuation records for authoritative API behavior, mock/sandbox limits and its unfinished scope.
+
+Initial combined checks: Laravel 153 tests / 6,266 assertions; Pint 164 files; Composer strict valid; PostgreSQL workflow suite 87 tests / 5,768 assertions. Process races, integrated browsers and hosted candidate validation are tracked independently; this file alone is not a passed integration or merged-PR claim. Native source is unchanged from the locally analyzed 46 unit/widget-pass revision; actual API and hosted build/device evidence must retain their exact source revisions.
+
+The candidate remains unmerged until combined verification and the integration PR gates pass. Financial ownership remains exclusively Agent 1; Agent 2 owns EV/non-financial software and may integrate completed APIs in native clients. No external payment, payout, roaming or hardware acceptance is claimed.

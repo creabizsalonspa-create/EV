@@ -668,5 +668,81 @@ form label {
     min-height: 44px;
 }
 
-.roaming-record { white-space: pre-wrap; overflow-wrap: anywhere; direction: ltr; text-align: left; max-width: 100%; }
-#roaming-operations article, #roaming-discovery article { overflow-wrap: anywhere; min-width: 0; }
+.roaming-record {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    direction: ltr;
+    text-align: left;
+    max-width: 100%;
+}
+#roaming-operations article,
+#roaming-discovery article {
+    overflow-wrap: anywhere;
+    min-width: 0;
+}
+
+/* Financial surfaces inherit the shared light/dark palette and RTL flow. */
+.finance-panel {
+    border-block-start: 1px solid var(--border);
+    padding-block: 1.3rem;
+}
+.finance-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+    gap: 1rem;
+}
+.finance-metric {
+    padding: 1.3rem;
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: grid;
+    gap: 0.6rem;
+}
+.finance-metric strong {
+    font-size: 1.8rem;
+    letter-spacing: -0.04em;
+}
+.finance-row {
+    padding-block: 1rem;
+    border-block-end: 1px solid var(--border);
+    overflow-wrap: anywhere;
+}
+.finance-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    align-items: end;
+    margin-block: 0.8rem;
+}
+.finance-form label {
+    display: grid;
+    gap: 0.4rem;
+    flex: 1 1 180px;
+    min-width: 0;
+}
+.finance-form input,
+.finance-form select {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+#commercial-finance button {
+    margin-inline-end: 0.4rem;
+    margin-block: 0.3rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+    .finance-metric {
+        animation: finance-appear 0.2s ease-out;
+    }
+    @keyframes finance-appear {
+        from {
+            opacity: 0.5;
+            transform: translateY(4px);
+        }
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+}
