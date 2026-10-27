@@ -1,0 +1,11 @@
+
+> test:ocpp
+> node tests/ocpp.cjs
+
+{"business_outbox":"submitted","protocol":"ocpp1.6","evidence":"SIMULATED_PROTOCOL_TEST","station":"ev-test-ocpp16-eb8cf1c5","boot":"Accepted","heartbeat_status_tested":true,"incoming_calls":2}
+{"business_outbox":"submitted","protocol":"ocpp2.0.1","evidence":"SIMULATED_PROTOCOL_TEST","station":"ev-test-ocpp201-5802591c","boot":"Accepted","heartbeat_status_tested":true,"incoming_calls":2}
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

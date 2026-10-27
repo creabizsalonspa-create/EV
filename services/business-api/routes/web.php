@@ -84,3 +84,8 @@ Route::middleware(['auth', 'throttle:support'])->group(function () {
     Route::get('/api/notifications', [$c, 'notifications']);
     Route::post('/api/notifications/{notification}/read', [$c, 'read']);
 });
+
+Route::post('/api/email/verification-notification', [AccountController::class, 'sendVerification'])
+    ->middleware(['auth', 'throttle:verification-send']);
+Route::get('/email/verify/{id}/{hash}', [AccountController::class, 'verifyEmail'])
+    ->middleware(['auth', 'signed', 'throttle:verification-link'])->name('verification.verify');

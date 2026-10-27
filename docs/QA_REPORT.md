@@ -50,3 +50,15 @@ Backend tests verify tenant access, role escalation rejection, input limits, fix
 From /workspace/EV: scripts/setup; scripts/start; scripts/csms-setup; scripts/csms-start; scripts/php artisan test --compact; EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e; npm run test:ocpp. Browser and OCPP tests create synthetic development records and must not target production.
 
 Evidence files belong to the expanded source checkpoint committed alongside this report. Git history identifies its exact revision. New commands/source changes require affected tests to run again. Saving cloud configuration is not publication or a fresh-task restore test. A source checkpoint archive is not a final commercial release.
+
+## Identity and web themes checkpoint — 2026-10-27
+
+This continuation supersedes the earlier 31-test count for the current source. Base: `e7e4833354b46ab22548c58c6e2a20f146352393`; exact implementation is the commit containing this section.
+
+- Backend: **37 passed, 279 assertions** (`evidence/identity-themes-backend.txt`). Six new tests cover explicit-send/current-account isolation, notification-generated signed link, expiry/resend, tampered/unsigned/old-email/wrong-account rejection, guest redirect, idempotent audit/event, role preservation and separate per-actor throttle. Notification tests fake delivery; they do not prove a mailbox received mail.
+- Browser: **passed** (`evidence/identity-themes-browser.txt`), including request → signed confirmation → verified status and existing customer/vendor/admin workflows. The URL is generated through the normal notification in the local test shell, held in memory and never exposed through a public shortcut. Local log-mail transport accepts the request; actual delivery is unverified. Theme checks cover Light/Dark/System, persisted choice after reload, live system changes, explicit override, storage denial, and mobile width. Visually inspected 390px light/dark screenshots locally; formal WCAG, full localization, cross-browser and device-matrix acceptance remain unrun.
+- OCPP: **both protocols passed again** (`evidence/identity-themes-ocpp.txt`), Accepted boot, heartbeat/status and direct/outbox commands to synthetic chargers only.
+- Pint: **59 files passed**. Composer strict schema/lock validation and `git diff --check`: passed. No dependency or lockfile updates.
+- Initial test exposed middleware overriding the verification page's referrer policy; corrected shared headers for verification and reset links. Another test reused an old in-memory authenticated user between requests; corrected the test to reload the user as a fresh HTTP request does. Final runs above passed.
+
+Current environment supports the implemented local web/backend/simulator workflow. Email delivery, verified-only production access policies, 2FA, KYC/native clients and the full release gates above remain outstanding. Cloud install/start instructions were saved for review, not published; fresh-task/volume restoration is not verified. GitHub Git fetch and PR-head inspection succeeded; GraphQL PR listing returned Forbidden. No PR review state or hosted CI result is inferred from the Git refs.

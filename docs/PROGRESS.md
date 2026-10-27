@@ -20,7 +20,7 @@ Requirements committed as `c8c2dd5`; implementation commit is the Git commit con
 | Module | Status | Current evidence / next work |
 |---|---|---|
 | Repo, dependency lock, migrations, local startup | INTEGRATED_TESTED | scripts and migrations; production deploy/rollback drill outstanding |
-| Identity and access | IN_PROGRESS | sessions, CSRF, roles tested; profile editing, reset broker, session revocation and security headers tested; verification, 2FA, granular staff permissions and native auth remain |
+| Identity and access | IN_PROGRESS | sessions, CSRF, roles tested; profile editing, reset broker, session revocation and security headers tested; signed email verification implemented and locally tested; real mail delivery, verified-only production policies, 2FA, granular staff permissions and native auth remain |
 | Regions/currencies/taxes/timezones | IN_PROGRESS | admin country/currency/minor-unit/timezone/tax configuration tested; commerce disabled, legal/tax activation remains |
 | Vehicles/profiles/privacy | IN_PROGRESS | private vehicle API and garage/profile UI tested; complete garage details and privacy/deletion workflows remain |
 | Vendor onboarding/KYC/staff | NOT_STARTED | role provisioning is local operator-only; not KYC |
@@ -37,7 +37,7 @@ Requirements committed as `c8c2dd5`; implementation commit is the Git commit con
 | Loyalty/rewards/promotions/referrals/ads | NOT_STARTED | implement after authoritative billing |
 | Fleet/enterprise/cost centers | IN_PROGRESS | invitation/accept/revoke, tenant privacy, vehicle assignment and cost centers tested; consolidated billing/reports remain |
 | Notifications/support/maintenance | IN_PROGRESS | ticket state machine, internal-note privacy, notifications/read and support UI tested; delivery providers/maintenance remain |
-| Customer web | IN_PROGRESS | account/catalog/reservation/simulation/garage/fleet/support UI, partial Arabic |
+| Customer web | IN_PROGRESS | account/catalog/reservation/simulation/garage/fleet/support UI, email status and Light/Dark/System themes; partial Arabic |
 | Vendor web | IN_PROGRESS | basic inventory/reservation/simulation UI |
 | Admin web | IN_PROGRESS | counts/audit, regional configuration and support workflow; full administration remains |
 | Customer/vendor Flutter Android+iOS | BLOCKED_EXTERNAL | SDK archive domain denied; full Flutter image unpack ran out of storage; no source/build artifacts yet |
@@ -48,7 +48,7 @@ Requirements committed as `c8c2dd5`; implementation commit is the Git commit con
 
 ## Next implementation stages
 
-1. Complete multi-connector inventory, verification/2FA/native authentication, and vendor organization/staff/KYC; extend regional validation and fleet reporting.
+1. Complete multi-connector inventory, 2FA/native authentication and verified-only production policies, and vendor organization/staff/KYC; extend regional validation and fleet reporting.
 2. Extend the deployed/tested CitrineOS command path into authenticated transaction/meter event ingestion, command acknowledgment correlation, full simulated session/billing reconciliation and stop/fault/reconnect tests.
 3. Add tariff snapshots, immutable journal/invoices and test PSP integration; then subscriptions, settlements, consolidated fleet billing and loyalty.
 4. Complete all web surfaces and shared Flutter applications, localization/accessibility and automated builds.
@@ -66,3 +66,19 @@ No feature has PRODUCTION_READY or HARDWARE_TESTED status. A foundation checkpoi
 Next coding work remains substantial and is not all blocked by SDK access: multi-connector hierarchy, email verification/native auth/staff/KYC, full CSMS event/session reconciliation, financial ledger/tariffs/PSP, outbound OCPI, loyalty/promotions, complete client applications and production operations. These are unfinished implementation stages, not validated integrations.
 
 Composer advisory audit is additionally blocked by packagist.org egress (exit 100); npm audit completed with zero reported advisories. See docs/QA_REPORT.md for exact coverage, fixes and unrun release gates.
+
+## Identity and themes continuation — 2026-10-27
+
+Base checkpoint: `e7e4833354b46ab22548c58c6e2a20f146352393`. Work is on `development/identity-and-themes`; the commit containing this section identifies the implementation exactly. Before editing, fetched all remote heads plus PR #1's head. `origin/EV` is the older requirements checkpoint; development and PR #1 were at the base checkpoint. GitHub GraphQL PR metadata remained Forbidden; no PR state/review or hosted CI success is claimed.
+
+Implemented: signed account/email-bound verification, expiry/tamper rejection, per-actor resend budget, idempotent transactional audit, guest sign-in guidance, English/Arabic account status and confirmation. Local notification generation is tested; real mail delivery and production verification enforcement remain unverified/unfinished. Implemented Light/Dark/System shared web themes, persistent and cross-tab preferences, live system changes, storage-denied fallback, visible focus and mobile control sizing. This is a web foundation, not acceptance of the complete premium UI or native surfaces.
+
+Validation for this checkpoint is recorded in `docs/evidence/identity-themes-*` and the latest QA continuation. No external charger command or payment was performed. All prior feature boundaries and full-product release blockers remain.
+
+Exact next development tasks:
+1. Introduce station → charger/EVSE → connector inventory with a preserving migration for existing single-test-connector rows; make reservation uniqueness and simulator/CSMS command targeting connector-specific; extend tenant, idempotency and OCPP/browser tests before removing legacy behavior.
+2. Add authenticator 2FA/recovery and explicit verified-only policies for sensitive production operations; validate real transactional mail in staging, then native auth. Verification alone must not grant operator approval.
+3. Add vendor organizations, staff invitations/permissions and auditable KYC review states without claiming external verification.
+4. Continue the existing CSMS event/session reconciliation, finance, OCPI, Flutter and release roadmap above. No final release or 100% completion is asserted.
+
+Cloud onboarding in this session: frozen dependencies installed, SQLite migrations and repeat setup passed; Docker app and separate CitrineOS/PostGIS/RabbitMQ stack started; both OCPP protocol suites passed against synthetic chargers. Saved `install_script` and `start_skill`, plus custom `api.github.com` access preserving package-manager presets. Saving is not publication; review/save environment settings and publish to create a reusable snapshot. New-task restoration and Docker-volume restoration remain unverified. No tracked files were changed during setup; the subsequent code changes were explicitly requested as development.

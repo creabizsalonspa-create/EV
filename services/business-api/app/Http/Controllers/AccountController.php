@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Auth\Events\Verified;
+use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +16,38 @@ use Illuminate\Validation\ValidationException;
 
 class AccountController extends Controller
 {
+    public function sendVerification(Request $r)
+    {
+        if ($r->user()->hasVerifiedEmail()) {
+            return response()->json(['message' => 'Your email address is already verified.']);
+        }
+        // Explicit opt-in keeps registration independent of mail-provider outages.
+        // Do not return the signed link: ownership must be proved through the mailbox.
+        $r->user()->sendEmailVerificationNotification();
+
+        return response()->json(['message' => 'Verification link requested. Check your email; the link expires in 60 minutes.'], 202);
+    }
+
+    public function verifyEmail(EmailVerificationRequest $r)
+    {
+        $verified = DB::transaction(function () use ($r) {
+            $user = User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
+            abort_unless(hash_equals(sha1($user->getEmailForVerification()), (string) $r->route('hash')), 403);
+            if ($user->hasVerifiedEmail()) {
+                return null;
+            }
+            $user->markEmailAsVerified();
+            DB::table('audit_events')->insert(['actor_id' => $user->id, 'action' => 'email.verified', 'subject' => (string) $user->id, 'created_at' => now()]);
+
+            return $user;
+        });
+        if ($verified) {
+            event(new Verified($verified));
+        }
+
+        return response()->view('email-verified')->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer');
+    }
+
     public function forgot(Request $r)
     {
         $v = $r->validate(['email' => 'required|email']);

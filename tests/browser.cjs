@@ -47,6 +47,81 @@ const { randomUUID } = require("node:crypto");
   }
   try {
     const vendor = await account("Vendor");
+    const theme = vendor.page.locator("#theme-choice");
+    await vendor.page.emulateMedia({ colorScheme: "dark" });
+    await theme.selectOption("system");
+    await vendor.page.waitForFunction(
+      () => document.documentElement.dataset.theme === "dark",
+    );
+    const darkBackground = await vendor.page.evaluate(
+      () => getComputedStyle(document.body).backgroundColor,
+    );
+    await vendor.page.emulateMedia({ colorScheme: "light" });
+    await vendor.page.waitForFunction(
+      () => document.documentElement.dataset.theme === "light",
+    );
+    assert.notEqual(
+      await vendor.page.evaluate(
+        () => getComputedStyle(document.body).backgroundColor,
+      ),
+      darkBackground,
+    );
+    await theme.selectOption("dark");
+    await vendor.page.reload();
+    assert.equal(await theme.inputValue(), "dark");
+    assert.equal(
+      await vendor.page.locator("html").getAttribute("data-theme"),
+      "dark",
+    );
+    await theme.selectOption("light");
+    await vendor.page.emulateMedia({ colorScheme: "dark" });
+    assert.equal(
+      await vendor.page.locator("html").getAttribute("data-theme"),
+      "light",
+    );
+    await theme.selectOption("dark");
+    assert.match(
+      await vendor.page.locator("#email-status").textContent(),
+      /Email not verified/,
+    );
+    const sent = vendor.page.waitForResponse((r) =>
+      r.url().endsWith("/api/email/verification-notification"),
+    );
+    await vendor.page.locator("#verify-email").click();
+    assert.equal((await sent).status(), 202);
+    // Obtain the normal notification URL in memory through the local test shell.
+    // This is test-only tooling, not a public verification bypass or mail-delivery claim.
+    const verificationUrl = execFileSync(
+      "./scripts/php",
+      [
+        "-r",
+        `
+      require "vendor/autoload.php";
+      $app = require "bootstrap/app.php";
+      $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap();
+      Illuminate\\Support\\Facades\\URL::forceRootUrl($argv[2]);
+      $user = App\\Models\\User::where("email", $argv[1])->firstOrFail();
+      echo (new Illuminate\\Auth\\Notifications\\VerifyEmail)->toMail($user)->actionUrl;
+    `,
+        "--",
+        vendor.email,
+        base,
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    ).trim();
+    await vendor.page.goto(verificationUrl);
+    await vendor.page
+      .getByRole("heading", { name: /Email verified/ })
+      .waitFor();
+    await vendor.page
+      .getByRole("link", { name: /Return to your account/ })
+      .click();
+    await vendor.page.locator("#signed").waitFor({ state: "visible" });
+    assert.match(
+      await vendor.page.locator("#email-status").textContent(),
+      /Email verified/,
+    );
+    assert.equal(await vendor.page.locator("#verify-email").isVisible(), false);
     execFileSync(
       "./scripts/php",
       ["artisan", "platform:role", vendor.email, "vendor"],
@@ -195,9 +270,32 @@ const { randomUUID } = require("node:crypto");
         "Internal secret QA note",
       ),
     );
+    await vendor.page.setViewportSize({ width: 390, height: 844 });
+    assert(
+      await vendor.page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    );
+    const restricted = await browser.newContext();
+    await restricted.addInitScript(() => {
+      Object.defineProperty(window, "localStorage", {
+        get() {
+          throw new DOMException("Storage unavailable", "SecurityError");
+        },
+      });
+    });
+    const restrictedPage = await restricted.newPage();
+    restrictedPage.on("pageerror", (e) => errors.push(e.message));
+    await restrictedPage.goto(base);
+    await restrictedPage.locator("#theme-choice").selectOption("dark");
+    assert.equal(
+      await restrictedPage.locator("html").getAttribute("data-theme"),
+      "dark",
+    );
+    await restricted.close();
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: browser registration, vendor station creation, customer reservation/cancel, vendor visibility, tenant privacy, admin overview, garage privacy, fleet invitation acceptance, support internal-note privacy, Arabic RTL, mobile width; no page errors.",
+      "PASS: browser Light/Dark/System themes, preference persistence and OS changes; registration, email verification request/signed confirmation/status, vendor station creation, customer reservation/cancel, vendor visibility, tenant privacy, admin overview, garage privacy, fleet invitation acceptance, support internal-note privacy, Arabic RTL, mobile width; no page errors.",
     );
   } catch (error) {
     console.error("Browser page errors:", errors);

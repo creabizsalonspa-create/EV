@@ -1,0 +1,3 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email verified — Crea-Biz EV</title><script src="/theme.js"></script><link rel="stylesheet" href="/platform.css"></head>
+<body><main><h1>Email verified / تم تأكيد البريد</h1><p>Your email address has been verified. This confirms mailbox ownership; vendor approval and identity checks are separate.</p><p lang="ar" dir="rtl">تم تأكيد بريدك الإلكتروني. اعتماد المشغل والتحقق من الهوية إجراءان منفصلان.</p><a href="/">Return to your account / العودة إلى الحساب</a></main></body></html>

@@ -35,6 +35,12 @@ async function identity() {
     el("bookings").hidden = !user;
     el("vendor").hidden = user?.role !== "vendor";
     el("who").textContent = user ? user.name + " · " + user.role : "";
+    el("email-status").textContent = user
+        ? user.email_verified_at
+            ? "Email verified / البريد مؤكد"
+            : "Email not verified / البريد غير مؤكد"
+        : "";
+    el("verify-email").hidden = !user || !!user.email_verified_at;
     el("simulations").hidden = !user;
     el("admin").hidden = user?.role !== "admin";
     el("fleets").hidden = !user;
@@ -581,3 +587,20 @@ el("support-create").onsubmit = async (e) => {
         notice(e.message);
     }
 };
+
+el("verify-email").onclick = async () => {
+    el("verify-email").disabled = true;
+    try {
+        notice((await api("email/verification-notification", "POST")).message);
+    } catch (e) {
+        notice(e.message);
+    } finally {
+        el("verify-email").disabled = false;
+    }
+};
+el("refresh-identity").onclick = () =>
+    identity().catch((e) => notice(e.message));
+if (new URLSearchParams(location.search).get("verification") === "signin")
+    notice(
+        "Sign in to the account that received the email, then reopen its verification link.",
+    );
