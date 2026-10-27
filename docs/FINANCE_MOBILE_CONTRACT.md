@@ -1,5 +1,8 @@
 # Financial integration contract for Agent 2
 
+Latest native QA adds exact server-precision amount formatting (no floating-point/accounting duplication), correct EN/AR empty subscription-notice labels, fail-closed unsupported precision and clearing of transport-uncertainty messaging only after successful authoritative GET. Full Flutter80 passed/seven explicit live-only skips; all nine recovery-specific tests and analysis passed after the refresh correction. Composer strict validation and the preserved finance/lifecycle scheduler plus new hourly dunning registration are verified. Hosted validation is pending for this final native correction.
+
+
 ## Native payment recovery — verified implementation
 
 Canonical Flutter customer/vendor account menu now opens the tenant-scoped payment recovery queue and paginated audit history. Provider inspection requires explicit confirmation and calls the existing read-only provider-reconciliation API; it never creates a charge/refund, accepts card credentials or infers invoice payment from operation completion. Errors clear private rows, 401/419 invalidate the session, disposal fences late responses, lost responses never replay POSTs, and both English/Arabic RTL are supported. The UI renders an allowlist, not arbitrary provider payloads.

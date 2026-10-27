@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'money_input.dart';
 import 'strings.dart';
 
 const recoveryEn = {
@@ -16,6 +17,7 @@ const recoveryEn = {
   'notice':
       'Test-provider evidence only. A completed operation does not necessarily mean a paid invoice. Inspecting status never initiates a new charge or refund.',
   'empty': 'No payment recovery operations.',
+  'emptyNotices': 'No subscription notices.',
   'refresh': 'Refresh status',
   'inspect': 'Inspect provider status',
   'confirm':
@@ -27,7 +29,7 @@ const recoveryEn = {
   'none': 'No recorded events.',
   'next': 'Next',
   'previous': 'Previous',
-  'amount': 'Amount in minor units',
+  'amount': 'Amount',
   'scope': 'Scope',
   'kind': 'Operation',
   'status': 'Status',
@@ -59,6 +61,7 @@ const recoveryAr = {
   'notice':
       'أدلة مزود الاختبار فقط. اكتمال العملية لا يعني بالضرورة سداد الفاتورة. فحص الحالة لا ينشئ دفعة أو استرداداً جديداً.',
   'empty': 'لا توجد عمليات دفع للمراجعة.',
+  'emptyNotices': 'لا توجد تنبيهات اشتراك.',
   'refresh': 'تحديث الحالة',
   'inspect': 'فحص حالة مزود الدفع',
   'confirm':
@@ -70,7 +73,7 @@ const recoveryAr = {
   'none': 'لا توجد أحداث مسجلة.',
   'next': 'التالي',
   'previous': 'السابق',
-  'amount': 'المبلغ بالوحدات الصغرى',
+  'amount': 'المبلغ',
   'scope': 'النطاق',
   'kind': 'العملية',
   'status': 'الحالة',
@@ -155,7 +158,28 @@ class _RecoveryState extends State<PaymentRecoveryView> {
         await widget.api.request(endpoint, query: {'page': '$page'}),
         (v) => v,
       );
-      if (mounted && generation == epoch) setState(() => data = result);
+      if (widget.intent == null) {
+        for (final row in result.items) {
+          final amount =
+              row[widget.subscriptionNotices ? 'total_minor' : 'amount_minor'];
+          final digits = row['minor_units'];
+          if (amount is! int ||
+              amount < 0 ||
+              digits is! int ||
+              digits < 0 ||
+              digits > 3 ||
+              row['currency'] is! String ||
+              !RegExp(r'^[A-Z]{3}$').hasMatch(row['currency'])) {
+            throw const ApiException(502, 'Unsupported financial precision.');
+          }
+        }
+      }
+      if (mounted && generation == epoch) {
+        setState(() {
+          data = result;
+          uncertain = false;
+        });
+      }
     } catch (e) {
       if (mounted && generation == epoch) setState(() => fail(e));
     } finally {
@@ -238,7 +262,15 @@ class _RecoveryState extends State<PaymentRecoveryView> {
               child: Text(t('refresh')),
             ),
             if (page != null && page.items.isEmpty)
-              Text(t(widget.intent == null ? 'empty' : 'none')),
+              Text(
+                t(
+                  widget.subscriptionNotices
+                      ? 'emptyNotices'
+                      : widget.intent == null
+                      ? 'empty'
+                      : 'none',
+                ),
+              ),
             for (final row in page?.items ?? <Map<String, dynamic>>[])
               if (widget.subscriptionNotices)
                 Card(
@@ -251,7 +283,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                         Text('${t('stage')}: ${row['stage']}'),
                         Text(t('${row['attention']}')),
                         Text(
-                          '${t('amount')}: ${row['total_minor']} ${row['currency']}',
+                          '${t('amount')}: ${minorDecimal(row['total_minor'] as int, row['minor_units'] as int)} ${row['currency']}',
                         ),
                         Text('${row['created_at']}'),
                       ],
@@ -274,7 +306,7 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                             '${t('scope')}: ${t('${row['scope']}')} · ${t('kind')}: ${t(row['kind'] == 'cancel' ? 'cancelOperation' : '${row['kind']}')}',
                           ),
                           Text(
-                            '${t('amount')}: ${row['amount_minor']} ${row['currency']}',
+                            '${t('amount')}: ${minorDecimal(row['amount_minor'] as int, row['minor_units'] as int)} ${row['currency']}',
                           ),
                           // Deliberate allowlist: never render arbitrary server JSON or
                           // private provider identity, lease, observation or fingerprint.

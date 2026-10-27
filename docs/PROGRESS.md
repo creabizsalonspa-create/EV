@@ -1,5 +1,8 @@
 # Full platform progress — universal integration
 
+Latest native QA adds exact server-precision amount formatting (no floating-point/accounting duplication), correct EN/AR empty subscription-notice labels, fail-closed unsupported precision and clearing of transport-uncertainty messaging only after successful authoritative GET. Full Flutter80 passed/seven explicit live-only skips; all nine recovery-specific tests and analysis passed after the refresh correction. Composer strict validation and the preserved finance/lifecycle scheduler plus new hourly dunning registration are verified. Hosted validation is pending for this final native correction.
+
+
 ## Subscription dunning and CI request pacing — current slice
 
 Implemented immutable, bounded 1/3/7-day in-app subscription reminders; canonical subscription locking and unique invoice/stage prevent duplicate workers, delayed scans avoid reminder bursts and waiting invoices cannot starve new due notices. Paid/cancelled/zero-price/unresolved-provider invoices are suppressed. Scoped web/native EN/AR notices read current payment/recovery state without charging, mutating entitlements or inventing external delivery. See SUBSCRIPTION_DUNNING.md.

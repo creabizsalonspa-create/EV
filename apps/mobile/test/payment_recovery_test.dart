@@ -7,7 +7,7 @@ import 'package:creabiz_ev/payment_recovery.dart';
 import 'test_support.dart';
 
 class RecoveryApi extends FixtureApi {
-  bool lost = false, deny = false;
+  bool lost = false, deny = false, invalidPrecision = false;
   int posts = 0;
   final pages = <int>[];
   Completer<dynamic>? pending;
@@ -40,6 +40,7 @@ class RecoveryApi extends FixtureApi {
                 'kind': 'capture',
                 'provider': 'stripe_test',
                 'amount_minor': 999,
+                'minor_units': invalidPrecision ? 7 : 2,
                 'currency': 'AED',
                 'identity': 'private secret diagnostic',
               },
@@ -52,6 +53,8 @@ class RecoveryApi extends FixtureApi {
 }
 
 class DunningApi extends RecoveryApi {
+  final bool empty;
+  DunningApi({this.empty = false});
   @override
   Future<dynamic> request(
     String path, {
@@ -62,16 +65,19 @@ class DunningApi extends RecoveryApi {
     expect(path, 'commercial/subscription-notices');
     expect(method, 'GET');
     return {
-      'data': [
-        {
-          'id': 1,
-          'number': 'TEST-SUB-1',
-          'stage': 3,
-          'attention': 'recovery_required',
-          'total_minor': 525,
-          'currency': 'AED',
-        },
-      ],
+      'data': empty
+          ? []
+          : [
+              {
+                'id': 1,
+                'number': 'TEST-SUB-1',
+                'stage': 3,
+                'attention': 'recovery_required',
+                'total_minor': 525,
+                'minor_units': invalidPrecision ? 7 : 2,
+                'currency': 'AED',
+              },
+            ],
       'current_page': 1,
       'last_page': 1,
       'total': 1,
@@ -89,6 +95,35 @@ Widget app(RecoveryApi api, {VoidCallback? expired, bool ar = false}) =>
 
 void main() {
   testWidgets(
+    'unsupported server precision fails closed without displaying a misleading amount',
+    (t) async {
+      await t.pumpWidget(app(RecoveryApi()..invalidPrecision = true));
+      await t.pumpAndSettle();
+      expect(find.textContaining('9.99 AED'), findsNothing);
+      expect(find.text('Inspect provider status'), findsNothing);
+      expect(t.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'empty subscription notices do not use the payment-recovery empty label',
+    (t) async {
+      await t.pumpWidget(
+        MaterialApp(
+          home: PaymentRecoveryView(
+            api: DunningApi(empty: true),
+            onExpired: () {},
+            subscriptionNotices: true,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.text('No subscription notices.'), findsOneWidget);
+      expect(find.text('No payment recovery operations.'), findsNothing);
+    },
+  );
+
+  testWidgets(
     'subscription reminders render authoritative recovery hold and offer no collection action',
     (t) async {
       await t.pumpWidget(
@@ -105,7 +140,7 @@ void main() {
       expect(find.textContaining('existing uncertain payment'), findsOneWidget);
       expect(find.text('Inspect provider status'), findsNothing);
       expect(find.byType(FilledButton), findsNothing);
-      expect(find.textContaining('525 AED'), findsOneWidget);
+      expect(find.textContaining('5.25 AED'), findsOneWidget);
     },
   );
 
@@ -119,7 +154,7 @@ void main() {
     final api = RecoveryApi();
     await t.pumpWidget(app(api));
     await t.pumpAndSettle();
-    expect(find.textContaining('999 AED'), findsOneWidget);
+    expect(find.textContaining('9.99 AED'), findsOneWidget);
     expect(find.textContaining('private secret diagnostic'), findsNothing);
     await t.tap(find.text('Next'));
     await t.pumpAndSettle();
@@ -149,10 +184,11 @@ void main() {
       expect(api.posts, 1);
       expect(find.textContaining('Outcome remains uncertain'), findsOneWidget);
       expect(find.textContaining('private secret diagnostic'), findsNothing);
-      expect(find.textContaining('999 AED'), findsNothing);
+      expect(find.textContaining('9.99 AED'), findsNothing);
       await t.tap(find.text('Refresh status'));
       await t.pumpAndSettle();
       expect(api.posts, 1);
+      expect(find.textContaining('Outcome remains uncertain'), findsNothing);
     },
   );
   testWidgets(
@@ -166,7 +202,7 @@ void main() {
       await t.tap(find.text('Refresh status'));
       await t.pumpAndSettle();
       expect(expired, 1);
-      expect(find.textContaining('999 AED'), findsNothing);
+      expect(find.textContaining('9.99 AED'), findsNothing);
     },
   );
   testWidgets('Arabic layout is RTL at mobile width without overflow', (
