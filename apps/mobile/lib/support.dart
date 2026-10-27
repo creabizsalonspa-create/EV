@@ -40,7 +40,10 @@ class SupportViewState extends State<SupportView> {
       final result = ApiPage.fromJson(response, (row) => row);
       if (mounted && request == generation) setState(() => data = result);
     } catch (e) {
-      if (e is ApiException && [401, 419].contains(e.status))
+      if (mounted &&
+          request == generation &&
+          e is ApiException &&
+          [401, 419].contains(e.status))
         widget.onSessionExpired();
       if (mounted && request == generation) setState(() => error = e);
     } finally {
@@ -262,7 +265,7 @@ class _TicketPageState extends State<TicketPage> {
   }
 
   void failed(Object e) {
-    if (e is ApiException && [401, 419].contains(e.status))
+    if (mounted && e is ApiException && [401, 419].contains(e.status))
       widget.onSessionExpired();
     if (mounted) setState(() => error = e);
   }

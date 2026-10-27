@@ -10,10 +10,11 @@
 00:04 +5 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
 00:04 +6 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
 00:04 +7 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
-00:05 +8 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
-00:06 +9 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
-00:06 +10 ~1: /workspace/EV/apps/mobile/test/support_test.dart: inbox read actions update actual API state and notification opens its thread
-00:07 +11 ~1: /workspace/EV/apps/mobile/test/preferences_test.dart: device storage persists only validated appearance fields across controllers
-00:07 +12 ~1: /workspace/EV/apps/mobile/test/preferences_test.dart: corrupt or unsupported stored values use safe defaults; failed writes are visible
-00:07 +13 ~1: /workspace/EV/apps/mobile/test/preferences_test.dart: English and Arabic resource keys and interpolation contracts stay aligned
-00:07 +14 ~1: All tests passed!
+00:05 +8 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:06 +9 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:06 +10 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:06 +11 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:06 +12 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:06 +13 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:06 +14 ~1: /workspace/EV/apps/mobile/test/support_test.dart: inbox read actions update actual API state and notification opens its thread
+00:07 +15 ~1: All tests passed!

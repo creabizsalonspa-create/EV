@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:creabiz_ev/api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/support.dart';
 import 'test_support.dart';
@@ -60,7 +62,37 @@ class SupportFixture extends FixtureApi {
   }
 }
 
+class PendingSupport extends FixtureApi {
+  final response = Completer<dynamic>();
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) => response.future;
+}
+
 void main() {
+  testWidgets('disposed support requests cannot expire a later screen', (
+    tester,
+  ) async {
+    final api = PendingSupport();
+    addTearDown(api.close);
+    var expired = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SupportView(api: api, onSessionExpired: () => expired = true),
+        ),
+      ),
+    );
+    await tester.pumpWidget(const SizedBox());
+    api.response.completeError(const ApiException(401, 'old request'));
+    await tester.pumpAndSettle();
+    expect(expired, isFalse);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'thread loads public messages, sends replies and disables closed-ticket actions',
     (tester) async {
