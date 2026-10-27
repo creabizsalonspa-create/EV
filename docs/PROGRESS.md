@@ -1,5 +1,12 @@
 # Full platform progress — universal integration
 
+## Native payment recovery — verified implementation
+
+Canonical Flutter customer/vendor account menu now opens the tenant-scoped payment recovery queue and paginated audit history. Provider inspection requires explicit confirmation and calls the existing read-only provider-reconciliation API; it never creates a charge/refund, accepts card credentials or infers invoice payment from operation completion. Errors clear private rows, 401/419 invalidate the session, disposal fences late responses, lost responses never replay POSTs, and both English/Arabic RTL are supported. The UI renders an allowlist, not arbitrary provider payloads.
+
+Validation: Flutter analysis clean; 77 unit/widget tests passed with six explicit live-fixture skips; six new recovery tests cover pagination/history, consent, lost-response non-replay, expiry, 390px RTL and disposal. Separate native real-Laravel integration passed customer/vendor scope, cross-tenant 404s, private-field redaction and provider-mismatch 409 without initiating payments. Linux native CI now runs that opt-in connected test. Android/iOS hosted builds for this source remain pending. Saved mandates, off-session collection and dunning remain the immediate financial implementation priority; this UI does not implement them or claim merchant acceptance.
+
+
 ## Active ownership — final owner directive, 28 October 2026 (Dubai)
 
 Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.

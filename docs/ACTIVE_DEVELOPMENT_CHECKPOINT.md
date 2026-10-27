@@ -29,3 +29,7 @@ New migrations: charger admission and operational cases/events `2026_10_30_00000
 Use `./scripts/php artisan test`, `./scripts/php vendor/bin/pint --test`, `services/business-api/tests/Postgres/run-finance`, `services/business-api/tests/Postgres/run-connectors`, repository npm suites, `node tests/charger-ingress.cjs`, `node tests/charger-operations.cjs`, `node tests/native-charger-operations.cjs`, and pinned Flutter under `/workspace/.tools/flutter/bin`. Source observer runs through `./scripts/csms-consume`.
 
 External gates: physical chargers and firmware interoperability; real PSP/mandate/3DS acceptance; bilateral OCPI credentials/contracts; production infrastructure/security/restore exercises; mobile signing, devices and store acceptance. Entire software is not complete or production accepted. Remaining requirement evidence is in REQUIREMENT_STATUS.md and the module continuation reports.
+
+## Subsequent native slice
+
+Branch `development/native-finance-recovery` adds the tested canonical native payment-recovery queue/history/inspection workflow. Local Flutter 77 passed / six live-only skips, analysis clean, plus separate real-Laravel client test passed. Integration candidate and native slice still require hosted validation and PR merges. Next implementation remains saved mandates, recurring collection and dunning in the existing architecture.

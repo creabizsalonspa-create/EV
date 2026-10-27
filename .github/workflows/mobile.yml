@@ -9,6 +9,8 @@ on:
         "tests/native-inventory.cjs",
         "tests/native-topology.cjs",
         "tests/native-charger-operations.cjs",
+        "tests/native-payment-recovery.cjs",
+        "services/business-api/tests/Fixtures/payment-recovery-native.php",
         "services/business-api/tests/Fixtures/charger-operations.php",
         "services/business-api/app/Http/Controllers/ChargerAdmissionController.php",
         "services/business-api/app/Http/Controllers/ChargingOperationsController.php",
@@ -30,6 +32,8 @@ on:
         "tests/native-inventory.cjs",
         "tests/native-topology.cjs",
         "tests/native-charger-operations.cjs",
+        "tests/native-payment-recovery.cjs",
+        "services/business-api/tests/Fixtures/payment-recovery-native.php",
         "services/business-api/tests/Fixtures/charger-operations.php",
         "services/business-api/app/Http/Controllers/ChargerAdmissionController.php",
         "services/business-api/app/Http/Controllers/ChargingOperationsController.php",
@@ -99,6 +103,7 @@ jobs:
           node tests/native-inventory.cjs
           node tests/native-topology.cjs
           node tests/native-charger-operations.cjs
+          node tests/native-payment-recovery.cjs
           node tests/native-reservation-lifecycle.cjs
       - run: flutter build ios --simulator --no-codesign
         if: runner.os == 'macOS'
