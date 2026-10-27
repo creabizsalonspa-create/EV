@@ -56,8 +56,11 @@ class PlatformController extends Controller
 
     public function stations(Request $r)
     {
-        $v = $r->validate(['connector_type' => 'sometimes|in:CCS2,Type2,CHAdeMO', 'country' => 'sometimes|string|size:2', 'min_power_kw' => 'sometimes|integer|min:1|max:1000']);
+        $v = $r->validate(['q' => 'sometimes|string|max:100', 'connector_type' => 'sometimes|in:CCS2,Type2,CHAdeMO', 'country' => 'sometimes|string|size:2', 'min_power_kw' => 'sometimes|integer|min:1|max:1000']);
         $q = Station::query();
+        if (isset($v['q'])) {
+            $q->where('name', 'like', '%'.$v['q'].'%');
+        }
         foreach (['connector_type', 'country'] as $k) {
             if (isset($v[$k])) {
                 $q->where($k, $v[$k]);
@@ -67,13 +70,15 @@ class PlatformController extends Controller
             $q->where('power_kw', '>=', $v['min_power_kw']);
         }
 
-        return $q->orderBy('id')->paginate(25)->through(fn ($s) => array_merge($s->toArray(), ['availability' => 'unknown', 'remote_control' => false, 'reservable' => $s->source === 'simulator', 'evidence' => $s->source === 'simulator' ? 'SIMULATED' : 'DISCOVERY_ONLY']));
+        return $q->orderByDesc('id')->paginate(25)->through(fn ($s) => array_merge($s->toArray(), ['availability' => 'unknown', 'remote_control' => false, 'reservable' => $s->source === 'simulator', 'evidence' => $s->source === 'simulator' ? 'SIMULATED' : 'DISCOVERY_ONLY']));
     }
 
     public function createStation(Request $r)
     {
         abort_unless($r->user()->role === 'vendor', 403);
-        $v = $r->validate(['name' => 'required|string|max:150', 'country' => 'required|string|size:2|uppercase', 'currency' => 'required|string|size:3|uppercase', 'timezone' => 'required|timezone', 'latitude' => 'required|numeric|between:-90,90', 'longitude' => 'required|numeric|between:-180,180', 'source' => 'required|in:discovery,simulator', 'connector_type' => 'required|in:CCS2,Type2,CHAdeMO', 'power_kw' => 'required|integer|between:1,1000']);
+        $v = $r->validate(['name' => 'required|string|max:150', 'country' => 'required|string|size:2|uppercase|exists:regions,country', 'currency' => 'required|string|size:3|uppercase', 'timezone' => 'required|timezone', 'latitude' => 'required|numeric|between:-90,90', 'longitude' => 'required|numeric|between:-180,180', 'source' => 'required|in:discovery,simulator', 'connector_type' => 'required|in:CCS2,Type2,CHAdeMO', 'power_kw' => 'required|integer|between:1,1000']);
+
+        abort_unless(DB::table('regions')->where('country', $v['country'])->where('currency', $v['currency'])->exists(), 422, 'Currency does not match configured region.');
 
         return DB::transaction(function () use ($r, $v) {
             $s = Station::create($v + ['vendor_id' => $r->user()->id]);
@@ -111,6 +116,7 @@ class PlatformController extends Controller
     {
         abort_unless($r->user()->role === 'customer', 403);
         $v = $r->validate(['station_id' => 'required|integer|exists:stations,id', 'starts_at' => 'required|date_format:Y-m-d\TH:i:s\Z', 'idempotency_key' => 'required|string|max:100']);
+        $v['station_id'] = (int) $v['station_id'];
         $start = CarbonImmutable::parse($v['starts_at'], 'UTC');
         abort_unless($start->second === 0 && in_array($start->minute, [0, 30]), 422, 'Use a UTC half-hour boundary.');
         $v['starts_at'] = $start->format('Y-m-d H:i:s');

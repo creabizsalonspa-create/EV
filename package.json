@@ -1,1 +1,12 @@
-{"name":"creabiz-ev-workspace","private":true,"scripts":{"test:e2e":"node tests/browser.cjs"},"devDependencies":{"playwright":"1.62.1"}}
+{
+  "name": "creabiz-ev-workspace",
+  "private": true,
+  "scripts": {
+    "test:e2e": "node tests/browser.cjs",
+    "test:ocpp": "node tests/ocpp.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1",
+    "prettier": "3.9.10"
+  }
+}

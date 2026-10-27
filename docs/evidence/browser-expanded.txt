@@ -1,0 +1,5 @@
+
+> test:e2e
+> node tests/browser.cjs
+
+PASS: browser registration, vendor station creation, customer reservation/cancel, vendor visibility, tenant privacy, admin overview, garage privacy, fleet invitation acceptance, support internal-note privacy, Arabic RTL, mobile width; no page errors.

@@ -1,0 +1,1 @@
+[{"id":"ev-local-simulator","securityProfile":0,"allowUnknownChargingStations":true,"pingInterval":60,"host":"0.0.0.0","port":8081,"protocols":["ocpp2.0.1","ocpp1.6"],"tenantId":1,"dynamicTenantResolution":false}]

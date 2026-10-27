@@ -27,7 +27,7 @@ class SimulationTest extends TestCase
     public function test_start_meter_stop_are_authorized_idempotent_and_reconcile_integer_minor_units(): void
     {
         [$v,$c,$b] = $this->fixture();
-        $this->actingAs($c)->postJson('/api/reservations/'.$b->id.'/simulate-start')->assertCreated();
+        $this->actingAs($c)->postJson('/api/reservations/'.$b->id.'/simulate-start')->assertCreated()->assertJsonPath('status', 'charging')->assertJsonPath('energy_wh', 0);
         $this->postJson('/api/reservations/'.$b->id.'/simulate-start')->assertOk();
         $s = ChargingSession::first();
         $this->assertDatabaseCount('charging_sessions', 1);
@@ -45,7 +45,7 @@ class SimulationTest extends TestCase
     public function test_another_tenant_cannot_control_or_view_a_session(): void
     {
         [$v,$c,$b] = $this->fixture();
-        $this->actingAs($c)->postJson('/api/reservations/'.$b->id.'/simulate-start')->assertCreated();
+        $this->actingAs($c)->postJson('/api/reservations/'.$b->id.'/simulate-start')->assertCreated()->assertJsonPath('status', 'charging')->assertJsonPath('energy_wh', 0);
         $s = ChargingSession::first();
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->postJson('/api/simulations/'.$s->id.'/stop')->assertNotFound();
         $this->getJson('/api/simulations')->assertJsonCount(0, 'data');

@@ -1,0 +1,4 @@
+Command: ./scripts/php /usr/bin/composer audit --format=json
+Exit code: 100
+Result: NOT COMPLETED (network blocked), not a passed security audit.
+Error: curl error 7 while downloading https://packagist.org/api/security-advisories/: CONNECT tunnel failed, response 403

@@ -49,7 +49,10 @@ class PlatformTest extends TestCase
         $s = $this->station();
         $u = User::factory()->create();
         $v = $this->payload($s);
-        $this->actingAs($u)->postJson('/api/reservations', $v)->assertCreated();
+        $this->actingAs($u)->postJson('/api/reservations', $v)->assertCreated()->assertJsonPath('status', 'confirmed');
+        $stringId = $v;
+        $stringId['station_id'] = (string) $v['station_id'];
+        $this->postJson('/api/reservations', $stringId)->assertOk();
         $this->postJson('/api/reservations', $v)->assertOk();
         $this->assertDatabaseCount('reservations', 1);
         $this->actingAs(User::factory()->create())->postJson('/api/reservations', $this->payload($s, 'other'))->assertConflict();

@@ -19,5 +19,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: ./scripts/start
       - run: npm run test:e2e
+      - run: ./scripts/csms-setup
+      - run: ./scripts/csms-start
+      - run: npm run test:ocpp
       - if: failure()
         run: docker logs --tail 100 ev-business-api

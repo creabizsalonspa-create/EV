@@ -22,8 +22,10 @@ Customer, vendor and basic admin views share one Laravel web app. Each station c
 
 ## Verified boundaries
 
-Implemented: session authentication/CSRF, customer registration, restricted roles, station filters/provenance, vehicle APIs, fixed-slot reservations/cancellation, tenant-scoped views, simulated session commands/meters/totals, audit events, basic admin counts/audit view and partial Arabic RTL UI.
+Implemented: session authentication/CSRF, customer registration, restricted roles, station filters/provenance, vehicle APIs, fixed-slot reservations/cancellation, tenant-scoped views, simulated session commands/meters/totals, audit events, basic admin counts/audit view, regional configuration, fleet invitations/cost centers, support tickets/internal-note privacy, in-app notifications, profile/recovery, simulator-only CSMS outbox and partial Arabic RTL UI.
 
-Not delivered: full production security/2FA/KYC, multi-connector inventory, CitrineOS deployment/integration, OCPI roaming, maps, live availability, real payments/invoices/ledger, Flutter clients, store artifacts, commercial modules and production deployment. See the complete module register and next milestones before planning a release.
+Not delivered: full production security/2FA/KYC, multi-connector inventory, full CitrineOS event/session integration, OCPI roaming, maps, live availability, real payments/invoices/ledger, Flutter clients, store artifacts, commercial modules and production deployment. See the complete module register and next milestones before planning a release.
+
+The isolated CitrineOS development stack and tested OCPP subset are documented in [services/csms/README.md](services/csms/README.md). Full internal checkpoint evidence and release blockers are in [docs/QA_REPORT.md](docs/QA_REPORT.md).
 
 See [API contract](docs/API.md), [decisions](docs/DECISIONS.md), and [operations](docs/OPERATIONS.md).

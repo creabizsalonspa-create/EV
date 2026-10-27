@@ -7,4 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 class Reservation extends Model
 {
     protected $guarded = ['id'];
+
+    protected $attributes = ['status' => 'confirmed'];
 }
