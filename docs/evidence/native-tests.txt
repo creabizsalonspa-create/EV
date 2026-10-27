@@ -1,0 +1,7 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/live_api_test.dart
+00:00 +0: /workspace/EV/apps/mobile/test/live_api_test.dart: native client exercises actual Laravel roles, bookings and privacy
+  Skip: Set EV_NATIVE_SMOKE_URL to the disposable local Laravel service.
+00:00 +0 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:00 +1 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:00 +2 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:01 +3 ~1: All tests passed!

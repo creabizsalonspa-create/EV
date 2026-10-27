@@ -32,7 +32,7 @@ Typography uses the device system sans stack without third-party font requests. 
 | Themes, responsive/RTL | Chromium tests passed; light desktop and dark mobile screenshots visually inspected locally |
 | Web maps, real availability, route navigation | Missing; no map tiles, location consent, live source or partner contract claimed |
 | KYC/staff/multi-connector/tariffs/finance/payment/subscription/loyalty/ads | Backend capabilities incomplete; frontend remains unfinished, without invented successful actions |
-| Native Android/iOS | Source/platforms/lock present; local analyzer + 3 tests passed; hosted Android debug and unsigned iOS simulator builds passed; device integration incomplete |
+| Native Android/iOS | Source/platforms/lock present; local analyzer + 3 tests and 1 real-Laravel native-client smoke passed; hosted Android debug and unsigned iOS simulator builds passed; device integration incomplete |
 | Admin native | Deliberately absent per project requirements |
 | Complete English/Arabic, native persistent settings, accessibility and cross-browser certification | Incomplete/unverified |
 
@@ -59,3 +59,7 @@ Native bootstrap/build commands and exact limitations are in `apps/mobile/README
 3. Extract complete English/Arabic resources, translated validation and dynamic strings; finish screen routing, semantic/icon/a11y review and Firefox/WebKit/mobile matrix. Add supported map data/consent and truthful station detail capabilities.
 4. Coordinate the connector inventory, role/staff/KYC and CSMS session lifecycle contracts with backend work. Add finance/commerce/loyalty pages only as actionable APIs become available; never treat a placeholder screen as a delivered module.
 5. Merge/rebase safely after the identity checkpoint is integrated, inspect latest development/backend history before shared-file edits, and run affected tests. Never force-push.
+
+## Native-client integration evidence
+
+After SDK recovery, the explicit loopback-only smoke suite (`apps/mobile/test/live_api_test.dart`) passed against the real running Laravel service: customer/vendor authentication and CSRF rotation, operator-controlled role provisioning, vendor station creation, booking idempotency/vendor visibility, own vehicle/support creation, outsider privacy, cancellation and logout. This is **1 separate integration test passed**; normal native suites have **3 passed / 1 skipped** unless opted in. The source uses no mocked station responses for this check. Physical devices, HTTPS deployment behavior, secure persistent auth and the unfinished features remain unverified/incomplete.
