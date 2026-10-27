@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
 import 'catalog.dart';
 import 'roaming.dart';
+import 'invoice_history.dart';
 import 'preferences.dart';
 import 'strings.dart';
 import 'support.dart';
@@ -829,6 +830,15 @@ class _WorkspaceState extends State<Workspace> {
               onSelected: (value) {
                 if (value == 'profile') {
                   profile();
+                } else if (value == 'invoices') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => InvoiceHistoryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'verify') {
                   perform(() async {
                     await api!.request(
@@ -866,6 +876,11 @@ class _WorkspaceState extends State<Workspace> {
                 }
               },
               itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'invoices',
+                  enabled: !busy,
+                  child: Text(s.t('invoiceHistory')),
+                ),
                 PopupMenuItem(
                   value: 'profile',
                   enabled: !busy,

@@ -42,3 +42,7 @@ Read, in this order: `PRODUCT_REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/AC
 
 ## Completion evidence
 For each feature provide an implementation pointer and tests. For each deployed environment provide setup and rollback. For each external dependency provide its exact readiness level. The final overall handover includes source, build artifacts where available, migrations, docs, test reports, API documentation, infrastructure manifests, a risk register and unresolved external requirements.
+
+## Standing continuation objective
+
+The owner’s master instructions are retained in [docs/MASTER_CONTINUATION.md](docs/MASTER_CONTINUATION.md). Continue the full backend/web/mobile/admin scope on `development/fullstack-continuation` independently; preserve existing work, verify and push substantial checkpoints, and move to the next unfinished requirement within the active session. Simulated acceptance does not replace real integration software, and no background execution or full completion may be claimed without evidence. Read the latest progress and QA checkpoint before resuming.

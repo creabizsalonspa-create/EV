@@ -14,6 +14,7 @@ use App\Models\Station;
 use App\Services\Finance\FinanceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class FinanceController extends Controller
 {
@@ -48,7 +49,25 @@ class FinanceController extends Controller
 
     public function invoices(Request $r)
     {
+        $v = $r->validate([
+            'q' => ['sometimes', 'string', 'max:80', 'regex:/^[A-Za-z0-9-]+$/'],
+            'currency' => ['sometimes', 'string', 'regex:/^[A-Z]{3}$/'],
+            'from' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01'],
+            'to' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:0001-01-01', Rule::when($r->filled('from'), 'after_or_equal:from')],
+        ]);
         $q = Invoice::query();
+        if (isset($v['q'])) {
+            $q->where('number', 'like', $v['q'].'%');
+        }
+        if (isset($v['currency'])) {
+            $q->where('currency', $v['currency']);
+        }
+        if (isset($v['from'])) {
+            $q->where('created_at', '>=', $v['from'].' 00:00:00');
+        }
+        if (isset($v['to'])) {
+            $q->where('created_at', '<=', $v['to'].' 23:59:59.999999');
+        }
         if ($r->user()->role === 'vendor') {
             $q->where('vendor_id', $r->user()->id);
         } elseif ($r->user()->role !== 'admin') {

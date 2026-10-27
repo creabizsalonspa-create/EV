@@ -273,6 +273,34 @@ void main() {
           method: 'POST',
         );
         expect(stopped['total_minor'], 150);
+        final issued = await customer.request(
+          'finance/sessions/${session['id']}/invoice',
+          method: 'POST',
+        );
+        final invoice = issued['invoice'];
+        expect(invoice['evidence'], 'SIMULATED');
+        final history = await customer.request(
+          'finance/invoices',
+          query: {
+            'q': invoice['number'] as String,
+            'currency': 'AED',
+            'page': '1',
+          },
+        );
+        expect(history['data'].length, 1);
+        expect(history['data'][0]['id'], invoice['id']);
+        final receipt = await customer.request(
+          'finance/invoices/${invoice['id']}',
+        );
+        expect(receipt['payment_provider'], 'SIMULATOR_ONLY');
+        expect(receipt['real_payment_processed'], false);
+        expect(receipt['invoice']['total_minor'], 150);
+        expect(receipt['payments'], isEmpty);
+        await expectLater(
+          outsider.request('finance/invoices/${invoice['id']}'),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+        );
+
         await expectLater(
           vendor.request(
             'simulations/${session['id']}/meter',

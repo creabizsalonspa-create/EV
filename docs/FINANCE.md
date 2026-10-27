@@ -59,3 +59,7 @@ A later resource-expanded PostgreSQL attempt reached the runner but found a read
 ## Integrated PostgreSQL verification
 
 The full-stack continuation executed the isolated runner successfully after correcting CREATE OR REPLACE for the immutability function (migrate:fresh retains PostgreSQL functions). Finance: 14 tests / 4,999 assertions. Concurrent cross-invoice payment/refund key races: 2 tests / 26 assertions. No duplicate journal posting/refund occurred; conflicting payloads return conflict. Reports: evidence/fullstack-postgres-finance.txt and evidence/fullstack-postgres-concurrency.txt. This supersedes the earlier unverified PostgreSQL checkpoint for these tests only; full production concurrency/load and deployment acceptance remain open.
+
+## Web/native read-only history
+
+Web Invoice history supports all authenticated roles; native Account → Invoice history supports customer/vendor roles. Both use scoped numeric pages and invoice-prefix/currency/UTC date filters, then GET existing document detail without reissuing it. Detail includes recorded simulated collections/refunds; vendor/admin web additionally shows immutable allocation snapshots explicitly before refunds and without payout claims. Logout/expiry removes private records. Read-only UI acceptance is distinct from payment checkout, refund mutations, PSP integrations and commercial settlements, which remain unfinished. Tests: FinanceTest history filter/privacy cases, `npm run test:invoices`, native invoice/history tests and opted-in real-Laravel smoke.

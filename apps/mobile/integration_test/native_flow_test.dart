@@ -83,6 +83,37 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/finance/invoices' ||
+            path == '/api/finance/invoices/7') {
+          expectSync(request.method, 'GET');
+          final invoice = {
+            'id': 7,
+            'number': 'SIM-DEVICE-INVOICE',
+            'evidence': 'SIMULATED',
+            'created_at': '2026-10-27T00:00:00Z',
+            'currency': 'AED',
+            'subtotal_minor': 100,
+            'tax_minor': 5,
+            'total_minor': 105,
+          };
+          result = path.endsWith('/7')
+              ? {
+                  'invoice': invoice,
+                  'payment_provider': 'SIMULATOR_ONLY',
+                  'real_payment_processed': false,
+                  'paid_minor': 0,
+                  'refunded_minor': 0,
+                  'amount_due_minor': 105,
+                  'ledger_balanced': true,
+                  'payments': [],
+                  'refunds': [],
+                }
+              : {
+                  'data': [invoice],
+                  'current_page': 1,
+                  'last_page': 1,
+                  'total': 1,
+                };
         } else if (path == '/api/roaming/locations') {
           final page = int.parse(request.uri.queryParameters['page'] ?? '1');
           result = {
@@ -199,6 +230,25 @@ void main() {
       await tester.pageBack();
       await settle();
       debugPrint('DEVICE: read-only partner pagination verified');
+      await tester.tap(find.byTooltip('Account'));
+      await settle();
+      await tester.tap(find.text('Invoice history'));
+      await settle();
+      expect(find.text('SIM-DEVICE-INVOICE'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('View invoice'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('View invoice'));
+      await settle();
+      expect(find.text('SIM-DEVICE-INVOICE'), findsOneWidget);
+      expect(find.text('Amount due: 105 minor units AED'), findsOneWidget);
+      await tester.pageBack();
+      await settle();
+      await tester.pageBack();
+      await settle();
+      debugPrint('DEVICE: scoped read-only invoice history verified');
 
       await tester.scrollUntilVisible(
         find.byKey(const Key('catalog-next')),

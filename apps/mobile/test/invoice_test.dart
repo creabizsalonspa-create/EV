@@ -21,6 +21,7 @@ class InvoiceFixture extends FixtureApi {
     return {
       'invoice': {
         'number': 'SIM-FIXTURE',
+        'evidence': 'SIMULATED',
         'subtotal_minor': 313,
         'tax_minor': 16,
         'total_minor': 329,

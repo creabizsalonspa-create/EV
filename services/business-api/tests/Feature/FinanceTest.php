@@ -169,6 +169,25 @@ class FinanceTest extends TestCase
         $this->postJson($base.'/simulate-refund', ['amount_minor' => 1297, 'idempotency_key' => 'refund', 'reason' => 'Simulation refund'])->assertCreated();
     }
 
+    public function test_invoice_history_filters_preserve_tenant_scope_and_validate_dates_and_literal_prefix(): void
+    {
+        $f = $this->fixture();
+        $invoice = $this->invoice($f);
+        $base = '/finance-test-api/finance/invoices';
+        $this->actingAs($f[1])->getJson($base.'?'.http_build_query(['q' => $invoice->number, 'currency' => 'AED', 'from' => now()->toDateString(), 'to' => now()->toDateString()]))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $invoice->id)->assertJsonPath('data.0.evidence', 'SIMULATED');
+        $this->getJson($base.'?currency=USD')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson($base.'?to='.now()->subDay()->toDateString())->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson($base.'?to=9999-12-31')->assertOk()->assertJsonCount(1, 'data');
+        $this->getJson($base.'?from=0000-01-01')->assertUnprocessable();
+        $this->getJson($base.'?q=%25')->assertUnprocessable();
+        $this->getJson($base.'?from=2026-02-30')->assertUnprocessable();
+        $this->getJson($base.'?from=2026-10-02&to=2026-10-01')->assertUnprocessable();
+        $this->actingAs(User::factory()->create())->getJson($base.'?q='.$invoice->number)->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($f[0])->getJson($base)->assertOk()->assertJsonCount(1, 'data');
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($base)->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_only_vendor_owner_or_admin_can_publish_tariff_and_vendor_cannot_set_commission(): void
     {
         $f = $this->fixture();

@@ -16,6 +16,22 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'filterInvoices': 'Filter invoices',
+    'invoiceHistory': 'Invoice history',
+    'invoicePrefix': 'Invoice number prefix',
+    'invoiceFrom': 'From (UTC, YYYY-MM-DD)',
+    'invoiceTo': 'Through (UTC, YYYY-MM-DD)',
+    'invalidInvoicePrefix': 'Use letters, numbers and hyphens.',
+    'invalidCurrency': 'Use a three-letter currency code.',
+    'invalidDate': 'Enter a valid date as YYYY-MM-DD.',
+    'invalidDateRange': 'End date must be on or after the start date.',
+    'noInvoices': 'No invoices match these filters.',
+    'viewInvoice': 'View invoice',
+    'payments': 'Simulated collections',
+    'refunds': 'Simulated refunds',
+    'noTransactions': 'No transactions recorded.',
+    'invoiceTransaction': '{amount} minor units {currency} · {time}',
+
     'roaming': 'Partner locations',
     'roamingDisclaimer':
         'Unverified partner-reported locations. Reservations, remote charging and payments are unavailable here.',
@@ -245,6 +261,22 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'filterInvoices': 'تصفية الفواتير',
+    'invoiceHistory': 'سجل الفواتير',
+    'invoicePrefix': 'بداية رقم الفاتورة',
+    'invoiceFrom': 'من (UTC، YYYY-MM-DD)',
+    'invoiceTo': 'حتى (UTC، YYYY-MM-DD)',
+    'invalidInvoicePrefix': 'استخدم الحروف والأرقام والشرطات.',
+    'invalidCurrency': 'استخدم رمز العملة من ثلاثة أحرف.',
+    'invalidDate': 'أدخل تاريخاً صالحاً بصيغة YYYY-MM-DD.',
+    'invalidDateRange': 'يجب ألا يسبق تاريخ النهاية تاريخ البداية.',
+    'noInvoices': 'لا توجد فواتير تطابق هذه المرشحات.',
+    'viewInvoice': 'عرض الفاتورة',
+    'payments': 'التحصيلات التجريبية',
+    'refunds': 'المبالغ المستردة التجريبية',
+    'noTransactions': 'لا توجد معاملات مسجلة.',
+    'invoiceTransaction': '{amount} وحدة صغرى {currency} · {time}',
+
     'roaming': 'مواقع شبكات التجوال',
     'roamingDisclaimer':
         'مواقع واردة من الشريك وغير متحقق منها. الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.',

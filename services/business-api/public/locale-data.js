@@ -1400,4 +1400,52 @@ window.EV_MESSAGES = {
         en: "Reported cost including VAT:",
         ar: "التكلفة الواردة مع الضريبة:",
     },
+    "Invoice history": { en: "Invoice history", ar: "سجل الفواتير" },
+    "Invoice number prefix": {
+        en: "Invoice number prefix",
+        ar: "بداية رقم الفاتورة",
+    },
+    "Invoice from UTC": { en: "From date (UTC)", ar: "من تاريخ (UTC)" },
+    "Invoice through UTC": { en: "Through date (UTC)", ar: "حتى تاريخ (UTC)" },
+    "No matching invoices": {
+        en: "No invoices match these filters.",
+        ar: "لا توجد فواتير تطابق هذه المرشحات.",
+    },
+    "View invoice": { en: "View invoice", ar: "عرض الفاتورة" },
+    "Invoice details": { en: "Invoice details", ar: "تفاصيل الفاتورة" },
+    "Invoice history load failed": {
+        en: "Unable to load invoice history. Please retry.",
+        ar: "تعذر تحميل سجل الفواتير. يرجى المحاولة مجدداً.",
+    },
+    "Allocation disclaimer": {
+        en: "Simulated allocations before any refunds; these are not settled or payable balances.",
+        ar: "توزيعات تجريبية قبل أي مبالغ مستردة؛ ليست أرصدة مسواة أو مستحقة الدفع.",
+    },
+    "Simulated commission allocation": {
+        en: "Simulated commission allocation",
+        ar: "توزيع العمولة التجريبي",
+    },
+    "Simulated vendor allocation": {
+        en: "Simulated vendor allocation",
+        ar: "توزيع المورد التجريبي",
+    },
+    "Simulated collections": {
+        en: "Simulated collections",
+        ar: "التحصيلات التجريبية",
+    },
+    "Simulated refunds": {
+        en: "Simulated refunds",
+        ar: "المبالغ المستردة التجريبية",
+    },
+    "No recorded transactions": {
+        en: "No transactions recorded.",
+        ar: "لا توجد معاملات مسجلة.",
+    },
+    "Loading…": { en: "Loading…", ar: "جارٍ التحميل…" },
+    Retry: { en: "Retry", ar: "إعادة المحاولة" },
+    Previous: { en: "Previous", ar: "السابق" },
+    Next: { en: "Next", ar: "التالي" },
+    Refresh: { en: "Refresh", ar: "تحديث" },
+    Search: { en: "Search", ar: "بحث" },
+    "Open company": { en: "Open company", ar: "فتح الشركة" },
 };

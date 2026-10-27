@@ -1,5 +1,18 @@
 # Full platform progress — universal integration
 
+## Invoice history and receipt interfaces checkpoint
+
+Implemented tenant-scoped invoice-number prefix/currency/inclusive UTC date filters in the shared cookie/token finance API; strict literal/date validation covers invalid calendars, year zero and the maximum four-digit year. Existing unfiltered pagination is preserved. Added customer/vendor/admin web invoice history, scoped detail, read-only collection/refund receipts, literal refund reasons and vendor/admin simulated allocation summaries. No payment instruments, capture/refund mutation or payout controls are exposed by these screens. Allocations are explicitly before refunds and are not settled/payable balances.
+
+Canonical Flutter now has Account → Invoice history with matching filters/pagination, retained failed-input/retry state, strict date validation, scoped GET detail, read-only receipts and expiry cleanup. Existing session-idempotent invoice issuance remains intact; both detail paths validate simulated evidence. EN/AR/RTL and generic workspace navigation resources are supplied, and localization QA now checks literal workspace UI labels against explicit resources. Native TLS integration includes invoice navigation; its updated device/build execution is pending for this checkpoint.
+
+Verified locally: Laravel **89 tests / 5,591 assertions**, Pint **115 files**; PostgreSQL finance **15 tests / 5,019 assertions** plus **2 concurrency tests / 26 assertions**; native analysis clean, **30 unit/widget passes / 1 explicit default live skip**, separate actual-Laravel native integration **1 passed**. Invoice browser acceptance verifies 26-record pagination/filtering, customer/vendor allocations, cross-tenant 404, read-only receipts, safe user text, Arabic phone layout and logout; existing e2e/vendor/contracts/localization pass. Evidence: invoice-history-* files. Synthetic immutable finance fixtures are intentionally retained, never deleted or edited.
+
+Roaming source **c4f8243** passed hosted Android debug/iOS simulator builds and **1 iPhone TLS/Keychain/partner-pagination test**; artifacts/phase evidence is retained. Both hosted platform runs at **d5ed944** pass the explicit real-429 authentication regression. These results do not prove the newer invoice device scenario until its own CI run passes. The owner’s standing full-scope prompt is retained in MASTER_CONTINUATION.md and linked from AGENTS.md.
+
+Next active implementation: vendor/admin station tariff management with native vendor pricing and preservation of administrator commission policy. Remaining PSP/webhooks, subscriptions, settlements, loyalty/maps, connector-level booking/maintenance and complete operator/company mobile workflows remain unfinished; no production or full-platform completion is claimed.
+
+
 ## Roaming browser authentication budget follow-up
 
 The push platform run at c4f8243 passed, but the parallel PR run 40483716348 failed waiting for the provider workspace after a throttled login. The roaming browser test now checks login responses and waits a bounded numeric Retry-After once only for explicit HTTP 429. It never retries a transport failure/503 and does not change production limits. CI deliberately consumes the local synthetic invalid-login budget and asserts that the real limiter rejects excess requests before a successful login. This makes authentication security part of the browser acceptance test rather than relying on suite timing. Local real-throttle proof is recorded separately; subsequent hosted status must be read from revision-specific evidence.

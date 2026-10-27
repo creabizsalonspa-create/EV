@@ -25,6 +25,7 @@ async function api(path, method = "GET", data, signal) {
 function clearPrivateViews() {
     vendorWorkspace.clear();
     roamingWorkspace.clear();
+    invoiceHistory.clear();
     commandRequest?.abort();
     el("commands-state").textContent = "";
     delete el("commands-state").dataset.i18n;
@@ -164,6 +165,7 @@ async function identity() {
     }
     await vendorWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
+    await invoiceHistory.setActor(user);
     if (user?.role === "admin") await adminOverview();
     if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
@@ -722,6 +724,12 @@ const roamingWorkspace = createRoamingWorkspace({
     ui,
     actor: () => user,
     notice,
+});
+const invoiceHistory = createInvoiceHistory({
+    root: el("invoice-history"),
+    api,
+    ui,
+    actor: () => user,
 });
 (async () => {
     await roamingWorkspace.catalog();

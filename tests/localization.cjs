@@ -15,6 +15,23 @@ const fs = require("node:fs"),
       [...s.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]).sort();
     assert.deepEqual(variables(value.en), variables(value.ar), key);
   }
+  // Literal UI labels in the new workspaces must have both resources; never scan user text.
+  for (const file of ["vendor-ops.js", "roaming.js", "invoice-history.js"]) {
+    const source = fs.readFileSync(
+      "services/business-api/public/" + file,
+      "utf8",
+    );
+    const expressions = [
+      /\bui\(\s*["'][a-z]+["']\s*,\s*["']([^"']+)["']/g,
+      /\bbutton\([^,]+,\s*["']([^"']+)["']/g,
+    ];
+    for (const expression of expressions)
+      for (const match of source.matchAll(expression))
+        assert(
+          Object.hasOwn(scope.window.EV_MESSAGES, match[1]),
+          file + ": missing EN/AR UI resource " + match[1],
+        );
+  }
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.EV_CHROMIUM_PATH || undefined,

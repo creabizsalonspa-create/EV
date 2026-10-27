@@ -5,14 +5,16 @@ import 'strings.dart';
 /// Read-only simulated accounting; no checkout, card collection or payout UI.
 class InvoicePage extends StatefulWidget {
   final EvApi api;
-  final int sessionId;
+  final int? sessionId;
+  final int? invoiceId;
   final VoidCallback onExpired;
   const InvoicePage({
     super.key,
     required this.api,
-    required this.sessionId,
+    this.sessionId,
+    this.invoiceId,
     required this.onExpired,
-  });
+  }) : assert((sessionId == null) != (invoiceId == null));
   @override
   State<InvoicePage> createState() => _InvoicePageState();
 }
@@ -35,10 +37,13 @@ class _InvoicePageState extends State<InvoicePage> {
     try {
       // Issuance is server-idempotent by session, including already issued documents.
       final result = await widget.api.request(
-        'finance/sessions/${widget.sessionId}/invoice',
-        method: 'POST',
+        widget.invoiceId != null
+            ? 'finance/invoices/${widget.invoiceId}'
+            : 'finance/sessions/${widget.sessionId}/invoice',
+        method: widget.invoiceId != null ? 'GET' : 'POST',
       );
-      if (result['payment_provider'] != 'SIMULATOR_ONLY' ||
+      if (result['invoice']?['evidence'] != 'SIMULATED' ||
+          result['payment_provider'] != 'SIMULATOR_ONLY' ||
           result['real_payment_processed'] != false) {
         throw const ApiException(409, 'Unsupported finance evidence.');
       }
@@ -94,6 +99,21 @@ class _InvoicePageState extends State<InvoicePage> {
                   }),
                 ),
               ),
+            for (final kind in ['payments', 'refunds']) ...[
+              Text(s.t(kind), style: Theme.of(context).textTheme.titleMedium),
+              if ((data![kind] as List? ?? []).isEmpty)
+                Text(s.t('noTransactions')),
+              for (final row in (data![kind] as List? ?? [])) ...[
+                Text(
+                  s.t('invoiceTransaction', {
+                    'amount': row['amount_minor'],
+                    'currency': invoice['currency'],
+                    'time': '${row['created_at']}',
+                  }),
+                ),
+                if (kind == 'refunds') Text('${row['reason'] ?? ''}'),
+              ],
+            ],
             Chip(
               label: Text(
                 s.t(
