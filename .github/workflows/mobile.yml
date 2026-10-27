@@ -1,0 +1,37 @@
+name: Native client validation (unverified until run)
+on:
+  workflow_dispatch:
+  push:
+    paths: ["apps/mobile/**", ".github/workflows/mobile.yml"]
+  pull_request:
+    paths: ["apps/mobile/**", ".github/workflows/mobile.yml"]
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install pinned official Flutter source
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 3.35.7 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = adc901062556672b4138e18a4dc62a4be8f4b3c2
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - run: flutter --version
+      - run: ./apps/mobile/tool/bootstrap
+      - run: flutter build apk --debug
+        if: runner.os == 'Linux'
+        working-directory: apps/mobile
+      - run: flutter build ios --simulator --no-codesign
+        if: runner.os == 'macOS'
+        working-directory: apps/mobile

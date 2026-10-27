@@ -62,3 +62,24 @@ This continuation supersedes the earlier 31-test count for the current source. B
 - Initial test exposed middleware overriding the verification page's referrer policy; corrected shared headers for verification and reset links. Another test reused an old in-memory authenticated user between requests; corrected the test to reload the user as a fresh HTTP request does. Final runs above passed.
 
 Current environment supports the implemented local web/backend/simulator workflow. Email delivery, verified-only production access policies, 2FA, KYC/native clients and the full release gates above remain outstanding. Cloud install/start instructions were saved for review, not published; fresh-task/volume restoration is not verified. GitHub Git fetch and PR-head inspection succeeded; GraphQL PR listing returned Forbidden. No PR review state or hosted CI result is inferred from the Git refs.
+
+## Frontend assignment checkpoint — 2026-10-27
+
+Branch `development/frontend`, base `f4feac7`; the exact frontend implementation is the commit containing this section. Backend controllers, migrations, business rules and CSMS services were unchanged after the frontend assignment.
+
+| Check | Actual result |
+|---|---|
+| Backend regression | **37 passed, 279 assertions**; evidence/frontend-backend.txt |
+| Real-backend Chromium workflow | **Passed**; evidence/frontend-browser.txt; existing flows plus email/theme checks, fleet vehicle assignment and private DOM cleanup on a mocked expired-session response |
+| Isolated frontend contract suite | **Passed**; evidence/frontend-contracts.txt; query-preserving pagination, safe text rendering, role navigation, service-error recovery, offline/online, 390/768/1440px and RTL; fixtures are test-only |
+| PHP style and Composer lock/schema | **Passed**, 59 files and strict Composer validation |
+| JavaScript syntax, shell bootstrap syntax, diff whitespace | **Passed** with node --check, bash -n and git diff --check |
+| Visual inspection | Light desktop and dark 390px screenshots inspected locally; not formal design/WCAG acceptance |
+| OCPP regression | Both protocols passed at the identity checkpoint in this session; no CSMS/backend code changed during frontend work |
+| Flutter analysis/unit/widget tests | **UNRUN**; test sources present, SDK absent and metadata access HTTP 403 |
+| Android/iOS platform generation and builds | **UNRUN**; bootstrap + CI supplied, no native artifacts |
+| Hosted CI, Firefox/WebKit, physical devices, full accessibility/performance | **UNVERIFIED / UNRUN** |
+
+Native code is explicitly an unverified source checkpoint, not completed mobile functionality. Its first mandatory follow-up is SDK installation, actual analyzer/test execution and repair, then device/network/build validation. Current native limits, generated-platform strategy, HTTPS deployment requirement and unfinished UI modules are in apps/mobile/README.md. Complete frontend acceptance is not requested.
+
+Git operations were rechecked before work: remote development and PR #1 head shared `e7e4833`; GitHub GraphQL metadata returned Forbidden. Identity work pushed as `f4feac7` before branching. Push/PR outcomes for this frontend checkpoint must be established from subsequent Git commands; no hosted PR state or CI success is inferred from a local commit.

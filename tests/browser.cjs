@@ -222,6 +222,21 @@ const { randomUUID } = require("node:crypto");
       "",
     );
     await customer.page
+      .locator('#fleet-detail input[aria-label="Cost center code"]')
+      .fill("QA");
+    await customer.page
+      .locator('#fleet-detail input[aria-label="Cost center name"]')
+      .fill("Browser operations");
+    await customer.page
+      .locator("#fleet-detail")
+      .getByRole("button", { name: "Add cost center" })
+      .click();
+    await customer.page.locator("#fleet-assign").waitFor();
+    await customer.page.locator("#fleet-assign button").click();
+    await customer.page.waitForFunction(() =>
+      document.querySelector("#fleet-detail").textContent.includes("Vehicle #"),
+    );
+    await customer.page
       .locator("#support-create [name=subject]")
       .fill("Browser support " + run);
     await customer.page
@@ -240,7 +255,7 @@ const { randomUUID } = require("node:crypto");
     await vendor.page.reload();
     await vendor.page.locator("#admin").waitFor({ state: "visible" });
     await vendor.page.waitForFunction(() =>
-      document.querySelector("#overview").textContent.includes("audit_events"),
+      document.querySelector("#overview").textContent.includes("Audit history"),
     );
     await vendor.page
       .locator("#ticket-list button")
@@ -276,6 +291,26 @@ const { randomUUID } = require("node:crypto");
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    // Simulate an expired session response, then verify private DOM is cleared.
+    await customer.page.route("**/api/me", (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "Unauthenticated." }),
+      }),
+    );
+    await customer.page.locator("#refresh-identity").click();
+    await customer.page.locator("#account").waitFor({ state: "visible" });
+    assert.equal(await customer.page.locator("#garage").isVisible(), false);
+    assert.equal(
+      await customer.page.locator("#vehicle-list").textContent(),
+      "",
+    );
+    assert.equal(
+      await customer.page.locator("#fleet-detail").textContent(),
+      "",
+    );
+    assert.equal(await customer.page.locator("#who").textContent(), "");
     const restricted = await browser.newContext();
     await restricted.addInitScript(() => {
       Object.defineProperty(window, "localStorage", {

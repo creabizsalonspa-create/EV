@@ -19,6 +19,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: ./scripts/start
       - run: npm run test:e2e
+      - run: npm run test:frontend
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
       - run: npm run test:ocpp

@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "test:e2e": "node tests/browser.cjs",
-    "test:ocpp": "node tests/ocpp.cjs"
+    "test:ocpp": "node tests/ocpp.cjs",
+    "test:frontend": "node tests/frontend.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

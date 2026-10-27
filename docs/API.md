@@ -64,3 +64,11 @@ Named rate-limit budgets separate authentication (10/minute), recovery (5), gene
 ## Web appearance
 
 The shared web UI supports Light/Dark/System through the header Appearance control. The selected preference is browser-local (`creabiz.theme`) and defaults to the operating system. System changes apply immediately; choices synchronize across tabs. Storage denial falls back to the current page. The preference also applies to verification and password-reset pages before styles load. Native clients, full design-system review, complete Arabic translation and formal accessibility acceptance remain outstanding.
+
+## Frontend integration checkpoint
+
+The web client continues to use the existing endpoints without backend contract changes. Catalog pagination follows only the returned query string on the same fixed `/api/stations` endpoint; it never fetches a returned foreign origin. Admin cards/table consume `GET /api/admin/overview` counts plus `audit_events`. Fleet vehicle assignment submits `vehicle_id` and `cost_center_id` to the existing same-fleet endpoint. UI-only hiding never replaces server authorization.
+
+The initial native source uses the same session-cookie/CSRF endpoints, keeps credentials in memory, refreshes CSRF after login, and requires a reachable HTTPS origin in release builds. This integration is source-only and unverified on devices. It does not introduce bearer-token APIs, native secure persistence or web admin access.
+
+Backend coordination requirements (not implemented endpoints or approved contracts): multi-connector station/EVSE/connector identifiers with reservation/control targeting; verified vendor organization/staff permissions and KYC review states; authenticated session event/energy lifecycle; versioned tariff quote + currency/minor-unit rules; idempotent hosted-payment intent/invoice/settlement APIs; authenticated discovery/availability provenance and freshness; outbound OCPI capability negotiation. Frontend modules remain incomplete until the backend defines/implements these, and must not invent live data or successful finance states.

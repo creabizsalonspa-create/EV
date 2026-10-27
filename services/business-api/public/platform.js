@@ -2,20 +2,79 @@ let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
     notice = (s) => (el("notice").textContent = s);
-async function api(path, method = "GET", data) {
-    let r = await fetch("/api/" + path, {
-        method,
-        headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            "X-CSRF-TOKEN": csrf,
-        },
-        body: data ? JSON.stringify(data) : undefined,
-    });
-    let j = r.status === 204 ? null : await r.json();
-    if (!r.ok) throw Error(j.message || "Request failed");
-    return j;
+const client = new EvApi(csrf);
+async function api(path, method = "GET", data, signal) {
+    client.token = csrf;
+    try {
+        return await client.request(path, method, data, signal);
+    } catch (error) {
+        if (error.status === 401 && user) {
+            user = null;
+            renderIdentity();
+            clearPrivateViews();
+        }
+        throw error;
+    }
 }
+function clearPrivateViews() {
+    for (const id of [
+        "reservation-list",
+        "simulation-list",
+        "fleet-list",
+        "fleet-invitations",
+        "fleet-detail",
+        "vehicle-list",
+        "ticket-list",
+        "ticket-detail",
+        "notifications",
+        "overview",
+    ])
+        el(id).replaceChildren();
+    for (const id of [
+        "profile-form",
+        "support-create",
+        "vehicle-create",
+        "station-form",
+        "fleet-create",
+    ])
+        el(id).reset();
+}
+function empty(container, message) {
+    const state = node("p", message);
+    state.className = "empty-state";
+    el(container).append(state);
+}
+function renderIdentity() {
+    el("account").hidden = !!user;
+    el("forgot-password").hidden = !!user;
+    el("signed").hidden = !user;
+    el("bookings").hidden = !user;
+    el("vendor").hidden = user?.role !== "vendor";
+    el("who").textContent = user ? user.name + " · " + user.role : "";
+    el("email-status").textContent = user
+        ? user.email_verified_at
+            ? "Email verified / البريد مؤكد"
+            : "Email not verified / البريد غير مؤكد"
+        : "";
+    el("verify-email").hidden = !user || !!user.email_verified_at;
+    for (const id of ["simulations", "fleets", "garage", "support"])
+        el(id).hidden = !user;
+    el("admin").hidden = el("region-config").hidden = user?.role !== "admin";
+    document.querySelectorAll("[data-access]").forEach((n) => {
+        n.hidden =
+            n.dataset.access === "auth"
+                ? !user
+                : user?.role !== n.dataset.access;
+    });
+    el("workspace-label").textContent = user
+        ? user.role === "admin"
+            ? "Operations workspace"
+            : user.role === "vendor"
+              ? "Operator workspace"
+              : "Driver workspace"
+        : "Your charging companion";
+}
+
 function node(tag, text) {
     let e = document.createElement(tag);
     e.textContent = text;
@@ -27,26 +86,12 @@ async function identity() {
     el("overview").replaceChildren();
     try {
         user = await api("me");
-    } catch {
+    } catch (error) {
         user = null;
+        if (error.status !== 401) notice(error.message);
     }
-    el("account").hidden = !!user;
-    el("signed").hidden = !user;
-    el("bookings").hidden = !user;
-    el("vendor").hidden = user?.role !== "vendor";
-    el("who").textContent = user ? user.name + " · " + user.role : "";
-    el("email-status").textContent = user
-        ? user.email_verified_at
-            ? "Email verified / البريد مؤكد"
-            : "Email not verified / البريد غير مؤكد"
-        : "";
-    el("verify-email").hidden = !user || !!user.email_verified_at;
-    el("simulations").hidden = !user;
-    el("admin").hidden = user?.role !== "admin";
-    el("fleets").hidden = !user;
-    el("garage").hidden = !user;
-    el("support").hidden = !user;
-    el("region-config").hidden = user?.role !== "admin";
+    renderIdentity();
+    if (!user) clearPrivateViews();
     if (user) {
         await bookings();
         await simulations();
@@ -54,15 +99,43 @@ async function identity() {
         await garage();
         await support();
     }
-    if (user?.role === "admin")
-        el("overview").textContent = JSON.stringify(
-            await api("admin/overview"),
-            null,
-            2,
-        );
+    if (user?.role === "admin") await adminOverview();
 }
+let stationRequest = null,
+    stationQuery = "";
 async function stations(query = "") {
-    let j = await api("stations" + query);
+    stationRequest?.abort();
+    const request = new AbortController();
+    stationRequest = request;
+    el("stations").setAttribute("aria-busy", "true");
+    el("catalog-state").textContent = "Loading stations… / جارٍ تحميل المحطات";
+    let j;
+    try {
+        j = await api("stations" + query, "GET", undefined, request.signal);
+    } catch (error) {
+        if (request.signal.aborted) return;
+        el("catalog-state").textContent = error.message;
+        el("stations").removeAttribute("aria-busy");
+        return;
+    }
+    if (request.signal.aborted) return;
+    el("stations").removeAttribute("aria-busy");
+    stationQuery = query;
+    el("catalog-state").textContent =
+        j.total + " stations · availability is unverified / الحالة غير مؤكدة";
+    el("catalog-pagination").replaceChildren();
+    for (const [label, url] of [
+        ["Previous / السابق", j.prev_page_url],
+        ["Next / التالي", j.next_page_url],
+    ]) {
+        const button = node("button", label);
+        button.disabled = !url;
+        button.onclick = () => stations(new URL(url, location.origin).search);
+        el("catalog-pagination").append(button);
+    }
+    el("catalog-pagination").append(
+        node("span", "Page " + j.current_page + " / " + j.last_page),
+    );
     el("stations").replaceChildren();
     if (!j.data.length)
         el("stations").append(
@@ -70,14 +143,27 @@ async function stations(query = "") {
         );
     for (let s of j.data) {
         let a = node("article", "");
+        a.className = "station-card";
         a.append(
             node("h3", s.name),
-            node("span", s.evidence + " · " + s.availability),
+            Object.assign(node("span", s.evidence + " · " + s.availability), {
+                className: "badge",
+            }),
             node(
                 "p",
                 s.connector_type + " · " + s.power_kw + " kW · " + s.country,
             ),
         );
+        const details = document.createElement("details");
+        details.append(
+            node("summary", "Location & access / الموقع والوصول"),
+            node("p", s.latitude + ", " + s.longitude + " · " + s.currency),
+            node(
+                "p",
+                "Live connector status, commercial tariffs and navigation are not connected.",
+            ),
+        );
+        a.append(details);
         if (s.reservable && user?.role === "customer") {
             let f = document.createElement("form"),
                 l = node("label", "UTC start (00 or 30 minutes)"),
@@ -119,6 +205,11 @@ async function stations(query = "") {
 async function bookings() {
     let j = await api("reservations");
     el("reservation-list").replaceChildren();
+    if (!j.data.length)
+        empty(
+            "reservation-list",
+            "No reservations yet. Choose a simulator station to try a booking. / لا توجد حجوزات بعد",
+        );
     for (let r of j.data) {
         let a = node(
             "article",
@@ -162,6 +253,11 @@ async function bookings() {
 async function simulations() {
     let j = await api("simulations");
     el("simulation-list").replaceChildren();
+    if (!j.data.length)
+        empty(
+            "simulation-list",
+            "No simulated sessions yet. Your session history will appear here. / لا توجد جلسات بعد",
+        );
     for (let s of j.data) {
         let a = node(
             "article",
@@ -237,6 +333,11 @@ async function regions() {
 async function fleets() {
     let j = await api("fleets");
     el("fleet-list").replaceChildren();
+    if (!j.data.length)
+        empty(
+            "fleet-list",
+            "Create a fleet or accept an invitation to get started. / أنشئ أسطولاً أو اقبل دعوة",
+        );
     for (let f of j.data) {
         let b = node("button", f.name);
         b.onclick = () => fleetDetail(f.id).catch((e) => notice(e.message));
@@ -332,6 +433,43 @@ async function fleetDetail(id) {
         d.append(
             node("p", "Cost center #" + c.id + " · " + c.code + " · " + c.name),
         );
+    if (j.cost_centers.length) {
+        const own = await api("vehicles");
+        if (own.data.length) {
+            const form = document.createElement("form");
+            form.id = "fleet-assign";
+            const vehicleLabel = node("label", "Your vehicle / مركبتك"),
+                vehicle = document.createElement("select");
+            vehicle.name = "vehicle_id";
+            for (const v of own.data) vehicle.append(new Option(v.name, v.id));
+            vehicleLabel.append(vehicle);
+            const centerLabel = node("label", "Cost center / مركز التكلفة"),
+                center = document.createElement("select");
+            center.name = "cost_center_id";
+            for (const c of j.cost_centers)
+                center.append(new Option(c.name, c.id));
+            centerLabel.append(center);
+            form.append(
+                vehicleLabel,
+                centerLabel,
+                node("button", "Assign vehicle"),
+            );
+            form.onsubmit = async (event) => {
+                event.preventDefault();
+                try {
+                    await api(
+                        "fleets/" + id + "/vehicles",
+                        "POST",
+                        Object.fromEntries(new FormData(form)),
+                    );
+                    await fleetDetail(id);
+                } catch (error) {
+                    notice(error.message);
+                }
+            };
+            d.append(form);
+        }
+    }
     for (let v of j.vehicles)
         d.append(
             node(
@@ -374,6 +512,7 @@ el("account").onsubmit = async (e) => {
             "POST",
             Object.fromEntries(new FormData(e.target)),
         );
+        e.target.reset();
         csrf = (await api("csrf")).token;
         await identity();
         await stations();
@@ -383,10 +522,15 @@ el("account").onsubmit = async (e) => {
     }
 };
 el("logout").onclick = async () => {
-    await api("logout", "POST");
-    csrf = (await api("csrf")).token;
-    await identity();
-    await stations();
+    try {
+        await api("logout", "POST");
+        clearPrivateViews();
+        csrf = (await api("csrf")).token;
+        await identity();
+        await stations();
+    } catch (error) {
+        notice(error.message);
+    }
 };
 el("filters").onsubmit = (e) => {
     e.preventDefault();
@@ -604,3 +748,60 @@ if (new URLSearchParams(location.search).get("verification") === "signin")
     notice(
         "Sign in to the account that received the email, then reopen its verification link.",
     );
+
+el("refresh-catalog").onclick = () => stations(stationQuery);
+function connectionStatus() {
+    el("offline-banner").hidden = navigator.onLine;
+}
+window.addEventListener("offline", connectionStatus);
+window.addEventListener("online", connectionStatus);
+connectionStatus();
+
+async function adminOverview() {
+    const data = await api("admin/overview"),
+        container = el("overview");
+    container.replaceChildren();
+    const metrics = node("div", "");
+    metrics.className = "metric-grid";
+    for (const [key, label] of [
+        ["users", "Accounts / الحسابات"],
+        ["stations", "Station records / المحطات"],
+        ["reservations", "Reservations / الحجوزات"],
+        ["simulations", "Simulated sessions / الجلسات التجريبية"],
+    ]) {
+        const card = node("article", "");
+        card.append(node("span", label), node("strong", String(data[key])));
+        metrics.append(card);
+    }
+    const table = document.createElement("table");
+    table.className = "audit-table";
+    table.append(
+        node("caption", "Audit history / سجل التدقيق — latest 50 events"),
+    );
+    const head = document.createElement("thead"),
+        headers = document.createElement("tr");
+    for (const label of ["Event", "Actor", "Record", "Time (UTC)"])
+        headers.append(node("th", label));
+    head.append(headers);
+    table.append(head);
+    const body = document.createElement("tbody");
+    for (const event of data.audit_events) {
+        const row = document.createElement("tr");
+        for (const value of [
+            event.action,
+            event.actor_id,
+            event.subject,
+            event.created_at,
+        ])
+            row.append(node("td", String(value)));
+        body.append(row);
+    }
+    table.append(body);
+    const scroll = node("div", "");
+    scroll.className = "table-scroll";
+    scroll.tabIndex = 0;
+    scroll.setAttribute("role", "region");
+    scroll.setAttribute("aria-label", "Audit history");
+    scroll.append(table);
+    container.append(metrics, scroll);
+}
