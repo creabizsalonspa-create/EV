@@ -63,7 +63,7 @@ Pricing source checkpoint: **75451a9**; managed-admission source is recorded by 
 | 9.3 | Maintainable architecture/tests/licensing | IN_PROGRESS | Modular Laravel/CSMS/Flutter boundaries, migrations/API docs, pinned lockfiles and CI; preservation-safe Git/PR checkpoints | Broader performance/security/restore/deployment tests and complete dependency/license/release inventory review |
 | 9.4 | International readiness | IN_PROGRESS | Configurable currencies/precision/time zones/tax, EN/AR and country-local company-license validity | Remaining country-specific legal/PSP/telecom/operator checks and full international UX/workflows |
 
-## Independent next implementation
+## Historical implementation sequence — superseded, do not repeat completed modules
 
 The charging review and subsequent implementation now enforce company/license/maintenance admission for explicitly linked single-target simulators, recheck policy/window at dispatch claim, and safely cancel proven unsent starts without faking source finalization. Unlinked legacy simulator contracts remain preserved. Implement explicit connector identity/source EVSE mapping and mandatory canonical company ownership before parallel bookings; do not guess among multiple connectors or block stop/final-meter reconciliation. Known-unsent local expiry closure is now implemented with bounded scheduled scans and concurrent-worker tests. Complete real authorization token revocation and operational reconciliation. Continue testing web/native selection and operator linking end to end.
 

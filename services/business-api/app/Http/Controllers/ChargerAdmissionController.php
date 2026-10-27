@@ -60,6 +60,7 @@ class ChargerAdmissionController extends Controller
     public function credential(Request $r, VendorCompany $company, VendorCharger $charger)
     {
         $this->scope($r, $company, $charger, true);
+        abort_if(app()->environment('production') && ! $r->isSecure(), 503, 'Charger credentials require HTTPS in production.');
         $v = $r->validate(['expected_version' => 'required|integer|min:0', 'days' => 'required|integer|between:1,90']);
 
         return DB::transaction(function () use ($r, $company, $charger, $v) {

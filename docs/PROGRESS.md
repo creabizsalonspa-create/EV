@@ -1,5 +1,8 @@
 # Full platform progress — universal integration
 
+Production credential-issuance boundary now rejects plaintext requests before rotating/disclosing any secret (owner authorization still runs first). HTTPS issuance remains supported; local simulator behavior is preserved. Targeted admission8/171, combined Laravel228/7192, PostgreSQL connector core39/579 and11 independent-process races/152 passed. Financial core126/6164 +31 races/403 and native80/default7 skips are separately recorded; hosted verification must cover the final pushed source. Production TLS termination must be represented by a correctly configured trusted proxy; untrusted forwarded headers are not a bypass.
+
+
 Latest native QA adds exact server-precision amount formatting (no floating-point/accounting duplication), correct EN/AR empty subscription-notice labels, fail-closed unsupported precision and clearing of transport-uncertainty messaging only after successful authoritative GET. Full Flutter80 passed/seven explicit live-only skips; all nine recovery-specific tests and analysis passed after the refresh correction. Composer strict validation and the preserved finance/lifecycle scheduler plus new hourly dunning registration are verified. Hosted validation is pending for this final native correction.
 
 

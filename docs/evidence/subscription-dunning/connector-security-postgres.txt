@@ -1,0 +1,92 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+.......................................                           39 / 39 (100%)
+
+Time: 00:11.722, Memory: 60.50 MB
+
+Canonical Topology Rollback (Tests\Feature\CanonicalTopologyRollback)
+ ✔ Disposable forward downgrade forward preserves legacy binding and restores indexes
+ ✔ Configured resources refuse downgrade before any schema change with data set #0
+ ✔ Configured resources refuse downgrade before any schema change with data set #1
+ ✔ Configured resources refuse downgrade before any schema change with data set #2
+ ✔ Configured resources refuse downgrade before any schema change with data set #3
+
+Charger Admission (Tests\Feature\ChargerAdmission)
+ ✔ Production credential disclosure requires https before rotating any secret
+ ✔ Signed tls admission rotation revocation and no credential disclosure with data set #0
+ ✔ Signed tls admission rotation revocation and no credential disclosure with data set #1
+ ✔ Replayed or spoofed ingress tls protocol and expiry are rejected
+ ✔ Certificate pin current company approval and owner scope are enforced
+ ✔ Production fails closed for plaintext or nondurable replay cache
+ ✔ Inventory staff cannot disclose or rotate owner credentials and identity is immutable
+ ✔ Dedicated identity budget is enforced and recovers after window
+
+Charging Operations (Tests\Feature\ChargingOperations)
+ ✔ Uncertain case cannot release capacity or repeat commands without source
+ ✔ Proof is required for case resolution and tenant scope precedes source reads
+
+Command Reconciliation (Tests\Feature\CommandReconciliation)
+ ✔ Authenticated applied source recovers unknown start and stop without network or acceptance claim
+ ✔ Missing or unapplied evidence never recovers and scope is checked before work
+ ✔ Late transport reply does not overwrite observed source state with data set #0
+ ✔ Late transport reply does not overwrite observed source state with data set #1
+ ✔ Versioned bearer charging routes preserve scope and source admission
+ ✔ Committed event with interrupted followup is recovered before any dispatch
+
+Connector Topology (Tests\Feature\ConnectorTopology)
+ ✔ Parallel evse bookings shared connector capacity and payload bound replay
+ ✔ Public choices do not leak sources or maintenance reasons and scope remains enforced
+ ✔ Application sessions are parallel across evses but unresolved prior slot blocks same evse
+ ✔ Csms dispatch targets selected source and parallel evses with data set #0
+ ✔ Csms dispatch targets selected source and parallel evses with data set #1
+ ✔ Source inbox requires the exact canonical target before accepting energy
+ ✔ Activation preserves legacy bookings and rejects uncorrelated outbox history
+ ✔ Multiple charge points use their own source binding not first station match
+ ✔ Catalog filters use actual mapped connector capabilities
+
+Reservation Lifecycle (Tests\Feature\ReservationLifecycle)
+ ✔ Check in is scoped explicit self reported server timed and idempotent
+ ✔ Unused window expiry is exact retains arrival and never creates session or money with data set #0
+ ✔ Unused window expiry is exact retains arrival and never creates session or money with data set #1
+ ✔ Existing session any state and uncorrelated commands require separate reconciliation
+ ✔ Scheduled scan is bounded and resumes past reconciliation records
+
+Source Consumer (Tests\Feature\SourceConsumer)
+ ✔ Source authentication signed delivery restart cursor and final reconciliation with data set #0
+ ✔ Source authentication signed delivery restart cursor and final reconciliation with data set #1
+ ✔ Ambiguous source identity is rejected without advancing business state
+ ✔ Meter units are exact and unsupported precision is not rounded
+
+OK (39 tests, 579 assertions)
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+...........                                                       11 / 11 (100%)
+
+Time: 00:23.801, Memory: 46.50 MB
+
+Charger Admission Concurrency (Tests\Postgres\ChargerAdmissionConcurrency)
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #0
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #1
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #2
+
+Command Reconciliation Concurrency (Tests\Postgres\CommandReconciliationConcurrency)
+ ✔ Concurrent source recovery records one observation without device or financial mutation
+
+Connector Reservation Concurrency (Tests\Postgres\ConnectorReservationConcurrency)
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #0
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #1
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #2
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #3
+
+Reservation Lifecycle Concurrency (Tests\Postgres\ReservationLifecycleConcurrency)
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #0
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #1
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #2
+
+OK (11 tests, 152 assertions)

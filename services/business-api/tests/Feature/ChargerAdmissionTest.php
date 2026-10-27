@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerAdmissionController;
 use App\Models\Charging\AdmissionProfile;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -10,9 +11,11 @@ use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargerAdmissionTest extends TestCase
@@ -46,6 +49,33 @@ class ChargerAdmissionTest extends TestCase
         $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTPS' => $secure ? 'on' : 'off', 'HTTP_AUTHORIZATION' => $auth, 'HTTP_X_EV_INGRESS_TIME' => $ts, 'HTTP_X_EV_INGRESS_NONCE' => $nonce, 'HTTP_X_EV_INGRESS_SIGNATURE' => hash_hmac('sha256', $ts."\n".$nonce."\n".$auth."\n".$body, $key ?? self::KEY)];
 
         return $this->call('POST', ($secure ? 'https://localhost' : 'http://localhost').'/api/internal/charger-ingress/authenticate', [], [], [], $headers, $body);
+    }
+
+    public function test_production_credential_disclosure_requires_https_before_rotating_any_secret(): void
+    {
+        [$owner, $company, $charger, , $old] = $this->fixture();
+        $this->app->detectEnvironment(fn () => 'production');
+        $controller = app(ChargerAdmissionController::class);
+        try {
+            $r = Request::create('http://localhost/credential', 'POST', ['expected_version' => 1, 'days' => 1]);
+            $r->setUserResolver(fn () => $owner);
+            try {
+                $controller->credential($r, $company, $charger);
+                $this->fail('HTTP must not rotate or disclose a production credential');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+            }
+            $this->assertSame(1, AdmissionProfile::first()->credential_version);
+            $this->assertSame(hash('sha256', $old), AdmissionProfile::first()->getRawOriginal('credential_digest'));
+            $r = Request::create('https://localhost/credential', 'POST', ['expected_version' => 1, 'days' => 1]);
+            $r->setUserResolver(fn () => $owner);
+            $reply = $controller->credential($r, $company, $charger);
+            $this->assertSame(201, $reply->getStatusCode());
+            $this->assertSame(2, $reply->getData(true)['profile']['credential_version']);
+            $this->assertNotSame($old, $reply->getData(true)['secret']);
+        } finally {
+            $this->app->detectEnvironment(fn () => 'testing');
+        }
     }
 
     public static function protocols(): array

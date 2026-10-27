@@ -1,5 +1,8 @@
 # Active development checkpoint
 
+Production credential-issuance boundary now rejects plaintext requests before rotating/disclosing any secret (owner authorization still runs first). HTTPS issuance remains supported; local simulator behavior is preserved. Targeted admission8/171, combined Laravel228/7192, PostgreSQL connector core39/579 and11 independent-process races/152 passed. Financial core126/6164 +31 races/403 and native80/default7 skips are separately recorded; hosted verification must cover the final pushed source. Production TLS termination must be represented by a correctly configured trusted proxy; untrusted forwarded headers are not a bypass.
+
+
 ## Current verified integration and active slice
 
 Latest merged integration: `00685cca87c5262715eba0d98855564d4b1dded5` on development/fullstack-continuation, PR #8. Contains the entire Finance PR #7 head 6f2103e; original branches remain preserved. Platform/finance-PostgreSQL/connector-PostgreSQL checks passed on final source 3f7e8af (runs 40598832424 /40598840859); unchanged native source passed Android debug, unsigned iOS simulator and iOS UI (40597931320). Native payment-recovery source 60999f5 is pushed in PR #9 and included in the new dunning continuation branch.
