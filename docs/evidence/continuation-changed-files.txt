@@ -1,4 +1,4 @@
-Session change inventory against ccd5e2e: application source8e5454c plus managed-gate selector/evidence follow-up.
+Session change inventory against ccd5e2e. Application/test source verified atff086b0; final follow-up retains documentation/evidence only.
 
 .github/workflows/ci.yml
 .github/workflows/mobile.yml
@@ -64,6 +64,7 @@ docs/evidence/command-recovery-postgres.txt
 docs/evidence/command-recovery-runtime-cli.txt
 docs/evidence/continuation-changed-files.txt
 docs/evidence/continuation-hosted-checkpoint.json
+docs/evidence/ios-launch-instability.txt
 docs/evidence/reservation-lifecycle-browser.txt
 docs/evidence/reservation-lifecycle-concurrency.txt
 docs/evidence/reservation-lifecycle-laravel.txt
