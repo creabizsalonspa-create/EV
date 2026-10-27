@@ -46,3 +46,9 @@ No module is HARDWARE_TESTED or PRODUCTION_READY. Live charger/partner/PSP, sign
 5. Complete premium visual/screenshot/accessibility/device QA and actual release artifacts/deployment only to authorized infrastructure.
 
 See [UNIVERSAL_CONTINUATION.md](UNIVERSAL_CONTINUATION.md) and [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md). No background continuation is configured after a session ends. Push every verified development checkpoint, never unfinished work as a final release.
+
+## Full-stack continuation merge — 2026-10-27
+
+Continuation branch: development/fullstack-continuation, created from backend b0c43be. Merged the complete latest frontend history through 0fe9e75, including the three commits through 95ca47e plus the subsequent PKCS12 fixture/diagnostic correction. Both histories and apps/mobile are preserved; original branches are unchanged. Source files merged without conflict. Documentation combines current backend evidence with frontend work rather than replacing either implementation.
+
+Added frontend scope includes read-only scoped vendor/admin command history with pagination/EN/AR/retry/private-view cleanup, streamed-response session generation checks and stronger secure-storage/TLS regression tests. Prior frontend local tests passed 21 unit/widget tests (1 default live skip) plus the separate Laravel protocol integration. Android debug/iOS simulator builds passed at 95ca47e; device TLS/Keychain acceptance is still under investigation and is not claimed passed. The integrated Laravel/OCPP/finance/OCPI/browser/Flutter suites must now be rerun; inherited evidence remains revision-specific.

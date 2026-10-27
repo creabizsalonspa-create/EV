@@ -109,24 +109,36 @@ void main() {
       });
       final origin = Uri.parse('https://127.0.0.1:${server.port}');
       final vault = DeviceSessionVault();
-      await vault.delete(origin.origin);
+      debugPrint("DEVICE: clearing isolated Keychain entry");
+      await vault.delete(origin.origin).timeout(const Duration(seconds: 20));
       HttpClient trusted() => HttpClient(context: fixtureClientContext());
       final firstApi = EvApi(origin, http: trusted(), vault: vault);
       final secondApi = EvApi(origin, http: trusted(), vault: vault);
+      Future<void> settle() async {
+        await tester.pumpAndSettle(
+          const Duration(milliseconds: 100),
+          EnginePhase.sendSemanticsUpdate,
+          const Duration(seconds: 90),
+        );
+      }
+
       addTearDown(() async {
-        await vault.delete(origin.origin);
+        await vault.delete(origin.origin).timeout(const Duration(seconds: 20));
         firstApi.close();
         secondApi.close();
         await subscription.cancel();
         await server.close(force: true);
       });
+      debugPrint("DEVICE: validating fixture TLS before UI");
+      await firstApi.csrf().timeout(const Duration(seconds: 30));
+      debugPrint("DEVICE: fixture TLS ready");
       await (await SharedPreferences.getInstance()).remove(
         DevicePreferenceStore.key,
       );
       final preferences = AppPreferences(DevicePreferenceStore());
       await preferences.load();
       await tester.pumpWidget(EvApp(preferences: preferences, api: firstApi));
-      await tester.pumpAndSettle();
+      await settle();
       await tester.enterText(
         find.byKey(const Key('auth-email')),
         'customer@example.test',
@@ -139,7 +151,8 @@ void main() {
       await tester.tap(find.byKey(const Key('keep-signed-in')));
       await tester.ensureVisible(find.byKey(const Key('auth-submit')));
       await tester.tap(find.byKey(const Key('auth-submit')));
-      await tester.pumpAndSettle();
+      await settle();
+      debugPrint("DEVICE: customer authenticated");
       expect(authenticated, 1);
       expect(firstApi.remembered, isTrue);
       expect(await vault.read(origin.origin), isNotNull);
@@ -149,35 +162,36 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       await tester.tap(find.byKey(const Key('catalog-next')));
-      await tester.pumpAndSettle();
+      await settle();
       expect(find.text('Device fixture station 2'), findsOneWidget);
       await tester.tap(find.byKey(const Key('settings')));
-      await tester.pumpAndSettle();
+      await settle();
       await tester.tap(find.byType(DropdownButtonFormField<ThemeMode>));
-      await tester.pumpAndSettle();
+      await settle();
       await tester.tap(find.text('Dark').last);
-      await tester.pumpAndSettle();
+      await settle();
       await tester.tap(find.byType(DropdownButtonFormField<Locale>));
-      await tester.pumpAndSettle();
+      await settle();
       await tester.tap(find.text('العربية').last);
-      await tester.pumpAndSettle();
+      await settle();
       await tester.tap(find.text('إغلاق'));
-      await tester.pumpAndSettle();
+      await settle();
       await tester.pumpWidget(const SizedBox());
-      await tester.pumpAndSettle();
+      await settle();
       await (await SharedPreferences.getInstance()).reload();
       final restored = AppPreferences(DevicePreferenceStore());
       await restored.load();
       expect(restored.theme, ThemeMode.dark);
       expect(restored.locale.languageCode, 'ar');
       await tester.pumpWidget(EvApp(preferences: restored, api: secondApi));
-      await tester.pumpAndSettle();
+      await settle();
       expect(find.byKey(const Key('auth-email')), findsNothing);
+      debugPrint("DEVICE: Keychain session restored");
       expect(secondApi.remembered, isTrue);
       await tester.tap(find.byTooltip('الحساب'));
-      await tester.pumpAndSettle();
+      await settle();
       await tester.tap(find.text('تسجيل الخروج'));
-      await tester.pumpAndSettle();
+      await settle();
       expect(await vault.read(origin.origin), isNull);
       await tester.enterText(
         find.byKey(const Key('auth-email')),
@@ -188,7 +202,8 @@ void main() {
         'synthetic-device-password',
       );
       await tester.tap(find.byKey(const Key('auth-submit')));
-      await tester.pumpAndSettle();
+      await settle();
+      debugPrint("DEVICE: vendor authenticated after secure logout");
       expect(authenticated, 2);
       expect(secondApi.remembered, isFalse);
       expect(find.byTooltip('إنشاء'), findsOneWidget);
@@ -202,7 +217,7 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
-      await tester.pumpAndSettle();
+      await settle();
     },
   );
 }

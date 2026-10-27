@@ -130,6 +130,9 @@ const assert = require("node:assert/strict");
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    let fixtureRole = "admin",
+      commandFailure = 0,
+      commandReads = 0;
     const admin = await context.newPage();
     admin.on("pageerror", (error) => errors.push(error.message));
     await admin.route("**/api/**", async (route) => {
@@ -139,10 +142,37 @@ const assert = require("node:assert/strict");
         body = {
           id: 99,
           name: "Admin fixture",
-          role: "admin",
+          role: fixtureRole,
           email_verified_at: null,
         };
       if (path === "/api/regions") body = [];
+      if (path === "/api/charger-commands") {
+        assert.equal(route.request().method(), "GET");
+        commandReads++;
+        if (commandFailure)
+          return route.fulfill({
+            status: commandFailure,
+            contentType: "application/json",
+            body: JSON.stringify({ message: "fixture failure" }),
+          });
+        const second =
+          new URL(route.request().url()).searchParams.get("page") === "2";
+        body = {
+          data: [
+            {
+              id: second ? 26 : 1,
+              station_id: 7,
+              action: "start",
+              status: second ? "outcome_unknown" : "pending",
+            },
+          ],
+          current_page: second ? 2 : 1,
+          last_page: 2,
+          total: 26,
+          next_page_url: "https://invalid.example/never-follow",
+        };
+      }
+
       if (path === "/api/admin/overview")
         body = {
           users: 3,
@@ -184,9 +214,64 @@ const assert = require("node:assert/strict");
     assert(!csv.includes("station.created"));
     await admin.locator("#audit-search").fill("no matching event");
     assert.equal(await admin.locator("#audit-export").isDisabled(), true);
+
+    await admin.locator("#command-list h3").waitFor();
+    await admin.evaluate(() => EvLocale.set("en"));
+    assert.match(
+      await admin.locator("#command-list").textContent(),
+      /Command #1/,
+    );
+    await admin
+      .locator("#command-pagination")
+      .getByRole("button", { name: "Next", exact: true })
+      .click();
+    await admin
+      .locator("#command-list h3")
+      .filter({ hasText: "Command #26" })
+      .waitFor();
+    await admin.locator("#language").click();
+    assert.equal(await admin.locator("html").getAttribute("dir"), "rtl");
+    assert.match(
+      await admin.locator("#command-list").textContent(),
+      /الأمر #26/,
+    );
+    commandFailure = 503;
+    await admin.locator("#commands-refresh").click();
+    await admin.waitForFunction(() =>
+      document.getElementById("commands-state").textContent.includes("الخدمة"),
+    );
+    assert.match(
+      await admin.locator("#command-list").textContent(),
+      /الأمر #26/,
+    );
+    commandFailure = 0;
+    await admin.locator("#commands-refresh").click();
+    await admin.waitForFunction(() =>
+      document.getElementById("commands-state").textContent.includes("26 أمر"),
+    );
+    commandFailure = 401;
+    await admin.locator("#commands-refresh").click();
+    await admin.locator("#command-history").waitFor({ state: "hidden" });
+    assert.equal(await admin.locator("#command-list").textContent(), "");
+    commandFailure = 0;
+    fixtureRole = "vendor";
+    await admin.reload();
+    await admin.locator("#command-list h3").waitFor();
+    assert.equal(await admin.locator("#command-history").isVisible(), true);
+    commandFailure = 419;
+    await admin.locator("#commands-refresh").click();
+    await admin.locator("#command-history").waitFor({ state: "hidden" });
+    assert.equal(await admin.locator("#command-list").textContent(), "");
+    commandFailure = 0;
+    fixtureRole = "customer";
+    const reads = commandReads;
+    await admin.reload();
+    await admin.locator("#signed").waitFor();
+    assert.equal(await admin.locator("#command-history").isVisible(), false);
+    assert.equal(commandReads, reads);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: isolated frontend contract fixtures; paginated catalog preserves filters, safe text rendering, role navigation, 503 recovery, offline/online state, 390/768/1440px layouts, RTL; zero page errors. Fixtures are not live data.",
+      "PASS: isolated frontend contract fixtures; paginated catalog preserves filters, safe text rendering, role navigation, read-only admin/vendor command history with pagination/Arabic/retry/auth cleanup, 503 recovery, offline/online state, 390/768/1440px layouts, RTL; zero page errors. Fixtures are not live data.",
     );
   } finally {
     await browser.close();

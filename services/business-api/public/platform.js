@@ -1,3 +1,5 @@
+let commandRequest = null,
+    commandPage = 1;
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
@@ -12,7 +14,7 @@ async function api(path, method = "GET", data, signal) {
     try {
         return await client.request(path, method, data, signal);
     } catch (error) {
-        if (error.status === 401 && user) {
+        if ([401, 419].includes(error.status) && user) {
             user = null;
             renderIdentity();
             clearPrivateViews();
@@ -21,6 +23,9 @@ async function api(path, method = "GET", data, signal) {
     }
 }
 function clearPrivateViews() {
+    commandRequest?.abort();
+    el("commands-state").textContent = "";
+    delete el("commands-state").dataset.i18n;
     for (const id of [
         "reservation-list",
         "simulation-list",
@@ -32,6 +37,8 @@ function clearPrivateViews() {
         "ticket-detail",
         "notifications",
         "overview",
+        "command-list",
+        "command-pagination",
     ])
         el(id).replaceChildren();
     for (const id of [
@@ -79,11 +86,14 @@ function renderIdentity() {
     for (const id of ["simulations", "fleets", "garage", "support"])
         el(id).hidden = !user;
     el("admin").hidden = el("region-config").hidden = user?.role !== "admin";
+    el("command-history").hidden = !["vendor", "admin"].includes(user?.role);
     document.querySelectorAll("[data-access]").forEach((n) => {
         n.hidden =
             n.dataset.access === "auth"
                 ? !user
-                : user?.role !== n.dataset.access;
+                : n.dataset.access === "operations"
+                  ? !["vendor", "admin"].includes(user?.role)
+                  : user?.role !== n.dataset.access;
     });
     EvLocale.bind(
         el("workspace-label"),
@@ -151,6 +161,7 @@ async function identity() {
         await support();
     }
     if (user?.role === "admin") await adminOverview();
+    if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
 let stationRequest = null,
     stationQuery = "";
@@ -925,3 +936,74 @@ async function adminOverview() {
     scroll.append(table);
     container.append(metrics, tools, scroll);
 }
+
+async function commandHistory(page = 1) {
+    if (!["vendor", "admin"].includes(user?.role)) return;
+    commandRequest?.abort();
+    const request = new AbortController(),
+        actor = user;
+    commandRequest = request;
+    el("commands-refresh").disabled = true;
+    el("command-list").setAttribute("aria-busy", "true");
+    EvLocale.bind(el("commands-state"), "Loading command history…");
+    try {
+        const result = await api(
+            "charger-commands?page=" + page,
+            "GET",
+            undefined,
+            request.signal,
+        );
+        if (request.signal.aborted || user !== actor) return;
+        const list = el("command-list"),
+            pager = el("command-pagination");
+        list.replaceChildren();
+        pager.replaceChildren();
+        commandPage = result.current_page;
+        for (const row of result.data) {
+            const card = document.createElement("article");
+            card.append(
+                ui("h3", "Command #{id}", { id: row.id }),
+                ui("p", "Station #{id}", { id: row.station_id }),
+                ui("p", "Command action: {action}", {
+                    action: { translate: row.action },
+                }),
+                ui("p", "Transport status: {status}", {
+                    status: { translate: row.status },
+                }),
+            );
+            list.append(card);
+        }
+        if (!result.data.length) empty("command-list", "No recorded commands.");
+        EvLocale.bind(
+            el("commands-state"),
+            "Page {page} of {last} · {total} commands",
+            {
+                page: result.current_page,
+                last: result.last_page,
+                total: result.total,
+            },
+        );
+        for (const [label, target, enabled] of [
+            ["Previous", result.current_page - 1, result.current_page > 1],
+            [
+                "Next",
+                result.current_page + 1,
+                result.current_page < result.last_page,
+            ],
+        ]) {
+            const button = ui("button", label);
+            button.disabled = !enabled;
+            button.onclick = () => commandHistory(target);
+            pager.append(button);
+        }
+    } catch (error) {
+        if (!request.signal.aborted && user === actor)
+            EvLocale.bind(el("commands-state"), errorMessage(error));
+    } finally {
+        if (commandRequest === request) {
+            el("commands-refresh").disabled = false;
+            el("command-list").removeAttribute("aria-busy");
+        }
+    }
+}
+el("commands-refresh").onclick = () => commandHistory(commandPage);
