@@ -52,3 +52,11 @@ Staff permission is independent of the User.role field. A customer-role user who
 ## Evidence
 
 `./scripts/php artisan test --filter=VendorOpsTest --compact` passes eight meaningful tests covering applicant/admin transitions, evidence encryption and private downloads, tenant separation, staff consent/scope/revocation/reinvitation, hierarchy integrity, truthful capability labels, expired/suspended company gates, protected edits and invalid files/permissions. Exact latest assertion count is in the test output; full platform/real KYC/hardware acceptance is not claimed.
+
+## Connected web workflow and renewal
+
+The shared authenticated web workspace now covers the mounted company/evidence/review/staff/site/charger/connector/maintenance APIs, with pagination, EN/AR, actual permission hints and customer-role staff personas. Private evidence fetches validate binary MIME/size, trigger attachment downloads and revoke temporary blob URLs; no public storage URL or plaintext license number is persisted in the browser. Upload responses are consumed before replacing forms. All mutations retain server CSRF and authorization checks.
+
+GET company/list now includes capabilities (owner/reviewer, company/inventory read/write, private evidence, inventory_operational). These are UI hints; the server still rechecks active membership and company validity for operations. Pending staff invitations expose only company ID/name/country needed for consent, never license/evidence fields.
+
+Admin changes_requested is allowed from approved or suspended to support audited renewal; owner edits/resubmission and admin reapproval remain required. License operational validity is evaluated at the configured country calendar end of day, not server midnight. Current code/tests supersede the earlier API-only and renewal-incomplete checkpoint. Legal KYC, AV/storage/retention review, actual provisioning and connector reservation linkage remain open.

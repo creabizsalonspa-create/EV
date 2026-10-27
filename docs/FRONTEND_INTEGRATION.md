@@ -27,3 +27,7 @@ Scoped OpenAPI: [openapi/charging-bridge.json](openapi/charging-bridge.json). Th
 Reservation list rows add csms_bound; bound customer requests use POST reservations/{id}/csms-start. Session list rows add csms_linked and start_command_status/stop_command_status, with SIMULATED_CSMS evidence for linked sessions. Web and canonical Flutter hide manual meters on linked rows and route stop to charging-sessions/{id}/csms-stop. pending_start/stopping remain waiting states until source confirmation, with manual refresh/pull-to-refresh. Unbound application simulation is preserved.
 
 Both web and native can request the session-unique simulated invoice and render its actual integer subtotal/tax/total, collected/refunded/due and ledger balance. Only SIMULATOR_ONLY / real_payment_processed=false summaries are displayed as simulation documents. No real checkout/refund/payout controls were added. New widget/browser tests cover routing, disabled overrides, waiting state, invoice display and expiry cleanup.
+
+## Company personas
+
+Web company operations are now independent of the global vendor-role panel. Server capability hints expose the current member's scope; accepted customer-role staff can use granted inventory APIs while private evidence remains owner/admin only. Web supports actual application/evidence/review/renewal/staff/hierarchy/maintenance workflows. Native company/KYC/staff/inventory parity remains next work; do not mark both client surfaces complete from web coverage.

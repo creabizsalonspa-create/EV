@@ -930,4 +930,368 @@ window.EV_MESSAGES = {
         en: "Unsupported finance evidence.",
         ar: "بيانات المحاسبة غير مدعومة.",
     },
+    "Company workspace": {
+        en: "Company workspace",
+        ar: "مساحة الشركة",
+    },
+    "Company details": {
+        en: "Company details",
+        ar: "تفاصيل الشركة",
+    },
+    "Company workflow disclaimer": {
+        en: "Company workflow disclaimer",
+        ar: "إجراءات مراجعة داخلية فقط؛ لا تثبت اعتماداً قانونياً أو جاهزية شاحن فعلي.",
+    },
+    "Company status: {status}": {
+        en: "Company status: {status}",
+        ar: "حالة الشركة: {status}",
+    },
+    "License expiry: {date}": {
+        en: "License expiry: {date}",
+        ar: "انتهاء الترخيص: {date}",
+    },
+    "Refresh company": {
+        en: "Refresh company",
+        ar: "تحديث الشركة",
+    },
+    "Edit company": {
+        en: "Edit company",
+        ar: "تعديل الشركة",
+    },
+    "Legal name": {
+        en: "Legal name",
+        ar: "الاسم القانوني",
+    },
+    "License expiry": {
+        en: "License expiry",
+        ar: "انتهاء الترخيص",
+    },
+    "Upload private evidence": {
+        en: "Upload private evidence",
+        ar: "رفع مستندات خاصة",
+    },
+    "Document kind": {
+        en: "Document kind",
+        ar: "نوع المستند",
+    },
+    "Evidence file": {
+        en: "Evidence file",
+        ar: "ملف المستند",
+    },
+    "Trade license": {
+        en: "Trade license",
+        ar: "الرخصة التجارية",
+    },
+    Identity: {
+        en: "Identity",
+        ar: "الهوية",
+    },
+    Agreement: {
+        en: "Agreement",
+        ar: "الاتفاقية",
+    },
+    "Submit for internal review": {
+        en: "Submit for internal review",
+        ar: "إرسال للمراجعة الداخلية",
+    },
+    "Internal review decision": {
+        en: "Internal review decision",
+        ar: "قرار المراجعة الداخلية",
+    },
+    Decision: {
+        en: "Decision",
+        ar: "القرار",
+    },
+    "Review reason": {
+        en: "Review reason",
+        ar: "سبب القرار",
+    },
+    Approve: {
+        en: "Approve",
+        ar: "موافقة داخلية",
+    },
+    Reject: {
+        en: "Reject",
+        ar: "رفض",
+    },
+    "Request changes": {
+        en: "Request changes",
+        ar: "طلب تعديلات",
+    },
+    Suspend: {
+        en: "Suspend",
+        ar: "تعليق",
+    },
+    "Private documents": {
+        en: "Private documents",
+        ar: "المستندات الخاصة",
+    },
+    "Review history": {
+        en: "Review history",
+        ar: "سجل المراجعة",
+    },
+    "Review transition: {from} → {to}": {
+        en: "Review transition: {from} → {to}",
+        ar: "انتقال المراجعة: {from} ← {to}",
+    },
+    "Company staff": {
+        en: "Company staff",
+        ar: "فريق الشركة",
+    },
+    "Invite company staff": {
+        en: "Invite company staff",
+        ar: "دعوة عضو لفريق الشركة",
+    },
+    "Staff access": {
+        en: "Staff access",
+        ar: "صلاحيات الفريق",
+    },
+    "Read company and inventory": {
+        en: "Read company and inventory",
+        ar: "قراءة الشركة والمخزون",
+    },
+    "Read and manage inventory": {
+        en: "Read and manage inventory",
+        ar: "قراءة المخزون وإدارته",
+    },
+    "Member #{id}: {status}": {
+        en: "Member #{id}: {status}",
+        ar: "العضو #{id}: {status}",
+    },
+    "Revoke access": {
+        en: "Revoke access",
+        ar: "إلغاء الوصول",
+    },
+    "Revoke company access?": {
+        en: "Revoke company access?",
+        ar: "إلغاء الوصول إلى الشركة؟",
+    },
+    "Company inventory": {
+        en: "Company inventory",
+        ar: "مخزون الشركة",
+    },
+    "Inventory metadata disclaimer": {
+        en: "Inventory metadata disclaimer",
+        ar: "بيانات مخزون غير مرتبطة بالتحكم الفعلي. التوفر غير معروف؛ الصيانة هنا لا تتحكم بعد في الحجوزات القديمة.",
+    },
+    "Create site": {
+        en: "Create site",
+        ar: "إنشاء موقع",
+    },
+    "Site name": {
+        en: "Site name",
+        ar: "اسم الموقع",
+    },
+    Address: {
+        en: "Address",
+        ar: "العنوان",
+    },
+    "Inventory access is not granted.": {
+        en: "Inventory access is not granted.",
+        ar: "لا توجد صلاحية لعرض المخزون.",
+    },
+    "Open chargers": {
+        en: "Open chargers",
+        ar: "عرض الشواحن",
+    },
+    "Create charger": {
+        en: "Create charger",
+        ar: "إنشاء شاحن",
+    },
+    "Asset reference": {
+        en: "Asset reference",
+        ar: "مرجع الأصل",
+    },
+    Manufacturer: {
+        en: "Manufacturer",
+        ar: "الشركة المصنعة",
+    },
+    Model: {
+        en: "Model",
+        ar: "الطراز",
+    },
+    "OCPP protocol": {
+        en: "OCPP protocol",
+        ar: "بروتوكول OCPP",
+    },
+    "Inventory source": {
+        en: "Inventory source",
+        ar: "مصدر المخزون",
+    },
+    Simulator: {
+        en: "Simulator",
+        ar: "محاكي",
+    },
+    "Direct unverified": {
+        en: "Direct unverified",
+        ar: "ربط مباشر غير متحقق",
+    },
+    "Partner unverified": {
+        en: "Partner unverified",
+        ar: "شريك غير متحقق",
+    },
+    "Open connectors": {
+        en: "Open connectors",
+        ar: "عرض الموصلات",
+    },
+    "Create connector": {
+        en: "Create connector",
+        ar: "إنشاء موصل",
+    },
+    "Connector number": {
+        en: "Connector number",
+        ar: "رقم الموصل",
+    },
+    "Connector type": {
+        en: "Connector type",
+        ar: "نوع الموصل",
+    },
+    "Maximum power kW": {
+        en: "Maximum power kW",
+        ar: "القدرة القصوى بالكيلوواط",
+    },
+    "Connector #{id} · {type} · {power} kW": {
+        en: "Connector #{id} · {type} · {power} kW",
+        ar: "الموصل #{id} · {type} · {power} كيلوواط",
+    },
+    "Maintenance blocked": {
+        en: "Maintenance blocked",
+        ar: "الصيانة محظورة تشغيلياً",
+    },
+    "Maintenance not blocked": {
+        en: "Maintenance not blocked",
+        ar: "لا يوجد حظر صيانة",
+    },
+    "Set maintenance": {
+        en: "Set maintenance",
+        ar: "تعيين الصيانة",
+    },
+    "Maintenance state": {
+        en: "Maintenance state",
+        ar: "حالة الصيانة",
+    },
+    "Maintenance reason": {
+        en: "Maintenance reason",
+        ar: "سبب الصيانة",
+    },
+    Block: {
+        en: "Block",
+        ar: "حظر",
+    },
+    Unblock: {
+        en: "Unblock",
+        ar: "رفع الحظر",
+    },
+    "Refresh companies": {
+        en: "Refresh companies",
+        ar: "تحديث الشركات",
+    },
+    "Apply as a company": {
+        en: "Apply as a company",
+        ar: "تقديم طلب شركة",
+    },
+    "Trade license number": {
+        en: "Trade license number",
+        ar: "رقم الرخصة التجارية",
+    },
+    "Your companies": {
+        en: "Your companies",
+        ar: "شركاتك",
+    },
+    "Staff invitations": {
+        en: "Staff invitations",
+        ar: "دعوات الفريق",
+    },
+    "Company #{id}": {
+        en: "Company #{id}",
+        ar: "الشركة #{id}",
+    },
+    "Accept staff invitation": {
+        en: "Accept staff invitation",
+        ar: "قبول دعوة الفريق",
+    },
+    "Accept these company permissions?": {
+        en: "Accept these company permissions?",
+        ar: "قبول صلاحيات الشركة التالية؟",
+    },
+    "Page {page} of {last} · {total} records": {
+        en: "Page {page} of {last} · {total} records",
+        ar: "الصفحة {page} من {last} · {total} سجل",
+    },
+    "No records.": {
+        en: "No records.",
+        ar: "لا توجد سجلات.",
+    },
+    Save: {
+        en: "Save",
+        ar: "حفظ",
+    },
+    "Choose a PDF, JPEG or PNG up to 5 MiB.": {
+        en: "Choose a PDF, JPEG or PNG up to 5 MiB.",
+        ar: "اختر ملف PDF أو JPEG أو PNG بحجم لا يتجاوز 5 ميبيبايت.",
+    },
+    "Read company": {
+        en: "Read company",
+        ar: "قراءة الشركة",
+    },
+    "Read inventory": {
+        en: "Read inventory",
+        ar: "قراءة المخزون",
+    },
+    "Manage inventory": {
+        en: "Manage inventory",
+        ar: "إدارة المخزون",
+    },
+    "{kind} · {type} · {size} bytes": {
+        en: "{kind} · {type} · {size} bytes",
+        ar: "{kind} · {type} · {size} بايت",
+    },
+    "company.status.draft": {
+        en: "Draft application",
+        ar: "طلب مسودة",
+    },
+    "company.status.submitted": {
+        en: "Submitted for internal review",
+        ar: "مقدم للمراجعة الداخلية",
+    },
+    "company.status.approved": {
+        en: "Internally approved",
+        ar: "موافق عليه داخلياً",
+    },
+    "company.status.rejected": {
+        en: "Application rejected",
+        ar: "طلب مرفوض",
+    },
+    "company.status.changes_requested": {
+        en: "Changes requested",
+        ar: "تعديلات مطلوبة",
+    },
+    "company.status.suspended": {
+        en: "Internally suspended",
+        ar: "معلق داخلياً",
+    },
+    "company.status.unknown": {
+        en: "Unknown state; refresh",
+        ar: "حالة غير معروفة؛ حدّث",
+    },
+    "Choose at least one staff permission.": {
+        en: "Choose at least one staff permission.",
+        ar: "اختر صلاحية واحدة على الأقل للفريق.",
+    },
+    "Replacement trade license number": {
+        en: "Replacement trade license number",
+        ar: "رقم الرخصة التجارية البديل",
+    },
+    "Company workspace could not load. Refresh to retry.": {
+        en: "Company workspace could not load. Refresh to retry.",
+        ar: "تعذر تحميل مساحة الشركة. حدّث لإعادة المحاولة.",
+    },
+    "Configure a region before applying.": {
+        en: "Configure a region before applying.",
+        ar: "يجب إعداد منطقة قبل تقديم الطلب.",
+    },
+    "Private evidence download failed.": {
+        en: "Private evidence download failed.",
+        ar: "تعذر تنزيل المستند الخاص.",
+    },
 };

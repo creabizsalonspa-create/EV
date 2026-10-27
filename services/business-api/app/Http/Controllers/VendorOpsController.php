@@ -25,7 +25,7 @@ class VendorOpsController extends Controller
 
     public function companies(Request $r)
     {
-        return VendorCompany::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id)->orWhereIn('id', VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'active')->select('company_id')))->orderByDesc('id')->paginate(25);
+        return VendorCompany::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id)->orWhereIn('id', VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'active')->select('company_id')))->orderByDesc('id')->paginate(25)->through(fn ($company) => $company->toArray() + ['capabilities' => $this->access->capabilities($r->user(), $company)]);
     }
 
     public function createCompany(Request $r)
@@ -45,7 +45,7 @@ class VendorOpsController extends Controller
     {
         $this->access->require($r->user(), $company);
 
-        return response()->json($company->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false]);
+        return response()->json($company->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $company)]);
     }
 
     public function updateCompany(Request $r, VendorCompany $company)
@@ -130,7 +130,7 @@ class VendorOpsController extends Controller
             if ($c->status === 'submitted') {
                 return response()->json($c);
             }abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409);
-            abort_unless($c->license_expires_on->endOfDay()->isFuture(), 422, 'Trade license has expired.');
+            abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
             abort_unless(VendorKycDocument::where('company_id', $c->id)->where('kind', 'trade_license')->exists(), 422, 'Upload a trade-license document before submitting.');
             $c->update(['status' => 'submitted', 'review_reason' => null]);
             $this->access->audit($r->user(), 'company.submitted', $c->id);
@@ -146,17 +146,17 @@ class VendorOpsController extends Controller
 
         return DB::transaction(function () use ($r, $company, $v) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
-            $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended'], 'suspended' => ['approved']];
+            $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended', 'changes_requested'], 'suspended' => ['approved', 'changes_requested']];
             abort_unless(in_array($v['status'], $allowed[$c->status]), 409, 'Invalid review transition.');
             if ($v['status'] === 'approved') {
-                abort_unless($c->license_expires_on->endOfDay()->isFuture(), 422, 'Trade license has expired.');
+                abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
             }VendorCompanyReview::create(['company_id' => $c->id, 'reviewer_id' => $r->user()->id, 'from_status' => $c->status, 'to_status' => $v['status'], 'reason' => $v['reason'], 'created_at' => now()]);
             $c->update(['status' => $v['status'], 'review_reason' => $v['reason'], 'reviewed_by' => $r->user()->id, 'reviewed_at' => now()]);
             if ($v['status'] === 'approved') {
                 User::whereKey($c->owner_id)->where('role', 'customer')->update(['role' => 'vendor']);
             }$this->access->audit($r->user(), 'company.'.$v['status'], $c->id);
 
-            return response()->json($c->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false]);
+            return response()->json($c->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $c)]);
         });
     }
 
@@ -188,7 +188,10 @@ class VendorOpsController extends Controller
 
     public function invitations(Request $r)
     {
-        return VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->paginate(25);
+        $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->paginate(25);
+        $companies = VendorCompany::whereIn('id', $page->getCollection()->pluck('company_id'))->get(['id', 'legal_name', 'country'])->keyBy('id');
+
+        return $page->through(fn ($membership) => $membership->toArray() + ['company' => $companies->get($membership->company_id)]);
     }
 
     public function accept(Request $r, VendorCompanyStaff $membership)

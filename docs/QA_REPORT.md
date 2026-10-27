@@ -1,5 +1,16 @@
 # Internal QA — universal integration checkpoint
 
+## Company, staff and inventory workspace checkpoint
+
+Implemented EN/AR web company applications/edits, private evidence upload/authenticated download, required-evidence submission, internal admin review/history, granular staff permissions/recipient consent/revocation, and scoped sites/chargers/connectors/maintenance. Company capabilities are server-derived hints and never replace transaction-time authorization. Customer-role staff now have a usable company workspace without global vendor promotion. Pending invitations include only recipient-authorized company identity. Private data and blob URLs clear on logout; user-entered names/review reasons are never translated as UI resources.
+
+Added audited renewal: admin can request changes from approved/suspended state, owners correct evidence/expiry and resubmit, and inventory remains blocked pending approval. License validity uses the configured country timezone's end of day; API tests cover the Dubai/UTC boundary and changed configuration. This is an internal workflow, not legal KYC or physical control certification. Legacy station/booking integration with connector maintenance and native company screens remain unfinished.
+
+Verification: Laravel **88 tests / 5,571 assertions**; company-focused **11 tests / 110 assertions**. Real-Laravel browser workflow passed application/private-file privacy/review/customer-role staff hierarchy and revocation, nested-phone layouts, RTL/input preservation and logout; existing browser/contracts/localization passed. CI executes the new vendor browser suite. Reports: evidence/vendor-workspace-*.
+
+Hosted platform and native workflows both passed at **36828ee**, including PostgreSQL finance/races, both continuous OCPP flows, Android debug, unsigned iOS simulator and **1 passed iPhone TLS/Keychain/RTL integration**. That native tree is unchanged by this web/backend vendor slice. Exact source/build/retention metadata: evidence/fullstack-*-ci.json, fullstack-native-artifacts.json and fullstack-device.txt. Production rate limits remain unchanged; bounded 429 and reconnect test fixes are verified. No complete-platform/release claim is made.
+
+
 ## Continuous source and connected clients checkpoint
 
 Implemented a restartable authenticated local CSMS observer with durable source cursors, exact Wh/kWh conversion, station/authorization/remote-start correlation and HMAC inbox delivery. It never dispatches commands. Both OCPP versions passed with an actual continuous process restarted during charging, one immutable simulated invoice, simulated payment/refund and balanced journals. Lost HTTP acknowledgement after finalization is regression-tested without double invoicing.

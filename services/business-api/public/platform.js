@@ -23,6 +23,7 @@ async function api(path, method = "GET", data, signal) {
     }
 }
 function clearPrivateViews() {
+    vendorWorkspace.clear();
     commandRequest?.abort();
     el("commands-state").textContent = "";
     delete el("commands-state").dataset.i18n;
@@ -160,6 +161,7 @@ async function identity() {
         await garage();
         await support();
     }
+    await vendorWorkspace.setActor(user);
     if (user?.role === "admin") await adminOverview();
     if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
@@ -698,6 +700,19 @@ el("station-form").onsubmit = async (e) => {
         notice(e);
     }
 };
+const vendorWorkspace = createVendorWorkspace({
+    root: el("vendor-operations"),
+    api,
+    ui,
+    actor: () => user,
+    csrf: () => csrf,
+    notice,
+    expired: () => {
+        user = null;
+        renderIdentity();
+        clearPrivateViews();
+    },
+});
 (async () => {
     await identity();
     await stations();

@@ -631,3 +631,39 @@ form label {
     color: var(--muted);
     font-size: 0.85rem;
 }
+
+.vendor-permissions {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+}
+.vendor-permissions label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.vendor-permissions input[type="checkbox"] {
+    width: auto;
+    min-width: 24px;
+}
+#vendor-operations [data-vendor-form] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+    gap: 1rem;
+}
+#vendor-operations [data-vendor-form] > h3,
+#vendor-operations .vendor-permissions {
+    grid-column: 1 / -1;
+}
+#vendor-operations article {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.vendor-permissions {
+    min-inline-size: 0;
+}
+.vendor-permissions label {
+    flex-direction: row;
+    min-height: 44px;
+}

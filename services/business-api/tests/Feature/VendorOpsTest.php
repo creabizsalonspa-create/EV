@@ -9,6 +9,7 @@ use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorKycDocument;
 use App\Models\VendorOps\VendorSite;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -162,5 +163,55 @@ class VendorOpsTest extends TestCase
         $c = $this->company($u, 'draft');
         $this->actingAs($u)->post('/api/vendor-ops/companies/'.$c->id.'/documents', ['kind' => 'trade_license', 'document' => UploadedFile::fake()->create('evil.html', 10, 'text/html')], ['Accept' => 'application/json'])->assertUnprocessable();
         $this->postJson('/api/vendor-ops/companies/'.$c->id.'/staff', ['email' => 'test@example.test', 'permissions' => ['admin', 'physical.control']])->assertUnprocessable();
+    }
+
+    public function test_client_capabilities_follow_staff_consent_and_revocation_without_private_evidence(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $staff = User::factory()->create(['role' => 'customer']);
+        $company = $this->company($owner);
+        $membership = VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $staff->id, 'permissions' => ['inventory.read']]);
+        $this->actingAs($staff)->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/vendor-ops/staff-invitations')->assertOk()->assertJsonPath('data.0.company.legal_name', $company->legal_name)->assertJsonMissingPath('data.0.company.trade_license_number');
+        $this->postJson('/api/vendor-ops/staff-invitations/'.$membership->id.'/accept')->assertOk();
+        $this->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonPath('data.0.capabilities.inventory_read', true)->assertJsonPath('data.0.capabilities.inventory_write', false)->assertJsonPath('data.0.capabilities.private_evidence', false)->assertJsonPath('data.0.capabilities.company_read', false);
+        $this->getJson('/api/vendor-ops/companies/'.$company->id.'/documents')->assertNotFound();
+        $this->getJson('/api/vendor-ops/companies/'.$company->id.'/sites')->assertOk();
+        $this->actingAs($owner)->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonPath('data.0.capabilities.owner', true)->assertJsonPath('data.0.capabilities.private_evidence', true);
+        $this->deleteJson('/api/vendor-ops/companies/'.$company->id.'/staff/'.$membership->id)->assertNoContent();
+        $this->actingAs($staff)->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_expired_approved_license_can_be_corrected_only_after_audited_review_request(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        $company->update(['license_expires_on' => now()->subDay()->format('Y-m-d')]);
+        $path = '/api/vendor-ops/companies/'.$company->id;
+        $this->actingAs($owner)->patchJson($path, ['license_expires_on' => now()->addYear()->format('Y-m-d')])->assertConflict();
+        $this->actingAs($admin)->postJson($path.'/review', ['status' => 'changes_requested', 'reason' => 'Provide renewal evidence'])->assertOk()->assertJsonPath('status', 'changes_requested');
+        $this->actingAs($owner)->patchJson($path, ['license_expires_on' => now()->addYear()->format('Y-m-d')])->assertOk();
+        $this->post($path.'/documents', ['kind' => 'trade_license', 'document' => UploadedFile::fake()->create('renewal.pdf', 10, 'application/pdf')], ['Accept' => 'application/json'])->assertCreated();
+        $this->postJson($path.'/submit')->assertOk()->assertJsonPath('status', 'submitted');
+        $this->postJson($path.'/sites', [])->assertConflict();
+        $this->actingAs($admin)->postJson($path.'/review', ['status' => 'approved', 'reason' => 'Internal renewal review completed'])->assertOk();
+        $this->getJson($path.'/reviews')->assertOk()->assertJsonCount(2, 'data');
+        $this->assertDatabaseHas('vendor_companies', ['id' => $company->id, 'status' => 'approved']);
+    }
+
+    public function test_license_operational_gate_uses_the_configured_country_calendar_boundary(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $company->update(['license_expires_on' => '2026-10-27']);
+        $this->travelTo(CarbonImmutable::parse('2026-10-27T19:59:59Z'));
+        $this->actingAs($owner)->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonPath('data.0.capabilities.inventory_operational', true);
+        $this->travelTo(CarbonImmutable::parse('2026-10-27T20:00:00Z'));
+        $this->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonPath('data.0.capabilities.inventory_operational', false);
+        $this->postJson('/api/vendor-ops/companies/'.$company->id.'/sites', [])->assertConflict();
+        DB::table('regions')->where('country', 'AE')->update(['timezone' => 'UTC']);
+        $this->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonPath('data.0.capabilities.inventory_operational', true);
+        $this->travelBack();
     }
 }
