@@ -1,0 +1,28 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+..............                                                    14 / 14 (100%)
+
+Time: 00:01.364, Memory: 48.50 MB
+
+Finance (Tests\Feature\Finance)
+ ✔ Integer rounding tariff snapshot and invoice are immutable and reconcile
+ ✔ Database rejects direct financial record mutation
+ ✔ Legacy session does not pick up a new tariff retroactively
+ ✔ Partial payments idempotency credit notes and full refund reconcile
+ ✔ Overpayment overrefund and idempotency payload mismatch are rejected
+ ✔ Unfinished or inconsistent sessions cannot be invoiced
+ ✔ Finance http authorization and tenant scope
+ ✔ Only vendor owner or admin can publish tariff and vendor cannot set commission
+ ✔ Numeric form tariffs keep integer contract and snapshot comparisons
+ ✔ Money allocator has no negative or lost minor units
+ ✔ Production never processes simulated money
+
+Finance Money (Tests\Unit\FinanceMoney)
+ ✔ Every small refund preserves units component bounds and full reversal
+ ✔ Money math uses half up rounding and rejects overflow
+ ✔ Invalid components are rejected
+
+OK (14 tests, 4999 assertions)

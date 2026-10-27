@@ -1,0 +1,166 @@
+diff --git a/README.md b/README.md
+index a8e33b7..766c510 100644
+--- a/README.md
++++ b/README.md
+@@ -22,9 +22,9 @@ Customer, vendor and basic admin views share one Laravel web app. Each station c
+ 
+ ## Verified boundaries
+ 
+-Implemented: session authentication/CSRF, signed email-ownership verification with explicit send/status controls (local log transport), Light/Dark/System web themes, customer registration, restricted roles, station filters/provenance, vehicle APIs, fixed-slot reservations/cancellation, tenant-scoped views, simulated session commands/meters/totals, audit events, basic admin counts/audit view, regional configuration, fleet invitations/cost centers, support tickets/internal-note privacy, in-app notifications, profile/recovery, simulator-only CSMS outbox and partial Arabic RTL UI.
++Implemented: session authentication/CSRF, signed email-ownership verification with explicit send/status controls (local log transport), Light/Dark/System web themes, customer registration, restricted roles, station filters/provenance, vehicle APIs, fixed-slot reservations/cancellation, tenant-scoped views, simulated session commands/meters/totals, audit events, basic admin counts/audit view, regional configuration, fleet invitations/cost centers, support tickets/internal-note privacy, in-app notifications, profile/recovery, simulator-only CSMS outbox, implemented-workflow English/Arabic web resources, and shared Flutter customer/vendor clients with paginated discovery, fleets, simulator meters, secure optional session persistence, themes, RTL and support/inbox. Current source/test/build evidence and limitations: [docs/FRONTEND.md](docs/FRONTEND.md).
+ 
+-Not delivered: full production security/2FA/KYC, multi-connector inventory, full CitrineOS event/session integration, OCPI roaming, maps, live availability, real payments/invoices/ledger, Flutter clients, store artifacts, commercial modules and production deployment. See the complete module register and next milestones before planning a release.
++Not delivered: full production security/2FA/KYC, multi-connector inventory, full CitrineOS event/session integration, OCPI roaming, maps, live availability, real payments/invoices/ledger, complete native feature/device acceptance, signed store artifacts, commercial modules and production deployment. See the complete module register and next milestones before planning a release.
+ 
+ The isolated CitrineOS development stack and tested OCPP subset are documented in [services/csms/README.md](services/csms/README.md). Full internal checkpoint evidence and release blockers are in [docs/QA_REPORT.md](docs/QA_REPORT.md).
+ 
+diff --git a/docs/API.md b/docs/API.md
+index 710b2e0..559f028 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -58,24 +58,24 @@ Named rate-limit budgets separate authentication (10/minute), recovery (5), gene
+ - `POST /api/email/verification-notification`: authenticated, CSRF protected, separate budget of 3 requests/minute per actor. Sends Laravel's signed notification to the current account's email only; payload email/id claims are ignored. Returns 202 after the transport accepts the request, or 200 without sending if already verified. Never returns the link or signature. Registration remains available during mail outages; the user explicitly requests the message using **Send verification email**.
+ - `GET /email/verify/{id}/{hash}?expires=…&signature=…`: named `verification.verify`, authenticated and signed, 10 requests/minute per actor; 60-minute notification expiry. The account ID and email hash must match the signed-in user. Modified, unsigned, expired, old-email, and other-account links return 403. A guest is redirected to sign in, then must reopen the original email link. No signature is copied into the sign-in query or browser storage.
+ - Success renders a confirmation page and atomically records `email_verified_at` plus one `email.verified` audit event; repeated valid requests are idempotent. `GET /api/me` exposes the timestamp. The profile API cannot set it. The Laravel Verified event is dispatched only for the first transition.
+-- The web account shows verification status, send and refresh controls. Verification confirms mailbox ownership only. It does not approve a vendor, perform KYC, enable payments, or grant privileges. Existing simulated workflows remain accessible without verification; verified-only production policies, 2FA and native authentication remain separate unfinished work.
++- The web account shows verification status, send and refresh controls. Verification confirms mailbox ownership only. It does not approve a vendor, perform KYC, enable payments, or grant privileges. Existing simulated workflows remain accessible without verification; verified-only production policies, 2FA and native recovery/verification link consumption remain separate unfinished work.
+ - Local mail is logged. Automated tests validate notification generation and signed-link consumption, not real mailbox delivery. Staging needs a configured mail transport, correct `APP_URL`, HTTPS and delivery QA. Logs contain sensitive links: do not publish or copy them into test evidence.
+ 
+ ## Web appearance
+ 
+-The shared web UI supports Light/Dark/System through the header Appearance control. The selected preference is browser-local (`creabiz.theme`) and defaults to the operating system. System changes apply immediately; choices synchronize across tabs. Storage denial falls back to the current page. The preference also applies to verification and password-reset pages before styles load. Native clients, full design-system review, complete Arabic translation and formal accessibility acceptance remain outstanding.
++The shared web UI supports Light/Dark/System through the header Appearance control. The selected preference is browser-local (`creabiz.theme`) and defaults to the operating system. System changes apply immediately; choices synchronize across tabs. Storage denial falls back to the current page. The preference also applies to verification and password-reset pages before styles load. Native settings and implemented-workflow web/native English/Arabic resources are described in docs/FRONTEND.md. Full design-system, professional translation and formal accessibility acceptance remain outstanding.
+ 
+ ## Frontend integration checkpoint
+ 
+ The web client continues to use the existing endpoints without backend contract changes. Catalog pagination follows only the returned query string on the same fixed `/api/stations` endpoint; it never fetches a returned foreign origin. Admin cards/table consume `GET /api/admin/overview` counts plus `audit_events`. Fleet vehicle assignment submits `vehicle_id` and `cost_center_id` to the existing same-fleet endpoint. UI-only hiding never replaces server authorization.
+ 
+-The initial native source uses the same session-cookie/CSRF endpoints, keeps credentials in memory, refreshes CSRF after login, and requires a reachable HTTPS origin in release builds. This integration is source-only and unverified on devices. It does not introduce bearer-token APIs, native secure persistence or web admin access.
++Historical initial native checkpoint: the source used the same session-cookie/CSRF endpoints, keeps credentials in memory, refreshes CSRF after login, and requires a reachable HTTPS origin in release builds. That initial integration was source-only; current build/device evidence is in docs/FRONTEND.md. It does not introduce bearer-token APIs, native secure persistence or web admin access.
+ 
+ Backend coordination requirements (not implemented endpoints or approved contracts): multi-connector station/EVSE/connector identifiers with reservation/control targeting; verified vendor organization/staff permissions and KYC review states; authenticated session event/energy lifecycle; versioned tariff quote + currency/minor-unit rules; idempotent hosted-payment intent/invoice/settlement APIs; authenticated discovery/availability provenance and freshness; outbound OCPI capability negotiation. Frontend modules remain incomplete until the backend defines/implements these, and must not invent live data or successful finance states.
+ 
+ ## Native pagination, settings and support UI contracts
+ 
+-Native catalog sends only existing `q`, `connector_type`, uppercase `country`, `min_power_kw` and `page`; it trusts `current_page`/`last_page`/`total` and never follows server pagination URLs to a different origin. Distance/price/live-availability filtering remains unavailable, not simulated. Other native list views use their existing page parameter. Native preferences store only theme/locale locally; an explicit profile save sends name + the selected locale through PATCH /api/profile. No cookie/token persistence or new auth endpoint is introduced.
++Native catalog sends only existing `q`, `connector_type`, uppercase `country`, `min_power_kw` and `page`; it trusts `current_page`/`last_page`/`total` and never follows server pagination URLs to a different origin. Distance/price/live-availability filtering remains unavailable, not simulated. Other native list views use their existing page parameter. Native preferences store only theme/locale locally; an explicit profile save sends name + the selected locale through PATCH /api/profile. Ordinary preferences never store credentials; current optional encrypted cookie persistence is described below and introduces no new auth endpoint.
+ 
+ Native recovery/verification send existing requests; link consumption still uses the signed-in web flow, not an invented native deep-link contract. Support threads use existing GET /api/support/{id} messages pagination and POST messages; notifications use existing feed/read routes. No admin mobile surface is created. Web audit CSV is generated locally from filtered latest-50 API records, not a complete historical export. Full export, connector targeting, finance and authorized map/live integration contracts remain backend coordination work.
+ 
+diff --git a/docs/FRONTEND.md b/docs/FRONTEND.md
+index 0f8b1ea..7871154 100644
+--- a/docs/FRONTEND.md
++++ b/docs/FRONTEND.md
+@@ -12,16 +12,16 @@ Vendor and Super Admin web now include **read-only charger command history** fro
+ 
+ Local verification: Flutter analyzer clean; **21 unit/widget tests passed, 1 explicitly live-only skipped**; separate **1 real-Laravel native integration passed** (now includes fleet membership/privacy/revoke and vendor meter authorization/conflicts/stop); Laravel **37 tests / 279 assertions passed**. Chromium real-backend, frontend-contract and new localization suites passed. Hosted Android/iOS build and native Keychain device-test results will be recorded after CI completes. No backend controller/migration/business rule changed.
+ 
+-Next implementation: native recovery/deep-link consumption using an agreed link contract, richer available-API account/garage workflow and lifecycle QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
++Next implementation: native recovery/deep-link consumption using an agreed link contract, web fleet/garage/support pagination beyond the first 25 records, native account lifecycle/physical-device QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
+ 
+ 
+-Branch: **development/frontend**. Current application/test source validated at **d454a6875e4eee1af8f6d7c681f861d918df12a8**, [draft PR #2](https://github.com/creabizsalonspa-create/EV/pull/2). Subsequent documentation commits do not change that application source. The full commercial platform remains in development; this is not final owner acceptance.
++Historical catalog checkpoint on **development/frontend**: application/test source **d454a6875e4eee1af8f6d7c681f861d918df12a8**, [draft PR #2](https://github.com/creabizsalonspa-create/EV/pull/2). Subsequent documentation commits do not change that application source. The full commercial platform remains in development; this is not final owner acceptance.
+ 
+ ## Native customer/vendor implementation
+ 
+ - Real server-side catalog pagination, name search, connector/country/minimum-power filters. Applied page/filter state survives tab navigation. Invalid input, loading/empty/error states, clear and exact-page retry are implemented. Stale/out-of-order responses and disposed callbacks are ignored.
+-- Persistent Light/Dark/System and English/Arabic through shared_preferences. Only theme/locale are stored; credentials stay in memory. Preferences load before production Flutter rendering. Corruption falls back safely; failed writes are visible. Material localization delegates, resource/interpolation parity and logical layouts provide RTL across implemented screens and dialogs.
+-- Customer/vendor registration/login, validation, profile update, recovery/verification requests, accurate verified status and session-expiry cleanup. Admin remains web-only. Recovery/verification link consumption uses the existing web flow; native deep links and secure persistent authentication remain unfinished.
++- Persistent Light/Dark/System and English/Arabic through shared_preferences. Ordinary preferences store only theme/locale; optional session credentials use the separate encrypted vault described above. Preferences load before production Flutter rendering. Corruption falls back safely; failed writes are visible. Material localization delegates, resource/interpolation parity and logical layouts provide RTL across implemented screens and dialogs.
++- Customer/vendor registration/login, validation, profile update, recovery/verification requests, accurate verified status and session-expiry cleanup. Admin remains web-only. Recovery/verification link consumption uses the existing web flow; native link consumption remains unfinished; encrypted HTTPS session persistence is implemented.
+ - Simulator bookings/cancellation/start/stop, paginated reservations/sessions/garage and vendor station creation preserve existing API behavior and evidence labels.
+ - Paginated support tickets/public message threads, replies/closed-ticket behavior, notifications/read state. Internal notes are never rendered. A stale support 401 cannot clear a later screen.
+ 
+@@ -30,13 +30,17 @@ Branch: **development/frontend**. Current application/test source validated at *
+ | Path | Responsibility |
+ |---|---|
+ | apps/mobile/lib/api.dart | Same-origin cookies/CSRF, encoded query parameters, typed account/station/filter/page models |
++| apps/mobile/lib/fleet.dart | Fleet lists/invitations/details, owner controls and paginated own-vehicle picker |
++| apps/mobile/lib/sessions.dart | Scoped simulator sessions, vendor meter validation and confirmed stop |
++| apps/mobile/lib/session_vault.dart | Origin-bound platform-encrypted session storage |
++| apps/mobile/lib/action_form.dart | Validated mutation dialogs with retained input on failure |
+ | apps/mobile/lib/catalog.dart | Catalog state/request generation, filters, page navigation and retry |
+ | apps/mobile/lib/preferences.dart | Persistent non-secret appearance/locale and storage failure handling |
+ | apps/mobile/lib/strings.dart | Aligned English/Arabic resources and translated error classes |
+ | apps/mobile/lib/support.dart | Ticket/inbox pagination, public threads and read/reply actions |
+ | apps/mobile/lib/main.dart | Responsive phone/tablet navigation, authentication, settings and other existing workflows |
+ | apps/mobile/test/ | Unit/widget tests plus opted-in actual-Laravel protocol integration |
+-| apps/mobile/integration_test/native_flow_test.dart | Native iOS-simulator UI/HTTP/platform-preference fixtures, excluded from product lib |
++| apps/mobile/integration_test/native_flow_test.dart | Native iOS-simulator UI/TLS/Keychain/platform-preference fixtures, excluded from product lib |
+ | .github/workflows/mobile.yml | Pinned SDK, tests, Android/iOS builds, ordinary artifacts, then iOS-simulator UI test |
+ 
+ ## Web operations and design
+@@ -81,5 +85,5 @@ The opt-in test requires the running disposable local Laravel service (`./script
+ 
+ 1. Native recovery/deep links and deeper lifecycle/accessibility QA; richer inventory/staff/KYC once APIs are available. Fleet and vendor simulator tools plus encrypted session persistence are implemented in the current continuation.
+ 2. Maps/authorized live availability, tariffs, invoices/payments/settlements, subscriptions/loyalty/promotions, complete customer/vendor/admin workflows. Do not invent successful integration responses or overwrite Agent 1's backend contracts.
+-3. Full web English/Arabic resources, formal native/web accessibility/translation/performance review and cross-browser/device matrix; replace development launcher/splash assets with owned branding.
++3. Translation audit and formal native/web accessibility/translation/performance review and cross-browser/device matrix; replace development launcher/splash assets with owned branding.
+ 4. Actual phones and authorized HTTPS service testing, real push/mail delivery, signing/store pipelines, partner/hardware/PSP and production acceptance gates. Admin remains web-only. Current simulator and pricing fixtures are never physical charging or processed payments.
+diff --git a/docs/PROGRESS.md b/docs/PROGRESS.md
+index 63660dd..f2fbecf 100644
+--- a/docs/PROGRESS.md
++++ b/docs/PROGRESS.md
+@@ -12,7 +12,7 @@ Vendor and Super Admin web now include **read-only charger command history** fro
+ 
+ Local verification: Flutter analyzer clean; **21 unit/widget tests passed, 1 explicitly live-only skipped**; separate **1 real-Laravel native integration passed** (now includes fleet membership/privacy/revoke and vendor meter authorization/conflicts/stop); Laravel **37 tests / 279 assertions passed**. Chromium real-backend, frontend-contract and new localization suites passed. Hosted Android/iOS build and native Keychain device-test results will be recorded after CI completes. No backend controller/migration/business rule changed.
+ 
+-Next implementation: native recovery/deep-link consumption using an agreed link contract, richer available-API account/garage workflow and lifecycle QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
++Next implementation: native recovery/deep-link consumption using an agreed link contract, web fleet/garage/support pagination beyond the first 25 records, native account lifecycle/physical-device QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
+ 
+ 
+ Updated 2026-10-27. Full scope remains mandatory. No production release or final acceptance requested.
+@@ -35,7 +35,7 @@ Requirements committed as `c8c2dd5`; implementation commit is the Git commit con
+ | Module | Status | Current evidence / next work |
+ |---|---|---|
+ | Repo, dependency lock, migrations, local startup | INTEGRATED_TESTED | scripts and migrations; production deploy/rollback drill outstanding |
+-| Identity and access | IN_PROGRESS | sessions, CSRF, roles tested; profile editing, reset broker, session revocation and security headers tested; signed email verification implemented and locally tested; real mail delivery, verified-only production policies, 2FA, granular staff permissions and native auth remain |
++| Identity and access | IN_PROGRESS | sessions, CSRF, roles tested; profile editing, reset broker, session revocation and security headers tested; signed email verification implemented and locally tested; real mail delivery, verified-only production policies, 2FA, granular staff permissions and native production lifecycle/security acceptance remain |
+ | Regions/currencies/taxes/timezones | IN_PROGRESS | admin country/currency/minor-unit/timezone/tax configuration tested; commerce disabled, legal/tax activation remains |
+ | Vehicles/profiles/privacy | IN_PROGRESS | private vehicle API and garage/profile UI tested; complete garage details and privacy/deletion workflows remain |
+ | Vendor onboarding/KYC/staff | NOT_STARTED | role provisioning is local operator-only; not KYC |
+@@ -52,10 +52,10 @@ Requirements committed as `c8c2dd5`; implementation commit is the Git commit con
+ | Loyalty/rewards/promotions/referrals/ads | NOT_STARTED | implement after authoritative billing |
+ | Fleet/enterprise/cost centers | IN_PROGRESS | invitation/accept/revoke, tenant privacy, vehicle assignment and cost centers tested; consolidated billing/reports remain |
+ | Notifications/support/maintenance | IN_PROGRESS | ticket state machine, internal-note privacy, notifications/read and support UI tested; delivery providers/maintenance remain |
+-| Customer web | IN_PROGRESS | account/catalog/reservation/simulation/garage/fleet/support UI, email status and Light/Dark/System themes; partial Arabic |
++| Customer web | IN_PROGRESS | account/catalog/reservation/simulation/garage/fleet/support UI, email status and Light/Dark/System themes and implemented-workflow English/Arabic resources; formal localization acceptance remains |
+ | Vendor web | IN_PROGRESS | basic inventory/reservation/simulation UI |
+ | Admin web | IN_PROGRESS | counts/audit, regional configuration and support workflow; full administration remains |
+-| Customer/vendor Flutter Android+iOS | IN_PROGRESS | Native paginated/filtered discovery, persistent themes/English/Arabic RTL, support/inbox; analyzer + 15 default tests and expanded live integration passed; Android/iOS builds and iPhone-simulator fixture test passed; fleet/full modules/signing remain |
++| Customer/vendor Flutter Android+iOS | IN_PROGRESS | Native fleets/cost centers/assignments, simulator meters, encrypted HTTPS persistence, paginated/filtered discovery, persistent themes/English/Arabic RTL and support/inbox; analyzer + 21 default tests and expanded live integration passed; current hosted build/device evidence above; full modules/signing remain |
+ | CI/CD/security/performance/observability/backups | IN_PROGRESS | expanded CI definition, CSP and scoped limits; hosted CI and independent security/operational QA remain |
+ | Physical charger acceptance | BLOCKED_EXTERNAL | approved site/device/firmware and safety authorization needed; not hardware tested |
+ | Actual roaming acceptance | BLOCKED_EXTERNAL | bilateral operator access and credentials required |
+@@ -63,7 +63,7 @@ Requirements committed as `c8c2dd5`; implementation commit is the Git commit con
+ 
+ ## Next implementation stages
+ 
+-1. Complete multi-connector inventory, 2FA/native authentication and verified-only production policies, and vendor organization/staff/KYC; extend regional validation and fleet reporting.
++1. Complete multi-connector inventory, 2FA/native recovery link handling and verified-only production policies, and vendor organization/staff/KYC; extend regional validation and fleet reporting.
+ 2. Extend the deployed/tested CitrineOS command path into authenticated transaction/meter event ingestion, command acknowledgment correlation, full simulated session/billing reconciliation and stop/fault/reconnect tests.
+ 3. Add tariff snapshots, immutable journal/invoices and test PSP integration; then subscriptions, settlements, consolidated fleet billing and loyalty.
+ 4. Complete all web surfaces and shared Flutter applications, localization/accessibility and automated builds.
+diff --git a/docs/QA_REPORT.md b/docs/QA_REPORT.md
+index efeaaad..0487ea7 100644
+--- a/docs/QA_REPORT.md
++++ b/docs/QA_REPORT.md
+@@ -12,7 +12,9 @@ Vendor and Super Admin web now include **read-only charger command history** fro
+ 
+ Local verification: Flutter analyzer clean; **21 unit/widget tests passed, 1 explicitly live-only skipped**; separate **1 real-Laravel native integration passed** (now includes fleet membership/privacy/revoke and vendor meter authorization/conflicts/stop); Laravel **37 tests / 279 assertions passed**. Chromium real-backend, frontend-contract and new localization suites passed. Hosted Android/iOS build and native Keychain device-test results will be recorded after CI completes. No backend controller/migration/business rule changed.
+ 
+-Next implementation: native recovery/deep-link consumption using an agreed link contract, richer available-API account/garage workflow and lifecycle QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
++Hosted build evidence in progress: native run **40466240620**, source **92a8c8bf4a1aaf240114943d0200893ea5a12036**, passed Android debug APK and unsigned iOS simulator builds and retained both artifacts. The later web-only checkpoint **ebb9d33** has an identical native source/workflow tree. iPhone-simulator UI/Keychain integration is still running; its final result must be recorded before claiming device verification. The first macOS validation rejected the original synthetic TLS fixture; replacing it with a dedicated root and 365-day serverAuth/SAN leaf restored macOS validation. The first device run exposed BAD_PKCS12_DATA for a DER trust anchor in this pinned engine; the fixture now supplies PEM anchors and retains the accepted PKCS12 server identity. This corrects test setup without bypassing certificate validation. Production verification is unchanged. Synthetic leaf expires 2027-10-27 and must then be regenerated.
++
++Next implementation: native recovery/deep-link consumption using an agreed link contract, web fleet/garage/support pagination beyond the first 25 records, native account lifecycle/physical-device QA; full inventory/staff/KYC/finance/map capabilities need Agent 1 API contracts. Fleet API currently cannot re-invite revoked members, edit/delete centers or unassign vehicles; only the acting user's own vehicles can be assigned. No fake controls added for unavailable operations. Physical devices, deployed HTTPS, mail/push delivery, signing/stores, live charger/partner/PSP integrations remain unverified. The platform remains in development, not a final release.
+ 
+ 
+ **Overall: NOT READY FOR FINAL ACCEPTANCE.** This report covers implemented development workflows; it does not certify the full platform. Full scope is retained in PRODUCT_REQUIREMENTS.md and PROGRESS.md.
+diff --git a/docs/evidence/frontend-fleet-platform-ci.json b/docs/evidence/frontend-fleet-platform-ci.json
+new file mode 100644
+index 0000000..7714378
+--- /dev/null
++++ b/docs/evidence/frontend-fleet-platform-ci.json
+@@ -0,0 +1 @@
++{"conclusion":"success","databaseId":40467354908,"headSha":"f8be568f1c4549d64516c7cb094c8af134115285","jobs":[{"completedAt":"2026-10-27T07:30:27Z","conclusion":"success","databaseId":122065884882,"name":"business-platform","startedAt":"2026-10-27T07:28:48Z","status":"completed","steps":[{"conclusion":"success","name":"Set up job","number":1,"status":"completed"},{"conclusion":"success","name":"Run actions/checkout@v4","number":2,"status":"completed"},{"conclusion":"success","name":"Run actions/setup-node@v4","number":3,"status":"completed"},{"conclusion":"success","name":"Run ./scripts/setup","number":4,"status":"completed"},{"conclusion":"success","name":"Run ./scripts/php /usr/bin/composer validate --strict","number":5,"status":"completed"},{"conclusion":"success","name":"Run ./scripts/php vendor/bin/pint --test","number":6,"status":"completed"},{"conclusion":"success","name":"Run ./scripts/php artisan test --compact","number":7,"status":"completed"},{"conclusion":"success","name":"Run npm ci","number":8,"status":"completed"},{"conclusion":"success","name":"Run npx playwright install --with-deps chromium","number":9,"status":"completed"},{"conclusion":"success","name":"Run ./scripts/start","number":10,"status":"completed"},{"conclusion":"success","name":"Run npm run test:e2e","number":11,"status":"completed"},{"conclusion":"success","name":"Run npm run test:frontend","number":12,"status":"completed"},{"conclusion":"success","name":"Run npm run test:localization","number":13,"status":"completed"},{"conclusion":"success","name":"Run ./scripts/csms-setup","number":14,"status":"completed"},{"conclusion":"success","name":"Run ./scripts/csms-start","number":15,"status":"completed"},{"conclusion":"success","name":"Run npm run test:ocpp","number":16,"status":"completed"},{"conclusion":"skipped","name":"Run docker logs --tail 100 ev-business-api","number":17,"status":"completed"},{"conclusion":"success","name":"Post Run actions/setup-node@v4","number":33,"status":"completed"},{"conclusion":"success","name":"Post Run actions/checkout@v4","number":34,"status":"completed"},{"conclusion":"success","name":"Complete job","number":35,"status":"completed"}],"url":"https://github.com/creabizsalonspa-create/EV/actions/runs/40467354908/job/122065884882"}],"status":"completed","url":"https://github.com/creabizsalonspa-create/EV/actions/runs/40467354908"}

@@ -1,5 +1,14 @@
 # Full platform progress — universal integration
 
+## Verified full-stack merge
+
+Branch **development/fullstack-continuation** preserves backend b0c43be and frontend through 0fe9e75 with merge 6156600. No original branch was reset or force-pushed. Canonical client remains apps/mobile. The only merge conflicts were documentation; backend and frontend behavior are both retained. The integrated checkpoint also fixes charging setup when the event-key file exists before Hasura setup, and makes the PostgreSQL finance immutability function repeatable for migrate:fresh. Existing keys/data are preserved.
+
+Executed: Laravel **82 tests / 5,477 assertions**; Flutter analyzer and **21 passed / 1 explicit live-only skipped**, separate actual-Laravel native integration **1 passed**; all three Chromium suites passed. Legacy OCPP transport, full protocol sessions and correlated business/invoice/payment/refund simulations passed for both 1.6 and 2.0.1. PostgreSQL finance **14 tests / 4,999 assertions** and synchronized cross-invoice payment/refund concurrency **2 tests / 26 assertions passed** in an isolated disposable database. Immutable storage and duplicate-posting assertions remain enforced. Evidence is docs/evidence/fullstack-*. No physical hardware, real PSP, roaming partner or production acceptance is claimed. Native device TLS/Keychain CI remains a separate unfinished check until a run passes.
+
+Next code: durable continuous source-event consumption using authenticated documented CSMS APIs and the signed inbox; then linked-session routing and mounted finance/vendor/OCPI client workflows, connector-level reservation gates and all remaining commercial scope. PostgreSQL concurrency is now locally verified for the tested cases; load, isolation and production acceptance remain separate.
+
+
 Updated 2026-10-27. **Development remains incomplete; this is not a final release.** Every authorized account may develop the full stack. Continue the latest verified GitHub checkpoint; older account-specific assignments do not permanently divide responsibility.
 
 ## Current integration

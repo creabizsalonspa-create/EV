@@ -1,0 +1,14 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+..                                                                  2 / 2 (100%)
+
+Time: 00:05.177, Memory: 42.50 MB
+
+Finance Concurrency (Tests\Postgres\FinanceConcurrency)
+ ✔ Cross invoice payment key race returns conflict without double posting
+ ✔ Cross invoice refund key race returns conflict without double refund
+
+OK (2 tests, 26 assertions)
