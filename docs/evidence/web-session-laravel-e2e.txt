@@ -1,0 +1,10 @@
+
+> test:e2e
+> node tests/browser.cjs
+
+PASS: browser Light/Dark/System themes, preference persistence and OS changes; registration, email verification request/signed confirmation/status, vendor station creation, customer reservation/cancel, vendor visibility, tenant privacy, admin overview, garage privacy, fleet invitation acceptance, support internal-note privacy, Arabic RTL, mobile width; no page errors.
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

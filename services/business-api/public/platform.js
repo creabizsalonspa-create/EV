@@ -3,11 +3,13 @@ let commandRequest = null,
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
-    notice = (value) =>
-        EvLocale.bind(
+    notice = (value) => {
+        if (value?.name === "SessionChangedError") return;
+        return EvLocale.bind(
             el("notice"),
             value instanceof Error ? errorMessage(value) : value,
         );
+    };
 const client = new EvApi(csrf);
 async function api(path, method = "GET", data, signal) {
     client.token = csrf;
@@ -15,12 +17,38 @@ async function api(path, method = "GET", data, signal) {
         return await client.request(path, method, data, signal);
     } catch (error) {
         if ([401, 419].includes(error.status) && user) {
-            user = null;
-            renderIdentity();
-            clearPrivateViews();
+            clearIdentity();
         }
         throw error;
     }
+}
+let identityBusy = false;
+function setIdentityBusy(value) {
+    identityBusy = value;
+    el("account")
+        .querySelectorAll("input,button")
+        .forEach((n) => (n.disabled = value));
+    el("logout").disabled = el("logout-retry").disabled = value;
+}
+function pendingLogout(value) {
+    try {
+        if (value === undefined)
+            return sessionStorage.getItem("creabiz.logout-pending") === "1";
+        if (value) sessionStorage.setItem("creabiz.logout-pending", "1");
+        else sessionStorage.removeItem("creabiz.logout-pending");
+    } catch {}
+    return false;
+}
+function clearIdentity() {
+    const epoch = client.invalidateSession();
+    user = null;
+    renderIdentity();
+    clearPrivateViews();
+    el("stations")
+        .querySelectorAll("form")
+        .forEach((n) => n.remove());
+    setIdentityBusy(false);
+    return epoch;
 }
 function clearPrivateViews() {
     vendorWorkspace.clear();
@@ -146,16 +174,35 @@ function errorMessage(error) {
     );
 }
 async function identity() {
+    let epoch = client.sessionEpoch;
     el("ticket-detail").replaceChildren();
     el("fleet-detail").replaceChildren();
     el("overview").replaceChildren();
     try {
-        user = await api("me");
+        const current = await api("me");
+        if (epoch !== client.sessionEpoch) return;
+        if (
+            !current ||
+            !Number.isSafeInteger(current.id) ||
+            current.id <= 0 ||
+            typeof current.name !== "string" ||
+            !["customer", "vendor", "admin"].includes(current.role)
+        )
+            throw new ApiError("Unreadable account identity.", 502);
+        if (user && (current.id !== user.id || current.role !== user.role))
+            epoch = clearIdentity();
+        user = current;
     } catch (error) {
-        user = null;
+        if (
+            epoch !== client.sessionEpoch ||
+            error.name === "SessionChangedError"
+        )
+            return;
+        epoch = clearIdentity();
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
     if (user) {
         await bookings();
@@ -685,32 +732,53 @@ el("region-config").onsubmit = async (e) => {
 };
 el("account").onsubmit = async (e) => {
     e.preventDefault();
+    if (identityBusy) return;
+    const mode = e.submitter.value,
+        values = Object.fromEntries(new FormData(e.target));
+    const epoch = clearIdentity();
+    setIdentityBusy(true);
     try {
-        await api(
-            e.submitter.value,
-            "POST",
-            Object.fromEntries(new FormData(e.target)),
-        );
+        csrf = (await api("csrf")).token;
+        await api(mode, "POST", values);
+        pendingLogout(false);
+        el("logout-retry").hidden = true;
         e.target.reset();
         csrf = (await api("csrf")).token;
         await identity();
+        if (epoch !== client.sessionEpoch) return;
         await stations();
-        notice("Signed in.");
-    } catch (e) {
-        notice(e);
-    }
-};
-el("logout").onclick = async () => {
-    try {
-        await api("logout", "POST");
-        clearPrivateViews();
-        csrf = (await api("csrf")).token;
-        await identity();
-        await stations();
+        if (epoch === client.sessionEpoch) notice("Signed in.");
     } catch (error) {
         notice(error);
+    } finally {
+        if (epoch === client.sessionEpoch) setIdentityBusy(false);
     }
 };
+async function signOut() {
+    if (identityBusy) return;
+    pendingLogout(true);
+    const epoch = clearIdentity();
+    setIdentityBusy(true);
+    el("logout-retry").hidden = true;
+    try {
+        csrf = (await api("csrf")).token;
+        try {
+            await api("logout", "POST");
+        } catch (error) {
+            if (error.status !== 401) throw error;
+        }
+        pendingLogout(false);
+        notice("Signed out.");
+        stations().catch(notice);
+    } catch (error) {
+        if (epoch !== client.sessionEpoch) return;
+        el("logout-retry").hidden = false;
+        notice("Sign-out could not be confirmed. Reconnect and retry.");
+    } finally {
+        if (epoch === client.sessionEpoch) setIdentityBusy(false);
+    }
+}
+el("logout").onclick = el("logout-retry").onclick = signOut;
 el("filters").onsubmit = (e) => {
     e.preventDefault();
     let q = new URLSearchParams();
@@ -738,11 +806,7 @@ const vendorWorkspace = createVendorWorkspace({
     actor: () => user,
     csrf: () => csrf,
     notice,
-    expired: () => {
-        user = null;
-        renderIdentity();
-        clearPrivateViews();
-    },
+    expired: clearIdentity,
 });
 const roamingWorkspace = createRoamingWorkspace({
     publicRoot: el("roaming-discovery"),
@@ -766,7 +830,8 @@ const tariffWorkspace = createTariffWorkspace({
 });
 (async () => {
     const publicRoaming = roamingWorkspace.catalog();
-    await identity();
+    if (pendingLogout()) await signOut();
+    else await identity();
     await stations();
     await regions();
     await publicRoaming;

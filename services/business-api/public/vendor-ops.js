@@ -207,6 +207,7 @@ window.createVendorWorkspace = ({
                 signal: controller.signal,
             },
         );
+        if (!valid(epoch)) return;
         if ([401, 419].includes(response.status)) {
             expired();
             throw Object.assign(
@@ -264,6 +265,7 @@ window.createVendorWorkspace = ({
                 signal: controller.signal,
             },
         );
+        if (!valid(epoch)) return;
         if ([401, 419].includes(response.status)) {
             expired();
             throw Object.assign(

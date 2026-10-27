@@ -1561,4 +1561,10 @@ window.EV_MESSAGES = {
         en: "Cancel this reservation and its start only if dispatch has not begun? Dispatched or uncertain commands require reconciliation.",
         ar: "هل تريد إلغاء الحجز وطلب البدء إذا لم يبدأ الإرسال؟ الأوامر المرسلة أو غير المؤكدة تتطلب المطابقة.",
     },
+    "Retry sign out": { en: "Retry sign out", ar: "إعادة محاولة تسجيل الخروج" },
+    "Signed out.": { en: "Signed out.", ar: "تم تسجيل الخروج." },
+    "Sign-out could not be confirmed. Reconnect and retry.": {
+        en: "Sign-out could not be confirmed. Reconnect and retry.",
+        ar: "تعذر تأكيد تسجيل الخروج. أعد الاتصال ثم حاول مجدداً.",
+    },
 };

@@ -32,6 +32,7 @@ npm ci --cache /tmp/ev-npm-cache
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:frontend
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:localization
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:web-session
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:vendor
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:roaming
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:invoices
@@ -58,3 +59,5 @@ Native: use pinned Flutter3.35.7/sourceadc901062556672b4138e18a4dc62a4be8f4b3c2 
 Current integrated branch preserves b0c43be and frontend through 0fe9e75. Source observer: ./scripts/csms-consume --interval=2 after charging setup + bridge setup. It must restart after restore. Both-protocol daemon restart simulation and isolated PostgreSQL finance/concurrency are now verified locally; current evidence and remaining gates are in PROGRESS/QA. Do not resume retired duplicate native paths from historical CONTINUATION/PROJECT_STATUS; apps/mobile is canonical.
 
 Read REQUIREMENT_STATUS.md for the complete PRD bullet mapping and the connector-identity/maintenance findings. The owner’s MASTER_CONTINUATION.md remains the standing objective; no claim of complete commercial software or inactive background execution is made.
+
+Native CI now uses macos-15/Xcode16.4/iOS18.5 and passed at 890b081. Do not infer latest iOS26/store readiness from this baseline. Web generation isolation and pending logout use no persistent credentials; delayed private responses must never repopulate a changed account. Keep the dedicated web-session ordering tests in CI.
