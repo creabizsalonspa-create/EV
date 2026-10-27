@@ -1294,4 +1294,110 @@ window.EV_MESSAGES = {
         en: "Private evidence download failed.",
         ar: "تعذر تنزيل المستند الخاص.",
     },
+    "Roaming discovery": { en: "Partner locations", ar: "مواقع شبكات التجوال" },
+    "Roaming disclaimer": {
+        en: "Partner-reported locations are unverified. Availability is unknown; reservations, remote charging and payments are unavailable here.",
+        ar: "المواقع واردة من الشريك وغير متحقق منها. التوافر غير معروف؛ الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.",
+    },
+    "Roaming coordinates": { en: "Coordinates:", ar: "الإحداثيات:" },
+    "Roaming source updated": {
+        en: "Source updated (UTC):",
+        ar: "تحديث المصدر (UTC):",
+    },
+    "Roaming received": { en: "Received (UTC):", ar: "تاريخ الاستلام (UTC):" },
+    "Roaming EVSE": { en: "EVSE:", ar: "نقطة الشحن:" },
+    "Roaming reported status": {
+        en: "Partner-reported status:",
+        ar: "الحالة حسب الشريك:",
+    },
+    "Roaming connector": { en: "Connector:", ar: "الموصل:" },
+    "Roaming unknown availability": {
+        en: "Live availability is unknown.",
+        ar: "التوافر المباشر غير معروف.",
+    },
+    "No published roaming locations": {
+        en: "No published partner locations.",
+        ar: "لا توجد مواقع منشورة للشركاء.",
+    },
+    "Roaming load failed": {
+        en: "Unable to load partner data. Please retry.",
+        ar: "تعذر تحميل بيانات الشريك. يرجى المحاولة مجدداً.",
+    },
+    "Page {page} of {last} · {total} records": {
+        en: "Page {page} of {last} · {total} records",
+        ar: "الصفحة {page} من {last} · {total} سجل",
+    },
+    "Roaming operations": { en: "Roaming operations", ar: "إدارة التجوال" },
+    "Roaming operator disclaimer": {
+        en: "Unverified partner records. Reported tariffs and costs are informational and cannot create charges, invoices or settlements. Connections must be provisioned securely by an administrator.",
+        ar: "سجلات شريك غير متحقق منها. التعرفات والتكاليف للمعلومات ولا تنشئ رسوماً أو فواتير أو تسويات. يجب على المسؤول إعداد الاتصالات بشكل آمن.",
+    },
+    "Roaming authorized": {
+        en: "Connection authorized; partner acceptance remains unverified.",
+        ar: "الاتصال مصرح به؛ قبول الشريك لم يتم التحقق منه.",
+    },
+    "Roaming revoked": {
+        en: "Connection authorization revoked.",
+        ar: "تم سحب تصريح الاتصال.",
+    },
+    "Roaming protocol": {
+        en: "Negotiated version:",
+        ar: "الإصدار المتفاوض عليه:",
+    },
+    "Roaming last sync": {
+        en: "Last received data (UTC):",
+        ar: "آخر بيانات مستلمة (UTC):",
+    },
+    "Roaming locations": { en: "Locations", ar: "المواقع" },
+    "Roaming tariffs": { en: "Reported tariffs", ar: "التعرفات الواردة" },
+    "Roaming sessions": { en: "Reported sessions", ar: "الجلسات الواردة" },
+    "Roaming cdrs": { en: "Charge detail records", ar: "سجلات تفاصيل الشحن" },
+    "Roaming negotiate": {
+        en: "Negotiate connection",
+        ar: "التفاوض على الاتصال",
+    },
+    "Roaming synchronize": {
+        en: "Fetch partner records",
+        ar: "جلب سجلات الشريك",
+    },
+    "Roaming external confirmation": {
+        en: "Contact the configured authorized partner now? This reads partner data and does not send charging commands.",
+        ar: "هل تريد الاتصال بالشريك المصرح به الآن؟ هذه العملية تقرأ البيانات ولا ترسل أوامر شحن.",
+    },
+    "Roaming authorization confirmation": {
+        en: "Change this connection authorization? Revocation immediately removes its locations from public discovery.",
+        ar: "هل تريد تغيير تصريح الاتصال؟ سحب التصريح يزيل مواقعه فوراً من الاكتشاف العام.",
+    },
+    "Roaming revoke": { en: "Revoke authorization", ar: "سحب التصريح" },
+    "Roaming authorize": { en: "Authorize connection", ar: "تصريح الاتصال" },
+    "No roaming providers": {
+        en: "No roaming providers assigned.",
+        ar: "لم يتم تعيين مزودي تجوال.",
+    },
+    "No roaming records": {
+        en: "No received records in this module.",
+        ar: "لا توجد سجلات مستلمة في هذا القسم.",
+    },
+    "Roaming price component": { en: "Price component:", ar: "مكون السعر:" },
+    "Roaming unit price": {
+        en: "Reported unit price:",
+        ar: "سعر الوحدة الوارد:",
+    },
+    "Roaming step size": { en: "Billing increment:", ar: "وحدة احتساب السعر:" },
+    "Roaming VAT": { en: "Reported VAT (%):", ar: "الضريبة الواردة (%):" },
+    "Roaming start time": { en: "Started (UTC):", ar: "البداية (UTC):" },
+    "Roaming end time": { en: "Ended (UTC):", ar: "النهاية (UTC):" },
+    "Roaming energy": {
+        en: "Reported energy (kWh):",
+        ar: "الطاقة الواردة (ك.و.س):",
+    },
+    "Roaming location": { en: "Location reference:", ar: "مرجع الموقع:" },
+    "Roaming net cost": {
+        en: "Reported cost excluding VAT:",
+        ar: "التكلفة الواردة دون ضريبة:",
+    },
+    "Roaming gross cost": {
+        en: "Reported cost including VAT:",
+        ar: "التكلفة الواردة مع الضريبة:",
+    },
 };

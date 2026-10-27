@@ -83,6 +83,33 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/roaming/locations') {
+          final page = int.parse(request.uri.queryParameters['page'] ?? '1');
+          result = {
+            'data': [
+              {
+                'location': {
+                  'id': '$page',
+                  'name': 'Device partner fixture $page',
+                  'address': 'Synthetic address',
+                  'city': 'Test city',
+                  'country': 'ARE',
+                  'latitude': '25.2',
+                  'longitude': '55.3',
+                  'last_updated': '2026-10-27T00:00:00Z',
+                  'evses': [],
+                },
+                'received_at': '2026-10-27T00:01:00Z',
+                'evidence': 'PARTNER_REPORTED_UNVERIFIED',
+                'availability': 'unknown',
+                'remote_control': false,
+                'reservable': false,
+              },
+            ],
+            'current_page': page,
+            'last_page': 2,
+            'total': 26,
+          };
         } else if (path == '/api/stations') {
           final page = int.parse(request.uri.queryParameters['page'] ?? '1');
           result = {
@@ -156,6 +183,23 @@ void main() {
       expect(authenticated, 1);
       expect(firstApi.remembered, isTrue);
       expect(await vault.read(origin.origin), isNotNull);
+      await tester.ensureVisible(find.byKey(const Key('roaming-open')));
+      await tester.tap(find.byKey(const Key('roaming-open')));
+      await settle();
+      expect(find.text('Device partner fixture 1'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Next'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Next'));
+      await settle();
+      expect(find.text('Device partner fixture 2'), findsOneWidget);
+      expect(find.text('Live availability is unknown.'), findsOneWidget);
+      await tester.pageBack();
+      await settle();
+      debugPrint('DEVICE: read-only partner pagination verified');
+
       await tester.scrollUntilVisible(
         find.byKey(const Key('catalog-next')),
         300,

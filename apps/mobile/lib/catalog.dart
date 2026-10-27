@@ -50,12 +50,14 @@ class CatalogController extends ChangeNotifier {
 
 class CatalogView extends StatefulWidget {
   final CatalogLoader loader;
+  final VoidCallback? onRoaming;
   final bool customer;
   final bool busy;
   final Future<void> Function(Station) onReserve;
   const CatalogView({
     super.key,
     required this.loader,
+    this.onRoaming,
     required this.customer,
     this.busy = false,
     required this.onReserve,
@@ -110,6 +112,13 @@ class CatalogViewState extends State<CatalogView> {
                 style: Theme.of(context).textTheme.headlineLarge,
               ),
               Text(s.t('development')),
+              if (widget.onRoaming != null)
+                OutlinedButton.icon(
+                  key: const Key('roaming-open'),
+                  onPressed: widget.onRoaming,
+                  icon: const Icon(Icons.public),
+                  label: Text(s.t('roaming')),
+                ),
               const SizedBox(height: 16),
               Card(
                 child: Padding(

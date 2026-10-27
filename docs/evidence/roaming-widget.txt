@@ -1,0 +1,5 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/roaming_test.dart
+00:00 +0: roaming cannot promote partner capabilities to charging authority
+00:00 +1: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:01 +2: disposed route ignores a pending response
+00:01 +3: All tests passed!

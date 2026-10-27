@@ -1,5 +1,17 @@
 # Frontend implementation and continuation
 
+## OCPI web and Flutter workflow checkpoint
+
+Added a separate paginated partner-location catalog on web and canonical Flutter, with coordinates, source/receipt timestamps, reported EVSE statuses and connector types. No reported status grants availability, reservations, charging or payment authority. Both clients fail closed on unexpected public capability flags. Native route supports retry, loading/empty states, English/Arabic and RTL without replacing the existing catalog or navigation.
+
+Vendor/admin web exposes scoped paginated providers and normalized locations/tariffs/sessions/CDRs, manual confirmed negotiation/data pulls, and admin authorization/revocation. Connections still require secure server provisioning; browser never receives connection keys, endpoints, raw payloads or operator tokens. Private views clear/invalidate pending results on logout. No external partner is configured or contacted by acceptance tests.
+
+Verification: Laravel **88 passed / 5,571 assertions**, Pint **114 files**; Flutter analyzer clean, **27 unit/widget passed / 1 explicit default live skip**, including three new capability/pagination/retry/RTL/disposal tests. Real-Laravel roaming browser passed pagination, 503 recovery, owner isolation, admin revocation/public removal, literal user text, 390px Arabic layout and logout. Existing frontend contract/localization suites pass. Native on-device TLS fixture now also tests partner catalog navigation/pagination; updated Android/iOS hosted builds and device execution remain pending for this source until their CI run completes. Logs: evidence/roaming-*.
+
+Remaining: full OCPI credentials handshake, push/tokens/commands, reconciliation/conformance and authorized partner acceptance; secure admin connection onboarding and broader native operator/company workflows. Complete connector-level reservations/company maintenance, production CSMS workers, actual PSP sandbox/webhooks, subscriptions, commissions/settlements, loyalty/maps, remaining customer/vendor/admin workflows and release/security/device gates are unfinished. These are software continuation tasks, not all external blockers. No final-release claim is made.
+
+
+
 ## Company, staff and inventory workspace checkpoint
 
 Implemented EN/AR web company applications/edits, private evidence upload/authenticated download, required-evidence submission, internal admin review/history, granular staff permissions/recipient consent/revocation, and scoped sites/chargers/connectors/maintenance. Company capabilities are server-derived hints and never replace transaction-time authorization. Customer-role staff now have a usable company workspace without global vendor promotion. Pending invitations include only recipient-authorized company identity. Private data and blob URLs clear on logout; user-entered names/review reasons are never translated as UI resources.

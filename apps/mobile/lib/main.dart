@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
 import 'catalog.dart';
+import 'roaming.dart';
 import 'preferences.dart';
 import 'strings.dart';
 import 'support.dart';
@@ -758,6 +759,19 @@ class _WorkspaceState extends State<Workspace> {
             children: [
               CatalogView(
                 key: catalogKey,
+                onRoaming: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => RoamingView(
+                      loader: (page) async {
+                        final data = await api!.request(
+                          'roaming/locations',
+                          query: {'page': '$page'},
+                        );
+                        return ApiPage.fromJson(data, RoamingLocation.fromJson);
+                      },
+                    ),
+                  ),
+                ),
                 loader: (filter, page) =>
                     api!.catalog(filter: filter, page: page),
                 customer: account!.role == 'customer',

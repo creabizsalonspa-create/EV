@@ -16,6 +16,17 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'roaming': 'Partner locations',
+    'roamingDisclaimer':
+        'Unverified partner-reported locations. Reservations, remote charging and payments are unavailable here.',
+    'roamingEmpty': 'No published partner locations.',
+    'roamingCoordinates': 'Coordinates: {value}',
+    'roamingUpdated': 'Source updated (UTC): {value}',
+    'roamingReceived': 'Received (UTC): {value}',
+    'roamingEvse': 'EVSE: {value}',
+    'roamingReported': 'Partner-reported status: {value}',
+    'roamingUnknown': 'Live availability is unknown.',
+
     'brand': 'Crea-Biz EV',
     'tagline': 'Your next charge, connected.',
     'discover': 'Discover',
@@ -234,6 +245,17 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'roaming': 'مواقع شبكات التجوال',
+    'roamingDisclaimer':
+        'مواقع واردة من الشريك وغير متحقق منها. الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.',
+    'roamingEmpty': 'لا توجد مواقع منشورة للشركاء.',
+    'roamingCoordinates': 'الإحداثيات: {value}',
+    'roamingUpdated': 'تحديث المصدر (UTC): {value}',
+    'roamingReceived': 'تاريخ الاستلام (UTC): {value}',
+    'roamingEvse': 'نقطة الشحن: {value}',
+    'roamingReported': 'الحالة حسب الشريك: {value}',
+    'roamingUnknown': 'التوافر المباشر غير معروف.',
+
     'brand': 'كريا بيز للشحن',
     'tagline': 'رحلتك التالية تبدأ بشحنة.',
     'discover': 'اكتشف',

@@ -667,3 +667,6 @@ form label {
     flex-direction: row;
     min-height: 44px;
 }
+
+.roaming-record { white-space: pre-wrap; overflow-wrap: anywhere; direction: ltr; text-align: left; max-width: 100%; }
+#roaming-operations article, #roaming-discovery article { overflow-wrap: anywhere; min-width: 0; }

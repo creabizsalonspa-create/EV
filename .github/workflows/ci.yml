@@ -32,6 +32,7 @@ jobs:
       - name: Verify continuous source ingestion and restart
         run: EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - run: npm run test:vendor
+      - run: npm run test:roaming
       - if: failure()
         run: docker logs --tail 100 ev-business-api
 
