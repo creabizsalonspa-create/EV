@@ -28,11 +28,11 @@ void main() {
           );
           result = {'token': 'synthetic-device-csrf'};
         } else if (path == '/api/login') {
-          expect(
+          expectSync(
             request.headers.value('X-CSRF-TOKEN'),
             'synthetic-device-csrf',
           );
-          expect(
+          expectSync(
             request.cookies.any(
               (c) =>
                   c.name == 'session' && c.value == 'synthetic-device-session',
