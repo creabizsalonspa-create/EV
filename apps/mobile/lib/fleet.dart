@@ -292,6 +292,9 @@ class _FleetPageState extends State<FleetPage> {
   void failed(Object e) {
     if (!mounted) return;
     if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
+    if (mounted && e is ApiException && e.status == 404) {
+      setState(() => data = null);
+    }
     if (mounted) setState(() => error = e);
   }
 

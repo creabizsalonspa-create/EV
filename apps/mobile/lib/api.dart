@@ -119,7 +119,14 @@ class EvApi {
       if (saved) _remembered = true;
       return saved;
     } catch (_) {
-      _remembered = false;
+      // A platform write may have completed before reporting an error. Remove
+      // any snapshot; if removal also fails, retain the conservative state so
+      // logout cannot claim the device credential was deleted.
+      try {
+        await forgetSession();
+      } on SessionStorageException {
+        _remembered = true;
+      }
       throw const SessionStorageException();
     }
   }

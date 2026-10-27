@@ -3,23 +3,24 @@
 00:00 +1: /workspace/EV/apps/mobile/test/catalog_test.dart: late responses cannot replace a newer search and disposal ignores late completion
 00:00 +2: /workspace/EV/apps/mobile/test/catalog_test.dart: failed next page keeps current records and retries exactly the requested filtered page
 00:00 +3: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
-00:04 +4: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
-00:05 +5: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: driver has no owner controls and explicitly accepts an invitation
-00:05 +6: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
-00:06 +7: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
-00:06 +7: /workspace/EV/apps/mobile/test/live_api_test.dart: native client exercises actual Laravel roles, bookings and privacy
+00:02 +4: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:04 +5: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:05 +6: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: driver has no owner controls and explicitly accepts an invitation
+00:05 +7: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:05 +8: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:06 +8: /workspace/EV/apps/mobile/test/live_api_test.dart: native client exercises Laravel fleets, meters, bookings and privacy
   Skip: Set EV_NATIVE_SMOKE_URL to the disposable local Laravel service.
-00:06 +7 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
-00:06 +8 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: Arabic vendor layouts fit narrow and tablet screens and expired sessions clear private UI
-00:07 +9 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
-00:08 +10 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
-00:08 +11 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
-00:09 +12 ~1: /workspace/EV/apps/mobile/test/session_test.dart: plaintext origins never persist credentials
-00:09 +13 ~1: /workspace/EV/apps/mobile/test/session_test.dart: secure HTTP-only cookies restore through real TLS and fresh me/CSRF; logout, origin and expiry are enforced
-00:09 +14 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
-00:10 +15 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
-00:10 +16 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
-00:10 +17 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
-00:10 +18 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
-00:11 +19 ~1: /workspace/EV/apps/mobile/test/support_test.dart: inbox read actions update actual API state and notification opens its thread
-00:11 +20 ~1: All tests passed!
+00:06 +8 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:06 +9 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: Arabic vendor layouts fit narrow and tablet screens and expired sessions clear private UI
+00:06 +10 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:07 +11 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:07 +12 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:08 +13 ~1: /workspace/EV/apps/mobile/test/session_test.dart: plaintext origins never persist credentials
+00:08 +14 ~1: /workspace/EV/apps/mobile/test/session_test.dart: secure HTTP-only cookies restore through real TLS and fresh me/CSRF; logout, origin and expiry are enforced
+00:08 +15 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:09 +16 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:09 +17 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:09 +18 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:10 +19 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:10 +20 ~1: /workspace/EV/apps/mobile/test/support_test.dart: inbox read actions update actual API state and notification opens its thread
+00:11 +21 ~1: All tests passed!

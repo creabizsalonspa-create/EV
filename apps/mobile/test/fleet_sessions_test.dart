@@ -10,6 +10,7 @@ class FleetFixture extends FixtureApi {
       invited = true,
       revoked = false,
       meterConflict = false;
+  bool lostMembership = false;
   int energy = 1000;
   bool stopped = false;
   final centers = <Map<String, dynamic>>[];
@@ -72,6 +73,8 @@ class FleetFixture extends FixtureApi {
       revoked = true;
       return null;
     }
+    if (path == 'fleets/1' && lostMembership)
+      throw const ApiException(404, 'not found');
     if (path == 'fleets/1')
       return {
         'fleet': {'id': 1, 'name': 'Fixture fleet', 'owner_id': 1},
@@ -126,6 +129,26 @@ class FleetFixture extends FixtureApi {
 }
 
 void main() {
+  testWidgets(
+    'revoked access clears previously loaded fleet details on refresh',
+    (tester) async {
+      final api = FleetFixture();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FleetPage(api: api, accountId: 1, id: 1, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Fixture fleet'), findsOneWidget);
+      api.lostMembership = true;
+      await tester.drag(find.byType(ListView).first, const Offset(0, 500));
+      await tester.pumpAndSettle();
+      expect(find.text('Fixture fleet'), findsNothing);
+      expect(find.text('Add cost center'), findsNothing);
+      expect(find.text('Retry'), findsOneWidget);
+    },
+  );
   testWidgets(
     'owner creates cost center, invites privately, assigns own second-page vehicle and revokes membership',
     (tester) async {

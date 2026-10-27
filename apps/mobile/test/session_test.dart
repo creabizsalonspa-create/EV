@@ -8,6 +8,7 @@ import 'fixtures/tls.dart';
 class MemoryVault implements SessionVault {
   final entries = <String, String>{};
   bool failDelete = false;
+  bool failWrite = false;
   int writes = 0;
   @override
   Future<String?> read(String origin) async => entries[origin];
@@ -15,6 +16,7 @@ class MemoryVault implements SessionVault {
   Future<void> write(String origin, String value) async {
     entries[origin] = value;
     writes++;
+    if (failWrite) throw StateError('write failed after platform update');
   }
 
   @override
@@ -120,6 +122,23 @@ void main() {
         expect((await second.restoreSession())!.name, 'Fresh server account');
         expect(meCalls, 1);
         expect(second.remembered, isTrue);
+        vault.failWrite = true;
+        await expectLater(
+          second.rememberSession(),
+          throwsA(isA<SessionStorageException>()),
+        );
+        expect(vault.entries, isEmpty);
+        expect(second.remembered, isFalse);
+        vault.failWrite = false;
+        await second.rememberSession();
+        vault.failWrite = true;
+        vault.failDelete = true;
+        await expectLater(
+          second.rememberSession(),
+          throwsA(isA<SessionStorageException>()),
+        );
+        expect(second.remembered, isTrue);
+        vault.failWrite = false;
         vault.failDelete = true;
         await expectLater(
           second.signOut(),
