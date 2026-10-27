@@ -1,0 +1,25 @@
+# Copy the following text into Codex as the initial development task
+
+You are the principal engineering execution agent for the **complete Crea-Biz EV Charging Aggregator and Direct Charger Management System**, starting in the UAE and designed for international deployment. **Do not build only an MVP.** You are responsible for progressing the full requirements across repeated engineering milestones, with truthful test evidence and repository updates.
+
+**Read first:** `AGENTS.md`, `PRODUCT_REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/ACCEPTANCE_TESTS.md`, and `reference/CreaBiz_UAE_EV_Feasibility_Plan.pdf`. Where the 2025 PDF allocates platforms differently or earlier prompts say MVP-only, the newer project files govern: **customer web + Android + iOS; vendor web + Android + iOS; admin web; direct OCPP charger management + third-party OCPI/operator aggregation; full commercial feature scope.**
+
+**First: recover Git/repository workflow.** Inspect the current environment, `git status`, branch, remotes, permissions and exact failing push command/output. Fix any safe local Git issue yourself. Use available authenticated GitHub workflows to work on a new branch, commit, push and open/update a PR when supported. Do not ask me to reconnect GitHub reflexively, overwrite branches, bypass permission checks, or claim a push was successful if it was not. If the Codex cloud environment has *zero selectable repositories*, report that the GitHub App's repository selection/installation or repository existence must be fixed outside the task; this is not solvable by generating code alone.
+
+**Then execute, not just plan:**
+1. Inspect repository and available development tools; establish `docs/PROGRESS.md` with every functional module from the full PRD, plus test evidence and external blockers.
+2. Verify, install and pin a suitable **CitrineOS** CSMS and operator UI. Evaluate actual OCPP 1.6 / 2.0.1 and OCPI capabilities, its license and integration surfaces. Connect a charger simulator and test boot, status, remote start/stop and transaction/meter events where available. Treat CPO-side OCPI as distinct from required eMSP external aggregation.
+3. Build a secure **Laravel business platform** for customer/vendor/admin accounts, vendor verification, tenants, station catalogs, reservations, tariffs, payments/ledger, invoicing, refunds, subscriptions, fleet, loyalty, promotions, reports, audit logs and configurable regions.
+4. Build complete **customer and vendor Web, Android and iOS** interfaces, reusing Flutter/shared component libraries where appropriate; build the **Super Admin Web**. Implement real workflows and reusable API clients, not disconnected screenshots.
+5. Integrate Laravel with the CSMS through authenticated APIs/events, maintaining separate datastores, robust transaction states, authorization, retries/idempotency, command audits and reconcilable billing.
+6. Implement **OCPI/eMSP/operator adapters** and Open Charge Map discovery where allowed. Distinguish discovery-only stations from actual authorized booking/charging/settlement integrations.
+7. Implement full commercial functions (fleet, loyalty Silver/Gold/Platinum, vendor subscriptions/commissions, settlement, multi-currency/time-zone/country configuration, localization, admin, marketing, security and support) and their tests.
+8. Audit any CodeCanyon source only if source is lawfully available and license/quality checks pass; reuse parts via clean boundaries, not blanket source merging.
+9. Run unit, API/integration, UI, end-to-end and build tests. Provide infrastructure, env examples, CI/CD, operations runbooks, migrations and API docs. Never fabricate passing tests or production partner access.
+10. Update `docs/PROGRESS.md`, `docs/DECISIONS.md` and test evidence after each milestone. Make safe commits/PRs. Provide source archive where supported, but do not conflate source ZIP with an installable app, physical-hardware certification or a live production integration.
+
+**Autonomy:** Resolve routine design, implementation, dependency and test issues without repeatedly asking me to do developer work. Only request unavailable external approvals/credentials: GitHub repository permissions, third-party EV network contracts, payment merchant keys, physical hardware access/safety sign-off, app signing/store credentials, or required legal decisions.
+
+**Delivery:** Continue by achievable stages because a complete regulated, multi-platform commercial system cannot reliably be built and independently validated in one cloud response. Each stage must leave working committed code plus proof, accurately labeled as simulated, integrated, hardware-tested, external-blocked or production-ready. Finish as many stages as your task environment permits and leave exact next steps for continuation. Do not stop permanently after the initial functional demonstration.
+
+Begin by examining the actual repository and resolving the Git push issue, then implement the first fully tested vertical slice while preserving the entire commercial scope in the roadmap.
