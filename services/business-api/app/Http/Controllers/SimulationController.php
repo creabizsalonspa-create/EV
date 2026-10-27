@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ChargerCommand;
 use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
@@ -36,7 +37,17 @@ class SimulationController extends Controller
             $q->whereIn('reservation_id', Reservation::where('user_id', $r->user()->id)->select('id'));
         }
 
-        return $q->orderByDesc('id')->paginate(25)->through(fn ($s) => $s->toArray() + ['evidence' => 'SIMULATED', 'payment_status' => 'not_processed']);
+        $page = $q->orderByDesc('id')->paginate(25);
+        $links = SessionLink::whereIn('charging_session_id', $page->getCollection()->pluck('id'))->get()->keyBy('charging_session_id');
+        $commands = ChargerCommand::whereIn('id', $links->pluck('start_command_id')->merge($links->pluck('stop_command_id'))->filter())->get(['id', 'status'])->keyBy('id');
+
+        return $page->through(function ($session) use ($links, $commands) {
+            $link = $links->get($session->id);
+
+            return $session->toArray() + ['evidence' => $link ? 'SIMULATED_CSMS' : 'SIMULATED', 'payment_status' => 'not_processed', 'csms_linked' => $link !== null,
+                'start_command_status' => $link ? $commands->get($link->start_command_id)?->status : null,
+                'stop_command_status' => $link ? $commands->get($link->stop_command_id)?->status : null];
+        });
     }
 
     public function start(Request $r, Reservation $reservation)

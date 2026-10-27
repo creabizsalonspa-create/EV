@@ -1,5 +1,16 @@
 # Frontend implementation and continuation
 
+## Continuous source and connected clients checkpoint
+
+Implemented a restartable authenticated local CSMS observer with durable source cursors, exact Wh/kWh conversion, station/authorization/remote-start correlation and HMAC inbox delivery. It never dispatches commands. Both OCPP versions passed with an actual continuous process restarted during charging, one immutable simulated invoice, simulated payment/refund and balanced journals. Lost HTTP acknowledgement after finalization is regression-tested without double invoicing.
+
+Web/native now select CSMS start/stop for linked records, hide manual meter overrides, show source-wait states and display read-only simulated invoice summaries. Existing unbound simulator flows remain supported. Backend list metadata is additive and tenant-scoped.
+
+Current local verification: Laravel 85 / 5,532 assertions; native analyzer clean, 24 unit/widget passes plus one explicit default live skip, separate real-Laravel native integration 1 pass; three Chromium suites pass. PostgreSQL finance 14 / 4,999 assertions and cross-invoice payment/refund races 2 / 26 assertions pass. CI now runs the consumer/restart and PostgreSQL suites. Evidence: fullstack-* and source-consumer-*. The inherited native source 0fe9e75 additionally passed hosted Android debug/iOS simulator builds and 1 iPhone-simulator TLS/Keychain/UI test (run 40469622903); updated native screens require their own hosted build result.
+
+Still required: safe provision/dispatch/reconciliation workers, connector-level inventory/reservations/company maintenance gates, full vendor/staff/KYC, OCPI and finance UI, and all commercial subscription/settlement/loyalty/map scope. Real hardware, PSP/roaming partners, legal KYC/tax and signed store/device/staging/operational acceptance remain separate. This remains an unfinished commercial platform, not a final release.
+
+
 ## Current frontend continuation — 2026-10-27
 
 Implemented native paginated fleets/invitations, explicit acceptance, owner-only invitation/revocation and cost centers, own-vehicle assignment across vehicle pages, and member-scoped detail. Vendor simulator session pages now edit cumulative Wh with monotonic validation, retain input after conflicts and confirm stop. All new screens use shared English/Arabic resources and existing backend authorization/contracts.

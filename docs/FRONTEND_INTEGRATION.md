@@ -21,3 +21,9 @@ Finance and vendor relative routes are also mounted under authenticated `/api/v1
 The service-signed inbox correlates binding/transaction/cumulative registers, rejects conflicts and decreasing meters/timestamps, and deduplicates event IDs/sequences. Only the source end/meter atomically finalizes energy, cost and one immutable SIMULATED invoice. Manual simulator meter/stop endpoints cannot override linked sessions. Unknown command outcomes require reconciliation, never blind start retries.
 
 Scoped OpenAPI: [openapi/charging-bridge.json](openapi/charging-bridge.json). The signed event endpoint is for a trusted adapter, never a customer/mobile secret. Production/hardware ingestion, full OpenAPI, live PSP/partners and full client UX remain unfinished.
+
+## Connected source and invoice UI
+
+Reservation list rows add csms_bound; bound customer requests use POST reservations/{id}/csms-start. Session list rows add csms_linked and start_command_status/stop_command_status, with SIMULATED_CSMS evidence for linked sessions. Web and canonical Flutter hide manual meters on linked rows and route stop to charging-sessions/{id}/csms-stop. pending_start/stopping remain waiting states until source confirmation, with manual refresh/pull-to-refresh. Unbound application simulation is preserved.
+
+Both web and native can request the session-unique simulated invoice and render its actual integer subtotal/tax/total, collected/refunded/due and ledger balance. Only SIMULATOR_ONLY / real_payment_processed=false summaries are displayed as simulation documents. No real checkout/refund/payout controls were added. New widget/browser tests cover routing, disabled overrides, waiting state, invoice display and expiry cleanup.

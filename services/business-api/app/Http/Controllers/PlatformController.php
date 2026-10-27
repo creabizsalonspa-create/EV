@@ -109,7 +109,10 @@ class PlatformController extends Controller
             $q->where('user_id', $r->user()->id);
         }
 
-        return $q->orderByDesc('id')->paginate(25);
+        $page = $q->orderByDesc('id')->paginate(25);
+        $bound = DB::table('csms_bindings')->whereIn('station_id', $page->getCollection()->pluck('station_id'))->pluck('station_id')->flip();
+
+        return $page->through(fn ($reservation) => $reservation->toArray() + ['csms_bound' => $bound->has($reservation->station_id)]);
     }
 
     public function reserve(Request $r)

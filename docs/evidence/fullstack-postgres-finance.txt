@@ -5,7 +5,7 @@ Configuration: /app/services/business-api/phpunit.xml
 
 ..............                                                    14 / 14 (100%)
 
-Time: 00:01.364, Memory: 48.50 MB
+Time: 00:02.394, Memory: 48.50 MB
 
 Finance (Tests\Feature\Finance)
  ✔ Integer rounding tariff snapshot and invoice are immutable and reconcile

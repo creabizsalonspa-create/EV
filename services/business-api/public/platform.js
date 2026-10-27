@@ -309,11 +309,18 @@ async function bookings() {
                 }
             };
             a.append(b);
-            let start = ui("button", "Start simulator");
+            let start = ui(
+                "button",
+                r.csms_bound
+                    ? "Request CSMS simulator start"
+                    : "Start simulator",
+            );
             start.onclick = async () => {
                 try {
                     await api(
-                        "reservations/" + r.id + "/simulate-start",
+                        "reservations/" +
+                            r.id +
+                            (r.csms_bound ? "/csms-start" : "/simulate-start"),
                         "POST",
                     );
                     await simulations();
@@ -346,18 +353,83 @@ async function simulations() {
                 currency: s.currency,
             },
         );
+        if (s.csms_linked) a.append(ui("p", "Source controls disclaimer"));
+        if (s.status === "stopped") {
+            const button = ui("button", "View simulated invoice"),
+                details = document.createElement("div");
+            button.onclick = async () => {
+                button.disabled = true;
+                try {
+                    const summary = await api(
+                        "finance/sessions/" + s.id + "/invoice",
+                        "POST",
+                    );
+                    if (
+                        summary.payment_provider !== "SIMULATOR_ONLY" ||
+                        summary.real_payment_processed !== false
+                    )
+                        throw new Error("Unsupported finance evidence.");
+                    const invoice = summary.invoice;
+                    details.replaceChildren(
+                        ui("p", "Invoice simulation disclaimer"),
+                        node("h4", invoice.number),
+                    );
+                    for (const [label, amount] of [
+                        ["Subtotal", invoice.subtotal_minor],
+                        ["Tax", invoice.tax_minor],
+                        ["Total", invoice.total_minor],
+                        ["Simulated collected", summary.paid_minor],
+                        ["Simulated refunded", summary.refunded_minor],
+                        ["Amount due", summary.amount_due_minor],
+                    ]) {
+                        details.append(
+                            ui(
+                                "p",
+                                "{label}: {amount} minor units {currency}",
+                                {
+                                    label: { translate: label },
+                                    amount,
+                                    currency: invoice.currency,
+                                },
+                            ),
+                        );
+                    }
+                    details.append(
+                        ui(
+                            "p",
+                            summary.ledger_balanced
+                                ? "Ledger balanced"
+                                : "Ledger needs reconciliation",
+                        ),
+                    );
+                } catch (error) {
+                    notice(error);
+                } finally {
+                    button.disabled = false;
+                }
+            };
+            a.append(button, details);
+        }
         if (s.status === "charging") {
-            let stop = ui("button", "Stop simulation");
+            let stop = ui(
+                "button",
+                s.csms_linked ? "Request CSMS stop" : "Stop simulation",
+            );
             stop.onclick = async () => {
                 try {
-                    await api("simulations/" + s.id + "/stop", "POST");
+                    await api(
+                        s.csms_linked
+                            ? "charging-sessions/" + s.id + "/csms-stop"
+                            : "simulations/" + s.id + "/stop",
+                        "POST",
+                    );
                     await simulations();
                 } catch (e) {
                     notice(e);
                 }
             };
             a.append(stop);
-            if (user.role === "vendor") {
+            if (user.role === "vendor" && !s.csms_linked) {
                 let f = document.createElement("form"),
                     i = document.createElement("input");
                 i.type = "number";
@@ -1007,3 +1079,14 @@ async function commandHistory(page = 1) {
     }
 }
 el("commands-refresh").onclick = () => commandHistory(commandPage);
+
+el("sessions-refresh").onclick = async function () {
+    this.disabled = true;
+    try {
+        await simulations();
+    } catch (error) {
+        notice(error);
+    } finally {
+        this.disabled = false;
+    }
+};

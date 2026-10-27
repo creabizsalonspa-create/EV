@@ -858,4 +858,76 @@ window.EV_MESSAGES = {
         en: "Dispatching",
         ar: "جارٍ الإرسال",
     },
+    "Request CSMS simulator start": {
+        en: "Request CSMS simulator start",
+        ar: "طلب بدء محاكاة CSMS",
+    },
+    "Request CSMS stop": {
+        en: "Request CSMS stop",
+        ar: "طلب إيقاف CSMS",
+    },
+    "Source controls disclaimer": {
+        en: "Source controls disclaimer",
+        ar: "قراءات المصدر معتمدة. حالات الانتظار والإيقاف تتطلب تأكيد المصدر. محاكاة فقط؛ لا يوجد شحن فعلي أو دفع.",
+    },
+    pending_start: {
+        en: "Waiting for source start",
+        ar: "بانتظار بدء المصدر",
+    },
+    stopping: {
+        en: "Waiting for source stop",
+        ar: "بانتظار إيقاف المصدر",
+    },
+    "View simulated invoice": {
+        en: "View simulated invoice",
+        ar: "عرض فاتورة المحاكاة",
+    },
+    "Invoice simulation disclaimer": {
+        en: "Invoice simulation disclaimer",
+        ar: "مستند ومحاسبة للمحاكاة فقط. ليست فاتورة ضريبية قانونية أو دفعاً فعلياً.",
+    },
+    "{label}: {amount} minor units {currency}": {
+        en: "{label}: {amount} minor units {currency}",
+        ar: "{label}: {amount} وحدة نقدية صغرى {currency}",
+    },
+    Subtotal: {
+        en: "Subtotal",
+        ar: "المجموع الفرعي",
+    },
+    Tax: {
+        en: "Tax",
+        ar: "الضريبة",
+    },
+    Total: {
+        en: "Total",
+        ar: "الإجمالي",
+    },
+    "Simulated collected": {
+        en: "Simulated collected",
+        ar: "المحصّل بالمحاكاة",
+    },
+    "Simulated refunded": {
+        en: "Simulated refunded",
+        ar: "المسترد بالمحاكاة",
+    },
+    "Amount due": {
+        en: "Amount due",
+        ar: "المبلغ المستحق",
+    },
+    "Ledger balanced": {
+        en: "Ledger balanced",
+        ar: "دفتر الحسابات متوازن",
+    },
+    "Ledger needs reconciliation": {
+        en: "Ledger needs reconciliation",
+        ar: "دفتر الحسابات يتطلب تسوية",
+    },
+    "Refresh sessions": {
+        en: "Refresh sessions",
+        ar: "تحديث الجلسات",
+    },
+    "Unsupported finance evidence.": {
+        en: "Unsupported finance evidence.",
+        ar: "بيانات المحاسبة غير مدعومة.",
+    },
 };

@@ -17,6 +17,9 @@ for p,data in [(business,b),(bridge,c)]:
   p.parent.mkdir(parents=True,exist_ok=True);fd=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600);os.close(fd)
  if not data.get('CSMS_EVENT_SECRET'):
   with p.open('a') as f:f.write('\nCSMS_EVENT_SECRET='+key+'\n')
+source=c.get('CHARGING_HASURA_ADMIN_SECRET','').strip('\"\'')
+if source and not b.get('CSMS_GRAPHQL_SECRET'):
+ with business.open('a') as f:f.write('\nCSMS_GRAPHQL_SECRET='+source+'\n')
 if 'CSMS_SESSION_BRIDGE_ENABLED' not in b:
  with business.open('a') as f:f.write('CSMS_SESSION_BRIDGE_ENABLED=true\n')
 print('Local simulator event bindings configured; no credentials printed. Existing values preserved.')

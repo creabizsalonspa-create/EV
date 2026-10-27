@@ -5,7 +5,7 @@ Configuration: /app/services/business-api/phpunit.xml
 
 ..                                                                  2 / 2 (100%)
 
-Time: 00:05.177, Memory: 42.50 MB
+Time: 00:04.759, Memory: 42.50 MB
 
 Finance Concurrency (Tests\Postgres\FinanceConcurrency)
  ✔ Cross invoice payment key race returns conflict without double posting

@@ -211,6 +211,27 @@ class EvStrings {
     "forgetSignIn": "Forget saved sign-in",
     "sessionForgotten":
         "Saved sign-in removed. Your current session remains open.",
+    "startCsms": "Request CSMS simulator start",
+    "stopCsms": "Request CSMS stop",
+    "stopCsmsConsent":
+        "Queue a stop request and wait for the source final meter. No physical charger or payment is connected.",
+    "csmsSimulation": "CSMS SIMULATION",
+    "sourceControls":
+        "Source meters are authoritative. Pending and stopping states require source confirmation; refresh to check.",
+    "pending_start": "Waiting for source start",
+    "stopping": "Waiting for source stop",
+    "invoice": "Simulated invoice",
+    "invoiceDisclaimer":
+        "Simulation document and accounting only. This is not a legal tax invoice or a real payment.",
+    "invoiceLine": "{label}: {amount} minor units {currency}",
+    "subtotal": "Subtotal",
+    "tax": "Tax",
+    "total": "Total",
+    "paid": "Simulated collected",
+    "refunded": "Simulated refunded",
+    "due": "Amount due",
+    "ledgerBalanced": "Ledger balanced",
+    "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
     'brand': 'كريا بيز للشحن',
@@ -404,6 +425,27 @@ class EvStrings {
     "forgetSignIn": "نسيان تسجيل الدخول المحفوظ",
     "sessionForgotten":
         "أُزيل تسجيل الدخول المحفوظ. جلستك الحالية ما زالت مفتوحة.",
+    "startCsms": "طلب بدء محاكاة CSMS",
+    "stopCsms": "طلب إيقاف CSMS",
+    "stopCsmsConsent":
+        "إرسال طلب إيقاف وانتظار قراءة العداد النهائية من المصدر. لا يوجد شاحن فعلي أو دفع متصل.",
+    "csmsSimulation": "محاكاة CSMS",
+    "sourceControls":
+        "قراءات المصدر هي المعتمدة. حالات الانتظار والإيقاف تتطلب تأكيد المصدر؛ حدّث للتحقق.",
+    "pending_start": "بانتظار بدء المصدر",
+    "stopping": "بانتظار إيقاف المصدر",
+    "invoice": "فاتورة محاكاة",
+    "invoiceDisclaimer":
+        "مستند ومحاسبة للمحاكاة فقط. ليست فاتورة ضريبية قانونية أو دفعاً فعلياً.",
+    "invoiceLine": "{label}: {amount} وحدة نقدية صغرى {currency}",
+    "subtotal": "المجموع الفرعي",
+    "tax": "الضريبة",
+    "total": "الإجمالي",
+    "paid": "المحصّل بالمحاكاة",
+    "refunded": "المسترد بالمحاكاة",
+    "due": "المبلغ المستحق",
+    "ledgerBalanced": "دفتر الحسابات متوازن",
+    "ledgerUnbalanced": "دفتر الحسابات يتطلب تسوية",
   };
 }
 

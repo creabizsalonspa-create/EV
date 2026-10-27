@@ -460,13 +460,19 @@ class _WorkspaceState extends State<Workspace> {
                         ? null
                         : () => perform(() async {
                             await api!.request(
-                              'reservations/$id/simulate-start',
+                              'reservations/$id/${row['csms_bound'] == true ? 'csms-start' : 'simulate-start'}',
                               method: 'POST',
                             );
                             if (mounted) setState(() => tab = 2);
                             await load();
                           }),
-                    child: Text(s.t('startSimulator')),
+                    child: Text(
+                      s.t(
+                        row['csms_bound'] == true
+                            ? 'startCsms'
+                            : 'startSimulator',
+                      ),
+                    ),
                   ),
                 ],
               ),

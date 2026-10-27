@@ -24,5 +24,24 @@ jobs:
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
       - run: npm run test:ocpp
+      - run: ./scripts/charging-setup
+      - run: ./scripts/charging-bridge-setup
+      - run: node tests/charging-session.cjs
+      - run: node tests/charging-business.cjs
+      - name: Verify continuous source ingestion and restart
+        run: EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
       - if: failure()
         run: docker logs --tail 100 ev-business-api
+
+  finance-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/setup
+      - run: services/business-api/tests/Postgres/run-finance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-finance-evidence
+          path: artifacts/finance-postgres/*.txt
+          if-no-files-found: error
