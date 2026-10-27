@@ -282,7 +282,9 @@ class CatalogViewState extends State<CatalogView> {
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         Text(
-                          station.reservationPolicy == 'canonical' ? topologyText(context,'capabilities') : '${station.connector} · ${station.powerKw} kW',
+                          station.reservationPolicy == 'canonical'
+                              ? topologyText(context, 'capabilities')
+                              : '${station.connector} · ${station.powerKw} kW',
                           textDirection: TextDirection.ltr,
                         ),
                         Text(s.t('unknownAvailability')),

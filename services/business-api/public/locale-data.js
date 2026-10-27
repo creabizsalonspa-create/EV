@@ -1669,4 +1669,17 @@ window.EV_MESSAGES = {
         en: "Mapped connectors · choose a connector for capabilities",
         ar: "موصلات معتمدة · اختر موصلاً لعرض مواصفاته",
     },
+    "Check in": { en: "Check in", ar: "تسجيل الوصول" },
+    "Arrival confirmation": {
+        en: "Record your arrival for this reservation? This is self-reported, does not verify physical presence, extend the slot or start charging.",
+        ar: "هل تريد تسجيل وصولك لهذا الحجز؟ هذا إبلاغ ذاتي لا يثبت الوجود الفعلي ولا يمدد الموعد ولا يبدأ الشحن.",
+    },
+    "Self-reported arrival · {time}": {
+        en: "Self-reported arrival recorded · {time}",
+        ar: "سُجل الوصول بإبلاغ ذاتي · {time}",
+    },
+    expired_unused: {
+        en: "Reservation window ended without a linked charging session",
+        ar: "انتهى موعد الحجز دون جلسة شحن مرتبطة",
+    },
 };

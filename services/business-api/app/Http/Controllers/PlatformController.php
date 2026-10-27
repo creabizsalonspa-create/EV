@@ -10,6 +10,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Charging\ConnectorTopology;
+use App\Services\Charging\ReservationLifecycle;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\StationGate;
 use Carbon\CarbonImmutable;
@@ -143,7 +144,7 @@ class PlatformController extends Controller
                 $csms = Evse::findOrFail($map->evse_id)->mode === 'csms';
             }
 
-            return $reservation->toArray() + ['csms_bound' => $csms];
+            return $reservation->toArray() + ['csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
         });
     }
 
@@ -199,6 +200,7 @@ class PlatformController extends Controller
             if ($reservation->status === 'cancelled') {
                 return $reservation;
             }
+            abort_unless($reservation->status === 'confirmed', 409, 'Reservation is already closed.');
             if ($session = ChargingSession::where('reservation_id', $reservation->id)->first()) {
                 app(SessionBridge::class)->cancelUndispatched($session, $reservation);
             }

@@ -212,3 +212,7 @@ The opt-in test requires the running disposable local Laravel service (`./script
 2. Maps/authorized live availability, tariffs, invoices/payments/settlements, subscriptions/loyalty/promotions, complete customer/vendor/admin workflows. Do not invent successful integration responses or overwrite Agent 1's backend contracts.
 3. Full web English/Arabic resources, formal native/web accessibility/translation/performance review and cross-browser/device matrix; replace development launcher/splash assets with owned branding.
 4. Actual phones and authorized HTTPS service testing, real push/mail delivery, signing/store pipelines, partner/hardware/PSP and production acceptance gates. Admin remains web-only. Current simulator and pricing fixtures are never physical charging or processed payments.
+
+## Self-reported arrival and unused booking expiry
+
+See [RESERVATION_LIFECYCLE.md](RESERVATION_LIFECYCLE.md) for the implemented customer web/Flutter workflow, scoped check-in API, bounded scheduler, immutable evidence and PostgreSQL concurrency checks. No physical-presence or no-show fee claim.

@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
 import 'catalog.dart';
 import 'connector_choices.dart';
+import 'reservation_arrival.dart';
 import 'roaming.dart';
 import 'invoice_history.dart';
 import 'tariffs.dart';
@@ -438,6 +439,20 @@ class _WorkspaceState extends State<Workspace> {
                   'id': row['station_id'],
                   'time': row['starts_at'],
                 }),
+              ),
+            if (tab == 1 && row['checked_in_at'] != null)
+              Text(
+                '${arrivalText(context, 'reported')} · ${row['checked_in_at']}',
+              ),
+            if (tab == 1 &&
+                account?.role == 'customer' &&
+                row['can_check_in'] == true)
+              ReservationArrivalButton(
+                api: api!,
+                reservationId: id as int,
+                disabled: busy,
+                onChanged: () => perform(() => load(page: recordPage)),
+                onExpired: expiredSession,
               ),
             if (tab == 2)
               Text(

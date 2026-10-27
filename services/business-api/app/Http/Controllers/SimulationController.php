@@ -60,6 +60,7 @@ class SimulationController extends Controller
         abort_unless($r->user()->id === $reservation->user_id, 404);
 
         return DB::transaction(function () use ($r, $reservation) {
+            Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $b = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
             $old = ChargingSession::where('reservation_id', $b->id)->first();
             if ($old) {

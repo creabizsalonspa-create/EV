@@ -20,8 +20,11 @@ class CsmsDispatcher
     public function dispatch(int $id): ChargerCommand
     {
         abort_unless(config('csms.simulator_enabled') && ! app()->environment('production'), 503, 'Simulator dispatch is disabled.');
-        $command = DB::transaction(function () use ($id) {
+        $stationId = ChargerCommand::findOrFail($id)->station_id;
+        $command = DB::transaction(function () use ($id, $stationId) {
+            Station::whereKey($stationId)->lockForUpdate()->firstOrFail();
             $c = ChargerCommand::whereKey($id)->lockForUpdate()->firstOrFail();
+            abort_unless($c->station_id === $stationId, 409, 'Command station changed.');
             if ($c->status === 'pending') {
                 if ($c->action === 'start') {
                     $blocked = null;

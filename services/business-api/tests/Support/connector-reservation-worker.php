@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\PlatformController;
+use App\Http\Controllers\ReservationLifecycleController;
+use App\Models\Reservation;
 use App\Models\User;
+use App\Services\Charging\ReservationLifecycle;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +30,17 @@ while (! is_file($argv[3])) {
 try {
     $request = Request::create('/api/reservations', 'POST', $body);
     $request->setUserResolver(fn () => $actor);
-    echo app(PlatformController::class)->reserve($request)->getStatusCode();
+    $operation = $argv[5] ?? 'reserve';
+    if ($operation === 'arrival') {
+        echo app(ReservationLifecycleController::class)->checkIn($request, Reservation::findOrFail($body['reservation_id']), app(ReservationLifecycle::class))->getStatusCode();
+    } elseif ($operation === 'expire') {
+        echo app(ReservationLifecycle::class)->expire(1, $body['reservation_id'])['expired'];
+    } elseif ($operation === 'cancel') {
+        app(PlatformController::class)->cancel($request, Reservation::findOrFail($body['reservation_id']));
+        echo '200';
+    } else {
+        echo app(PlatformController::class)->reserve($request)->getStatusCode();
+    }
 } catch (HttpException $e) {
     echo $e->getStatusCode();
 } catch (Throwable $e) {

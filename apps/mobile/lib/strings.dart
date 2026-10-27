@@ -192,6 +192,8 @@ class EvStrings {
     'confirmed': 'Confirmed',
     'cancelled': 'Cancelled',
     'expired_unstarted': 'Expired before charging started',
+    'expired_unused':
+        'Reservation window ended without a linked charging session',
     'charging': 'Charging',
     'stopped': 'Stopped',
     'open': 'Open',
@@ -467,6 +469,7 @@ class EvStrings {
     'confirmed': 'مؤكد',
     'cancelled': 'ملغى',
     'expired_unstarted': 'انتهى الحجز قبل بدء الشحن',
+    'expired_unused': 'انتهى موعد الحجز دون جلسة شحن مرتبطة',
     'charging': 'جارٍ الشحن',
     'stopped': 'متوقف',
     'open': 'مفتوح',

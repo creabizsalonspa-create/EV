@@ -6,7 +6,7 @@ String topologyText(BuildContext context, String key) =>
         : topologyEn)[key] ??
     key;
 const topologyEn = {
-  'capabilities':'Mapped connectors · choose a connector for capabilities',
+  'capabilities': 'Mapped connectors · choose a connector for capabilities',
   'choose': 'Choose connector',
   'title': 'Canonical EVSE mapping',
   'disclaimer':
@@ -32,7 +32,7 @@ const topologyEn = {
       'The mapping may have been saved. Refresh authoritative records before submitting again.',
 };
 const topologyAr = {
-  'capabilities':'موصلات معتمدة · اختر موصلاً لعرض مواصفاته',
+  'capabilities': 'موصلات معتمدة · اختر موصلاً لعرض مواصفاته',
   'choose': 'اختيار الموصل',
   'title': 'ربط وحدات EVSE المعتمد',
   'disclaimer':

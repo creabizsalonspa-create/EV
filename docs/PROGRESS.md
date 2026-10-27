@@ -1,5 +1,14 @@
 # Full platform progress — universal integration
 
+## Self-reported arrival and safe unused booking expiry
+
+Implemented explicit customer arrival consent and server-timed/idempotent check-in in Laravel, web and Flutter, with English/Arabic text. Arrival remains SELF_REPORTED: no physical-presence proof, slot extension, remote command or financial action. A bounded scheduled scanner closes simulator slots without any linked session as `expired_unused`, keeps immutable system evidence, skips uncertain legacy command history and preserves all existing CSMS lifecycle rules. Station-first admission locks now also cover independent simulator starts and dispatcher claims. See RESERVATION_LIFECYCLE.md.
+
+Local verification: Laravel177 /6,554; PostgreSQL topology/lifecycle14 /190 and independent-process reservation/lifecycle7 /92. New browser check-in/expiry flow and actual native-Laravel replay/scope test pass; Flutter analysis clean and arrival widgets cover explicit consent, lost acknowledgement, authentication expiry, disposal and Arabic390px. Flutter60 unit/widget passes with4 explicitly skipped isolated live tests; the new native arrival integration passes separately. Both canonical OCPP protocols pass at connector7/EVSE5 with continuous-observer restart,2,500Wh, one329-minor-unit simulated invoice and balanced payment/refund. Existing full browser e2e passes. Builds for this new source are pending push; prior canonical milestone `458407e` passed platform/connector/finance jobs40519737877 and both Android/iOS jobs40519737959. No real hardware/payment acceptance is implied.
+
+Next implementation slice is source-backed command reconciliation, preserving no automatic replay of unknown starts. Production OCPP security/provisioning, full OCPI interoperability, interactive maps and all remaining product requirements remain in progress. Agent2 currently owns the complete remaining software per MASTER_AGENT2_CONTINUATION.md.
+
+
 ## Canonical EVSE/connector/source mapping and parallel reservations
 
 Latest owner directive makes Agent 2 sole active maintainer of the complete remaining product, including finance; MASTER_AGENT2_CONTINUATION.md is now retained and linked from AGENTS. Historical exclusive splits are preserved but superseded. On entry, SessionBridge.php and mobile.yml had no uncommitted edits and matched `ccd5e2e`; current changes are intentional implementation, with no verified/user code discarded.

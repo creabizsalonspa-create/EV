@@ -7,6 +7,7 @@ use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
 use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PlatformController as P;
+use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController as S;
 use App\Http\Controllers\SupportController as T;
 use App\Models\Station;
@@ -66,3 +67,5 @@ Route::post('/payments/stripe-test/webhook', [PaymentGatewayController::class, '
 require __DIR__.'/subscription_webhooks.php';
 
 Route::get('/v1/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');
+
+Route::post('/v1/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth:sanctum', 'throttle:platform-api']);

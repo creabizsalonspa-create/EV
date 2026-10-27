@@ -437,6 +437,31 @@ async function bookings() {
                 status: { translate: r.status },
             },
         );
+        if (r.checked_in_at)
+            a.append(
+                ui("p", "Self-reported arrival · {time}", {
+                    time: r.checked_in_at,
+                }),
+            );
+        if (user.role === "customer" && r.can_check_in) {
+            const arrival = ui("button", "Check in");
+            arrival.type = "button";
+            arrival.onclick = async () => {
+                if (!confirm(EvLocale.text("Arrival confirmation"))) return;
+                arrival.disabled = true;
+                try {
+                    await api(`reservations/${r.id}/check-in`, "POST", {
+                        self_reported_arrival: true,
+                    });
+                    await bookings();
+                } catch (error) {
+                    notice(error);
+                } finally {
+                    if (arrival.isConnected) arrival.disabled = false;
+                }
+            };
+            a.append(arrival);
+        }
         if (user.role === "customer" && r.status === "confirmed") {
             let b = ui("button", "Cancel");
             b.onclick = async () => {
