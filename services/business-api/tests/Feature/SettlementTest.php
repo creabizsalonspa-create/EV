@@ -206,4 +206,21 @@ class SettlementTest extends TestCase
             $this->assertSame(503, $e->getStatusCode());
         }
     }
+
+    public function test_pending_refund_or_dispute_holds_earnings_and_approved_settlement_can_be_rejected(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $settlement = $this->draft();
+        $this->actingAs($this->admin)->postJson('/settlement-test/commercial/settlements/'.$settlement['id'].'/approve')->assertOk();
+        $request = $this->actingAs($this->customer)->postJson('/api/finance/invoices/'.$invoice->id.'/refund-requests', ['amount_minor' => 10, 'reason' => 'Issue', 'idempotency_key' => 'hold'])->assertCreated()->json();
+        $this->actingAs($this->admin)->postJson('/settlement-test/commercial/settlements/'.$settlement['id'].'/simulate-payout')->assertConflict();
+        $this->postJson('/settlement-test/commercial/settlements/'.$settlement['id'].'/reject')->assertOk();
+        $this->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 0);
+        $this->postJson('/api/finance/refund-requests/'.$request['id'].'/review', ['decision' => 'reject', 'note' => 'Resolved'])->assertOk();
+        $case = $this->actingAs($this->customer)->postJson('/api/commercial/cases', ['invoice_id' => $invoice->id, 'kind' => 'dispute', 'amount_minor' => 100, 'reason' => 'Disputed', 'idempotency_key' => 'hold'])->assertCreated()->json();
+        $this->actingAs($this->admin)->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 0);
+        $this->postJson('/api/commercial/cases/'.$case['id'].'/resolve', ['outcome' => 'rejected', 'resolution' => 'Resolved'])->assertOk();
+        $this->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 900);
+    }
 }

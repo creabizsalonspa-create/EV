@@ -49,6 +49,10 @@ class SettlementService
             // Refund debt after a prior settlement is carried forward immediately.
             $mature = Carbon::parse($invoice->created_at)->addDays($holdDays)->lte(now());
             $earned = $paid === (int) $invoice->total_minor && ($mature || $reserved !== 0) ? (int) $invoice->vendor_minor - $vendorRefund : 0;
+            if ($this->held((int) $invoice->id)) {
+                $completed = (int) DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->where('s.state', 'simulated_paid')->sum('l.amount_minor');
+                $earned = min($earned, $completed);
+            }
             $available = $earned - $reserved;
             if ($available !== 0) {
                 $lines[] = ['invoice_id' => (int) $invoice->id, 'adjustment_id' => null, 'amount_minor' => $available];
@@ -68,6 +72,12 @@ class SettlementService
         }
 
         return ['vendor_id' => $vendor, 'currency' => $currency, 'minor_units' => $this->currencyPrecision($vendor, $currency), 'gross_invoiced_minor' => $gross, 'commission_invoiced_minor' => $commission, 'tax_invoiced_minor' => $tax, 'refunded_minor' => $refunded, 'available_minor' => array_sum(array_column($lines, 'amount_minor')), 'lines' => $lines, 'evidence' => 'SIMULATED', 'real_payout_enabled' => false];
+    }
+
+    private function held(int $invoice): bool
+    {
+        return DB::table('finance_refund_requests')->where('invoice_id', $invoice)->where('status', 'pending')->exists()
+            || DB::table('gateway_cases')->where('invoice_id', $invoice)->where('status', 'open')->exists();
     }
 
     public function draft(int $vendor, string $currency, int $actor, string $key): object
@@ -111,7 +121,7 @@ class SettlementService
             if ($s->state === $target) {
                 return $s;
             }
-            abort_unless($s->state === ($action === 'simulate-payout' ? 'approved' : 'pending'), 409, 'Invalid settlement transition.');
+            abort_unless($action === 'reject' ? in_array($s->state, ['pending', 'approved'], true) : $s->state === ($action === 'simulate-payout' ? 'approved' : 'pending'), 409, 'Invalid settlement transition.');
             if ($action !== 'reject') {
                 // Lock invoices in the same order as draft; payment/refund writers
                 // serialize on these exact invoice rows. Every held claim must remain covered.
@@ -119,6 +129,10 @@ class SettlementService
                 abort_unless($schedule && $schedule->enabled, 409, 'Settlement schedule is disabled.');
                 $balance = $this->balances((int) $s->vendor_id, $s->currency, (int) $schedule->hold_days, true);
                 abort_unless($balance['available_minor'] >= 0, 409, 'Refund or adjustment changed the payable balance; reject and rebuild.');
+                foreach (DB::table('commercial_settlement_lines')->where('settlement_id', $id)->where('amount_minor', '>', 0)->whereNotNull('invoice_id')->pluck('invoice_id') as $invoiceId) {
+                    abort_if($this->held((int) $invoiceId), 409, 'A refund request or dispute holds this settlement.');
+                }
+
             }
             $values = ['state' => $target, 'updated_at' => now()];
             if ($action === 'approve') {

@@ -1076,7 +1076,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 for (const action of s.state === "pending"
                     ? ["approve", "reject"]
                     : s.state === "approved"
-                      ? ["simulate-payout"]
+                      ? ["simulate-payout", "reject"]
                       : [])
                     button(
                         row,
@@ -1102,18 +1102,43 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             parent.append(row);
         }
     }
+    async function open() {
+        if (!actor) return;
+        try {
+            await load();
+        } catch (e) {
+            if (!["SessionChangedError", "AbortError"].includes(e.name))
+                status(e.message);
+        }
+    }
+    window.addEventListener("hashchange", () => {
+        if (location.hash === "#commercial-finance") open();
+    });
     return {
         clear,
         async setActor(value) {
             clear();
             actor = value;
-            if (actor)
-                try {
-                    await load();
-                } catch (e) {
-                    if (!["SessionChangedError", "AbortError"].includes(e.name))
-                        status(e.message);
-                }
+            if (!actor) return;
+            root.hidden = false;
+            if (location.hash === "#commercial-finance") await open();
+            else {
+                root.append(
+                    translated(
+                        "h2",
+                        "Finance & commercial",
+                        "المالية والأعمال",
+                    ),
+                );
+                button(
+                    root,
+                    "Open financial workspace",
+                    "فتح مساحة العمل المالية",
+                    async () => {
+                        location.hash = "commercial-finance";
+                    },
+                );
+            }
         },
     };
 };

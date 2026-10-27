@@ -43,6 +43,7 @@ const assert = require("node:assert/strict");
         .fill(`invoices-${role}-${run}@example.test`);
       await p.locator("#account [name=password]").fill(password);
       await p.locator("button[value=login]").click();
+      await p.locator('a[href="#commercial-finance"]').click();
       await p.locator("#commercial-finance h2").waitFor();
       await p
         .locator("#commercial-finance .finance-panel")
@@ -91,7 +92,14 @@ const assert = require("node:assert/strict");
     const refund = root
       .locator(".finance-row")
       .filter({ has: customer.getByRole("heading", { name: /^SIM-/ }) })
-      .nth(1).locator("form").filter({has:customer.getByRole("button",{name:"Request refund",exact:true})});
+      .nth(1)
+      .locator("form")
+      .filter({
+        has: customer.getByRole("button", {
+          name: "Request refund",
+          exact: true,
+        }),
+      });
     await refund.locator("[name=amount]").fill("1.00");
     await refund
       .getByLabel("Reason", { exact: true })
