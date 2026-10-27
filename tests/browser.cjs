@@ -144,7 +144,8 @@ const { randomUUID } = require("node:crypto");
       await f.locator(`[name=${key}]`).fill(value);
     await f.locator("[name=source]").selectOption("simulator");
     await f.locator("button").click();
-    await vendor.page.locator("#stations")
+    await vendor.page
+      .locator("#stations")
       .getByRole("heading", { name: "Browser station " + run, exact: true })
       .waitFor();
     const customer = await account("Customer");
@@ -250,47 +251,51 @@ const { randomUUID } = require("node:crypto");
       .locator("#ticket-detail h3")
       .filter({ hasText: "Browser support " + run })
       .waitFor();
+    // Distinct role principals avoid spending one actor's entire protected-read
+    // budget on repeated full-workspace reloads. Production limits stay enabled.
+    const admin = await account("Admin");
     execFileSync(
       "./scripts/php",
-      ["artisan", "platform:role", vendor.email, "admin"],
+      ["artisan", "platform:role", admin.email, "admin"],
       { stdio: "pipe" },
     );
-    await vendor.page.reload();
-    await vendor.page.locator("#admin").waitFor({ state: "visible" });
-    await vendor.page.waitForFunction(() =>
+    await admin.page.reload();
+    await admin.page.locator("#admin").waitFor({ state: "visible" });
+    await admin.page.waitForFunction(() =>
       document.querySelector("#overview").textContent.includes("Audit history"),
     );
-    await vendor.page.locator("#audit-search").fill("station.created");
-    assert((await vendor.page.locator("#overview tbody tr").count()) > 0);
+    await admin.page.locator("#audit-search").fill("station.created");
+    assert((await admin.page.locator("#overview tbody tr").count()) > 0);
     assert(
-      (await vendor.page.locator("#overview tbody tr").allTextContents()).every(
+      (await admin.page.locator("#overview tbody tr").allTextContents()).every(
         (text) => text.includes("station.created"),
       ),
     );
-    const auditDownload = vendor.page.waitForEvent("download");
-    await vendor.page.locator("#audit-export").click();
+    const auditDownload = admin.page.waitForEvent("download");
+    await admin.page.locator("#audit-export").click();
     assert.equal(
       (await auditDownload).suggestedFilename(),
       "creabiz-audit.csv",
     );
-    await vendor.page.locator("#audit-search").fill("");
-    await vendor.page
+    await admin.page.locator("#audit-search").fill("");
+    await admin.page
       .locator("#ticket-list button")
       .filter({ hasText: "Browser support " + run })
       .click();
-    await vendor.page
+    await admin.page
       .locator("#ticket-detail textarea")
       .fill("Internal secret QA note " + run);
-    await vendor.page.locator("#ticket-detail input[name=internal]").check();
-    await vendor.page
+    await admin.page.locator("#ticket-detail input[name=internal]").check();
+    await admin.page
       .locator("#ticket-detail button")
       .filter({ hasText: "Reply" })
       .click();
-    await vendor.page.waitForFunction(
+    await admin.page.waitForFunction(
       (text) =>
         document.querySelector("#ticket-detail").textContent.includes(text),
       "Internal secret QA note " + run,
     );
+    assert.equal(await vendor.page.locator("#admin").isVisible(), false);
     await customer.page.reload();
     await customer.page
       .locator("#ticket-list button")

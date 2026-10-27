@@ -1,5 +1,14 @@
 # Internal QA — universal integration checkpoint
 
+## Combined financial/EV integration QA — local source candidate
+
+Integration branch `integration/finance-pr4-ev-continuation` preserves finance PR #4 head `60a5dd0` and EV source `41e350c`. The original branches remain untouched. Shared documentation, npm commands and CI steps retain both workstreams; incoming financial services/tests remain byte-for-byte source-identical. This is integration QA, not independent financial development.
+
+Combined local results: **153 Laravel tests / 6,266 assertions**, Pint **164 files**, Composer strict valid; PostgreSQL relevant workflows **87 / 5,768**, plus **14 independent-process races / 170 assertions**. Actual-Laravel commercial, vendor, invoice-history, managed gate/expiry and OCPI provisioning browsers pass; isolated frontend contracts, account-generation/logout and EN/AR localization pass. The initial broad browser run hit the real per-user read budget after reusing one account as customer/vendor/Admin through many reloads. Admin QA now uses a separate authenticated principal; every audit/support/privacy assertion remains and a new assertion confirms the vendor never receives Admin UI. The corrected full e2e browser passes without modifying, disabling or clearing production rate limits, and without automatically replaying commands.
+
+Additional native-live/OCPP combined regressions and hosted candidate checks are tracked separately before merge. PR #5 remains draft until all gates pass. A failed original candidate CI is retained as failed, not counted as verification. Do not claim integration into the development branch until the PR merge actually occurs.
+
+
 ## Admin OCPI connection association and native expiry-navigation checkpoint
 
 Admin can register providers against existing approved server connection aliases using a validated connection selector and paginated/searchable vendor names/IDs. Credential values, token variable names, endpoint origins and raw connection metadata never enter this API/UI. Only structurally valid, unassigned connections are selectable. Registration starts unauthorized/revoked and makes no partner request; existing explicit authorization/negotiation/sync remain separate operations. Newest-first provider paging exposes newly registered records. This does not implement credentials provisioning/rotation or full bilateral OCPI roles.
@@ -39,6 +48,16 @@ Scheduled batches use a cached ID cursor, revisit after the end and survive cach
 Verified: **118 Laravel tests / 5,862 assertions**; PostgreSQL finance/managed/vendor **55 tests / 5,400 assertions**, plus **4 process-concurrency tests / 54 assertions** including two simultaneous expiry workers closing once. Native analysis clean and **37 unit/widget passes / 1 default live-only skip** at the expiry source. Real browser linked-company/maintenance/cancel/CLI-expiry/replay/shared EN/AR state and localization suites pass. Both OCPP protocols still produce the same single simulated source-backed invoice/payment/refund reconciliation. No finance implementation file changed. Evidence: `unsent-expiry-*`.
 
 The later native inventory work is a separate checkpoint. Source `940ccbf` has both platform CI runs green; native PR execution still has a pre-Dart simulator log-reader/VM-service launch timeout at the pinned baseline, distinct from the earlier successful device run. Do not report all hosted native runs green.
+## Latest Agent 1 financial checkpoint
+
+Finance-only branch/PR4 now includes provider-backed subscription capture into immutable receipts/entitlements, signed callback recovery, grouped exact reports and connected financial workflows. Current executed results: Laravel148/6220, PostgreSQL85/5758 and14 independent-process races/168 assertions; financial browser checks include disputes, settlement approval/test payout, subscription gateway capture, CSV, both themes, three widths and Arabic RTL. Screenshots/evidence are committed. This remains an incomplete commercial workstream: durable payment recovery, hosted SCA, off-session/dunning, subscription credit notes, external disputes/payouts and corporate billing remain. See [FINANCE_COMMERCIAL_CONTINUATION.md](FINANCE_COMMERCIAL_CONTINUATION.md) for precise scope, evidence and next tasks. Agent 2's EV/native ownership is unchanged.
+
+
+## Finance/commercial branch checkpoint — 2026-10-27
+
+Dedicated `development/finance-commercial` from `940ccbf`; Agent 1 owns finance only. Agent 2 owns the EV platform and native application integration. New connected customer/vendor/admin financial workspace, mock checkout/authorization/capture/cancellation/refunds, signed webhooks, immutable credit notes and dispute decisions, plan versions/cycles/failed-payment retry/paid entitlements, commission statements/scheduled settlement approval and signed adjustments are implemented and tested in the scope described by `FINANCE_COMMERCIAL_CONTINUATION.md`. Stripe test-mode HTTP adapter is contract-tested without merchant credentials. Real payouts remain disabled. No final-completion claim.
+
+Detailed current evidence and remaining financial requirements: [FINANCE_COMMERCIAL_CONTINUATION.md](FINANCE_COMMERCIAL_CONTINUATION.md). Earlier platform reports below remain historical and are not overwritten as completion claims.
 
 
 ## Hosted CI selector follow-up
