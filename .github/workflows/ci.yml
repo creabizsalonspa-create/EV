@@ -1,0 +1,23 @@
+name: Platform validation
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  business-platform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: ./scripts/setup
+      - run: ./scripts/php /usr/bin/composer validate --strict
+      - run: ./scripts/php vendor/bin/pint --test
+      - run: ./scripts/php artisan test --compact
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: ./scripts/start
+      - run: npm run test:e2e
+      - if: failure()
+        run: docker logs --tail 100 ev-business-api
