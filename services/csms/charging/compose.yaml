@@ -1,0 +1,14 @@
+services:
+  charging-graphql:
+    image: hasura/graphql-engine:v2.40.3@sha256:679fb764590e848e59ab6b82b3e906cc46f87d776f869f49132ca728660df244
+    environment:
+      HASURA_GRAPHQL_DATABASE_URL: postgres://citrine:${CSMS_DB_PASSWORD}@database:5432/citrine
+      HASURA_GRAPHQL_ADMIN_SECRET: ${CHARGING_HASURA_ADMIN_SECRET:?Run scripts/charging-setup}
+      HASURA_GRAPHQL_ENABLE_CONSOLE: 'false'
+      HASURA_GRAPHQL_DEV_MODE: 'false'
+      HASURA_GRAPHQL_ENABLE_TELEMETRY: 'false'
+    ports:
+      - 127.0.0.1:8095:8080
+    depends_on:
+      database:
+        condition: service_healthy

@@ -3,3 +3,8 @@ artifacts/
 playwright-report/
 test-results/
 *.log
+
+# Tool-generated Dart caches and package build outputs
+.dart_tool/
+**/.dart_tool/
+**/build/

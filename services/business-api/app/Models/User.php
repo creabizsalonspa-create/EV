@@ -11,7 +11,7 @@ use Illuminate\Notifications\Notifiable;
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, \Laravel\Sanctum\HasApiTokens, Notifiable;
 
     protected $attributes = ['role' => 'customer', 'locale' => 'en'];
 

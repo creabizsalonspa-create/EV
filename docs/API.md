@@ -86,3 +86,9 @@ Native fleet UI consumes existing GET/POST fleets, GET fleet-invitations, POST i
 Vendor session UI consumes paginated GET simulations, PUT simulations/{id}/meter with integer cumulative energy_wh (0..1000000, never decreasing), POST simulations/{id}/stop. Server ownership and stopped-session conflicts remain authoritative. Estimates are SIMULATED, not invoices or processed payments.
 
 Current native auth supersedes earlier in-memory-only checkpoint: optional encrypted persistence uses existing HTTPS server-expiring Secure/HttpOnly cookies with fresh GET me and CSRF on restore. No bearer/refresh endpoint is introduced; server session lifetime/revocation remains authoritative. Plaintext loopback tests cannot enable persistence. Existing native recovery/verification requests still hand link consumption to web; mobile deep-link contract is unfinished.
+
+## Universal integration additions
+
+Current additive contracts and client requirements are in [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md). Finance, vendor-operations and OCPI are mounted in the application; request/role/response details are in [FINANCE.md](FINANCE.md), [VENDOR_OPS.md](VENDOR_OPS.md) and [OCPI.md](OCPI.md).
+
+New routes: owner-scoped `POST /api/reservations/{reservation}/csms-start`, authorized `POST /api/charging-sessions/{session}/csms-stop`, and signed service-only `POST /api/internal/csms/events`. See [OpenAPI 3.1 contract](openapi/charging-bridge.json). Completion requires correlated source final meters; this local simulator bridge is disabled in production and is not hardware verified.

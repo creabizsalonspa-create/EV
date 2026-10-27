@@ -1,0 +1,232 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Crea-Biz local CSMS session bridge",
+    "version": "1.0.0",
+    "description": "Scoped development contract; production dispatch/events are disabled. Not the complete platform specification."
+  },
+  "paths": {
+    "/api/reservations/{reservation}/csms-start": {
+      "post": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reservation",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "X-CSRF-TOKEN",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Canonical session/link and queued-command status; pending/submitted is not charger acceptance."
+          },
+          "401": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "404": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "409": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "503": {
+            "description": "JSON error with message and optional field errors"
+          }
+        }
+      }
+    },
+    "/api/charging-sessions/{session}/csms-stop": {
+      "post": {
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "X-CSRF-TOKEN",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Canonical session/link and queued-command status; pending/submitted is not charger acceptance."
+          },
+          "401": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "404": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "409": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "503": {
+            "description": "JSON error with message and optional field errors"
+          }
+        }
+      }
+    },
+    "/api/internal/csms/events": {
+      "post": {
+        "security": [
+          {
+            "eventSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-EV-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "outcome applied/duplicate/stale and session_id; final source meter atomically creates one SIMULATED invoice."
+          },
+          "401": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "404": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "409": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "413": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "422": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "429": {
+            "description": "JSON error with message and optional field errors"
+          },
+          "503": {
+            "description": "JSON error with message and optional field errors"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "laravel_session"
+      },
+      "eventSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-EV-Signature",
+        "description": "Hex HMAC-SHA256(timestamp + period + exact request body); timestamp must be within 300 seconds."
+      }
+    },
+    "schemas": {
+      "SourceEvent": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "session_id",
+          "identifier",
+          "protocol",
+          "transaction_id",
+          "type",
+          "sequence",
+          "meter_wh",
+          "occurred_at"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "session_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "identifier": {
+            "type": "string",
+            "pattern": "^ev-test-[a-zA-Z0-9-]{1,80}$"
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "1.6",
+              "2.0.1"
+            ]
+          },
+          "transaction_id": {
+            "type": "string",
+            "maxLength": 36
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "started",
+              "meter",
+              "ended"
+            ]
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "meter_wh": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9000000000000
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

@@ -41,10 +41,10 @@ class CsmsDispatcher
                 if ($command->action === 'stop' && ! ctype_digit($command->payload['transaction_id'])) {
                     throw new \RuntimeException('OCPP 1.6 transaction id must be numeric');
                 }
-                $payload = $command->action === 'start' ? ['idTag' => 'EV-SIMULATOR', 'connectorId' => 1] : ['transactionId' => (int) $command->payload['transaction_id']];
+                $payload = $command->action === 'start' ? ['idTag' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'connectorId' => 1] : ['transactionId' => (int) $command->payload['transaction_id']];
             } else {
                 $action = $command->action === 'start' ? 'requestStartTransaction' : 'requestStopTransaction';
-                $payload = $command->action === 'start' ? ['idToken' => ['idToken' => 'EV-SIMULATOR', 'type' => 'Central'], 'remoteStartId' => $command->id, 'evseId' => 1] : ['transactionId' => $command->payload['transaction_id']];
+                $payload = $command->action === 'start' ? ['idToken' => ['idToken' => $command->payload['id_token'] ?? 'EV-SIMULATOR', 'type' => 'Central'], 'remoteStartId' => $command->id, 'evseId' => 1] : ['transactionId' => $command->payload['transaction_id']];
             }
             $response = Http::withToken($token)->timeout(25)->post($base.'/ocpp/'.$b->protocol.'/evdriver/'.$action.'?'.http_build_query(['identifier' => $b->identifier, 'tenantId' => 1]), $payload)->throw();
             $confirmation = $response->json();

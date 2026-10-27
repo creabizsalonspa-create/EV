@@ -62,6 +62,7 @@ class AccountController extends Controller
         $status = Password::reset($v, function (User $user, string $password) use ($r) {
             $user->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
             DB::table('sessions')->where('user_id', $user->id)->delete();
+            $user->tokens()->delete();
             if ($r->user()?->id === $user->id) {
                 Auth::logout();
                 $r->session()->invalidate();

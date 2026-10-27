@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3 - <<'PY'
+from pathlib import Path
+import secrets,os
+business=Path('services/business-api/.env');bridge=Path('services/csms/charging/.env')
+if not business.exists():raise SystemExit('Run scripts/setup first; existing application keys must be preserved.')
+def values(p):
+ return dict(line.split('=',1) for line in p.read_text().splitlines() if '=' in line and not line.startswith('#')) if p.exists() else {}
+b=values(business);c=values(bridge);left=b.get('CSMS_EVENT_SECRET','').strip('"\'');right=c.get('CSMS_EVENT_SECRET','').strip('"\'')
+if left and right and left!=right:raise SystemExit('Existing event key bindings differ; refusing to overwrite either.')
+key=left or right or secrets.token_hex(32)
+if len(key)<32:raise SystemExit('Existing event key is too short; configure a secure local key without printing it.')
+for p,data in [(business,b),(bridge,c)]:
+ if not p.exists():
+  p.parent.mkdir(parents=True,exist_ok=True);fd=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600);os.close(fd)
+ if not data.get('CSMS_EVENT_SECRET'):
+  with p.open('a') as f:f.write('\nCSMS_EVENT_SECRET='+key+'\n')
+if 'CSMS_SESSION_BRIDGE_ENABLED' not in b:
+ with business.open('a') as f:f.write('CSMS_SESSION_BRIDGE_ENABLED=true\n')
+print('Local simulator event bindings configured; no credentials printed. Existing values preserved.')
+PY

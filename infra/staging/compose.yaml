@@ -1,0 +1,84 @@
+name: ev-staging
+x-application: &application
+  build:
+    context: ../..
+    dockerfile: infra/staging/Dockerfile
+    secrets:
+      - ev_ca_bundle
+  image: creabiz-ev-business:${EV_IMAGE_TAG:-local}
+  env_file:
+    - .env
+  environment:
+    APP_ENV: staging
+    APP_DEBUG: 'false'
+    APP_URL: https://${STAGING_HOST:?Set an authorized staging hostname}
+    DB_CONNECTION: pgsql
+    DB_HOST: database
+    DB_PORT: '5432'
+    DB_DATABASE: ev_business
+    DB_USERNAME: ev_business
+    DB_PASSWORD: ${DB_PASSWORD:?Supply a private database password}
+    SESSION_DRIVER: database
+    SESSION_ENCRYPT: 'true'
+    SESSION_SECURE_COOKIE: 'true'
+    QUEUE_CONNECTION: database
+    CACHE_STORE: database
+    LOG_CHANNEL: stderr
+    LOG_LEVEL: warning
+    CSMS_SIMULATOR_ENABLED: 'false'
+  volumes:
+    - private-storage:/var/www/html/storage/app/private
+  depends_on:
+    database:
+      condition: service_healthy
+  restart: unless-stopped
+services:
+  application:
+    <<: *application
+  worker:
+    <<: *application
+    command: [php, artisan, queue:work, --sleep=3, --tries=3, --timeout=90]
+    healthcheck:
+      disable: true
+  scheduler:
+    <<: *application
+    command: [php, artisan, schedule:work]
+    healthcheck:
+      disable: true
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ev_business
+      POSTGRES_USER: ev_business
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Supply a private database password}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U ev_business -d ev_business']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  gateway:
+    image: caddy:2-alpine
+    environment:
+      STAGING_HOST: ${STAGING_HOST}
+      ACME_EMAIL: ${ACME_EMAIL:?Supply the responsible certificate contact}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - certificates:/data
+      - gateway-config:/config
+    ports:
+      - '${STAGING_BIND_IP:-127.0.0.1}:8443:443'
+    depends_on:
+      application:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  database:
+  private-storage:
+  certificates:
+  gateway-config:
+secrets:
+  ev_ca_bundle:
+    file: ${EV_BUILD_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}

@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -52,8 +54,11 @@ class SimulationController extends Controller
             abort_unless(now()->gte($start) && now()->lt($start->addMinutes(30)), 409, 'Outside reserved slot.');
             $station = Station::findOrFail($b->station_id);
             abort_unless($station->source === 'simulator', 409);
-            // This fixed tariff is a simulation fixture, never a commercial tariff or real invoice.
-            $s = ChargingSession::create(['reservation_id' => $b->id, 'rate_minor_per_kwh' => 100, 'currency' => $station->currency]);
+            // Capture the test tariff once; future pricing changes cannot reprice this session.
+            $finance = app(FinanceService::class);
+            $tariff = $finance->activeTariff($station);
+            $s = ChargingSession::create(['reservation_id' => $b->id, 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
+            $finance->snapshotSession($s, $tariff);
             $this->audit($r, 'simulation.started', $s->id);
 
             return response()->json($s, 201);
@@ -63,6 +68,7 @@ class SimulationController extends Controller
     public function meter(Request $r, ChargingSession $session)
     {
         $b = $this->check($r, $session);
+        abort_if(SessionLink::where('charging_session_id', $session->id)->exists(), 409, 'A CSMS-linked session accepts only authenticated source meter events.');
         $station = Station::findOrFail($b->station_id);
         abort_unless($r->user()->role === 'vendor' && $station->vendor_id === $r->user()->id, 403);
         $v = $r->validate(['energy_wh' => 'required|integer|min:0|max:1000000']);
@@ -81,6 +87,7 @@ class SimulationController extends Controller
     public function stop(Request $r, ChargingSession $session)
     {
         $this->check($r, $session);
+        abort_if(SessionLink::where('charging_session_id', $session->id)->exists(), 409, 'Use the CSMS stop command; completion requires the source final meter.');
 
         return DB::transaction(function () use ($r, $session) {
             $s = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();

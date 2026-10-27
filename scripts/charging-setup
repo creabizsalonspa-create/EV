@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3 - <<'PY'
+from pathlib import Path
+import secrets,os
+p=Path('services/csms/charging/.env')
+if not p.exists():
+ fd=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+ with os.fdopen(fd,'w') as f:f.write('CHARGING_HASURA_ADMIN_SECRET='+secrets.token_hex(32)+'\n')
+PY
+docker compose --env-file services/csms/.env --env-file services/csms/charging/.env -f services/csms/compose.yaml -f services/csms/charging/compose.yaml up -d charging-graphql
+for attempt in {1..45};do
+ if curl --fail --silent http://127.0.0.1:8095/healthz >/dev/null;then
+  node scripts/charging-metadata.cjs
+  exit 0
+ fi
+ sleep 1
+done
+echo 'Charging GraphQL readiness failed' >&2
+exit 1

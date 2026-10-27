@@ -1,0 +1,17 @@
+.git
+**/.env
+**/.env.*
+!**/.env.example
+**/vendor
+node_modules
+**/node_modules
+**/.dart_tool
+**/build
+artifacts
+**/*.jks
+**/*.keystore
+**/key.properties
+**/local.properties
+attachments
+services/business-api/storage/**
+services/business-api/bootstrap/cache/*.php

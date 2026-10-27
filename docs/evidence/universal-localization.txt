@@ -1,0 +1,5 @@
+
+> test:localization
+> node tests/localization.cjs
+
+PASS: web resource/interpolation parity; persistent EN/AR and RTL, preserved form fields and user-content text, translated dynamic provenance, mobile width, localized recovery validation, storage-denied fallback; zero page errors.

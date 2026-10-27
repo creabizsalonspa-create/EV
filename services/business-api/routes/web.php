@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ChargerCommandController;
+use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\SimulationController;
@@ -89,3 +90,12 @@ Route::post('/api/email/verification-notification', [AccountController::class, '
     ->middleware(['auth', 'throttle:verification-send']);
 Route::get('/email/verify/{id}/{hash}', [AccountController::class, 'verifyEmail'])
     ->middleware(['auth', 'signed', 'throttle:verification-link'])->name('verification.verify');
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/finance.php');
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api/vendor-ops')->group(__DIR__.'/vendor_ops.php');
+require __DIR__.'/ocpi.php';
+
+Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
+    Route::post('/api/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start']);
+    Route::post('/api/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop']);
+});
