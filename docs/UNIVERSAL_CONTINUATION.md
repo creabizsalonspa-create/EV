@@ -32,6 +32,8 @@ npm ci --cache /tmp/ev-npm-cache
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:frontend
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:localization
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:vendor
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:roaming
 node tests/charging-session.cjs
 node tests/charging-business.cjs
 ```
@@ -40,13 +42,13 @@ These tests create synthetic local data; never target production. Setup must pre
 
 Native: use pinned Flutter3.35.7/sourceadc901062556672b4138e18a4dc62a4be8f4b3c2 per apps/mobile/README.md, not the retired experimental SDK/client. `apps/mobile/tool/bootstrap` enforces lock, analyzes and runs tests. Set writable PUB_CACHE/XDG_CONFIG_HOME/ANALYZER_STATE_LOCATION_OVERRIDE without changing HOME. For actual local API coverage, run `flutter test --dart-define=EV_NATIVE_SMOKE_URL=http://127.0.0.1:8000 test/live_api_test.dart --reporter expanded` from apps/mobile. Keep default skipped live test separate from the opted-in pass.
 
-`tests/Postgres/run-finance` is the isolated PostgreSQL runner. Read its instructions, ensure enough disk and use only disposable resources; prior local storage/readiness failures do not count as passed. Prefer a hosted Linux runner if local capacity is insufficient. No global Docker prune or existing database removal.
+`tests/Postgres/run-finance` is the isolated PostgreSQL runner. Read its instructions, ensure enough disk and use only disposable resources; current local and hosted integrated finance/concurrency suites pass. Historical storage/readiness failures are retained as earlier evidence, not the current result. Prefer a hosted Linux runner if capacity is insufficient. No global Docker prune or existing database removal.
 
 ## Unfinished priorities
 
-1. Continuous authenticated event/command adapter, explicit CSMS-linked client controls, terminal failure/reconciliation and operational retry policies. The current passing end-to-end driver forwards actual source observations but is not a daemon.
-2. PostgreSQL immutable migrations/concurrent finance proof; complete connector-level booking and maintenance/company gates.
-3. Full existing web/native UX for the mounted finance/vendor/OCPI APIs and staff personas. Preserve themes/RTL/private views and the shared backend.
+1. Extend the verified simulator-only continuous authenticated source observer and linked client controls into safe production command provisioning/dispatch/reconciliation and terminal failure policies. The daemon now passes both protocol restart tests; do not recreate it.
+2. Complete connector-level booking and maintenance/company gates, preserving passing PostgreSQL immutable migrations/concurrent finance proof.
+3. Continue full native company/staff/KYC and operator roaming UX, secure admin connection onboarding and complete finance workflows. Web company/staff/inventory, web/native read-only partner catalogs and web OCPI operations are implemented. Preserve themes/RTL/private views and the shared backend.
 4. 2FA/privacy, PSP sandbox/webhooks/disputes, authoritative subscriptions/loyalty/settlements/fleet billing and all remaining PRD features.
 5. Premium visual/screenshot/accessibility/device/restore/load/security/staging QA; real release-ready APK/AAB/IPA and final source package only after implementation/verification. Hardware/merchant/operator/signing/legal prerequisites remain explicit.
 

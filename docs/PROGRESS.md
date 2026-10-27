@@ -1,5 +1,10 @@
 # Full platform progress — universal integration
 
+## Roaming browser authentication budget follow-up
+
+The push platform run at c4f8243 passed, but the parallel PR run 40483716348 failed waiting for the provider workspace after a throttled login. The roaming browser test now checks login responses and waits a bounded numeric Retry-After once only for explicit HTTP 429. It never retries a transport failure/503 and does not change production limits. CI deliberately consumes the local synthetic invalid-login budget and asserts that the real limiter rejects excess requests before a successful login. This makes authentication security part of the browser acceptance test rather than relying on suite timing. Local real-throttle proof is recorded separately; subsequent hosted status must be read from revision-specific evidence.
+
+
 ## OCPI web and Flutter workflow checkpoint
 
 Added a separate paginated partner-location catalog on web and canonical Flutter, with coordinates, source/receipt timestamps, reported EVSE statuses and connector types. No reported status grants availability, reservations, charging or payment authority. Both clients fail closed on unexpected public capability flags. Native route supports retry, loading/empty states, English/Arabic and RTL without replacing the existing catalog or navigation.

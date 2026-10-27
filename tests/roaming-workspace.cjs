@@ -27,6 +27,43 @@ const assert = require("node:assert/strict");
     context.setDefaultTimeout(15000);
     const page = await context.newPage();
     page.on("pageerror", (e) => errors.push(e.message));
+    let observedLogin429 = false;
+    async function login() {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const ready = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/api/login" &&
+            response.request().method() === "POST",
+        );
+        await page.locator("button[value=login]").click();
+        const response = await ready;
+        if (response.status() === 429 && attempt === 0) {
+          observedLogin429 = true;
+          const header = response.headers()["retry-after"];
+          assert(
+            /^\d+$/.test(header || ""),
+            "Login throttle must supply numeric Retry-After.",
+          );
+          const seconds = Number(header);
+          assert(
+            seconds >= 0 && seconds <= 60,
+            "Login retry must remain bounded.",
+          );
+          console.log(
+            "Roaming QA: explicit login 429; waiting for the existing authentication budget.",
+          );
+          await page.waitForTimeout((seconds + 1) * 1000);
+          continue;
+        }
+        assert.equal(
+          response.status(),
+          200,
+          "Login failed; no transport/503 or unbounded retry is permitted.",
+        );
+        return;
+      }
+    }
+
     await page.goto(base);
     const pub = page.locator("#roaming-discovery"),
       ops = page.locator("#roaming-operations");
@@ -44,11 +81,35 @@ const assert = require("node:assert/strict");
     );
     await pub.getByRole("button", { name: "Next", exact: true }).click();
     await pub.getByText("Page 2 of 2 · 26 records", { exact: true }).waitFor();
+    if (process.env.EV_ROAMING_VERIFY_RATE_LIMIT === "1") {
+      const token = await page
+        .locator("meta[name=csrf-token]")
+        .getAttribute("content");
+      for (let i = 0; i < 10; i++) {
+        const response = await context.request.post(base + "/api/login", {
+          headers: { Accept: "application/json", "X-CSRF-TOKEN": token },
+          data: {
+            email: `synthetic-throttle-${run}@example.test`,
+            password: "synthetic-invalid-password",
+          },
+        });
+        assert(
+          [422, 429].includes(response.status()),
+          "Only rejected synthetic logins may consume the test budget.",
+        );
+        if (response.status() === 429) break;
+      }
+    }
     await page
       .locator("#account [name=email]")
       .fill(`roaming-owner-${run}@example.test`);
     await page.locator("#account [name=password]").fill(password);
-    await page.locator("button[value=login]").click();
+    await login();
+    if (process.env.EV_ROAMING_VERIFY_RATE_LIMIT === "1")
+      assert(
+        observedLogin429,
+        "The real authentication limiter must reject excess requests.",
+      );
     await ops
       .getByRole("heading", { name: `Synthetic owner ${run}`, exact: true })
       .waitFor();
@@ -116,7 +177,7 @@ const assert = require("node:assert/strict");
       .locator("#account [name=email]")
       .fill(`roaming-admin-${run}@example.test`);
     await page.locator("#account [name=password]").fill(password);
-    await page.locator("button[value=login]").click();
+    await login();
     await ops.getByText(`Synthetic owner ${run}`, { exact: true }).waitFor();
     const card = ops
       .locator("article")

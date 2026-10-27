@@ -31,3 +31,7 @@ Both web and native can request the session-unique simulated invoice and render 
 ## Company personas
 
 Web company operations are now independent of the global vendor-role panel. Server capability hints expose the current member's scope; accepted customer-role staff can use granted inventory APIs while private evidence remains owner/admin only. Web supports actual application/evidence/review/renewal/staff/hierarchy/maintenance workflows. Native company/KYC/staff/inventory parity remains next work; do not mark both client surfaces complete from web coverage.
+
+## OCPI client interfaces
+
+Web partner discovery and Flutter Discover → Partner locations consume `/api/roaming/locations` with same-origin numeric pagination. Both reject changed public capability flags and retain partner-reported provenance. Authenticated vendor/admin web Roaming operations uses owner-scoped providers and normalized records, with explicit confirmations before negotiation/sync and admin authorization changes. Server configuration remains the sole source of connection origins/tokens. No auto-polling, command replay, remote-charging capability or billing eligibility is inferred. Provider creation/configuration and operator mobile screens remain unfinished. Tests: `npm run test:roaming`, native `test/roaming_test.dart`, synthetic TLS/device integration; live partner conformance is separate.
