@@ -260,6 +260,11 @@ class EvApi {
           .transform(utf8.decoder)
           .join()
           .timeout(const Duration(seconds: 25));
+      // Logout/forget may run while a response body is streaming. Recheck
+      // before returning private data or scheduling a rotated-cookie save.
+      if (epoch != _epoch) {
+        throw const ApiException(409, 'Session changed.');
+      }
       if ([401, 419].contains(response.statusCode)) {
         _cookies.clear();
         _csrf = null;

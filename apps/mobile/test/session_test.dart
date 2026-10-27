@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,7 @@ class MemoryVault implements SessionVault {
   bool failDelete = false;
   bool failWrite = false;
   int writes = 0;
+  Future<void>? deleteWait;
   @override
   Future<String?> read(String origin) async => entries[origin];
   @override
@@ -21,9 +23,77 @@ class MemoryVault implements SessionVault {
 
   @override
   Future<void> delete(String origin) async {
+    if (deleteWait != null) await deleteWait;
     if (failDelete) throw StateError('locked');
     entries.remove(origin);
   }
+}
+
+// Observe the actual TLS response stream subscription to order logout exactly
+// after header validation and before body completion, without timing sleeps.
+class ObservedClient implements HttpClient {
+  final HttpClient delegate;
+  final Completer<void> bodyListening;
+  ObservedClient(this.delegate, this.bodyListening);
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) async {
+    final request = await delegate.openUrl(method, url);
+    return url.path.endsWith('/delayed')
+        ? ObservedRequest(request, bodyListening)
+        : request;
+  }
+
+  @override
+  set connectionTimeout(Duration? value) => delegate.connectionTimeout = value;
+  @override
+  void close({bool force = false}) => delegate.close(force: force);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class ObservedRequest implements HttpClientRequest {
+  final HttpClientRequest delegate;
+  final Completer<void> listening;
+  ObservedRequest(this.delegate, this.listening);
+  @override
+  HttpHeaders get headers => delegate.headers;
+  @override
+  List<Cookie> get cookies => delegate.cookies;
+  @override
+  set followRedirects(bool value) => delegate.followRedirects = value;
+  @override
+  Future<HttpClientResponse> close() async =>
+      ObservedResponse(await delegate.close(), listening);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class ObservedResponse extends Stream<List<int>> implements HttpClientResponse {
+  final HttpClientResponse delegate;
+  final Completer<void> listening;
+  ObservedResponse(this.delegate, this.listening);
+  @override
+  int get statusCode => delegate.statusCode;
+  @override
+  List<Cookie> get cookies => delegate.cookies;
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int>)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    listening.complete();
+    return delegate.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -45,12 +115,18 @@ void main() {
         0,
         context,
       );
+      final bodyRelease = Completer<void>(), bodyListening = Completer<void>();
       var revoked = false;
       var meCalls = 0;
       final subscription = server.listen((req) async {
         req.response.headers.contentType = ContentType.json;
         final path = req.uri.path;
-        if (path == '/api/logout') {
+        if (path == '/api/delayed') {
+          req.response.write('{\"ok\":');
+          await req.response.flush();
+          await bodyRelease.future;
+          req.response.write('true}');
+        } else if (path == '/api/logout') {
           revoked = true;
           req.response.statusCode = 204;
         } else if (path == '/api/me') {
@@ -103,6 +179,11 @@ void main() {
       final first = EvApi(base, http: trusted(), vault: vault);
       final second = EvApi(base, http: trusted(), vault: vault);
       final untrusted = EvApi(base);
+      final late = EvApi(
+        base,
+        http: ObservedClient(trusted(), bodyListening),
+        vault: vault,
+      );
       try {
         await expectLater(
           untrusted.request('csrf'),
@@ -117,6 +198,23 @@ void main() {
         expect((await second.restoreSession())!.name, 'Fresh server account');
         expect(meCalls, 1);
         expect(second.remembered, isTrue);
+        await late.restoreSession();
+        final delayed = late.request('delayed');
+        await bodyListening.future;
+        final deletion = Completer<void>();
+        vault.deleteWait = deletion.future;
+        final forgetting = late.forgetSession();
+        bodyRelease.complete();
+        await expectLater(
+          delayed.timeout(const Duration(seconds: 3)),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+        );
+        deletion.complete();
+        await forgetting;
+        vault.deleteWait = null;
+        expect(vault.entries, isEmpty);
+        await second.rememberSession();
+
         vault.failWrite = true;
         await expectLater(
           second.rememberSession(),
@@ -165,6 +263,8 @@ void main() {
         first.close();
         second.close();
         untrusted.close();
+        late.close();
+        if (!bodyRelease.isCompleted) bodyRelease.complete();
         await subscription.cancel();
         await server.close(force: true);
       }
