@@ -285,7 +285,14 @@ const { chromium } = require("playwright"),
         .getByRole("button", { name: "Cancel undispatched start", exact: true })
         .click(),
     );
-    await sessionCard.getByText(/cancelled/).waitFor();
+    await sessionCard
+      .getByText(
+        new RegExp("^SIMULATED · #" + queued.session.id + " · cancelled ·"),
+      )
+      .waitFor();
+    await sessionCard
+      .getByText("Start transport · cancelled", { exact: true })
+      .waitFor();
     const sessions = await (
       await customer.request.get(base + "/api/simulations")
     ).json();

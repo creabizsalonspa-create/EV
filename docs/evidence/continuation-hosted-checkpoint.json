@@ -1,0 +1,35 @@
+{
+  "source": "8e5454cad43f6516c6a6c3e633d85dc52d465d1c",
+  "native_run": "https://github.com/creabizsalonspa-create/EV/actions/runs/40526771011",
+  "jobs": [
+    {
+      "name": "native (macos-15)",
+      "status": "in_progress",
+      "conclusion": ""
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "artifacts": [
+    {
+      "digest": "sha256:5ca9f43ec7f1671871c397e6f3cdb49136ec57e4d1e06dbec11402cf31c4a24c",
+      "expired": false,
+      "id": 12744013926,
+      "name": "creabiz-android-debug",
+      "size_in_bytes": 76625171
+    },
+    {
+      "digest": "sha256:ecfdb0d4607f8b09cea57951f85781f818c0b4d02867bf15ec039b871f6e9ab6",
+      "expired": false,
+      "id": 12743719195,
+      "name": "creabiz-ios-simulator",
+      "size_in_bytes": 50358041
+    }
+  ],
+  "platform_initial_run": "https://github.com/creabizsalonspa-create/EV/actions/runs/40526771019",
+  "platform_initial_result": "PostgreSQL jobs passed; managed-gate browser selector ambiguous after separate transport status was added. Assertions now target session and transport separately; local entire managed-gate flow passes. Follow-up platform CI pending push.",
+  "restoration": "Current-instance repeat setup/start/source provisioning passed without reseed or credential replacement; fresh-task and Docker-volume restoration remain unverified."
+}

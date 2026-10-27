@@ -1,5 +1,12 @@
 # Full platform progress — universal integration
 
+## Hosted verification and browser assertion correction
+
+Application source `8e5454cad43f6516c6a6c3e633d85dc52d465d1c` is pushed. Native run40526771011 built Android debug and unsigned iOS simulator artifacts; Linux native/API validation passed. Inspect continuation-hosted-checkpoint.json for the exact observed iPhone job status; a build does not imply a completed device scenario. Both PostgreSQL jobs passed. Initial platform run40526771019 exposed an ambiguous existing managed-gate text selector because cancelled session and transport states are now separately visible. The follow-up test targets and asserts both states explicitly, retaining all business/privacy/expiry checks; the complete actual-Laravel managed-gate flow passes locally. Follow-up hosted platform CI is pending this test/docs push. No production rate/security limit was relaxed.
+
+Repeated setup/start/source provisioning preserved credentials, SQLite data and the current schema. Current-instance catalog/database health passes. Source file inventory and all local evidence are retained in docs/evidence. Latest source introduces no financial business-rule changes. Original branches remain preserved. The full platform is IN_PROGRESS: next unimplemented work is production OCPP provisioning/auth/no-evidence triage, authorized OCPI interoperability, maps and remaining customer/vendor/Admin/commercial requirements, plus staging hardware/PSP/roaming/device/store acceptance. This checkpoint is not a final release.
+
+
 ## Source-backed command outcome recovery
 
 Added immutable command-to-applied-inbox observations, automatic post-commit and duplicate-ingest reconciliation, pre-dispatch evidence guards and conditional late transport updates. Lost/successful HTTP replies cannot overwrite a concurrent observed source state; missing source evidence never authorizes a replay. Customer/vendor/Admin web and canonical Flutter display transport separately from source outcome and offer scoped manual evidence reconciliation. A bounded CLI recovers interrupted follow-ups without any network/device command. Full semantics and remaining production limitations: COMMAND_RECOVERY.md.
