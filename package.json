@@ -11,7 +11,8 @@
     "test:invoices": "node tests/invoice-history.cjs",
     "test:tariffs": "node tests/money-input.cjs && node tests/tariffs.cjs",
     "test:managed-gate": "node tests/managed-gate.cjs",
-    "test:web-session": "node tests/web-session-client.cjs && node tests/web-session.cjs"
+    "test:web-session": "node tests/web-session-client.cjs && node tests/web-session.cjs",
+    "test:commercial": "node tests/commercial-workspace.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

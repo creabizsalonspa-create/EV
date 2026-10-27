@@ -8,6 +8,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class CommercialFinanceTest extends TestCase
@@ -54,6 +55,17 @@ class CommercialFinanceTest extends TestCase
         $this->actingAs($v)->postJson("/api/finance/refund-requests/$id/review", ['decision' => 'reject', 'note' => 'Not eligible'])->assertOk();
         $this->actingAs($u)->postJson("/api/finance/invoices/$i->id/refund-requests", array_replace($body, ['idempotency_key' => 'b']))->assertCreated();
         $this->getJson('/api/finance/report?currency=invalid')->assertUnprocessable();
-        $this->assertDatabaseCount('finance_refunds',0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_external_provider_invoice_cannot_use_ledger_only_simulation_after_config_switch(): void
+    {
+        [$u, $v, $i] = $this->fixture();
+        DB::table('gateway_checkouts')->insert(['invoice_id' => $i->id, 'user_id' => $u->id, 'provider' => 'stripe_test', 'provider_reference' => 'pi_guard', 'request_key' => 'guard', 'fingerprint' => str_repeat('0', 64), 'currency' => 'AED', 'amount_minor' => 100, 'status' => 'captured', 'created_at' => now(), 'updated_at' => now()]);
+        $this->actingAs($u)->postJson("/api/finance/invoices/$i->id/simulate-payment", ['amount_minor' => 1, 'idempotency_key' => 'guard'])->assertStatus(503);
+        $id = $this->postJson("/api/finance/invoices/$i->id/refund-requests", ['amount_minor' => 10, 'reason' => 'Refund issue', 'idempotency_key' => 'guard'])->assertCreated()->json('id');
+        $this->actingAs($v)->postJson("/api/finance/invoices/$i->id/simulate-refund", ['amount_minor' => 10, 'reason' => 'Issue', 'idempotency_key' => 'guard'])->assertStatus(503);
+        $this->postJson("/api/finance/refund-requests/$id/review", ['decision' => 'approve', 'note' => 'Approved'])->assertStatus(503);
+        $this->assertDatabaseCount('finance_refunds', 0);
     }
 }

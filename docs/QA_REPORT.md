@@ -1,5 +1,12 @@
 # Internal QA — universal integration checkpoint
 
+## Finance/commercial branch checkpoint — 2026-10-27
+
+Dedicated `development/finance-commercial` from `940ccbf`; Agent 1 owns finance only. Agent 2 owns the EV platform and native application integration. New connected customer/vendor/admin financial workspace, mock checkout/authorization/capture/cancellation/refunds, signed webhooks, immutable credit notes and dispute decisions, plan versions/cycles/failed-payment retry/paid entitlements, commission statements/scheduled settlement approval and signed adjustments are implemented and tested in the scope described by `FINANCE_COMMERCIAL_CONTINUATION.md`. Stripe test-mode HTTP adapter is contract-tested without merchant credentials. Real payouts remain disabled. No final-completion claim.
+
+Detailed current evidence and remaining financial requirements: [FINANCE_COMMERCIAL_CONTINUATION.md](FINANCE_COMMERCIAL_CONTINUATION.md). Earlier platform reports below remain historical and are not overwritten as completion claims.
+
+
 ## Hosted CI selector follow-up
 
 At `62b4d51`, push platform validation passed (40502188767), while PR validation (40502194030) exposed a timing-sensitive strict locator: newly created station headings legitimately exist in both catalog and tariff workspaces. The browser acceptance assertion now scopes to `#stations`, preserving its exact-name assertion and production behavior. No throttles or application permissions were relaxed. The full real-Laravel browser suite passed locally with the scoped assertion; evidence: `docs/evidence/catalog-selector-browser.txt`.

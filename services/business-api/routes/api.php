@@ -4,6 +4,7 @@ use App\Http\Controllers\AccountController as A;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
+use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\SimulationController as S;
 use App\Http\Controllers\SupportController as T;
@@ -56,3 +57,7 @@ Route::prefix('v1')->group(function () {
 });
 
 Route::post('/internal/csms/events', [CsmsSessionController::class, 'event'])->middleware('throttle:csms-events');
+
+Route::post('/payments/mock/webhook', [PaymentGatewayController::class, 'webhook'])->middleware('throttle:platform-api');
+
+Route::post('/payments/stripe-test/webhook', [PaymentGatewayController::class, 'stripeWebhook'])->middleware('throttle:platform-api');

@@ -132,9 +132,15 @@ class FinanceController extends Controller
         return response()->json($finance->summary($invoice) + ['payments' => Payment::where('invoice_id', $invoice->id)->get(), 'refunds' => Refund::where('invoice_id', $invoice->id)->get()]);
     }
 
+    private function mockOnly(Invoice $invoice): void
+    {
+        abort_unless(config('payments.provider', 'mock') === 'mock' && ! DB::table('gateway_checkouts')->where('invoice_id', $invoice->id)->where('provider', '!=', 'mock')->exists(), 503, 'Use provider refund/payment execution; ledger-only simulation is disabled.');
+    }
+
     public function payment(Request $r, Invoice $invoice, FinanceService $finance)
     {
         abort_unless($invoice->user_id === $r->user()->id, 404);
+        $this->mockOnly($invoice);
         $v = $r->validate(['amount_minor' => 'required|integer|between:1,2000000000', 'idempotency_key' => 'required|string|max:100']);
 
         return response()->json($finance->pay($invoice, $r->user()->id, (int) $v['amount_minor'], $v['idempotency_key']), 201);
@@ -143,6 +149,7 @@ class FinanceController extends Controller
     public function refund(Request $r, Invoice $invoice, FinanceService $finance)
     {
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $invoice->vendor_id === $r->user()->id), 404);
+        $this->mockOnly($invoice);
         $v = $r->validate(['amount_minor' => 'required|integer|between:1,2000000000', 'idempotency_key' => 'required|string|max:100', 'reason' => 'required|string|max:500']);
 
         return response()->json($finance->refund($invoice, $r->user()->id, (int) $v['amount_minor'], $v['idempotency_key'], $v['reason']), 201);

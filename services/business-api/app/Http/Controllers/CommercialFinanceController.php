@@ -19,8 +19,14 @@ class CommercialFinanceController extends Controller
 
     public function report(Request $r)
     {
-        $r->validate(['currency' => 'sometimes|regex:/^[A-Z]{3}$/']);
+        $v = $r->validate(['currency' => 'sometimes|regex:/^[A-Z]{3}$/', 'from' => 'sometimes|date_format:Y-m-d', 'to' => 'sometimes|date_format:Y-m-d|after_or_equal:from']);
         $q = $this->invoices($r)->when($r->filled('currency'), fn ($q) => $q->where('currency', $r->input('currency')));
+        if (isset($v['from'])) {
+            $q->where('created_at', '>=', $v['from'].' 00:00:00');
+        }
+        if (isset($v['to'])) {
+            $q->where('created_at', '<=', $v['to'].' 23:59:59.999999');
+        }
         // Report immutable posted records; each currency and precision remains separate.
         $groups = DB::transaction(function () use ($q, $r) {
             $groups = [];
@@ -93,6 +99,7 @@ class CommercialFinanceController extends Controller
 
                 return response()->json($row);
             }
+            abort_if($status === 'approved' && (config('payments.provider', 'mock') !== 'mock' || DB::table('gateway_checkouts')->where('invoice_id', $invoice->id)->where('provider', '!=', 'mock')->exists()), 503, 'Provider refund execution is required; ledger-only approval is disabled.');
             $refund = $status === 'approved' ? $finance->refund($invoice, $r->user()->id, (int) $row->amount_minor, 'request-'.$row->id, $row->reason) : null;
             DB::table('finance_refund_requests')->where('id', $request)->update(['status' => $status, 'reviewed_by' => $r->user()->id, 'decision_note' => $v['note'], 'refund_id' => $refund?->id, 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'finance.refund_request.'.$status, 'subject' => (string) $request, 'created_at' => now()]);
