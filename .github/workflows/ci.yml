@@ -53,11 +53,8 @@ jobs:
           ./scripts/loyalty-test-setup
           docker restart ev-business-api
           ./scripts/start > /tmp/finance-v3-start.txt
-          node tests/payout-documents.cjs | tee artifacts/finance-commercial/payout-documents.txt
-          node tests/corporate-billing.cjs | tee artifacts/finance-commercial/corporate.txt
-          node tests/external-disputes.cjs | tee artifacts/finance-commercial/external-disputes.txt
-          node tests/external-disputes-ui.cjs | tee artifacts/finance-commercial/external-disputes-ui.txt
-          node tests/loyalty.cjs | tee artifacts/finance-commercial/loyalty.txt
+          node --test tests/financial-connected.test.cjs
+          node tests/financial-connected.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
