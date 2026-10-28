@@ -1,5 +1,16 @@
 # Active development checkpoint
 
+## Active candidate — saved mandates and automatic collection, 28 October 2026
+
+Branch `development/recurring-subscriptions`, based on integrated `1f25e243b0ae04ba61c063dc0ae3e5ae79346a63`. The commit containing this section is the implementation candidate; record its exact SHA/hosted checks in the next evidence update before merging. Main's last fully hosted-tested record remains below. Agent2 remains sole owner of the complete original scope.
+
+Implemented a backend/web/Flutter slice for provider-hosted off-session consent, encrypted customer/setup/method binding, optimistic default/revoke/remove, policy consent, atomic per-invoice collection, existing gateway/recovery/receipts, bounded retries, SCA and immutable consent audit. Customer/vendor clients provide status, history, EN/AR/RTL, safe refresh and hosted external links. Collection is disabled by default and Stripe test-mode-only; no external merchant/device acceptance. See [RECURRING_PAYMENTS.md](RECURRING_PAYMENTS.md).
+
+Evidence so far: new recurring13 tests/148 assertions; full Laravel243/7369 before the final renewal-cycle case; PostgreSQL financial138/6300 before that case, all-process35/459 including crash-after-acceptance GET-only recovery; full Flutter85 passes/eight deliberate live-only skips and clean analysis; actual Laravel native consent/history/isolation and recurring web plus commercial/invoice/tariff/dunning browser regressions passed. Later broadened reruns and hosted Android/iOS checks are pending. Preserve all work; do not infer a pass from a running/cancelled workflow.
+
+Exact next action: finish candidate CI and all-client regression verification, correct failures without weakening production controls, push evidence and merge through a verified PR. Then continue charger registration/rider authorization/IdTokens and certificate/source monitoring from the existing canonical admission/operation services, followed by authorized OCPI, maps and the full remaining PRD. Do not rebuild saved-mandate, charging topology, reservation or accounting modules. Missing external inputs remain merchant sandbox/live acceptance, hardware/partner access, physical devices, signing/store and operational security/restore acceptance. The entire platform is still unfinished.
+
+
 ## Verified integration — 28 October 2026
 
 Agent 2 is the sole active owner of the complete financial and non-financial software. Latest fully hosted-tested head: **a3536d7f2c68ac05e116a04cd46df5ceaf76a605** (implementation eae79cb41677056890d33625d0c2700bcf94bcf4). Merged through PR #10 at **e2f60f8854f2efd285864d764827865ed8191e81** on `development/fullstack-continuation`; the merge tree exactly matches the tested head. PR #9 is also marked merged by ancestry; Finance PR #7 was integrated in full through PR #8. All original branches/history remain preserved. Documentation/evidence-only follow-ups may follow this code checkpoint.

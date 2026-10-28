@@ -8,6 +8,7 @@ use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
 use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PlatformController as P;
+use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController as S;
 use App\Http\Controllers\SupportController as T;
@@ -81,3 +82,5 @@ Route::post('/internal/charger-ingress/authenticate', [ChargerIngressController:
 Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/charging_operations.php');
 
 require __DIR__.'/subscription_credit_webhooks.php';
+
+Route::post('/payment-enrollments/stripe-test/webhook', [RecurringPaymentController::class, 'webhook'])->middleware('throttle:platform-api');

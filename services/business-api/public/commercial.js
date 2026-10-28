@@ -1150,6 +1150,13 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 },
             );
         }
+        if (["customer", "vendor"].includes(actor.role))
+            mountRecurringPayments({
+                container: panel("Recurring payments", "المدفوعات المتكررة"),
+                api,
+                ui,
+                actor: () => actor,
+            });
         const recoveryPanel = panel("Payment reliability", "موثوقية المدفوعات");
         mountPaymentRecovery({
             container: recoveryPanel,

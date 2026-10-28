@@ -1,3 +1,9 @@
+## Saved authorizations / recurring collection candidate — 28 October 2026
+
+New test contracts cover server-owned hosted enrollment and encrypted/masked references, tenant isolation, optimistic versions, revoked/expired consent, old callback replay, duplicate/changed signed delivery, lost hosted acknowledgment, cancelled subscriptions, provider timeout with no replacement charge, due-time-controlled retry, failed SCA, existing-intent authentication, paid renewal invoice/receipt parity and immutable accounting. Guarded PostgreSQL workers cover same-invoice collection, revocation races and process exit after provider acceptance. Web verifies actual Laravel revocation/policy/history/RTL/logout plus an isolated hosted-flow contract. Flutter covers consent, external-host validation, no mutation replay, expiry privacy and RTL; a real-Laravel native suite covers canonical subscription history and cross-tenant denial. Hosted device flow adds expected-version revocation over trusted fixture TLS. No live provider calls or device acceptance are implied.
+
+The broader rerun/hosted evidence is pending; see the latest checkpoint rather than inferring success from a candidate. Existing regression suites and production rate limits are retained. Development remains incomplete for the original full platform.
+
 # Internal QA — universal integration checkpoint
 
 ## Verified integration — 28 October 2026

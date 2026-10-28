@@ -224,3 +224,8 @@ See [COMMAND_RECOVERY.md](COMMAND_RECOVERY.md): source-observed state, immutable
 ## Secure charger admission and no-source case operations
 
 See [CHARGER_ADMISSION.md](CHARGER_ADMISSION.md) for new scoped APIs, owner/Admin web and vendor Flutter controls, TLS/mTLS simulation evidence, credential/version/replay safeguards, source inspection and remaining production boundaries. Financial truth remains Agent1-owned.
+
+
+## Recurring authorization continuation — 28 October 2026
+
+Saved provider-hosted consent, off-session subscription collection and customer/vendor web/Flutter controls extend the canonical financial gateway. See [RECURRING_PAYMENTS.md](RECURRING_PAYMENTS.md) for scoped endpoints, versions, scheduler, recovery, migration and test-mode limits. No live merchant acceptance or full-platform completion is claimed.

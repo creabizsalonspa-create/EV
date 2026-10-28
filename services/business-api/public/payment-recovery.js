@@ -171,8 +171,8 @@ window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
         text("h3", "Subscription notices", "تنبيهات الاشتراك"),
         text(
             "p",
-            "In-app reminders only. No automatic collection was attempted. Review the existing subscription checkout; uncertain payments require recovery first.",
-            "تذكيرات داخل التطبيق فقط. لم تُجر محاولة تحصيل تلقائية. راجع دفع الاشتراك الحالي؛ تتطلب الدفعات غير المؤكدة مراجعة الاسترداد أولاً.",
+            "These in-app reminders do not initiate collection. Check renewal collection for payment attempts; uncertain payments require recovery first.",
+            "لا تبدأ هذه التذكيرات التحصيل. راجع تحصيل التجديد لمعرفة محاولات الدفع؛ تتطلب الدفعات غير المؤكدة المطابقة أولاً.",
         ),
     );
     const list = document.createElement("div");

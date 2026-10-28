@@ -7,6 +7,7 @@ import 'reservation_arrival.dart';
 import 'roaming.dart';
 import 'invoice_history.dart';
 import 'payment_recovery.dart';
+import 'recurring_payments.dart';
 import 'tariffs.dart';
 import 'preferences.dart';
 import 'strings.dart';
@@ -892,6 +893,15 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'recurringPayments') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => RecurringPaymentsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'subscriptionNotices') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -968,6 +978,15 @@ class _WorkspaceState extends State<Workspace> {
                     enabled: !busy,
                     child: Text(s.t('pricing')),
                   ),
+                PopupMenuItem(
+                  value: 'recurringPayments',
+                  enabled: !busy,
+                  child: Text(
+                    Localizations.localeOf(context).languageCode == 'ar'
+                        ? recurringAr['title']!
+                        : recurringEn['title']!,
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'subscriptionNotices',
                   enabled: !busy,

@@ -10,7 +10,11 @@ const { spawnSync } = require("node:child_process");
       "native-charger-operations",
       "native-reservation-lifecycle",
     ], // 9 logins
-    ["native-payment-recovery", "native-subscription-dunning"], // 5 logins
+    [
+      "native-payment-recovery",
+      "native-subscription-dunning",
+      "native-recurring-payments",
+    ], // 7 logins
   ];
   let started;
   for (const group of groups) {

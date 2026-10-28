@@ -13,7 +13,7 @@ const recoveryEn = {
   'settled': 'Invoice settled',
   'cancelled': 'Subscription cancelled',
   'dunningNotice':
-      'In-app reminders only. No automatic collection was attempted. Current invoice status comes from the server.',
+      'These in-app reminders do not initiate collection. Check renewal collection for payment attempts. Current invoice status comes from the server.',
   'notice':
       'Test-provider evidence only. A completed operation does not necessarily mean a paid invoice. Inspecting status never initiates a new charge or refund.',
   'empty': 'No payment recovery operations.',
@@ -57,7 +57,7 @@ const recoveryAr = {
   'settled': 'سُددت الفاتورة',
   'cancelled': 'أُلغي الاشتراك',
   'dunningNotice':
-      'تذكيرات داخل التطبيق فقط. لم تُجر محاولة تحصيل تلقائية. حالة الفاتورة الحالية مصدرها الخادم.',
+      'لا تبدأ هذه التذكيرات التحصيل. راجع تحصيل التجديد لمعرفة محاولات الدفع. حالة الفاتورة الحالية مصدرها الخادم.',
   'notice':
       'أدلة مزود الاختبار فقط. اكتمال العملية لا يعني بالضرورة سداد الفاتورة. فحص الحالة لا ينشئ دفعة أو استرداداً جديداً.',
   'empty': 'لا توجد عمليات دفع للمراجعة.',
