@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Bound a hosted simulator launch and retain diagnostics before job timeout."""
+"""Bound simulator startup, preserve attempts, never retry Dart/test failures."""
+import json
 import os
 import re
 import signal
@@ -7,30 +8,112 @@ import subprocess
 import sys
 from pathlib import Path
 
-output = Path(os.environ['RUNNER_TEMP']) / 'native-device.log'
-device = os.environ['EV_IOS_DEVICE_ID']
-command = ['flutter', 'test', 'integration_test/native_flow_test.dart', '-d', device,
-           '--reporter', 'expanded', '--verbose']
-with output.open('w') as log:
-    process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
-                               start_new_session=True)
+
+def may_recover_startup(result, text):
+    """Only a successful build stalled before connecting to Dart is retryable."""
+    entered = ('DEVICE:', 'Connecting to service protocol',
+               'Connected to the VM Service', 'VM Service URL on device',
+               'TestFailure', 'Expected:', 'Some tests failed')
+    return (result != 0 and 'Xcode build done.' in text
+            and 'Waiting for VM Service port to be available' in text
+            and not any(marker in text for marker in entered))
+
+
+def verified_success(result, text):
+    return (result == 0 and 'All tests passed!' in text
+            and 'DEVICE: Keychain session restored' in text
+            and 'DEVICE: exact Arabic vendor pricing verified' in text)
+
+
+def owned_simulator(devices, device, run, attempt):
+    if not re.fullmatch(r'[0-9a-fA-F-]{36}', device):
+        return False
+    if not run.isdigit() or not attempt.isdigit():
+        return False
+    matches = [d for group in devices.get('devices', {}).values()
+               for d in group if d.get('udid') == device]
+    return (len(matches) == 1
+            and matches[0].get('name') == f'CreaBiz-{run}-{attempt}')
+
+
+def stop(process):
+    if process.poll() is not None:
+        return
     try:
-        result = process.wait(timeout=660)
-    except subprocess.TimeoutExpired:
-        print('Simulator UI launch/test exceeded 11 minutes; collecting diagnostics.', flush=True)
         os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
-        result = 124
-# Surface useful runner output; the complete file remains an ordinary CI artifact.
-lines=output.read_text(errors='replace').splitlines()
-if result:
-    if not any('DEVICE:' in line for line in lines):
-        print('No Dart device phase started; inspect simulator launch/debug transport diagnostics.')
-    relevant=[line for line in lines if re.search(r'DEVICE:|[Ee]rror|[Ff]ail|[Ll]aunch|debug connection|VM Service|Installing',line)]
-    print('\n'.join(relevant[-80:]))
-print('\n'.join(lines[-100:]))
-sys.exit(result)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+def capture(directory, device, attempt):
+    # Preserve the first startup failure before rebooting the isolated simulator.
+    subprocess.run(['xcrun', 'simctl', 'io', device, 'screenshot',
+                    str(directory / f'ios-attempt-{attempt}.png')],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    with (directory / f'ios-attempt-{attempt}.log').open('w') as output:
+        subprocess.run(['xcrun', 'simctl', 'spawn', device, 'log', 'show',
+                        '--last', '20m', '--style', 'compact',
+                        '--predicate', 'process == "Runner"'], stdout=output,
+                       stderr=subprocess.STDOUT, timeout=30)
+
+
+def reboot_owned(device, directory, attempt):
+    result = subprocess.run(['xcrun', 'simctl', 'list', 'devices', '--json'],
+                            capture_output=True, text=True, check=True, timeout=30)
+    if not owned_simulator(json.loads(result.stdout), device,
+                           os.environ.get('GITHUB_RUN_ID', ''),
+                           os.environ.get('GITHUB_RUN_ATTEMPT', '')):
+        raise RuntimeError('Refusing to reboot a simulator not owned by this CI run.')
+    capture(directory, device, attempt)
+    subprocess.run(['xcrun', 'simctl', 'shutdown', device], check=True, timeout=30)
+    subprocess.run(['xcrun', 'simctl', 'boot', device], check=True, timeout=30)
+    subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'],
+                   check=True, timeout=180)
+
+
+def main():
+    directory = Path(os.environ['RUNNER_TEMP'])
+    device = os.environ['EV_IOS_DEVICE_ID']
+    command = ['flutter', 'test', 'integration_test/native_flow_test.dart',
+               '-d', device, '--reporter', 'expanded', '--verbose']
+    combined = directory / 'native-device.log'
+    combined.write_text('')
+    final = 1
+    for attempt in (1, 2):
+        output = directory / f'native-device-attempt-{attempt}.log'
+        with output.open('w') as log:
+            process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
+                                       start_new_session=True)
+            try:
+                result = process.wait(timeout=660)
+            except subprocess.TimeoutExpired:
+                print(f'Attempt {attempt} exceeded 11 minutes; collecting diagnostics.', flush=True)
+                stop(process)
+                result = 124
+        text = output.read_text(errors='replace')
+        with combined.open('a') as log:
+            log.write(f'\n=== Attempt {attempt}, exit {result} ===\n' + text)
+        if verified_success(result, text):
+            final = 0
+            print('\n'.join(text.splitlines()[-100:]))
+            break
+        final = result or 1
+        if attempt == 1 and may_recover_startup(result, text):
+            print('No Dart phase or assertion started; rebooting only the run-owned simulator once.', flush=True)
+            reboot_owned(device, directory, attempt)
+            continue
+        relevant = [line for line in text.splitlines()
+                    if re.search(r'DEVICE:|[Ee]rror|[Ff]ail|[Ll]aunch|debug connection|VM Service|Installing', line)]
+        print('\n'.join(relevant[-80:]))
+        print('\n'.join(text.splitlines()[-100:]))
+        break
+    return final
+
+
+if __name__ == '__main__':
+    sys.exit(main())
