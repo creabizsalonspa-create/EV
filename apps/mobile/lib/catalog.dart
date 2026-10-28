@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'topology_strings.dart';
+import 'vendor_forms.dart' show vendorDigits;
 
 typedef CatalogLoader =
     Future<ApiPage<Station>> Function(CatalogFilter filter, int page);
@@ -76,6 +77,9 @@ class CatalogViewState extends State<CatalogView> {
   final search = TextEditingController();
   final country = TextEditingController();
   final power = TextEditingController();
+  final latitude = TextEditingController();
+  final longitude = TextEditingController();
+  final radius = TextEditingController();
   final form = GlobalKey<FormState>();
   String connector = '';
   @override
@@ -92,6 +96,9 @@ class CatalogViewState extends State<CatalogView> {
           country: country.text,
           connector: connector,
           minimumPower: int.tryParse(power.text),
+          latitude: double.tryParse(vendorDigits(latitude.text.trim())),
+          longitude: double.tryParse(vendorDigits(longitude.text.trim())),
+          radiusKm: double.tryParse(vendorDigits(radius.text.trim())),
         ),
       );
   }
@@ -192,6 +199,48 @@ class CatalogViewState extends State<CatalogView> {
                               ? s.t('invalidPower')
                               : null,
                         ),
+                        ExpansionTile(
+                          key: const PageStorageKey('catalog-nearby-expansion'),
+                          title: Text(s.t('nearbySearch')),
+                          children: [
+                            Text(s.t('nearbyPrivacy')),
+                            for (final entry in [
+                              ('nearbyLatitude', latitude, -90.0, 90.0),
+                              ('nearbyLongitude', longitude, -180.0, 180.0),
+                              ('radiusKm', radius, 1.0, 200.0),
+                            ])
+                              TextFormField(
+                                key: PageStorageKey('catalog-${entry.$1}'),
+                                controller: entry.$2,
+                                textDirection: TextDirection.ltr,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                      signed: true,
+                                    ),
+                                decoration: InputDecoration(
+                                  labelText: s.t(entry.$1),
+                                ),
+                                validator: (value) {
+                                  if ([
+                                    latitude,
+                                    longitude,
+                                    radius,
+                                  ].every((c) => c.text.trim().isEmpty))
+                                    return null;
+                                  final n = double.tryParse(
+                                    vendorDigits(value?.trim() ?? ''),
+                                  );
+                                  return n == null ||
+                                          !n.isFinite ||
+                                          n < entry.$3 ||
+                                          n > entry.$4
+                                      ? s.t('invalidNearby')
+                                      : null;
+                                },
+                              ),
+                          ],
+                        ),
                         const SizedBox(height: 16),
                         Wrap(
                           spacing: 8,
@@ -208,6 +257,9 @@ class CatalogViewState extends State<CatalogView> {
                                       search.clear();
                                       country.clear();
                                       power.clear();
+                                      latitude.clear();
+                                      longitude.clear();
+                                      radius.clear();
                                       setState(() => connector = '');
                                       controller.load(
                                         filter: const CatalogFilter(),
@@ -288,6 +340,12 @@ class CatalogViewState extends State<CatalogView> {
                           textDirection: TextDirection.ltr,
                         ),
                         Text(s.t('unknownAvailability')),
+                        if (station.distanceKm != null)
+                          Text(
+                            s.t('straightDistance', {
+                              'km': station.distanceKm!.toStringAsFixed(2),
+                            }),
+                          ),
                         if (station.reservationPolicy == 'managed_blocked')
                           Text(s.t('managedUnavailable')),
                         if (station.reservationPolicy == 'canonical' &&
@@ -357,6 +415,9 @@ class CatalogViewState extends State<CatalogView> {
     search.dispose();
     country.dispose();
     power.dispose();
+    latitude.dispose();
+    longitude.dispose();
+    radius.dispose();
     super.dispose();
   }
 }

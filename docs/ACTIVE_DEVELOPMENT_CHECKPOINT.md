@@ -1,3 +1,19 @@
+# Verified PR14 integration and pending PR15 rerun — 28 October 2026
+
+PR14 source **ae8a10f3bb3758efb072bcea73fe0688197e6e53** passed all ten hosted checks. Both iOS runs include the actual native PDF raster/preview, Keychain and Arabic-pricing runtime assertions. Merged main is **6d995d2806a688f8f92c094f671b2ebd1d3567ad**; its Git tree exactly equals the verified source. Evidence: `docs/evidence/native-vendor/hosted-checkpoint.json`. The prior callback-event defect is fixed without removing assertions or retrying connected failures.
+
+Existing PR15 branch development/catalog-nearby now safely merges this verified main; no new feature branch was created. Fresh local integration rerun passes Laravel258/7563, finance PostgreSQL146/6381 plus41/539 process races, connector PostgreSQL49/733 plus14/197 races, Flutter104 with9 deliberate live-only skips and clean analysis, nearby/frontend/localization browser suites, and5 coverage-evidence guards. Complete the exact-source hosted protocol/browser/Android/iOS rerun before PR15 merge. The312-atom/42-category weighted tracker separates coded/tested/merged/production acceptance and is checked by scripts/requirement-coverage. Agent2 temporarily owns the entire product under the latest owner directive. Full production OCPP/OCPI/maps/commercial/native/Admin/security/release scope remains unfinished; do not rebuild completed systems or infer physical/merchant/partner/store acceptance.
+
+## Latest owner directive — temporary full-project Agent2 ownership, 28 October 2026
+
+The newly uploaded FULL PROJECT OWNERSHIP command supersedes the preceding parallel split: Agent1 is unavailable; Agent2 temporarily owns all remaining financial/commercial and EV/non-financial software. Reuse canonical finance services and preserve verified work. Coordinate before simultaneous shared-file edits if Agent1 returns; ownership changes only on an owner directive. Earlier split/sole-owner records remain historical.
+
+Verified integrated main is6388642827781d4572a8fb91a83f392b26d461c4. PR12 recurring mandates/collections and PR13 charger admission lifecycle are merged. PR14 source1b72354 passed backend/PostgreSQL/Android but failed a premature native PDF-ready assertion after successful company/upload flow. Corrected source5b258f1 awaits actual native load with a bounded30-second/fail-fast error check; exact-source iOS rerun is required before merge. PR15 source2909566 adds cross-platform nearby search; its local evidence is in docs/evidence/catalog-nearby/local-checkpoint.json and hosted checks are pending. Do not rebuild these modules, equate coordinate search with an interactive map, or claim physical/merchant/partner/store acceptance.
+
+# Agent2 nearby-catalog continuation — 28 October 2026 (Dubai)
+
+Verified integrated main remains63886428 (PR12/13). Native-vendor PR14 source1b72354 includes the real iOS keyboard-interaction correction; hosted validation must finish before merge. New independent EV branch development/catalog-nearby extends canonical catalog radius search across Laravel/web/Flutter without modifying finance rules. See CATALOG_NEARBY.md and current QA_REPORT. Preserve parallel ownership: Agent1 exclusively finance/commercial/backend/web/Admin; Agent2 EV/native/nonfinancial/security/main integration. After these exact-source checks, merge through PRs, update checkpoint evidence, then implement interactive map/provider/location-consent workflows and remaining EV/OCPI modules; do not label coordinate search an interactive map.
+
 # Active development checkpoint
 
 ## Latest owner directive — restored parallel ownership, 28 October 2026 (Dubai)

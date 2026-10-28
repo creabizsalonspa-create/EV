@@ -49,6 +49,7 @@ class Station {
   final bool reservable;
   final String? reservationPolicy;
   final int? mappingId, evseNumber, connectorNumber;
+  final double? distanceKm;
   Station.fromJson(Map<String, dynamic> json)
     : id = json['id'] as int,
       name = json['name'] as String,
@@ -57,11 +58,13 @@ class Station {
       powerKw = json['power_kw'] as int,
       reservable = json['reservable'] == true,
       reservationPolicy = json['reservation_policy'] as String?,
+      distanceKm = (json['distance_km'] as num?)?.toDouble(),
       mappingId = null,
       evseNumber = null,
       connectorNumber = null;
   Station.forConnector(Station parent, Map<String, dynamic> option)
-    : id = parent.id,
+    : distanceKm = parent.distanceKm,
+      id = parent.id,
       name = parent.name,
       connector = option['connector_type'] as String,
       source = parent.source,
@@ -477,17 +480,24 @@ class CatalogFilter {
   final String connector;
   final String country;
   final int? minimumPower;
+  final double? latitude, longitude, radiusKm;
   const CatalogFilter({
     this.search = '',
     this.connector = '',
     this.country = '',
     this.minimumPower,
+    this.latitude,
+    this.longitude,
+    this.radiusKm,
   });
   Map<String, String> get query => {
     if (search.trim().isNotEmpty) 'q': search.trim(),
     if (connector.isNotEmpty) 'connector_type': connector,
     if (country.trim().isNotEmpty) 'country': country.trim().toUpperCase(),
     if (minimumPower != null) 'min_power_kw': '$minimumPower',
+    if (latitude != null) 'latitude': '$latitude',
+    if (longitude != null) 'longitude': '$longitude',
+    if (radiusKm != null) 'radius_km': '$radiusKm',
   };
 }
 

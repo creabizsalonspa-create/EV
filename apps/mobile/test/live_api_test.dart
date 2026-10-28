@@ -103,6 +103,26 @@ void main() {
           ),
           isTrue,
         );
+        final nearby = await customer.catalog(
+          filter: CatalogFilter(
+            search: 'Native smoke station $run',
+            latitude: 25.2,
+            longitude: 55.3,
+            radiusKm: 1,
+          ),
+          page: 2,
+        );
+        expect(nearby.total, 26);
+        expect(nearby.items.single.distanceKm, closeTo(0, 0.00001));
+        final far = await customer.catalog(
+          filter: CatalogFilter(
+            search: 'Native smoke station $run',
+            latitude: 26,
+            longitude: 55.3,
+            radiusKm: 1,
+          ),
+        );
+        expect(far.total, 0);
         final day = DateTime.now().toUtc().add(const Duration(days: 1));
         final slot = DateTime.utc(day.year, day.month, day.day, 12);
         final booking = {

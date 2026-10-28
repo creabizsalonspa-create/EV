@@ -1,3 +1,19 @@
+# Verified PR14 integration and pending PR15 rerun — 28 October 2026
+
+PR14 source **ae8a10f3bb3758efb072bcea73fe0688197e6e53** passed all ten hosted checks. Both iOS runs include the actual native PDF raster/preview, Keychain and Arabic-pricing runtime assertions. Merged main is **6d995d2806a688f8f92c094f671b2ebd1d3567ad**; its Git tree exactly equals the verified source. Evidence: `docs/evidence/native-vendor/hosted-checkpoint.json`. The prior callback-event defect is fixed without removing assertions or retrying connected failures.
+
+Existing PR15 branch development/catalog-nearby now safely merges this verified main; no new feature branch was created. Fresh local integration rerun passes Laravel258/7563, finance PostgreSQL146/6381 plus41/539 process races, connector PostgreSQL49/733 plus14/197 races, Flutter104 with9 deliberate live-only skips and clean analysis, nearby/frontend/localization browser suites, and5 coverage-evidence guards. Complete the exact-source hosted protocol/browser/Android/iOS rerun before PR15 merge. The312-atom/42-category weighted tracker separates coded/tested/merged/production acceptance and is checked by scripts/requirement-coverage. Agent2 temporarily owns the entire product under the latest owner directive. Full production OCPP/OCPI/maps/commercial/native/Admin/security/release scope remains unfinished; do not rebuild completed systems or infer physical/merchant/partner/store acceptance.
+
+## Latest owner update and native CI correction — 28 October 2026
+
+Agent2 temporarily owns the full EV and finance/commercial scope while Agent1 is unavailable. Reuse existing canonical finance and preserve historical ownership records. Native-vendor PR14 source1b72354 passed backend/PostgreSQL/Android but failed the PDF-ready assertion after private upload; source5b258f1 now waits for actual asynchronous native PDF load and fails fast on a viewer error. Latest iOS validation is pending, so PR14 remains unmerged. Nearby search source2909566 plus that preserved fix remains an unmerged locally verified candidate. The 42-category audit in REQUIREMENT_STATUS separates implemented subsets and remaining software; no broad70% estimate or production acceptance is claimed.
+
+# Agent2 nearby catalog continuation — 28 October 2026
+
+Nearby catalog search implemented for internal verification; full original platform remains in progress.
+
+Agent1 exclusively owns financial/commercial business logic and backend/web/Admin finance. This slice changes EV catalog APIs/UI/tests only. Native-vendor PR14 must pass exact-source iOS CI before integration. Interactive maps remain unfinished software.
+
 ## Native company/KYC/staff/inventory implementation candidate — 28 October 2026
 
 PR13 source a648576 passed all ten checks and merged at63886428; PR12 remains integrated. Continued actual backend/web/Flutter source on `development/native-vendor-operations`: company/profile/private evidence/reviews/submission, consent-versioned staff invitations, inventory creation with owned-catalog linking, protected durable creation replay, secure multipart/binary transport and EN/AR/RTL/privacy. The native real-Laravel4 MiB upload/onboarding/review/inventory/staff flow passes. Existing vendor/Admin/browser/locale/session regressions, focused Flutter/HTTP and PostgreSQL races pass. Final exact-source full reruns and hosted Android/iOS/PDF checks remain pending; see ACTIVE_DEVELOPMENT_CHECKPOINT.md for current evidence rather than inferring completion.
