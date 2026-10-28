@@ -143,6 +143,8 @@ const deferred = () => {
             ),
           );
         }
+        if (path === "/api/favorites/status")
+          return json({ favorite_station_ids: [] });
         if (path === "/api/stations")
           return json(
             paged([

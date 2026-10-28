@@ -11,7 +11,7 @@ class SecurityHeaders
     public function handle(Request $request, Closure $next): Response
     {
         $r = $next($request);
-        $r->headers->set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+        $r->headers->set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
         $r->headers->set('X-Content-Type-Options', 'nosniff');
         $r->headers->set('X-Frame-Options', 'DENY');
         $sensitiveLink = $request->is('email/verify/*', 'reset-password/*');

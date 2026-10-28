@@ -31,6 +31,10 @@ on:
         "services/business-api/app/Http/Controllers/ConnectorTopologyController.php",
         "services/business-api/tests/Fixtures/native-inventory.php",
         "services/business-api/app/Http/Controllers/VendorOpsController.php",
+        "services/business-api/app/Http/Controllers/PlatformController.php",
+        "services/business-api/app/Http/Controllers/StationFavoriteController.php",
+        "services/business-api/app/Services/Discovery/**",
+        "services/business-api/routes/favorites.php",
         "services/business-api/app/Services/VendorOps/**",
         "services/business-api/routes/vendor_ops.php",
       ]
@@ -64,6 +68,10 @@ on:
         "services/business-api/app/Http/Controllers/ConnectorTopologyController.php",
         "services/business-api/tests/Fixtures/native-inventory.php",
         "services/business-api/app/Http/Controllers/VendorOpsController.php",
+        "services/business-api/app/Http/Controllers/PlatformController.php",
+        "services/business-api/app/Http/Controllers/StationFavoriteController.php",
+        "services/business-api/app/Services/Discovery/**",
+        "services/business-api/routes/favorites.php",
         "services/business-api/app/Services/VendorOps/**",
         "services/business-api/routes/vendor_ops.php",
       ]

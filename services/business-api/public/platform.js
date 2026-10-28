@@ -1,3 +1,6 @@
+let unconfirmedFavorite = null;
+let favoriteMode = false,
+    previousCatalogQuery = "";
 let commandRequest = null,
     commandPage = 1;
 let user = null,
@@ -40,10 +43,25 @@ function pendingLogout(value) {
     return false;
 }
 function clearIdentity() {
+    const privateCatalog = favoriteMode;
+    window.dispatchEvent(new CustomEvent("catalog-map-clear"));
+    unconfirmedFavorite = null;
+    favoriteMode = false;
     const epoch = client.invalidateSession();
     user = null;
     renderIdentity();
     clearPrivateViews();
+    el("stations")
+        .querySelectorAll("[data-favorite-control]")
+        .forEach((n) => n.remove());
+    if (privateCatalog) {
+        stationRequest?.abort();
+        el("stations").replaceChildren();
+        el("catalog-pagination").replaceChildren();
+        el("catalog-state").textContent = "";
+        delete el("catalog-state").dataset.i18n;
+        delete el("catalog-state").dataset.i18nValues;
+    }
     el("stations")
         .querySelectorAll("form")
         .forEach((n) => n.remove());
@@ -89,6 +107,7 @@ function empty(container, message) {
     el(container).append(state);
 }
 function renderIdentity() {
+    renderCatalogMode();
     el("account").hidden = !!user;
     el("forgot-password").hidden = !!user;
     el("signed").hidden = !user;
@@ -319,7 +338,36 @@ async function connectorChoices(station, root, page = 1) {
         }
     }
 }
+function renderCatalogMode() {
+    if (user?.role !== "customer") {
+        unconfirmedFavorite = null;
+        el("stations")
+            .querySelectorAll("[data-favorite-control]")
+            .forEach((node) => node.remove());
+        if (favoriteMode) {
+            window.dispatchEvent(new CustomEvent("catalog-map-clear"));
+            favoriteMode = false;
+            stationRequest?.abort();
+            el("stations").replaceChildren();
+            el("catalog-pagination").replaceChildren();
+            el("catalog-state").textContent = "";
+            delete el("catalog-state").dataset.i18n;
+            delete el("catalog-state").dataset.i18nValues;
+        }
+    }
+    EvLocale.bind(
+        el("catalog-title"),
+        favoriteMode ? "Saved stations" : "Find a place to recharge",
+    );
+    const button = el("favorite-catalog");
+    button.hidden = user?.role !== "customer";
+    EvLocale.bind(button, favoriteMode ? "All stations" : "Saved stations");
+    el("filters").hidden = favoriteMode;
+}
+
 async function stations(query = "") {
+    const identity = client.sessionEpoch,
+        savedMode = favoriteMode;
     stationRequest?.abort();
     const request = new AbortController();
     stationRequest = request;
@@ -330,16 +378,65 @@ async function stations(query = "") {
     );
     let j;
     try {
-        j = await api("stations" + query, "GET", undefined, request.signal);
+        j = await api(
+            (savedMode ? "favorites" : "stations") + query,
+            "GET",
+            undefined,
+            request.signal,
+        );
+        if (request.signal.aborted || identity !== client.sessionEpoch) return;
+        if (savedMode && !j.data.length && j.current_page > j.last_page)
+            return stations("?page=" + j.last_page);
+        if (!savedMode && user?.role === "customer" && j.data.length) {
+            const params = new URLSearchParams();
+            for (const station of j.data)
+                params.append("station_ids[]", station.id);
+            const status = await api(
+                "favorites/status?" + params,
+                "GET",
+                undefined,
+                request.signal,
+            );
+            if (
+                !Array.isArray(status.favorite_station_ids) ||
+                !status.favorite_station_ids.every(
+                    (id) => Number.isSafeInteger(id) && id > 0,
+                )
+            )
+                throw new Error("Unreadable preference status");
+            const ids = new Set(status.favorite_station_ids);
+            j.data = j.data.map((station) => ({
+                ...station,
+                is_favorite: ids.has(station.id),
+            }));
+        }
     } catch (error) {
         if (request.signal.aborted) return;
         EvLocale.bind(el("catalog-state"), errorMessage(error));
         el("stations").removeAttribute("aria-busy");
         return;
     }
-    if (request.signal.aborted) return;
+    if (
+        request.signal.aborted ||
+        identity !== client.sessionEpoch ||
+        savedMode !== favoriteMode
+    )
+        return;
     el("stations").removeAttribute("aria-busy");
     stationQuery = query;
+    if (
+        user?.role === "customer" &&
+        unconfirmedFavorite !== null &&
+        (j.data.some((station) => station.id === unconfirmedFavorite) ||
+            (savedMode && j.total === 0))
+    ) {
+        unconfirmedFavorite = null;
+        if (el("notice").dataset.i18n === "Favorite update unconfirmed") {
+            el("notice").textContent = "";
+            delete el("notice").dataset.i18n;
+            delete el("notice").dataset.i18nValues;
+        }
+    }
     EvLocale.bind(
         el("catalog-state"),
         "{total} stations · availability is unverified / الحالة غير مؤكدة",
@@ -361,10 +458,16 @@ async function stations(query = "") {
             last: j.last_page,
         }),
     );
+    window.dispatchEvent(new CustomEvent("catalog-map-data", { detail: j.data }));
     el("stations").replaceChildren();
     if (!j.data.length)
         el("stations").append(
-            ui("p", "No stations match. No live network data is connected."),
+            ui(
+                "p",
+                savedMode
+                    ? "No saved stations yet"
+                    : "No stations match. No live network data is connected.",
+            ),
         );
     for (let s of j.data) {
         let a = node("article", "");
@@ -414,6 +517,39 @@ async function stations(query = "") {
             ),
         );
         a.append(details);
+        if (user?.role === "customer") {
+            const button = ui(
+                "button",
+                s.is_favorite ? "Remove saved station" : "Save station",
+            );
+            button.type = "button";
+            button.dataset.favoriteControl = "true";
+            button.setAttribute(
+                "aria-pressed",
+                s.is_favorite ? "true" : "false",
+            );
+            button.onclick = async () => {
+                const epoch = client.sessionEpoch;
+                button.disabled = true;
+                try {
+                    await api(
+                        "favorites/" + s.id,
+                        s.is_favorite ? "DELETE" : "PUT",
+                    );
+                    if (epoch === client.sessionEpoch && a.isConnected)
+                        await stations(stationQuery);
+                } catch (error) {
+                    if (epoch === client.sessionEpoch && a.isConnected) {
+                        unconfirmedFavorite = s.id;
+                        notice("Favorite update unconfirmed");
+                    }
+                } finally {
+                    if (epoch === client.sessionEpoch && button.isConnected)
+                        button.disabled = false;
+                }
+            };
+            a.append(button);
+        }
         if (s.reservation_policy === "managed_blocked")
             a.append(ui("p", "Managed reservations unavailable"));
         if (s.reservable && user?.role === "customer")
@@ -957,6 +1093,8 @@ for (const input of nearbyInputs) {
 }
 el("filters").onsubmit = (e) => {
     e.preventDefault();
+    favoriteMode = false;
+    renderCatalogMode();
     let q = new URLSearchParams();
     for (let [k, v] of new FormData(e.target)) if (v) q.set(k, v);
     stations("?" + q).catch((e) => notice(e));
@@ -1214,6 +1352,13 @@ if (new URLSearchParams(location.search).get("verification") === "signin")
         "Sign in to the account that received the email, then reopen its verification link.",
     );
 
+el("favorite-catalog").onclick = () => {
+    if (user?.role !== "customer") return;
+    if (!favoriteMode) previousCatalogQuery = stationQuery;
+    favoriteMode = !favoriteMode;
+    renderCatalogMode();
+    stations(favoriteMode ? "" : previousCatalogQuery).catch(notice);
+};
 el("refresh-catalog").onclick = () => stations(stationQuery);
 function connectionStatus() {
     el("offline-banner").hidden = navigator.onLine;

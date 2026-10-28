@@ -1,4 +1,23 @@
 window.EV_MESSAGES = {
+    "Find a place to recharge": {
+        en: "Find a place to recharge",
+        ar: "ابحث عن مكان للشحن",
+    },
+    "No saved stations yet": {
+        en: "No saved stations yet.",
+        ar: "لا توجد محطات محفوظة بعد.",
+    },
+    "Saved stations": { en: "Saved stations", ar: "المحطات المحفوظة" },
+    "All stations": { en: "All stations", ar: "جميع المحطات" },
+    "Save station": { en: "Save station", ar: "حفظ المحطة" },
+    "Remove saved station": {
+        en: "Remove saved station",
+        ar: "إزالة المحطة المحفوظة",
+    },
+    "Favorite update unconfirmed": {
+        en: "Preference update could not be confirmed. Refresh before trying again. Saving does not verify availability or enable charging.",
+        ar: "تعذر تأكيد تحديث التفضيل. حدّث قبل المحاولة مجددًا. الحفظ لا يؤكد التوفر ولا يتيح الشحن.",
+    },
     "Crea-Biz EV": {
         en: "Crea-Biz EV",
         ar: "كريا بيز للشحن",

@@ -25,6 +25,7 @@ jobs:
       - run: npm run test:e2e
       - run: npm run test:frontend
       - run: npm run test:nearby
+      - run: npm run test:maps
       - run: npm run test:localization
       - run: npm run test:web-session
       - run: ./scripts/csms-setup
@@ -65,6 +66,15 @@ jobs:
           node tests/charger-operations.cjs
       - name: Canonical non-default OCPP source targets
         run: EV_CANONICAL_TARGETS=1 EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
+      - name: Customer favorites with paced synthetic authentication
+        run: npm run test:favorites
+      - name: Retain customer-favorites browser evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: customer-favorites-browser
+          path: artifacts/favorites/*.png
+          if-no-files-found: warn
       - if: failure()
         run: docker logs --tail 100 ev-business-api
 

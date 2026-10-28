@@ -108,3 +108,5 @@ Route::get('/api/stations/{station}/connectors', [ConnectorTopologyController::c
 Route::post('/api/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth', 'throttle:platform-api']);
 
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/charging_operations.php');
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/favorites.php');

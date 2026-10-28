@@ -50,8 +50,12 @@ class Station {
   final String? reservationPolicy;
   final int? mappingId, evseNumber, connectorNumber;
   final double? distanceKm;
+  final double? latitude, longitude;
+  final bool favorite;
   Station.fromJson(Map<String, dynamic> json)
-    : id = json['id'] as int,
+    : latitude = double.tryParse('${json['latitude']}'),
+      longitude = double.tryParse('${json['longitude']}'),
+      id = json['id'] as int,
       name = json['name'] as String,
       connector = json['connector_type'] as String,
       source = json['evidence'] as String,
@@ -59,11 +63,15 @@ class Station {
       reservable = json['reservable'] == true,
       reservationPolicy = json['reservation_policy'] as String?,
       distanceKm = (json['distance_km'] as num?)?.toDouble(),
+      favorite = json['is_favorite'] == true,
       mappingId = null,
       evseNumber = null,
       connectorNumber = null;
   Station.forConnector(Station parent, Map<String, dynamic> option)
-    : distanceKm = parent.distanceKm,
+    : latitude = parent.latitude,
+      longitude = parent.longitude,
+      favorite = parent.favorite,
+      distanceKm = parent.distanceKm,
       id = parent.id,
       name = parent.name,
       connector = option['connector_type'] as String,
@@ -74,6 +82,20 @@ class Station {
       mappingId = option['id'] as int,
       evseNumber = option['evse_number'] as int,
       connectorNumber = option['connector_number'] as int;
+  Station.withFavorite(Station parent, this.favorite)
+    : latitude = parent.latitude,
+      longitude = parent.longitude,
+      id = parent.id,
+      name = parent.name,
+      connector = parent.connector,
+      source = parent.source,
+      powerKw = parent.powerKw,
+      reservable = parent.reservable,
+      reservationPolicy = parent.reservationPolicy,
+      mappingId = parent.mappingId,
+      evseNumber = parent.evseNumber,
+      connectorNumber = parent.connectorNumber,
+      distanceKm = parent.distanceKm;
 }
 
 /// Native-only same-origin session client; persistence is opt-in and encrypted.
@@ -448,15 +470,70 @@ class EvApi {
     }
   }
 
+  Future<bool> setFavorite(int station, bool desired) async {
+    final data = await request(
+      'favorites/$station',
+      method: desired ? 'PUT' : 'DELETE',
+    );
+    if (data is! Map || data['is_favorite'] is! bool)
+      throw const ApiException(502, 'Unreadable preference response.');
+    return data['is_favorite'] as bool;
+  }
+
+  Future<ApiPage<Station>> favorites({int page = 1}) async {
+    final epoch = _epoch;
+    var result = ApiPage<Station>.fromJson(
+      await request('favorites', query: {'page': '$page'}),
+      Station.fromJson,
+    );
+    if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+    // A removal on another client may have removed the last page. Only GETs
+    // are repeated, once, using the authoritative last-page number.
+    if (result.items.isEmpty && result.current > result.last) {
+      result = ApiPage<Station>.fromJson(
+        await request('favorites', query: {'page': '${result.last}'}),
+        Station.fromJson,
+      );
+    }
+    if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+    return result;
+  }
+
   Future<ApiPage<Station>> catalog({
     CatalogFilter filter = const CatalogFilter(),
     int page = 1,
+    bool includeFavorites = false,
   }) async {
+    final epoch = _epoch;
     final data = await request(
       'stations',
       query: {...filter.query, 'page': '$page'},
     );
-    return ApiPage.fromJson(data, Station.fromJson);
+    var result = ApiPage<Station>.fromJson(data, Station.fromJson);
+    if (includeFavorites && result.items.isNotEmpty) {
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      final query = <String, String>{};
+      for (var i = 0; i < result.items.length; i++)
+        query['station_ids[$i]'] = '${result.items[i].id}';
+      final status = await request('favorites/status', query: query);
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      if (status is! Map ||
+          status['favorite_station_ids'] is! List ||
+          !(status['favorite_station_ids'] as List).every(
+            (v) => v is int && v > 0,
+          ))
+        throw const ApiException(502, 'Unreadable preference response.');
+      final saved = (status['favorite_station_ids'] as List).toSet();
+      result = ApiPage(
+        items: result.items
+            .map((s) => Station.withFavorite(s, saved.contains(s.id)))
+            .toList(),
+        current: result.current,
+        last: result.last,
+        total: result.total,
+      );
+    }
+    return result;
   }
 
   Future<List<Station>> stations() async {

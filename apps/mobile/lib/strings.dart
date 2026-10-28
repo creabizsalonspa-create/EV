@@ -16,6 +16,13 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'savedStations': 'Saved stations',
+    'noSavedStations': 'No saved stations yet.',
+    'saveFavorite': 'Save station',
+    'removeFavorite': 'Remove saved station',
+    'favoriteUnconfirmed':
+        'Preference could not be confirmed. Refresh before trying again. Saving does not verify availability or enable charging.',
+
     'nearbySearch': 'Search near coordinates',
     'nearbyPrivacy':
         'Enter a search centre and radius. No device location is accessed. Search coordinates are sent to the service, not saved as a preference. Distance is straight-line, not driving distance; availability remains unverified.',
@@ -328,6 +335,13 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'savedStations': 'المحطات المحفوظة',
+    'noSavedStations': 'لا توجد محطات محفوظة بعد.',
+    'saveFavorite': 'حفظ المحطة',
+    'removeFavorite': 'إزالة المحطة المحفوظة',
+    'favoriteUnconfirmed':
+        'تعذر تأكيد التفضيل. حدّث قبل المحاولة مجددًا. الحفظ لا يؤكد التوفر ولا يتيح الشحن.',
+
     'nearbySearch': 'البحث قرب إحداثيات',
     'nearbyPrivacy':
         'أدخل مركز البحث ونطاقه. لا يتم الوصول إلى موقع الجهاز. تُرسل إحداثيات البحث إلى الخدمة ولا تُحفظ كتفضيل. المسافة بخط مستقيم وليست مسافة قيادة؛ التوفر غير مؤكد.',

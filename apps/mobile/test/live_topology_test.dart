@@ -41,6 +41,23 @@ void main() {
         );
       await api.signOut();
       await api.signIn(f['customer'], f['password']);
+      expect(await api.setFavorite(f['station_id'] as int, true), isTrue);
+      expect(await api.setFavorite(f['station_id'] as int, true), isTrue);
+      final saved = await api.favorites();
+      expect(saved.total, 1);
+      expect(saved.items.single.id, f['station_id']);
+      expect(saved.items.single.reservable, isFalse);
+      final personalized = await api.catalog(
+        filter: CatalogFilter(search: f['name']),
+        includeFavorites: true,
+      );
+      expect(personalized.items.single.favorite, isTrue);
+      final public = await api.catalog(
+        filter: CatalogFilter(search: f['name']),
+      );
+      expect(public.items.single.favorite, isFalse);
+      expect(await api.setFavorite(f['station_id'] as int, false), isFalse);
+      expect((await api.favorites()).total, 0);
       final choices = await api.request(
         'stations/${f['station_id']}/connectors',
       );
