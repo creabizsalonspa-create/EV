@@ -37,6 +37,8 @@ class FixtureApi extends EvApi {
     calls.add('$method $path');
     if (expired) throw const ApiException(401, 'expired');
     if (path == 'csrf') return {'token': 'fixture'};
+    if (path == 'me')
+      return {'id': 1, 'name': 'Synthetic test account', 'role': role};
     if (path == 'stations') {
       queries.add(query);
       if (failNext) {

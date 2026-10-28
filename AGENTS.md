@@ -1,6 +1,13 @@
 # Agent Instructions — Crea-Biz EV Charging Platform (Full Commercial Product)
 
-## Active ownership — final owner directive, 28 October 2026 (Dubai)
+## Latest owner directive — restored parallel ownership, 28 October 2026 (Dubai)
+
+Agent1 exclusively owns financial/commercial business rules, subscriptions, payouts/settlements, refunds/disputes, enterprise billing, loyalty economics, advertising billing and their backend/web/Admin interfaces. Agent2 owns OCPP/OCPI, EV infrastructure, maps, reservations, customer/vendor Flutter, non-financial Admin, security/deployment integration and the main integration branch. Consume verified finance APIs in Flutter; do not recreate financial logic. Both accounts work on separate branches and integrate tested PRs without force-pushing. Earlier sole-owner instructions below are historical and superseded by this owner update.
+
+Active Agent2 source: `development/native-vendor-operations` from verified main63886428. No financial controller/service/migration/web/Admin rule is modified by this slice. Shared paths to coordinate before editing: `apps/mobile/lib/api.dart`, `apps/mobile/lib/main.dart`, mobile dependencies/CI, `scripts/start`, `infra/staging/Dockerfile`, shared progress/API documentation. Non-financial VendorOps controllers/routes/models and tests are Agent2's current work. No new open finance PR was visible on the ownership-update fetch; continue independent EV work while monitoring for verified finance delivery. PR12/13 are already integrated; preserve their history.
+
+
+## Historical sole-owner directive — superseded by restored parallel ownership
 
 Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.
 

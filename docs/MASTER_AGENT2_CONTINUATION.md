@@ -1,12 +1,19 @@
 # CREA-BIZ EV — MASTER CONTINUATION COMMAND FOR AGENT 2
 
+## Latest owner directive — restored parallel ownership, 28 October 2026 (Dubai)
+
+Agent1 exclusively owns financial/commercial business rules, subscriptions, payouts/settlements, refunds/disputes, enterprise billing, loyalty economics, advertising billing and their backend/web/Admin interfaces. Agent2 owns OCPP/OCPI, EV infrastructure, maps, reservations, customer/vendor Flutter, non-financial Admin, security/deployment integration and the main integration branch. Consume verified finance APIs in Flutter; do not recreate financial logic. Both accounts work on separate branches and integrate tested PRs without force-pushing. Earlier sole-owner instructions below are historical and superseded by this owner update.
+
+Active Agent2 source: `development/native-vendor-operations` from verified main63886428. No financial controller/service/migration/web/Admin rule is modified by this slice. Shared paths to coordinate before editing: `apps/mobile/lib/api.dart`, `apps/mobile/lib/main.dart`, mobile dependencies/CI, `scripts/start`, `infra/staging/Dockerfile`, shared progress/API documentation. Non-financial VendorOps controllers/routes/models and tests are Agent2's current work. No new open finance PR was visible on the ownership-update fetch; continue independent EV work while monitoring for verified finance delivery. PR12/13 are already integrated; preserve their history.
+
+
 
 Current recovery record: [ACTIVE_DEVELOPMENT_CHECKPOINT.md](ACTIVE_DEVELOPMENT_CHECKPOINT.md). PR12 saved-mandate/automatic-collection source dfab1ae is fully hosted-tested and integrated at f0080373. Credential-expiry/audit continuation follows on a separate review branch. Agent2 remains sole full-platform owner; older account restrictions below are historical. Do not rebuild completed topology, reservation, finance, consent or recovery modules. No hardware/merchant/partner/store acceptance is implied.
 
 Latest implementation `eae79cb41677056890d33625d0c2700bcf94bcf4` includes canonical source-namespace ownership fences and production bound-identity requirements, plus guarded pre-Dart-only iOS startup recovery. Local Laravel231/7233 and PostgreSQL connector42/620 +12 process races/166 passed. TLS/mTLS, connected charger/topology browsers and all six connected native fixture suites passed; separate generic native API smoke also passed. Flutter80/default7 live-only skips and three Python startup safety tests are verified. Financial126/6164 +31 earlier process races/403 remain independently recorded; the current hosted financial runner also covers the newly added namespace race. See PR #10 current checks for the final hosted result; no skipped, cancelled or pre-Dart-failed run is counted as passing.
 
 
-## Active ownership — final owner directive, 28 October 2026 (Dubai)
+## Historical sole-owner directive — superseded by restored parallel ownership
 
 Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.
 

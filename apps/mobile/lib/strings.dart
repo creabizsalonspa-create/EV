@@ -113,6 +113,7 @@ class EvStrings {
     'saved': 'Saved',
     'cancel': 'Cancel',
     'close': 'Close',
+    'licenses': 'Open source licenses',
     'serviceUnavailable': 'The service is unavailable. Please contact support.',
     'genericError':
         'Unable to complete this request. Refresh before trying again.',
@@ -415,6 +416,7 @@ class EvStrings {
     'saved': 'تم الحفظ',
     'cancel': 'إلغاء',
     'close': 'إغلاق',
+    'licenses': 'تراخيص المصادر المفتوحة',
     'serviceUnavailable': 'الخدمة غير متاحة. يرجى التواصل مع الدعم.',
     'genericError': 'تعذر إكمال الطلب. حدّث البيانات قبل المحاولة مجدداً.',
     'offline': 'تعذر الاتصال. تحقق من اتصالك وحاول مجدداً.',

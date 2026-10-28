@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
+# Upgrade only this checkout's disposable PHP runner; all data stays bind-mounted.
+if docker inspect ev-business-api >/dev/null 2>&1; then
+  upload_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/usr/local/etc/php/conf.d/ev-uploads.ini"}}{{.Source}}{{end}}{{end}}' ev-business-api)
+  if [[ "$upload_mount" != "$root/infra/php/uploads.ini" ]]; then
+    app_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' ev-business-api)
+    [[ "$app_mount" == "$root" ]] || { echo 'Existing PHP runner belongs to another checkout.' >&2; exit 1; }
+    docker stop ev-business-api >/dev/null
+    docker rm ev-business-api >/dev/null
+  fi
+fi
 if docker inspect ev-business-api >/dev/null 2>&1; then
   docker start ev-business-api >/dev/null
 else
-  docker run -d --name ev-business-api --user "$(id -u):$(id -g)" -p 127.0.0.1:8000:8000 -v "$root:/app" -w /app/services/business-api --entrypoint php composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc artisan serve --host=0.0.0.0 --port=8000 >/dev/null
+  docker run -d --name ev-business-api --user "$(id -u):$(id -g)" -p 127.0.0.1:8000:8000 -v "$root:/app" -v "$root/infra/php/uploads.ini:/usr/local/etc/php/conf.d/ev-uploads.ini:ro" -w /app/services/business-api --entrypoint php composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc artisan serve --host=0.0.0.0 --port=8000 >/dev/null
 fi
 for attempt in {1..30}; do
   if curl --fail --silent http://127.0.0.1:8000/up >/dev/null; then

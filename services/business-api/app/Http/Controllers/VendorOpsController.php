@@ -13,6 +13,7 @@ use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorKycDocument;
 use App\Models\VendorOps\VendorSite;
 use App\Services\VendorOps\VendorAccess;
+use App\Services\VendorOps\VendorCreation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,13 @@ class VendorOpsController extends Controller
     public function createCompany(Request $r)
     {
         abort_unless(in_array($r->user()->role, ['customer', 'vendor']), 403);
+
+        return app(VendorCreation::class)->perform($r, 'company', fn () => $this->createCompanyOnce($r));
+    }
+
+    private function createCompanyOnce(Request $r)
+    {
+        abort_unless(in_array($r->user()->role, ['customer', 'vendor']), 403);
         $v = $r->validate(['legal_name' => 'required|string|max:150', 'country' => 'required|string|size:2|exists:regions,country', 'trade_license_number' => 'required|string|max:100', 'license_expires_on' => 'required|date_format:Y-m-d|after:today']);
 
         return DB::transaction(function () use ($r, $v) {
@@ -46,7 +54,7 @@ class VendorOpsController extends Controller
     {
         $this->access->require($r->user(), $company);
 
-        return response()->json($company->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $company)]);
+        return response()->json($company->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $company), 'submission_readiness' => ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') ? ['editable' => in_array($company->status, ['draft', 'changes_requested', 'rejected']), 'license_valid' => $this->access->licenseValid($company), 'trade_license_present' => VendorKycDocument::where('company_id', $company->id)->where('kind', 'trade_license')->exists()] : null]);
     }
 
     public function updateCompany(Request $r, VendorCompany $company)
@@ -88,6 +96,14 @@ class VendorOpsController extends Controller
     }
 
     public function upload(Request $r, VendorCompany $company)
+    {
+        $this->access->owner($r->user(), $company);
+        abort_unless(in_array($company->status, ['draft', 'changes_requested', 'rejected']), 409);
+
+        return app(VendorCreation::class)->perform($r, 'document:'.$company->id, fn () => $this->uploadOnce($r, $company));
+    }
+
+    private function uploadOnce(Request $r, VendorCompany $company)
     {
         $this->access->owner($r->user(), $company);
         abort_unless(in_array($company->status, ['draft', 'changes_requested', 'rejected']), 409, 'Documents cannot change while submitted or approved.');
@@ -175,11 +191,12 @@ class VendorOpsController extends Controller
         $u = User::where('email', $v['email'])->first();
         if ($u && $u->id !== $company->owner_id) {
             DB::transaction(function () use ($r, $company, $u, $v) {
+                VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                 $existing = VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $u->id)->lockForUpdate()->first();
                 if (! $existing) {
                     VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $u->id, 'permissions' => array_values(array_unique($v['permissions']))]);
                 } elseif ($existing->status === 'revoked') {
-                    $existing->update(['status' => 'invited', 'permissions' => array_values(array_unique($v['permissions']))]);
+                    $existing->update(['status' => 'invited', 'permissions' => array_values(array_unique($v['permissions'])), 'invitation_version' => $existing->invitation_version + 1, 'accepted_at' => null]);
                 }$this->access->audit($r->user(), 'staff.invited', $company->id);
             });
         }
@@ -198,11 +215,16 @@ class VendorOpsController extends Controller
     public function accept(Request $r, VendorCompanyStaff $membership)
     {
         abort_unless($membership->user_id === $r->user()->id, 404);
+        $v = $r->validate(['expected_version' => 'required|integer|min:1']);
 
-        return DB::transaction(function () use ($r, $membership) {
+        return DB::transaction(function () use ($r, $membership, $v) {
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             abort_unless(in_array($m->status, ['invited', 'active']), 409);
-            $m->update(['status' => 'active']);
+            abort_unless($m->invitation_version === (int) $v['expected_version'], 409, 'Invitation scopes changed; refresh and consent again.');
+            if ($m->status === 'active') {
+                return $m;
+            }
+            $m->update(['status' => 'active', 'accepted_at' => $m->accepted_at ?? now()]);
             $this->access->audit($r->user(), 'staff.accepted', $m->id);
 
             return $m;
@@ -216,7 +238,9 @@ class VendorOpsController extends Controller
 
         return DB::transaction(function () use ($r, $membership) {
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
-            $m->update(['status' => 'revoked']);
+            if ($m->status !== 'revoked') {
+                $m->update(['status' => 'revoked', 'invitation_version' => $m->invitation_version + 1]);
+            }
             $this->access->audit($r->user(), 'staff.revoked', $m->id);
 
             return response()->noContent();
@@ -242,6 +266,14 @@ class VendorOpsController extends Controller
     }
 
     public function createSite(Request $r, VendorCompany $company)
+    {
+        $this->access->require($r->user(), $company, 'inventory.write');
+        $this->access->operational($company);
+
+        return app(VendorCreation::class)->perform($r, 'site:'.$company->id, fn () => $this->createSiteOnce($r, $company));
+    }
+
+    private function createSiteOnce(Request $r, VendorCompany $company)
     {
         $this->access->require($r->user(), $company, 'inventory.write');
         $this->access->operational($company);
@@ -277,6 +309,15 @@ class VendorOpsController extends Controller
         $this->access->require($r->user(), $company, 'inventory.write');
         $this->access->operational($company);
         abort_unless($site->company_id === $company->id, 404);
+
+        return app(VendorCreation::class)->perform($r, 'charger:'.$company->id.':'.$site->id, fn () => $this->createChargerOnce($r, $company, $site));
+    }
+
+    private function createChargerOnce(Request $r, VendorCompany $company, VendorSite $site)
+    {
+        $this->access->require($r->user(), $company, 'inventory.write');
+        $this->access->operational($company);
+        abort_unless($site->company_id === $company->id, 404);
         $v = $r->validate(['asset_reference' => ['required', 'string', 'max:80', Rule::unique('vendor_chargers')->where('company_id', $company->id)], 'manufacturer' => 'required|string|max:100', 'model' => 'required|string|max:100', 'serial_number' => 'nullable|string|max:100', 'ocpp_protocol' => 'nullable|in:1.6,2.0.1', 'source' => 'required|in:discovery,simulator,direct_unverified,partner_unverified']);
 
         return DB::transaction(function () use ($r, $company, $site, $v) {
@@ -300,6 +341,15 @@ class VendorOpsController extends Controller
     }
 
     public function createConnector(Request $r, VendorCompany $company, VendorCharger $charger)
+    {
+        $this->access->require($r->user(), $company, 'inventory.write');
+        $this->access->operational($company);
+        abort_unless($charger->company_id === $company->id, 404);
+
+        return app(VendorCreation::class)->perform($r, 'connector:'.$company->id.':'.$charger->id, fn () => $this->createConnectorOnce($r, $company, $charger));
+    }
+
+    private function createConnectorOnce(Request $r, VendorCompany $company, VendorCharger $charger)
     {
         $this->access->require($r->user(), $company, 'inventory.write');
         $this->access->operational($company);

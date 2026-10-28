@@ -25,7 +25,9 @@ class SimulatorBoundaryTest(unittest.TestCase):
     def test_a_zero_exit_without_device_assertions_is_not_success(self):
         self.assertFalse(module.verified_success(0, 'All tests passed!'))
         proof = ('All tests passed!\nDEVICE: Keychain session restored\n'
-                 'DEVICE: exact Arabic vendor pricing verified')
+                 'DEVICE: exact Arabic vendor pricing verified\n'
+                 'DEVICE: native vendor onboarding and private PDF preview verified')
+        self.assertFalse(module.verified_success(0, proof.replace('DEVICE: native vendor onboarding and private PDF preview verified', '')))
         self.assertTrue(module.verified_success(0, proof))
         self.assertFalse(module.verified_success(1, proof))
 

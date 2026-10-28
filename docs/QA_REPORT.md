@@ -1,3 +1,9 @@
+## Native company/KYC/staff/inventory implementation candidate — 28 October 2026
+
+PR13 source a648576 passed all ten checks and merged at63886428; PR12 remains integrated. Continued actual backend/web/Flutter source on `development/native-vendor-operations`: company/profile/private evidence/reviews/submission, consent-versioned staff invitations, inventory creation with owned-catalog linking, protected durable creation replay, secure multipart/binary transport and EN/AR/RTL/privacy. The native real-Laravel4 MiB upload/onboarding/review/inventory/staff flow passes. Existing vendor/Admin/browser/locale/session regressions, focused Flutter/HTTP and PostgreSQL races pass. Final exact-source full reruns and hosted Android/iOS/PDF checks remain pending; see ACTIVE_DEVELOPMENT_CHECKPOINT.md for current evidence rather than inferring completion.
+
+Compatibility: migrate first; staff acceptance requires the current invitation version and old unversioned clients must upgrade. Local/staging PHP limits now match the existing5 MiB KYC contract. No second financial/charging/company state machine or live hardware/merchant/legal/store acceptance is claimed. Full original scope remains unfinished. Contract and continuation: NATIVE_VENDOR_OPERATIONS.md.
+
 ## Verified PR12 and continuing admission lifecycle — 28 October 2026
 
 Saved-mandate source dfab1ae passed all ten push/PR checks, including actual hosted Android debug and iOS simulator/synthetic TLS UI. It merged at f0080373. Latest hosted and local evidence supersedes the earlier candidate paragraphs retained below.

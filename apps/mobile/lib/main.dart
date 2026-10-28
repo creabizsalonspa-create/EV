@@ -15,6 +15,7 @@ import 'support.dart';
 import 'fleet.dart';
 import 'sessions.dart';
 import 'vendor_inventory.dart';
+import 'vendor_company.dart' show registerVendorDocumentLicenses;
 import 'session_vault.dart';
 
 Future<void> main() async {
@@ -37,6 +38,7 @@ class _EvAppState extends State<EvApp> {
   @override
   void initState() {
     super.initState();
+    registerVendorDocumentLicenses();
     preferences = widget.preferences ?? AppPreferences(DevicePreferenceStore());
     if (!preferences.ready) preferences.load();
   }
@@ -733,6 +735,13 @@ class _WorkspaceState extends State<Workspace> {
                   ),
                 const SizedBox(height: 16),
                 TextButton(
+                  onPressed: () => showLicensePage(
+                    context: context,
+                    applicationName: 'Crea-Biz EV',
+                  ),
+                  child: Text(t.t('licenses')),
+                ),
+                TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: Text(t.t('close')),
                 ),
@@ -872,11 +881,11 @@ class _WorkspaceState extends State<Workspace> {
           if (signedIn)
             PopupMenuButton<String>(
               tooltip: s.t('account'),
-              onSelected: (value) {
+              onSelected: (value) async {
                 if (value == 'profile') {
                   profile();
                 } else if (value == 'inventory') {
-                  Navigator.of(context).push(
+                  await Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => VendorInventoryView(
                         api: api!,
@@ -884,6 +893,16 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                  if (mounted && account != null)
+                    await perform(() async {
+                      final current = await api!.request('me');
+                      if (mounted)
+                        setState(
+                          () => account = Account.fromJson(
+                            Map<String, dynamic>.from(current as Map),
+                          ),
+                        );
+                    });
                 } else if (value == 'tariffs') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
