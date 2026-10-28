@@ -6,7 +6,22 @@ case "$image" in creabiz-ev-business:*) ;; *) echo 'Use a built Crea-Biz review 
 review_id="ev-staging-review-${RANDOM}-$$"
 review_directory=$(mktemp -d /tmp/ev-staging-review.XXXXXX)
 network_id= database_id= application_id=
+diagnostics() {
+  [[ -n "$application_id" ]] || return 0
+  docker logs --tail 80 "$application_id" > "$review_directory/application.log" 2>&1 || true
+  python3 - "$review_directory" <<'PY_DIAGNOSTICS'
+import pathlib,sys
+root=pathlib.Path(sys.argv[1]); text=(root/'application.log').read_text(errors='replace')
+for filename in ['application.env','database.env']:
+ for line in (root/filename).read_text().splitlines():
+  name,_,value=line.partition('=')
+  if value and ('PASSWORD' in name or name=='APP_KEY'):text=text.replace(value,'[redacted synthetic credential]')
+print(text[-12000:])
+PY_DIAGNOSTICS
+}
 cleanup() {
+  result=$?
+  if [[ "$result" != 0 ]]; then diagnostics || true; fi
   [[ -z "$application_id" ]] || docker rm -fv "$application_id" >/dev/null 2>&1 || true
   [[ -z "$database_id" ]] || docker rm -fv "$database_id" >/dev/null 2>&1 || true
   [[ -z "$network_id" ]] || docker network rm "$network_id" >/dev/null 2>&1 || true

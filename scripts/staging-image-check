@@ -29,7 +29,11 @@ foreach ($provenance["files_sha256"] as $path => $digest) {
     if (str_contains($path, "..") || str_starts_with($path, "/") || !is_file("$assets/$path") || hash_file("sha256", "$assets/$path") !== $digest) { fwrite(STDERR, "Licensed map asset missing or changed in runtime image.\n"); exit(1); }
 }
 require "$root/vendor/autoload.php";
-if (!class_exists(Illuminate\Foundation\Application::class)) { exit(1); }
+if (!class_exists(Illuminate\Foundation\Application::class) || !class_exists(App\Http\Controllers\StationFavoriteController::class) || !class_exists(App\Http\Middleware\SecurityHeaders::class)) { fwrite(STDERR, "Authoritative application autoloading is incomplete.\n"); exit(1); }
+foreach (require "$root/bootstrap/providers.php" as $provider) {
+    if (!class_exists($provider)) { fwrite(STDERR, "An application provider is absent from the runtime autoloader.\n"); exit(1); }
+}
+if (!is_readable("$root/public/index.php") || !is_readable("$root/public/.htaccess")) { fwrite(STDERR, "Worker cannot read the HTTP entrypoint.\n"); exit(1); }
 if (class_exists(PHPUnit\Framework\TestCase::class)) { fwrite(STDERR, "Development dependencies entered runtime image.\n"); exit(1); }
 echo "PASS: read-only, unprivileged, offline runtime image has Laravel and required extensions/upload limits, plus exact licensed map assets; no local database, .env, application tests or PHPUnit.\n";
 '

@@ -2,6 +2,9 @@
 FROM composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc AS dependencies
 WORKDIR /build
 COPY services/business-api/composer.json services/business-api/composer.lock ./
+# Authoritative autoloading must scan the application namespaces too.
+COPY services/business-api/app/ ./app/
+COPY services/business-api/database/ ./database/
 RUN --mount=type=secret,id=ev_ca_bundle,required=false \
     if [ -f /run/secrets/ev_ca_bundle ]; then export COMPOSER_CAFILE=/run/secrets/ev_ca_bundle; fi; \
     composer install --no-dev --no-interaction --prefer-dist --classmap-authoritative --no-scripts
@@ -25,9 +28,14 @@ RUN sed -ri 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-availabl
 WORKDIR /var/www/html
 COPY services/business-api/ ./
 COPY --from=dependencies /build/vendor/ ./vendor/
-RUN rm -f bootstrap/cache/*.php \
+# Source checkout modes can be private; runtime code stays root-owned/readable.
+RUN find . -type d -exec chmod 0755 {} + \
+ && find app bootstrap config database public resources routes -type f -exec chmod 0644 {} + \
+ && find . -maxdepth 1 -type f -exec chmod a+r,u+w,go-w {} + \
+ && rm -f bootstrap/cache/*.php \
  && mkdir -p storage/app/private storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
  && chown -R www-data:www-data storage bootstrap/cache \
+ && chmod 0700 storage/app/private \
  && php artisan package:discover --no-interaction
 EXPOSE 80
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 CMD php -r '$s=@file_get_contents("http://127.0.0.1/up");exit($s===false?1:0);'
