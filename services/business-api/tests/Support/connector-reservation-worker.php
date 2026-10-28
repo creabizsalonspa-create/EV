@@ -5,10 +5,12 @@ use App\Http\Controllers\ChargingOperationsController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Models\ChargerCommand;
+use App\Models\Charging\AdmissionProfile;
 use App\Models\Reservation;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\AdmissionLifecycle;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\ReservationLifecycle;
 use Illuminate\Contracts\Console\Kernel;
@@ -39,6 +41,10 @@ try {
     $operation = $argv[5] ?? 'reserve';
     if ($operation === 'configure') {
         echo app(ChargerAdmissionController::class)->configure($request, VendorCompany::findOrFail($body['company_id']), VendorCharger::findOrFail($body['charger_id']))->getStatusCode();
+    } elseif ($operation === 'admission_expire') {
+        $profile = AdmissionProfile::where('charger_id', $body['charger_id'])->firstOrFail();
+        app(AdmissionLifecycle::class)->expire($profile->id);
+        echo '200';
     } elseif ($operation === 'revoke') {
         echo app(ChargerAdmissionController::class)->revoke($request, VendorCompany::findOrFail($body['company_id']), VendorCharger::findOrFail($body['charger_id']))->getStatusCode();
     } elseif ($operation === 'credential') {

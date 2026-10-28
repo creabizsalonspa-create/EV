@@ -10,8 +10,10 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\AdmissionLifecycle;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\DatabaseStore;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -246,5 +248,62 @@ class ChargerAdmissionTest extends TestCase
         $this->admission($secret)->assertStatus(429);
         $this->travel(61)->seconds();
         $this->admission($secret)->assertNoContent();
+    }
+
+    public function test_expiry_at_boundary_disables_once_fences_rotation_and_preserves_system_audit(): void
+    {
+        [$owner,$company,$charger,$base,$secret] = $this->fixture();
+        $p = AdmissionProfile::firstOrFail();
+        $this->getJson($base)->assertOk()->assertJsonPath('credential_state', 'expiring');
+        $this->travelTo($p->expires_at);
+        $this->admission($secret)->assertUnauthorized();
+        $lifecycle = app(AdmissionLifecycle::class);
+        $this->assertSame(1, $lifecycle->scan(100));
+        $this->assertSame(0, $lifecycle->scan(100));
+        $this->assertFalse($p->fresh()->enabled);
+        $this->assertNull($p->fresh()->credential_digest);
+        $this->assertSame(2, $p->fresh()->credential_version);
+        $this->getJson($base)->assertOk()->assertJsonPath('credential_state', 'expired')->assertJsonPath('hardware_verified', false);
+        $this->postJson($base.'/credential', ['expected_version' => 1, 'days' => 30])->assertConflict();
+        $this->postJson($base.'/credential', ['expected_version' => 2, 'days' => 30])->assertCreated()->assertJsonPath('profile.credential_version', 3);
+        $this->getJson($base)->assertOk()->assertJsonPath('credential_state', 'active');
+        $events = $this->getJson($base.'/events')->assertOk()->assertJsonPath('data.1.action', 'expired')->assertJsonPath('data.1.actor_type', 'system')->assertJsonMissingPath('data.0.actor_id')->json();
+        $this->assertStringNotContainsString($secret, json_encode($events));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_credential_history_is_owner_scoped_paginated_and_database_immutable(): void
+    {
+        [$owner,$company,$charger,$base] = $this->fixture();
+        for ($version = 1; $version <= 25; $version++) {
+            $this->postJson($base.'/credential', ['expected_version' => $version, 'days' => 30])->assertCreated();
+        }
+        $this->getJson($base.'/events')->assertOk()->assertJsonCount(25, 'data')->assertJsonPath('last_page', 2);
+        $this->getJson($base.'/events?page=2')->assertOk()->assertJsonCount(2, 'data');
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($base.'/events')->assertNotFound();
+        foreach (['update', 'delete'] as $verb) {
+            try {
+                DB::transaction(fn () => $verb === 'update' ? DB::table('charger_admission_events')->update(['action' => 'forged']) : DB::table('charger_admission_events')->delete());
+                $this->fail('Audit mutation accepted');
+            } catch (QueryException $e) {
+                $this->assertStringContainsString('immutable', $e->getMessage());
+            }
+        }
+        $this->assertDatabaseCount('charger_admission_events', 27);
+    }
+
+    public function test_bounded_credential_expiry_command_leaves_fresh_rotations_and_revocations_unchanged(): void
+    {
+        [$owner,$company,$charger,$base] = $this->fixture();
+        $this->artisan('csms:expire-credentials', ['--limit' => '0'])->assertFailed();
+        $this->artisan('csms:expire-credentials', ['--limit' => '1001'])->assertFailed();
+        $this->artisan('csms:expire-credentials', ['--limit' => '1'])->assertSuccessful();
+        $this->assertSame(1, AdmissionProfile::first()->credential_version);
+        $this->deleteJson($base.'/credential')->assertOk();
+        $this->travel(2)->days();
+        $this->artisan('csms:expire-credentials')->assertSuccessful();
+        $this->assertSame(2, AdmissionProfile::first()->credential_version);
+        $this->assertDatabaseCount('charger_admission_events', 3);
     }
 }

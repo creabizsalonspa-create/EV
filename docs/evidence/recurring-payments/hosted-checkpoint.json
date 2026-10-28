@@ -1,0 +1,99 @@
+{
+  "source_sha": "dfab1ae7e89ee9afa806c3666e5f8f43b45b52a3",
+  "integrated_sha": "f00803732fa7bc4bb040f2b4a5ac20f4ce334fb8",
+  "pr": "https://github.com/creabizsalonspa-create/EV/pull/12",
+  "evidence": "SYNTHETIC_PROVIDER_CONTRACT_AND_HOSTED_BUILDS",
+  "external_acceptance": false,
+  "runs": [
+    {
+      "databaseId": 40614828372,
+      "headSha": "dfab1ae7e89ee9afa806c3666e5f8f43b45b52a3",
+      "name": "Native client validation",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614828372",
+      "jobs": [
+        {
+          "name": "native (ubuntu-latest)",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614828372/job/122574752002"
+        },
+        {
+          "name": "native (macos-15)",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614828372/job/122574752438"
+        }
+      ]
+    },
+    {
+      "databaseId": 40614828401,
+      "headSha": "dfab1ae7e89ee9afa806c3666e5f8f43b45b52a3",
+      "name": "Platform validation",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614828401",
+      "jobs": [
+        {
+          "name": "connector-postgres",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614828401/job/122574752184"
+        },
+        {
+          "name": "business-platform",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614828401/job/122574752447"
+        },
+        {
+          "name": "finance-postgres",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614828401/job/122574752476"
+        }
+      ]
+    },
+    {
+      "databaseId": 40614858052,
+      "headSha": "dfab1ae7e89ee9afa806c3666e5f8f43b45b52a3",
+      "name": "Native client validation",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614858052",
+      "jobs": [
+        {
+          "name": "native (ubuntu-latest)",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614858052/job/122574844917"
+        },
+        {
+          "name": "native (macos-15)",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614858052/job/122574845287"
+        }
+      ]
+    },
+    {
+      "databaseId": 40614858059,
+      "headSha": "dfab1ae7e89ee9afa806c3666e5f8f43b45b52a3",
+      "name": "Platform validation",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614858059",
+      "jobs": [
+        {
+          "name": "finance-postgres",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614858059/job/122574843917"
+        },
+        {
+          "name": "business-platform",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614858059/job/122574844177"
+        },
+        {
+          "name": "connector-postgres",
+          "conclusion": "success",
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40614858059/job/122574844290"
+        }
+      ]
+    }
+  ]
+}

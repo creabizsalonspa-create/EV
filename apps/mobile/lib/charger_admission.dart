@@ -9,6 +9,22 @@ String admissionText(BuildContext context, String key) =>
         : admissionEn)[key] ??
     key;
 const admissionEn = {
+  'history': 'Credential history',
+  'system': 'System operation',
+  'operator': 'Operator action',
+  'next': 'Next',
+  'previous': 'Previous',
+  'state.prepared': 'Credential not issued',
+  'state.active': 'Credential valid',
+  'state.expiring': 'Credential expires within seven days; renewal required',
+  'state.expired': 'Credential expired; admission denied',
+  'state.revoked': 'Credential revoked',
+  'state.disabled': 'Credential disabled',
+  'event.prepared': 'Charger identity prepared',
+  'event.rotated': 'Credential issued or rotated',
+  'event.revoked': 'Credential revoked',
+  'event.expired': 'Expired credential disabled by system',
+
   'title': 'Secure charger admission',
   'notice':
       'Admission credentials only. CSMS registration, physical charging and hardware acceptance are not verified.',
@@ -30,6 +46,22 @@ const admissionEn = {
   'refresh': 'Refresh admission',
 };
 const admissionAr = {
+  'history': 'سجل بيانات الدخول',
+  'system': 'عملية نظام',
+  'operator': 'إجراء مشغّل',
+  'next': 'التالي',
+  'previous': 'السابق',
+  'state.prepared': 'بيانات الدخول غير مُصدرة',
+  'state.active': 'بيانات الدخول صالحة',
+  'state.expiring': 'تنتهي بيانات الدخول خلال سبعة أيام؛ يلزم تجديدها',
+  'state.expired': 'انتهت بيانات الدخول؛ الاتصال غير مسموح',
+  'state.revoked': 'أُبطلت بيانات الدخول',
+  'state.disabled': 'بيانات الدخول معطّلة',
+  'event.prepared': 'أُعدّت هوية الشاحن',
+  'event.rotated': 'أُصدرت بيانات الدخول أو دُوّرت',
+  'event.revoked': 'أُبطلت بيانات الدخول',
+  'event.expired': 'عطّل النظام بيانات الدخول المنتهية',
+
   'title': 'قبول الشاحن الآمن',
   'notice':
       'بيانات قبول الاتصال فقط. لم يُتحقق من تسجيل CSMS أو الشحن الفعلي أو قبول الأجهزة.',
@@ -204,6 +236,27 @@ class _ChargerAdmissionState extends State<ChargerAdmissionView> {
             Text('${p['identity']} · OCPP ${p['protocol']}'),
             Text('${t('version')}: ${p['credential_version']}'),
             Text(t(p['enabled'] == true ? 'enabled' : 'disabled')),
+            if (data!['credential_state'] != null)
+              Text(t('state.${data!['credential_state']}')),
+            TextButton(
+              onPressed: busy
+                  ? null
+                  : () async {
+                      timer?.cancel();
+                      setState(() => secret = null);
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => AdmissionHistoryView(
+                            api: widget.api,
+                            endpoint: '$base/events',
+                            onExpired: widget.onExpired,
+                          ),
+                        ),
+                      );
+                      if (mounted) load();
+                    },
+              child: Text(t('history')),
+            ),
             if (p['expires_at'] != null)
               Text('${t('expires')}: ${p['expires_at']}'),
             if (data!['can_manage'] == true) ...[
@@ -344,4 +397,122 @@ class _PrepareAdmissionState extends State<_PrepareAdmission> {
       ),
     );
   }
+}
+
+class AdmissionHistoryView extends StatefulWidget {
+  final EvApi api;
+  final String endpoint;
+  final VoidCallback onExpired;
+  const AdmissionHistoryView({
+    super.key,
+    required this.api,
+    required this.endpoint,
+    required this.onExpired,
+  });
+  @override
+  State<AdmissionHistoryView> createState() => _AdmissionHistoryState();
+}
+
+class _AdmissionHistoryState extends State<AdmissionHistoryView> {
+  ApiPage<Map<String, dynamic>>? rows;
+  int page = 1, generation = 0;
+  bool busy = false;
+  Object? error;
+  String t(String k) => admissionText(context, k);
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    super.dispose();
+  }
+
+  Future<void> load() async {
+    final epoch = ++generation;
+    setState(() {
+      busy = true;
+      rows = null;
+      error = null;
+    });
+    try {
+      final r = ApiPage.fromJson(
+        await widget.api.request(widget.endpoint, query: {'page': '$page'}),
+        (r) => r,
+      );
+      if (mounted && epoch == generation) setState(() => rows = r);
+    } catch (e) {
+      if (mounted && epoch == generation) {
+        setState(() => error = e);
+        if (e is ApiException && [401, 419].contains(e.status))
+          widget.onExpired();
+      }
+    } finally {
+      if (mounted && epoch == generation) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(t('history'))),
+    body: SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(t('notice')),
+          if (busy) const LinearProgressIndicator(),
+          if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),
+          if (rows != null)
+            for (final r in rows!.items)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t('event.${r['action']}')),
+                      Text('${t('version')}: ${r['credential_version']}'),
+                      Text(
+                        t(r['actor_type'] == 'system' ? 'system' : 'operator'),
+                      ),
+                      Text('${r['created_at']}'),
+                    ],
+                  ),
+                ),
+              ),
+          Wrap(
+            children: [
+              if (page > 1)
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () {
+                          page--;
+                          load();
+                        },
+                  child: Text(t('previous')),
+                ),
+              if (rows != null && page < rows!.last)
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () {
+                          page++;
+                          load();
+                        },
+                  child: Text(t('next')),
+                ),
+              TextButton(
+                onPressed: busy ? null : load,
+                child: Text(t('refresh')),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 }

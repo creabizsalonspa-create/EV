@@ -137,3 +137,6 @@ See [CHARGER_ADMISSION.md](CHARGER_ADMISSION.md) for new scoped APIs, owner/Admi
 ## Recurring authorization continuation — 28 October 2026
 
 Saved provider-hosted consent, off-session subscription collection and customer/vendor web/Flutter controls extend the canonical financial gateway. See [RECURRING_PAYMENTS.md](RECURRING_PAYMENTS.md) for scoped endpoints, versions, scheduler, recovery, migration and test-mode limits. No live merchant acceptance or full-platform completion is claimed.
+
+
+Credential lifecycle: existing admission GET adds a stored-credential state; GET `vendor-ops/companies/{company}/chargers/{charger}/admission/events?page=1` returns scoped redacted immutable25-row audit. See CHARGER_ADMISSION.md. This is not charger availability or PKI validation.

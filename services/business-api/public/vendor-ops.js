@@ -881,6 +881,44 @@ window.createVendorWorkspace = ({
         );
         if (profile.expires_at)
             pane.append(raw("p", profile.expires_at + " UTC"));
+        const stateKey = "admission.state." + result.credential_state;
+        if (result.credential_state) pane.append(ui("p", stateKey));
+        const history = document.createElement("div");
+        pane.append(history);
+        async function events(page = 1) {
+            history.replaceChildren(ui("p", "Loading…"));
+            const rows = await api(
+                path + "/events?page=" + page,
+                "GET",
+                undefined,
+                controller?.signal,
+            );
+            if (!live()) return;
+            history.replaceChildren(ui("h4", "Credential history"));
+            for (const event of rows.data) {
+                const item = document.createElement("article");
+                const actionKey = "admission.event." + event.action;
+                item.append(
+                    ui("p", actionKey),
+                    ui("p", "Credential version: {version}", {
+                        version: event.credential_version,
+                    }),
+                    ui(
+                        "span",
+                        event.actor_type === "system"
+                            ? "System operation"
+                            : "Operator action",
+                    ),
+                    raw("time", event.created_at),
+                );
+                history.append(item);
+            }
+            if (rows.current_page > 1)
+                button(history, "Previous", () => events(page - 1));
+            if (rows.current_page < rows.last_page)
+                button(history, "Next", () => events(page + 1));
+        }
+        button(pane, "Credential history", () => events());
         async function change(revoke) {
             if (
                 !confirm(
