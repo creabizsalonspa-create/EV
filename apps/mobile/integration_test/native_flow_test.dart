@@ -89,6 +89,8 @@ void main() {
         'connector_type': 'CCS2',
         'evidence': 'SIMULATED',
         'power_kw': 150,
+        'latitude': 25.2,
+        'longitude': 55.3,
         'reservable': true,
       };
 
@@ -551,6 +553,30 @@ void main() {
       expect(find.text('Save station'), findsOneWidget);
       debugPrint(
         'DEVICE: customer favorites and private catalog status verified',
+      );
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('catalog-map-open')),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      expect(
+        find.byKey(const Key('catalog-map-open')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('catalog-map-open')));
+      await settle();
+      expect(find.text('Station map'), findsOneWidget);
+      expect(find.byKey(const Key('enable-map')), findsOneWidget);
+      expect(
+        find.textContaining('OpenStreetMap receives your IP'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: customer map privacy consent navigation verified; no external tiles',
       );
 
       await tester.tap(find.byTooltip('Account'));

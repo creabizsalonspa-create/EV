@@ -1,3 +1,9 @@
+# Customer discovery batch — candidate update, 28 October 2026
+
+The single `development/customer-discovery` branch now combines private canonical favorites across Laravel/web/Flutter with interactive web and Flutter maps. See [CUSTOMER_FAVORITES.md](CUSTOMER_FAVORITES.md) and [CUSTOMER_DISCOVERY_MAPS.md](CUSTOMER_DISCOVERY_MAPS.md) for exact behavior, privacy, tests and missing scope. The e7fc2e1 favorites push passed Android and iOS (run40638155431); its browser failure was a missing synthetic favorites/status response in web-session.cjs, corrected without weakening assertions. Maps/new native assertions await exact-source hosted verification. This candidate is not merged or production accepted.
+
+PR14 and15 remain verified/merged; no original branch was overwritten. The original42-category/312-item inventory, denominator and weights remain unchanged: coded50.70%, tested50.51%, merged50.51%, production0.00%. Unfinished partner favorites/maps, native GPS, autocomplete, routes, reviews, saved places and the other original requirements receive no invented credit. Continue the connected discovery batch and verification from this branch; preserve finance and EV integrations.
+
 # Canonical customer favorites candidate — 28 October 2026
 
 PR14/15 integration backlog is closed and its evidence is pushed on main822532a (runtime sourcebb75151, merge8573081). Current single branch development/customer-discovery implements backend/web/Flutter personal saved stations with protected preference lookups, capability preservation, idempotent writes, session fences, paginated/EN/AR/theme flows and real-Laravel tests. See CUSTOMER_FAVORITES.md. This is a new unmerged candidate; Android/iOS/extended device assertions await exact-source hosted verification.

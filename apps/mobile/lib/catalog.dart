@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'station_map.dart';
 import 'strings.dart';
 import 'topology_strings.dart';
 import 'vendor_forms.dart' show vendorDigits;
@@ -199,6 +200,52 @@ class CatalogViewState extends State<CatalogView> {
                   onPressed: widget.onFavorites,
                   icon: const Icon(Icons.star_outline),
                   label: Text(s.t('savedStations')),
+                ),
+              if (page != null && page.items.isNotEmpty)
+                OutlinedButton.icon(
+                  key: const Key('catalog-map-open'),
+                  icon: const Icon(Icons.map_outlined),
+                  label: Text(
+                    s.arabic
+                        ? 'خريطة نتائج هذه الصفحة'
+                        : 'Map this page of results',
+                  ),
+                  onPressed: () async {
+                    final selected = await Navigator.of(context).push<Station>(
+                      MaterialPageRoute(
+                        builder: (_) => StationMapView(
+                          stations: page.items,
+                          onSearch: widget.savedOnly
+                              ? null
+                              : (lat, lng) {
+                                  if (!mounted) return;
+                                  latitude.text = lat.toStringAsFixed(6);
+                                  longitude.text = lng.toStringAsFixed(6);
+                                  radius.text = '25';
+                                  controller.load(
+                                    filter: CatalogFilter(
+                                      search: search.text,
+                                      country: country.text,
+                                      connector: connector,
+                                      minimumPower: int.tryParse(power.text),
+                                      latitude: lat,
+                                      longitude: lng,
+                                      radiusKm: 25,
+                                    ),
+                                  );
+                                },
+                        ),
+                      ),
+                    );
+                    if (selected != null && mounted) {
+                      if (widget.onChooseConnectors != null &&
+                          selected.reservationPolicy == 'canonical') {
+                        widget.onChooseConnectors!(selected);
+                      } else if (selected.reservable && widget.customer) {
+                        await widget.onReserve(selected);
+                      }
+                    }
+                  },
                 ),
               const SizedBox(height: 16),
               if (!widget.savedOnly)

@@ -44,6 +44,7 @@ function pendingLogout(value) {
 }
 function clearIdentity() {
     const privateCatalog = favoriteMode;
+    window.dispatchEvent(new CustomEvent("catalog-map-clear"));
     unconfirmedFavorite = null;
     favoriteMode = false;
     const epoch = client.invalidateSession();
@@ -344,6 +345,7 @@ function renderCatalogMode() {
             .querySelectorAll("[data-favorite-control]")
             .forEach((node) => node.remove());
         if (favoriteMode) {
+            window.dispatchEvent(new CustomEvent("catalog-map-clear"));
             favoriteMode = false;
             stationRequest?.abort();
             el("stations").replaceChildren();
@@ -456,6 +458,7 @@ async function stations(query = "") {
             last: j.last_page,
         }),
     );
+    window.dispatchEvent(new CustomEvent("catalog-map-data", { detail: j.data }));
     el("stations").replaceChildren();
     if (!j.data.length)
         el("stations").append(

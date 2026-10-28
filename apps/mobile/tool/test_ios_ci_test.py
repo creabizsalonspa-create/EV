@@ -27,9 +27,11 @@ class SimulatorBoundaryTest(unittest.TestCase):
         proof = ('All tests passed!\nDEVICE: Keychain session restored\n'
                  'DEVICE: exact Arabic vendor pricing verified\n'
                  'DEVICE: native vendor onboarding and private PDF preview verified\n'
-                 'DEVICE: customer favorites and private catalog status verified')
+                 'DEVICE: customer favorites and private catalog status verified\n'
+                 'DEVICE: customer map privacy consent navigation verified; no external tiles')
         self.assertFalse(module.verified_success(0, proof.replace('DEVICE: native vendor onboarding and private PDF preview verified', '')))
         self.assertFalse(module.verified_success(0, proof.replace('DEVICE: customer favorites and private catalog status verified', '')))
+        self.assertFalse(module.verified_success(0, proof.replace('DEVICE: customer map privacy consent navigation verified; no external tiles', '')))
         self.assertTrue(module.verified_success(0, proof))
         self.assertFalse(module.verified_success(1, proof))
 
