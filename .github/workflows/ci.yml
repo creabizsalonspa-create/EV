@@ -48,11 +48,25 @@ jobs:
           npm run test:commercial | tee artifacts/finance-commercial/browser.txt
           node tests/subscription-dunning.cjs
           node tests/recurring-payments.cjs
+          ./scripts/payout-test-setup
+          ./scripts/loyalty-test-setup
+          docker restart ev-business-api
+          ./scripts/start > /tmp/finance-v3-start.txt
+          node tests/payout-documents.cjs | tee artifacts/finance-commercial/payout-documents.txt
+          node tests/corporate-billing.cjs | tee artifacts/finance-commercial/corporate.txt
+          node tests/external-disputes.cjs | tee artifacts/finance-commercial/external-disputes.txt
+          node tests/external-disputes-ui.cjs | tee artifacts/finance-commercial/external-disputes-ui.txt
+          node tests/loyalty.cjs | tee artifacts/finance-commercial/loyalty.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: finance-browser-evidence
-          path: artifacts/finance-commercial
+          path: |
+            artifacts/finance-commercial
+            artifacts/finance-v3
+            artifacts/finance-corporate
+            artifacts/external-disputes
+            artifacts/finance-loyalty
           if-no-files-found: warn
       - run: npm run test:invoices
       - run: npm run test:tariffs

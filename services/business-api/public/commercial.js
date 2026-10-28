@@ -33,10 +33,15 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 );
             if (
                 path.startsWith("commercial/settlements") ||
+                path.startsWith("commercial/payouts/") ||
                 path.startsWith("commercial/vendors/") ||
                 path.startsWith("commercial/adjustments/")
             )
                 paths.push("commercial/settlements");
+            if (path.startsWith("commercial/external-disputes/"))
+                paths.push("commercial/cases", "commercial/settlements");
+            if (path.startsWith("commercial/corporate/"))
+                paths.push("finance/invoices", "finance/report");
             for (const key of cache.keys())
                 if (paths.some((p) => key.startsWith(p + "?")))
                     cache.delete(key);
@@ -1170,7 +1175,39 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             ui,
             actor: () => actor,
         });
-        if (operations) await settlements(operations, current);
+        mountFinancialDocuments({
+            container: panel("Financial documents", "المستندات المالية"),
+            api,
+            ui,
+            actor: () => actor,
+        });
+        mountCorporateBilling({
+            container: panel("Corporate billing", "فوترة الشركات"),
+            api,
+            ui,
+            actor: () => actor,
+        });
+        mountExternalDisputes({
+            container: panel("Provider disputes", "نزاعات مزود الدفع"),
+            api,
+            ui,
+            actor: () => actor,
+        });
+        mountLoyalty({
+            container: panel("Loyalty & rewards", "الولاء والمكافآت"),
+            api,
+            ui,
+            actor: () => actor,
+        });
+        if (operations) {
+            mountVendorPayouts({
+                container: panel("Vendor payouts", "دفعات الموردين"),
+                api,
+                ui,
+                actor: () => actor,
+            });
+            await settlements(operations, current);
+        }
     }
     async function settlements(parent, current) {
         const activeCache = cache,

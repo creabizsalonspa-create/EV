@@ -40,3 +40,18 @@ Connected web workflow, Laravel API tests and actual PostgreSQL concurrent-proce
 ## Finance v2 additive contracts
 
 Latest ownership is Agent1 finance / Agent2 EV and native. `PAYMENT_RECOVERY.md` documents private recovery list/history and read-only provider reconciliation; clients must retain uncertain states and never open replacement charging checkouts around an unresolved invoice hold. `SUBSCRIPTION_CREDITS.md` documents Admin-only subscription refunds and owner-visible immutable credit notes. Subscription invoice/detail responses add refunded/net/credit-state fields; a fully refunded current paid cycle revokes paid entitlements server-side. Refresh shared subscription state after a credit; do not cache a permanent paid flag. Currency precision remains immutable-source data. No native financial logic should be recreated.
+
+
+## Finance v3 candidate — Agent 2 integration handoff
+
+New additive contracts are mounted under both cookie/CSRF `/api` and authenticated Sanctum `/api/v1`. Existing charging, fleet-operation, subscription and native code remains canonical. No Dart financial implementation is added.
+
+| Area | Contract | Native guidance |
+| --- | --- | --- |
+| Vendor payouts | [VENDOR_PAYOUTS.md](VENDOR_PAYOUTS.md) | Scoped recipient/history views; vendor consent/revoke/hosted onboarding; Admin approvals remain web-only. Preserve unknown outcome and exact currency precision. MOCK/STRIPE TEST outcomes never prove real bank payment. |
+| External disputes | [EXTERNAL_DISPUTES.md](EXTERNAL_DISPUTES.md) | Customer/vendor sanitized history/deadlines; encrypted evidence and provider retries are financial Admin operations. Open/lost provider cases hold settlement and refunds. No fabricated chargeback journal. |
+| Corporate billing | [CORPORATE_BILLING.md](CORPORATE_BILLING.md) | Accepted agreements, explicit driver's own-invoice/cost-center claims, authorized manager statements/exports. Current fleet owner is checked server-side. Mock corporate receipts are not PSP collection. |
+| Documents | [FINANCIAL_DOCUMENTS.md](FINANCIAL_DOCUMENTS.md) | Authenticated private binary PDF/CSV downloads; immutable generation-time state differs from current source state. Corporate documents recheck current owner; never persist provider/banking references. |
+| Loyalty | [LOYALTY_ECONOMICS.md](LOYALTY_ECONOMICS.md) | Account/ledger, integer promotional units, qualified invoice earning, rewards/redemption/history. Points have no cash value; pending redemption is not delivery. Reconciliation/holds/debt/expiry remain server-authoritative. |
+
+The current source passes local combined Laravel/PostgreSQL/process/browser checks; hosted PR checks and safe integration remain required. Production activation, external providers, legal rules and partner fulfillment remain separate acceptance gates. Historical unfinished-implementation notes above refer to their earlier checkpoints; hosted mandates/recurring/dunning are already integrated and must not be rebuilt.

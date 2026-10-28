@@ -25,3 +25,9 @@ require __DIR__.'/subscription_gateway.php';
 require __DIR__.'/subscription_credits.php';
 
 require __DIR__.'/recurring_payments.php';
+
+require __DIR__.'/payouts.php';
+require __DIR__.'/financial_documents.php';
+require __DIR__.'/corporate_billing.php';
+require __DIR__.'/external_disputes.php';
+require __DIR__.'/loyalty.php';
