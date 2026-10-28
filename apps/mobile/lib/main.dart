@@ -10,7 +10,10 @@ import 'payment_recovery.dart';
 import 'loyalty.dart';
 import 'financial_documents.dart';
 import 'refund_requests.dart';
+import 'vendor_finance.dart';
+import 'corporate_billing.dart';
 import 'recurring_payments.dart';
+import 'subscriptions.dart';
 import 'tariffs.dart';
 import 'preferences.dart';
 import 'strings.dart';
@@ -958,6 +961,15 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'subscriptions') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => SubscriptionsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'recurringPayments') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -981,6 +993,24 @@ class _WorkspaceState extends State<Workspace> {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => PaymentRecoveryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'corporateBilling') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => CorporateBillingView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'vendorFinance') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => VendorFinanceView(
                         api: api!,
                         onExpired: expiredSession,
                       ),
@@ -1070,6 +1100,11 @@ class _WorkspaceState extends State<Workspace> {
                     child: Text(s.t('pricing')),
                   ),
                 PopupMenuItem(
+                  value: 'subscriptions',
+                  enabled: !busy,
+                  child: Text(subscriptionText(context, 'title')),
+                ),
+                PopupMenuItem(
                   value: 'recurringPayments',
                   enabled: !busy,
                   child: Text(
@@ -1093,6 +1128,17 @@ class _WorkspaceState extends State<Workspace> {
                   enabled: !busy,
                   child: Text(s.t('invoiceHistory')),
                 ),
+                PopupMenuItem(
+                  value: 'corporateBilling',
+                  enabled: !busy,
+                  child: Text(corporateText(context, 'title')),
+                ),
+                if (account!.role == 'vendor')
+                  PopupMenuItem(
+                    value: 'vendorFinance',
+                    enabled: !busy,
+                    child: Text(vendorFinanceText(context, 'title')),
+                  ),
                 PopupMenuItem(
                   value: 'refundRequests',
                   enabled: !busy,

@@ -3,6 +3,7 @@ import 'api.dart';
 import 'strings.dart';
 import 'financial_documents.dart';
 import 'refund_requests.dart';
+import 'corporate_billing.dart';
 
 /// Read-only simulated accounting; no checkout, card collection or payout UI.
 class InvoicePage extends StatefulWidget {
@@ -117,6 +118,20 @@ class _InvoicePageState extends State<InvoicePage> {
                       ),
                 child: Text(refundText(context, 'new')),
               ),
+            OutlinedButton(
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CorporateBillingView(
+                          api: widget.api,
+                          onExpired: widget.onExpired,
+                          invoiceId: invoice['id'] as int,
+                        ),
+                      ),
+                    ),
+              child: Text(corporateText(context, 'title')),
+            ),
             for (final entry in {
               'subtotal': invoice['subtotal_minor'],
               'tax': invoice['tax_minor'],

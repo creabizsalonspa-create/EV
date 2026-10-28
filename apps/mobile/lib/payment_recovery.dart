@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'money_input.dart';
 import 'strings.dart';
+import 'subscriptions.dart';
+import 'financial_documents.dart';
 
 const recoveryEn = {
+  'subscriptionDetail': 'Review subscription',
+  'invoiceDocument': 'Private invoice document',
   'title': 'Payment recovery',
   'notices': 'Subscription notices',
   'stage': 'Reminder stage',
@@ -49,6 +53,8 @@ const recoveryEn = {
   'failed': 'Failed',
 };
 const recoveryAr = {
+  'subscriptionDetail': 'مراجعة الاشتراك',
+  'invoiceDocument': 'مستند الفاتورة الخاص',
   'title': 'استرداد عمليات الدفع',
   'notices': 'تنبيهات الاشتراك',
   'stage': 'مرحلة التذكير',
@@ -286,6 +292,44 @@ class _RecoveryState extends State<PaymentRecoveryView> {
                           '${t('amount')}: ${minorDecimal(row['total_minor'] as int, row['minor_units'] as int)} ${row['currency']}',
                         ),
                         Text('${row['created_at']}'),
+                        if (row['subscription_id'] is int &&
+                            row['subscription_id'] > 0)
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () async {
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => SubscriptionDetailView(
+                                          api: widget.api,
+                                          onExpired: widget.onExpired,
+                                          id: row['subscription_id'] as int,
+                                        ),
+                                      ),
+                                    );
+                                    if (mounted) load(page: target);
+                                  },
+                            child: Text(t('subscriptionDetail')),
+                          ),
+                        if (row['invoice_id'] is int && row['invoice_id'] > 0)
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () async {
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => FinancialDocumentsView(
+                                          api: widget.api,
+                                          onExpired: widget.onExpired,
+                                          sourceKind: 'subscription_invoice',
+                                          sourceId: row['invoice_id'] as int,
+                                        ),
+                                      ),
+                                    );
+                                    if (mounted) load(page: target);
+                                  },
+                            child: Text(t('invoiceDocument')),
+                          ),
                       ],
                     ),
                   ),

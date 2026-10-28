@@ -57,9 +57,24 @@ void main() {
       expect(find.text('SIM-FIXTURE'), findsOneWidget);
       expect(find.text('Tax: 16 minor units AED'), findsOneWidget);
       expect(find.text('Amount due: 0 minor units AED'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Ledger balanced'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Ledger balanced'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
       api.fail = true;
+      await tester.scrollUntilVisible(
+        find.text('Refresh'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.text('Refresh')),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Refresh'));
       await tester.pumpAndSettle();
       expect(expired, isTrue);

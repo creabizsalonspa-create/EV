@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:creabiz_ev/financial_operation_store.dart';
+import 'package:creabiz_ev/subscriptions.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
@@ -50,6 +51,7 @@ void main() {
         serverContext,
       );
       var role = 'customer';
+      var subscriptionEnrollments = 0;
       var authenticated = 0;
       var loggedIn = false;
       var pricingAmount = 125, pricingVersion = 1;
@@ -184,6 +186,45 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/commercial/plans') {
+          result = {
+            'data': [
+              {
+                'id': 71,
+                'name': 'Synthetic device subscription',
+                'audience': role,
+                'available': true,
+                'currency': 'AED',
+                'minor_units': 2,
+                'price_minor': 1250,
+                'interval': 'month',
+                'entitlements': {'priority': true},
+              },
+            ],
+            'current_page': 1,
+            'last_page': 1,
+            'total': 1,
+          };
+        } else if (path == '/api/commercial/subscriptions' &&
+            request.method == 'POST') {
+          final payload = jsonDecode(await utf8.decoder.bind(request).join());
+          expectSync(payload['plan_id'], 71);
+          expectSync(payload['idempotency_key'], isA<String>());
+          subscriptionEnrollments++;
+          result = {
+            'subscription': {
+              'id': 72,
+              'user_id': authenticated,
+              'plan_id': 71,
+              'status': 'pending',
+            },
+            'plan': {'id': 71},
+            'invoices': [],
+            'entitlements': [],
+            'entitlements_active': false,
+            'ledger_balanced': true,
+            'real_payment_processed': false,
+          };
         } else if (path == '/api/commercial/loyalty/account') {
           result = {
             'user_id': authenticated,
@@ -1074,6 +1115,44 @@ void main() {
       expect(
         Theme.of(tester.element(find.byType(Workspace))).brightness,
         Brightness.dark,
+      );
+      Navigator.of(tester.element(find.byType(Workspace))).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SubscriptionsView(
+            api: secondApi,
+            onExpired: () => fail('Unexpected synthetic subscription expiry'),
+          ),
+        ),
+      );
+      await settle();
+      expect(subscriptionEnrollments, 0);
+      expect(find.textContaining('١٢٫٥٠ AED'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('التسجيل بهذه الخطة'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('التسجيل بهذه الخطة'));
+      await settle();
+      expect(subscriptionEnrollments, 0);
+      await tester.scrollUntilVisible(
+        find.byType(CheckboxListTile),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byType(CheckboxListTile));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.text('تأكيد النية المحفوظة'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('تأكيد النية المحفوظة'));
+      await settle();
+      expect(subscriptionEnrollments, 1);
+      expect(find.text(subscriptionAr['done']!), findsOneWidget);
+      debugPrint(
+        'DEVICE: explicit native subscription enrollment verified; synthetic test billing',
       );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());

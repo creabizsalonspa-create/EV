@@ -10,6 +10,7 @@ use App\Services\Commercial\Loyalty\LoyaltyService;
 use App\Services\Finance\FinanceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -189,7 +190,7 @@ class LoyaltyEconomicsTest extends TestCase
     {
         $session = ChargingSession::findOrFail($f['invoice']->charging_session_id);
         $reservation = Reservation::findOrFail($session->reservation_id);
-        $next = Reservation::create(['user_id' => $f['customer']->id, 'station_id' => $reservation->station_id, 'starts_at' => now()->addDays(random_int(1, 100)), 'status' => 'confirmed', 'idempotency_key' => bin2hex(random_bytes(10))]);
+        $next = Reservation::create(['user_id' => $f['customer']->id, 'station_id' => $reservation->station_id, 'starts_at' => Carbon::parse(Reservation::where('station_id', $reservation->station_id)->max('starts_at'))->addHour(), 'status' => 'confirmed', 'idempotency_key' => bin2hex(random_bytes(10))]);
         $charging = ChargingSession::create(['reservation_id' => $next->id, 'status' => 'stopped', 'energy_wh' => 10000, 'rate_minor_per_kwh' => 100, 'currency' => 'AED', 'total_minor' => 1000, 'stopped_at' => now()]);
         $quote = DB::table('finance_session_quotes')->find($f['invoice']->quote_id);
         $service = app(FinanceService::class);
@@ -200,6 +201,16 @@ class LoyaltyEconomicsTest extends TestCase
         }
 
         return $invoice;
+    }
+
+    public function test_invoice_fixtures_allocate_distinct_slots_with_a_frozen_clock(): void
+    {
+        $this->travelTo(now()->startOfHour());
+        $f = $this->fixture();
+        $this->additionalInvoice($f, 0);
+        $this->additionalInvoice($f, 0);
+        $starts = Reservation::orderBy('starts_at')->pluck('starts_at')->map(fn ($date) => (string) $date)->all();
+        $this->assertSame([now()->toDateTimeString(), now()->addHour()->toDateTimeString(), now()->addHours(2)->toDateTimeString()], $starts);
     }
 
     public function test_partial_and_unpaid_sources_cannot_mint_points(): void

@@ -1,0 +1,192 @@
+{
+  "source_sha": "f3268dc3147bec4a82f7d540075e578d83fae7cc",
+  "integrated_sha": "e983b7fe672e51b0512f1d1820eaf203e148d716",
+  "pr": "https://github.com/creabizsalonspa-create/EV/pull/21",
+  "merge_tree_equals_tested_source": true,
+  "checks": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T10:57:31Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40675029116/job/122771131001",
+      "name": "native (ubuntu-latest)",
+      "startedAt": "2026-10-28T10:48:34Z",
+      "status": "COMPLETED",
+      "workflowName": "Native client validation (unverified until run)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T11:00:16Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40674948026/job/122770853097",
+      "name": "native (ubuntu-latest)",
+      "startedAt": "2026-10-28T10:47:57Z",
+      "status": "COMPLETED",
+      "workflowName": "Native client validation (unverified until run)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T11:01:48Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40675028937/job/122771130351",
+      "name": "business-platform",
+      "startedAt": "2026-10-28T10:48:34Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T11:00:26Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40674948243/job/122770855858",
+      "name": "business-platform",
+      "startedAt": "2026-10-28T10:47:57Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T11:04:02Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40675029116/job/122771130417",
+      "name": "native (macos-15)",
+      "startedAt": "2026-10-28T10:48:34Z",
+      "status": "COMPLETED",
+      "workflowName": "Native client validation (unverified until run)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T11:01:26Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40674948026/job/122770852705",
+      "name": "native (macos-15)",
+      "startedAt": "2026-10-28T10:47:58Z",
+      "status": "COMPLETED",
+      "workflowName": "Native client validation (unverified until run)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T10:51:20Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40675028937/job/122771130560",
+      "name": "finance-postgres",
+      "startedAt": "2026-10-28T10:48:34Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T10:50:31Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40674948243/job/122770856144",
+      "name": "finance-postgres",
+      "startedAt": "2026-10-28T10:47:57Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T10:49:57Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40675028937/job/122771130443",
+      "name": "connector-postgres",
+      "startedAt": "2026-10-28T10:48:34Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T10:49:21Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40674948243/job/122770856173",
+      "name": "connector-postgres",
+      "startedAt": "2026-10-28T10:47:57Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T10:50:11Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40675028937/job/122771129953",
+      "name": "staging-image",
+      "startedAt": "2026-10-28T10:48:34Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T10:49:40Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40674948243/job/122770856075",
+      "name": "staging-image",
+      "startedAt": "2026-10-28T10:47:57Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    }
+  ],
+  "runs": [
+    {
+      "id": 40674948026,
+      "head_sha": "f3268dc3147bec4a82f7d540075e578d83fae7cc",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40674948026"
+    },
+    {
+      "id": 40674948243,
+      "head_sha": "f3268dc3147bec4a82f7d540075e578d83fae7cc",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40674948243"
+    },
+    {
+      "id": 40675028937,
+      "head_sha": "f3268dc3147bec4a82f7d540075e578d83fae7cc",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40675028937"
+    },
+    {
+      "id": 40675029116,
+      "head_sha": "f3268dc3147bec4a82f7d540075e578d83fae7cc",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40675029116"
+    }
+  ],
+  "flutter": {
+    "passed": 148,
+    "explicit_live_only_skips": 11,
+    "analysis": "clean",
+    "new_focused_tests": 13,
+    "actual_laravel_native_suites": 10
+  },
+  "laravel": {
+    "passed": 345,
+    "assertions": 8438
+  },
+  "postgres": {
+    "financial_tests": 220,
+    "financial_assertions": 7118,
+    "financial_races": 58,
+    "financial_race_assertions": 758,
+    "connector_tests": 54,
+    "connector_assertions": 814,
+    "connector_races": 14,
+    "connector_race_assertions": 197
+  },
+  "ios_runtime_marker": "DEVICE: private financial PDF and durable operation storage verified; synthetic document",
+  "ios_pr_job_log_sha256": "0bec76a7fe2d64bb8b736602b1335145f5ec5857f63b8dd25452f27effdd681f",
+  "native_auth_batches": [
+    9,
+    9,
+    8
+  ],
+  "coverage_change": "No new complete312 atom; native checkout/dispute/commercial parity still incomplete. Original42/312 weights unchanged.",
+  "acceptance_boundary": "Actual Laravel/PostgreSQL and compiled Android/iOS/Keychain/PDF; synthetic document/provider/money/economics/GPS/charger evidence. No live provider, real bank refund, actual reward, physical charger/GPS, legal/store or production acceptance."
+}

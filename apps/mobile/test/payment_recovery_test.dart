@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/payment_recovery.dart';
 import 'test_support.dart';
+import 'subscriptions_test.dart' show SubscriptionApi;
 
 class RecoveryApi extends FixtureApi {
   bool lost = false, deny = false, invalidPrecision = false;
@@ -85,6 +86,40 @@ class DunningApi extends RecoveryApi {
   }
 }
 
+class LinkedNoticeApi extends SubscriptionApi {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'commercial/subscription-notices') {
+      if (method != 'GET')
+        throw StateError('Reminder navigation attempted collection');
+      return {
+        'data': [
+          {
+            'id': 1,
+            'subscription_id': 4,
+            'invoice_id': 11,
+            'number': 'TEST-NOTICE',
+            'stage': 1,
+            'attention': 'payment_due',
+            'total_minor': 1313,
+            'minor_units': 3,
+            'currency': 'KWD',
+          },
+        ],
+        'current_page': 1,
+        'last_page': 1,
+        'total': 1,
+      };
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 Widget app(RecoveryApi api, {VoidCallback? expired, bool ar = false}) =>
     MaterialApp(
       locale: Locale(ar ? 'ar' : 'en'),
@@ -94,6 +129,31 @@ Widget app(RecoveryApi api, {VoidCallback? expired, bool ar = false}) =>
     );
 
 void main() {
+  testWidgets(
+    'subscription reminder opens its scoped subscription without collection or mutation',
+    (t) async {
+      final api = LinkedNoticeApi();
+      await t.pumpWidget(
+        MaterialApp(
+          home: PaymentRecoveryView(
+            api: api,
+            onExpired: () {},
+            subscriptionNotices: true,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.text('Private invoice document'), findsOneWidget);
+      expect(api.writes, 0);
+      await t.tap(find.text('Review subscription'));
+      await t.pumpAndSettle();
+      expect(find.text('Subscriptions #4'), findsOneWidget);
+      expect(find.text('Benefits are not active'), findsOneWidget);
+      expect(api.writes, 0);
+      expect(api.calls, contains('GET commercial/subscriptions/4'));
+    },
+  );
+
   testWidgets(
     'unsupported server precision fails closed without displaying a misleading amount',
     (t) async {

@@ -38,6 +38,7 @@ class PayoutService
     {
         $safe = (array) $row;
         unset($safe['account_reference'], $safe['bank_reference'], $safe['fingerprint'], $safe['request_key']);
+        $safe['required_consent_version'] = config('payouts.consent_version');
         $safe['real_money_moved'] = false;
         $safe['evidence'] = $row->provider === 'mock' ? 'MOCK_PAYOUT_ACCOUNT' : 'STRIPE_TEST_ACCOUNT';
 

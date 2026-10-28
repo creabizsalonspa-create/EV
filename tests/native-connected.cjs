@@ -17,6 +17,7 @@ const { spawnSync } = require("node:child_process");
       "native-vendor-onboarding",
     ], // 9 logins
     ["native-loyalty", "native-financial-operations"], // 8 logins: loyalty3 plus financial5; same production limit
+    ["native-commercial-parity"], // 5 logins; own fresh unchanged authentication window
   ];
   let started;
   for (const group of groups) {

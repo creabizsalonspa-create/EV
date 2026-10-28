@@ -40,6 +40,18 @@ class DeviceFinancialOperationStore implements FinancialOperationStore {
 
 /// Exact payload and identity are stored BEFORE dispatch. No automatic replay,
 /// replacement key or editable draft after an uncertain result, including restart.
+dynamic _freezeFinancialValue(dynamic value) {
+  if (value is Map)
+    return Map<String, dynamic>.unmodifiable(
+      value.map(
+        (key, item) => MapEntry(key as String, _freezeFinancialValue(item)),
+      ),
+    );
+  if (value is List)
+    return List<dynamic>.unmodifiable(value.map(_freezeFinancialValue));
+  return value;
+}
+
 class FinancialOperation {
   final FinancialOperationStore store;
   final String scope;
@@ -62,30 +74,48 @@ class FinancialOperation {
   }
 
   Future<void> restore() => serial(() async {
-    pending = await store.read(scope);
+    final saved = await store.read(scope);
+    pending = saved == null
+        ? null
+        : _freezeFinancialValue(saved) as Map<String, dynamic>;
   });
-  Future<Map<String, dynamic>> prepare(
-    Map<String, dynamic> body,
-  ) => serial(() async {
-    // Re-read under the scope lock: another screen may have persisted the same
-    // operation after this screen's initial restore, but before its confirmation.
-    pending = await store.read(scope);
-    if (pending != null) {
-      if (jsonEncode(pending!['body']) != jsonEncode(body))
-        throw const ApiException(409, 'Resolve the existing request first.');
-      return {...body, 'idempotency_key': pending!['key']};
-    }
-    final value = {
-      'key': operationKey(),
-      'body': Map<String, dynamic>.from(body),
-    };
-    await store.write(scope, value);
-    pending = value;
-    return {...body, 'idempotency_key': value['key']};
-  });
+  Future<Map<String, dynamic>> prepare(Map<String, dynamic> body) {
+    // Snapshot before the first asynchronous boundary, including nested selections.
+    final frozen =
+        _freezeFinancialValue(jsonDecode(jsonEncode(body)))
+            as Map<String, dynamic>;
+    return serial(() async {
+      // Retain this screen's original identity even when another screen has already
+      // acknowledged it. A stale retry must not silently allocate a fresh request.
+      final saved = await store.read(scope);
+      pending ??= saved == null
+          ? null
+          : _freezeFinancialValue(saved) as Map<String, dynamic>;
+      if (pending != null) {
+        if (jsonEncode(pending!['body']) != jsonEncode(frozen))
+          throw const ApiException(409, 'Resolve the existing request first.');
+        // Another screen may have removed the shared record after its own
+        // acknowledgement. Persist this stale retry before dispatch too, so a
+        // lost response followed by restart cannot allocate a replacement key.
+        // A newer intent already in storage must never be overwritten.
+        if (saved == null) await store.write(scope, pending!);
+        return Map<String, dynamic>.unmodifiable({
+          ...frozen,
+          'idempotency_key': pending!['key'],
+        });
+      }
+      final value = <String, dynamic>{'key': operationKey(), 'body': frozen};
+      await store.write(scope, value);
+      pending = _freezeFinancialValue(value) as Map<String, dynamic>;
+      return Map<String, dynamic>.unmodifiable({
+        ...frozen,
+        'idempotency_key': value['key'],
+      });
+    });
+  }
+
   Future<void> confirmed() => serial(() async {
     final current = await store.read(scope);
-    // A delayed old receipt must never delete a newer operation's durable key.
     if (current != null && pending != null && current['key'] == pending!['key'])
       await store.remove(scope);
     pending = null;
