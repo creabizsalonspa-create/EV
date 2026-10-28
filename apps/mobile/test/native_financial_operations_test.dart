@@ -152,6 +152,53 @@ void main() {
       await first.confirmed();
       final retry = await second.prepare({'amount_minor': 1});
       expect(retry['idempotency_key'], original['idempotency_key']);
+      final restarted = FinancialOperation(store, 'stale-owner-invoice');
+      await restarted.restore();
+      expect(restarted.pending?['key'], original['idempotency_key']);
+    },
+  );
+  test(
+    'stale retry secure write failure blocks dispatch and preserves its identity',
+    () async {
+      final store = MemoryOperations();
+      final first = FinancialOperation(store, 'stale-storage-failure');
+      final stale = FinancialOperation(store, 'stale-storage-failure');
+      final original = await first.prepare({'amount_minor': 1});
+      await stale.restore();
+      await first.confirmed();
+      store.fail = true;
+      await expectLater(stale.prepare({'amount_minor': 1}), throwsStateError);
+      expect(stale.pending!['key'], original['idempotency_key']);
+      store.fail = false;
+      expect(
+        (await stale.prepare({'amount_minor': 1}))['idempotency_key'],
+        original['idempotency_key'],
+      );
+    },
+  );
+  test(
+    'persisting a stale retry never overwrites another newer durable intent',
+    () async {
+      final store = MemoryOperations();
+      final first = FinancialOperation(store, 'stale-newer-intent');
+      final stale = FinancialOperation(store, 'stale-newer-intent');
+      final original = await first.prepare({'amount_minor': 1});
+      await stale.restore();
+      await first.confirmed();
+      final newer = FinancialOperation(store, 'stale-newer-intent');
+      final next = await newer.prepare({'amount_minor': 2});
+      expect(
+        (await stale.prepare({'amount_minor': 1}))['idempotency_key'],
+        original['idempotency_key'],
+      );
+      final restarted = FinancialOperation(store, 'stale-newer-intent');
+      await restarted.restore();
+      expect(restarted.pending!['key'], next['idempotency_key']);
+      await stale.confirmed();
+      expect(
+        (await store.read('stale-newer-intent'))!['key'],
+        next['idempotency_key'],
+      );
     },
   );
   test(

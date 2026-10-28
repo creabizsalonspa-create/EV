@@ -94,6 +94,11 @@ class FinancialOperation {
       if (pending != null) {
         if (jsonEncode(pending!['body']) != jsonEncode(frozen))
           throw const ApiException(409, 'Resolve the existing request first.');
+        // Another screen may have removed the shared record after its own
+        // acknowledgement. Persist this stale retry before dispatch too, so a
+        // lost response followed by restart cannot allocate a replacement key.
+        // A newer intent already in storage must never be overwritten.
+        if (saved == null) await store.write(scope, pending!);
         return Map<String, dynamic>.unmodifiable({
           ...frozen,
           'idempotency_key': pending!['key'],
