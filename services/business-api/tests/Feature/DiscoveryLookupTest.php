@@ -108,6 +108,7 @@ class DiscoveryLookupTest extends TestCase
         $this->postJson('/api/discovery/addresses', $input)->assertTooManyRequests();
         Http::assertSentCount(2);
     }
+
     public function test_daily_provider_budget_survives_minute_window_expiry(): void
     {
         config(['discovery.requests_per_day' => 1]);
@@ -118,5 +119,4 @@ class DiscoveryLookupTest extends TestCase
         $this->postJson('/api/discovery/addresses', $input)->assertTooManyRequests();
         Http::assertSentCount(1);
     }
-
 }
