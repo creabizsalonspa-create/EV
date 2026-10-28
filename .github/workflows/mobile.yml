@@ -33,6 +33,10 @@ on:
         "services/business-api/app/Http/Controllers/VendorOpsController.php",
         "services/business-api/app/Http/Controllers/PlatformController.php",
         "services/business-api/app/Http/Controllers/StationFavoriteController.php",
+        "services/business-api/app/Http/Controllers/DiscoveryLookupController.php",
+        "services/business-api/app/Providers/DiscoveryServiceProvider.php",
+        "services/business-api/config/discovery.php",
+        "services/business-api/routes/discovery.php",
         "services/business-api/app/Services/Discovery/**",
         "services/business-api/routes/favorites.php",
         "services/business-api/app/Services/VendorOps/**",
@@ -70,6 +74,10 @@ on:
         "services/business-api/app/Http/Controllers/VendorOpsController.php",
         "services/business-api/app/Http/Controllers/PlatformController.php",
         "services/business-api/app/Http/Controllers/StationFavoriteController.php",
+        "services/business-api/app/Http/Controllers/DiscoveryLookupController.php",
+        "services/business-api/app/Providers/DiscoveryServiceProvider.php",
+        "services/business-api/config/discovery.php",
+        "services/business-api/routes/discovery.php",
         "services/business-api/app/Services/Discovery/**",
         "services/business-api/routes/favorites.php",
         "services/business-api/app/Services/VendorOps/**",
@@ -119,11 +127,17 @@ jobs:
           PY
             exit 1
           fi
+      - name: Verify foreground-only native privacy configuration
+        run: python3 -B apps/mobile/tool/foreground_location_config_test.py
       - name: Verify native PDF artifact security boundaries
         run: python3 -B apps/mobile/tool/test_pdfium_assets.py
       - run: flutter build apk --debug
         if: runner.os == 'Linux'
         working-directory: apps/mobile
+      - name: Verify actual merged Android foreground location permissions
+        if: runner.os == 'Linux'
+        working-directory: apps/mobile
+        run: python3 tool/check-foreground-location-build.py android
       - name: Verify native inventory against local Laravel
         if: runner.os == 'Linux'
         shell: bash
@@ -134,6 +148,10 @@ jobs:
       - run: flutter build ios --simulator --no-codesign
         if: runner.os == 'macOS'
         working-directory: apps/mobile
+      - name: Verify bundled iOS foreground privacy permissions and localizations
+        if: runner.os == 'macOS'
+        working-directory: apps/mobile
+        run: python3 tool/check-foreground-location-build.py ios
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:

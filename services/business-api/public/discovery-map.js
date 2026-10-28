@@ -50,6 +50,11 @@
     canvas.hidden = true;
     canvas.setAttribute("aria-label", "Station map / خريطة المحطات");
     root.append(intro, enable, consent, locate, status, canvas);
+    let locationGeneration = 0;
+    let planner,
+        selectedCentre = null,
+        routeSegments = [],
+        routeLines;
     let records = [],
         map,
         markers,
@@ -66,6 +71,7 @@
         Math.abs(+s.latitude) <= 85.05112878 &&
         Math.abs(+s.longitude) <= 180;
     function select(lat, lng) {
+        selectedCentre = { latitude: lat, longitude: lng };
         const form = document.getElementById("filters");
         form.elements.latitude.value = lat.toFixed(6);
         form.elements.longitude.value = lng.toFixed(6);
@@ -138,7 +144,14 @@
                     )
                         event.preventDefault();
                 };
-                popup.append(title, evidence, jump, navigation);
+                const stop = make(
+                    "button",
+                    "Add charging stop",
+                    "إضافة توقف شحن",
+                );
+                stop.type = "button";
+                stop.onclick = () => planner?.addStop(item);
+                popup.append(title, evidence, jump, navigation, stop);
             }
             L.marker([+station.latitude, +station.longitude], {
                 icon: L.divIcon({
@@ -168,6 +181,8 @@
                 );
             });
         markers = L.layerGroup().addTo(map);
+        routeLines = L.layerGroup().addTo(map);
+        renderRoute();
         const points = records
             .filter(valid)
             .map((s) => [+s.latitude, +s.longitude]);
@@ -195,8 +210,10 @@
             return;
         }
         locate.disabled = true;
+        const lookupGeneration = ++locationGeneration;
         navigator.geolocation.getCurrentPosition(
             (position) => {
+                if (lookupGeneration !== locationGeneration) return;
                 locate.disabled = false;
                 select(position.coords.latitude, position.coords.longitude);
                 if (map && Math.abs(position.coords.latitude) <= 85.05112878)
@@ -206,6 +223,7 @@
                     );
             },
             () => {
+                if (lookupGeneration !== locationGeneration) return;
                 locate.disabled = false;
                 setStatus(
                     "Location could not be obtained. Enter coordinates manually.",
@@ -215,13 +233,55 @@
             { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 },
         );
     };
+    function renderRoute() {
+        if (!routeLines) return;
+        routeLines.clearLayers();
+        for (const line of routeSegments) {
+            if (line.every((p) => Math.abs(p.latitude) <= 85.05112878))
+                L.polyline(
+                    line.map((p) => [p.latitude, p.longitude]),
+                    { color: "#087f75", weight: 4 },
+                ).addTo(routeLines);
+        }
+    }
+    window.addEventListener("discovery-api-ready", (event) => {
+        if (!window.EvGeoTools) return;
+        planner = EvGeoTools.install({
+            root,
+            request: event.detail,
+            onPoint: (p) => select(p.latitude, p.longitude),
+            getCentre: () => selectedCentre,
+            onRoute: (segments) => {
+                routeSegments = segments;
+                renderRoute();
+            },
+        });
+        planner.update(records);
+    });
     window.addEventListener("ev:locale", render);
     window.addEventListener("catalog-map-data", (event) => {
         records = event.detail;
+        planner?.update(records);
         render();
     });
     window.addEventListener("catalog-map-clear", () => {
         records = [];
+        locationGeneration++;
+        locate.disabled = false;
+        checkbox.checked = false;
+        for (const name of ["latitude", "longitude", "radius_km"])
+            document.getElementById("filters").elements[name].value = "";
+        status.replaceChildren();
+        delete status.dataset.en;
+        delete status.dataset.ar;
+        selectedCentre = null;
+        routeSegments = [];
+        planner?.clear();
+        if (picked) {
+            picked.remove();
+            picked = null;
+        }
+        renderRoute();
         if (markers) markers.clearLayers();
     });
 })();

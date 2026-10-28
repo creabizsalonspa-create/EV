@@ -25,6 +25,12 @@ async function api(path, method = "GET", data, signal) {
         throw error;
     }
 }
+window.dispatchEvent(
+    new CustomEvent("discovery-api-ready", {
+        detail: (path, method = "GET", body, signal) =>
+            api("discovery/" + path, method, body, signal),
+    }),
+);
 let identityBusy = false;
 function setIdentityBusy(value) {
     identityBusy = value;
@@ -458,7 +464,9 @@ async function stations(query = "") {
             last: j.last_page,
         }),
     );
-    window.dispatchEvent(new CustomEvent("catalog-map-data", { detail: j.data }));
+    window.dispatchEvent(
+        new CustomEvent("catalog-map-data", { detail: j.data }),
+    );
     el("stations").replaceChildren();
     if (!j.data.length)
         el("stations").append(

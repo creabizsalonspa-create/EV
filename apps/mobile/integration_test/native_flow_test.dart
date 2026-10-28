@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -75,7 +76,37 @@ void main() {
               ];
             return null;
           });
+      var deviceLocationReads = 0;
+      const locationChannel = MethodChannel(
+        'flutter.baseflow.com/geolocator_apple',
+      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(locationChannel, (call) async {
+            if (call.method == 'isLocationServiceEnabled') return true;
+            if (call.method == 'checkPermission' ||
+                call.method == 'requestPermission')
+              return LocationPermission.whileInUse.index;
+            if (call.method == 'getCurrentPosition') {
+              deviceLocationReads++;
+              return Position(
+                latitude: 25.2,
+                longitude: 55.3,
+                timestamp: DateTime.now(),
+                accuracy: 25,
+                altitude: 0,
+                altitudeAccuracy: 0,
+                heading: 0,
+                headingAccuracy: 0,
+                speed: 0,
+                speedAccuracy: 0,
+                hasAccuracy: true,
+              ).toJson();
+            }
+            throw StateError('Unexpected synthetic location method.');
+          });
       addTearDown(() async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(locationChannel, null);
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(pickerChannel, null);
         await evidenceDirectory.delete(recursive: true);
@@ -389,6 +420,51 @@ void main() {
             'last_page': 2,
             'total': 26,
           };
+        } else if (path == '/api/discovery/capabilities') {
+          result = {
+            'provider': 'geoapify',
+            'geocoding': true,
+            'routing': true,
+            'max_charging_stops': 3,
+          };
+        } else if (path == '/api/discovery/addresses') {
+          final body =
+              jsonDecode(await utf8.decoder.bind(request).join())
+                  as Map<String, dynamic>;
+          expectSync(body['consent'], true);
+          result = {
+            'provider': 'geoapify',
+            'evidence': 'GEOCODING_RESULT',
+            'places': [
+              {
+                'id': 'geoapify:device-fixture',
+                'label': 'Device address fixture',
+                'latitude': 25.2,
+                'longitude': 55.3,
+              },
+            ],
+          };
+        } else if (path == '/api/discovery/route') {
+          final body =
+              jsonDecode(await utf8.decoder.bind(request).join())
+                  as Map<String, dynamic>;
+          expectSync(body['consent'], true);
+          expectSync((body['points'] as List).length, 3);
+          expectSync((body['points'] as List)[1]['latitude'], 25.2);
+          result = {
+            'provider': 'geoapify',
+            'evidence': 'PROVIDER_ROUTE_ESTIMATE',
+            'distance_meters': 1250,
+            'duration_seconds': 220,
+            'traffic_verified': false,
+            'charging_time_included': false,
+            'segments': [
+              [
+                {'latitude': 25.2, 'longitude': 55.3},
+                {'latitude': 25.3, 'longitude': 55.4},
+              ],
+            ],
+          };
         } else if (path.startsWith('/api/favorites')) {
           expectSync(loggedIn && role == 'customer', isTrue);
           expectSync(
@@ -573,6 +649,92 @@ void main() {
         find.textContaining('OpenStreetMap receives your IP'),
         findsOneWidget,
       );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('native-location-once')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.byKey(const Key('native-location-once')));
+      await settle();
+      expect(deviceLocationReads, 0);
+      await tester.tap(find.byKey(const Key('location-consent-accept')));
+      await settle();
+      expect(deviceLocationReads, 1);
+      expect(find.textContaining('approximately 25 m'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('charging-route-open')),
+        -250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      expect(
+        find.byKey(const Key('charging-route-open')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('charging-route-open')));
+      await settle();
+      for (final entry in {
+        'destination-lat': '25.3',
+        'destination-lng': '55.4',
+      }.entries) {
+        await tester.scrollUntilVisible(
+          find.byKey(Key(entry.key)),
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await settle();
+        await tester.enterText(find.byKey(Key(entry.key)), entry.value);
+      }
+      FocusManager.instance.primaryFocus?.unfocus();
+      await settle();
+      await tester.scrollUntilVisible(
+        find.text('Add charging stops from results'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.text('Add charging stops from results'));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('route-stop-1')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      expect(
+        find.byKey(const Key('route-stop-1')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('route-stop-1')));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('route-provider-consent')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      expect(
+        find.byKey(const Key('route-provider-consent')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('route-provider-consent')));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('route-preview')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.byKey(const Key('route-preview')));
+      await settle();
+      expect(find.text('1.3 km · 4 min'), findsOneWidget);
+      expect(find.textContaining('Traffic is not verified'), findsOneWidget);
+      debugPrint(
+        'DEVICE: consented one-shot GPS and sourced charging-stop route verified; synthetic platform/provider',
+      );
+      await tester.tap(find.byType(BackButton));
+      await settle();
       await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint(

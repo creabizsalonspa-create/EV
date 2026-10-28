@@ -109,6 +109,14 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Preflight every table before changing any DDL or uniqueness guard.
+        if (! app()->environment('testing')) {
+            foreach (['commercial_payout_webhooks', 'commercial_payout_events', 'commercial_payout_attempts', 'commercial_payouts', 'commercial_payout_accounts'] as $table) {
+                if (DB::table($table)->exists()) {
+                    throw new RuntimeException('Preserve payout history before downgrade.');
+                }
+            }
+        }
         foreach (['commercial_payout_webhooks', 'commercial_payout_events', 'commercial_payout_attempts', 'commercial_payouts', 'commercial_payout_accounts'] as $table) {
             Schema::dropIfExists($table);
         }

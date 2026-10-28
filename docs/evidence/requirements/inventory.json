@@ -40,6 +40,12 @@
       "test_result": "passed",
       "merge_sha": "6a9b4046914111c760625bac016f9b7d26e2a6a5",
       "evidence": "docs/evidence/staging-image/hosted-checkpoint.json"
+    },
+    "pr18": {
+      "source_sha": "905311fb0211e1ebca19e95bb810c4c63e8e7561",
+      "test_result": "passed",
+      "merge_sha": "95a3dae53b45eba206fb8ca9349b0b015e0b5ed8",
+      "evidence": "docs/evidence/finance-v3-integrated/hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -574,30 +580,30 @@
     {
       "prd": "2.9",
       "requirement": "Loyalty/rewards/promotions/referrals",
-      "implemented_code_scope": "No complete authoritative loyalty workflow shipped",
-      "automated_evidence_scope": "No complete feature acceptance suite; not implemented. No completed merged product module",
-      "remaining_scope": "Tier rules, points ledger, redemption, coupons/referrals, partners and all required UI",
+      "implemented_code_scope": "PR18 noncash Silver/Gold/Platinum tiers, immutable points ledger with refund clawback/debt/expiry, stock-limited redemption and manual fulfillment; customer/admin web/API. Production mutations disabled by default.",
+      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.",
+      "remaining_scope": "Coupons, referrals, promotions, vendor participation, broader reward fulfillment, native parity and real operational acceptance.",
       "atoms": [
         {
           "id": "2.9.1",
           "software_atom": "Silver/Gold/Platinum tiers",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr18",
+          "note": "Verified PR18 backend/API/web software: noncash tiers/immutable points/reward redemption or mock/Stripe TEST payout orchestration. Native commercial parity and live production acceptance remain separately incomplete."
         },
         {
           "id": "2.9.2",
           "software_atom": "Points ledger",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr18",
+          "note": "Verified PR18 backend/API/web software: noncash tiers/immutable points/reward redemption or mock/Stripe TEST payout orchestration. Native commercial parity and live production acceptance remain separately incomplete."
         },
         {
           "id": "2.9.3",
           "software_atom": "Redemption and rewards",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr18",
+          "note": "Verified PR18 backend/API/web software: noncash tiers/immutable points/reward redemption or mock/Stripe TEST payout orchestration. Native commercial parity and live production acceptance remain separately incomplete."
         },
         {
           "id": "2.9.4",
@@ -992,9 +998,9 @@
         {
           "id": "3.5.7",
           "software_atom": "Bank payout-provider/reconciliation software",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr18",
+          "note": "Verified PR18 backend/API/web software: noncash tiers/immutable points/reward redemption or mock/Stripe TEST payout orchestration. Native commercial parity and live production acceptance remain separately incomplete."
         },
         {
           "id": "3.5.8",

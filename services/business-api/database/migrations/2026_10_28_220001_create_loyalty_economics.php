@@ -118,6 +118,14 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Preflight every table before changing any DDL or uniqueness guard.
+        if (! app()->environment('testing')) {
+            foreach (['loyalty_redemption_events', 'loyalty_ledger', 'loyalty_allocations', 'loyalty_redemptions', 'loyalty_awards', 'loyalty_rewards', 'loyalty_policies'] as $table) {
+                if (DB::table($table)->exists()) {
+                    throw new RuntimeException('Preserve immutable loyalty history before downgrade.');
+                }
+            }
+        }
         foreach (['loyalty_redemption_events', 'loyalty_ledger', 'loyalty_allocations', 'loyalty_redemptions', 'loyalty_rewards', 'loyalty_awards', 'loyalty_policies'] as $table) {
             Schema::dropIfExists($table);
         }
