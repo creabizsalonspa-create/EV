@@ -1,3 +1,9 @@
+## Latest owner directive — temporary full-project Agent2 ownership, 28 October 2026
+
+The newly uploaded FULL PROJECT OWNERSHIP command supersedes the preceding parallel split: Agent1 is unavailable; Agent2 temporarily owns all remaining financial/commercial and EV/non-financial software. Reuse canonical finance services and preserve verified work. Coordinate before simultaneous shared-file edits if Agent1 returns; ownership changes only on an owner directive. Earlier split/sole-owner records remain historical.
+
+Verified integrated main is6388642827781d4572a8fb91a83f392b26d461c4. PR12 recurring mandates/collections and PR13 charger admission lifecycle are merged. PR14 source1b72354 passed backend/PostgreSQL/Android but failed a premature native PDF-ready assertion after successful company/upload flow. Corrected source5b258f1 awaits actual native load with a bounded30-second/fail-fast error check; exact-source iOS rerun is required before merge. PR15 source2909566 adds cross-platform nearby search; its local evidence is in docs/evidence/catalog-nearby/local-checkpoint.json and hosted checks are pending. Do not rebuild these modules, equate coordinate search with an interactive map, or claim physical/merchant/partner/store acceptance.
+
 # Agent Instructions — Crea-Biz EV Charging Platform (Full Commercial Product)
 
 ## Latest owner directive — restored parallel ownership, 28 October 2026 (Dubai)

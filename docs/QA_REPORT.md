@@ -1,3 +1,7 @@
+## Latest owner update and native CI correction — 28 October 2026
+
+Agent2 temporarily owns the full EV and finance/commercial scope while Agent1 is unavailable. Reuse existing canonical finance and preserve historical ownership records. Native-vendor PR14 source1b72354 passed backend/PostgreSQL/Android but failed the PDF-ready assertion after private upload; source5b258f1 now waits for actual asynchronous native PDF load and fails fast on a viewer error. Latest iOS validation is pending, so PR14 remains unmerged. Nearby search source2909566 plus that preserved fix remains an unmerged locally verified candidate. The 42-category audit in REQUIREMENT_STATUS separates implemented subsets and remaining software; no broad70% estimate or production acceptance is claimed.
+
 # Agent2 nearby catalog continuation — 28 October 2026
 
 Nearby catalog candidate: Laravel258/7563; clean Flutter analysis and101 passing tests with9 deliberate live-only skips; focused catalog HTTP/widget5 pass; native real-Laravel fleet/meter/booking/privacy smoke1 passes including radius pagination and far exclusion. Nearby/frontend/localization browser suites pass. Final PostgreSQL49/733 catalog/topology plus14/197 independent-process connector/admission races pass. Hosted source checks pending; see CATALOG_NEARBY.md. Counts must be verified against final logs before merge.

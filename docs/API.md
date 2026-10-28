@@ -1,3 +1,7 @@
+## Latest owner update and native CI correction — 28 October 2026
+
+Agent2 temporarily owns the full EV and finance/commercial scope while Agent1 is unavailable. Reuse existing canonical finance and preserve historical ownership records. Native-vendor PR14 source1b72354 passed backend/PostgreSQL/Android but failed the PDF-ready assertion after private upload; source5b258f1 now waits for actual asynchronous native PDF load and fails fast on a viewer error. Latest iOS validation is pending, so PR14 remains unmerged. Nearby search source2909566 plus that preserved fix remains an unmerged locally verified candidate. The 42-category audit in REQUIREMENT_STATUS separates implemented subsets and remaining software; no broad70% estimate or production acceptance is claimed.
+
 # Agent2 nearby catalog continuation — 28 October 2026
 
 GET `/api/stations` optionally accepts latitude−90..90, longitude−180..180 and radius_km1..200 together; returns numeric distance_km in great-circle km, nearest-first then ID-descending, and validated filters in pagination links. Without the group, existing behavior is retained. See CATALOG_NEARBY.md.
