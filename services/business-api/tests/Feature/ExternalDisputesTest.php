@@ -195,6 +195,68 @@ class ExternalDisputesTest extends TestCase
         Http::assertNothingSent();
     }
 
+    private function uncertainStoredEvidence(): array
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $this->fakeProvider(fn ($r) => $r->method() === 'POST' ? Http::failedConnection() : (str_contains($r->url(), '/charges/') ? Http::response(['id' => 'ch_Dispute', 'livemode' => false, 'payment_intent' => 'pi_Dispute', 'paid' => true, 'captured' => true, 'amount_captured' => 1000, 'currency' => 'aed']) : Http::response($this->body)));
+        $this->actingAs($this->admin)->postJson('/dispute-test/commercial/external-disputes/'.$id.'/evidence', ['idempotency_key' => 'stored-original', 'submit' => false, 'evidence' => ['product_description' => 'Original encrypted private evidence']])->assertStatus(503);
+
+        return [$id, DB::table('external_dispute_evidence')->first()];
+    }
+
+    public function test_reload_safe_retry_uses_only_stored_payload_and_original_provider_key(): void
+    {
+        [$id, $operation] = $this->uncertainStoredEvidence();
+        $this->fakeProvider(function ($r) {
+            if (str_contains($r->url(), '/charges/')) {
+                return Http::response(['id' => 'ch_Dispute', 'livemode' => false, 'payment_intent' => 'pi_Dispute', 'paid' => true, 'captured' => true, 'amount_captured' => 1000, 'currency' => 'aed']);
+            }
+            $body = $this->body;
+            if ($r->method() === 'POST') {
+                $body['evidence'] = $r['evidence'];
+            }
+
+            return Http::response($body);
+        });
+        $path = '/dispute-test/commercial/external-disputes/'.$id.'/evidence/'.$operation->id.'/retry';
+        $this->postJson($path, ['idempotency_key' => 'replacement'])->assertUnprocessable();
+        $this->postJson($path, ['evidence' => ['product_description' => 'changed']])->assertUnprocessable();
+        $this->postJson($path)->assertOk()->assertJsonPath('evidence_submissions.0.status', 'confirmed');
+        Http::assertSent(fn ($r) => $r->method() === 'POST' && $r['evidence'] === ['product_description' => 'Original encrypted private evidence'] && $r->hasHeader('Idempotency-Key', 'creabiz-dispute-'.$operation->request_key));
+        $this->postJson($path)->assertOk();
+        $this->assertCount(1, Http::recorded(fn ($r) => $r->method() === 'POST'));
+        $this->assertDatabaseCount('external_dispute_evidence', 1);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_stored_retry_rejects_foreign_scope_role_and_active_worker_lease(): void
+    {
+        [$id, $operation] = $this->uncertainStoredEvidence();
+        $this->fakeProvider(fn ($r) => str_contains($r->url(), '/charges/') ? Http::response(['id' => 'ch_Dispute', 'livemode' => false, 'payment_intent' => 'pi_Dispute', 'paid' => true, 'captured' => true, 'amount_captured' => 1000, 'currency' => 'aed']) : Http::response($this->body));
+        $path = '/dispute-test/commercial/external-disputes/'.$id.'/evidence/'.$operation->id.'/retry';
+        $this->actingAs($this->vendor)->postJson($path)->assertForbidden();
+        $this->actingAs($this->admin)->postJson('/dispute-test/commercial/external-disputes/999999/evidence/'.$operation->id.'/retry')->assertNotFound();
+        DB::table('external_dispute_evidence')->where('id', $operation->id)->update(['status' => 'sending', 'lease_until' => now()->addMinutes(3)]);
+        $this->postJson($path)->assertConflict();
+        Http::assertNotSent(fn ($r) => $r->method() === 'POST');
+        $this->assertDatabaseHas('external_dispute_evidence', ['id' => $operation->id, 'status' => 'sending']);
+    }
+
+    public function test_stored_retry_cannot_outlive_provider_retention_or_acceptance_state(): void
+    {
+        [$id, $operation] = $this->uncertainStoredEvidence();
+        $this->fakeProvider(fn ($r) => str_contains($r->url(), '/charges/') ? Http::response(['id' => 'ch_Dispute', 'livemode' => false, 'payment_intent' => 'pi_Dispute', 'paid' => true, 'captured' => true, 'amount_captured' => 1000, 'currency' => 'aed']) : Http::response($this->body));
+        $path = '/dispute-test/commercial/external-disputes/'.$id.'/evidence/'.$operation->id.'/retry';
+        $this->travel(24)->hours();
+        $this->postJson($path)->assertConflict();
+        $this->travelBack();
+        $this->body['status'] = 'lost';
+        $this->postJson($path)->assertConflict();
+        $this->assertDatabaseHas('external_dispute_evidence', ['id' => $operation->id, 'status' => 'uncertain']);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        Http::assertNotSent(fn ($r) => $r->method() === 'POST');
+    }
+
     public function test_dispute_events_and_submitted_evidence_terms_are_database_immutable(): void
     {
         $id = $this->providerEvent()->assertOk()->json('dispute_id');
