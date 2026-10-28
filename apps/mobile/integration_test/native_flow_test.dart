@@ -1189,7 +1189,7 @@ void main() {
       debugPrint(
         'DEVICE: explicit native subscription enrollment verified; synthetic test billing',
       );
-      Navigator.of(tester.element(find.byType(Workspace))).push(
+      Navigator.of(tester.element(find.byType(SubscriptionActionView))).push(
         MaterialPageRoute<void>(
           builder: (_) => CaseEvidenceView(
             api: secondApi,

@@ -1,3 +1,7 @@
+# Required iOS navigation correction
+
+Earlier candidate33cd1dd passed Android/actual Laravel native suites but its iOS runtime failed after verified subscription enrollment: the next test navigation looked up the now-offstage Workspace and found no element. The evidence route now uses the active SubscriptionActionView context. Every consent/upload/private/runtime assertion and marker is retained; no failed assertion is retried or removed. Clean analysis/host recovery guards pass; exact-source hosted iOS and full CI must pass before PR23 merge. This is not a production-device or provider acceptance claim.
+
 # Native financial account-context safety follow-up
 
 A paused secure-store regression reproduced a POST after its enrollment route had disposed (expected0, actual1). Dispute/evidence/enrollment/settlement forms now stop after disposal and preserve the original durable intent. All nine native financial-operation callsites also capture the authenticated session generation; account changes during secure restore/preparation fail closed before dispatch even if the route remains mounted. The shared native transport aborts before attaching cookies/CSRF/JSON/multipart bodies if identity changes while opening a request. Final full Flutter190 passed/13 explicit live-only skips, with clean analysis;51 affected financial tests plus8 transport tests also pass. No economic/ledger rule or production limit changed. Current exact-source hosted checks must rerun; older-source checks are not final verification.

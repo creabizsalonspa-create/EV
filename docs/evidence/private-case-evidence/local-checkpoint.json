@@ -44,5 +44,12 @@
       "full_final": "7a127633d889a4edd332a4bf335dd7608cb68450c13623d0960838a33561032b",
       "analysis_final": "3681fd8626f51b5ca956134df7d258babeb6cdb8a67fff7dc66a2decdda8de04"
     }
+  },
+  "ios_navigation_correction": {
+    "failed_source": "33cd1dd7a4d9009bf209614adc0395dca0f45d14",
+    "job": "https://github.com/creabizsalonspa-create/EV/actions/runs/40688659097/job/122817514847",
+    "failure": "StateError: No element at native_flow_test.dart1192, after explicit subscription enrollment passed. The test looked up Workspace using a finder that excludes its offstage home route.",
+    "correction": "Push the evidence screen using the active SubscriptionActionView context. Preserve the entire consent/file/multipart/runtime assertion sequence and all original markers; exact-source iOS rerun is required.",
+    "log_sha256": "f81bcf680009a8b379bfc728c1dcde67852e0c98558c8a12bf4b9cbe3d66acfd"
   }
 }
