@@ -897,7 +897,10 @@ class _DocumentPreviewState extends State<VendorDocumentPreview>
                         onLinkTap: (_) {},
                       ),
                       errorBannerBuilder: (c, e, s, r) => Center(
-                        child: Text(vendorOpsText(c, 'previewFailed')),
+                        child: Text(
+                          vendorOpsText(c, 'previewFailed'),
+                          key: const Key('private-document-failed'),
+                        ),
                       ),
                     ),
                   )
