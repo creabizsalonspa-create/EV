@@ -1,3 +1,11 @@
+# Canonical customer favorites candidate — 28 October 2026
+
+PR14/15 integration backlog is closed and its evidence is pushed on main822532a (runtime sourcebb75151, merge8573081). Current single branch development/customer-discovery implements backend/web/Flutter personal saved stations with protected preference lookups, capability preservation, idempotent writes, session fences, paginated/EN/AR/theme flows and real-Laravel tests. See CUSTOMER_FAVORITES.md. This is a new unmerged candidate; Android/iOS/extended device assertions await exact-source hosted verification.
+
+Local: Laravel263/7644; PostgreSQL54/814 plus14/197 connector races; preserved finance146/6381 plus41/539 races; Flutter111 passes/nine deliberate live-only skips and clean analysis; seven new favorite tests, actual native topology/favorite smoke and real browser/CSRF/privacy/lost-ack/pagination/RTL/theme checks pass. Public catalog data contains no private preference metadata. Partner-location favorites, actual interactive maps/routes/reviews and the full original remaining commercial/EV/Admin/security/release requirements remain unfinished. No production or external acceptance is inferred.
+
+The latest owner directive preserves the existing42-category/312-subfeature weighting unchanged. The canonical favorites subset earns no whole-subfeature credit while partner favorites remain unfinished. Continue this single development/customer-discovery branch with the larger map/discovery/customer batch; do not create overlapping unfinished PRs.
+
 # Verified integration backlog closed — 28 October 2026
 
 PR14 verified source **ae8a10f3bb3758efb072bcea73fe0688197e6e53** passed all10 checks and merged at6d995d2. PR15 safely merged that base, reran all affected checks at **bb75151b1572e073f63f8b664336983a94198b2c**, passed all8 checks (two full platform/PostgreSQL matrices and Android/iOS native validation), and merged at **8573081d3712b1fd2249a9da9030d96f3aa82351**. Both merge trees exactly equal their tested source trees. Actual iOS runtime PDF-render/Keychain/Arabic markers and artifact/log digests are retained in `docs/evidence/native-vendor/hosted-checkpoint.json` and `docs/evidence/catalog-nearby/hosted-checkpoint.json`.

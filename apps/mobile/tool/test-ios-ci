@@ -23,7 +23,8 @@ def verified_success(result, text):
     return (result == 0 and 'All tests passed!' in text
             and 'DEVICE: Keychain session restored' in text
             and 'DEVICE: exact Arabic vendor pricing verified' in text
-            and 'DEVICE: native vendor onboarding and private PDF preview verified' in text)
+            and 'DEVICE: native vendor onboarding and private PDF preview verified' in text
+            and 'DEVICE: customer favorites and private catalog status verified' in text)
 
 
 def owned_simulator(devices, device, run, attempt):

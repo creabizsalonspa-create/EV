@@ -82,6 +82,15 @@ void main() {
       });
       Map<String, dynamic>? managedCompany;
       bool evidenceUploaded = false;
+      final savedStations = <int>{};
+      Map<String, dynamic> stationFixture(int id) => {
+        'id': id,
+        'name': 'Device fixture station $id',
+        'connector_type': 'CCS2',
+        'evidence': 'SIMULATED',
+        'power_kw': 150,
+        'reservable': true,
+      };
 
       final subscription = server.listen((request) async {
         request.response.headers.contentType = ContentType.json;
@@ -378,19 +387,54 @@ void main() {
             'last_page': 2,
             'total': 26,
           };
+        } else if (path.startsWith('/api/favorites')) {
+          expectSync(loggedIn && role == 'customer', isTrue);
+          expectSync(
+            request.cookies.any(
+              (c) =>
+                  c.name == 'session' && c.value == 'synthetic-device-session',
+            ),
+            isTrue,
+          );
+          if (path == '/api/favorites/status') {
+            final requested = request.uri.queryParametersAll.entries
+                .where((e) => e.key.startsWith('station_ids['))
+                .expand((e) => e.value)
+                .map(int.parse)
+                .toSet();
+            result = {
+              'favorite_station_ids': savedStations
+                  .where(requested.contains)
+                  .toList(),
+            };
+          } else if (path == '/api/favorites') {
+            result = {
+              'data': savedStations
+                  .map((id) => {...stationFixture(id), 'is_favorite': true})
+                  .toList(),
+              'current_page': 1,
+              'last_page': 1,
+              'total': savedStations.length,
+            };
+          } else {
+            expectSync(
+              request.headers.value('X-CSRF-TOKEN'),
+              'synthetic-device-csrf',
+            );
+            final id = int.parse(request.uri.pathSegments.last);
+            expectSync(['PUT', 'DELETE'].contains(request.method), isTrue);
+            request.method == 'PUT'
+                ? savedStations.add(id)
+                : savedStations.remove(id);
+            result = {
+              'station_id': id,
+              'is_favorite': savedStations.contains(id),
+            };
+          }
         } else if (path == '/api/stations') {
           final page = int.parse(request.uri.queryParameters['page'] ?? '1');
           result = {
-            'data': [
-              {
-                'id': page,
-                'name': 'Device fixture station $page',
-                'connector_type': 'CCS2',
-                'evidence': 'SIMULATED',
-                'power_kw': 150,
-                'reservable': true,
-              },
-            ],
+            'data': [stationFixture(page)],
             'current_page': page,
             'last_page': 2,
             'total': 26,
@@ -467,6 +511,48 @@ void main() {
       await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint('DEVICE: read-only partner pagination verified');
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('favorite-1')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      expect(find.byKey(const Key('favorite-1')).hitTestable(), findsOneWidget);
+      await tester.tap(find.byKey(const Key('favorite-1')));
+      await settle();
+      expect(savedStations, {1});
+      expect(find.text('Remove saved station'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('favorites-open')),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      expect(
+        find.byKey(const Key('favorites-open')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('favorites-open')));
+      await settle();
+      expect(find.text('Device fixture station 1'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('favorite-1')));
+      await settle();
+      expect(savedStations, isEmpty);
+      expect(find.text('No saved stations yet.'), findsOneWidget);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('favorite-1')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      expect(find.byKey(const Key('favorite-1')).hitTestable(), findsOneWidget);
+      expect(find.text('Save station'), findsOneWidget);
+      debugPrint(
+        'DEVICE: customer favorites and private catalog status verified',
+      );
+
       await tester.tap(find.byTooltip('Account'));
       await settle();
       await tester.tap(find.text('Invoice history'));

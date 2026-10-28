@@ -17,7 +17,8 @@
     "test:connectors": "node tests/canonical-topology.cjs",
     "test:reservation-lifecycle": "node tests/reservation-lifecycle.cjs",
     "test:command-recovery": "node tests/command-recovery.cjs",
-    "test:nearby": "node tests/nearby-catalog.cjs"
+    "test:nearby": "node tests/nearby-catalog.cjs",
+    "test:favorites": "node tests/station-favorites.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

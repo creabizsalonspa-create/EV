@@ -1,0 +1,53 @@
+{
+  "base": "822532a",
+  "scope": "canonical managed/discovery station favorites; partner favorites unfinished",
+  "laravel": {
+    "passed": 263,
+    "assertions": 7644
+  },
+  "favorite_backend": {
+    "passed": 5,
+    "assertions": 81
+  },
+  "catalog_postgres": {
+    "passed": 54,
+    "assertions": 814
+  },
+  "connector_process_races": {
+    "passed": 14,
+    "assertions": 197
+  },
+  "finance_postgres": {
+    "passed": 146,
+    "assertions": 6381
+  },
+  "finance_process_races": {
+    "passed": 41,
+    "assertions": 539
+  },
+  "flutter": {
+    "passed": 111,
+    "deliberate_live_only_skips": 9,
+    "analysis": "clean"
+  },
+  "focused_favorite_workspace": {
+    "passed": 10
+  },
+  "native_real_laravel_topology_favorites": {
+    "passed": 1
+  },
+  "browser": [
+    "real Laravel favorites/CSRF/privacy/lost ack/pagination",
+    "EN/AR",
+    "390/768/1440 Light/Dark",
+    "existing frontend/localization/nearby"
+  ],
+  "screenshots": {
+    "count": 7,
+    "arabic_dark_390_inspected": true
+  },
+  "host_native_guards": 8,
+  "coverage_guards": 5,
+  "hosted_new_source": "pending",
+  "external_acceptance": false
+}

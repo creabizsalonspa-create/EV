@@ -322,6 +322,24 @@ class _WorkspaceState extends State<Workspace> {
       });
   }
 
+  void chooseConnectors(Station station) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConnectorChoicesView(
+          station: station,
+          loader: (page) async => ApiPage.fromJson(
+            await api!.request(
+              'stations/${station.id}/connectors',
+              query: {'page': '$page'},
+            ),
+            (v) => v,
+          ),
+          onReserve: reserve,
+        ),
+      ),
+    );
+  }
+
   Future<void> reserve(Station station) async {
     final date = await showDatePicker(
       context: context,
@@ -799,21 +817,41 @@ class _WorkspaceState extends State<Workspace> {
             children: [
               CatalogView(
                 key: catalogKey,
-                onChooseConnectors: (station) => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => ConnectorChoicesView(
-                      station: station,
-                      loader: (page) async => ApiPage.fromJson(
-                        await api!.request(
-                          'stations/${station.id}/connectors',
-                          query: {'page': '$page'},
+                onChooseConnectors: chooseConnectors,
+                onFavorite: (station, desired) =>
+                    api!.setFavorite(station.id, desired),
+                onExpired: expiredSession,
+                onFavorites: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (routeContext) => Scaffold(
+                        appBar: AppBar(
+                          title: Text(
+                            EvStrings.of(routeContext).t('savedStations'),
+                          ),
                         ),
-                        (v) => v,
+                        body: CatalogView(
+                          savedOnly: true,
+                          loader: (_, page) => api!.favorites(page: page),
+                          customer: true,
+                          onExpired: expiredSession,
+                          onFavorite: (station, desired) =>
+                              api!.setFavorite(station.id, desired),
+                          onChooseConnectors: (station) {
+                            Navigator.of(routeContext).pop();
+                            chooseConnectors(station);
+                          },
+                          onReserve: (station) async {
+                            Navigator.of(routeContext).pop();
+                            await reserve(station);
+                          },
+                        ),
                       ),
-                      onReserve: reserve,
                     ),
-                  ),
-                ),
+                  );
+                  if (mounted && account?.role == 'customer')
+                    await catalogKey.currentState?.refresh();
+                },
                 onRoaming: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => RoamingView(
@@ -827,8 +865,11 @@ class _WorkspaceState extends State<Workspace> {
                     ),
                   ),
                 ),
-                loader: (filter, page) =>
-                    api!.catalog(filter: filter, page: page),
+                loader: (filter, page) => api!.catalog(
+                  filter: filter,
+                  page: page,
+                  includeFavorites: account?.role == 'customer',
+                ),
                 customer: account!.role == 'customer',
                 busy: busy,
                 onReserve: reserve,

@@ -1,3 +1,7 @@
+# Customer favorites additive APIs
+
+Protected GET favorites/status (1–25 station_ids), GET favorites (25/page), idempotent PUT/DELETE favorites/{station} share cookie/native-v1 records. Customer-only, existing CSRF/throttles, no private fields on public discovery and no change to charging capability. See CUSTOMER_FAVORITES.md for complete contracts and readiness.
+
 # Verified integration backlog closed — 28 October 2026
 
 PR14 verified source **ae8a10f3bb3758efb072bcea73fe0688197e6e53** passed all10 checks and merged at6d995d2. PR15 safely merged that base, reran all affected checks at **bb75151b1572e073f63f8b664336983a94198b2c**, passed all8 checks (two full platform/PostgreSQL matrices and Android/iOS native validation), and merged at **8573081d3712b1fd2249a9da9030d96f3aa82351**. Both merge trees exactly equal their tested source trees. Actual iOS runtime PDF-render/Keychain/Arabic markers and artifact/log digests are retained in `docs/evidence/native-vendor/hosted-checkpoint.json` and `docs/evidence/catalog-nearby/hosted-checkpoint.json`.
