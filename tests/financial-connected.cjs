@@ -5,24 +5,9 @@ const groups = [
   ["payout-documents", "corporate-billing"], // six logins
   ["external-disputes", "external-disputes-ui", "loyalty"], // seven logins
 ];
-async function runFinancialSuites({
-  run,
-  wait,
-  now = () => performance.now(),
-  log = console.log,
-}) {
-  let completed = now(); // Previous financial suites share this same loopback IP.
-  for (const group of groups) {
-    while (now() - completed < 61000) {
-      const remaining = 61000 - (now() - completed);
-      log(
-        "Respecting the unchanged shared authentication window before the next finance browser batch.",
-      );
-      await wait(Math.min(30000, remaining));
-    }
-    for (const suite of group) await run(suite);
-    completed = now(); // Fixture/render time must never shorten the next window.
-  }
+const { runPacedSuites } = require("./helpers/auth-batches.cjs");
+async function runFinancialSuites(options) {
+  return runPacedSuites(groups, options);
 }
 if (require.main === module) {
   const { spawnSync } = require("node:child_process");

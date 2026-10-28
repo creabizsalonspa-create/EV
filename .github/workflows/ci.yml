@@ -66,20 +66,15 @@ jobs:
             artifacts/external-disputes
             artifacts/finance-loyalty
           if-no-files-found: warn
-      - run: npm run test:invoices
-      - run: npm run test:tariffs
-      - run: npm run test:managed-gate
-      - run: npm run test:connectors
-      - run: npm run test:reservation-lifecycle
-      - run: npm run test:command-recovery
-      - name: Charger admission and no-source operational recovery
-        run: |
-          node tests/charger-ingress.cjs
-          node tests/charger-operations.cjs
-      - name: Canonical non-default OCPP source targets
-        run: EV_CANONICAL_TARGETS=1 EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
-      - name: Customer favorites with paced synthetic authentication
-        run: npm run test:favorites
+      - name: Paced financial history and charger operational regressions
+        run: node tests/operational-connected.cjs
+      - name: Retain operational suite logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: operational-browser-evidence
+          path: artifacts/operational-browser/*.txt
+          if-no-files-found: warn
       - name: Retain customer-favorites browser evidence
         uses: actions/upload-artifact@v4
         if: always()

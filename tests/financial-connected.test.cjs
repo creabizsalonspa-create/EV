@@ -54,3 +54,42 @@ test("a real assertion failure stops orchestration without replay or skipping ah
   );
   assert.deepEqual(calls, ["payout-documents"]);
 });
+test("post-finance operational windows preserve all suites and do not consume the previous finance window", async () => {
+  const { groups } = require("./operational-connected.cjs");
+  const { runPacedSuites } = require("./helpers/auth-batches.cjs");
+  let clock = 0;
+  const starts = [];
+  const ends = [];
+  await runPacedSuites(groups, {
+    now: () => clock,
+    log: () => {},
+    wait: async (ms) => {
+      assert(ms > 0 && ms <= 30000);
+      clock += ms;
+    },
+    run: async (suite) => {
+      starts.push({ suite, time: clock });
+      clock += 10000;
+      ends.push(clock);
+    },
+  });
+  assert.deepEqual(
+    starts.map((x) => x.suite),
+    [
+      "invoice-history",
+      "money-input",
+      "tariffs",
+      "managed-gate",
+      "canonical-topology",
+      "reservation-lifecycle",
+      "command-recovery",
+      "charger-ingress",
+      "charger-operations",
+      "charging-business",
+      "station-favorites",
+    ],
+  );
+  assert.equal(starts[0].time, 61000);
+  assert.equal(starts[4].time - ends[3], 61000);
+  assert.equal(starts[9].time - ends[8], 61000);
+});
