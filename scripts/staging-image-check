@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Inspect the built production-dependency image without networking or data mounts.
+set -euo pipefail
+image=${1:?Usage: scripts/staging-image-check creabiz-ev-business:tag}
+case "$image" in creabiz-ev-business:*) ;; *) echo 'Use an explicitly built Crea-Biz review image.' >&2; exit 2 ;; esac
+docker run --rm --network none --read-only --user www-data --entrypoint php "$image" -r '
+$root = "/var/www/html";
+foreach ([".env", "tests", ".phpunit.result.cache"] as $path) {
+    if (file_exists("$root/$path")) { fwrite(STDERR, "Development material entered runtime image: $path\n"); exit(1); }
+}
+foreach (glob("$root/.env*") as $path) {
+    if (basename($path) !== ".env.example") { fwrite(STDERR, "Private environment file entered runtime image.\n"); exit(1); }
+}
+if (file_exists("/etc/apt/apt.conf.d/99ev-build-ca") || file_exists("/run/secrets/ev_ca_bundle")) { fwrite(STDERR, "Build-only trust configuration entered runtime image.\n"); exit(1); }
+$files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator("$root/database", FilesystemIterator::SKIP_DOTS));
+foreach ($files as $file) {
+    if (preg_match("/\.sqlite(?:3)?(?:-.*)?$/", $file->getFilename())) { fwrite(STDERR, "Local database entered runtime image.\n"); exit(1); }
+}
+foreach (["pdo_pgsql", "intl", "zip", "mbstring", "Zend OPcache"] as $extension) {
+    if (!extension_loaded($extension)) { fwrite(STDERR, "Required PHP extension missing: $extension\n"); exit(1); }
+}
+if (ini_get("upload_max_filesize") !== "5M" || ini_get("post_max_size") !== "6M") { fwrite(STDERR, "Private KYC upload limits differ from tested runtime.\n"); exit(1); }
+$private = "$root/storage/app/private";
+if (!is_dir($private) || fileowner($private) !== 33 || !(fileperms($private) & 0200)) { fwrite(STDERR, "Private storage must exist and belong to the runtime worker.\n"); exit(1); }
+$assets = "$root/public/vendor/leaflet";
+$provenance = json_decode(file_get_contents("$assets/PROVENANCE.json"), true, flags: JSON_THROW_ON_ERROR);
+if ($provenance["version"] !== "1.9.4" || $provenance["license"] !== "BSD-2-Clause") { exit(1); }
+foreach ($provenance["files_sha256"] as $path => $digest) {
+    if (str_contains($path, "..") || str_starts_with($path, "/") || !is_file("$assets/$path") || hash_file("sha256", "$assets/$path") !== $digest) { fwrite(STDERR, "Licensed map asset missing or changed in runtime image.\n"); exit(1); }
+}
+require "$root/vendor/autoload.php";
+if (!class_exists(Illuminate\Foundation\Application::class)) { exit(1); }
+if (class_exists(PHPUnit\Framework\TestCase::class)) { fwrite(STDERR, "Development dependencies entered runtime image.\n"); exit(1); }
+echo "PASS: read-only, unprivileged, offline runtime image has Laravel and required extensions/upload limits, plus exact licensed map assets; no local database, .env, application tests or PHPUnit.\n";
+'
