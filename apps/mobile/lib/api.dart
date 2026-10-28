@@ -1,7 +1,24 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:math';
 import 'session_vault.dart';
+
+/// Non-secret operation identity; retained only for the current explicit form.
+String operationKey() {
+  final bytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  final h = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
+}
+
+class PrivateDocument {
+  final Uint8List bytes;
+  final String mime;
+  const PrivateDocument(this.bytes, this.mime);
+}
 
 class ApiException implements Exception {
   final int status;
@@ -234,6 +251,55 @@ class EvApi {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
+  }) => _request(path, method: method, body: body, query: query);
+
+  Future<dynamic> uploadDocument(
+    String path, {
+    required String kind,
+    required Uint8List bytes,
+    required String mime,
+    required String key,
+  }) {
+    if (!['trade_license', 'identity', 'agreement'].contains(kind) ||
+        !['application/pdf', 'image/png', 'image/jpeg'].contains(mime) ||
+        bytes.isEmpty ||
+        bytes.length > 5 * 1024 * 1024)
+      throw const ApiException(422, 'Select a PDF, PNG or JPEG up to5 MB.');
+    if (!RegExp(r'^[a-zA-Z0-9-]{1,100}$').hasMatch(key))
+      throw ArgumentError('Invalid operation identity');
+    final boundary = 'ev' + operationKey().replaceAll('-', '');
+    final extension = {
+      'application/pdf': 'pdf',
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+    }[mime];
+    final body = BytesBuilder(copy: false)
+      ..add(
+        utf8.encode(
+          '--$boundary\r\nContent-Disposition: form-data; name="kind"\r\n\r\n$kind\r\n--$boundary\r\nContent-Disposition: form-data; name="idempotency_key"\r\n\r\n$key\r\n--$boundary\r\nContent-Disposition: form-data; name="document"; filename="document.$extension"\r\nContent-Type: $mime\r\n\r\n',
+        ),
+      )
+      ..add(bytes)
+      ..add(utf8.encode('\r\n--$boundary--\r\n'));
+    return _request(
+      path,
+      method: 'POST',
+      uploadBytes: body.takeBytes(),
+      uploadType: 'multipart/form-data; boundary=$boundary',
+    );
+  }
+
+  Future<PrivateDocument> downloadDocument(String path) async =>
+      await _request(path, binary: true) as PrivateDocument;
+
+  Future<dynamic> _request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+    Uint8List? uploadBytes,
+    String? uploadType,
+    bool binary = false,
   }) async {
     if (!RegExp(r'^[a-z0-9/-]+$').hasMatch(path)) {
       throw ArgumentError('Invalid API path');
@@ -251,14 +317,20 @@ class EvApi {
       );
       req.followRedirects = false;
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      req.headers.contentType = ContentType.json;
+      req.headers.contentType = uploadType == null
+          ? ContentType.json
+          : ContentType.parse(uploadType);
       req.cookies.addAll(
         _cookies.values.where(
           (cookie) => !cookie.secure || base.scheme == 'https',
         ),
       );
       if (_csrf != null) req.headers.set('X-CSRF-TOKEN', _csrf!);
-      if (body != null) req.write(jsonEncode(body));
+      if (uploadBytes != null) {
+        req.contentLength = uploadBytes.length;
+        req.add(uploadBytes);
+      } else if (body != null)
+        req.write(jsonEncode(body));
       final response = await req.close().timeout(const Duration(seconds: 25));
       if (epoch != _epoch) {
         await response.drain<void>();
@@ -273,10 +345,14 @@ class EvApi {
           _cookies[cookie.name] = cookie;
         }
       }
-      final text = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(const Duration(seconds: 25));
+      final chunks = BytesBuilder(copy: false);
+      await for (final chunk in response.timeout(const Duration(seconds: 25))) {
+        if (chunks.length + chunk.length >
+            (binary ? 5 * 1024 * 1024 : 8 * 1024 * 1024))
+          throw const ApiException(502, 'Response exceeds the supported size.');
+        chunks.add(chunk);
+      }
+      final bytes = chunks.takeBytes();
       // Logout/forget may run while a response body is streaming. Recheck
       // before returning private data or scheduling a rotated-cookie save.
       if (epoch != _epoch) {
@@ -299,6 +375,14 @@ class EvApi {
           response.statusCode >= 200 &&
           response.statusCode < 300)
         await rememberSession();
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      if (binary && response.statusCode >= 200 && response.statusCode < 300) {
+        final mime = response.headers.contentType?.mimeType;
+        if (!['application/pdf', 'image/png', 'image/jpeg'].contains(mime))
+          throw const ApiException(502, 'Unsupported private document type.');
+        return PrivateDocument(bytes, mime!);
+      }
+      final text = utf8.decode(bytes, allowMalformed: true);
       if (response.statusCode == 204) return null;
       dynamic data;
       try {

@@ -10,12 +10,12 @@ class VendorCompanyStaff extends Model
 
     protected $guarded = ['id'];
 
-    protected $attributes = ['status' => 'invited'];
+    protected $attributes = ['status' => 'invited', 'invitation_version' => 1];
 
     protected $hidden = [];
 
     protected function casts(): array
     {
-        return ['permissions' => 'array'];
+        return ['permissions' => 'array', 'invitation_version' => 'integer', 'accepted_at' => 'immutable_datetime'];
     }
 }

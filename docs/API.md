@@ -140,3 +140,8 @@ Saved provider-hosted consent, off-session subscription collection and customer/
 
 
 Credential lifecycle: existing admission GET adds a stored-credential state; GET `vendor-ops/companies/{company}/chargers/{charger}/admission/events?page=1` returns scoped redacted immutable25-row audit. See CHARGER_ADMISSION.md. This is not charger availability or PKI validation.
+
+
+## Native company operations continuation — 28 October 2026
+
+See [NATIVE_VENDOR_OPERATIONS.md](NATIVE_VENDOR_OPERATIONS.md): current web/Flutter creation POSTs use optional stable UUID idempotency; company GET adds private submission-readiness hints; staff acceptance now requires the displayed `expected_version`. Migration/client rollout is coordinated and old unversioned acceptance fails safely. Native company/KYC/staff/inventory workflows use the existing APIs and permissions, with bounded private multipart/binary transport and in-app previews. This is internal/synthetic acceptance only.

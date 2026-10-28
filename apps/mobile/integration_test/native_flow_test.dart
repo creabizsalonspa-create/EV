@@ -2,6 +2,7 @@
 // Real Laravel protocol acceptance is separately tested in test/live_api_test.dart.
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -11,6 +12,28 @@ import 'package:creabiz_ev/main.dart';
 import 'package:creabiz_ev/preferences.dart';
 import 'package:creabiz_ev/session_vault.dart';
 import '../test/fixtures/tls.dart';
+
+List<int> syntheticKycPdf() {
+  const stream = 'BT /F1 18 Tf 20 100 Td (Synthetic KYC fixture) Tj ET';
+  final objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Length ${stream.length} >>\nstream\n$stream\nendstream',
+  ];
+  final text = StringBuffer('%PDF-1.4\n'), offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(text.length);
+    text.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final start = text.length;
+  text.write('xref\n0 6\n0000000000 65535 f \n');
+  for (final offset in offsets)
+    text.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  text.write('trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n$start\n%%EOF\n');
+  return utf8.encode(text.toString());
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +51,38 @@ void main() {
       var loggedIn = false;
       var pricingAmount = 125, pricingVersion = 1;
       bool mandateRevoked = false;
+      final pdf = syntheticKycPdf();
+      final evidenceDirectory = await Directory.systemTemp.createTemp(
+        'creabiz-synthetic-evidence-',
+      );
+      final evidenceFile = await File(
+        '${evidenceDirectory.path}/synthetic.pdf',
+      ).writeAsBytes(pdf);
+      const pickerChannel = MethodChannel(
+        'miguelruivo.flutter.plugins.filepicker',
+      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(pickerChannel, (call) async {
+            if (call.method == 'clear') return true;
+            if (call.method == 'custom')
+              return [
+                {
+                  'path': evidenceFile.path,
+                  'name': 'synthetic.pdf',
+                  'size': pdf.length,
+                  'bytes': null,
+                },
+              ];
+            return null;
+          });
+      addTearDown(() async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(pickerChannel, null);
+        await evidenceDirectory.delete(recursive: true);
+      });
+      Map<String, dynamic>? managedCompany;
+      bool evidenceUploaded = false;
+
       final subscription = server.listen((request) async {
         request.response.headers.contentType = ContentType.json;
         final path = request.uri.path;
@@ -118,6 +173,98 @@ void main() {
           expectSync(loggedIn, isTrue);
           mandateRevoked = true;
           result = {};
+        } else if (path == '/api/regions') {
+          result = [
+            {'country': 'AE', 'timezone': 'Asia/Dubai'},
+          ];
+        } else if (path == '/api/vendor-ops/companies') {
+          expectSync(loggedIn, isTrue);
+          if (request.method == 'POST') {
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+            expectSync(
+              body['idempotency_key'],
+              matches(RegExp(r'^[a-f0-9-]{36}$')),
+            );
+            managedCompany = {
+              'id': 1,
+              'legal_name': body['legal_name'],
+              'country': body['country'],
+              'license_expires_on': body['license_expires_on'],
+              'status': 'draft',
+              'capabilities': {
+                'owner': true,
+                'company_read': true,
+                'private_evidence': true,
+                'inventory_read': true,
+                'inventory_write': true,
+                'inventory_operational': false,
+              },
+            };
+            result = managedCompany;
+            request.response.statusCode = 201;
+          } else
+            result = {
+              'data': managedCompany == null ? [] : [managedCompany],
+              'current_page': 1,
+              'last_page': 1,
+              'total': managedCompany == null ? 0 : 1,
+            };
+        } else if (path == '/api/vendor-ops/companies/1') {
+          expectSync(loggedIn, isTrue);
+          result = {
+            ...?managedCompany,
+            'submission_readiness': {
+              'editable': true,
+              'license_valid': true,
+              'trade_license_present': evidenceUploaded,
+            },
+          };
+        } else if (path == '/api/vendor-ops/companies/1/documents') {
+          expectSync(loggedIn, isTrue);
+          if (request.method == 'POST') {
+            expectSync(
+              request.headers.contentType?.mimeType,
+              'multipart/form-data',
+            );
+            expectSync(
+              request.headers.value('X-CSRF-TOKEN'),
+              'synthetic-device-csrf',
+            );
+            final raw = latin1.decode(
+              await request.fold<List<int>>([], (a, b) => a..addAll(b)),
+            );
+            expectSync(raw, contains('%PDF-1.4'));
+            expectSync(raw, contains('name="idempotency_key"'));
+            evidenceUploaded = true;
+            request.response.statusCode = 201;
+            result = {'id': 5};
+          } else
+            result = {
+              'data': evidenceUploaded
+                  ? [
+                      {
+                        'id': 5,
+                        'kind': 'trade_license',
+                        'mime_type': 'application/pdf',
+                        'size_bytes': pdf.length,
+                        'created_at': '2026-10-28',
+                      },
+                    ]
+                  : [],
+              'current_page': 1,
+              'last_page': 1,
+              'total': evidenceUploaded ? 1 : 0,
+            };
+        } else if (path == '/api/vendor-ops/companies/1/documents/5') {
+          expectSync(loggedIn && evidenceUploaded, isTrue);
+          request.response.headers.contentType = ContentType(
+            'application',
+            'pdf',
+          );
+          request.response.add(pdf);
+          await request.response.close();
+          return;
         } else if (path == '/api/finance/stations') {
           result = {
             'data': [
@@ -424,6 +571,60 @@ void main() {
       await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint('DEVICE: exact Arabic vendor pricing verified');
+      await tester.tap(find.byTooltip('الحساب'));
+      await settle();
+      await tester.tap(find.text('مخزون الشركة'));
+      await settle();
+      await tester.tap(find.text('إنشاء شركة'));
+      await settle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'الاسم القانوني للشركة'),
+        'شركة اختبار الجهاز',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'رقم الرخصة التجارية'),
+        'SYNTHETIC-DEVICE',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'انتهاء الرخصة (YYYY-MM-DD)'),
+        '2030-12-31',
+      );
+      await tester.scrollUntilVisible(
+        find.widgetWithText(FilledButton, 'حفظ'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'حفظ'));
+      await settle();
+      expect(find.text('شركة اختبار الجهاز'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('إدارة الشركة'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('إدارة الشركة'));
+      await settle();
+      await tester.tap(find.text('مستندات التحقق الخاصة'));
+      await settle();
+      await tester.tap(find.widgetWithText(FilledButton, 'رفع دليل خاص'));
+      await settle();
+      await tester.tap(find.text('اختيار PDF أو PNG أو JPEG'));
+      await settle();
+      await tester.tap(find.byType(Checkbox));
+      await settle();
+      await tester.tap(find.widgetWithText(FilledButton, 'رفع دليل خاص'));
+      await settle();
+      expect(evidenceUploaded, isTrue);
+      await tester.tap(find.text('عرض المستند الخاص'));
+      await settle();
+      expect(find.byKey(const Key('private-document-ready')), findsOneWidget);
+      for (var i = 0; i < 4; i++) {
+        await tester.tap(find.byType(BackButton));
+        await settle();
+      }
+      debugPrint(
+        'DEVICE: native vendor onboarding and private PDF preview verified',
+      );
 
       expect(
         Directionality.of(tester.element(find.byType(Workspace))),

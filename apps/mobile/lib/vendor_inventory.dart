@@ -4,6 +4,9 @@ import 'strings.dart';
 import 'vendor_topology.dart';
 import 'charger_admission.dart';
 import 'topology_strings.dart';
+import 'vendor_company.dart';
+import 'vendor_forms.dart';
+import 'vendor_operations_strings.dart';
 
 /// Existing company inventory APIs; no hardware command or inferred live state.
 class VendorInventoryView extends StatefulWidget {
@@ -180,6 +183,22 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
     }
   }
 
+  Future<void> createInventory() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => VendorEditView(
+          api: widget.api,
+          onExpired: widget.onExpired,
+          kind: ['company', 'site', 'charger', 'connector'][level],
+          company: widget.company,
+          site: widget.site,
+          charger: widget.charger,
+        ),
+      ),
+    );
+    if (mounted) await load(page: target);
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), p = data;
@@ -204,6 +223,44 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
           padding: const EdgeInsets.all(16),
           children: [
             Text(tr('disclaimer')),
+            if (level == 0) ...[
+              FilledButton(
+                onPressed: busy ? null : createInventory,
+                child: Text(vendorOpsText(context, 'newCompany')),
+              ),
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => VendorRecordsView(
+                              api: widget.api,
+                              onExpired: widget.onExpired,
+                              kind: 'invitations',
+                            ),
+                          ),
+                        );
+                        if (mounted) load();
+                      },
+                child: Text(vendorOpsText(context, 'invitations')),
+              ),
+            ] else if (writer && capabilities['inventory_operational'] == true)
+              FilledButton(
+                onPressed: busy ? null : createInventory,
+                child: Text(
+                  vendorOpsText(
+                    context,
+                    [
+                      'newCompany',
+                      'newSite',
+                      'newCharger',
+                      'newConnector',
+                    ][level],
+                  ),
+                ),
+              ),
+
             if (busy) const LinearProgressIndicator(),
             if (error != null) ...[
               Text(s.t(errorKey(error!))),
@@ -329,6 +386,26 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                             ),
                           ],
                         ],
+                        if (level == 0 &&
+                            (row['capabilities'] as Map?)?['company_read'] ==
+                                true)
+                          TextButton(
+                            onPressed: busy
+                                ? null
+                                : () async {
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => VendorCompanyView(
+                                          api: widget.api,
+                                          onExpired: widget.onExpired,
+                                          company: row['id'] as int,
+                                        ),
+                                      ),
+                                    );
+                                    if (mounted) load(page: target);
+                                  },
+                            child: Text(vendorOpsText(context, 'company')),
+                          ),
                         if (level < 3 &&
                             (level != 0 ||
                                 (row['capabilities']

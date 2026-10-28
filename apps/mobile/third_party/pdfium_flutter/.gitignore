@@ -1,0 +1,7 @@
+.lib/
+.cxx/
+build/
+**/PDFium.xcframework/
+**/.pdfium_hash
+**/pdfium.zip
+__pycache__/

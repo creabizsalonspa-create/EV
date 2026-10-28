@@ -12,6 +12,7 @@ RUN apt-get update \
  && docker-php-ext-install -j2 pdo_pgsql intl zip mbstring opcache \
  && a2enmod rewrite headers \
  && rm -rf /var/lib/apt/lists/*
+COPY infra/php/uploads.ini /usr/local/etc/php/conf.d/ev-uploads.ini
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 RUN sed -ri 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/*.conf \
  && printf '<Directory /var/www/html/public>\nAllowOverride All\nRequire all granted\n</Directory>\n' > /etc/apache2/conf-available/ev.conf \

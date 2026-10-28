@@ -1,0 +1,7 @@
+# Upstream and build verification
+
+Vendored unmodified Dart/Darwin/desktop source from MIT-licensed `pdfium_flutter0.1.9`, pub archive SHA-256 `0c8b7d5d11d20a1486eade599648e907067568955bd14a1b06de076a968b60a1`. Original LICENSE, README and changelog remain. Remove the upstream monorepo-only `resolution: workspace` for standalone dependency use.
+
+Android's original CMake downloaded the native archive without a pinned hash. The local CMake uses `fetch_pdfium.py`: fixed release/origin, standard verified TLS, official GitHub asset digest/size per ABI, verified cached archives, regular-file-only bounded extraction and atomic output. No CLI URL/hash override. Keep Python3 available for Android builds. Apple SPM/pod binaries retain upstream SHA-256 verification. No native binary is checked into this repository. Flutter product platforms remain Android/iOS; other upstream platform sources are retained without claiming tested desktop delivery.
+
+`android/artifacts.json` records the official release metadata URL and the four Android asset digests retrieved from that HTTPS API. Version7520 matches the upstream Dart bindings and Apple XCFramework. Dependency/PDFium security refresh and license review remain part of release maintenance, rather than silently changing the binary ABI. Tests: repository `apps/mobile/tool/test_pdfium_assets.py` plus actual hosted Android/iOS builds and private-PDF device flow.

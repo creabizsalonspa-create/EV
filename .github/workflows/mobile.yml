@@ -11,6 +11,10 @@ on:
         "tests/native-charger-operations.cjs",
         "tests/native-payment-recovery.cjs",
         "tests/native-recurring-payments.cjs",
+        "tests/native-vendor-onboarding.cjs",
+        "services/business-api/tests/Fixtures/native-vendor-onboarding.php",
+        "infra/php/uploads.ini",
+        "scripts/start",
         "services/business-api/tests/Fixtures/recurring-payments.php",
         "services/business-api/routes/recurring_payments.php",
         "tests/native-subscription-dunning.cjs",
@@ -40,6 +44,10 @@ on:
         "tests/native-charger-operations.cjs",
         "tests/native-payment-recovery.cjs",
         "tests/native-recurring-payments.cjs",
+        "tests/native-vendor-onboarding.cjs",
+        "services/business-api/tests/Fixtures/native-vendor-onboarding.php",
+        "infra/php/uploads.ini",
+        "scripts/start",
         "services/business-api/tests/Fixtures/recurring-payments.php",
         "services/business-api/routes/recurring_payments.php",
         "tests/native-subscription-dunning.cjs",
@@ -103,6 +111,8 @@ jobs:
           PY
             exit 1
           fi
+      - name: Verify native PDF artifact security boundaries
+        run: python3 -B apps/mobile/tool/test_pdfium_assets.py
       - run: flutter build apk --debug
         if: runner.os == 'Linux'
         working-directory: apps/mobile

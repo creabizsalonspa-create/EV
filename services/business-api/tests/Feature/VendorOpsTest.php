@@ -109,14 +109,14 @@ class VendorOpsTest extends TestCase
         $this->actingAs($owner)->postJson('/api/vendor-ops/companies/'.$c->id.'/staff', ['email' => $reader->email, 'permissions' => ['inventory.read']])->assertAccepted();
         $m = VendorCompanyStaff::first();
         $this->actingAs($reader)->getJson('/api/vendor-ops/companies/'.$c->id.'/sites')->assertNotFound();
-        $this->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept')->assertOk();
+        $this->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept', ['expected_version' => $m->fresh()->invitation_version])->assertOk();
         $this->getJson('/api/vendor-ops/companies/'.$c->id.'/sites')->assertOk();
         $this->postJson('/api/vendor-ops/companies/'.$c->id.'/sites', [])->assertNotFound();
         $this->postJson('/api/vendor-ops/companies/'.$c->id.'/staff', ['email' => $writer->email, 'permissions' => ['inventory.write']])->assertNotFound();
-        $this->actingAs($writer)->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept')->assertNotFound();
+        $this->actingAs($writer)->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept', ['expected_version' => $m->fresh()->invitation_version])->assertNotFound();
         $this->actingAs($owner)->deleteJson('/api/vendor-ops/companies/'.$c->id.'/staff/'.$m->id)->assertNoContent();
         $this->actingAs($reader)->getJson('/api/vendor-ops/companies/'.$c->id.'/sites')->assertNotFound();
-        $this->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept')->assertConflict();
+        $this->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept', ['expected_version' => $m->fresh()->invitation_version])->assertConflict();
     }
 
     public function test_inventory_hierarchy_is_tenant_scoped_and_does_not_enable_live_control(): void
@@ -171,7 +171,7 @@ class VendorOpsTest extends TestCase
         $this->actingAs($owner)->postJson('/api/vendor-ops/companies/'.$c->id.'/staff', ['email' => $staff->email, 'permissions' => ['inventory.write']])->assertAccepted();
         $this->assertSame('invited', $m->fresh()->status);
         $this->actingAs($staff)->postJson('/api/vendor-ops/companies/'.$c->id.'/sites', [])->assertNotFound();
-        $this->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept')->assertOk()->assertJsonPath('permissions.0', 'inventory.write');
+        $this->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept', ['expected_version' => $m->fresh()->invitation_version])->assertOk()->assertJsonPath('permissions.0', 'inventory.write');
         $this->postJson('/api/vendor-ops/companies/'.$c->id.'/sites', ['name' => 'Staff managed site', 'country' => 'AE', 'timezone' => 'Asia/Dubai', 'address' => 'Site', 'latitude' => 25, 'longitude' => 55])->assertCreated();
     }
 
@@ -191,7 +191,7 @@ class VendorOpsTest extends TestCase
         $membership = VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $staff->id, 'permissions' => ['inventory.read']]);
         $this->actingAs($staff)->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/vendor-ops/staff-invitations')->assertOk()->assertJsonPath('data.0.company.legal_name', $company->legal_name)->assertJsonMissingPath('data.0.company.trade_license_number');
-        $this->postJson('/api/vendor-ops/staff-invitations/'.$membership->id.'/accept')->assertOk();
+        $this->postJson('/api/vendor-ops/staff-invitations/'.$membership->id.'/accept', ['expected_version' => $membership->fresh()->invitation_version])->assertOk();
         $this->getJson('/api/vendor-ops/companies')->assertOk()->assertJsonPath('data.0.capabilities.inventory_read', true)->assertJsonPath('data.0.capabilities.inventory_write', false)->assertJsonPath('data.0.capabilities.private_evidence', false)->assertJsonPath('data.0.capabilities.company_read', false);
         $this->getJson('/api/vendor-ops/companies/'.$company->id.'/documents')->assertNotFound();
         $this->getJson('/api/vendor-ops/companies/'.$company->id.'/sites')->assertOk();

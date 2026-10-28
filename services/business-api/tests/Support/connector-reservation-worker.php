@@ -4,12 +4,14 @@ use App\Http\Controllers\ChargerAdmissionController;
 use App\Http\Controllers\ChargingOperationsController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\ReservationLifecycleController;
+use App\Http\Controllers\VendorOpsController;
 use App\Models\ChargerCommand;
 use App\Models\Charging\AdmissionProfile;
 use App\Models\Reservation;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorCompanyStaff;
 use App\Services\Charging\AdmissionLifecycle;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\ReservationLifecycle;
@@ -39,7 +41,15 @@ try {
     $request = Request::create('/api/reservations', 'POST', $body);
     $request->setUserResolver(fn () => $actor);
     $operation = $argv[5] ?? 'reserve';
-    if ($operation === 'configure') {
+    if ($operation === 'vendor_company_create') {
+        echo app(VendorOpsController::class)->createCompany($request)->getStatusCode();
+    } elseif ($operation === 'vendor_staff_accept') {
+        app(VendorOpsController::class)->accept($request, VendorCompanyStaff::findOrFail($body['membership_id']));
+        echo '200';
+    } elseif ($operation === 'vendor_staff_revoke') {
+        echo app(VendorOpsController::class)->revoke($request, VendorCompany::findOrFail($body['company_id']), VendorCompanyStaff::findOrFail($body['membership_id']))->getStatusCode();
+    } elseif ($operation === 'configure') {
+
         echo app(ChargerAdmissionController::class)->configure($request, VendorCompany::findOrFail($body['company_id']), VendorCharger::findOrFail($body['charger_id']))->getStatusCode();
     } elseif ($operation === 'admission_expire') {
         $profile = AdmissionProfile::where('charger_id', $body['charger_id'])->firstOrFail();

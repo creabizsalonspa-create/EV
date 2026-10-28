@@ -84,6 +84,12 @@ window.createVendorWorkspace = ({
     function form(parent, title, specs, submit) {
         const f = document.createElement("form");
         f.dataset.vendorForm = title;
+        const creationKey = crypto.randomUUID();
+        const operationInput = document.createElement("input");
+        operationInput.type = "hidden";
+        operationInput.name = "idempotency_key";
+        operationInput.value = creationKey;
+        f.append(operationInput);
         f.append(ui("h3", title));
         for (const spec of specs) {
             if (spec.checks) {
@@ -1426,6 +1432,7 @@ window.createVendorWorkspace = ({
                         await api(
                             base + "staff-invitations/" + m.id + "/accept",
                             "POST",
+                            { expected_version: m.invitation_version },
                         );
                         if (valid(epoch)) await setActor(actor());
                     });
