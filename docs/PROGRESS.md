@@ -1,3 +1,7 @@
+# PR22 validation correction and financial reminder navigation
+
+PR22 sourcef32b170 encountered a real CI fixture collision: loyalty additional invoices randomly chose identical reservation slots. A frozen-clock regression reproduces the fixture error; deterministic next-hour allocation passes all14 loyalty tests/82 assertions without changing production reservation constraints or finance rules. Subscription reminders now open their scoped subscription/private-invoice screens without collection;19 focused native reminder/subscription tests and clean analysis pass. OCPP1.6/2.0.1 local simulator boot/heartbeat/status tests also pass. Hosted source verification and merge remain pending; preserve earlier logs/evidence and do not infer production acceptance. Continue the same coordinated batch with full hosted checkout/SCA and private dispute-evidence parity still incomplete.
+
 # Native financial parity — coordinated continuation in progress
 
 Latest owner acceleration directive (`file_00000000bd50821089c1dbdf8854f2aa`) retains temporary full Agent2 ownership while Agent1 is unavailable. Keep one coordinated native-financial batch on `development/native-financial-parity`; use focused tests during implementation and required full regression at integration. Do not open separate tiny feature PRs or recreate PR21.

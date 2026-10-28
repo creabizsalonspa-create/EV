@@ -58,5 +58,19 @@
     "corporate_browser": "493795b8ee9f25ec6cbb2a5944dc93fcaafe2779ef1eee25331d8ca8ff7d52a6",
     "native_actual_laravel": "246e646ab21b9b46460485e7ba67b306891a60f3c19faa6f437508051f91fe3e",
     "pint": "9788acea8fed07321a2e3001e5c5a5f4b420f04798c1ae5a7aa11afa84720e89"
+  },
+  "followup": {
+    "source_before_fix": "f32b170cbd49847c9f9d699b6fec705162bc1760",
+    "hosted_failure": "https://github.com/creabizsalonspa-create/EV/actions/runs/40683087958",
+    "diagnosis": "LoyaltyEconomicsTest::additionalInvoice selected random days, allowing two synthetic reservations to collide under the production uniqueness constraint. Fixture now allocates the next hourly slot; no production rule changed.",
+    "regression": "Frozen-clock regression failed before fix and passes after; complete LoyaltyEconomicsTest14 tests/82 assertions passed.",
+    "native_notifications": "Subscription reminders link to the exact subscription and private subscription invoice. Opening routes never initiates collection.",
+    "focused_flutter": "19 payment-recovery/subscription tests passed; clean analysis",
+    "log_sha256": {
+      "fixture_red": "36f593b79335606a4348e7d311182bc6258ff7b6ed0cab106aef043e8ec3a483",
+      "fixture_green": "fa51788618c166f74b274a13e995596fb0ecac9b4c83a8118fc2413b7481fc23",
+      "native_links": "982164c97d7028b5aa451951a4c3964256c26354dc464c13ba9eef5fb2432777",
+      "native_links_analysis": "309b184d8d8cab63cc84993f5f1f7fceb1239dc2b268441c260b9bc25e2b6a66"
+    }
   }
 }
