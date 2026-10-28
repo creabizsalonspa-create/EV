@@ -28,6 +28,12 @@
       "test_result": "passed",
       "merge_sha": "8573081d3712b1fd2249a9da9030d96f3aa82351",
       "evidence": "docs/evidence/catalog-nearby/hosted-checkpoint.json"
+    },
+    "pr16": {
+      "source_sha": "e9420176fe82494a2cf43f5bb9809acb90291c54",
+      "test_result": "passed",
+      "merge_sha": "1bee9c94d1a14290c38364361bf1fdc20312acb0",
+      "evidence": "docs/evidence/customer-discovery/hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -165,9 +171,9 @@
     {
       "prd": "2.3",
       "requirement": "Search, maps, routes, favorites, reviews",
-      "implemented_code_scope": "Paginated name/country/connector/power filters; Merged PR15 nearby radius search with spherical distance, stable nearest order and date-line/polar handling on web/Flutter (verified bb75151, merged8573081)",
-      "automated_evidence_scope": "CatalogGeoTest; nearby/frontend/localization browser; catalog/nearby Flutter. Integrated subset through63886428; later candidates explicitly noted",
-      "remaining_scope": "Interactive tiles/markers, address/provider search, routes, price/operator/access filters, source-supported availability, favorites/reviews/moderation",
+      "implemented_code_scope": "Merged nearby radius search plus canonical private favorites and consent-gated web/Flutter current-page maps, clustering/manual centre and opt-in web GPS (PR16 tested e942017, merged1bee9c9)",
+      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers",
+      "remaining_scope": "Unified partner maps/favorites, native GPS, address/operator/access/price filters, supported live filters, routes/stops, reviews/moderation and saved places",
       "atoms": [
         {
           "id": "2.3.1",
@@ -195,7 +201,7 @@
           "software_atom": "Interactive station maps",
           "coded": false,
           "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "note": "Canonical current-page web/Flutter maps are merged in PR16; unified partner maps remain incomplete. No whole-atom credit."
         },
         {
           "id": "2.3.5",
@@ -223,7 +229,7 @@
           "software_atom": "Favorites",
           "coded": false,
           "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "note": "Canonical private favorites are merged across Laravel/web/Flutter in PR16; partner favorites remain incomplete. No whole-atom credit."
         },
         {
           "id": "2.3.9",

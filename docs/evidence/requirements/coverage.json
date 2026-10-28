@@ -30,6 +30,12 @@
       "test_result": "passed",
       "merge_sha": "8573081d3712b1fd2249a9da9030d96f3aa82351",
       "evidence": "docs/evidence/catalog-nearby/hosted-checkpoint.json"
+    },
+    "pr16": {
+      "source_sha": "e9420176fe82494a2cf43f5bb9809acb90291c54",
+      "test_result": "passed",
+      "merge_sha": "1bee9c94d1a14290c38364361bf1fdc20312acb0",
+      "evidence": "docs/evidence/customer-discovery/hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
@@ -334,7 +340,7 @@
           "software_atom": "Interactive station maps",
           "coded": false,
           "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "note": "Canonical current-page web/Flutter maps are merged in PR16; unified partner maps remain incomplete. No whole-atom credit.",
           "stages": {
             "coded": false,
             "tested": false,
@@ -386,7 +392,7 @@
           "software_atom": "Favorites",
           "coded": false,
           "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "note": "Canonical private favorites are merged across Laravel/web/Flutter in PR16; partner favorites remain incomplete. No whole-atom credit.",
           "stages": {
             "coded": false,
             "tested": false,

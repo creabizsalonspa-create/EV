@@ -1,3 +1,7 @@
+# Current verified checkpoint — 28 October 2026
+
+PR14/15/16 are merged. Main application sourcee942017 is verified by all ten checks and integrated at1bee9c9; see docs/ACTIVE_DEVELOPMENT_CHECKPOINT.md and docs/evidence/customer-discovery/hosted-checkpoint.json. Preserve private canonical favorites/maps and all prior finance/EV work. Original42/312 weighting is unchanged, with no broad discovery completion credit while partner/native GPS/routes/reviews scope is missing. The next staging-image hardening work is in progress and must be verified separately; it is not part of this tested application checkpoint. Latest uploaded owner directive grants temporary complete ownership while Agent1 is unavailable; inspect actual remote PR ownership before shared edits. Historical instructions below remain historical.
+
 # Canonical customer favorites candidate — 28 October 2026
 
 PR14/15 integration backlog is closed and its evidence is pushed on main822532a (runtime sourcebb75151, merge8573081). Current single branch development/customer-discovery implements backend/web/Flutter personal saved stations with protected preference lookups, capability preservation, idempotent writes, session fences, paginated/EN/AR/theme flows and real-Laravel tests. See CUSTOMER_FAVORITES.md. This is a new unmerged candidate; Android/iOS/extended device assertions await exact-source hosted verification.
