@@ -6,6 +6,7 @@ use App\Models\Finance\Invoice;
 use App\Services\Finance\FinanceService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class GatewayService
@@ -97,6 +98,9 @@ class GatewayService
                 $reference = $result['reference'];
             } elseif ($kind === 'refund') {
                 abort_unless($checkout->status === 'captured', 409, 'Capture the checkout before refunding.');
+                // The invoice lock also serializes provider dispute ingestion.
+                // Do not send a second cash return while a chargeback is unresolved.
+                abort_if(Schema::hasTable('external_disputes') && DB::table('external_disputes as d')->join('gateway_checkouts as c', 'c.id', '=', 'd.checkout_id')->where('c.invoice_id', $invoice->id)->where('d.settlement_hold', true)->exists(), 409, 'An active provider dispute holds refunds; reconcile its outcome before returning captured funds.');
                 $refunded = (int) DB::table('gateway_operations')->where('checkout_id', $checkout->id)->where('kind', 'refund')->sum('amount_minor');
                 abort_unless($amount > 0 && $amount <= (int) $checkout->amount_minor - $refunded, 409, 'Refund exceeds this capture.');
                 abort_unless($amount <= $this->finance->summary($invoice)['net_collected_minor'], 409, 'Refund exceeds remaining invoice funds.');
@@ -327,6 +331,7 @@ class GatewayService
         return DB::transaction(function () use ($initial, $actor, $outcome, $resolution) {
             $invoice = Invoice::whereKey($initial->invoice_id)->lockForUpdate()->firstOrFail();
             $case = DB::table('gateway_cases')->where('id', $initial->id)->lockForUpdate()->first();
+            abort_if(Schema::hasTable('external_disputes') && DB::table('external_disputes')->where('case_id', $case->id)->exists(), 409, 'Provider dispute holds must be reconciled through the provider dispute workflow.');
             if ($case->status !== 'open') {
                 abort_unless($case->status === $outcome && $case->resolution === $resolution, 409, 'Case already resolved differently.');
 

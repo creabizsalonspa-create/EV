@@ -426,3 +426,10 @@ The hosted continuous-session test exhausted the existing per-account budget whi
 The rate-limit correction passed hosted platform run 40476705397. A parallel run exposed the upstream interval between isOnline=false and socket-registry cleanup. Protocol tests now retry only rejected reconnect handshakes within 12 seconds, then still require accepted boot, heartbeat, stop, final energy and persisted fault recovery. Initial connection and all charging commands are unchanged. Both local protocol tests pass; server rate limits and charger command replay rules remain intact.
 
 Hosted native builds passed, but some iPhone runner attempts timed out before the Dart test began. CI now records Xcode/runtime selection, prefers an installed iOS 18 simulator when available, bounds Flutter launch below the job timeout and retains verbose/screenshot/Runner diagnostics. No certificate or test assertion is bypassed. New device-run results must be recorded separately.
+
+
+## Agent 1 finance v3 refreshed-base QA — 28 October 2026 (Dubai)
+
+Financial-only candidate on `development/finance-commercial-v3`, refreshed to integrated PR17 `6a9b404`. Payout provider workflows, external dispute/evidence controls, corporate billing, six private PDF/CSV sources and non-cash loyalty now include backend, web/Admin, tenant/security tests and financial API contracts. Existing recurring/immutable finance and Agent2 EV/native/map/deployment source are preserved.
+
+Executed: Laravel331/8320, PostgreSQL214/7057 plus58process races/758, Pint318files, Composer strict/audit, connected loyalty/payout-document/corporate/dispute browsers and isolated evidence retry UI. Evidence: [finance-v3](evidence/finance-v3); exact continuation and remaining software: [ACTIVE_AGENT1_FINANCE_CHECKPOINT.md](ACTIVE_AGENT1_FINANCE_CHECKPOINT.md). Hosted candidate checks/merge are pending. Weighted coverage remains50.51% tested/merged, not increased for unmerged work. No full release, real bank/merchant/partner or legal tax acceptance is claimed.

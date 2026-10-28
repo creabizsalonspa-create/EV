@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+./scripts/php -r '
+require "vendor/autoload.php";
+$app = require "bootstrap/app.php";
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if (!$app->environment("local", "testing") || config("payments.provider") !== "mock") {fwrite(STDERR, "Local mock configuration required.\n");exit(1);}
+$p = ".env"; $text = file_get_contents($p);
+$text = preg_replace("/^PAYOUT_TEST_ENABLED=.*\\R?/m", "", $text);
+file_put_contents($p, rtrim($text)."\nPAYOUT_TEST_ENABLED=true\n");
+'
+./scripts/php artisan config:clear

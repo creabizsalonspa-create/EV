@@ -1,0 +1,27 @@
+{
+  "sources": [
+    {
+      "font": "DejaVuSans.ttf",
+      "upstream": "https://dejavu-fonts.github.io/",
+      "distribution_package": "Debian fonts-dejavu-core 2.37-8",
+      "sha256": "57f73e11f51999432bf7ab22ce55b6f945d5eca1bf824404cfa9ec2e3718c84e",
+      "installed_package_checksum_verified": true
+    },
+    {
+      "font": "DejaVuSans-Bold.ttf",
+      "upstream": "https://dejavu-fonts.github.io/",
+      "distribution_package": "Debian fonts-dejavu-core 2.37-8",
+      "sha256": "a4c5bc453ca281d90ea079e596da7ae0dfeb5777497c29ec254e76d97ff6f890",
+      "installed_package_checksum_verified": true
+    }
+  ],
+  "converter": "tecnickcom/tc-lib-pdf-font 4.6.2",
+  "compiled": {
+    "dejavusans.ctg.z": "e32a1fea0a049ccf1c687eba84f804339c4599eba4eedb1ff4ee4427aee34b93",
+    "dejavusans.json": "f84c8f4b7b01c3a364a393a9272f852a16a80a0006e0f1c80f68c12fcb13e9fd",
+    "dejavusans.z": "ec0e51f1ec732004483037eb5ea01f4938c785e430414f8e7771f9f638ea0d3c",
+    "dejavusansb.ctg.z": "e59d2256ed0a75d999d124c994c42bb025efa782c3e77e251f7497f4f539e089",
+    "dejavusansb.json": "1ec79115a44aa69ae3275521c870d5b1d27a7f4017c766029a9e553cc86c8ebb",
+    "dejavusansb.z": "cbd2cf4418e679c4afa0e8e64737e32a2136dcab26eb1840ca4d358437639147"
+  }
+}

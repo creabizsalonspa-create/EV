@@ -19,7 +19,11 @@
     "test:command-recovery": "node tests/command-recovery.cjs",
     "test:nearby": "node tests/nearby-catalog.cjs",
     "test:favorites": "node tests/station-favorites.cjs",
-    "test:maps": "node tests/map-assets.cjs && node tests/discovery-map.cjs"
+    "test:maps": "node tests/map-assets.cjs && node tests/discovery-map.cjs",
+    "test:payout-documents": "node tests/payout-documents.cjs",
+    "test:corporate": "node tests/corporate-billing.cjs",
+    "test:external-disputes": "node tests/external-disputes.cjs && node tests/external-disputes-ui.cjs",
+    "test:loyalty": "node tests/loyalty.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",
