@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-28",
+  "timezone": "Asia/Dubai",
+  "base_source": "eb591e4a6000b011058660aa1eb280f6f8dabc74",
+  "laravel": {
+    "passed": 258,
+    "assertions": 7563
+  },
+  "postgres_catalog_topology": {
+    "passed": 49,
+    "assertions": 733
+  },
+  "postgres_connector_process_races": {
+    "passed": 14,
+    "assertions": 197
+  },
+  "flutter": {
+    "passed": 101,
+    "deliberate_live_only_skips": 9,
+    "analysis": "clean"
+  },
+  "focused_catalog_http_widget": {
+    "passed": 5
+  },
+  "native_real_laravel_smoke": {
+    "passed": 1,
+    "scope": "loopback synthetic fleet/meter/booking/privacy; nearby pagination and far exclusion"
+  },
+  "browser": [
+    "nearby catalog",
+    "existing frontend contracts",
+    "localization"
+  ],
+  "external_acceptance": {
+    "physical_charger": false,
+    "real_device_gps_navigation": false,
+    "live_ocpi_partner": false,
+    "merchant_payment": false,
+    "app_store": false
+  },
+  "hosted_exact_source": "pending"
+}

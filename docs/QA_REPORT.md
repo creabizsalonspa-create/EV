@@ -1,6 +1,6 @@
 # Agent2 nearby catalog continuation — 28 October 2026
 
-Nearby catalog candidate: Laravel258/7563; clean Flutter analysis and101 passing tests with9 deliberate live-only skips; nearby/frontend/localization browser suites pass. PostgreSQL49/732 catalog/topology plus14/197 connector races passed before the final pagination-link assertion; final PostgreSQL rerun and hosted source checks pending; see CATALOG_NEARBY.md. Counts must be verified against final logs before merge.
+Nearby catalog candidate: Laravel258/7563; clean Flutter analysis and101 passing tests with9 deliberate live-only skips; focused catalog HTTP/widget5 pass; native real-Laravel fleet/meter/booking/privacy smoke1 passes including radius pagination and far exclusion. Nearby/frontend/localization browser suites pass. Final PostgreSQL49/733 catalog/topology plus14/197 independent-process connector/admission races pass. Hosted source checks pending; see CATALOG_NEARBY.md. Counts must be verified against final logs before merge.
 
 Agent1 exclusively owns financial/commercial business logic and backend/web/Admin finance. This slice changes EV catalog APIs/UI/tests only. Native-vendor PR14 must pass exact-source iOS CI before integration. Interactive maps remain unfinished software.
 
