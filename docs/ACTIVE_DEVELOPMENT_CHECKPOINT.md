@@ -1,5 +1,22 @@
 # Active development checkpoint
 
+## Verified integration — 28 October 2026
+
+Agent 2 is the sole active owner of the complete financial and non-financial software. Latest fully hosted-tested head: **a3536d7f2c68ac05e116a04cd46df5ceaf76a605** (implementation eae79cb41677056890d33625d0c2700bcf94bcf4). Merged through PR #10 at **e2f60f8854f2efd285864d764827865ed8191e81** on `development/fullstack-continuation`; the merge tree exactly matches the tested head. PR #9 is also marked merged by ancestry; Finance PR #7 was integrated in full through PR #8. All original branches/history remain preserved. Documentation/evidence-only follow-ups may follow this code checkpoint.
+
+All ten push/PR checks on the tested head completed successfully: platform/browser/OCPP/OCPI, finance PostgreSQL, connector PostgreSQL, Android debug and unsigned iOS simulator/UI. Native runs40606257887 and40606263446 passed: the first completed on its first attempt; the second exercised the bounded, run-owned, pre-Dart-only reboot and completed its second attempt. Both current diagnostic artifacts were downloaded and inspected; Keychain and Arabic-pricing completion markers are present. Earlier cancelled/pre-Dart-failed attempts are not counted as passes. Artifact IDs/digests, exact check URLs and recovery proof are in `docs/evidence/subscription-dunning/hosted-checkpoint.json`.
+
+Verified: Laravel231/7233; PostgreSQL financial126/6164 and all-process races32/417; connector core42/620 and its12-race subset/166 (overlapping the all-process suite, not an additional32+12 unique cases). Flutter80 passes/seven deliberate default live-only skips; six real-Laravel fixture suites and separate generic native API smoke passed; three iOS startup guard tests, analysis, Composer strict, scheduler registration, TLS/mTLS and connected browser suites passed. No current implementation test failures or uncommitted source work at this checkpoint. Later metadata changes do not alter application/test/schema/dependency source.
+
+Completed slices: secure one-time charger credentials and TLS/mTLS ingress; exact canonical company/site/station/charger/source namespace fences and production bound-identity/HTTPS requirements; encrypted source-proof operational investigation without blind resend or forced capacity release; full Agent1 finance recovery/credit integration; canonical native recovery/history/provider inspection; immutable1/3/7-day in-app dunning across backend/web/Flutter; exact server-precision amount/EN/AR/error/privacy behavior and production-limit-aware QA. Preserve these modules rather than rebuilding them.
+
+**Exact next implementation:** provider-hosted saved mandate enrollment, consent/revocation and server-owned customer/SetupIntent binding; then off-session collection through the canonical gateway/recovery/receipt architecture, SCA/decline handling, bounded dunning and external delivery. Do not create a second ledger/state machine. Continue production CSMS/JWT/rider/certificate operations, full authorized OCPI, interactive maps and the remaining customer/vendor/Admin/fleet/loyalty/security/deployment/release requirements. The full original software remains unfinished; this is a development checkpoint, not final release acceptance.
+
+External acceptance remains separate: physical chargers/meters/firmware, real merchant PSP/mandate/payout and OCPI partners, production security/restore, physical devices/signing/current store eligibility. The reusable environment draft is saved but not applied/published; current diagnostic downloads worked, while general fresh-task/Docker-volume restoration remains unverified. Read the detailed contracts/commands below, fetch actual GitHub state, and skip superseded merge instructions if the PR is already merged.
+
+## Earlier candidate records — historical, superseded
+
+
 Owner: **Agent 2, complete financial and non-financial software**, until the owner explicitly reassigns it. Full original PRODUCT_REQUIREMENTS scope remains required. Do not restart or rebuild completed modules.
 
 ## Source and integration

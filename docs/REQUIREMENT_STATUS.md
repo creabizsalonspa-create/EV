@@ -1,6 +1,6 @@
 # Requirement-by-requirement continuation status
 
-## Current implementation evidence (source478a06e; see PR #10 checks)
+## Current implementation evidence (tested a3536d7, merged PR #10; see hosted-checkpoint.json)
 
 | Sub-requirement | Status | Evidence and precise remaining boundary |
 |---|---|---|
