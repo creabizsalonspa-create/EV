@@ -86,3 +86,5 @@ require __DIR__.'/subscription_credit_webhooks.php';
 Route::post('/payment-enrollments/stripe-test/webhook', [RecurringPaymentController::class, 'webhook'])->middleware('throttle:platform-api');
 
 Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/favorites.php');
+
+Route::prefix('v1')->group(__DIR__.'/discovery.php');

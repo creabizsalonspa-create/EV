@@ -16,6 +16,7 @@ dependencies:
   pdfrx: 2.2.24
   flutter_map: 8.3.2
   latlong2: 0.9.1
+  geolocator: 14.0.2
 dependency_overrides:
   pdfium_flutter:
     path: third_party/pdfium_flutter

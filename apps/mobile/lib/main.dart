@@ -817,6 +817,7 @@ class _WorkspaceState extends State<Workspace> {
             children: [
               CatalogView(
                 key: catalogKey,
+                discoveryApi: api,
                 onChooseConnectors: chooseConnectors,
                 onFavorite: (station, desired) =>
                     api!.setFavorite(station.id, desired),
@@ -831,6 +832,7 @@ class _WorkspaceState extends State<Workspace> {
                           ),
                         ),
                         body: CatalogView(
+                          discoveryApi: api,
                           savedOnly: true,
                           loader: (_, page) => api!.favorites(page: page),
                           customer: true,

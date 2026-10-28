@@ -133,7 +133,12 @@ void main() {
     'tiles require explicit consent and absent coordinates stay out of map',
     (tester) async {
       await tester.pumpWidget(
-        MaterialApp(home: StationMapView(stations: [station(null, null)])),
+        MaterialApp(
+          home: StationMapView(
+            stations: [station(null, null)],
+            tileProvider: FixtureTiles(),
+          ),
+        ),
       );
       expect(find.byKey(const Key('enable-map')), findsOneWidget);
       expect(

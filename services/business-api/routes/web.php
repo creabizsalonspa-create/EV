@@ -110,3 +110,5 @@ Route::post('/api/reservations/{reservation}/check-in', [ReservationLifecycleCon
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/charging_operations.php');
 
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/favorites.php');
+
+Route::prefix('api')->group(__DIR__.'/discovery.php');

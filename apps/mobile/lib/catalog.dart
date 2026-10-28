@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'station_map.dart';
+import 'discovery_client.dart';
 import 'strings.dart';
 import 'topology_strings.dart';
 import 'vendor_forms.dart' show vendorDigits;
@@ -67,6 +68,7 @@ class CatalogController extends ChangeNotifier {
 
 class CatalogView extends StatefulWidget {
   final CatalogLoader loader;
+  final EvApi? discoveryApi;
   final VoidCallback? onRoaming, onFavorites, onExpired;
   final Future<bool> Function(Station, bool)? onFavorite;
   final bool savedOnly;
@@ -77,6 +79,7 @@ class CatalogView extends StatefulWidget {
   const CatalogView({
     super.key,
     required this.loader,
+    this.discoveryApi,
     this.onRoaming,
     this.onFavorites,
     this.onExpired,
@@ -201,7 +204,7 @@ class CatalogViewState extends State<CatalogView> {
                   icon: const Icon(Icons.star_outline),
                   label: Text(s.t('savedStations')),
                 ),
-              if (page != null && page.items.isNotEmpty)
+              if (!widget.savedOnly || (page != null && page.items.isNotEmpty))
                 OutlinedButton.icon(
                   key: const Key('catalog-map-open'),
                   icon: const Icon(Icons.map_outlined),
@@ -214,8 +217,11 @@ class CatalogViewState extends State<CatalogView> {
                     final selected = await Navigator.of(context).push<Station>(
                       MaterialPageRoute(
                         builder: (_) => StationMapView(
-                          stations: page.items,
+                          stations: page?.items ?? const [],
                           customer: widget.customer,
+                          discoveryClient: widget.discoveryApi == null
+                              ? null
+                              : DiscoveryClient(widget.discoveryApi!),
                           onSearch: widget.savedOnly
                               ? null
                               : (lat, lng) {

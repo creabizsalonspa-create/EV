@@ -754,3 +754,20 @@ form label {
 .station-map-pin {background:#087f75;color:white;border:2px solid white;border-radius:50%;display:grid;place-items:center;font-weight:700;box-shadow:0 2px 8px #0006}
 #station-map .leaflet-popup-content {color:#17242b;max-height:260px;overflow:auto}
 #station-map .leaflet-popup-content a {display:block;color:#075e57;margin-block:12px}
+.discovery-tools {min-width:0;display:grid;gap:1rem}
+.discovery-tools fieldset {min-width:0;display:grid;gap:.75rem;border:1px solid var(--border,#64748b);border-radius:16px;margin-block:1rem;padding:1rem}
+.discovery-tools [role=listbox] {display:grid;gap:.5rem}
+.discovery-tools [role=option] {text-align:start;white-space:normal;overflow-wrap:anywhere}
+.discovery-tools input[type=checkbox] {width:1.25rem;flex-shrink:0}
+.discovery-tools label {display:flex;flex-wrap:wrap;gap:.5rem}
+.discovery-tools label input[type=text] {flex-basis:100%;min-width:0}
+.journey-stations {display:grid;gap:1rem}
+.journey-stations>div {display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;overflow-wrap:anywhere}
+#discovery-map .discovery-tools label {align-items:stretch;flex-wrap:nowrap}
+#discovery-map .discovery-tools label:has(input[type=checkbox]) {flex-direction:row;align-items:flex-start}
+#discovery-map .discovery-tools label:has(input[type=checkbox]) span {flex:1;min-width:0}
+.discovery-tools label input[type=text] {flex-basis:auto;width:100%;min-width:0}
+.discovery-tools form {display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
+.discovery-tools form>* {min-width:0}
+.discovery-tools button {white-space:normal;overflow-wrap:anywhere}
+@media(min-width:800px){.discovery-tools form{grid-template-columns:repeat(2,minmax(0,1fr))}.discovery-tools form>*{grid-column:1/-1}.discovery-tools form>fieldset{grid-column:auto}}

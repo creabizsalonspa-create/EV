@@ -5,6 +5,10 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'foreground_location.dart';
+import 'discovery_client.dart';
+import 'address_search.dart';
+import 'route_planner.dart';
 
 /// Missing coordinates never become a real location at (0, 0).
 bool stationHasMapPoint(Station station) =>
@@ -33,12 +37,16 @@ class StationMapView extends StatefulWidget {
   final List<Station> stations;
   final TileProvider? tileProvider;
   final bool customer;
+  final DiscoveryClient? discoveryClient;
+  final Future<ForegroundFix> Function()? locationReader;
   final void Function(double latitude, double longitude)? onSearch;
   const StationMapView({
     super.key,
     required this.stations,
     this.tileProvider,
     this.customer = false,
+    this.discoveryClient,
+    this.locationReader,
     this.onSearch,
   });
   @override
@@ -47,14 +55,107 @@ class StationMapView extends StatefulWidget {
 
 class _StationMapViewState extends State<StationMapView> {
   bool enabled = false;
+  DiscoveryCapabilities? discoveryCapabilities;
+  bool locating = false;
+  String? locationError;
+  ForegroundFix? fix;
+  int locationGeneration = 0;
   double zoom = 11;
   LatLng? searchPoint;
   final controller = MapController();
   String t(String en, String ar) => EvStrings.of(context).arabic ? ar : en;
   @override
+  void initState() {
+    super.initState();
+    loadDiscoveryCapabilities();
+  }
+
+  Future<void> loadDiscoveryCapabilities() async {
+    try {
+      final result = await widget.discoveryClient?.capabilities();
+      if (mounted) setState(() => discoveryCapabilities = result);
+    } catch (_) {
+      if (mounted) setState(() => discoveryCapabilities = null);
+    }
+  }
+
+  void planRoute([Station? initialStop]) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RoutePlannerView(
+          client: widget.discoveryClient,
+          stations: widget.stations,
+          origin: searchPoint == null
+              ? null
+              : GeoPoint(searchPoint!.latitude, searchPoint!.longitude),
+          initialStop: initialStop,
+          tilesEnabled: enabled,
+        ),
+      ),
+    );
+  }
+
+  @override
   void dispose() {
+    locationGeneration++;
     controller.dispose();
     super.dispose();
+  }
+
+  Future<void> locate() async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        scrollable: true,
+        title: Text(
+          t('Use device location once?', 'استخدام موقع الجهاز مرة واحدة؟'),
+        ),
+        content: Text(
+          t(
+            'Allow a one-time foreground location lookup. It is not saved and does not report arrival. Coordinates go to nearby search only when you press Search; enabling map tiles sends the viewed area to OpenStreetMap. You can enter coordinates manually instead.',
+            'السماح بتحديد الموقع مرة واحدة أثناء استخدام التطبيق. لا يُحفظ الموقع ولا يُبلغ عن الوصول. تُرسل الإحداثيات للبحث القريب عند الضغط على بحث فقط؛ تفعيل الخرائط يرسل المنطقة المعروضة إلى OpenStreetMap. يمكنك إدخال الإحداثيات يدوياً.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: Text(t('Cancel', 'إلغاء')),
+          ),
+          FilledButton(
+            key: const Key('location-consent-accept'),
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text(t('Allow once', 'السماح مرة واحدة')),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted) return;
+    final generation = ++locationGeneration;
+    setState(() {
+      locating = true;
+      locationError = null;
+    });
+    try {
+      final result =
+          await (widget.locationReader ?? ForegroundLocationReader().read)();
+      if (!mounted || generation != locationGeneration) return;
+      setState(() {
+        fix = result;
+        searchPoint = LatLng(result.latitude, result.longitude);
+      });
+      if (enabled && result.latitude.abs() <= 85.05112878)
+        controller.move(searchPoint!, 13);
+    } catch (error) {
+      if (!mounted || generation != locationGeneration) return;
+      setState(
+        () => locationError = error is LocationLookupFailure
+            ? error.reason
+            : 'unavailable',
+      );
+    } finally {
+      if (mounted && generation == locationGeneration)
+        setState(() => locating = false);
+    }
   }
 
   Future<void> details(Station station) async {
@@ -90,6 +191,7 @@ class _StationMapViewState extends State<StationMapView> {
                   final consent = await showDialog<bool>(
                     context: sheet,
                     builder: (dialog) => AlertDialog(
+                      scrollable: true,
                       content: Text(
                         t(
                           'Send this destination to Google Maps? Its privacy policy applies. No route or travel time is verified.',
@@ -138,6 +240,19 @@ class _StationMapViewState extends State<StationMapView> {
                 '${station.latitude}, ${station.longitude}',
                 textDirection: TextDirection.ltr,
               ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.route),
+                label: Text(
+                  t(
+                    'Plan route with this charging stop',
+                    'تخطيط مسار مع توقف الشحن هذا',
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.pop(sheet);
+                  planRoute(station);
+                },
+              ),
               if (widget.customer &&
                   (station.reservable ||
                       station.reservationPolicy == 'canonical'))
@@ -161,7 +276,8 @@ class _StationMapViewState extends State<StationMapView> {
     return Scaffold(
       appBar: AppBar(title: Text(t('Station map', 'خريطة المحطات'))),
       body: SafeArea(
-        child: Column(
+        child: ListView(
+          padding: const EdgeInsets.all(8),
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
@@ -172,6 +288,75 @@ class _StationMapViewState extends State<StationMapView> {
                 ),
               ),
             ),
+            OutlinedButton.icon(
+              key: const Key('charging-route-open'),
+              onPressed: () => planRoute(),
+              icon: const Icon(Icons.route),
+              label: Text(t('Plan charging route', 'تخطيط مسار الشحن')),
+            ),
+            if (discoveryCapabilities?.geocoding == true &&
+                widget.discoveryClient != null)
+              ExpansionTile(
+                title: Text(t('Find an address', 'البحث عن عنوان')),
+                children: [
+                  AddressSearch(
+                    client: widget.discoveryClient!,
+                    onSelected: (place) {
+                      setState(
+                        () => searchPoint = LatLng(
+                          place.point.latitude,
+                          place.point.longitude,
+                        ),
+                      );
+                      if (enabled && place.point.latitude.abs() <= 85.05112878)
+                        controller.move(searchPoint!, 13);
+                    },
+                  ),
+                ],
+              ),
+            OutlinedButton.icon(
+              key: const Key('native-location-once'),
+              onPressed: locating ? null : locate,
+              icon: locating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.my_location),
+              label: Text(t('Use my location once', 'استخدام موقعي مرة واحدة')),
+            ),
+            if (locationError != null)
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  locationError == 'deniedForever'
+                      ? t(
+                          'Location permission is disabled in device settings. Enter coordinates manually, or change permission yourself in Settings.',
+                          'إذن الموقع معطل في إعدادات الجهاز. أدخل الإحداثيات يدوياً أو غيّر الإذن من الإعدادات.',
+                        )
+                      : locationError == 'disabled'
+                      ? t(
+                          'Device location services are off. Manual coordinate search remains available.',
+                          'خدمات الموقع في الجهاز متوقفة. يبقى البحث اليدوي بالإحداثيات متاحاً.',
+                        )
+                      : t(
+                          'A fresh location could not be obtained. Enter coordinates manually.',
+                          'تعذر الحصول على موقع حديث. أدخل الإحداثيات يدوياً.',
+                        ),
+                ),
+              ),
+            if (fix != null)
+              Text(
+                t(
+                  fix!.accuracyMeters == null
+                      ? 'Device-reported location; accuracy unavailable. Not proof of arrival.'
+                      : 'Device-reported accuracy approximately ${fix!.accuracyMeters!.round()} m. Not proof of arrival.',
+                  fix!.accuracyMeters == null
+                      ? 'موقع أبلغ عنه الجهاز؛ الدقة غير متاحة. لا يثبت الوصول.'
+                      : 'دقة أبلغ عنها الجهاز تقارب ${fix!.accuracyMeters!.round()} م. لا يثبت الوصول.',
+                ),
+              ),
             if (!enabled)
               FilledButton(
                 key: const Key('enable-map'),
@@ -180,7 +365,7 @@ class _StationMapViewState extends State<StationMapView> {
                   t('Enable interactive map', 'تفعيل الخريطة التفاعلية'),
                 ),
               ),
-            if (enabled && widget.onSearch != null)
+            if (widget.onSearch != null && (enabled || searchPoint != null))
               Padding(
                 padding: const EdgeInsets.all(8),
                 child: Column(
@@ -215,15 +400,22 @@ class _StationMapViewState extends State<StationMapView> {
                   ),
                 ),
               ),
-            if (enabled && points.isNotEmpty)
-              Expanded(
+            if (enabled)
+              SizedBox(
+                height: math.max(300, MediaQuery.sizeOf(context).height * 0.55),
                 child: FlutterMap(
                   mapController: controller,
                   options: MapOptions(
-                    initialCenter: LatLng(
-                      points.first.latitude!,
-                      points.first.longitude!,
-                    ),
+                    initialCenter:
+                        searchPoint != null &&
+                            searchPoint!.latitude.abs() <= 85.05112878
+                        ? searchPoint!
+                        : points.isEmpty
+                        ? const LatLng(24.45, 54.38)
+                        : LatLng(
+                            points.first.latitude!,
+                            points.first.longitude!,
+                          ),
                     initialZoom: 11,
                     onPositionChanged: (camera, _) {
                       if (camera.zoom != zoom)
