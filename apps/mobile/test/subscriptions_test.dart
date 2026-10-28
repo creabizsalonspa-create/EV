@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/subscriptions.dart';
 import 'test_support.dart';
-import 'vendor_finance_test.dart' show VendorOperationStore;
+import 'vendor_finance_test.dart' show VendorOperationStore, PausedVendorStore;
 
 class SubscriptionApi extends FixtureApi {
   bool lost = false, wrongOwner = false;
@@ -93,6 +93,68 @@ Future<void> confirm(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets(
+    'account change during secure persistence blocks enrollment even before the route disposes',
+    (t) async {
+      final api = SubscriptionApi(), store = PausedVendorStore();
+      await t.pumpWidget(
+        host(
+          SubscriptionActionView(
+            api: api,
+            onExpired: () {},
+            action: 'enroll',
+            plan: api.plan,
+            store: store,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byType(CheckboxListTile));
+      await t.tap(find.byType(CheckboxListTile));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byType(FilledButton));
+      await t.tap(find.byType(FilledButton));
+      await t.pump();
+      await store.entered.future;
+      await api.forgetSession();
+      store.release.complete();
+      await t.pumpAndSettle();
+      expect(api.writes, 0);
+      expect(store.values.length, 1);
+    },
+  );
+
+  testWidgets(
+    'leaving enrollment during secure persistence cannot dispatch under a later session',
+    (t) async {
+      final api = SubscriptionApi(), store = PausedVendorStore();
+      await t.pumpWidget(
+        host(
+          SubscriptionActionView(
+            api: api,
+            onExpired: () {},
+            action: 'enroll',
+            plan: api.plan,
+            store: store,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byType(CheckboxListTile));
+      await t.tap(find.byType(CheckboxListTile));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byType(FilledButton));
+      await t.tap(find.byType(FilledButton));
+      await t.pump();
+      await store.entered.future;
+      await t.pumpWidget(const SizedBox());
+      store.release.complete();
+      await t.pumpAndSettle();
+      expect(api.writes, 0);
+      expect(store.values.length, 1);
+    },
+  );
+
   testWidgets(
     'a different plan cannot relabel or dispatch a saved unknown enrollment',
     (t) async {

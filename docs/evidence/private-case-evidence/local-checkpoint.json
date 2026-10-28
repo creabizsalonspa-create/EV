@@ -32,5 +32,17 @@
     "merged": "52.06",
     "production_accepted": "0.00"
   },
-  "remaining": "Hosted charging/subscription checkout/SCA and return recovery; provider file submission/history; payout return/exception handling and full original product."
+  "remaining": "Hosted charging/subscription checkout/SCA and return recovery; provider file submission/history; payout return/exception handling and full original product.",
+  "session_security_followup": {
+    "reproduced": "Leaving enrollment during a secure-storage write dispatched one POST after disposal; paused-store regression expected0, observed1.",
+    "correction": "Disposed actions stop before dispatch and retain durable recovery intent. All nine financial operation callsites capture an authenticated-session fence; secure restore/prepare fails closed if the account context changes, even while a route remains mounted. Native HTTP requests abort before attaching current cookies/CSRF/JSON/multipart data when identity changes during openUrl.",
+    "validation": "Final full Flutter190 passed/13 deliberate live-only skips and clean analysis;51 affected financial tests plus8 private transport tests pass.",
+    "logs_sha256": {
+      "red": "9e3d783fc5060d72a6f235436955c8037cded7552931edc38644430673021dcf",
+      "financial_green": "c3bec2f9b15547e4ab64f21b54799bc23657dd796e8afa73878e6459ab107d47",
+      "transport_green": "a4666e3d0e05698e13f3005fd76b8a6ad8067f495226c0efe5b212594f89a658",
+      "full_final": "7a127633d889a4edd332a4bf335dd7608cb68450c13623d0960838a33561032b",
+      "analysis_final": "3681fd8626f51b5ca956134df7d258babeb6cdb8a67fff7dc66a2decdda8de04"
+    }
+  }
 }

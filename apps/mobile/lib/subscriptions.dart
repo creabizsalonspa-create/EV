@@ -405,6 +405,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
       operation = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}|$owner|subscription|${widget.subscriptionId ?? 0}|${widget.action}',
+        isCurrent: widget.api.sessionFence(),
       );
       await operation!.restore();
       final original = operation!.pending?['body'];
@@ -447,6 +448,7 @@ class _SubscriptionActionState extends State<SubscriptionActionView> {
             }
           : Map<String, dynamic>.from(operation!.pending!['body'] as Map);
       final saved = await operation!.prepare(body);
+      if (!mounted) return;
       final raw = await widget.api.request(
         widget.action == 'enroll'
             ? 'commercial/subscriptions'

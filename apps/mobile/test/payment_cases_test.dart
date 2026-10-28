@@ -7,7 +7,7 @@ import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/payment_cases.dart';
 import 'package:creabiz_ev/vendor_company.dart';
 import 'test_support.dart';
-import 'vendor_finance_test.dart' show VendorOperationStore;
+import 'vendor_finance_test.dart' show VendorOperationStore, PausedVendorStore;
 
 class CaseApi extends FixtureApi {
   bool lost = false,
@@ -135,6 +135,36 @@ Future<void> consent(WidgetTester t) async {
 }
 
 void main() {
+  testWidgets(
+    'leaving evidence upload during secure persistence prevents a later-session upload',
+    (t) async {
+      final api = CaseApi(), store = PausedVendorStore();
+      await t.pumpWidget(
+        app(
+          CaseEvidenceView(
+            api: api,
+            onExpired: () {},
+            caseId: 7,
+            store: store,
+            picker: () async => VendorEvidence(api.bytes, 'application/pdf'),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await click(t, 'Choose PDF, PNG or JPEG up to4 MiB');
+      await consent(t);
+      await t.ensureVisible(find.text('Upload private evidence'));
+      await t.tap(find.text('Upload private evidence'));
+      await t.pump();
+      await store.entered.future;
+      await t.pumpWidget(const SizedBox());
+      store.release.complete();
+      await t.pumpAndSettle();
+      expect(api.uploads, 0);
+      expect(store.values.length, 1);
+    },
+  );
+
   testWidgets(
     'an invoice with no remaining captured funds offers no new dispute submission',
     (t) async {

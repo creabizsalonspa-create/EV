@@ -109,6 +109,12 @@ class EvApi {
   bool _remembered = false;
   int _epoch = 0;
   Future<void> _vaultTail = Future.value();
+  // Capture the authenticated context across secure-storage or UI awaits.
+  bool Function() sessionFence() {
+    final generation = _epoch;
+    return () => generation == _epoch;
+  }
+
   bool get canRemember => base.scheme == 'https' && vault != null;
   bool get remembered => _remembered;
 
@@ -381,6 +387,10 @@ class EvApi {
             .resolve('/api/$path')
             .replace(queryParameters: query.isEmpty ? null : query),
       );
+      if (epoch != _epoch) {
+        req.abort(const ApiException(409, 'Session changed.'));
+        throw const ApiException(409, 'Session changed.');
+      }
       req.followRedirects = false;
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
       req.headers.contentType = uploadType == null

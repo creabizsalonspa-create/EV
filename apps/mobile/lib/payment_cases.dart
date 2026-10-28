@@ -304,6 +304,7 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
       operation = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:$owner:case:${widget.invoiceId}',
+        isCurrent: widget.api.sessionFence(),
       );
       await operation!.restore();
       if (!mounted) return;
@@ -344,6 +345,7 @@ class _CreateCaseState extends State<CreatePaymentCaseView> {
         'amount_minor': parsed,
         'reason': reason.text.trim(),
       });
+      if (!mounted) return;
       final row = await widget.api.request(
         'commercial/cases',
         method: 'POST',
@@ -510,6 +512,7 @@ class _EvidenceState extends State<CaseEvidenceView> {
           FinancialOperation(
             widget.store ?? DeviceFinancialOperationStore(),
             '${widget.api.base.origin}:${me['id']}:case-evidence:${widget.caseId}',
+            isCurrent: widget.api.sessionFence(),
           );
       if (operation == null) await op.restore();
       if (!mounted || epoch != generation) return;
@@ -577,6 +580,7 @@ class _EvidenceState extends State<CaseEvidenceView> {
         'sha256': sha256.convert(selected.bytes).toString(),
       };
       final saved = await operation!.prepare(metadata);
+      if (!mounted) return;
       final result = Map<String, dynamic>.from(
         await widget.api.uploadCaseEvidence(
               widget.caseId,
