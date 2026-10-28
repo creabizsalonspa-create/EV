@@ -1,0 +1,1 @@
+PASS corporate browser: admin terms → owner consent → driver own-invoice allocation → approval → immutable consolidation → canonical mock receipt → private CSV; foreign-driver company access denied; EN/AR RTL Light/Dark390/768/1440.

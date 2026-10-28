@@ -9,7 +9,7 @@ use Illuminate\Support\Str;
 
 class SettlementService
 {
-    private const RESERVED = ['pending', 'approved', 'simulated_paid'];
+    private const RESERVED = ['pending', 'approved', 'simulated_paid', 'provider_paid'];
 
     private function enabled(): void
     {
@@ -50,7 +50,7 @@ class SettlementService
             $mature = Carbon::parse($invoice->created_at)->addDays($holdDays)->lte(now());
             $earned = $paid === (int) $invoice->total_minor && ($mature || $reserved !== 0) ? (int) $invoice->vendor_minor - $vendorRefund : 0;
             if ($this->held((int) $invoice->id)) {
-                $completed = (int) DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->where('s.state', 'simulated_paid')->sum('l.amount_minor');
+                $completed = (int) DB::table('commercial_settlement_lines as l')->join('commercial_settlements as s', 's.id', '=', 'l.settlement_id')->where('l.invoice_id', $invoice->id)->whereIn('s.state', ['simulated_paid', 'provider_paid'])->sum('l.amount_minor');
                 $earned = min($earned, $completed);
             }
             $available = $earned - $reserved;
@@ -116,6 +116,11 @@ class SettlementService
             abort_unless($hint, 404);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
             $s = DB::table('commercial_settlements')->where('id', $id)->lockForUpdate()->first();
+            // Durable provider claims retain this reservation even after a timeout.
+            // Cancel only a provably unsent/failed payout through its own workflow.
+            if (in_array($action, ['reject', 'simulate-payout'], true)) {
+                abort_if(DB::table('commercial_payouts')->where('settlement_id', $id)->where('status', '!=', 'cancelled')->exists(), 409, 'A payout claim owns this settlement; reconcile or safely cancel it before a legacy transition.');
+            }
             $target = ['approve' => 'approved', 'reject' => 'rejected', 'simulate-payout' => 'simulated_paid'][$action] ?? null;
             abort_unless($target, 422);
             if ($s->state === $target) {

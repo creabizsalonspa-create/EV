@@ -40,5 +40,5 @@ for attempt in {1..40}; do
 done
 [[ "$review_ready" == true ]] || { echo 'Disposable finance PostgreSQL did not become ready.' >&2; exit 1; }
 runner=(docker run --rm --name "${review_id}-php" --network "$review_id" --user "$(id -u):$(id -g)" --env-file "$review_directory/database.env" -v "$root:/app" -w /app/services/business-api "$review_image" php vendor/bin/phpunit)
-"${runner[@]}" --filter='Finance|ManagedChargingGate|VendorOps|PaymentGateway|PaymentRecovery|StripeSandbox|Subscription|Settlement' --testdox | tee "$evidence/postgres-finance.txt"
+"${runner[@]}" --filter='Finance|ManagedChargingGate|VendorOps|PaymentGateway|PaymentRecovery|StripeSandbox|Subscription|Settlement|VendorPayout|FinancialDocuments|CorporateBilling|ExternalDispute|LoyaltyEconomics' --stop-on-error --testdox | tee "$evidence/postgres-finance.txt"
 "${runner[@]}" tests/Postgres --testdox | tee "$evidence/postgres-concurrency.txt"
