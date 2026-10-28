@@ -40,3 +40,9 @@ Android native-asset verification: vendored MIT `pdfium_flutter0.1.9` adds fixed
 ### Hosted iOS keyboard correction — 28 October 2026
 
 The first c9e3a26 hosted iOS UI run built the app and completed TLS/Keychain/Arabic pricing, then missed company Save during an open-keyboard transition. The fixture now dismisses focus, settles the keyboard and asserts the action is hit-testable before tapping. Vendor forms also dismiss the keyboard on drag. No test assertions or PDF-ready acceptance markers were removed. Eight vendor-operation widget tests pass locally; hosted iOS rerun is required before integration. Android and all backend/PostgreSQL jobs passed the original source.
+
+### Hosted PDF readiness correction — 28 October 2026
+
+Source1b72354's corrected iOS keyboard flow completed company creation and private PDF upload, but asserted the native-load marker before the asynchronous PDFium load finished. The integration test now waits at most30 seconds for the actual successful-load marker and fails immediately on the explicit viewer-error marker. It never substitutes route presence, removes the PDF-ready assertion or retries a failed connected scenario. Poppler independently validates the generated synthetic596-byte fixture as a valid single-page unencrypted PDF1.4 with no JavaScript. Local Flutter analysis and eight vendor-operation widget tests pass; exact-source iOS rerun remains mandatory. The complete platform, financial and connector PostgreSQL jobs and both Android jobs passed1b72354; iOS did not pass that source.
+
+Latest uploaded owner directive temporarily assigns all remaining finance/commercial and EV/non-financial work to Agent2 while Agent1 is unavailable. Preserve canonical financial architecture and coordinate if Agent1 returns; preceding parallel ownership is historical.

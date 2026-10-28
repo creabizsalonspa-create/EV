@@ -624,6 +624,23 @@ void main() {
       expect(evidenceUploaded, isTrue);
       await tester.tap(find.text('عرض المستند الخاص'));
       await settle();
+      // pumpAndSettle only drains scheduled frames. Native PDFium opens a
+      // document asynchronously and may finish after the route transition.
+      // Wait for actual successful load, never accept route presence alone.
+      final pdfDeadline = DateTime.now().add(const Duration(seconds: 30));
+      while (find
+              .byKey(const Key('private-document-ready'))
+              .evaluate()
+              .isEmpty &&
+          DateTime.now().isBefore(pdfDeadline)) {
+        expect(
+          find.byKey(const Key('private-document-failed')),
+          findsNothing,
+          reason: 'Native PDFium rejected the synthetic private document.',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await tester.pump();
+      }
       expect(find.byKey(const Key('private-document-ready')), findsOneWidget);
       for (var i = 0; i < 4; i++) {
         await tester.tap(find.byType(BackButton));
