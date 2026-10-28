@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Charging\AdmissionProfile;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\Charging\SessionLink;
@@ -46,7 +47,12 @@ class ConnectorTopologyController extends Controller
     {
         $station = $this->scope($r, $company, $charger);
 
-        return DB::table('csms_bindings')->where('station_id', $station->id)->where(fn ($q) => $q->whereNull('vendor_charger_id')->orWhere('vendor_charger_id', $charger->id))->orderBy('id')->paginate(25, ['id', 'protocol']);
+        $query = DB::table('csms_bindings')->where('station_id', $station->id)->where(fn ($q) => $q->whereNull('vendor_charger_id')->orWhere('vendor_charger_id', $charger->id));
+        if ($profile = AdmissionProfile::where('charger_id', $charger->id)->first()) {
+            $query->where('identifier', $profile->identity)->where('protocol', $profile->protocol);
+        }
+
+        return $query->whereNotExists(fn ($q) => $q->selectRaw('1')->from('charger_admission_profiles as p')->whereColumn('p.identity', 'csms_bindings.identifier')->where('p.charger_id', '!=', $charger->id))->orderBy('id')->paginate(25, ['id', 'protocol']);
     }
 
     public function createEvse(Request $r, VendorCompany $company, VendorCharger $charger)
@@ -63,6 +69,8 @@ class ConnectorTopologyController extends Controller
             if ($v['mode'] === 'csms') {
                 $binding = DB::table('csms_bindings')->where('id', $v['binding_id'] ?? 0)->lockForUpdate()->first();
                 abort_unless($binding && $binding->station_id === $station->id && ($binding->vendor_charger_id === null || $binding->vendor_charger_id === $charger->id) && $binding->protocol === $charger->ocpp_protocol && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $binding->identifier), 409, 'Source binding is incompatible or belongs to another charger.');
+                $profile = AdmissionProfile::where('charger_id', $charger->id)->first();
+                abort_if(($profile && ($profile->identity !== $binding->identifier || $profile->protocol !== $binding->protocol)) || AdmissionProfile::where('identity', $binding->identifier)->where('charger_id', '!=', $charger->id)->exists(), 409, 'Charger identity requires canonical ownership review.');
                 abort_unless($binding->protocol === '1.6' ? (int) $v['source_evse_number'] === 0 : (int) $v['source_evse_number'] >= 1, 422, 'Use source EVSE 0 for OCPP 1.6 or a positive OCPP 2.0.1 EVSE.');
                 abort_if(SessionLink::where('binding_id', $binding->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'Resolve existing source sessions before extending topology.');
                 abort_if($v['source_evse_number'] > 0 && Evse::where('binding_id', $binding->id)->where('source_evse_number', $v['source_evse_number'])->exists(), 409, 'Source EVSE is already mapped.');

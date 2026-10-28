@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Charging\AdmissionProfile;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\AdmissionIdentity;
 use App\Services\VendorOps\VendorAccess;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
@@ -41,6 +42,7 @@ class ChargerAdmissionController extends Controller
                 $this->scope($r, $company, $charger, true);
                 app(VendorAccess::class)->operational($company->fresh());
                 VendorCharger::whereKey($charger->id)->lockForUpdate()->firstOrFail();
+                abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $v['identity'], $charger->ocpp_protocol, app()->environment('production')), 409, 'Charger identity requires canonical ownership review.');
                 $old = AdmissionProfile::where('charger_id', $charger->id)->first();
                 if ($old) {
                     abort_unless($old->identity === $v['identity'] && $old->certificate_sha256 === ($v['certificate_sha256'] ?? null) && $old->protocol === $charger->ocpp_protocol, 409, 'Identity is immutable; revoke and review changes through operations.');
@@ -68,6 +70,7 @@ class ChargerAdmissionController extends Controller
             $this->scope($r, $company, $charger, true);
             app(VendorAccess::class)->operational($company->fresh());
             $p = AdmissionProfile::where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
+            abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $p->identity, $p->protocol, app()->environment('production')), 409, 'Charger identity requires canonical ownership review.');
             abort_unless($p->credential_version === (int) $v['expected_version'], 409, 'Credential changed; refresh before another explicit rotation.');
             $secret = bin2hex(random_bytes(20));
             $p->update(['credential_digest' => hash('sha256', $secret), 'credential_version' => $p->credential_version + 1, 'expires_at' => now()->addDays($v['days']), 'enabled' => true, 'revoked_at' => null]);
