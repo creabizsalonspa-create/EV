@@ -2,6 +2,8 @@
 // Real Laravel protocol acceptance is separately tested in test/live_api_test.dart.
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
+import 'package:creabiz_ev/financial_operation_store.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
@@ -217,6 +219,34 @@ void main() {
               },
             ],
           };
+        } else if (path == '/api/financial/documents') {
+          final row = {
+            'id': 9,
+            'source_id': 7,
+            'source_kind': 'charging_invoice',
+            'number': 'TEST-DEVICE-DOC',
+            'locale': 'en',
+            'pdf_sha256': sha256.convert(pdf).toString(),
+            'legal_status': 'TEST_DOCUMENT_NOT_LEGALLY_APPROVED',
+            'external_provider_verified': false,
+          };
+          result = request.method == 'POST'
+              ? row
+              : {
+                  'data': [row],
+                  'current_page': 1,
+                  'last_page': 1,
+                  'total': 1,
+                };
+        } else if (path == '/api/financial/documents/9/download/pdf') {
+          expectSync(loggedIn, isTrue);
+          request.response.headers.contentType = ContentType(
+            'application',
+            'pdf',
+          );
+          request.response.add(pdf);
+          await request.response.close();
+          return;
         } else if (path == '/api/commercial/payment-methods') {
           result = {
             'methods': {
@@ -790,6 +820,65 @@ void main() {
       await settle();
       expect(find.text('SIM-DEVICE-INVOICE'), findsOneWidget);
       expect(find.text('Amount due: 105 minor units AED'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Private financial documents'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Private financial documents'));
+      await settle();
+      expect(find.text('TEST-DEVICE-DOC'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('View private PDF'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('View private PDF'));
+      await settle();
+      final financePdfDeadline = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
+      while (find
+              .byKey(const Key('private-document-ready'))
+              .evaluate()
+              .isEmpty &&
+          DateTime.now().isBefore(financePdfDeadline)) {
+        expect(find.byKey(const Key('private-document-failed')), findsNothing);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await tester.pump();
+      }
+      expect(find.byKey(const Key('private-document-ready')), findsOneWidget);
+      final financialStore = DeviceFinancialOperationStore();
+      final firstOperation = FinancialOperation(
+        financialStore,
+        'synthetic-native-operation',
+      );
+      final financialBody = await firstOperation.prepare({
+        'amount_minor': 25,
+        'reason': 'Synthetic device proof',
+      });
+      final restoredOperation = FinancialOperation(
+        financialStore,
+        'synthetic-native-operation',
+      );
+      await restoredOperation.restore();
+      expect(
+        await restoredOperation.prepare({
+          'amount_minor': 25,
+          'reason': 'Synthetic device proof',
+        }),
+        financialBody,
+      );
+      await restoredOperation.confirmed();
+      expect(await financialStore.read('synthetic-native-operation'), isNull);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: private financial PDF and durable operation storage verified; synthetic document',
+      );
+
       await tester.tap(find.byType(BackButton));
       await settle();
       await tester.tap(find.byType(BackButton));
