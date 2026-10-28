@@ -7,6 +7,31 @@ import 'package:creabiz_ev/api.dart';
 
 void main() {
   test(
+    'case evidence transport rejects invalid source, category, type and four-MiB overflow before I/O',
+    () {
+      final api = EvApi(Uri.parse('http://127.0.0.1:9'));
+      addTearDown(api.close);
+      for (final args in [
+        (0, 'receipt', 'application/pdf', 1),
+        (1, 'identity', 'application/pdf', 1),
+        (1, 'receipt', 'text/html', 1),
+        (1, 'receipt', 'application/pdf', 4 * 1024 * 1024 + 1),
+      ]) {
+        expect(
+          () => api.uploadCaseEvidence(
+            args.$1,
+            kind: args.$2,
+            mime: args.$3,
+            bytes: Uint8List(args.$4),
+            key: operationKey(),
+          ),
+          throwsA(isA<ApiException>()),
+        );
+      }
+    },
+  );
+
+  test(
     'multipart evidence reuses CSRF/cookie scope, fixed filename and stable operation identity',
     () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

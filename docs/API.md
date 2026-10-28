@@ -173,3 +173,7 @@ Credential lifecycle: existing admission GET adds a stored-credential state; GET
 ## Native company operations continuation — 28 October 2026
 
 See [NATIVE_VENDOR_OPERATIONS.md](NATIVE_VENDOR_OPERATIONS.md): current web/Flutter creation POSTs use optional stable UUID idempotency; company GET adds private submission-readiness hints; staff acceptance now requires the displayed `expected_version`. Migration/client rollout is coordinated and old unversioned acceptance fails safely. Native company/KYC/staff/inventory workflows use the existing APIs and permissions, with bounded private multipart/binary transport and in-app previews. This is internal/synthetic acceptance only.
+
+## Internal payment-case private evidence
+
+See [PRIVATE_CASE_EVIDENCE.md](PRIVATE_CASE_EVIDENCE.md). Authenticated customer/vendor/Admin invoice parties may list/upload/download `commercial/cases/{case}/evidence[/{evidence}]`. Upload is consented PDF/PNG/JPEG up to4 MiB,20 files/case, with an actor/case-scoped idempotency identity and frozen MIME/size/hash/category. New uploads require an open canonical case; replay is retained after closure. Storage is encrypted/private; metadata immutable; downloads verify integrity and never return storage/provider identities. These are `PRIVATE_REVIEW_ONLY`, `provider_submitted=false`; no provider submission, financial decision or refund is implied.

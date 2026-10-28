@@ -14,6 +14,7 @@ import 'vendor_finance.dart';
 import 'corporate_billing.dart';
 import 'recurring_payments.dart';
 import 'subscriptions.dart';
+import 'payment_cases.dart';
 import 'tariffs.dart';
 import 'preferences.dart';
 import 'strings.dart';
@@ -961,6 +962,15 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'paymentCases') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PaymentCasesView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'subscriptions') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1099,6 +1109,11 @@ class _WorkspaceState extends State<Workspace> {
                     enabled: !busy,
                     child: Text(s.t('pricing')),
                   ),
+                PopupMenuItem(
+                  value: 'paymentCases',
+                  enabled: !busy,
+                  child: Text(caseText(context, 'title')),
+                ),
                 PopupMenuItem(
                   value: 'subscriptions',
                   enabled: !busy,
