@@ -7,6 +7,7 @@ import 'reservation_arrival.dart';
 import 'roaming.dart';
 import 'invoice_history.dart';
 import 'payment_recovery.dart';
+import 'loyalty.dart';
 import 'recurring_payments.dart';
 import 'tariffs.dart';
 import 'preferences.dart';
@@ -983,6 +984,13 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'loyalty') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          LoyaltyView(api: api!, onExpired: expiredSession),
+                    ),
+                  );
                 } else if (value == 'invoices') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1063,6 +1071,11 @@ class _WorkspaceState extends State<Workspace> {
                   value: 'invoices',
                   enabled: !busy,
                   child: Text(s.t('invoiceHistory')),
+                ),
+                PopupMenuItem(
+                  value: 'loyalty',
+                  enabled: !busy,
+                  child: Text(loyaltyText(context, 'title')),
                 ),
                 PopupMenuItem(
                   value: 'profile',

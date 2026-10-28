@@ -1,3 +1,7 @@
+# Native loyalty read-only continuation — 28 October 2026
+
+Canonical Flutter consumes the PR18 loyalty account/ledger/reward/redemption APIs; see [NATIVE_LOYALTY.md](NATIVE_LOYALTY.md). This does not duplicate or change economics. Native mutations and other full financial parity remain incomplete. Current temporary full Agent2 ownership supersedes historical split statements below while Agent1 is unavailable.
+
 # Financial integration contract for Agent 2
 
 Latest native QA adds exact server-precision amount formatting (no floating-point/accounting duplication), correct EN/AR empty subscription-notice labels, fail-closed unsupported precision and clearing of transport-uncertainty messaging only after successful authoritative GET. Full Flutter80 passed/seven explicit live-only skips; all nine recovery-specific tests and analysis passed after the refresh correction. Composer strict validation and the preserved finance/lifecycle scheduler plus new hourly dunning registration are verified. Hosted validation is pending for this final native correction.

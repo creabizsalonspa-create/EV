@@ -16,6 +16,7 @@ const { spawnSync } = require("node:child_process");
       "native-recurring-payments",
       "native-vendor-onboarding",
     ], // 9 logins
+    ["native-loyalty"], // 3 logins, after a fresh unchanged authentication window
   ];
   let started;
   for (const group of groups) {

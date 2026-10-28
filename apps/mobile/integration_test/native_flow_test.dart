@@ -182,6 +182,41 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/commercial/loyalty/account') {
+          result = {
+            'user_id': authenticated,
+            'balance_points': 70,
+            'pending_reconciliation_points': 0,
+            'spendable_points': 70,
+            'qualified_lifetime_points': 100,
+            'redemption_hold': false,
+            'unit': 'NON_MONETARY_POINTS',
+            'cash_value': false,
+            'transferable': false,
+            'evidence': 'TEST_PROMOTIONAL_ECONOMICS',
+            'tier_by_currency': {
+              'AED': {'tier': 'Gold', 'enabled': true},
+            },
+          };
+        } else if (path == '/api/commercial/loyalty/rewards') {
+          result = {
+            'current_page': 1,
+            'last_page': 1,
+            'total': 1,
+            'data': [
+              {
+                'id': 7,
+                'name': 'Synthetic device benefit',
+                'name_ar': 'منفعة جهاز تجريبية',
+                'description': 'Manual test benefit only',
+                'description_ar': 'منفعة اختبار يدوية فقط',
+                'points_cost': 30,
+                'available_stock': 1,
+                'cash_value': false,
+                'fulfillment': 'MANUAL_NON_MONETARY',
+              },
+            ],
+          };
         } else if (path == '/api/commercial/payment-methods') {
           result = {
             'methods': {
@@ -760,6 +795,25 @@ void main() {
       await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint('DEVICE: scoped read-only invoice history verified');
+      await tester.tap(find.byTooltip('Account'));
+      await settle();
+      await tester.tap(find.text('Points and rewards'));
+      await settle();
+      expect(find.text('Posted points: 70'), findsOneWidget);
+      expect(find.text('AED: Gold'), findsOneWidget);
+      expect(find.textContaining('No cash value'), findsOneWidget);
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await settle();
+      await tester.tap(find.text('Reward catalog').last);
+      await settle();
+      expect(find.text('Synthetic device benefit'), findsOneWidget);
+      expect(find.textContaining('Points required: 30'), findsOneWidget);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: scoped noncash native loyalty evidence verified; synthetic economics',
+      );
+
       await tester.tap(find.byTooltip('Account'));
       await settle();
       await tester.tap(find.text('Saved payment authorizations'));

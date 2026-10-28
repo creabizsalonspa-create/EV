@@ -48,18 +48,24 @@
       "test_result": "passed",
       "merge_sha": "95a3dae53b45eba206fb8ca9349b0b015e0b5ed8",
       "evidence": "docs/evidence/finance-v3-integrated/hosted-checkpoint.json"
+    },
+    "pr19": {
+      "source_sha": "b336f4162946ab6413ce8288d12fca90121b91f3",
+      "test_result": "passed",
+      "merge_sha": "d846de0bdcd6346578d8ffa1959807fcbd8762a6",
+      "evidence": "docs/evidence/discovery-routing/hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
-    "coded": "51.98",
-    "tested": "51.80",
-    "merged": "51.80",
+    "coded": "52.25",
+    "tested": "52.06",
+    "merged": "52.06",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "80279/154440",
-    "tested": "559973/1081080",
-    "merged": "559973/1081080",
+    "coded": "20919/40040",
+    "tested": "62537/120120",
+    "merged": "62537/120120",
     "production_accepted": "0"
   },
   "categories": [
@@ -302,9 +308,9 @@
       "requirement": "Search, maps, routes, favorites, reviews",
       "atoms": 9,
       "counts": {
-        "coded": 3,
-        "tested": 3,
-        "merged": 3,
+        "coded": 4,
+        "tested": 4,
+        "merged": 4,
         "production_accepted": 0
       },
       "details": [
@@ -389,13 +395,13 @@
         {
           "id": "2.3.7",
           "software_atom": "Routes and navigation",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr19",
+          "note": "Web/native route endpoints, ordered stops, bounded sourced road estimates and separately consented external navigation. Does not claim energy-aware recommendations, traffic, charger availability or live provider acceptance.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

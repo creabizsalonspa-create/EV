@@ -46,6 +46,12 @@
       "test_result": "passed",
       "merge_sha": "95a3dae53b45eba206fb8ca9349b0b015e0b5ed8",
       "evidence": "docs/evidence/finance-v3-integrated/hosted-checkpoint.json"
+    },
+    "pr19": {
+      "source_sha": "b336f4162946ab6413ce8288d12fca90121b91f3",
+      "test_result": "passed",
+      "merge_sha": "d846de0bdcd6346578d8ffa1959807fcbd8762a6",
+      "evidence": "docs/evidence/discovery-routing/hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -183,9 +189,9 @@
     {
       "prd": "2.3",
       "requirement": "Search, maps, routes, favorites, reviews",
-      "implemented_code_scope": "Merged nearby radius search plus canonical private favorites and consent-gated web/Flutter current-page maps, clustering/manual centre and opt-in web GPS (PR16 tested e942017, merged1bee9c9)",
-      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers",
-      "remaining_scope": "Unified partner maps/favorites, native GPS, address/operator/access/price filters, supported live filters, routes/stops, reviews/moderation and saved places",
+      "implemented_code_scope": "Merged nearby radius search plus canonical private favorites and consent-gated web/Flutter current-page maps, clustering/manual centre and opt-in web GPS (PR16 tested e942017, merged1bee9c9); PR19 consented foreground native GPS, bounded server-only address/routing provider, manual endpoints, up to three ordered canonical charging stops, sourced web/native route previews and separately consented fixed-origin external navigation",
+      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers; PR19 full Laravel/browser/native suites, actual Android/iOS builds and synthetic iOS GPS/route runtime assertions, all ten exact-source checks passed",
+      "remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, reviews/moderation, saved places and energy-aware charging-stop recommendations. Real GPS and live provider acceptance remain external.",
       "atoms": [
         {
           "id": "2.3.1",
@@ -232,9 +238,9 @@
         {
           "id": "2.3.7",
           "software_atom": "Routes and navigation",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr19",
+          "note": "Web/native route endpoints, ordered stops, bounded sourced road estimates and separately consented external navigation. Does not claim energy-aware recommendations, traffic, charger availability or live provider acceptance."
         },
         {
           "id": "2.3.8",
