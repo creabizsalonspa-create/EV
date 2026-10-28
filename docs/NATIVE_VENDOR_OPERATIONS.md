@@ -36,3 +36,7 @@ Remaining full scope includes production CSMS/JWT/IdToken/certificates, full aut
 
 
 Android native-asset verification: vendored MIT `pdfium_flutter0.1.9` adds fixed official per-ABI SHA-256/size pins, verified TLS/restricted HTTPS redirects, bounded regular-file extraction and atomic output. Five fail-closed host checks pass; all four official Android ABIs were downloaded/verified/extracted locally without executing their binaries. Apple SPM/pod hashes remain enforced. Bundled PDFium/third-party license texts are exposed through Settings → Open source licenses. See third_party/pdfium_flutter/CREABIZ_PATCH.md. Agent1 financial logic remains exclusively owned; this branch contains only native/non-financial/deployment extensions.
+
+### Hosted iOS keyboard correction — 28 October 2026
+
+The first c9e3a26 hosted iOS UI run built the app and completed TLS/Keychain/Arabic pricing, then missed company Save during an open-keyboard transition. The fixture now dismisses focus, settles the keyboard and asserts the action is hit-testable before tapping. Vendor forms also dismiss the keyboard on drag. No test assertions or PDF-ready acceptance markers were removed. Eight vendor-operation widget tests pass locally; hosted iOS rerun is required before integration. Android and all backend/PostgreSQL jobs passed the original source.

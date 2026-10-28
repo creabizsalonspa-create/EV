@@ -589,10 +589,17 @@ void main() {
         find.widgetWithText(TextFormField, 'انتهاء الرخصة (YYYY-MM-DD)'),
         '2030-12-31',
       );
+      // Real iOS keyboard transitions must finish before locating the action.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await settle();
       await tester.scrollUntilVisible(
         find.widgetWithText(FilledButton, 'حفظ'),
         250,
         scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        find.widgetWithText(FilledButton, 'حفظ').hitTestable(),
+        findsOneWidget,
       );
       await tester.tap(find.widgetWithText(FilledButton, 'حفظ'));
       await settle();

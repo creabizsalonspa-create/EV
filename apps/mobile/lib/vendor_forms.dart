@@ -271,6 +271,7 @@ class _VendorEditState extends State<VendorEditView> {
       child: Form(
         key: form,
         child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.all(16),
           children: [
             Text(t('notice')),
