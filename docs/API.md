@@ -1,3 +1,9 @@
+# Verified discovery and native loyalty additions (PR18/19/20)
+
+Public discovery lookup: `GET /api/discovery/capabilities`, `POST /api/discovery/addresses`, `POST /api/discovery/route`; equivalent `/api/v1/discovery/...` routes. Web POST retains CSRF middleware. POST requires explicit consent; address accepts3..180-character query, en/ar language and optional two-letter country. Route accepts2..5 latitude/longitude points (endpoints plus up to3 ordered stops). Capabilities identify the fixed Geoapify adapter and whether it is configured. Server key is never returned. Defaults disabled; rate budgets12/IP/minute,30 globally/minute and5000/day. Route responses use sourced meters/seconds/geometry with traffic and charging-time flags false. Sanitized422/502/503 failures retain manual navigation;429 requires waiting. Full contract/activation/privacy: DISCOVERY_ROUTING.md.
+
+Authenticated native read-only loyalty uses existing `commercial/loyalty/account`, `ledger`, `rewards`, `redemptions` and `redemptions/{id}` under both API prefixes. Server integer noncash points, debt/holds, tiers, available stock, pagination and pending/manual fulfillment status remain authoritative. No GET posts earning, redemption or reconciliation. Cross-member request detail is404. Native UI does not expose administrator economics/publication/fulfillment or invent monetary value. Full endpoint contracts: LOYALTY_ECONOMICS.md and FINANCE_MOBILE_CONTRACT.md; native scope/evidence: NATIVE_LOYALTY.md.
+
 # Customer favorites additive APIs
 
 Protected GET favorites/status (1–25 station_ids), GET favorites (25/page), idempotent PUT/DELETE favorites/{station} share cookie/native-v1 records. Customer-only, existing CSRF/throttles, no private fields on public discovery and no change to charging capability. See CUSTOMER_FAVORITES.md for complete contracts and readiness.
