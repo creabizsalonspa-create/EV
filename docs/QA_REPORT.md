@@ -1,5 +1,33 @@
 # Internal QA — universal integration checkpoint
 
+Latest implementation `eae79cb41677056890d33625d0c2700bcf94bcf4` includes canonical source-namespace ownership fences and production bound-identity requirements, plus guarded pre-Dart-only iOS startup recovery. Local Laravel231/7233 and PostgreSQL connector42/620 +12 process races/166 passed. TLS/mTLS, connected charger/topology browsers and all six connected native fixture suites passed; separate generic native API smoke also passed. Flutter80/default7 live-only skips and three Python startup safety tests are verified. Financial126/6164 +31 earlier process races/403 remain independently recorded; the current hosted financial runner also covers the newly added namespace race. See PR #10 current checks for the final hosted result; no skipped, cancelled or pre-Dart-failed run is counted as passing.
+
+
+Current implementation checkpoint:478a06e28d0706e8fcd6114b60a1e0b6bddda314. See ACTIVE_DEVELOPMENT_CHECKPOINT for exact tested source, live PR #10 CI evidence, migrations, ownership and next action. The additional generic native real-Laravel API smoke passed after the six fixture suites (seven live-only cases are separately opted in, not counted from skips). Further record updates are documentation/evidence only unless the Git diff says otherwise.
+
+
+Production credential-issuance boundary now rejects plaintext requests before rotating/disclosing any secret (owner authorization still runs first). HTTPS issuance remains supported; local simulator behavior is preserved. Targeted admission8/171, combined Laravel228/7192, PostgreSQL connector core39/579 and11 independent-process races/152 passed. Financial core126/6164 +31 races/403 and native80/default7 skips are separately recorded; hosted verification must cover the final pushed source. Production TLS termination must be represented by a correctly configured trusted proxy; untrusted forwarded headers are not a bypass.
+
+
+Latest native QA adds exact server-precision amount formatting (no floating-point/accounting duplication), correct EN/AR empty subscription-notice labels, fail-closed unsupported precision and clearing of transport-uncertainty messaging only after successful authoritative GET. Full Flutter80 passed/seven explicit live-only skips; all nine recovery-specific tests and analysis passed after the refresh correction. Composer strict validation and the preserved finance/lifecycle scheduler plus new hourly dunning registration are verified. Hosted validation is pending for this final native correction.
+
+
+## Subscription dunning and CI request pacing — current slice
+
+Implemented immutable, bounded 1/3/7-day in-app subscription reminders; canonical subscription locking and unique invoice/stage prevent duplicate workers, delayed scans avoid reminder bursts and waiting invoices cannot starve new due notices. Paid/cancelled/zero-price/unresolved-provider invoices are suppressed. Scoped web/native EN/AR notices read current payment/recovery state without charging, mutating entitlements or inventing external delivery. See SUBSCRIPTION_DUNNING.md.
+
+Local verification: Laravel 227 tests / 7180 assertions; PostgreSQL financial core 126 / 6164 plus 31 process races / 403 (including simultaneous dunning workers); Flutter 78 passed / seven live-only skips, clean analysis; six separately executed connected native suites passed; new EN/AR390px browser notice check passed. Commercial browser regression passed after pacing the later read batch. Production limiters remain unchanged: connected native batches respect ten logins/IP/minute, and complex browser finance reads are paced under 60/user/minute. Hosted CI for this new slice is required before merge. Saved mandates, automatic recurring collection and external notification delivery remain unfinished.
+
+Finance PR #7 head 6f2103e is fully integrated through merged PR #8 at 00685cca87c5262715eba0d98855564d4b1dded5. Final integration platform/finance/connector CI passed (40598832424 /40598840859); its unchanged native source passed Android/iOS/iOS UI (40597931320). Agent 2 owns all remaining software under the final owner directive; prior split records are historical.
+
+
+## Native payment recovery — verified implementation
+
+Canonical Flutter customer/vendor account menu now opens the tenant-scoped payment recovery queue and paginated audit history. Provider inspection requires explicit confirmation and calls the existing read-only provider-reconciliation API; it never creates a charge/refund, accepts card credentials or infers invoice payment from operation completion. Errors clear private rows, 401/419 invalidate the session, disposal fences late responses, lost responses never replay POSTs, and both English/Arabic RTL are supported. The UI renders an allowlist, not arbitrary provider payloads.
+
+Validation: Flutter analysis clean; 77 unit/widget tests passed with six explicit live-fixture skips; six new recovery tests cover pagination/history, consent, lost-response non-replay, expiry, 390px RTL and disposal. Separate native real-Laravel integration passed customer/vendor scope, cross-tenant 404s, private-field redaction and provider-mismatch 409 without initiating payments. Linux native CI now runs that opt-in connected test. Android/iOS hosted builds for this source remain pending. Saved mandates, off-session collection and dunning remain the immediate financial implementation priority; this UI does not implement them or claim merchant acceptance.
+
+
 ## Active ownership — final owner directive, 28 October 2026 (Dubai)
 
 Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\SubscriptionController as S;
+use App\Http\Controllers\SubscriptionDunningController;
 use Illuminate\Support\Facades\Route;
 
 // Mount inside the existing authenticated API groups; cookie and token clients share records.
@@ -14,3 +15,5 @@ Route::post('/commercial/subscriptions/{subscription}/change', [S::class, 'chang
 Route::post('/commercial/subscriptions/{subscription}/mock-payment', [S::class, 'mockPayment'])->whereNumber('subscription');
 Route::post('/commercial/subscriptions/{subscription}/renew', [S::class, 'renew'])->whereNumber('subscription');
 Route::get('/commercial/subscriptions/{subscription}/events', [S::class, 'history'])->whereNumber('subscription');
+
+Route::get('/commercial/subscription-notices', [SubscriptionDunningController::class, 'index']);

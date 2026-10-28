@@ -37,7 +37,9 @@ try {
     $request = Request::create('/api/reservations', 'POST', $body);
     $request->setUserResolver(fn () => $actor);
     $operation = $argv[5] ?? 'reserve';
-    if ($operation === 'revoke') {
+    if ($operation === 'configure') {
+        echo app(ChargerAdmissionController::class)->configure($request, VendorCompany::findOrFail($body['company_id']), VendorCharger::findOrFail($body['charger_id']))->getStatusCode();
+    } elseif ($operation === 'revoke') {
         echo app(ChargerAdmissionController::class)->revoke($request, VendorCompany::findOrFail($body['company_id']), VendorCharger::findOrFail($body['charger_id']))->getStatusCode();
     } elseif ($operation === 'credential') {
         echo app(ChargerAdmissionController::class)->credential($request, VendorCompany::findOrFail($body['company_id']), VendorCharger::findOrFail($body['charger_id']))->getStatusCode();

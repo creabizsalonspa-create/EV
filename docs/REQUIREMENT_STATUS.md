@@ -1,5 +1,23 @@
 # Requirement-by-requirement continuation status
 
+## Current implementation evidence (source478a06e; see PR #10 checks)
+
+| Sub-requirement | Status | Evidence and precise remaining boundary |
+|---|---|---|
+| Canonical topology, independent EVSE capacity, arrival/expiry | INTEGRATED_TESTED | CANONICAL_TOPOLOGY, RESERVATION_LIFECYCLE, COMMAND_RECOVERY; physical occupancy/hardware acceptance remains external |
+| Secure OCPP admission and investigation | IN_PROGRESS | TLS/mTLS, rotating/revocable credentials, production HTTPS and web/native cases/source proof tested; upstream production registration/JWT/rider authorization, certificate lifecycle and full monitoring remain unfinished |
+| Durable payment recovery and subscription credits | SIMULATED_TESTED | Full Finance PR #7 integrated through PR #8; canonical provider-bound recovery/immutable accounting, web and native recovery tested using mock/HTTP contracts; no merchant acceptance |
+| Subscription in-app dunning | INTEGRATED_TESTED | SUBSCRIPTION_DUNNING; backend/web/Flutter and PostgreSQL worker races; no automatic collection, renewal scheduling or external delivery |
+| Saved mandates and off-session collection | NOT_STARTED | No provider-hosted enrollment/customer binding/consent mandate or recurring collection worker exists; implement next in the existing canonical architecture |
+| Native commercial parity | IN_PROGRESS | Invoice/recovery/notice integration exists; full checkout, plan/subscription actions, credit/refund/dispute/settlement workflows remain unfinished |
+| Full OCPI, interactive maps, remaining vendor/Admin/engagement/security/release | IN_PROGRESS | Preserve existing scoped implementations and source labels; inspect module docs and finish original requirement rows below; no hardware/production readiness inferred |
+
+
+## Current evidence, 28 October 2026 (Dubai)
+
+Finance PR #7 is integrated via PR #8 (00685cc); do not rebuild recovery/credit accounting. Canonical topology, reservation lifecycle, source reconciliation and secure admission/operational cases are implemented with their cited tests. Subscription in-app dunning and native recovery/notices are INTEGRATED_TESTED locally with hosted validation pending; see SUBSCRIPTION_DUNNING.md and ACTIVE_DEVELOPMENT_CHECKPOINT.md. Saved mandates, recurring collection, full production CSMS registration/token authority, full OCPI interoperability, maps, complete vendor/Admin/loyalty/security/release workflows remain IN_PROGRESS. No row is PRODUCTION_READY or HARDWARE_TESTED. Older descriptions below are historical snapshots, not an instruction to rebuild completed modules. Agent 2 is the sole active full-scope owner.
+
+
 ## Active ownership — final owner directive, 28 October 2026 (Dubai)
 
 Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.
@@ -58,7 +76,7 @@ Pricing source checkpoint: **75451a9**; managed-admission source is recorded by 
 | 9.3 | Maintainable architecture/tests/licensing | IN_PROGRESS | Modular Laravel/CSMS/Flutter boundaries, migrations/API docs, pinned lockfiles and CI; preservation-safe Git/PR checkpoints | Broader performance/security/restore/deployment tests and complete dependency/license/release inventory review |
 | 9.4 | International readiness | IN_PROGRESS | Configurable currencies/precision/time zones/tax, EN/AR and country-local company-license validity | Remaining country-specific legal/PSP/telecom/operator checks and full international UX/workflows |
 
-## Independent next implementation
+## Historical implementation sequence — superseded, do not repeat completed modules
 
 The charging review and subsequent implementation now enforce company/license/maintenance admission for explicitly linked single-target simulators, recheck policy/window at dispatch claim, and safely cancel proven unsent starts without faking source finalization. Unlinked legacy simulator contracts remain preserved. Implement explicit connector identity/source EVSE mapping and mandatory canonical company ownership before parallel bookings; do not guess among multiple connectors or block stop/final-meter reconciliation. Known-unsent local expiry closure is now implemented with bounded scheduled scans and concurrent-worker tests. Complete real authorization token revocation and operational reconciliation. Continue testing web/native selection and operator linking end to end.
 

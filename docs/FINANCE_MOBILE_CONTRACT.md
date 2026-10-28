@@ -1,5 +1,15 @@
 # Financial integration contract for Agent 2
 
+Latest native QA adds exact server-precision amount formatting (no floating-point/accounting duplication), correct EN/AR empty subscription-notice labels, fail-closed unsupported precision and clearing of transport-uncertainty messaging only after successful authoritative GET. Full Flutter80 passed/seven explicit live-only skips; all nine recovery-specific tests and analysis passed after the refresh correction. Composer strict validation and the preserved finance/lifecycle scheduler plus new hourly dunning registration are verified. Hosted validation is pending for this final native correction.
+
+
+## Native payment recovery — verified implementation
+
+Canonical Flutter customer/vendor account menu now opens the tenant-scoped payment recovery queue and paginated audit history. Provider inspection requires explicit confirmation and calls the existing read-only provider-reconciliation API; it never creates a charge/refund, accepts card credentials or infers invoice payment from operation completion. Errors clear private rows, 401/419 invalidate the session, disposal fences late responses, lost responses never replay POSTs, and both English/Arabic RTL are supported. The UI renders an allowlist, not arbitrary provider payloads.
+
+Validation: Flutter analysis clean; 77 unit/widget tests passed with six explicit live-fixture skips; six new recovery tests cover pagination/history, consent, lost-response non-replay, expiry, 390px RTL and disposal. Separate native real-Laravel integration passed customer/vendor scope, cross-tenant 404s, private-field redaction and provider-mismatch 409 without initiating payments. Linux native CI now runs that opt-in connected test. Android/iOS hosted builds for this source remain pending. Saved mandates, off-session collection and dunning remain the immediate financial implementation priority; this UI does not implement them or claim merchant acceptance.
+
+
 Agent 1 owns finance business rules; Agent 2 consumes these APIs in the canonical Flutter app. Do not reproduce money math, subscription eligibility or settlement calculations in Dart. Both cookie/CSRF `/api` and additive Sanctum `/api/v1` routes use the same database. Existing native cookie client remains supported. Web admin is the administrative surface; no admin mobile login is added.
 
 All amounts are integer minor units with authoritative `currency` and `minor_units`. Use decimal-string parsing for user input and display precision from the response, never a universal two-decimal assumption. Do not sum different currencies. Dates are ISO/UTC or database UTC timestamps; format in user locale. List responses are Laravel pagination (`data,current_page,last_page,total`); follow pages without constructing external URLs. Error statuses: 401 session, 403 role, 404 inaccessible tenant record, 409 conflict/state/idempotency/precision, 422 invalid payload, 429 throttle, 503 provider unavailable/not authorized. Preserve request keys and payload across uncertain retries. Changing payload requires a new key; refresh authoritative state before creating replacement charges.

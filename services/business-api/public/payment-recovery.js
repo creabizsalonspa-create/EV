@@ -151,3 +151,112 @@ window.mountPaymentRecovery = ({ container, api, ui, actor }) => {
         () => load(),
     );
 };
+
+// Scheduled in-app notices share canonical invoices; no payment action here.
+window.mountSubscriptionNotices = ({ container, api, ui, actor }) => {
+    container.dataset.subscriptionNotices = "true";
+    const identity = actor().id;
+    let generation = 0;
+    const alive = () => container.isConnected && actor()?.id === identity;
+    const text = (tag, en, ar) => {
+        window.EV_MESSAGES[en] ||= { en, ar };
+        return ui(tag, en);
+    };
+    const literal = (tag, value) => {
+        const n = document.createElement(tag);
+        n.textContent = String(value ?? "");
+        return n;
+    };
+    container.append(
+        text("h3", "Subscription notices", "تنبيهات الاشتراك"),
+        text(
+            "p",
+            "In-app reminders only. No automatic collection was attempted. Review the existing subscription checkout; uncertain payments require recovery first.",
+            "تذكيرات داخل التطبيق فقط. لم تُجر محاولة تحصيل تلقائية. راجع دفع الاشتراك الحالي؛ تتطلب الدفعات غير المؤكدة مراجعة الاسترداد أولاً.",
+        ),
+    );
+    const list = document.createElement("div");
+    container.append(list);
+    async function load(page = 1) {
+        const epoch = ++generation;
+        list.replaceChildren(text("p", "Loading…", "جار التحميل…"));
+        try {
+            const result = await api(
+                "commercial/subscription-notices?page=" + page,
+            );
+            if (!alive() || epoch !== generation) return;
+            list.replaceChildren();
+            if (!result.data.length)
+                list.append(
+                    text(
+                        "p",
+                        "No subscription notices.",
+                        "لا توجد تنبيهات اشتراك.",
+                    ),
+                );
+            const labels = {
+                payment_due: ["Payment due", "دفعة مستحقة"],
+                settled: ["Invoice settled", "سُددت الفاتورة"],
+                cancelled: ["Subscription cancelled", "أُلغي الاشتراك"],
+                recovery_required: [
+                    "Review uncertain payment first",
+                    "راجع الدفع غير المؤكد أولاً",
+                ],
+            };
+            for (const row of result.data) {
+                const card = document.createElement("article");
+                card.className = "finance-row";
+                card.append(
+                    literal("h4", row.number),
+                    text("p", ...labels[row.attention]),
+                    text("span", "Reminder stage", "مرحلة التذكير"),
+                    literal("p", row.stage),
+                    literal(
+                        "p",
+                        row.currency +
+                            " " +
+                            EvMoney.format(
+                                Number(row.total_minor),
+                                Number(row.minor_units),
+                            ),
+                    ),
+                    literal("p", row.created_at),
+                );
+                list.append(card);
+            }
+            function button(en, ar, next) {
+                const b = text("button", en, ar);
+                b.type = "button";
+                b.onclick = () => load(next);
+                list.append(b);
+            }
+            if (result.current_page > 1)
+                button(
+                    "Previous notices",
+                    "التنبيهات السابقة",
+                    result.current_page - 1,
+                );
+            if (result.current_page < result.last_page)
+                button(
+                    "Next notices",
+                    "التنبيهات التالية",
+                    result.current_page + 1,
+                );
+            button("Refresh notices", "تحديث التنبيهات", page);
+        } catch (_) {
+            if (!alive() || epoch !== generation) return;
+            list.replaceChildren(
+                text(
+                    "p",
+                    "Unable to load subscription notices.",
+                    "تعذر تحميل تنبيهات الاشتراك.",
+                ),
+            );
+            const retry = text("button", "Retry", "إعادة المحاولة");
+            retry.type = "button";
+            retry.onclick = () => load(page);
+            list.append(retry);
+        }
+    }
+    load();
+};

@@ -6,6 +6,7 @@ import 'connector_choices.dart';
 import 'reservation_arrival.dart';
 import 'roaming.dart';
 import 'invoice_history.dart';
+import 'payment_recovery.dart';
 import 'tariffs.dart';
 import 'preferences.dart';
 import 'strings.dart';
@@ -891,6 +892,25 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'subscriptionNotices') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PaymentRecoveryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                        subscriptionNotices: true,
+                      ),
+                    ),
+                  );
+                } else if (value == 'paymentRecovery') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PaymentRecoveryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'invoices') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -948,6 +968,16 @@ class _WorkspaceState extends State<Workspace> {
                     enabled: !busy,
                     child: Text(s.t('pricing')),
                   ),
+                PopupMenuItem(
+                  value: 'subscriptionNotices',
+                  enabled: !busy,
+                  child: Text(recoveryText(context, 'notices')),
+                ),
+                PopupMenuItem(
+                  value: 'paymentRecovery',
+                  enabled: !busy,
+                  child: Text(recoveryText(context, 'title')),
+                ),
                 PopupMenuItem(
                   value: 'invoices',
                   enabled: !busy,

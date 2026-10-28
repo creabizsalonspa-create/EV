@@ -40,7 +40,7 @@ class SubscriptionConcurrencyTest extends TestCase
     private function race(string $operation, int $entity, int $actor, int $invoice = 0, bool $differentKeys = false): array
     {
         $table = match ($operation) {
-            'enroll' => 'commercial_subscriptions', 'renew' => 'commercial_subscription_invoices', 'pay', 'gateway_capture' => 'commercial_subscription_receipts', 'credit' => 'subscription_credits'
+            'dunning' => 'subscription_dunning_notices', 'enroll' => 'commercial_subscriptions', 'renew' => 'commercial_subscription_invoices', 'pay', 'gateway_capture' => 'commercial_subscription_receipts', 'credit' => 'subscription_credits'
         };
         DB::unprepared('CREATE FUNCTION subscription_test_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.5); RETURN NEW; END; $$');
         DB::unprepared('CREATE TRIGGER subscription_test_delay BEFORE INSERT ON '.$table.' FOR EACH ROW EXECUTE FUNCTION subscription_test_delay()');
@@ -91,6 +91,19 @@ class SubscriptionConcurrencyTest extends TestCase
             DB::unprepared('DROP TRIGGER IF EXISTS subscription_test_delay ON '.$table);
             DB::unprepared('DROP FUNCTION IF EXISTS subscription_test_delay()');
         }
+    }
+
+    public function test_racing_dunning_workers_record_one_notice_without_payment(): void
+    {
+        [$customer, $plan] = $this->fixture();
+        $this->travelTo(now()->subDays(2));
+        $s = app(SubscriptionService::class)->subscribe($customer, $plan->id, 'fixture');
+        $this->travelBack();
+        $this->assertSame(['200', '200'], $this->race('dunning', $s['invoices']->first()->id, $customer->id));
+        $this->assertDatabaseCount('subscription_dunning_notices', 1);
+        $this->assertDatabaseCount('commercial_subscription_receipts', 0);
+        $this->assertDatabaseCount('subscription_gateway_checkouts', 0);
+        $this->assertTrue(app(SubscriptionService::class)->summary($s['subscription']->id)['ledger_balanced']);
     }
 
     public function test_racing_enrollment_same_key_returns_one_subscription_and_invoice(): void

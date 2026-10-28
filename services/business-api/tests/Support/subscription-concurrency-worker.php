@@ -2,6 +2,7 @@
 
 use App\Models\User;
 use App\Services\Commercial\SubscriptionCreditService;
+use App\Services\Commercial\SubscriptionDunning;
 use App\Services\Commercial\SubscriptionGateway;
 use App\Services\Commercial\SubscriptionService;
 use Illuminate\Contracts\Console\Kernel;
@@ -32,6 +33,7 @@ try {
     match ($operation) {
         'enroll' => $service->subscribe($actor, (int) $entityId, $key),
         'renew' => $service->renew((int) $entityId),
+        'dunning' => app(SubscriptionDunning::class)->invoice((int) $entityId),
         'credit' => app(SubscriptionCreditService::class)->refund($actor, (int) $entityId, (int) $invoiceId, 1050, 'Concurrent approved subscription refund', $key),
         'gateway_capture' => app(SubscriptionGateway::class)->operate($actor, (int) $entityId, 'capture', $key, null),
         'pay' => $service->mockPay($actor, (int) $entityId, (int) $invoiceId, 'succeeded', $key),

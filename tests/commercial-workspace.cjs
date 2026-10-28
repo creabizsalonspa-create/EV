@@ -265,6 +265,11 @@ const assert = require("node:assert/strict");
         name: new RegExp("#" + subscriptionId + " · cancelled"),
       })
       .waitFor();
+    // The customer phase has already exercised a full financial workspace
+    // under the real 60/user/minute limit. Admin actions do not reset that
+    // budget. Pace this new read batch; never clear limiter state or replay
+    // financial mutations to obtain a green test.
+    await new Promise((resolve) => setTimeout(resolve, 60000));
     await root
       .getByRole("button", { name: "Refresh finance", exact: true })
       .click();

@@ -1157,6 +1157,12 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             ui,
             actor: () => actor,
         });
+        mountSubscriptionNotices({
+            container: panel("Subscription reminders", "تذكيرات الاشتراك"),
+            api,
+            ui,
+            actor: () => actor,
+        });
         if (operations) await settlements(operations, current);
     }
     async function settlements(parent, current) {

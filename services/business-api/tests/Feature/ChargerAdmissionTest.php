@@ -2,17 +2,23 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerAdmissionController;
 use App\Models\Charging\AdmissionProfile;
+use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
 use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\DatabaseStore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ChargerAdmissionTest extends TestCase
@@ -46,6 +52,105 @@ class ChargerAdmissionTest extends TestCase
         $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTPS' => $secure ? 'on' : 'off', 'HTTP_AUTHORIZATION' => $auth, 'HTTP_X_EV_INGRESS_TIME' => $ts, 'HTTP_X_EV_INGRESS_NONCE' => $nonce, 'HTTP_X_EV_INGRESS_SIGNATURE' => hash_hmac('sha256', $ts."\n".$nonce."\n".$auth."\n".$body, $key ?? self::KEY)];
 
         return $this->call('POST', ($secure ? 'https://localhost' : 'http://localhost').'/api/internal/charger-ingress/authenticate', [], [], [], $headers, $body);
+    }
+
+    public function test_production_credential_disclosure_requires_https_before_rotating_any_secret(): void
+    {
+        [$owner, $company, $charger, , $old] = $this->fixture();
+        $station = $this->sourceStation($owner);
+        VendorSite::findOrFail($charger->site_id)->update(['station_id' => $station->id]);
+        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-secure', 'protocol' => '1.6', 'vendor_charger_id' => $charger->id, 'created_at' => now(), 'updated_at' => now()]);
+        $this->app->detectEnvironment(fn () => 'production');
+        $controller = app(ChargerAdmissionController::class);
+        try {
+            $r = Request::create('http://localhost/credential', 'POST', ['expected_version' => 1, 'days' => 1]);
+            $r->setUserResolver(fn () => $owner);
+            try {
+                $controller->credential($r, $company, $charger);
+                $this->fail('HTTP must not rotate or disclose a production credential');
+            } catch (HttpException $e) {
+                $this->assertSame(503, $e->getStatusCode());
+            }
+            $this->assertSame(1, AdmissionProfile::first()->credential_version);
+            $this->assertSame(hash('sha256', $old), AdmissionProfile::first()->getRawOriginal('credential_digest'));
+            $r = Request::create('https://localhost/credential', 'POST', ['expected_version' => 1, 'days' => 1]);
+            $r->setUserResolver(fn () => $owner);
+            $reply = $controller->credential($r, $company, $charger);
+            $this->assertSame(201, $reply->getStatusCode());
+            $this->assertSame(2, $reply->getData(true)['profile']['credential_version']);
+            $this->assertNotSame($old, $reply->getData(true)['secret']);
+        } finally {
+            $this->app->detectEnvironment(fn () => 'testing');
+        }
+    }
+
+    private function sourceStation(User $owner): Station
+    {
+        return Station::create(['vendor_id' => $owner->id, 'name' => 'Identity fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+    }
+
+    public function test_canonical_source_conflict_fences_existing_credentials_and_profile_replay(): void
+    {
+        [$owner, $company, $charger, $base, $secret] = $this->fixture();
+        $foreign = $this->sourceStation(User::factory()->create(['role' => 'vendor']));
+        DB::table('csms_bindings')->insert(['station_id' => $foreign->id, 'identifier' => 'ev-test-secure', 'protocol' => '1.6', 'vendor_charger_id' => $charger->id, 'created_at' => now(), 'updated_at' => now()]);
+        $this->admission($secret)->assertUnauthorized();
+        $this->postJson($base, ['identity' => 'ev-test-secure'])->assertConflict();
+        $this->postJson($base.'/credential', ['expected_version' => 1, 'days' => 1])->assertConflict();
+        $this->assertSame(1, AdmissionProfile::first()->credential_version);
+        $this->assertSame(hash('sha256', $secret), AdmissionProfile::first()->getRawOriginal('credential_digest'));
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_production_admission_requires_durable_nonce_cache_and_exact_owned_canonical_source(): void
+    {
+        [$owner, $company, $charger, $base, $secret] = $this->fixture();
+        config(['cache.default' => 'database']);
+        Cache::purge('database');
+        $this->app->instance('env', 'production');
+        try {
+            $this->assertInstanceOf(DatabaseStore::class, Cache::getStore());
+            $this->admission($secret)->assertUnauthorized();
+            $r = Request::create('https://localhost/credential', 'POST', ['expected_version' => 1, 'days' => 1]);
+            $r->setUserResolver(fn () => $owner);
+            try {
+                app(ChargerAdmissionController::class)->credential($r, $company, $charger);
+                $this->fail('Unbound production credentials must not be minted');
+            } catch (HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+            $this->assertSame(1, AdmissionProfile::first()->credential_version);
+            $station = $this->sourceStation($owner);
+            VendorSite::findOrFail($charger->site_id)->update(['station_id' => $station->id]);
+            DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-secure', 'protocol' => '1.6', 'vendor_charger_id' => $charger->id, 'created_at' => now(), 'updated_at' => now()]);
+            $this->admission($secret)->assertNoContent();
+            DB::table('csms_bindings')->update(['protocol' => '2.0.1']);
+            $this->admission($secret)->assertUnauthorized();
+            DB::table('csms_bindings')->update(['protocol' => '1.6']);
+            VendorSite::findOrFail($charger->site_id)->update(['station_id' => $this->sourceStation($owner)->id]);
+            $this->admission($secret)->assertUnauthorized();
+        } finally {
+            $this->app->instance('env', 'testing');
+            config(['cache.default' => 'array']);
+        }
+    }
+
+    public function test_topology_cannot_adopt_identity_reserved_by_another_inventory_charger(): void
+    {
+        [$owner, $company, $charger, , $secret] = $this->fixture();
+        $station = $this->sourceStation($owner);
+        VendorSite::findOrFail($charger->site_id)->update(['station_id' => $station->id]);
+        $other = VendorCharger::create(['company_id' => $company->id, 'site_id' => $charger->site_id, 'asset_reference' => 'OTHER', 'manufacturer' => 'Synthetic', 'model' => 'Fixture', 'source' => 'simulator', 'ocpp_protocol' => '1.6']);
+        $binding = DB::table('csms_bindings')->insertGetId(['station_id' => $station->id, 'identifier' => 'ev-test-secure', 'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now()]);
+        $base = '/api/vendor-ops/companies/'.$company->id.'/chargers/'.$other->id;
+        $this->getJson($base.'/source-options')->assertOk()->assertJsonPath('total', 0);
+        $this->postJson($base.'/evses', ['number' => 1, 'mode' => 'csms', 'binding_id' => $binding, 'source_evse_number' => 0])->assertConflict();
+        $this->assertNull(DB::table('csms_bindings')->value('vendor_charger_id'));
+        $this->postJson($base.'/admission', ['identity' => 'ev-test-secure'])->assertConflict();
+        // The owner must explicitly attach the exact reserved charger first.
+        $own = '/api/vendor-ops/companies/'.$company->id.'/chargers/'.$charger->id;
+        $this->postJson($own.'/evses', ['number' => 1, 'mode' => 'csms', 'binding_id' => $binding, 'source_evse_number' => 0])->assertCreated();
+        $this->admission($secret)->assertNoContent();
     }
 
     public static function protocols(): array
@@ -120,6 +225,9 @@ class ChargerAdmissionTest extends TestCase
     {
         [$owner,$company,$charger,$base,$secret] = $this->fixture();
         $this->postJson($base, ['identity' => 'ev-test-changed'])->assertConflict();
+        $charger->update(['ocpp_protocol' => '2.0.1']);
+        $this->postJson($base.'/credential', ['expected_version' => 1, 'days' => 1])->assertConflict();
+        $charger->update(['ocpp_protocol' => '1.6']);
         $staff = User::factory()->create();
         VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $staff->id, 'email' => $staff->email, 'invited_by' => $owner->id, 'status' => 'active', 'permissions' => ['inventory.read', 'inventory.write']]);
         $response = $this->actingAs($staff)->getJson($base)->assertOk()->assertJsonPath('can_manage', false)->assertJsonMissingPath('profile.credential_digest');
