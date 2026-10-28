@@ -819,6 +819,21 @@ class _EvidenceUploadState extends State<VendorEvidenceUpload> {
   );
 }
 
+/// Probe a bounded native raster before declaring a private PDF preview ready.
+/// The sample never enters an image cache and is always released.
+Future<bool> privatePdfRasterReady(PdfDocument document) async {
+  PdfImage? sample;
+  try {
+    if (document.pages.isEmpty) return false;
+    sample = await document.pages.first.render(fullWidth: 256, fullHeight: 256);
+    return sample != null && sample.pixels.isNotEmpty;
+  } catch (_) {
+    return false;
+  } finally {
+    sample?.dispose();
+  }
+}
+
 class VendorDocumentPreview extends StatefulWidget {
   final PrivateDocument document;
   const VendorDocumentPreview({super.key, required this.document});
@@ -828,9 +843,28 @@ class VendorDocumentPreview extends StatefulWidget {
 
 class _DocumentPreviewState extends State<VendorDocumentPreview>
     with WidgetsBindingObserver {
-  bool visible = true, pdfReady = false;
+  bool visible = true, pdfReady = false, pdfFailed = false, verifying = false;
   final name = operationKey();
   ImageProvider? image;
+  // pdfrx 2.2.24's load-finished event is skipped when all pages were
+  // available during the initial native open. Verify actual raster capability
+  // after viewer initialization instead of depending on that event.
+  Future<void> verifyPdf(PdfDocument document) async {
+    if (!mounted || !visible || pdfReady || verifying) return;
+    verifying = true;
+    try {
+      final success = await privatePdfRasterReady(document);
+      if (mounted && visible) {
+        setState(() {
+          pdfReady = success;
+          pdfFailed = !success;
+        });
+      }
+    } finally {
+      verifying = false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -870,6 +904,11 @@ class _DocumentPreviewState extends State<VendorDocumentPreview>
             padding: const EdgeInsets.all(12),
             child: Text(vendorOpsText(context, 'previewNotice')),
           ),
+          if (visible && pdfFailed)
+            Text(
+              vendorOpsText(context, 'previewFailed'),
+              key: const Key('private-document-failed'),
+            ),
           if (visible && pdfReady)
             Text(
               vendorOpsText(context, 'previewReady'),
@@ -889,9 +928,11 @@ class _DocumentPreviewState extends State<VendorDocumentPreview>
                     sourceName: name,
                     params: PdfViewerParams(
                       maxImageBytesCachedOnMemory: 16 * 1024 * 1024,
+                      onViewerReady: (document, controller) =>
+                          verifyPdf(document),
                       onDocumentLoadFinished: (ref, success) {
-                        if (mounted && pdfReady != success)
-                          setState(() => pdfReady = success);
+                        if (!success && mounted && visible)
+                          setState(() => pdfFailed = true);
                       },
                       linkHandlerParams: PdfLinkHandlerParams(
                         onLinkTap: (_) {},
