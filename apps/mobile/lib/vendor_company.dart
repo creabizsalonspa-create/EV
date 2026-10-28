@@ -836,7 +836,13 @@ Future<bool> privatePdfRasterReady(PdfDocument document) async {
 
 class VendorDocumentPreview extends StatefulWidget {
   final PrivateDocument document;
-  const VendorDocumentPreview({super.key, required this.document});
+  final String? title, notice;
+  const VendorDocumentPreview({
+    super.key,
+    required this.document,
+    this.title,
+    this.notice,
+  });
   @override
   State<VendorDocumentPreview> createState() => _DocumentPreviewState();
 }
@@ -896,13 +902,17 @@ class _DocumentPreviewState extends State<VendorDocumentPreview>
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(vendorOpsText(context, 'preview'))),
+    appBar: AppBar(
+      title: Text(widget.title ?? vendorOpsText(context, 'preview')),
+    ),
     body: SafeArea(
       child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
-            child: Text(vendorOpsText(context, 'previewNotice')),
+            child: Text(
+              widget.notice ?? vendorOpsText(context, 'previewNotice'),
+            ),
           ),
           if (visible && pdfFailed)
             Text(

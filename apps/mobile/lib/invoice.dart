@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'financial_documents.dart';
+import 'refund_requests.dart';
 
 /// Read-only simulated accounting; no checkout, card collection or payout UI.
 class InvoicePage extends StatefulWidget {
@@ -81,6 +83,40 @@ class _InvoicePageState extends State<InvoicePage> {
               '${invoice['number']}',
               style: Theme.of(context).textTheme.headlineMedium,
             ),
+            OutlinedButton(
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => FinancialDocumentsView(
+                          api: widget.api,
+                          onExpired: widget.onExpired,
+                          sourceKind: 'charging_invoice',
+                          sourceId: invoice['id'] as int,
+                        ),
+                      ),
+                    ),
+              child: Text(financialText(context, 'title')),
+            ),
+            if (invoice['minor_units'] is int &&
+                invoice['currency'] is String &&
+                invoice['user_id'] is int)
+              OutlinedButton(
+                onPressed: busy
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => RefundRequestView(
+                            api: widget.api,
+                            onExpired: widget.onExpired,
+                            invoiceId: invoice['id'] as int,
+                            digits: invoice['minor_units'] as int,
+                            currency: invoice['currency'] as String,
+                          ),
+                        ),
+                      ),
+                child: Text(refundText(context, 'new')),
+              ),
             for (final entry in {
               'subtotal': invoice['subtotal_minor'],
               'tax': invoice['tax_minor'],

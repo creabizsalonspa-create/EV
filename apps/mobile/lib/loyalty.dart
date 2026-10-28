@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'api.dart';
 import 'strings.dart';
+import 'loyalty_actions.dart';
 
 const loyaltyEn = {
   'title': 'Points and rewards',
@@ -240,6 +241,20 @@ class _LoyaltyState extends State<LoyaltyView> {
       ),
     ),
   );
+  Future<void> action(String kind, {int? reward}) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LoyaltyActionView(
+          api: widget.api,
+          onExpired: widget.onExpired,
+          action: kind,
+          reward: reward,
+        ),
+      ),
+    );
+    if (mounted) await load(number: target);
+  }
+
   Widget record(Map<String, dynamic> row) {
     final ar = Localizations.localeOf(context).languageCode == 'ar';
     if (section == 'rewards')
@@ -254,6 +269,12 @@ class _LoyaltyState extends State<LoyaltyView> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               Text(row[ar ? 'description_ar' : 'description'] as String),
+              OutlinedButton(
+                onPressed: busy
+                    ? null
+                    : () => action('redeem', reward: row['id'] as int),
+                child: Text(loyaltyActionText(context, 'redeem')),
+              ),
               Text(
                 '${t('cost')}: ${n(row['points_cost'] as int)} · ${t('stock')}: ${n(row['available_stock'] as int)}',
               ),
@@ -315,6 +336,18 @@ class _LoyaltyState extends State<LoyaltyView> {
                 },
         ),
         const SizedBox(height: 12),
+        if (section == 'account')
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              for (final kind in ['earn', 'reconcile'])
+                OutlinedButton(
+                  onPressed: busy ? null : () => action(kind),
+                  child: Text(loyaltyActionText(context, kind)),
+                ),
+            ],
+          ),
         OutlinedButton.icon(
           onPressed: busy ? null : () => load(number: target),
           icon: const Icon(Icons.refresh),
