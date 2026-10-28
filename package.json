@@ -19,7 +19,7 @@
     "test:command-recovery": "node tests/command-recovery.cjs",
     "test:nearby": "node tests/nearby-catalog.cjs",
     "test:favorites": "node tests/station-favorites.cjs",
-    "test:maps": "node tests/discovery-map.cjs"
+    "test:maps": "node tests/map-assets.cjs && node tests/discovery-map.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",
