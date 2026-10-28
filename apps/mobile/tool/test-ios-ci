@@ -26,7 +26,8 @@ def verified_success(result, text):
             and 'DEVICE: native vendor onboarding and private PDF preview verified' in text
             and 'DEVICE: customer favorites and private catalog status verified' in text
             and 'DEVICE: customer map privacy consent navigation verified; no external tiles' in text
-            and 'DEVICE: consented one-shot GPS and sourced charging-stop route verified; synthetic platform/provider' in text)
+            and 'DEVICE: consented one-shot GPS and sourced charging-stop route verified; synthetic platform/provider' in text
+            and 'DEVICE: scoped noncash native loyalty evidence verified; synthetic economics' in text)
 
 
 def owned_simulator(devices, device, run, attempt):

@@ -1,3 +1,17 @@
+# Native loyalty final local validation
+
+Full Flutter **135 passed / ten explicitly gated live-only skips**, clean analysis. Seven new focused widget tests and one separate real-Laravel native integration passed; the latter is excluded from default tests unless its isolated fixture path is supplied. No skipped test is counted as a pass. Native financial calculations/mutations are unchanged; this is read-only API parity. Hosted Android/iOS and current candidate integration remain pending.
+
+# Coverage after verified PR18/19 integration
+
+Original42 categories/312 atoms/weights unchanged: coded **50.70→52.25%**, tested/merged **50.51→52.06%**, production **0.00%**. Exact improvement: **1.5495086923658352 percentage points** in each software stage (1.2849584278155708 from PR18 tiers/ledger/rewards/payout software, plus0.26455026455026455 from PR19 routes/navigation). Rounded endpoint differences are not the exact calculation. No broad partner-map/favorite or full native commercial atom is credited. Evidence and exact fractions: REQUIREMENT_COVERAGE.md and docs/evidence/requirements/coverage.json.
+
+# Verified PR19 integration and next native slice — 28 October 2026
+
+PR19 is verified/merged at **d846de0bdcd6346578d8ffa1959807fcbd8762a6**, exactly matching tested source **b336f4162946ab6413ce8288d12fca90121b91f3**. All ten checks passed: both full platform/OCPP/OCPI/browser matrices, financial/connector PostgreSQL and staging-image matrices, Android build/eight real-Laravel native suites, and iOS build/actual simulator UI. Runtime confirms consented synthetic GPS/sourced routes plus preserved favorites/maps/Keychain/Arabic pricing/private-PDF assertions. Both downloaded app artifacts are hashed; the actual iOS bundle independently confirms en/ar foreground-only privacy resources. Evidence: docs/evidence/discovery-routing/hosted-checkpoint.json. No hardware/live provider/payment/partner/signing/store acceptance is inferred.
+
+Current single continuation branch `development/native-loyalty` consumes PR18's canonical noncash account, ledger, rewards and redemption-history APIs in Flutter. This read-only native slice does not post earning/redemption/fulfillment or duplicate economics. Its source/CI integration is pending; do not count it as merged. Continue complete native commercial actions, private finance documents/corporate/payout/dispute API parity, unified partner discovery/reviews, production OCPP/OCPI and all original software. Temporary full Agent2 ownership remains effective while Agent1 is unavailable. Historical candidate/ownership records below retain their original status.
+
 # Discovery candidate local verification — 28 October 2026
 
 Final combined Laravel: **345 passed / 8438 assertions**. Financial PostgreSQL: **220 / 7118**, plus **58 independent-process races / 758 assertions**. All eight native suites against real Laravel passed; new provider capability/consent checks are included in the existing topology suite. New discovery browser flow, maps/nearby/session regressions, asset integrity, five fixed-coverage guards, two native privacy configuration guards and three iOS startup/log guards passed. Final focused Flutter GPS/routes:12 passed and clean analysis; full default Flutter run:128 passed / nine deliberate live-only skips. Hosted Android/iOS builds remain pending. Provider/GPS UI fixtures are synthetic; no external acceptance is inferred.
