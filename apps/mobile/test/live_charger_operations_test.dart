@@ -31,6 +31,7 @@ void main() {
       final current = await api.request(base);
       expect(current.containsKey('secret'), false);
       expect(current['profile']['credential_version'], 1);
+      expect(current['credential_state'], 'expiring');
       await expectLater(
         api.request(
           '$base/credential',
@@ -43,6 +44,13 @@ void main() {
       final revoked = await api.request(base);
       expect(revoked['profile']['enabled'], false);
       expect(revoked['profile']['credential_version'], 2);
+      expect(revoked['credential_state'], 'revoked');
+      final history = await api.request('$base/events');
+      expect(history['total'], 3);
+      expect((history['data'] as List).first['action'], 'revoked');
+      expect((history['data'] as List).first.containsKey('actor_id'), false);
+      expect(jsonEncode(history).contains(issued['secret']), false);
+
       final ops = 'charging-operations/${f['command_id']}';
       await api.request(
         '$ops/case',
@@ -66,6 +74,16 @@ void main() {
       );
       await api.signOut();
       await api.signIn(f['customer'], f['password']);
+      await expectLater(
+        api.request('$base/events'),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.status,
+            'status',
+            isIn([403, 404]),
+          ),
+        ),
+      );
       await expectLater(
         api.request('$ops/case'),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 403)),

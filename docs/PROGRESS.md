@@ -1,3 +1,9 @@
+## Verified recurring integration and charger lifecycle continuation — 28 October 2026
+
+PR12 source dfab1ae passed all ten checks (including Android/iOS) and merged at f00803732fa7bc4bb040f2b4a5ac20f4ce334fb8. Automatic subscription consent/collection is implemented across backend/web/Flutter in supported test mode; live merchant acceptance remains blocked. Exact source/test counts are in ACTIVE_DEVELOPMENT_CHECKPOINT.md.
+
+Continued with actual non-financial code on `development/admission-lifecycle`: bounded credential expiry, version-safe renewal races, database-immutable system/operator history, scoped paginated API, web/vendor Flutter warnings/history and secret-clearing navigation. Laravel247/7464, PostgreSQL connector45/703 plus14 races/197, focused Flutter6 and actual browser/history tests passed; full Flutter86/eight deliberate live skips, financial PostgreSQL139/6312 +37 races/490 and native real-Laravel audit pass; hosted validation pending. Both OCPP protocols and restarted continuous meter→invoice simulations passed after the QA driver adopted the existing safe429 client. No protocol security or production limit was weakened. Full production token/PKI/OCPI/maps/Admin/client scope remains unfinished.
+
 ## Recurring payment implementation candidate — 28 October 2026
 
 Sole Agent2 ownership/full original scope retained. New slice branch `development/recurring-subscriptions` extends integrated1f25e243 without rebuilding finance. Implemented: hosted setup/customer/method binding with encrypted references and consent versions/expiry; default/revoke/detach and append-only audit; atomic per-invoice collection jobs and existing gateway/recovery/receipt integration; bounded declines/SCA and unknown-outcome holds; customer/vendor web and canonical Flutter EN/AR controls and ledger history. Default remains disabled/test-only. Details: [RECURRING_PAYMENTS.md](RECURRING_PAYMENTS.md).

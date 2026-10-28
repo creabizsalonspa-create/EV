@@ -94,7 +94,7 @@ class ChargerAdmissionConcurrencyTest extends TestCase
 
     public static function operations(): array
     {
-        return [['credential', 'credential'], ['case', 'case'], ['credential', 'revoke']];
+        return [['credential', 'credential'], ['case', 'case'], ['credential', 'revoke'], ['admission_expire', 'admission_expire'], ['credential', 'admission_expire']];
     }
 
     #[DataProvider('operations')]
@@ -108,7 +108,10 @@ class ChargerAdmissionConcurrencyTest extends TestCase
         $charger = VendorCharger::create(['company_id' => $company->id, 'site_id' => $site->id, 'asset_reference' => 'PG', 'manufacturer' => 'PG', 'model' => 'PG', 'source' => 'simulator', 'ocpp_protocol' => '1.6']);
         $profile = AdmissionProfile::create(['charger_id' => $charger->id, 'identity' => 'ev-test-pg-admission', 'protocol' => '1.6']);
         $command = ChargerCommand::create(['actor_id' => $owner->id, 'station_id' => $station->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('a', 64), 'idempotency_key' => 'PG', 'status' => 'outcome_unknown']);
-        $table = $operation === 'credential' ? 'charger_admission_events' : 'charging_operational_case_events';
+        if ($other === 'admission_expire') {
+            $profile->update(['enabled' => true, 'credential_digest' => hash('sha256', str_repeat('a', 40)), 'expires_at' => now()->subMinute()]);
+        }
+        $table = in_array($operation, ['credential', 'admission_expire'], true) ? 'charger_admission_events' : 'charging_operational_case_events';
         DB::unprepared('CREATE FUNCTION admission_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1); RETURN NEW; END; $$');
         DB::unprepared('CREATE TRIGGER admission_delay BEFORE INSERT ON '.$table.' FOR EACH ROW EXECUTE FUNCTION admission_delay()');
         $dir = sys_get_temp_dir().'/charger-admission-'.bin2hex(random_bytes(8));
@@ -140,6 +143,22 @@ class ChargerAdmissionConcurrencyTest extends TestCase
                 $this->assertSame(0, proc_close($p), $error);
             }$workers = [];
             sort($results);
+            if ($other === 'admission_expire') {
+                $this->assertSame(1, $profile->fresh()->credential_version);
+                $this->assertDatabaseCount('charger_admission_events', 1);
+                if ($operation === 'admission_expire') {
+                    $this->assertSame(['200', '200'], $results);
+                    $this->assertFalse($profile->fresh()->enabled);
+                    $this->assertNull($profile->fresh()->credential_digest);
+                } else {
+                    $this->assertContains($results, [['200', '201'], ['200', '409']]);
+                    $this->assertSame($results === ['200', '201'], $profile->fresh()->enabled);
+                }
+                $this->assertDatabaseCount('charging_sessions', 0);
+                $this->assertDatabaseCount('finance_invoices', 0);
+
+                return;
+            }
             if ($other === 'revoke') {
                 $this->assertContains($results, [['200', '201'], ['200', '409']]);
                 $this->assertFalse($profile->fresh()->enabled);

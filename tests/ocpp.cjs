@@ -2,39 +2,10 @@ const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { promisify } = require("node:util");
 const execFile = promisify(require("node:child_process").execFile);
+const { BusinessClient } = require("./helpers/business-client.cjs");
 async function businessAccount(role) {
-  let cookies = new Map(),
-    csrf;
-  async function request(path, method = "GET", body) {
-    let r = await fetch("http://127.0.0.1:8000/api/" + path, {
-      method,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        Cookie: [...cookies].map(([k, v]) => k + "=" + v).join("; "),
-        ...(csrf ? { "X-CSRF-TOKEN": csrf } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    for (let c of r.headers.getSetCookie()) {
-      let pair = c.split(";")[0],
-        n = pair.indexOf("=");
-      cookies.set(pair.slice(0, n), pair.slice(n + 1));
-    }
-    let j = await r.json();
-    assert(r.ok, JSON.stringify(j));
-    return j;
-  }
-  csrf = (await request("csrf")).token;
-  let email = role + "-" + randomUUID() + "@example.test";
-  await request("register", "POST", {
-    name: "CSMS " + role,
-    email,
-    password: randomUUID() + "aA9!",
-  });
-  csrf = (await request("csrf")).token;
-  await execFile("./scripts/php", ["artisan", "platform:role", email, role]);
-  return request;
+  const client = await new BusinessClient().register(role);
+  return client.request.bind(client);
 }
 async function protocol(version) {
   const station =

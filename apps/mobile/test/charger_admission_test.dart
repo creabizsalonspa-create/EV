@@ -23,7 +23,26 @@ class AdmissionApi extends FixtureApi {
       'credential_version': version,
       'enabled': !revoked,
     };
-    if (method == 'GET') return {'profile': profile, 'can_manage': canManage};
+    if (path.endsWith('/events'))
+      return {
+        'data': [
+          {
+            'action': 'expired',
+            'credential_version': 2,
+            'actor_type': 'system',
+            'created_at': '2026-10-28T00:00:00Z',
+          },
+        ],
+        'current_page': int.parse(query['page'] ?? '1'),
+        'last_page': 2,
+        'total': 26,
+      };
+    if (method == 'GET')
+      return {
+        'profile': profile,
+        'can_manage': canManage,
+        'credential_state': revoked ? 'revoked' : 'expiring',
+      };
     writes++;
     if (method == 'DELETE') {
       revoked = true;
@@ -127,4 +146,39 @@ void main() {
     expect(expired, 1);
     expect(find.byKey(const Key('charger-one-time-secret')), findsNothing);
   });
+  testWidgets(
+    'credential history hides one-time secret and provides read-only system audit',
+    (t) async {
+      final api = AdmissionApi();
+      await t.pumpWidget(app(api));
+      await t.pumpAndSettle();
+      expect(
+        find.text('Credential expires within seven days; renewal required'),
+        findsOneWidget,
+      );
+      await t.ensureVisible(find.text('Issue / rotate credential'));
+      await t.tap(find.text('Issue / rotate credential'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Confirm'));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('charger-one-time-secret')), findsOneWidget);
+      await t.ensureVisible(find.text('Credential history'));
+      await t.tap(find.text('Credential history'));
+      await t.pumpAndSettle();
+      expect(
+        find.text('Expired credential disabled by system'),
+        findsOneWidget,
+      );
+      expect(find.text('System operation'), findsOneWidget);
+      expect(find.byKey(const Key('charger-one-time-secret')), findsNothing);
+      await t.ensureVisible(find.text('Next'));
+      await t.tap(find.text('Next'));
+      await t.pumpAndSettle();
+      expect(find.text('Previous'), findsOneWidget);
+      expect(api.writes, 1);
+      await t.tap(find.byType(BackButton));
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('charger-one-time-secret')), findsNothing);
+    },
+  );
 }

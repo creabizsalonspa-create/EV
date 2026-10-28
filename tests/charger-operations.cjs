@@ -101,6 +101,22 @@ const { chromium } = require("playwright"),
       .click();
     assert.equal((await waiting).status(), 200);
     await admission.getByText("Admission disabled", { exact: true }).waitFor();
+    await admission.getByText("Credential revoked", { exact: true }).waitFor();
+    await admission
+      .getByRole("button", { name: "Credential history", exact: true })
+      .click();
+    await admission
+      .getByRole("heading", { name: "Credential history", exact: true })
+      .waitFor();
+    await admission
+      .getByText("Credential issued or rotated", { exact: true })
+      .waitFor();
+    assert.equal(
+      await admission.getByText("Operator action", { exact: true }).count(),
+      3,
+    );
+    assert(!(await admission.textContent()).includes(secret));
+
     const card = page.locator(
       `#command-list [data-command-id="${f.command_id}"]`,
     );

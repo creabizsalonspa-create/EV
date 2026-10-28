@@ -1807,4 +1807,47 @@ window.EV_MESSAGES = {
         en: "Resolved with source evidence",
         ar: "عولجت بأدلة المصدر",
     },
+    "Credential history": { en: "Credential history", ar: "سجل بيانات الدخول" },
+    "System operation": { en: "System operation", ar: "عملية نظام" },
+    "Operator action": { en: "Operator action", ar: "إجراء مشغّل" },
+    "admission.state.prepared": {
+        en: "Credential not issued",
+        ar: "بيانات الدخول غير مُصدرة",
+    },
+    "admission.state.active": {
+        en: "Credential valid",
+        ar: "بيانات الدخول صالحة",
+    },
+    "admission.state.expiring": {
+        en: "Credential expires within seven days; renewal required",
+        ar: "تنتهي بيانات الدخول خلال سبعة أيام؛ يلزم تجديدها",
+    },
+    "admission.state.expired": {
+        en: "Credential expired; admission denied",
+        ar: "انتهت بيانات الدخول؛ الاتصال غير مسموح",
+    },
+    "admission.state.revoked": {
+        en: "Credential revoked",
+        ar: "أُبطلت بيانات الدخول",
+    },
+    "admission.state.disabled": {
+        en: "Credential disabled",
+        ar: "بيانات الدخول معطّلة",
+    },
+    "admission.event.prepared": {
+        en: "Charger identity prepared",
+        ar: "أُعدّت هوية الشاحن",
+    },
+    "admission.event.rotated": {
+        en: "Credential issued or rotated",
+        ar: "أُصدرت بيانات الدخول أو دُوّرت",
+    },
+    "admission.event.revoked": {
+        en: "Credential revoked",
+        ar: "أُبطلت بيانات الدخول",
+    },
+    "admission.event.expired": {
+        en: "Expired credential disabled by system",
+        ar: "أعطّل النظام بيانات الدخول المنتهية",
+    },
 };

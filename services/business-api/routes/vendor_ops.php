@@ -39,3 +39,5 @@ Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissio
 Route::post('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'configure']);
 Route::post('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'credential']);
 Route::delete('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'revoke']);
+
+Route::get('/companies/{company}/chargers/{charger}/admission/events', [ChargerAdmissionController::class, 'events']);

@@ -1,6 +1,17 @@
 # Active development checkpoint
 
-## Active candidate — saved mandates and automatic collection, 28 October 2026
+## Verified recurring integration and next charging candidate — 28 October 2026
+
+Saved authorization/collection source **dfab1ae7e89ee9afa806c3666e5f8f43b45b52a3** passed all ten push/PR checks and merged through [PR12](https://github.com/creabizsalonspa-create/EV/pull/12) at **f00803732fa7bc4bb040f2b4a5ac20f4ce334fb8** on `development/fullstack-continuation`. The merge tree matches the tested source. Android debug, unsigned iOS simulator and synthetic trusted-TLS native UI passed in both runs40614828372/40614858052; platform runs40614828401/40614858059 passed. Preserve prior branches and finance history.
+
+Source dfab1ae: Laravel244/7381, recurring13/148, PostgreSQL finance139/6312 and all-process35/459; connector42/620 plus overlapping12-race subset/166; Flutter85/default8 live-only skips, analysis clean; seven real-Laravel native fixture suites and commercial/recurring/invoice/tariff/dunning browsers passed. Source-level Stripe HTTP contracts only, no real merchant acceptance. Hosted enrollment/consent/revocation, bounded automatic collection, SCA, journal preservation and complete controls are described in RECURRING_PAYMENTS.md. Do not rebuild them.
+
+Current additional source on `development/admission-lifecycle`: expiry housekeeping/version fencing, immutable scoped credential audit and web/Flutter renewal/history controls, plus reuse of the existing bounded429 QA client for OCPP. Local Laravel247/7464, connector PostgreSQL45/703 and14 process races/197, six focused Flutter admission tests and both OCPP protocols/restarted continuous business source/browser audit passed. Full Flutter86 passes/eight deliberate live-only skips, analysis, updated real-Laravel native audit/isolation and three iOS startup guards also pass. Financial PostgreSQL139/6312 and all-process37/490 pass; only this additional source's hosted checks/builds remain pending. No CA lifecycle, rider authorization or production-CSMS registration is claimed by this increment.
+
+Exact next action: finish/record current candidate verification, commit/push and merge it through a tested PR. Then implement authenticated production-CSMS registration and rider/RFID/IdToken lifecycle from the pinned CitrineOS contract; preserve no-evidence/unknown-command holds and canonical namespaces. Continue certificate management, monitoring/incidents, full authorized OCPI, interactive maps, native company/KYC/staff, Admin/security/engagement/fleet/deployment/release requirements. All original PRD scope remains required and incomplete. Merchant/partner/hardware, signing/physical devices and operational/security acceptance remain external gates, not an excuse to omit independently implementable software.
+
+
+## Earlier candidate — saved mandates and automatic collection, 28 October 2026
 
 Branch `development/recurring-subscriptions`, based on integrated `1f25e243b0ae04ba61c063dc0ae3e5ae79346a63`. The commit containing this section is the implementation candidate; record its exact SHA/hosted checks in the next evidence update before merging. Main's last fully hosted-tested record remains below. Agent2 remains sole owner of the complete original scope.
 

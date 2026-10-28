@@ -1,5 +1,8 @@
 # Current coordinated continuation scope
 
+
+Current recovery record: [ACTIVE_DEVELOPMENT_CHECKPOINT.md](ACTIVE_DEVELOPMENT_CHECKPOINT.md). PR12 saved-mandate/automatic-collection source dfab1ae is fully hosted-tested and integrated at f0080373. Credential-expiry/audit continuation follows on a separate review branch. Agent2 remains sole full-platform owner; older account restrictions below are historical. Do not rebuild completed topology, reservation, finance, consent or recovery modules. No hardware/merchant/partner/store acceptance is implied.
+
 Latest implementation `eae79cb41677056890d33625d0c2700bcf94bcf4` includes canonical source-namespace ownership fences and production bound-identity requirements, plus guarded pre-Dart-only iOS startup recovery. Local Laravel231/7233 and PostgreSQL connector42/620 +12 process races/166 passed. TLS/mTLS, connected charger/topology browsers and all six connected native fixture suites passed; separate generic native API smoke also passed. Flutter80/default7 live-only skips and three Python startup safety tests are verified. Financial126/6164 +31 earlier process races/403 remain independently recorded; the current hosted financial runner also covers the newly added namespace race. See PR #10 current checks for the final hosted result; no skipped, cancelled or pre-Dart-failed run is counted as passing.
 
 
