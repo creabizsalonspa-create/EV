@@ -1,3 +1,9 @@
+# Active parallel ownership — owner restored, 28 October 2026
+
+Effective immediately the two-agent model is restored. Agent1 exclusively owns finance/commercial rules, financial controllers/services/migrations and financial web/Admin screens. Agent2 owns EV/OCPP/OCPI, discovery/maps/GPS/routing/favorites/reviews, customer/vendor Flutter, nonfinancial web/Admin, fleet operations, security/deployment and the main integration branch. Agent2 consumes verified finance APIs in Flutter and integrates tested finance PRs without recreating their business logic. This supersedes temporary sole-owner statements below; preserve historical records and all merged financial invariants.
+
+Fetched current main is e6f20f0, beyond the owner's cited PR16 checkpoint: PR17 staging-runtime fixes are also verified/merged, with sourcecbed320 and merge6a9b404 evidence. Do not rebuild PR16 favorites/maps or PR17. No new finance PR was visible at this ownership fetch. Agent2 continues one discovery-routing vertical batch independently; see ACTIVE_FILE_OWNERSHIP.md for additive shared-file reservations.
+
 # Verified integrated checkpoint — 28 October 2026
 
 PR14/15/16/17 are merged. Latest verified integration is **6a9b4046914111c760625bac016f9b7d26e2a6a5**, exactly matching tested **cbed3209abe71577e2f401e71a41f50c98f8a5bc**. All eight PR17 push/PR checks passed: full platform/browser/OCPP/OCPI, finance and connector PostgreSQL, and both complete staging-image builds/audits/PostgreSQL17 HTTP/storage smokes. Evidence: [staging-image/hosted-checkpoint.json](evidence/staging-image/hosted-checkpoint.json). Application source is unchanged from **e942017**, whose ten Android/iOS/platform checks and eight connected Laravel suites passed in PR16; those native runs are retained as application evidence, not misreported as new PR17 runs.
