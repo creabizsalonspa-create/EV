@@ -1,3 +1,9 @@
+# Verified PR14 integration and pending PR15 rerun — 28 October 2026
+
+PR14 source **ae8a10f3bb3758efb072bcea73fe0688197e6e53** passed all ten hosted checks. Both iOS runs include the actual native PDF raster/preview, Keychain and Arabic-pricing runtime assertions. Merged main is **6d995d2806a688f8f92c094f671b2ebd1d3567ad**; its Git tree exactly equals the verified source. Evidence: `docs/evidence/native-vendor/hosted-checkpoint.json`. The prior callback-event defect is fixed without removing assertions or retrying connected failures.
+
+Existing PR15 branch development/catalog-nearby now safely merges this verified main; no new feature branch was created. Fresh local integration rerun passes Laravel258/7563, finance PostgreSQL146/6381 plus41/539 process races, connector PostgreSQL49/733 plus14/197 races, Flutter104 with9 deliberate live-only skips and clean analysis, nearby/frontend/localization browser suites, and5 coverage-evidence guards. Complete the exact-source hosted protocol/browser/Android/iOS rerun before PR15 merge. The312-atom/42-category weighted tracker separates coded/tested/merged/production acceptance and is checked by scripts/requirement-coverage. Agent2 temporarily owns the entire product under the latest owner directive. Full production OCPP/OCPI/maps/commercial/native/Admin/security/release scope remains unfinished; do not rebuild completed systems or infer physical/merchant/partner/store acceptance.
+
 ## Latest owner directive — temporary full-project Agent2 ownership, 28 October 2026
 
 The newly uploaded FULL PROJECT OWNERSHIP command supersedes the preceding parallel split: Agent1 is unavailable; Agent2 temporarily owns all remaining financial/commercial and EV/non-financial software. Reuse canonical finance services and preserve verified work. Coordinate before simultaneous shared-file edits if Agent1 returns; ownership changes only on an owner directive. Earlier split/sole-owner records remain historical.

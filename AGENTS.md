@@ -1,3 +1,7 @@
+## Latest integration directive — close PR14/15 before additional feature branches
+
+PR14 is verified atae8a10f and merged into development/fullstack-continuation at6d995d2806a688f8f92c094f671b2ebd1d3567ad. PR15 remains on existing development/catalog-nearby and safely integrates this main. Complete its fresh Laravel/PostgreSQL/browser/protocol/Flutter/Android/iOS verification and merge before opening another feature branch. Required tests remain enabled. The owner requests the complete42-category weighted coded/tested/merged/production-accepted calculation; see scripts/requirement-coverage and REQUIREMENT_COVERAGE. After closing the backlog resume the full commercial/EV/mobile/Admin scope under temporary full Agent2 ownership. Do not duplicate existing modules or infer real hardware/PSP/partner/store acceptance.
+
 ## Latest owner directive — temporary full-project Agent2 ownership, 28 October 2026
 
 The newly uploaded FULL PROJECT OWNERSHIP command supersedes the preceding parallel split: Agent1 is unavailable; Agent2 temporarily owns all remaining financial/commercial and EV/non-financial software. Reuse canonical finance services and preserve verified work. Coordinate before simultaneous shared-file edits if Agent1 returns; ownership changes only on an owner directive. Earlier split/sole-owner records remain historical.

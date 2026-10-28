@@ -14,6 +14,10 @@ jobs:
       - run: ./scripts/setup
       - run: ./scripts/php /usr/bin/composer validate --strict
       - run: ./scripts/php vendor/bin/pint --test
+      - name: Check reproducible42-category coverage
+        run: |
+          python3 scripts/requirement-coverage --check
+          python3 -B -m unittest discover -s tests -p requirement_coverage_test.py
       - run: ./scripts/php artisan test --compact
       - run: npm ci
       - run: npx playwright install --with-deps chromium
