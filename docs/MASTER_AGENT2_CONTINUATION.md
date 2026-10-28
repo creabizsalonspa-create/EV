@@ -1,3 +1,11 @@
+# Verified integration backlog closed — 28 October 2026
+
+PR14 verified source **ae8a10f3bb3758efb072bcea73fe0688197e6e53** passed all10 checks and merged at6d995d2. PR15 safely merged that base, reran all affected checks at **bb75151b1572e073f63f8b664336983a94198b2c**, passed all8 checks (two full platform/PostgreSQL matrices and Android/iOS native validation), and merged at **8573081d3712b1fd2249a9da9030d96f3aa82351**. Both merge trees exactly equal their tested source trees. Actual iOS runtime PDF-render/Keychain/Arabic markers and artifact/log digests are retained in `docs/evidence/native-vendor/hosted-checkpoint.json` and `docs/evidence/catalog-nearby/hosted-checkpoint.json`.
+
+The full42-category/312-atom weighted tracker now credits both verified merges. Reproduce coded/tested/merged/production-accepted coverage with `python3 scripts/requirement-coverage --check`; no commit/test-count percentage or production acceptance is inferred. Agent2 temporarily owns the entire original product. The temporary branch freeze has been fulfilled; resume remaining customer/EV/commercial/native/Admin software from this verified base, preserving canonical services. Interactive maps/navigation/favorites/reviews, full production OCPP/OCPI, remaining native commercial/vendor/Admin/security/deployment/release work are still unfinished. Physical chargers, live PSP/roaming partners, signing/stores and real operational acceptance remain external gates, not excuses for independent missing software.
+
+Earlier candidate/failed/pending records below are historical and superseded by this exact verified checkpoint.
+
 # Verified PR14 integration and pending PR15 rerun — 28 October 2026
 
 PR14 source **ae8a10f3bb3758efb072bcea73fe0688197e6e53** passed all ten hosted checks. Both iOS runs include the actual native PDF raster/preview, Keychain and Arabic-pricing runtime assertions. Merged main is **6d995d2806a688f8f92c094f671b2ebd1d3567ad**; its Git tree exactly equals the verified source. Evidence: `docs/evidence/native-vendor/hosted-checkpoint.json`. The prior callback-event defect is fixed without removing assertions or retrying connected failures.

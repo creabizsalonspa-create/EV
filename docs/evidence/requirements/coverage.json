@@ -26,22 +26,22 @@
       "evidence": "docs/evidence/native-vendor/hosted-checkpoint.json"
     },
     "pr15": {
-      "source_sha": "8b27078215be5684f62fb31bb0336146438aff2f",
-      "test_result": "pending",
-      "merge_sha": null,
-      "evidence": null
+      "source_sha": "bb75151b1572e073f63f8b664336983a94198b2c",
+      "test_result": "passed",
+      "merge_sha": "8573081d3712b1fd2249a9da9030d96f3aa82351",
+      "evidence": "docs/evidence/catalog-nearby/hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
     "coded": "50.70",
-    "tested": "50.25",
-    "merged": "50.25",
+    "tested": "50.51",
+    "merged": "50.51",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
     "coded": "3836431/7567560",
-    "tested": "1267517/2522520",
-    "merged": "1267517/2522520",
+    "tested": "3822571/7567560",
+    "merged": "3822571/7567560",
     "production_accepted": "0"
   },
   "categories": [
@@ -285,8 +285,8 @@
       "atoms": 9,
       "counts": {
         "coded": 3,
-        "tested": 2,
-        "merged": 2,
+        "tested": 3,
+        "merged": 3,
         "production_accepted": 0
       },
       "details": [
@@ -324,8 +324,8 @@
           "note": null,
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
