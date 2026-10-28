@@ -41,6 +41,7 @@ jobs:
           mkdir -p artifacts/finance-commercial
           npm run test:commercial | tee artifacts/finance-commercial/browser.txt
           node tests/subscription-dunning.cjs
+          node tests/recurring-payments.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

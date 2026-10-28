@@ -43,7 +43,7 @@ class PaymentRecovery
 
     public function run(string $scope, object $checkout, int $actor, string $kind, string $key, array $payload, callable $action): object
     {
-        abort_unless(in_array($scope, ['charging', 'subscription'], true) && in_array($kind, ['authorize', 'capture', 'refund', 'cancel'], true), 422);
+        abort_unless(in_array($scope, ['charging', 'subscription'], true) && in_array($kind, ['authorize', 'capture', 'refund', 'cancel', 'authenticate'], true), 422);
         if ($checkout->provider !== 'stripe_test') {
             return $action();
         }
@@ -55,10 +55,12 @@ class PaymentRecovery
         abort_if(DB::table('payment_recovery_intents')->where('identity', $identity)->where('status', 'executing')->where('lease_until', '>', now())->exists(), 409, 'Payment operation is executing; refresh its recovery state.');
         $lease = Str::random(48);
         $row = DB::transaction(function () use ($scope, $checkout, $actor, $kind, $identity, $fingerprint, $lease) {
-            // Both billable gateways share this serialization policy; different checkouts remain independent.
+            // Serialize at the canonical billable root before locking a checkout.
             $table = $scope === 'charging' ? 'gateway_checkouts' : 'subscription_gateway_checkouts';
             if ($scope === 'charging') {
                 DB::table('finance_invoices')->where('id', $checkout->invoice_id)->lockForUpdate()->firstOrFail();
+            } else {
+                DB::table('commercial_subscriptions')->where('id', $checkout->subscription_id)->lockForUpdate()->firstOrFail();
             }
             DB::table($table)->where('id', $checkout->id)->lockForUpdate()->firstOrFail();
             $old = DB::table('payment_recovery_intents')->where('identity', $identity)->lockForUpdate()->first();
@@ -72,6 +74,9 @@ class PaymentRecovery
             }
             if ($scope === 'charging') {
                 abort_if(DB::table('payment_recovery_intents as p')->join('gateway_checkouts as c', 'c.id', '=', 'p.checkout_id')->where('p.scope', 'charging')->where('c.invoice_id', $checkout->invoice_id)->where('p.identity', '!=', $identity)->whereIn('p.status', ['executing', 'uncertain', 'needs_review'])->exists(), 409, 'An unresolved provider operation holds this invoice.');
+            }
+            if ($scope === 'subscription') {
+                abort_if(DB::table('payment_recovery_intents as p')->join('subscription_gateway_checkouts as c', 'c.id', '=', 'p.checkout_id')->where('p.scope', 'subscription')->where('c.invoice_id', $checkout->invoice_id)->where('p.identity', '!=', $identity)->whereIn('p.status', ['executing', 'uncertain', 'needs_review'])->exists(), 409, 'An unresolved provider operation holds this invoice.');
             }
             abort_if(DB::table('payment_recovery_intents')->where('scope', $scope)->where('checkout_id', $checkout->id)->when($old, fn ($q) => $q->where('id', '!=', $old->id))->whereIn('status', ['executing', 'uncertain', 'needs_review'])->exists(), 409, 'Another unresolved payment operation blocks this checkout.');
             if (! $old) {

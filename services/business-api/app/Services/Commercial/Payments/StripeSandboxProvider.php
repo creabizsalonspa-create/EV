@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Http;
 /** Stripe's actual test-mode API contract. Never accepts a live secret key. */
 class StripeSandboxProvider implements PaymentProvider
 {
-    private function request(string $path, array $data, string $key, string $method = 'post'): array
+    private function request(string $path, array $data, string $key, string $method = 'post', bool $detailedDecline = false): array
     {
         $secret = config('payments.stripe_test_secret');
         abort_unless(! app()->environment('production') && is_string($secret) && preg_match('/^sk_test_[A-Za-z0-9]+$/D', $secret), 503, 'Stripe test-mode credentials are not configured. Live keys are prohibited.');
@@ -26,11 +26,18 @@ class StripeSandboxProvider implements PaymentProvider
             abort(503, 'Provider outcome is uncertain. Retry the same operation key; do not create a replacement payment.');
         }
         if ($response->status() === 402) {
+            if ($detailedDecline) {
+                $body = $response->json();
+                $code = $body['error']['decline_code'] ?? $body['error']['code'] ?? 'payment_declined';
+
+                return ['declined' => true, 'failure_code' => in_array($code, ['authentication_required', 'insufficient_funds', 'processing_error', 'expired_card', 'lost_card', 'stolen_card'], true) ? $code : 'payment_declined', 'intent' => $body['error']['payment_intent'] ?? null];
+            }
+
             return ['status' => 'failed', 'failure_code' => 'payment_declined'];
         }
         abort_unless($response->successful(), 503, 'Stripe test provider is unavailable; retry with the same operation key.');
         $body = $response->json();
-        $list = $method === 'get' && in_array($path, ['/payment_intents/search', '/refunds'], true) && is_array($body) && is_array($body['data'] ?? null);
+        $list = $method === 'get' && in_array($path, ['/payment_intents/search', '/refunds', '/customers/search', '/checkout/sessions'], true) && is_array($body) && is_array($body['data'] ?? null);
         if ($list) {
             foreach ($body['data'] as $item) {
                 abort_unless(is_array($item) && ($item['livemode'] ?? null) === false, 502, 'Expected test-mode recovery evidence.');
@@ -43,6 +50,78 @@ class StripeSandboxProvider implements PaymentProvider
         }
 
         return $body;
+    }
+
+    public function createCustomer(string $reference): array
+    {
+        return $this->request('/customers', ['metadata' => ['creabiz_account' => $reference]], 'customer:'.$reference);
+    }
+
+    public function findCustomer(string $reference): array
+    {
+        return $this->request('/customers/search', ['query' => "metadata['creabiz_account']:'".$reference."'", 'limit' => 100], 'customer-read:'.$reference, 'get');
+    }
+
+    public function hostedEnrollment(string $customer, string $reference, int $expires, string $return): array
+    {
+        return $this->request('/checkout/sessions', ['mode' => 'setup', 'customer' => $customer, 'client_reference_id' => $reference, 'payment_method_types' => ['card'], 'setup_intent_data' => ['metadata' => ['creabiz_enrollment' => $reference]], 'metadata' => ['creabiz_enrollment' => $reference], 'success_url' => $return, 'cancel_url' => $return, 'expires_at' => $expires], 'enrollment:'.$reference);
+    }
+
+    public function readEnrollment(?string $session, string $customer): array
+    {
+        return $session ? $this->request('/checkout/sessions/'.$session, ['expand' => ['setup_intent']], 'enrollment-read:'.$session, 'get') : $this->request('/checkout/sessions', ['customer' => $customer, 'limit' => 100, 'expand' => ['data.setup_intent']], 'enrollment-find:'.$customer, 'get');
+    }
+
+    public function method(string $method): array
+    {
+        abort_unless(preg_match('/^pm_[A-Za-z0-9]+$/D', $method), 409);
+
+        return $this->request('/payment_methods/'.$method, [], 'method-read:'.$method, 'get');
+    }
+
+    public function detachMethod(string $method, int $version): array
+    {
+        return $this->request('/payment_methods/'.$method.'/detach', [], 'detach:'.$method.':'.$version);
+    }
+
+    public function authorizeSaved(string $reference, int $amount, string $currency, string $method, string $customer): array
+    {
+        $r = $this->request('/payment_intents', ['amount' => $amount, 'currency' => strtolower($currency), 'customer' => $customer, 'payment_method' => $method, 'capture_method' => 'manual', 'confirm' => 'true', 'off_session' => 'true', 'payment_method_types' => ['card'], 'metadata' => ['creabiz_checkout' => $reference]], 'authorize:'.$reference, 'post', true);
+        if ($r['declined'] ?? false) {
+            $intent = $r['intent'];
+            if (is_array($intent)) {
+                $this->savedIdentity($intent, $amount, $currency, $customer);
+            }
+            if ($r['failure_code'] === 'authentication_required' && is_array($intent)) {
+
+                return ['status' => 'action_required', 'failure_code' => 'authentication_required', 'provider_reference' => $intent['id']];
+            }
+
+            return ['status' => 'failed', 'failure_code' => $r['failure_code']];
+        }
+        $this->savedIdentity($r, $amount, $currency, $customer);
+
+        return ['status' => match ($r['status'] ?? '') {
+            'requires_capture' => 'authorized', 'requires_action' => 'action_required', 'requires_payment_method' => 'failed', default => abort(409, 'Saved authorization outcome is not final.')
+        }, 'failure_code' => ($r['status'] ?? '') === 'requires_action' ? 'authentication_required' : null, 'provider_reference' => $r['id']];
+    }
+
+    private function savedIdentity(array $r, int $amount, string $currency, string $customer): void
+    {
+        abort_unless(($r['livemode'] ?? null) === false && is_string($r['id'] ?? null) && preg_match('/^pi_[A-Za-z0-9]+$/D', $r['id']) && ($r['customer'] ?? null) === $customer && ($r['amount'] ?? null) === $amount && ($r['currency'] ?? null) === strtolower($currency), 409, 'Saved authorization identity does not reconcile.');
+    }
+
+    public function authenticateSaved(string $reference, int $amount, string $currency, string $method, string $customer, string $return, bool $confirm): array
+    {
+        $r = $this->request('/payment_intents/'.$reference.($confirm ? '/confirm' : ''), $confirm ? ['payment_method' => $method, 'return_url' => $return, 'use_stripe_sdk' => 'false'] : [], 'authenticate:'.$reference, $confirm ? 'post' : 'get', $confirm);
+        if ($r['declined'] ?? false) {
+            abort_unless(is_array($r['intent'] ?? null), 409, 'Inspect the existing authentication outcome before retrying.');
+            $r = $r['intent'];
+        }
+        $this->savedIdentity($r, $amount, $currency, $customer);
+        abort_unless($r['id'] === $reference, 409);
+
+        return $r;
     }
 
     public function authorize(string $reference, int $amount, string $currency, string $token): array
@@ -130,7 +209,7 @@ class StripeSandboxProvider implements PaymentProvider
         abort_unless(is_string($object['id'] ?? null) && preg_match($intent->kind === 'refund' ? '/^re_[A-Za-z0-9]+$/D' : '/^pi_[A-Za-z0-9]+$/D', $object['id']), 409, 'Invalid provider recovery identity.');
         abort_unless((int) ($object['amount'] ?? -1) === (int) $intent->amount_minor && strtoupper($object['currency'] ?? '') === $intent->currency, 409, 'Recovery evidence amount or currency mismatch.');
 
-        return array_intersect_key($object, array_flip(['id', 'livemode', 'status', 'amount', 'amount_received', 'amount_capturable', 'currency', 'payment_intent', 'metadata']));
+        return array_intersect_key($object, array_flip(['id', 'livemode', 'status', 'amount', 'amount_received', 'amount_capturable', 'currency', 'payment_intent', 'metadata', 'customer']));
     }
 
     public function inspect(string $reference): array

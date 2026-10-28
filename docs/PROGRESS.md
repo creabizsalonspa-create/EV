@@ -1,3 +1,9 @@
+## Recurring payment implementation candidate — 28 October 2026
+
+Sole Agent2 ownership/full original scope retained. New slice branch `development/recurring-subscriptions` extends integrated1f25e243 without rebuilding finance. Implemented: hosted setup/customer/method binding with encrypted references and consent versions/expiry; default/revoke/detach and append-only audit; atomic per-invoice collection jobs and existing gateway/recovery/receipt integration; bounded declines/SCA and unknown-outcome holds; customer/vendor web and canonical Flutter EN/AR controls and ledger history. Default remains disabled/test-only. Details: [RECURRING_PAYMENTS.md](RECURRING_PAYMENTS.md).
+
+Candidate verification: Laravel243/7369 before the additional renewal-cycle test; latest targeted recurring13/148; Flutter85 passes/eight explicit live-only skips and clean analysis; new real-Laravel native consent/isolation and browser contracts passed. PostgreSQL35 process tests passed including concurrent collect/revoke/crash recovery; final broadened reruns and hosted Android/iOS remain pending at this documentation point. Do not treat this candidate as the latest fully hosted-tested checkpoint until actual checks pass. Full charging/OCPI/maps/Admin/release scope remains in progress.
+
 # Full platform progress — universal integration
 
 ## Verified integration — 28 October 2026

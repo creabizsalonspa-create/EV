@@ -27,6 +27,7 @@ void main() {
       var authenticated = 0;
       var loggedIn = false;
       var pricingAmount = 125, pricingVersion = 1;
+      bool mandateRevoked = false;
       final subscription = server.listen((request) async {
         request.response.headers.contentType = ContentType.json;
         final path = request.uri.path;
@@ -84,6 +85,39 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/commercial/payment-methods') {
+          result = {
+            'methods': {
+              'data': [
+                {
+                  'id': 7,
+                  'brand': 'visa',
+                  'last_four': '4242',
+                  'exp_month': 12,
+                  'exp_year': 2032,
+                  'status': mandateRevoked ? 'revoked' : 'active',
+                  'version': mandateRevoked ? 2 : 1,
+                  'detach_status': 'pending',
+                  'consent_expires_at': '2032-01-01',
+                },
+              ],
+              'current_page': 1,
+              'last_page': 1,
+            },
+            'default_method_id': 7,
+            'version': 1,
+            'consent_version': 'recurring-v1',
+            'hosted_available': false,
+            'collection_available': false,
+          };
+        } else if (path == '/api/commercial/payment-methods/7' &&
+            request.method == 'DELETE') {
+          final body =
+              jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+          expectSync(body['expected_version'], 1);
+          expectSync(loggedIn, isTrue);
+          mandateRevoked = true;
+          result = {};
         } else if (path == '/api/finance/stations') {
           result = {
             'data': [
@@ -305,6 +339,21 @@ void main() {
       await tester.tap(find.byType(BackButton));
       await settle();
       debugPrint('DEVICE: scoped read-only invoice history verified');
+      await tester.tap(find.byTooltip('Account'));
+      await settle();
+      await tester.tap(find.text('Saved payment authorizations'));
+      await settle();
+      expect(find.text('visa •••• 4242'), findsOneWidget);
+      await tester.ensureVisible(find.text('Revoke authorization'));
+      await tester.tap(find.text('Revoke authorization'));
+      await settle();
+      expect(mandateRevoked, isTrue);
+      expect(find.text('Remove from provider'), findsOneWidget);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: versioned saved mandate revocation verified; no external PSP',
+      );
 
       await tester.scrollUntilVisible(
         find.byKey(const Key('catalog-next')),
