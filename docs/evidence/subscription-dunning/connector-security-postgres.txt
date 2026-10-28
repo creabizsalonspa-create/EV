@@ -3,9 +3,9 @@ PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
 Runtime:       PHP 8.5.12
 Configuration: /app/services/business-api/phpunit.xml
 
-.......................................                           39 / 39 (100%)
+..........................................                        42 / 42 (100%)
 
-Time: 00:11.722, Memory: 60.50 MB
+Time: 00:14.453, Memory: 60.50 MB
 
 Canonical Topology Rollback (Tests\Feature\CanonicalTopologyRollback)
  ✔ Disposable forward downgrade forward preserves legacy binding and restores indexes
@@ -16,6 +16,9 @@ Canonical Topology Rollback (Tests\Feature\CanonicalTopologyRollback)
 
 Charger Admission (Tests\Feature\ChargerAdmission)
  ✔ Production credential disclosure requires https before rotating any secret
+ ✔ Canonical source conflict fences existing credentials and profile replay
+ ✔ Production admission requires durable nonce cache and exact owned canonical source
+ ✔ Topology cannot adopt identity reserved by another inventory charger
  ✔ Signed tls admission rotation revocation and no credential disclosure with data set #0
  ✔ Signed tls admission rotation revocation and no credential disclosure with data set #1
  ✔ Replayed or spoofed ingress tls protocol and expiry are rejected
@@ -60,17 +63,18 @@ Source Consumer (Tests\Feature\SourceConsumer)
  ✔ Ambiguous source identity is rejected without advancing business state
  ✔ Meter units are exact and unsupported precision is not rounded
 
-OK (39 tests, 579 assertions)
+OK (42 tests, 620 assertions)
 PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
 
 Runtime:       PHP 8.5.12
 Configuration: /app/services/business-api/phpunit.xml
 
-...........                                                       11 / 11 (100%)
+............                                                      12 / 12 (100%)
 
-Time: 00:23.801, Memory: 46.50 MB
+Time: 00:26.574, Memory: 48.50 MB
 
 Charger Admission Concurrency (Tests\Postgres\ChargerAdmissionConcurrency)
+ ✔ Two companies cannot race to claim the same charger identity
  ✔ Concurrent credential rotation and recovery opening are serialized with data set #0
  ✔ Concurrent credential rotation and recovery opening are serialized with data set #1
  ✔ Concurrent credential rotation and recovery opening are serialized with data set #2
@@ -89,4 +93,4 @@ Reservation Lifecycle Concurrency (Tests\Postgres\ReservationLifecycleConcurrenc
  ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #1
  ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #2
 
-OK (11 tests, 152 assertions)
+OK (12 tests, 166 assertions)

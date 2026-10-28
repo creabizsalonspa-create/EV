@@ -1,6 +1,6 @@
 00:00 +0: loading /workspace/EV/apps/mobile/test/live_inventory_test.dart
 00:00 +0: real Laravel native inventory hierarchy, owner maintenance and read-only staff enforcement
-00:02 +1: All tests passed!
+00:01 +1: All tests passed!
 00:00 +0: loading /workspace/EV/apps/mobile/test/live_topology_test.dart
 00:00 +0: actual native client maps inventory and reserves independent EVSEs with shared-connector capacity
 00:01 +1: All tests passed!
@@ -9,7 +9,7 @@
 00:01 +1: All tests passed!
 00:00 +0: loading /workspace/EV/apps/mobile/test/live_reservation_lifecycle_test.dart
 00:00 +0: actual Laravel check-in is explicit, idempotent and scoped; unused expiry creates no session
-00:00 +1: All tests passed!
+00:01 +1: All tests passed!
 Respecting shared loopback authentication window before next connected batch.
 Respecting shared loopback authentication window before next connected batch.
 Respecting shared loopback authentication window before next connected batch.
@@ -18,4 +18,4 @@ Respecting shared loopback authentication window before next connected batch.
 00:01 +1: All tests passed!
 00:00 +0: loading /workspace/EV/apps/mobile/test/live_subscription_dunning_test.dart
 00:00 +0: native actual Laravel overdue notices are scoped with authoritative status and no collection
-00:01 +1: All tests passed!
+00:00 +1: All tests passed!

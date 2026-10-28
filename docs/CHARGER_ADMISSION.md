@@ -1,5 +1,8 @@
 # Secure charger admission and no-source operations
 
+Canonical namespace fencing now checks the exact existing company/site/station/charger/source identity and protocol during preparation, rotation and every admission/recheck. Production rejects unbound identity preparation, issuance and admission; known legacy bindings cannot be claimed without explicit owned topology attachment. Local/testing bootstrap of new unmapped identities remains supported. Source-option selection excludes another charger’s reserved identity, and POST independently enforces the same rule. This preserves canonical records and does not register upstream CSMS/JWT/rider authority automatically.
+
+
 Status: control-plane/API/web/Flutter and loopback TLS/mTLS-to-CitrineOS integration tested. This is **not production readiness or physical charger acceptance**. CitrineOS remains the protocol server; the new Node24 service is a TLS authentication/reverse proxy, not a replacement OCPP implementation. Existing loopback security-profile0 simulator endpoints remain separate and must not be exposed publicly.
 
 ## Scope and credential lifecycle
