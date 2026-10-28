@@ -20,6 +20,7 @@ Routes mount within existing authenticated/throttled cookie and `/api/v1` financ
 | GET `commercial/external-disputes/{id}` | `{dispute, events, evidence_submissions}`; immutable event summaries; admin-only sanitized submission records |
 | POST `commercial/external-disputes/{id}/reconcile` | Admin-only authoritative GET; no payment mutation; recover an accepted uncertain evidence submission from exact returned fields |
 | POST `commercial/external-disputes/{id}/evidence` | Admin-only `{idempotency_key, submit:boolean, evidence:{...}}`; stable key bound to dispute/evidence/submit |
+| POST `commercial/external-disputes/{id}/evidence/{operation}/retry` | Admin-only explicit retry of the stored encrypted original payload and provider identity after authoritative inspection; no replacement payload/key; lease, deadline and23-hour retention enforced |
 
 `dispute` includes invoice/case/checkout IDs, currency, invoice minor-unit precision, amount, status/reason, provider observation, deadline, `deadline_passed`, `settlement_hold`, `requires_financial_resolution`, and explicit TEST/no-real-money evidence. Provider exception dates are UTC. Immutable historical invoice economics remain the authority.
 

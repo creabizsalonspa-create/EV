@@ -281,6 +281,12 @@ const assert = require("node:assert/strict");
       }
     await vendor.locator("#language").click();
     await vendor.waitForFunction(() => document.documentElement.dir === "rtl");
+    await dp.locator(".finance-row").getByText("بيان تسوية المورد", { exact: true }).waitFor();
+    await dp
+      .getByText("سُجل تحويل لدى مزود الاختبار", { exact: true })
+      .waitFor();
+    assert(!(await dp.innerText()).includes("vendor_settlement"));
+    assert(!(await dp.innerText()).includes("provider_paid"));
     for (const theme of ["light", "dark"]) {
       await vendor.locator("#theme-choice").selectOption(theme);
       await vendor.setViewportSize({ width: 390, height: 1100 });

@@ -73,7 +73,10 @@ window.mountFinancialDocuments = ({ container, api, ui, actor }) => {
             input.required = required;
             if (options)
                 for (const [v, text] of options) {
-                    const o = node("option", text);
+                    const [english, arabic] = text.split(" / ");
+                    const o = arabic
+                        ? t("option", english, arabic)
+                        : node("option", text);
                     o.value = v;
                     input.append(o);
                 }
@@ -110,13 +113,63 @@ window.mountFinancialDocuments = ({ container, api, ui, actor }) => {
     function record(parent, d) {
         const row = node("article", "");
         row.className = "finance-row";
-        row.append(
-            node("h4", d.number),
-            node("p", `${d.source_kind} #${d.source_id} · ${d.locale}`),
+        const sources = {
+            charging_invoice: ["Charging invoice", "فاتورة شحن"],
+            charging_credit: ["Charging credit note", "إشعار دائن للشحن"],
+            subscription_invoice: ["Subscription invoice", "فاتورة اشتراك"],
+            subscription_credit: [
+                "Subscription credit note",
+                "إشعار دائن للاشتراك",
+            ],
+            vendor_settlement: [
+                "Vendor settlement statement",
+                "بيان تسوية المورد",
+            ],
+            corporate_statement: ["Corporate statement", "بيان الشركة"],
+        };
+        const source = node("p", "");
+        source.append(
+            t(
+                "span",
+                ...(sources[d.source_kind] || [
+                    "Financial document",
+                    "مستند مالي",
+                ]),
+            ),
+            node("span", ` #${d.source_id} · ${d.locale}`),
         );
+        row.append(node("h4", d.number), source);
         if (d.current_source_state) {
             const line = t("p", "Current source state", "حالة السجل الحالية");
-            line.append(node("span", ` · ${d.current_source_state}`));
+            const states = {
+                pending: ["Pending", "قيد الانتظار"],
+                approved: ["Approved", "معتمد"],
+                rejected: ["Rejected", "مرفوض"],
+                simulated_paid: [
+                    "Simulated payment recorded",
+                    "سُجل دفع محاكى",
+                ],
+                provider_paid: [
+                    "TEST provider payout recorded",
+                    "سُجل تحويل لدى مزود الاختبار",
+                ],
+                issued: ["Issued", "صادر"],
+                overdue: ["Overdue", "متأخر"],
+                collection_attention: [
+                    "Collection requires investigation",
+                    "التحصيل يحتاج مراجعة",
+                ],
+            };
+            line.append(
+                document.createTextNode(" · "),
+                t(
+                    "span",
+                    ...(states[d.current_source_state] || [
+                        "Review source status",
+                        "راجع حالة السجل",
+                    ]),
+                ),
+            );
             row.append(
                 line,
                 t(
