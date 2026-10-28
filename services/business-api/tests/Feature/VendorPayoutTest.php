@@ -33,6 +33,22 @@ class VendorPayoutTest extends TestCase
         Route::prefix('payout-test')->group(base_path('routes/payout_webhooks.php'));
     }
 
+    public function test_recipient_contract_discloses_current_consent_version_without_reinterpreting_historical_consent(): void
+    {
+        $f = $this->fixture();
+        $this->actingAs($f['vendor'])->getJson('/payout-test/commercial/payout-accounts')
+            ->assertOk()->assertJsonPath('data.0.required_consent_version', 'vendor-payout-v1')
+            ->assertJsonMissingPath('data.0.account_reference')->assertJsonMissingPath('data.0.bank_reference');
+        config(['payouts.consent_version' => 'published-v2']);
+        $this->getJson('/payout-test/commercial/payout-accounts')->assertOk()
+            ->assertJsonPath('data.0.required_consent_version', 'published-v2')
+            ->assertJsonPath('data.0.consent_version', 'vendor-payout-v1');
+        $this->postJson('/payout-test/commercial/payout-accounts/'.$f['account']->id.'/consent', ['consent' => true, 'consent_version' => 'vendor-payout-v1'])->assertForbidden();
+        $this->assertSame('vendor-payout-v1', DB::table('commercial_payout_accounts')->where('id', $f['account']->id)->value('consent_version'));
+        $foreign = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($foreign)->getJson('/payout-test/commercial/payout-accounts')->assertOk()->assertJsonCount(0, 'data');
+    }
+
     private function fixture(string $provider = 'mock'): array
     {
         return (require base_path('tests/Fixtures/vendor-payout.php'))($provider);

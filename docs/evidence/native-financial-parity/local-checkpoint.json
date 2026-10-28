@@ -1,0 +1,62 @@
+{
+  "base": "e983b7fe672e51b0512f1d1820eaf203e148d716",
+  "branch": "development/native-financial-parity",
+  "status": "locally verified checkpoint; hosted exact-source Android/iOS and merge pending",
+  "results": {
+    "laravel": {
+      "tests": 346,
+      "assertions": 8449
+    },
+    "flutter_full_before_final_guard": {
+      "passed": 171,
+      "explicit_live_only_skips": 12
+    },
+    "final_subscriptions": {
+      "passed": 9
+    },
+    "financial_postgres": {
+      "tests": 221,
+      "assertions": 7129
+    },
+    "financial_postgres_concurrency": {
+      "tests": 58,
+      "assertions": 758
+    },
+    "actual_laravel_native": "passed five-login company/private-document/subscription lifecycle and foreign-access suite",
+    "payout_browser": "passed; local mock flag restored disabled",
+    "corporate_browser": "passed; existing canonical mock company receipt and private CSV",
+    "pint": "329 files passed",
+    "analysis": "clean"
+  },
+  "safety_corrections": [
+    "stale screen retains original operation identity after another screen confirms",
+    "deep immutable intent snapshot before asynchronous secure storage",
+    "different plan cannot relabel/replay an older pending enrollment",
+    "unpaid subscription cannot schedule period-end cancellation",
+    "invoice scrolling retains existing ledger and expired-session assertions"
+  ],
+  "ci_changes": [
+    "new actual-Laravel suite in fourth fresh authentication window; no changed production limits",
+    "required real iOS synthetic subscription enrollment marker; existing markers retained"
+  ],
+  "acceptance": "No live money, bank, company credit, physical charger, live OCPI, legal document or app-store acceptance",
+  "coverage": {
+    "categories": 42,
+    "atoms": 312,
+    "coded": "52.25",
+    "tested": "52.06",
+    "merged": "52.06",
+    "production_accepted": "0.00"
+  },
+  "logs_sha256": {
+    "laravel": "a91155beadca638d8eb417a550fdd6db2cf0864bfb4572ffc964e42372052e29",
+    "flutter_full_before_final_plan_guard": "01990b4367bd4a968fcdd75b49608ace618ff9ec8c5902c44eb6d38f0ff07886",
+    "final_subscription_guard": "5c7d4109ef091d7d87f45ced557d1183d532d637aba8a43b507d60207e6fb0a3",
+    "analysis": "47de49902b8c645059612131d1fcdcc035371af96b869255223431b009055b81",
+    "postgres": "a0d7e2faddb5b2de4c59bba8e4d8dc77ac122a0a089ebe7ceaae8424ae3fbf31",
+    "payout_browser": "fead844a18ae580c17db94c0c434d30bca4f944ae308243fa5324449b9e75de5",
+    "corporate_browser": "493795b8ee9f25ec6cbb2a5944dc93fcaafe2779ef1eee25331d8ca8ff7d52a6",
+    "native_actual_laravel": "246e646ab21b9b46460485e7ba67b306891a60f3c19faa6f437508051f91fe3e",
+    "pint": "9788acea8fed07321a2e3001e5c5a5f4b420f04798c1ae5a7aa11afa84720e89"
+  }
+}

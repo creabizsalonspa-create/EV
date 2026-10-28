@@ -141,6 +141,36 @@ Future<void> confirm(WidgetTester t, String button) async {
 }
 
 void main() {
+  test(
+    'a stale pending screen retains its original request key after another screen confirms',
+    () async {
+      final store = MemoryOperations();
+      final first = FinancialOperation(store, 'stale-owner-invoice');
+      final second = FinancialOperation(store, 'stale-owner-invoice');
+      final original = await first.prepare({'amount_minor': 1});
+      await second.restore();
+      await first.confirmed();
+      final retry = await second.prepare({'amount_minor': 1});
+      expect(retry['idempotency_key'], original['idempotency_key']);
+    },
+  );
+  test(
+    'nested financial selections are frozen before asynchronous storage',
+    () async {
+      final store = MemoryOperations();
+      final op = FinancialOperation(store, 'nested-owner-agreement');
+      final ids = [7];
+      final future = op.prepare({'claim_ids': ids});
+      ids.add(8);
+      final payload = await future;
+      expect(payload['claim_ids'], [7]);
+      expect(
+        () => (payload['claim_ids'] as List).add(9),
+        throwsUnsupportedError,
+      );
+    },
+  );
+
   testWidgets(
     'reward request has no automatic POST and resumes the same durable request after restart',
     (t) async {
