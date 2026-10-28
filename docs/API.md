@@ -1,3 +1,9 @@
+# Agent2 nearby catalog continuation — 28 October 2026
+
+GET `/api/stations` optionally accepts latitude−90..90, longitude−180..180 and radius_km1..200 together; returns numeric distance_km in great-circle km, nearest-first then ID-descending, and validated filters in pagination links. Without the group, existing behavior is retained. See CATALOG_NEARBY.md.
+
+Agent1 exclusively owns financial/commercial business logic and backend/web/Admin finance. This slice changes EV catalog APIs/UI/tests only. Native-vendor PR14 must pass exact-source iOS CI before integration. Interactive maps remain unfinished software.
+
 # Current HTTP API (development foundation)
 
 All endpoints are same-origin JSON, `Accept: application/json`. Mutations use Laravel's session cookie and `X-CSRF-TOKEN` from `GET /api/csrf`. Cookies are HttpOnly; CSRF is enabled outside Laravel's test runner. Native bearer authentication is not implemented. Errors: 401 unauthenticated, 403 wrong role, 404 inaccessible resource, 409 conflict, 422 validation, 429 rate limit. Auth endpoints are limited to 10/minute, authenticated endpoints 60/minute.

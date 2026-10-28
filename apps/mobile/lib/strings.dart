@@ -16,6 +16,15 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'nearbySearch': 'Search near coordinates',
+    'nearbyPrivacy':
+        'Enter a search centre and radius. No device location is accessed. Search coordinates are sent to the service, not saved as a preference. Distance is straight-line, not driving distance; availability remains unverified.',
+    'nearbyLatitude': 'Latitude (−90 to 90)',
+    'nearbyLongitude': 'Longitude (−180 to 180)',
+    'radiusKm': 'Radius in km (1–200)',
+    'invalidNearby': 'Enter all three values within the displayed ranges.',
+    'straightDistance': '{km} km straight-line distance',
+
     'startAdmissionBlocked':
         'This start has not been dispatched because admission is unavailable. Refresh or cancel the undispatched reservation.',
     'cancelUndispatched': 'Cancel undispatched start',
@@ -319,6 +328,15 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'nearbySearch': 'البحث قرب إحداثيات',
+    'nearbyPrivacy':
+        'أدخل مركز البحث ونطاقه. لا يتم الوصول إلى موقع الجهاز. تُرسل إحداثيات البحث إلى الخدمة ولا تُحفظ كتفضيل. المسافة بخط مستقيم وليست مسافة قيادة؛ التوفر غير مؤكد.',
+    'nearbyLatitude': 'خط العرض (−90 إلى 90)',
+    'nearbyLongitude': 'خط الطول (−180 إلى 180)',
+    'radiusKm': 'النطاق بالكيلومتر (1–200)',
+    'invalidNearby': 'أدخل القيم الثلاث ضمن النطاقات المحددة.',
+    'straightDistance': '{km} كم بخط مستقيم',
+
     'startAdmissionBlocked':
         'لم يتم إرسال طلب البدء لأن شروط السماح غير متاحة. حدّث الحالة أو ألغِ الحجز الذي لم يُرسل طلبه.',
     'cancelUndispatched': 'إلغاء طلب البدء غير المرسل',

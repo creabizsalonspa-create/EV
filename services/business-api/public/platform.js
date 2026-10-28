@@ -394,6 +394,16 @@ async function stations(query = "") {
                           s.country,
             ),
         );
+        if (Number.isFinite(Number(s.distance_km)) && s.distance_km != null) {
+            const distance = node("p", "");
+            distance.dataset.en = `${Number(s.distance_km).toFixed(2)} km straight-line distance`;
+            distance.dataset.ar = `${Number(s.distance_km).toFixed(2)} كم بخط مستقيم`;
+            distance.textContent =
+                document.documentElement.lang === "ar"
+                    ? distance.dataset.ar
+                    : distance.dataset.en;
+            a.append(distance);
+        }
         const details = document.createElement("details");
         details.append(
             ui("summary", "Location & access / الموقع والوصول"),
@@ -936,6 +946,15 @@ async function signOut() {
     }
 }
 el("logout").onclick = el("logout-retry").onclick = signOut;
+const nearbyInputs = ["latitude", "longitude", "radius_km"].map((name) =>
+    el("filters").elements.namedItem(name),
+);
+for (const input of nearbyInputs) {
+    input.addEventListener("input", () => {
+        const any = nearbyInputs.some((field) => field.value !== "");
+        for (const field of nearbyInputs) field.required = any;
+    });
+}
 el("filters").onsubmit = (e) => {
     e.preventDefault();
     let q = new URLSearchParams();

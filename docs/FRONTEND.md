@@ -1,3 +1,9 @@
+# Agent2 nearby catalog continuation — 28 October 2026
+
+Web and canonical Flutter catalogs now support optional grouped coordinate/radius input, nearest-first discovery results, EN/AR distance labels and preserved filters. No device location or live capability is inferred.
+
+Agent1 exclusively owns financial/commercial business logic and backend/web/Admin finance. This slice changes EV catalog APIs/UI/tests only. Native-vendor PR14 must pass exact-source iOS CI before integration. Interactive maps remain unfinished software.
+
 # Frontend implementation and continuation
 
 ## Canonical EVSE/connector/source mapping and parallel reservations

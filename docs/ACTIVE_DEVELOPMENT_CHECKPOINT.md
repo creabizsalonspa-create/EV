@@ -1,3 +1,7 @@
+# Agent2 nearby-catalog continuation — 28 October 2026 (Dubai)
+
+Verified integrated main remains63886428 (PR12/13). Native-vendor PR14 source1b72354 includes the real iOS keyboard-interaction correction; hosted validation must finish before merge. New independent EV branch development/catalog-nearby extends canonical catalog radius search across Laravel/web/Flutter without modifying finance rules. See CATALOG_NEARBY.md and current QA_REPORT. Preserve parallel ownership: Agent1 exclusively finance/commercial/backend/web/Admin; Agent2 EV/native/nonfinancial/security/main integration. After these exact-source checks, merge through PRs, update checkpoint evidence, then implement interactive map/provider/location-consent workflows and remaining EV/OCPI modules; do not label coordinate search an interactive map.
+
 # Active development checkpoint
 
 ## Latest owner directive — restored parallel ownership, 28 October 2026 (Dubai)

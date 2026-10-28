@@ -13,6 +13,7 @@ use App\Services\Charging\ConnectorTopology;
 use App\Services\Charging\ReservationLifecycle;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\StationGate;
+use App\Services\Discovery\CatalogGeo;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -62,7 +63,7 @@ class PlatformController extends Controller
 
     public function stations(Request $r)
     {
-        $v = $r->validate(['q' => 'sometimes|string|max:100', 'connector_type' => 'sometimes|in:CCS2,Type2,CHAdeMO', 'country' => 'sometimes|string|size:2', 'min_power_kw' => 'sometimes|integer|min:1|max:1000']);
+        $v = $r->validate(['q' => 'sometimes|string|max:100', 'connector_type' => 'sometimes|in:CCS2,Type2,CHAdeMO', 'country' => 'sometimes|string|size:2', 'min_power_kw' => 'sometimes|integer|min:1|max:1000', 'latitude' => 'required_with:longitude,radius_km|numeric|between:-90,90', 'longitude' => 'required_with:latitude,radius_km|numeric|between:-180,180', 'radius_km' => 'required_with:latitude,longitude|numeric|between:1,200']);
         $q = Station::query();
         if (isset($v['q'])) {
             $q->where('name', 'like', '%'.$v['q'].'%');
@@ -92,7 +93,11 @@ class PlatformController extends Controller
             });
         }
 
-        $page = $q->orderByDesc('id')->paginate(25);
+        if (isset($v['latitude'])) {
+            app(CatalogGeo::class)->within($q, (float) $v['latitude'], (float) $v['longitude'], (float) $v['radius_km']);
+        }
+
+        $page = $q->orderByDesc('id')->paginate(25)->appends($v);
         $policies = app(StationGate::class)->policies($page->getCollection());
 
         return $page->through(fn ($s) => array_merge($s->toArray(), ['availability' => 'unknown', 'remote_control' => false, 'reservable' => $s->source === 'simulator' && ! in_array(($policies[$s->id] ?? 'legacy'), ['managed_blocked', 'canonical'], true), 'reservation_policy' => $policies[$s->id] ?? 'legacy', 'evidence' => $s->source === 'simulator' ? 'SIMULATED' : 'DISCOVERY_ONLY']));
