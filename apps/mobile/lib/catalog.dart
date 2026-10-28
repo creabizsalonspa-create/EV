@@ -221,7 +221,10 @@ class CatalogViewState extends State<CatalogView> {
                           customer: widget.customer,
                           discoveryClient: widget.discoveryApi == null
                               ? null
-                              : DiscoveryClient(widget.discoveryApi!),
+                              : DiscoveryClient(
+                                  widget.discoveryApi!,
+                                  onExpired: widget.onExpired,
+                                ),
                           onSearch: widget.savedOnly
                               ? null
                               : (lat, lng) {

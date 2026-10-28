@@ -1,3 +1,11 @@
+# Current owner directive — temporary full-project ownership, 28 October 2026
+
+The latest uploaded owner command (`file_00000000b7c48210a48f37d8c58195f5`) supersedes the restored parallel split below: Agent1 is usage-limited; Agent2 temporarily owns the complete original finance/commercial, EV, native, web/Admin, security and deployment scope. Preserve canonical finance rules and all verified work. Restore parallel ownership only on a subsequent owner directive; inspect fetched branches and PRs before shared edits. Historical records below are retained.
+
+PR18 is already merged at `95a3dae53b45eba206fb8ca9349b0b015e0b5ed8`, tested source `905311fb0211e1ebca19e95bb810c4c63e8e7561`; all eight exact-source checks passed. Its application/CI code survives integration unchanged except additive rollback retention guards in the current candidate. Do not merge/recreate PR18 again. Evidence: docs/evidence/finance-v3-integrated/hosted-checkpoint.json.
+
+Current single candidate `development/discovery-routing` combines PR18 with consented foreground native GPS, bounded server-only address/routing adapters and web/Flutter ordered charging-stop navigation. Shared route/view conflicts were resolved by retaining the entire finance-side content and adding only the discovery mount/script. Current hosted Android/iOS validation and merge are pending; no physical GPS, live provider, live payment, charger/partner or store acceptance is claimed. See docs/DISCOVERY_ROUTING.md for boundaries and activation.
+
 # Active parallel ownership — owner restored, 28 October 2026
 
 Effective immediately the two-agent model is restored. Agent1 exclusively owns finance/commercial rules, financial controllers/services/migrations and financial web/Admin screens. Agent2 owns EV/OCPP/OCPI, discovery/maps/GPS/routing/favorites/reviews, customer/vendor Flutter, nonfinancial web/Admin, fleet operations, security/deployment and the main integration branch. Agent2 consumes verified finance APIs in Flutter and integrates tested finance PRs without recreating their business logic. This supersedes temporary sole-owner statements below; preserve historical records and all merged financial invariants.

@@ -23,7 +23,8 @@
     "test:payout-documents": "node tests/payout-documents.cjs",
     "test:corporate": "node tests/corporate-billing.cjs",
     "test:external-disputes": "node tests/external-disputes.cjs && node tests/external-disputes-ui.cjs",
-    "test:loyalty": "node tests/loyalty.cjs"
+    "test:loyalty": "node tests/loyalty.cjs",
+    "test:discovery-routing": "node tests/discovery-routing.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

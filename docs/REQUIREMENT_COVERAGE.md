@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 50.70% |
-| tested | 50.51% |
-| merged | 50.51% |
+| coded | 51.98% |
+| tested | 51.80% |
+| merged | 51.80% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -25,13 +25,13 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 2.6 | Reservations and occupancy policy | 7 | 5/7 | 5/7 | 5/7 | 0/7 |
 | 2.7 | Remote charging and monitoring | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 2.8 | Checkout, wallet, invoices, disputes | 10 | 6/10 | 6/10 | 6/10 | 0/10 |
-| 2.9 | Loyalty/rewards/promotions/referrals | 7 | 0/7 | 0/7 | 0/7 | 0/7 |
+| 2.9 | Loyalty/rewards/promotions/referrals | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
 | 2.10 | Localization/accessibility/formatting | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
 | 3.1 | Vendor onboarding/KYC/staff | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
 | 3.2 | Vendor inventory/provisioning | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 3.3 | Vendor live operations and controls | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 3.4 | Vendor calendar/blocks/tariffs | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
-| 3.5 | Vendor finance/settlements | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
+| 3.5 | Vendor finance/settlements | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 3.6 | Vendor analytics/exports | 6 | 0/6 | 0/6 | 0/6 | 0/6 |
 | 3.7 | Vendor plans/marketing/ads | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
 | 3.8 | Vendor support/notifications/maintenance | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
@@ -155,9 +155,9 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 
 ### 2.9 Loyalty/rewards/promotions/referrals
 
-- `2.9.1` [—] Silver/Gold/Platinum tiers (evidence: none).
-- `2.9.2` [—] Points ledger (evidence: none).
-- `2.9.3` [—] Redemption and rewards (evidence: none).
+- `2.9.1` [CTM] Silver/Gold/Platinum tiers (evidence: pr18).
+- `2.9.2` [CTM] Points ledger (evidence: pr18).
+- `2.9.3` [CTM] Redemption and rewards (evidence: pr18).
 - `2.9.4` [—] Coupons (evidence: none).
 - `2.9.5` [—] Referrals (evidence: none).
 - `2.9.6` [—] Promotions (evidence: none).
@@ -224,7 +224,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `3.5.4` [CTM] Scoped financial web workspace (evidence: main638).
 - `3.5.5` [CTM] Native read-only invoice/recovery/mandate consumption (evidence: main638).
 - `3.5.6` [—] Full native financial actions (evidence: none).
-- `3.5.7` [—] Bank payout-provider/reconciliation software (evidence: none).
+- `3.5.7` [CTM] Bank payout-provider/reconciliation software (evidence: pr18).
 - `3.5.8` [—] External dispute evidence/deadlines (evidence: none).
 - `3.5.9` [—] Complete earnings/settlement reporting (evidence: none).
 

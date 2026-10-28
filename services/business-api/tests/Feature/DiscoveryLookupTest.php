@@ -108,4 +108,15 @@ class DiscoveryLookupTest extends TestCase
         $this->postJson('/api/discovery/addresses', $input)->assertTooManyRequests();
         Http::assertSentCount(2);
     }
+    public function test_daily_provider_budget_survives_minute_window_expiry(): void
+    {
+        config(['discovery.requests_per_day' => 1]);
+        Http::fake(fn () => Http::response($this->address()));
+        $input = ['consent' => true, 'query' => 'Dubai', 'language' => 'en'];
+        $this->postJson('/api/discovery/addresses', $input)->assertOk();
+        $this->travel(2)->minutes();
+        $this->postJson('/api/discovery/addresses', $input)->assertTooManyRequests();
+        Http::assertSentCount(1);
+    }
+
 }

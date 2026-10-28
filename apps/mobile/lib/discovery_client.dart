@@ -90,9 +90,19 @@ class RouteEstimate {
 
 class DiscoveryClient {
   final DiscoveryRequest request;
-  DiscoveryClient(EvApi api)
-    : request = ((path, method, body) =>
-          api.request('discovery/$path', method: method, body: body));
+  DiscoveryClient(EvApi api, {void Function()? onExpired})
+    : request = ((path, method, body) async {
+        try {
+          return await api.request(
+            'discovery/$path',
+            method: method,
+            body: body,
+          );
+        } on ApiException catch (error) {
+          if ([401, 419].contains(error.status)) onExpired?.call();
+          rethrow;
+        }
+      });
   DiscoveryClient.withRequest(this.request);
   Future<DiscoveryCapabilities> capabilities() async =>
       DiscoveryCapabilities.fromJson(

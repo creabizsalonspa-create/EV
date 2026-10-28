@@ -26,6 +26,7 @@ jobs:
       - run: npm run test:frontend
       - run: npm run test:nearby
       - run: npm run test:maps
+      - run: npm run test:discovery-routing
       - run: npm run test:localization
       - run: npm run test:web-session
       - run: ./scripts/csms-setup

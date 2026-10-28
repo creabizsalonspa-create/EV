@@ -41,6 +41,47 @@ void main() {
         );
       await api.signOut();
       await api.signIn(f['customer'], f['password']);
+      final discovery = await api.request('discovery/capabilities');
+      expect(discovery['provider'], 'geoapify');
+      expect(discovery['geocoding'], false);
+      expect(discovery['routing'], false);
+      expect(jsonEncode(discovery).contains('apiKey'), false);
+      await expectLater(
+        api.request(
+          'discovery/route',
+          method: 'POST',
+          body: {
+            'consent': true,
+            'language': 'en',
+            'points': [
+              {'latitude': 25.2, 'longitude': 55.3},
+              {'latitude': 25.3, 'longitude': 55.4},
+            ],
+          },
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.status,
+            'unconfigured provider',
+            503,
+          ),
+        ),
+      );
+      await expectLater(
+        api.request(
+          'discovery/addresses',
+          method: 'POST',
+          body: {
+            'consent': false,
+            'language': 'en',
+            'query': 'Synthetic address',
+          },
+        ),
+        throwsA(
+          isA<ApiException>().having((e) => e.status, 'consent required', 422),
+        ),
+      );
+
       expect(await api.setFavorite(f['station_id'] as int, true), isTrue);
       expect(await api.setFavorite(f['station_id'] as int, true), isTrue);
       final saved = await api.favorites();

@@ -41,7 +41,34 @@ Station station() => Station.fromJson({
   'latitude': 25.25,
   'longitude': 55.35,
 });
+
+class ExpiredDiscoveryApi extends EvApi {
+  int status = 419;
+  ExpiredDiscoveryApi() : super(Uri.parse('http://127.0.0.1:8000'));
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async => throw ApiException(status, 'Synthetic expired session');
+}
+
 void main() {
+  test(
+    'current expiry clears the owning native session; stale-generation conflicts never sign it out',
+    () async {
+      final api = ExpiredDiscoveryApi();
+      addTearDown(api.close);
+      var expired = 0;
+      final client = DiscoveryClient(api, onExpired: () => expired++);
+      await expectLater(client.capabilities(), throwsA(isA<ApiException>()));
+      expect(expired, 1);
+      api.status = 409;
+      await expectLater(client.capabilities(), throwsA(isA<ApiException>()));
+      expect(expired, 1);
+    },
+  );
   test(
     'navigation URL is fixed-origin, bounded and preserves ordered stops',
     () {
