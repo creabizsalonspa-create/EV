@@ -1,3 +1,5 @@
+Verified integration: PR16 sourcee942017 passed all ten platform/PostgreSQL/Android/iOS checks and merged at1bee9c9; PR17 sourcecbed320 subsequently verified the same application source inside the staging image, merged6a9b404. Hosted evidence is retained under docs/evidence/customer-discovery and docs/evidence/staging-image. The scoped functionality below is implemented; its explicitly listed broader product/production gaps remain incomplete. Earlier pending/local checkpoints below are historical.
+
 # Customer discovery maps — candidate implementation
 
 Branch: `development/customer-discovery`. This extends the existing canonical catalog and private favorites, not a second charging or location database. The PR14/15 integration backlog is closed on `development/fullstack-continuation`; see their hosted checkpoints.

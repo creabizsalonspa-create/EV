@@ -36,6 +36,12 @@
       "test_result": "passed",
       "merge_sha": "1bee9c94d1a14290c38364361bf1fdc20312acb0",
       "evidence": "docs/evidence/customer-discovery/hosted-checkpoint.json"
+    },
+    "pr17": {
+      "source_sha": "cbed3209abe71577e2f401e71a41f50c98f8a5bc",
+      "test_result": "passed",
+      "merge_sha": "6a9b4046914111c760625bac016f9b7d26e2a6a5",
+      "evidence": "docs/evidence/staging-image/hosted-checkpoint.json"
     }
   },
   "weighted_percent": {

@@ -34,6 +34,12 @@
       "test_result": "passed",
       "merge_sha": "1bee9c94d1a14290c38364361bf1fdc20312acb0",
       "evidence": "docs/evidence/customer-discovery/hosted-checkpoint.json"
+    },
+    "pr17": {
+      "source_sha": "cbed3209abe71577e2f401e71a41f50c98f8a5bc",
+      "test_result": "passed",
+      "merge_sha": "6a9b4046914111c760625bac016f9b7d26e2a6a5",
+      "evidence": "docs/evidence/staging-image/hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -2308,8 +2314,8 @@
     {
       "prd": "9.1",
       "requirement": "RBAC/privacy/security/operations",
-      "implemented_code_scope": "Tenant checks, encrypted KYC/raw OCPI/session secrets, CSRF/HMAC/replay/idempotency, conservative production rate limits and audit tests",
-      "automated_evidence_scope": "Auth/tenant/replay/privacy/upload tests across named suites; deployment acceptance pending. Integrated subset through63886428; later candidates explicitly noted",
+      "implemented_code_scope": "Tenant checks, encrypted KYC/raw OCPI/session secrets, CSRF/HMAC/replay/idempotency, conservative production rate limits and audit tests; merged PR17 data-excluded runtime image, authoritative provider loading, source/private-volume ownership and licensed map assets",
+      "automated_evidence_scope": "Auth/tenant/replay/privacy/upload tests across named suites; deployment acceptance pending. Integrated subset through63886428; later candidates explicitly noted; sourcecbed320/merge6a9b404: two actual image audits and PostgreSQL17 migration/HTTP/private-volume smokes; not a deployment/restore acceptance",
       "remaining_scope": "2FA, cross-tab/global session revocation and security review, privacy/deletion, backups/restores, alerting/telemetry and verified staging/production operations",
       "atoms": [
         {
