@@ -57,6 +57,43 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets(
+    'charging options remain customer-only even for reservable markers',
+    (tester) async {
+      final reservable = Station.fromJson({
+        'id': 1,
+        'name': 'Test',
+        'connector_type': 'CCS2',
+        'evidence': 'SIMULATED',
+        'power_kw': 50,
+        'latitude': 25.2,
+        'longitude': 55.3,
+        'reservable': true,
+      });
+      for (final customer in [false, true]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StationMapView(
+              key: ValueKey(customer),
+              stations: [reservable],
+              customer: customer,
+              tileProvider: FixtureTiles(),
+            ),
+          ),
+        );
+        await tester.tap(find.byKey(const Key('enable-map')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Test'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('View charging options'),
+          customer ? findsOneWidget : findsNothing,
+        );
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+      }
+    },
+  );
   test(
     'clusters preserve all valid stations without treating a cluster as one charger',
     () {

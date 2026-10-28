@@ -215,19 +215,28 @@ class CatalogViewState extends State<CatalogView> {
                       MaterialPageRoute(
                         builder: (_) => StationMapView(
                           stations: page.items,
+                          customer: widget.customer,
                           onSearch: widget.savedOnly
                               ? null
                               : (lat, lng) {
                                   if (!mounted) return;
+                                  search.text = controller.filter.search;
+                                  country.text = controller.filter.country;
+                                  connector = controller.filter.connector;
+                                  power.text =
+                                      controller.filter.minimumPower
+                                          ?.toString() ??
+                                      '';
                                   latitude.text = lat.toStringAsFixed(6);
                                   longitude.text = lng.toStringAsFixed(6);
                                   radius.text = '25';
                                   controller.load(
                                     filter: CatalogFilter(
-                                      search: search.text,
-                                      country: country.text,
-                                      connector: connector,
-                                      minimumPower: int.tryParse(power.text),
+                                      search: controller.filter.search,
+                                      country: controller.filter.country,
+                                      connector: controller.filter.connector,
+                                      minimumPower:
+                                          controller.filter.minimumPower,
                                       latitude: lat,
                                       longitude: lng,
                                       radiusKm: 25,
@@ -238,7 +247,8 @@ class CatalogViewState extends State<CatalogView> {
                       ),
                     );
                     if (selected != null && mounted) {
-                      if (widget.onChooseConnectors != null &&
+                      if (widget.customer &&
+                          widget.onChooseConnectors != null &&
                           selected.reservationPolicy == 'canonical') {
                         widget.onChooseConnectors!(selected);
                       } else if (selected.reservable && widget.customer) {

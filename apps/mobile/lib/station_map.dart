@@ -32,11 +32,13 @@ List<List<Station>> clusterStations(List<Station> stations, double zoom) {
 class StationMapView extends StatefulWidget {
   final List<Station> stations;
   final TileProvider? tileProvider;
+  final bool customer;
   final void Function(double latitude, double longitude)? onSearch;
   const StationMapView({
     super.key,
     required this.stations,
     this.tileProvider,
+    this.customer = false,
     this.onSearch,
   });
   @override
@@ -136,8 +138,9 @@ class _StationMapViewState extends State<StationMapView> {
                 '${station.latitude}, ${station.longitude}',
                 textDirection: TextDirection.ltr,
               ),
-              if (station.reservable ||
-                  station.reservationPolicy == 'canonical')
+              if (widget.customer &&
+                  (station.reservable ||
+                      station.reservationPolicy == 'canonical'))
                 FilledButton(
                   onPressed: () {
                     Navigator.pop(sheet);
