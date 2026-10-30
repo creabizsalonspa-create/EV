@@ -361,6 +361,12 @@ class EvApi {
     );
   }
 
+  Future<PrivateDocument> downloadFinancialAnalytics(
+    Map<String, String> query,
+  ) async =>
+      await _request('financial/analytics/pdf', query: query, binary: true)
+          as PrivateDocument;
+
   Future<PrivateDocument> downloadDocument(String path) async =>
       await _request(path, binary: true) as PrivateDocument;
 

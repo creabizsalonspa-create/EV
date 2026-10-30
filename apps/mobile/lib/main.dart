@@ -9,6 +9,7 @@ import 'invoice_history.dart';
 import 'payment_recovery.dart';
 import 'loyalty.dart';
 import 'financial_documents.dart';
+import 'financial_analytics.dart';
 import 'refund_requests.dart';
 import 'vendor_finance.dart';
 import 'corporate_billing.dart';
@@ -962,6 +963,15 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'financialAnalytics') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => FinancialAnalyticsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'paymentCases') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1109,6 +1119,11 @@ class _WorkspaceState extends State<Workspace> {
                     enabled: !busy,
                     child: Text(s.t('pricing')),
                   ),
+                PopupMenuItem(
+                  value: 'financialAnalytics',
+                  enabled: !busy,
+                  child: Text(analyticsText(context, 'title')),
+                ),
                 PopupMenuItem(
                   value: 'paymentCases',
                   enabled: !busy,

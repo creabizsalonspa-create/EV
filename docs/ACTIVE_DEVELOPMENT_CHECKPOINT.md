@@ -1,3 +1,12 @@
+
+## Full-project continuation — private evidence integrated, native analytics candidate
+
+PR23 source `f664a49e4856d6d20239c7dae9e85f54bb46727b` passed all12 inspected push/PR jobs and merged at `0e4296b`. Individual steps establish Android debug builds, actual-Laravel native suites, iOS simulator builds/runtime, full platform, financial/connector PostgreSQL and staging image. OS-inapplicable steps were skipped; live integrations remain unverified. Evidence: `docs/evidence/private-case-evidence/hosted-checkpoint.json`.
+
+Finance PR24 source `4ad26f3` includes analytics, campaigns and financial audit guards plus patched Symfony MIME7.4.22 for CVE-2026-45070. Initial new audit failed on the newly disclosed vulnerability; patch passes Composer audit and31 focused financial/evidence tests235assertions. Latest CI must finish before merge.
+
+Next candidate `development/native-financial-analytics` adds customer/vendor report navigation, filters, currency-exact source cards, separate noncash points/paid-cycle equivalents and private localized management PDF. Seven focused native tests and actual Laravel integration pass; clean static analysis. Background/session fences prevent stale private reports. CI includes actual-Laravel execution and an added iOS synthetic UI/PDF assertion. Builds/simulator execution pending. Coverage remains unchanged52.25coded/52.06tested/merged/0production; no partial broad atom credit. Complete hosted checkout/SCA, campaign native controls, operational analytics, OCPP/OCPI and original remaining software are still unfinished.
+
 # Verified full-stack checkpoint — 28 October 2026
 
 PR20 is verified/merged at **222a211fe81b25621ef67b03b2efe8326ef518f2**, exactly matching tested source **5ce44db2044ce0144650ef291b0db01b1706000d**. All ten current exact-source checks passed: two full Laravel/OCPP/OCPI/browser matrices, financial/connector PostgreSQL and staging-image matrices, Android build/nine real-Laravel native suites, and iOS build/actual simulator UI. New noncash points/reward runtime assertions and all GPS/maps/favorites/Keychain/Arabic pricing/private-PDF assertions passed. Artifacts/logs and earlier real failures/corrections: docs/evidence/native-loyalty/hosted-checkpoint.json. PR18 and PR19 remain preserved; no original branch was overwritten or force-pushed.
