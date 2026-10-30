@@ -1119,6 +1119,13 @@ void main() {
       expect(secondApi.remembered, isTrue);
       await tester.tap(find.byTooltip('الحساب'));
       await settle();
+      await tester.scrollUntilVisible(
+        find.text('تسجيل الخروج'),
+        120,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await settle();
+      expect(find.text('تسجيل الخروج').hitTestable(), findsOneWidget);
       await tester.tap(find.text('تسجيل الخروج'));
       await settle();
       expect(await vault.read(origin.origin), isNull);
