@@ -109,6 +109,12 @@ class EvApi {
   bool _remembered = false;
   int _epoch = 0;
   Future<void> _vaultTail = Future.value();
+  // Capture the authenticated context across secure-storage or UI awaits.
+  bool Function() sessionFence() {
+    final generation = _epoch;
+    return () => generation == _epoch;
+  }
+
   bool get canRemember => base.scheme == 'https' && vault != null;
   bool get remembered => _remembered;
 
@@ -314,6 +320,47 @@ class EvApi {
     );
   }
 
+  Future<dynamic> uploadCaseEvidence(
+    int caseId, {
+    required String kind,
+    required Uint8List bytes,
+    required String mime,
+    required String key,
+  }) {
+    if (caseId < 1 ||
+        ![
+          'service_record',
+          'receipt',
+          'correspondence',
+          'other',
+        ].contains(kind) ||
+        !['application/pdf', 'image/png', 'image/jpeg'].contains(mime) ||
+        bytes.isEmpty ||
+        bytes.length > 4 * 1024 * 1024 ||
+        !RegExp(r'^[a-zA-Z0-9-]{1,100}$').hasMatch(key))
+      throw const ApiException(422, 'Unsupported private evidence.');
+    final boundary = 'ev' + operationKey().replaceAll('-', '');
+    final extension = {
+      'application/pdf': 'pdf',
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+    }[mime];
+    final body = BytesBuilder(copy: false)
+      ..add(
+        utf8.encode(
+          '--$boundary\r\nContent-Disposition: form-data; name="kind"\r\n\r\n$kind\r\n--$boundary\r\nContent-Disposition: form-data; name="consent"\r\n\r\n1\r\n--$boundary\r\nContent-Disposition: form-data; name="idempotency_key"\r\n\r\n$key\r\n--$boundary\r\nContent-Disposition: form-data; name="document"; filename="evidence.$extension"\r\nContent-Type: $mime\r\n\r\n',
+        ),
+      )
+      ..add(bytes)
+      ..add(utf8.encode('\r\n--$boundary--\r\n'));
+    return _request(
+      'commercial/cases/$caseId/evidence',
+      method: 'POST',
+      uploadBytes: body.takeBytes(),
+      uploadType: 'multipart/form-data; boundary=$boundary',
+    );
+  }
+
   Future<PrivateDocument> downloadDocument(String path) async =>
       await _request(path, binary: true) as PrivateDocument;
 
@@ -340,6 +387,10 @@ class EvApi {
             .resolve('/api/$path')
             .replace(queryParameters: query.isEmpty ? null : query),
       );
+      if (epoch != _epoch) {
+        req.abort(const ApiException(409, 'Session changed.'));
+        throw const ApiException(409, 'Session changed.');
+      }
       req.followRedirects = false;
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
       req.headers.contentType = uploadType == null

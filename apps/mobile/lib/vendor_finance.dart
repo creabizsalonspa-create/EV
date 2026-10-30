@@ -556,6 +556,7 @@ class _RecipientActionState extends State<PayoutRecipientActionView> {
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         scope,
+        isCurrent: widget.api.sessionFence(),
       );
       await op.restore();
       if (mounted && generation == epoch) operation = op;
@@ -889,6 +890,7 @@ class _VendorPayableState extends State<VendorPayableView> {
           FinancialOperation(
             widget.store ?? DeviceFinancialOperationStore(),
             '${widget.api.base.origin}:$owner:settlement:${widget.currency}',
+            isCurrent: widget.api.sessionFence(),
           );
       if (operation == null) await op.restore();
       if (!mounted || epoch != generation) return;
@@ -909,6 +911,7 @@ class _VendorPayableState extends State<VendorPayableView> {
     });
     try {
       final body = await operation!.prepare({'currency': widget.currency});
+      if (!mounted) return;
       final result = await widget.api.request(
         'commercial/vendors/$owner/settlements',
         method: 'POST',

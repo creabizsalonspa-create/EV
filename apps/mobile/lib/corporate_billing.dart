@@ -647,6 +647,7 @@ class _CorporateActionState extends State<CorporateActionView> {
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:${me['id']}:corporate:${widget.agreementId}:${widget.action}:${widget.claimId ?? ''}',
+        isCurrent: widget.api.sessionFence(),
       );
       await op.restore();
       Map<String, dynamic>? pending = op.pending == null

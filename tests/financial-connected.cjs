@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const groups = [
   ["payout-documents", "corporate-billing"], // six logins
   ["external-disputes", "external-disputes-ui", "loyalty"], // seven logins
+  ["payment-case-evidence"], // four logins; separate fresh unchanged limit
 ];
 const { runPacedSuites } = require("./helpers/auth-batches.cjs");
 async function runFinancialSuites(options) {
@@ -18,6 +19,7 @@ if (require.main === module) {
     "external-disputes": "external-disputes",
     "external-disputes-ui": "external-disputes-ui",
     loyalty: "loyalty",
+    "payment-case-evidence": "payment-case-evidence",
   };
   fs.mkdirSync("artifacts/finance-commercial", { recursive: true });
   runFinancialSuites({

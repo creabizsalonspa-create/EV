@@ -1187,6 +1187,15 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             ui,
             actor: () => actor,
         });
+        mountPaymentCaseEvidence({
+            container: panel(
+                "Internal dispute evidence",
+                "أدلة النزاعات الداخلية",
+            ),
+            api,
+            ui,
+            actor: () => actor,
+        });
         mountExternalDisputes({
             container: panel("Provider disputes", "نزاعات مزود الدفع"),
             api,

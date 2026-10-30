@@ -91,6 +91,7 @@ class _ActionState extends State<LoyaltyActionView> {
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:${me['id']}:loyalty:${widget.action}:${widget.reward ?? 'account'}',
+        isCurrent: widget.api.sessionFence(),
       );
       await op.restore();
       if (!mounted || generation != epoch) return;

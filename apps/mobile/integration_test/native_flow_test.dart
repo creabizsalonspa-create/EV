@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:creabiz_ev/financial_operation_store.dart';
 import 'package:creabiz_ev/subscriptions.dart';
+import 'package:creabiz_ev/payment_cases.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
@@ -52,6 +53,7 @@ void main() {
       );
       var role = 'customer';
       var subscriptionEnrollments = 0;
+      var caseEvidenceUploads = 0;
       var authenticated = 0;
       var loggedIn = false;
       var pricingAmount = 125, pricingVersion = 1;
@@ -186,6 +188,39 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/commercial/cases/75/evidence') {
+          final row = {
+            'id': 76,
+            'case_id': 75,
+            'kind': 'service_record',
+            'mime_type': 'application/pdf',
+            'size_bytes': pdf.length,
+            'sha256': sha256.convert(pdf).toString(),
+            'created_at': '2026-10-28',
+            'evidence_status': 'PRIVATE_REVIEW_ONLY',
+            'provider_submitted': false,
+          };
+          if (request.method == 'POST') {
+            expectSync(loggedIn, isTrue);
+            expectSync(
+              request.headers.contentType!.mimeType,
+              'multipart/form-data',
+            );
+            final body = await utf8.decoder.bind(request).join();
+            expectSync(body, contains('filename="evidence.pdf"'));
+            expectSync(body, contains('name="consent"'));
+            expectSync(body, contains('%PDF-1.4'));
+            caseEvidenceUploads++;
+            result = row;
+          } else {
+            result = {
+              'data': caseEvidenceUploads == 0 ? [] : [row],
+              'current_page': 1,
+              'last_page': 1,
+              'total': caseEvidenceUploads == 0 ? 0 : 1,
+              'can_upload': true,
+            };
+          }
         } else if (path == '/api/commercial/plans') {
           result = {
             'data': [
@@ -1154,6 +1189,45 @@ void main() {
       debugPrint(
         'DEVICE: explicit native subscription enrollment verified; synthetic test billing',
       );
+      Navigator.of(tester.element(find.byType(SubscriptionActionView))).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CaseEvidenceView(
+            api: secondApi,
+            onExpired: () => fail('Unexpected case evidence expiry'),
+            caseId: 75,
+          ),
+        ),
+      );
+      await settle();
+      expect(caseEvidenceUploads, 0);
+      await tester.scrollUntilVisible(
+        find.text(caseAr['choose']!),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text(caseAr['choose']!));
+      await settle();
+      expect(caseEvidenceUploads, 0);
+      await tester.scrollUntilVisible(
+        find.byType(CheckboxListTile),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byType(CheckboxListTile));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.text(caseAr['upload']!),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text(caseAr['upload']!));
+      await settle();
+      expect(caseEvidenceUploads, 1);
+      expect(find.text(caseAr['done']!), findsOneWidget);
+      debugPrint(
+        'DEVICE: private case evidence consent and multipart upload verified; synthetic internal review',
+      );
+
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       await settle();

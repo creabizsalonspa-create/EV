@@ -260,6 +260,7 @@ class _RefundRequestState extends State<RefundRequestView> {
       final pending = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:$owner:refund:${widget.invoiceId}',
+        isCurrent: widget.api.sessionFence(),
       );
       await pending.restore();
       if (!mounted || generation != epoch) return;
@@ -444,6 +445,7 @@ class _RefundDecisionState extends State<RefundDecisionView> {
       final op = FinancialOperation(
         widget.store ?? DeviceFinancialOperationStore(),
         '${widget.api.base.origin}:${me['id']}:refund-review:${widget.requestId}',
+        isCurrent: widget.api.sessionFence(),
       );
       await op.restore();
       if (!mounted || epoch != generation) return;

@@ -55,9 +55,15 @@ dynamic _freezeFinancialValue(dynamic value) {
 class FinancialOperation {
   final FinancialOperationStore store;
   final String scope;
+  final bool Function()? isCurrent;
   Map<String, dynamic>? pending;
   static final queues = <String, Future<void>>{};
-  FinancialOperation(this.store, this.scope);
+  FinancialOperation(this.store, this.scope, {this.isCurrent});
+  void checkCurrent() {
+    if (isCurrent != null && !isCurrent!())
+      throw const ApiException(409, 'Session changed.');
+  }
+
   Future<T> serial<T>(Future<T> Function() action) {
     final result = (queues[scope] ?? Future<void>.value()).then(
       (_) => action(),
@@ -74,7 +80,9 @@ class FinancialOperation {
   }
 
   Future<void> restore() => serial(() async {
+    checkCurrent();
     final saved = await store.read(scope);
+    checkCurrent();
     pending = saved == null
         ? null
         : _freezeFinancialValue(saved) as Map<String, dynamic>;
@@ -85,6 +93,7 @@ class FinancialOperation {
         _freezeFinancialValue(jsonDecode(jsonEncode(body)))
             as Map<String, dynamic>;
     return serial(() async {
+      checkCurrent();
       // Retain this screen's original identity even when another screen has already
       // acknowledged it. A stale retry must not silently allocate a fresh request.
       final saved = await store.read(scope);
@@ -99,6 +108,7 @@ class FinancialOperation {
         // lost response followed by restart cannot allocate a replacement key.
         // A newer intent already in storage must never be overwritten.
         if (saved == null) await store.write(scope, pending!);
+        checkCurrent();
         return Map<String, dynamic>.unmodifiable({
           ...frozen,
           'idempotency_key': pending!['key'],
@@ -107,6 +117,7 @@ class FinancialOperation {
       final value = <String, dynamic>{'key': operationKey(), 'body': frozen};
       await store.write(scope, value);
       pending = _freezeFinancialValue(value) as Map<String, dynamic>;
+      checkCurrent();
       return Map<String, dynamic>.unmodifiable({
         ...frozen,
         'idempotency_key': value['key'],
