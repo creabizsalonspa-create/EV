@@ -109,7 +109,8 @@ const assert = require("node:assert/strict");
             () => document.documentElement.scrollWidth <= innerWidth + 1,
           ),
         );
-        await panel.screenshot({
+        await panel.evaluate(el => window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + window.scrollY - 110)));
+        await vendor.screenshot({
           path: `${dir}/screenshots/${theme}-${width}.png`,
         });
       }
@@ -131,7 +132,8 @@ const assert = require("node:assert/strict");
     for (const theme of ["light", "dark"]) {
       await vendor.setViewportSize({ width: 390, height: 1000 });
       await vendor.locator("#theme-choice").selectOption(theme);
-      await panel.screenshot({
+      await panel.evaluate(el => window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + window.scrollY - 110)));
+      await vendor.screenshot({
         path: `${dir}/screenshots/ar-${theme}-390.png`,
       });
       assert(
