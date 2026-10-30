@@ -29,7 +29,7 @@ class RecordSynchronizer
         return DB::transaction(function () use ($provider, $module, $validated) {
             // Serialize batches per provider across modules and sources; an entire failed batch rolls back.
             $locked = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
-            if (! $locked->authorized || $locked->version !== '2.2.1') {
+            if (! $locked->authorized || $locked->version !== '2.2.1' || $locked->authorization_revision !== $provider->authorization_revision || $locked->owner_id !== $provider->owner_id || $locked->connection_key !== $provider->connection_key) {
                 throw new OcpiException('Provider authorization changed.');
             }
             $counts = ['created' => 0, 'updated' => 0, 'duplicate' => 0, 'stale' => 0];

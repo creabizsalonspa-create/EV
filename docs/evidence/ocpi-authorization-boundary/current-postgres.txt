@@ -1,0 +1,157 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 747B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/php:8.5-cli-bookworm@sha256:d4f6e10eb393de7e3a7a88e8b88e139072dd3ae297f6a5dada8257e6fe32c585
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [stage-0 1/2] FROM docker.io/library/php:8.5-cli-bookworm@sha256:d4f6e10eb393de7e3a7a88e8b88e139072dd3ae297f6a5dada8257e6fe32c585
+#4 DONE 0.0s
+
+#5 [stage-0 2/2] RUN --mount=type=secret,id=host_ca,target=/tmp/host-ca.pem cp /tmp/host-ca.pem /etc/ssl/certs/ca-certificates.crt && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && apt-get update && apt-get install -y --no-install-recommends libpq-dev && rm -rf /var/lib/apt/lists/* && mkdir /tmp/pdo-pgsql && tar -xJf /usr/src/php.tar.xz --wildcards --strip-components=3 -C /tmp/pdo-pgsql '*/ext/pdo_pgsql/*' && cd /tmp/pdo-pgsql && phpize && ./configure --with-pdo-pgsql=/usr && make -j2 && make install && docker-php-ext-enable pdo_pgsql && cd / && rm -rf /tmp/pdo-pgsql
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 writing image sha256:96430bcc2c589a5c195329b41794850e8c21f6f8c73cd18f99c3841175d95290 done
+#6 naming to docker.io/library/ev-connector-pg-tests:ev-connector-tests-11103-11314 done
+#6 DONE 0.0s
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+................................................................. 65 / 65 (100%)
+
+
+Time: 00:13.767, Memory: 68.50 MB
+
+Canonical Topology Rollback (Tests\Feature\CanonicalTopologyRollback)
+ ✔ Disposable forward downgrade forward preserves legacy binding and restores indexes
+ ✔ Configured resources refuse downgrade before any schema change with data set #0
+ ✔ Configured resources refuse downgrade before any schema change with data set #1
+ ✔ Configured resources refuse downgrade before any schema change with data set #2
+ ✔ Configured resources refuse downgrade before any schema change with data set #3
+
+Catalog Geo (Tests\Feature\CatalogGeo)
+ ✔ Radius sorts by distance and preserves truthful capabilities
+ ✔ Date line and poles do not drop nearby stations
+ ✔ Nearby composes filters and paginates with stable ties
+ ✔ Partial invalid or unbounded coordinates are rejected
+
+Charger Admission (Tests\Feature\ChargerAdmission)
+ ✔ Production credential disclosure requires https before rotating any secret
+ ✔ Canonical source conflict fences existing credentials and profile replay
+ ✔ Production admission requires durable nonce cache and exact owned canonical source
+ ✔ Topology cannot adopt identity reserved by another inventory charger
+ ✔ Signed tls admission rotation revocation and no credential disclosure with data set #0
+ ✔ Signed tls admission rotation revocation and no credential disclosure with data set #1
+ ✔ Replayed or spoofed ingress tls protocol and expiry are rejected
+ ✔ Certificate pin current company approval and owner scope are enforced
+ ✔ Production fails closed for plaintext or nondurable replay cache
+ ✔ Inventory staff cannot disclose or rotate owner credentials and identity is immutable
+ ✔ Dedicated identity budget is enforced and recovers after window
+ ✔ Expiry at boundary disables once fences rotation and preserves system audit
+ ✔ Credential history is owner scoped paginated and database immutable
+ ✔ Bounded credential expiry command leaves fresh rotations and revocations unchanged
+
+Charging Operations (Tests\Feature\ChargingOperations)
+ ✔ Uncertain case cannot release capacity or repeat commands without source
+ ✔ Proof is required for case resolution and tenant scope precedes source reads
+
+Command Reconciliation (Tests\Feature\CommandReconciliation)
+ ✔ Authenticated applied source recovers unknown start and stop without network or acceptance claim
+ ✔ Missing or unapplied evidence never recovers and scope is checked before work
+ ✔ Late transport reply does not overwrite observed source state with data set #0
+ ✔ Late transport reply does not overwrite observed source state with data set #1
+ ✔ Versioned bearer charging routes preserve scope and source admission
+ ✔ Committed event with interrupted followup is recovered before any dispatch
+
+Connector Topology (Tests\Feature\ConnectorTopology)
+ ✔ Parallel evse bookings shared connector capacity and payload bound replay
+ ✔ Public choices do not leak sources or maintenance reasons and scope remains enforced
+ ✔ Application sessions are parallel across evses but unresolved prior slot blocks same evse
+ ✔ Csms dispatch targets selected source and parallel evses with data set #0
+ ✔ Csms dispatch targets selected source and parallel evses with data set #1
+ ✔ Source inbox requires the exact canonical target before accepting energy
+ ✔ Activation preserves legacy bookings and rejects uncorrelated outbox history
+ ✔ Multiple charge points use their own source binding not first station match
+ ✔ Catalog filters use actual mapped connector capabilities
+
+Ocpi Authorization Boundary (Tests\Feature\OcpiAuthorizationBoundary)
+ ✔ Authorization changes advance hidden generation and clear capabilities
+ ✔ Ambiguous duplicate version is rejected without selecting last endpoint
+ ✔ Revocation after versions response prevents next outbound request
+ ✔ Reauthorization during final http response cannot commit old negotiation
+ ✔ Only one overlapping negotiation can publish from the same generation
+ ✔ Old pull cannot ingest after reauthorization even when version matches
+ ✔ Revocation between pages does not forward credentials again
+ ✔ Provider ownership change also invalidates inflight request
+ ✔ Generation exhaustion fails closed without reenabling or outbound http
+ ✔ Terminal generation can still be revoked but never reauthorized
+ ✔ Non testing downgrade preserves existing authorization generations
+
+Reservation Lifecycle (Tests\Feature\ReservationLifecycle)
+ ✔ Check in is scoped explicit self reported server timed and idempotent
+ ✔ Unused window expiry is exact retains arrival and never creates session or money with data set #0
+ ✔ Unused window expiry is exact retains arrival and never creates session or money with data set #1
+ ✔ Existing session any state and uncorrelated commands require separate reconciliation
+ ✔ Scheduled scan is bounded and resumes past reconciliation records
+
+Source Consumer (Tests\Feature\SourceConsumer)
+ ✔ Source authentication signed delivery restart cursor and final reconciliation with data set #0
+ ✔ Source authentication signed delivery restart cursor and final reconciliation with data set #1
+ ✔ Ambiguous source identity is rejected without advancing business state
+ ✔ Meter units are exact and unsupported precision is not rounded
+
+Station Favorite (Tests\Feature\StationFavorite)
+ ✔ Customer preferences are scoped idempotent and never grant control
+ ✔ Guest vendor and admin cannot read or change customer preferences
+ ✔ Favorites paginate with stable order and missing stations are not invented
+ ✔ Status lookup is bounded validated and never exposes another customer
+ ✔ Native token and cookie clients share favorites without cross user personalization
+
+OK (65 tests, 858 assertions)
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+.................                                                 17 / 17 (100%)
+
+Time: 00:31.982, Memory: 52.50 MB
+
+Charger Admission Concurrency (Tests\Postgres\ChargerAdmissionConcurrency)
+ ✔ Two companies cannot race to claim the same charger identity
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #0
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #1
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #2
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #3
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #4
+
+Command Reconciliation Concurrency (Tests\Postgres\CommandReconciliationConcurrency)
+ ✔ Concurrent source recovery records one observation without device or financial mutation
+
+Connector Reservation Concurrency (Tests\Postgres\ConnectorReservationConcurrency)
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #0
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #1
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #2
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #3
+
+Ocpi Authorization Concurrency (Tests\Postgres\OcpiAuthorizationConcurrency)
+ ✔ Reauthorization while http is in flight discards stale negotiation
+ ✔ Two negotiations from same revision publish only once
+ ✔ Old pull cannot commit after new authorized generation is negotiated
+
+Reservation Lifecycle Concurrency (Tests\Postgres\ReservationLifecycleConcurrency)
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #0
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #1
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #2
+
+OK (17 tests, 235 assertions)
