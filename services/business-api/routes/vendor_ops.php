@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\VendorOpsController as V;
 use Illuminate\Support\Facades\Route;
 
@@ -16,6 +18,7 @@ Route::post('/companies/{company}/staff', [V::class, 'invite']);
 Route::get('/staff-invitations', [V::class, 'invitations']);
 Route::post('/staff-invitations/{membership}/accept', [V::class, 'accept']);
 Route::delete('/companies/{company}/staff/{membership}', [V::class, 'revoke']);
+Route::get('/companies/{company}/catalog-stations', [V::class, 'catalogStations']);
 Route::get('/companies/{company}/sites', [V::class, 'sites']);
 Route::post('/companies/{company}/sites', [V::class, 'createSite']);
 Route::get('/companies/{company}/sites/{site}/chargers', [V::class, 'chargers']);
@@ -26,3 +29,15 @@ Route::patch('/companies/{company}/chargers/{charger}/connectors/{connector}/mai
 
 Route::patch('/companies/{company}', [V::class, 'updateCompany']);
 Route::get('/companies/{company}/reviews', [V::class, 'reviews']);
+
+Route::get('/companies/{company}/chargers/{charger}/evses', [ConnectorTopologyController::class, 'evses']);
+Route::get('/companies/{company}/chargers/{charger}/source-options', [ConnectorTopologyController::class, 'sources']);
+Route::post('/companies/{company}/chargers/{charger}/evses', [ConnectorTopologyController::class, 'createEvse']);
+Route::post('/companies/{company}/chargers/{charger}/evses/{evse}/connectors/{connector}/mapping', [ConnectorTopologyController::class, 'map']);
+
+Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'show']);
+Route::post('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'configure']);
+Route::post('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'credential']);
+Route::delete('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'revoke']);
+
+Route::get('/companies/{company}/chargers/{charger}/admission/events', [ChargerAdmissionController::class, 'events']);

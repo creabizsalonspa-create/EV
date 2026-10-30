@@ -1,0 +1,86 @@
+{
+  "verified_software_checkpoint": "ff086b0f9550e65d6292de313014f95a18ad6031",
+  "platform": {
+    "runs": [
+      40528029126,
+      40528022514
+    ],
+    "conclusion": "success",
+    "laravel": {
+      "tests": 183,
+      "assertions": 6615
+    },
+    "postgres_topology_lifecycle_recovery": {
+      "tests": 20,
+      "assertions": 250
+    },
+    "postgres_finance_workflows": {
+      "tests": 97,
+      "assertions": 5866
+    },
+    "postgres_all_process_races": {
+      "tests": 23,
+      "assertions": 291
+    },
+    "dedicated_connector_lifecycle_recovery_races_subset": {
+      "tests": 8,
+      "assertions": 108
+    },
+    "ocpp": "1.6 source connector7 and2.0.1 EVSE5; continuous observer restart; source-observed start/stop; 2500Wh and one329-minor-unit simulated invoice/payment/refund"
+  },
+  "native": {
+    "run": "https://github.com/creabizsalonspa-create/EV/actions/runs/40528029448",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "native (macos-15)",
+        "conclusion": "success"
+      },
+      {
+        "name": "native (ubuntu-latest)",
+        "conclusion": "success"
+      }
+    ],
+    "unit_widget_per_runner": 63,
+    "explicit_default_live_skips": 4,
+    "linux_actual_laravel_cases": 3,
+    "iphone_synthetic_tls_keychain_scenario": 1,
+    "artifacts": [
+      {
+        "digest": "sha256:eca07d20b0ab4d9ea821e493fde0b38c4292a96dbe0dd8f4ed84fc14a987177e",
+        "expired": false,
+        "id": 12746416721,
+        "name": "creabiz-ios-ui-diagnostics",
+        "size_in_bytes": 141863
+      },
+      {
+        "digest": "sha256:36c0d74bd50bdb0a4a01d838de024a87e8d41c935429c5734dc97657ea4a741e",
+        "expired": false,
+        "id": 12744724215,
+        "name": "creabiz-android-debug",
+        "size_in_bytes": 76625176
+      },
+      {
+        "digest": "sha256:b19ec3c026ed1c27d6690b7a3b793c37d03c45706f9e9c7e999e6cd8337011c6",
+        "expired": false,
+        "id": 12744674076,
+        "name": "creabiz-ios-simulator",
+        "size_in_bytes": 50358672
+      }
+    ]
+  },
+  "earlier_same_application_source": {
+    "commit": "8e5454cad43f6516c6a6c3e633d85dc52d465d1c",
+    "native_pr_run": 40526762395,
+    "native_pr_result": "all passed including device scenario",
+    "duplicate_native_push_run": 40526771011,
+    "duplicate_push_result": "both builds and Linux passed; iPhone timed out before any Dart test phase while waiting for VM-service port. No device tests ran in that job; not counted as a pass.",
+    "diagnosis": "downloaded native-device.log, ios-runner.log and screenshot; no Dart DEVICE marker, no VM-service connection. Current fresh run40528029448 passed all phases. Intermittent simulator launch transport remains a known CI limitation, not a production/device acceptance claim."
+  },
+  "environment": {
+    "repeat_current_instance_setup_start_source_provisioning": "passed without reseed or credential replacement",
+    "catalog_database_health": "passed",
+    "fresh_task_and_docker_volume_restoration": "unverified"
+  },
+  "full_product_status": "IN_PROGRESS; not final release; production OCPP provisioning/auth/no-evidence triage, full OCPI, maps and remaining customer/vendor/Admin/commercial scope unfinished; hardware/PSP/roaming/store/device acceptance unverified"
+}

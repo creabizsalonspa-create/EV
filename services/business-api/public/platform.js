@@ -1,26 +1,88 @@
+let unconfirmedFavorite = null;
+let favoriteMode = false,
+    previousCatalogQuery = "";
+let commandRequest = null,
+    commandPage = 1;
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
-    notice = (value) =>
-        EvLocale.bind(
+    notice = (value) => {
+        if (value?.name === "SessionChangedError") return;
+        return EvLocale.bind(
             el("notice"),
             value instanceof Error ? errorMessage(value) : value,
         );
+    };
 const client = new EvApi(csrf);
 async function api(path, method = "GET", data, signal) {
     client.token = csrf;
     try {
         return await client.request(path, method, data, signal);
     } catch (error) {
-        if (error.status === 401 && user) {
-            user = null;
-            renderIdentity();
-            clearPrivateViews();
+        if ([401, 419].includes(error.status) && user) {
+            clearIdentity();
         }
         throw error;
     }
 }
+window.dispatchEvent(
+    new CustomEvent("discovery-api-ready", {
+        detail: (path, method = "GET", body, signal) =>
+            api("discovery/" + path, method, body, signal),
+    }),
+);
+let identityBusy = false;
+function setIdentityBusy(value) {
+    identityBusy = value;
+    el("account")
+        .querySelectorAll("input,button")
+        .forEach((n) => (n.disabled = value));
+    el("logout").disabled = el("logout-retry").disabled = value;
+}
+function pendingLogout(value) {
+    try {
+        if (value === undefined)
+            return sessionStorage.getItem("creabiz.logout-pending") === "1";
+        if (value) sessionStorage.setItem("creabiz.logout-pending", "1");
+        else sessionStorage.removeItem("creabiz.logout-pending");
+    } catch {}
+    return false;
+}
+function clearIdentity() {
+    const privateCatalog = favoriteMode;
+    window.dispatchEvent(new CustomEvent("catalog-map-clear"));
+    unconfirmedFavorite = null;
+    favoriteMode = false;
+    const epoch = client.invalidateSession();
+    user = null;
+    renderIdentity();
+    clearPrivateViews();
+    el("stations")
+        .querySelectorAll("[data-favorite-control]")
+        .forEach((n) => n.remove());
+    if (privateCatalog) {
+        stationRequest?.abort();
+        el("stations").replaceChildren();
+        el("catalog-pagination").replaceChildren();
+        el("catalog-state").textContent = "";
+        delete el("catalog-state").dataset.i18n;
+        delete el("catalog-state").dataset.i18nValues;
+    }
+    el("stations")
+        .querySelectorAll("form")
+        .forEach((n) => n.remove());
+    setIdentityBusy(false);
+    return epoch;
+}
 function clearPrivateViews() {
+    vendorWorkspace.clear();
+    roamingWorkspace.clear();
+    invoiceHistory.clear();
+    commercialWorkspace.clear();
+    tariffWorkspace.clear();
+    commandRequest?.abort();
+    el("commands-state").textContent = "";
+    delete el("commands-state").dataset.i18n;
     for (const id of [
         "reservation-list",
         "simulation-list",
@@ -32,6 +94,8 @@ function clearPrivateViews() {
         "ticket-detail",
         "notifications",
         "overview",
+        "command-list",
+        "command-pagination",
     ])
         el(id).replaceChildren();
     for (const id of [
@@ -49,6 +113,7 @@ function empty(container, message) {
     el(container).append(state);
 }
 function renderIdentity() {
+    renderCatalogMode();
     el("account").hidden = !!user;
     el("forgot-password").hidden = !!user;
     el("signed").hidden = !user;
@@ -79,11 +144,14 @@ function renderIdentity() {
     for (const id of ["simulations", "fleets", "garage", "support"])
         el(id).hidden = !user;
     el("admin").hidden = el("region-config").hidden = user?.role !== "admin";
+    el("command-history").hidden = !["vendor", "admin"].includes(user?.role);
     document.querySelectorAll("[data-access]").forEach((n) => {
         n.hidden =
             n.dataset.access === "auth"
                 ? !user
-                : user?.role !== n.dataset.access;
+                : n.dataset.access === "operations"
+                  ? !["vendor", "admin"].includes(user?.role)
+                  : user?.role !== n.dataset.access;
     });
     EvLocale.bind(
         el("workspace-label"),
@@ -132,16 +200,35 @@ function errorMessage(error) {
     );
 }
 async function identity() {
+    let epoch = client.sessionEpoch;
     el("ticket-detail").replaceChildren();
     el("fleet-detail").replaceChildren();
     el("overview").replaceChildren();
     try {
-        user = await api("me");
+        const current = await api("me");
+        if (epoch !== client.sessionEpoch) return;
+        if (
+            !current ||
+            !Number.isSafeInteger(current.id) ||
+            current.id <= 0 ||
+            typeof current.name !== "string" ||
+            !["customer", "vendor", "admin"].includes(current.role)
+        )
+            throw new ApiError("Unreadable account identity.", 502);
+        if (user && (current.id !== user.id || current.role !== user.role))
+            epoch = clearIdentity();
+        user = current;
     } catch (error) {
-        user = null;
+        if (
+            epoch !== client.sessionEpoch ||
+            error.name === "SessionChangedError"
+        )
+            return;
+        epoch = clearIdentity();
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
     if (user) {
         await bookings();
@@ -150,11 +237,143 @@ async function identity() {
         await garage();
         await support();
     }
+    await vendorWorkspace.setActor(user);
+    await roamingWorkspace.setActor(user);
+    await invoiceHistory.setActor(user);
+    await tariffWorkspace.setActor(user);
+    await commercialWorkspace.setActor(user);
     if (user?.role === "admin") await adminOverview();
+    if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
 let stationRequest = null,
     stationQuery = "";
+function reservationForm(s, mapping = null) {
+    let f = document.createElement("form"),
+        l = ui("label", "UTC start (00 or 30 minutes)"),
+        i = document.createElement("input");
+    i.type = "datetime-local";
+    i.step = 1800;
+    i.required = true;
+    l.append(i);
+    f.append(l);
+    let b = ui("button", "Reserve simulator slot");
+    f.append(b);
+    let bookingKey = crypto.randomUUID();
+    f.onsubmit = async (e) => {
+        e.preventDefault();
+        b.disabled = true;
+        try {
+            await api("reservations", "POST", {
+                station_id: s.id,
+                ...(mapping ? { connector_mapping_id: mapping.id } : {}),
+                starts_at:
+                    i.value.length === 16 ? i.value + ":00Z" : i.value + "Z",
+                idempotency_key: bookingKey,
+            });
+            bookingKey = crypto.randomUUID();
+            notice(
+                "Simulation inventory reserved. No physical charger command was sent.",
+            );
+            await bookings();
+        } catch (e) {
+            notice(e);
+        } finally {
+            b.disabled = false;
+        }
+    };
+    return f;
+}
+async function connectorChoices(station, root, page = 1) {
+    const identity = client.sessionEpoch;
+    root.replaceChildren(ui("p", "Loading…"));
+    try {
+        const result = await api(
+            `stations/${station.id}/connectors?page=${page}`,
+        );
+        if (!root.isConnected || identity !== client.sessionEpoch) return;
+        root.replaceChildren(ui("p", "Connector choice disclaimer"));
+        for (const option of result.data) {
+            const row = document.createElement("div");
+            row.dataset.mappingId = option.id;
+            row.append(
+                ui("h4", "EVSE {evse} · Connector {connector}", {
+                    evse: option.evse_number,
+                    connector: option.connector_number,
+                }),
+                node(
+                    "p",
+                    `${option.connector_type} · ${option.max_power_kw} kW`,
+                ),
+            );
+            if (option.reservable && user?.role === "customer")
+                row.append(reservationForm(station, option));
+            else
+                row.append(
+                    ui(
+                        "p",
+                        option.reservable
+                            ? "Sign in to reserve connector"
+                            : "Connector currently unavailable",
+                    ),
+                );
+            root.append(row);
+        }
+        root.append(
+            ui("p", "Page {page} of {last} · {total} records", {
+                page: result.current_page,
+                last: result.last_page,
+                total: result.total,
+            }),
+        );
+        for (const [label, target, enabled] of [
+            ["Previous", page - 1, page > 1],
+            ["Next", page + 1, page < result.last_page],
+        ]) {
+            const button = ui("button", label);
+            button.type = "button";
+            button.disabled = !enabled;
+            button.onclick = () => connectorChoices(station, root, target);
+            root.append(button);
+        }
+    } catch (error) {
+        if (root.isConnected && identity === client.sessionEpoch) {
+            root.replaceChildren(ui("p", "Roaming load failed"));
+            const retry = ui("button", "Retry");
+            retry.onclick = () => connectorChoices(station, root, page);
+            root.append(retry);
+        }
+    }
+}
+function renderCatalogMode() {
+    if (user?.role !== "customer") {
+        unconfirmedFavorite = null;
+        el("stations")
+            .querySelectorAll("[data-favorite-control]")
+            .forEach((node) => node.remove());
+        if (favoriteMode) {
+            window.dispatchEvent(new CustomEvent("catalog-map-clear"));
+            favoriteMode = false;
+            stationRequest?.abort();
+            el("stations").replaceChildren();
+            el("catalog-pagination").replaceChildren();
+            el("catalog-state").textContent = "";
+            delete el("catalog-state").dataset.i18n;
+            delete el("catalog-state").dataset.i18nValues;
+        }
+    }
+    EvLocale.bind(
+        el("catalog-title"),
+        favoriteMode ? "Saved stations" : "Find a place to recharge",
+    );
+    const button = el("favorite-catalog");
+    button.hidden = user?.role !== "customer";
+    EvLocale.bind(button, favoriteMode ? "All stations" : "Saved stations");
+    el("filters").hidden = favoriteMode;
+}
+
 async function stations(query = "") {
+    const identity = client.sessionEpoch,
+        savedMode = favoriteMode;
     stationRequest?.abort();
     const request = new AbortController();
     stationRequest = request;
@@ -165,16 +384,65 @@ async function stations(query = "") {
     );
     let j;
     try {
-        j = await api("stations" + query, "GET", undefined, request.signal);
+        j = await api(
+            (savedMode ? "favorites" : "stations") + query,
+            "GET",
+            undefined,
+            request.signal,
+        );
+        if (request.signal.aborted || identity !== client.sessionEpoch) return;
+        if (savedMode && !j.data.length && j.current_page > j.last_page)
+            return stations("?page=" + j.last_page);
+        if (!savedMode && user?.role === "customer" && j.data.length) {
+            const params = new URLSearchParams();
+            for (const station of j.data)
+                params.append("station_ids[]", station.id);
+            const status = await api(
+                "favorites/status?" + params,
+                "GET",
+                undefined,
+                request.signal,
+            );
+            if (
+                !Array.isArray(status.favorite_station_ids) ||
+                !status.favorite_station_ids.every(
+                    (id) => Number.isSafeInteger(id) && id > 0,
+                )
+            )
+                throw new Error("Unreadable preference status");
+            const ids = new Set(status.favorite_station_ids);
+            j.data = j.data.map((station) => ({
+                ...station,
+                is_favorite: ids.has(station.id),
+            }));
+        }
     } catch (error) {
         if (request.signal.aborted) return;
         EvLocale.bind(el("catalog-state"), errorMessage(error));
         el("stations").removeAttribute("aria-busy");
         return;
     }
-    if (request.signal.aborted) return;
+    if (
+        request.signal.aborted ||
+        identity !== client.sessionEpoch ||
+        savedMode !== favoriteMode
+    )
+        return;
     el("stations").removeAttribute("aria-busy");
     stationQuery = query;
+    if (
+        user?.role === "customer" &&
+        unconfirmedFavorite !== null &&
+        (j.data.some((station) => station.id === unconfirmedFavorite) ||
+            (savedMode && j.total === 0))
+    ) {
+        unconfirmedFavorite = null;
+        if (el("notice").dataset.i18n === "Favorite update unconfirmed") {
+            el("notice").textContent = "";
+            delete el("notice").dataset.i18n;
+            delete el("notice").dataset.i18nValues;
+        }
+    }
     EvLocale.bind(
         el("catalog-state"),
         "{total} stations · availability is unverified / الحالة غير مؤكدة",
@@ -196,14 +464,23 @@ async function stations(query = "") {
             last: j.last_page,
         }),
     );
+    window.dispatchEvent(
+        new CustomEvent("catalog-map-data", { detail: j.data }),
+    );
     el("stations").replaceChildren();
     if (!j.data.length)
         el("stations").append(
-            ui("p", "No stations match. No live network data is connected."),
+            ui(
+                "p",
+                savedMode
+                    ? "No saved stations yet"
+                    : "No stations match. No live network data is connected.",
+            ),
         );
     for (let s of j.data) {
         let a = node("article", "");
         a.className = "station-card";
+        a.dataset.stationId = s.id;
         a.append(
             node("h3", s.name),
             Object.assign(
@@ -217,9 +494,27 @@ async function stations(query = "") {
             ),
             node(
                 "p",
-                s.connector_type + " · " + s.power_kw + " kW · " + s.country,
+                s.reservation_policy === "canonical"
+                    ? EvLocale.text("Mapped connector capabilities") +
+                          " · " +
+                          s.country
+                    : s.connector_type +
+                          " · " +
+                          s.power_kw +
+                          " kW · " +
+                          s.country,
             ),
         );
+        if (Number.isFinite(Number(s.distance_km)) && s.distance_km != null) {
+            const distance = node("p", "");
+            distance.dataset.en = `${Number(s.distance_km).toFixed(2)} km straight-line distance`;
+            distance.dataset.ar = `${Number(s.distance_km).toFixed(2)} كم بخط مستقيم`;
+            distance.textContent =
+                document.documentElement.lang === "ar"
+                    ? distance.dataset.ar
+                    : distance.dataset.en;
+            a.append(distance);
+        }
         const details = document.createElement("details");
         details.append(
             ui("summary", "Location & access / الموقع والوصول"),
@@ -230,40 +525,49 @@ async function stations(query = "") {
             ),
         );
         a.append(details);
-        if (s.reservable && user?.role === "customer") {
-            let f = document.createElement("form"),
-                l = ui("label", "UTC start (00 or 30 minutes)"),
-                i = document.createElement("input");
-            i.type = "datetime-local";
-            i.step = 1800;
-            i.required = true;
-            l.append(i);
-            f.append(l);
-            let b = ui("button", "Reserve simulator slot");
-            f.append(b);
-            f.onsubmit = async (e) => {
-                e.preventDefault();
-                b.disabled = true;
+        if (user?.role === "customer") {
+            const button = ui(
+                "button",
+                s.is_favorite ? "Remove saved station" : "Save station",
+            );
+            button.type = "button";
+            button.dataset.favoriteControl = "true";
+            button.setAttribute(
+                "aria-pressed",
+                s.is_favorite ? "true" : "false",
+            );
+            button.onclick = async () => {
+                const epoch = client.sessionEpoch;
+                button.disabled = true;
                 try {
-                    await api("reservations", "POST", {
-                        station_id: s.id,
-                        starts_at:
-                            i.value.length === 16
-                                ? i.value + ":00Z"
-                                : i.value + "Z",
-                        idempotency_key: crypto.randomUUID(),
-                    });
-                    notice(
-                        "Simulation inventory reserved. No physical charger command was sent.",
+                    await api(
+                        "favorites/" + s.id,
+                        s.is_favorite ? "DELETE" : "PUT",
                     );
-                    await bookings();
-                } catch (e) {
-                    notice(e);
+                    if (epoch === client.sessionEpoch && a.isConnected)
+                        await stations(stationQuery);
+                } catch (error) {
+                    if (epoch === client.sessionEpoch && a.isConnected) {
+                        unconfirmedFavorite = s.id;
+                        notice("Favorite update unconfirmed");
+                    }
                 } finally {
-                    b.disabled = false;
+                    if (epoch === client.sessionEpoch && button.isConnected)
+                        button.disabled = false;
                 }
             };
-            a.append(f);
+            a.append(button);
+        }
+        if (s.reservation_policy === "managed_blocked")
+            a.append(ui("p", "Managed reservations unavailable"));
+        if (s.reservable && user?.role === "customer")
+            a.append(reservationForm(s));
+        if (s.reservation_policy === "canonical") {
+            const choices = document.createElement("div"),
+                button = ui("button", "Choose connector");
+            button.type = "button";
+            button.onclick = () => connectorChoices(s, choices);
+            a.append(button, choices);
         }
         el("stations").append(a);
     }
@@ -287,22 +591,55 @@ async function bookings() {
                 status: { translate: r.status },
             },
         );
+        if (r.checked_in_at)
+            a.append(
+                ui("p", "Self-reported arrival · {time}", {
+                    time: r.checked_in_at,
+                }),
+            );
+        if (user.role === "customer" && r.can_check_in) {
+            const arrival = ui("button", "Check in");
+            arrival.type = "button";
+            arrival.onclick = async () => {
+                if (!confirm(EvLocale.text("Arrival confirmation"))) return;
+                arrival.disabled = true;
+                try {
+                    await api(`reservations/${r.id}/check-in`, "POST", {
+                        self_reported_arrival: true,
+                    });
+                    await bookings();
+                } catch (error) {
+                    notice(error);
+                } finally {
+                    if (arrival.isConnected) arrival.disabled = false;
+                }
+            };
+            a.append(arrival);
+        }
         if (user.role === "customer" && r.status === "confirmed") {
             let b = ui("button", "Cancel");
             b.onclick = async () => {
                 try {
                     await api("reservations/" + r.id, "DELETE");
                     await bookings();
+                    await simulations();
                 } catch (e) {
                     notice(e);
                 }
             };
             a.append(b);
-            let start = ui("button", "Start simulator");
+            let start = ui(
+                "button",
+                r.csms_bound
+                    ? "Request CSMS simulator start"
+                    : "Start simulator",
+            );
             start.onclick = async () => {
                 try {
                     await api(
-                        "reservations/" + r.id + "/simulate-start",
+                        "reservations/" +
+                            r.id +
+                            (r.csms_bound ? "/csms-start" : "/simulate-start"),
                         "POST",
                     );
                     await simulations();
@@ -335,18 +672,155 @@ async function simulations() {
                 currency: s.currency,
             },
         );
+        if (s.csms_linked) a.append(ui("p", "Source controls disclaimer"));
+        if (s.csms_linked) {
+            for (const [label, value] of [
+                ["Start transport · {status}", s.start_command_status],
+                ["Stop transport · {status}", s.stop_command_status],
+            ])
+                if (value)
+                    a.append(ui("p", label, { status: { translate: value } }));
+            if (
+                [s.start_command_status, s.stop_command_status].includes(
+                    "source_observed",
+                )
+            )
+                a.append(ui("p", "Source outcome disclaimer"));
+            if (
+                [s.start_command_status, s.stop_command_status].some((value) =>
+                    [
+                        "pending",
+                        "dispatching",
+                        "outcome_unknown",
+                        "submitted",
+                        "rejected",
+                    ].includes(value),
+                ) &&
+                !["cancelled", "expired_unstarted"].includes(s.status)
+            ) {
+                const reconcile = ui("button", "Reconcile received evidence");
+                reconcile.onclick = async () => {
+                    reconcile.disabled = true;
+                    try {
+                        const result = await api(
+                            `charging-sessions/${s.id}/reconcile`,
+                            "POST",
+                            {},
+                        );
+                        await simulations();
+                        notice(
+                            EvLocale.text(
+                                result.reconciled
+                                    ? "Source evidence reconciled"
+                                    : "No new applied source evidence",
+                            ),
+                        );
+                    } catch (error) {
+                        notice(error);
+                    } finally {
+                        if (reconcile.isConnected) reconcile.disabled = false;
+                    }
+                };
+                a.append(reconcile);
+            }
+        }
+        if (s.start_admission_blocked)
+            a.append(ui("p", "Start admission blocked"));
+        if (user.role === "customer" && s.can_cancel_before_dispatch) {
+            const cancel = ui("button", "Cancel undispatched start");
+            cancel.onclick = async () => {
+                if (!confirm(EvLocale.text("Cancel undispatched consent")))
+                    return;
+                cancel.disabled = true;
+                try {
+                    await api("reservations/" + s.reservation_id, "DELETE");
+                    await bookings();
+                    await simulations();
+                } catch (e) {
+                    notice(e);
+                } finally {
+                    if (cancel.isConnected) cancel.disabled = false;
+                }
+            };
+            a.append(cancel);
+        }
+
+        if (s.status === "stopped") {
+            const button = ui("button", "View simulated invoice"),
+                details = document.createElement("div");
+            button.onclick = async () => {
+                button.disabled = true;
+                try {
+                    const summary = await api(
+                        "finance/sessions/" + s.id + "/invoice",
+                        "POST",
+                    );
+                    if (
+                        summary.payment_provider !== "SIMULATOR_ONLY" ||
+                        summary.real_payment_processed !== false
+                    )
+                        throw new Error("Unsupported finance evidence.");
+                    const invoice = summary.invoice;
+                    details.replaceChildren(
+                        ui("p", "Invoice simulation disclaimer"),
+                        node("h4", invoice.number),
+                    );
+                    for (const [label, amount] of [
+                        ["Subtotal", invoice.subtotal_minor],
+                        ["Tax", invoice.tax_minor],
+                        ["Total", invoice.total_minor],
+                        ["Simulated collected", summary.paid_minor],
+                        ["Simulated refunded", summary.refunded_minor],
+                        ["Amount due", summary.amount_due_minor],
+                    ]) {
+                        details.append(
+                            ui(
+                                "p",
+                                "{label}: {amount} minor units {currency}",
+                                {
+                                    label: { translate: label },
+                                    amount,
+                                    currency: invoice.currency,
+                                },
+                            ),
+                        );
+                    }
+                    details.append(
+                        ui(
+                            "p",
+                            summary.ledger_balanced
+                                ? "Ledger balanced"
+                                : "Ledger needs reconciliation",
+                        ),
+                    );
+                } catch (error) {
+                    notice(error);
+                } finally {
+                    button.disabled = false;
+                }
+            };
+            a.append(button, details);
+        }
         if (s.status === "charging") {
-            let stop = ui("button", "Stop simulation");
+            let stop = ui(
+                "button",
+                s.csms_linked ? "Request CSMS stop" : "Stop simulation",
+            );
             stop.onclick = async () => {
                 try {
-                    await api("simulations/" + s.id + "/stop", "POST");
+                    await api(
+                        s.csms_linked
+                            ? "charging-sessions/" + s.id + "/csms-stop"
+                            : "simulations/" + s.id + "/stop",
+                        "POST",
+                    );
                     await simulations();
                 } catch (e) {
                     notice(e);
                 }
             };
             a.append(stop);
-            if (user.role === "vendor") {
+            if (user.role === "vendor" && !s.csms_linked) {
                 let f = document.createElement("form"),
                     i = document.createElement("input");
                 i.type = "number";
@@ -569,34 +1043,66 @@ el("region-config").onsubmit = async (e) => {
 };
 el("account").onsubmit = async (e) => {
     e.preventDefault();
+    if (identityBusy) return;
+    const mode = e.submitter.value,
+        values = Object.fromEntries(new FormData(e.target));
+    const epoch = clearIdentity();
+    setIdentityBusy(true);
     try {
-        await api(
-            e.submitter.value,
-            "POST",
-            Object.fromEntries(new FormData(e.target)),
-        );
+        csrf = (await api("csrf")).token;
+        await api(mode, "POST", values);
+        pendingLogout(false);
+        el("logout-retry").hidden = true;
         e.target.reset();
         csrf = (await api("csrf")).token;
         await identity();
+        if (epoch !== client.sessionEpoch) return;
         await stations();
-        notice("Signed in.");
-    } catch (e) {
-        notice(e);
-    }
-};
-el("logout").onclick = async () => {
-    try {
-        await api("logout", "POST");
-        clearPrivateViews();
-        csrf = (await api("csrf")).token;
-        await identity();
-        await stations();
+        if (epoch === client.sessionEpoch) notice("Signed in.");
     } catch (error) {
         notice(error);
+    } finally {
+        if (epoch === client.sessionEpoch) setIdentityBusy(false);
     }
 };
+async function signOut() {
+    if (identityBusy) return;
+    pendingLogout(true);
+    const epoch = clearIdentity();
+    setIdentityBusy(true);
+    el("logout-retry").hidden = true;
+    try {
+        csrf = (await api("csrf")).token;
+        try {
+            await api("logout", "POST");
+        } catch (error) {
+            if (error.status !== 401) throw error;
+        }
+        pendingLogout(false);
+        notice("Signed out.");
+        stations().catch(notice);
+    } catch (error) {
+        if (epoch !== client.sessionEpoch) return;
+        el("logout-retry").hidden = false;
+        notice("Sign-out could not be confirmed. Reconnect and retry.");
+    } finally {
+        if (epoch === client.sessionEpoch) setIdentityBusy(false);
+    }
+}
+el("logout").onclick = el("logout-retry").onclick = signOut;
+const nearbyInputs = ["latitude", "longitude", "radius_km"].map((name) =>
+    el("filters").elements.namedItem(name),
+);
+for (const input of nearbyInputs) {
+    input.addEventListener("input", () => {
+        const any = nearbyInputs.some((field) => field.value !== "");
+        for (const field of nearbyInputs) field.required = any;
+    });
+}
 el("filters").onsubmit = (e) => {
     e.preventDefault();
+    favoriteMode = false;
+    renderCatalogMode();
     let q = new URLSearchParams();
     for (let [k, v] of new FormData(e.target)) if (v) q.set(k, v);
     stations("?" + q).catch((e) => notice(e));
@@ -615,10 +1121,47 @@ el("station-form").onsubmit = async (e) => {
         notice(e);
     }
 };
+const vendorWorkspace = createVendorWorkspace({
+    root: el("vendor-operations"),
+    api,
+    ui,
+    actor: () => user,
+    csrf: () => csrf,
+    notice,
+    expired: clearIdentity,
+});
+const roamingWorkspace = createRoamingWorkspace({
+    publicRoot: el("roaming-discovery"),
+    privateRoot: el("roaming-operations"),
+    api,
+    ui,
+    actor: () => user,
+    notice,
+});
+const invoiceHistory = createInvoiceHistory({
+    root: el("invoice-history"),
+    api,
+    ui,
+    actor: () => user,
+});
+const commercialWorkspace = createCommercialWorkspace({
+    root: el("commercial-finance"),
+    api,
+    ui,
+});
+const tariffWorkspace = createTariffWorkspace({
+    root: el("tariff-operations"),
+    api,
+    ui,
+    actor: () => user,
+});
 (async () => {
-    await identity();
+    const publicRoaming = roamingWorkspace.catalog();
+    if (pendingLogout()) await signOut();
+    else await identity();
     await stations();
     await regions();
+    await publicRoaming;
 })().catch((e) => notice(e));
 
 el("forgot-password").onsubmit = async (e) => {
@@ -817,6 +1360,13 @@ if (new URLSearchParams(location.search).get("verification") === "signin")
         "Sign in to the account that received the email, then reopen its verification link.",
     );
 
+el("favorite-catalog").onclick = () => {
+    if (user?.role !== "customer") return;
+    if (!favoriteMode) previousCatalogQuery = stationQuery;
+    favoriteMode = !favoriteMode;
+    renderCatalogMode();
+    stations(favoriteMode ? "" : previousCatalogQuery).catch(notice);
+};
 el("refresh-catalog").onclick = () => stations(stationQuery);
 function connectionStatus() {
     el("offline-banner").hidden = navigator.onLine;
@@ -925,3 +1475,228 @@ async function adminOverview() {
     scroll.append(table);
     container.append(metrics, tools, scroll);
 }
+
+async function openOperationalCase(command, parent, actor, signal) {
+    parent.querySelector("[data-operational-case]")?.remove();
+    const panel = document.createElement("section");
+    panel.dataset.operationalCase = "";
+    parent.append(panel);
+    const live = () => user === actor && panel.isConnected && !signal.aborted;
+    const path = `charging-operations/${command.id}`;
+    panel.append(
+        ui("h4", "Operational recovery"),
+        ui("p", "Operational recovery disclaimer"),
+    );
+    const state = await api(path + "/case", "GET", undefined, signal);
+    if (!live()) return;
+    const refresh = () => openOperationalCase(command, parent, actor, signal);
+    const refreshButton = ui("button", "Refresh");
+    refreshButton.type = "button";
+    refreshButton.onclick = () => refresh().catch(notice);
+    panel.append(refreshButton);
+    if (state.case)
+        panel.append(
+            ui("p", "Recovery case: {state}", {
+                state: { translate: "recovery." + state.case.state },
+            }),
+        );
+    const form = document.createElement("form"),
+        label = ui("label", "Operator recovery note"),
+        note = document.createElement("textarea");
+    note.required = true;
+    note.minLength = 10;
+    note.maxLength = 2000;
+    label.append(note);
+    form.append(label);
+    let choice;
+    if (state.case) {
+        choice = document.createElement("select");
+        for (const value of [
+            "investigating",
+            "awaiting_source",
+            ...(state.source_observed ? ["resolved"] : []),
+        ]) {
+            const option = new Option("", value);
+            EvLocale.bind(option, "recovery." + value);
+            choice.append(option);
+        }
+        form.append(choice);
+    }
+    const save = ui(
+        "button",
+        state.case ? "Save recovery review" : "Open recovery case",
+    );
+    save.type = "submit";
+    form.append(save);
+    panel.append(form);
+    form.onsubmit = async (event) => {
+        event.preventDefault();
+        save.disabled = true;
+        try {
+            await api(
+                path + "/case",
+                state.case ? "PATCH" : "POST",
+                {
+                    note: note.value,
+                    ...(state.case ? { state: choice.value } : {}),
+                },
+                signal,
+            );
+            if (live()) await refresh();
+        } catch (error) {
+            if (live()) {
+                panel.replaceChildren(ui("p", "Recovery outcome unconfirmed"));
+                panel.append(refreshButton);
+                notice(error);
+            }
+        } finally {
+            if (save.isConnected) save.disabled = false;
+        }
+    };
+    if (state.case && state.can_inspect) {
+        const inspect = ui("button", "Inspect authenticated simulator source");
+        inspect.type = "button";
+        inspect.onclick = async () => {
+            inspect.disabled = true;
+            try {
+                await api(path + "/inspect-source", "POST", {}, signal);
+                if (live()) await refresh();
+            } catch (error) {
+                if (live()) notice(error);
+            } finally {
+                if (inspect.isConnected) inspect.disabled = false;
+            }
+        };
+        panel.append(inspect);
+    }
+    const history = document.createElement("div");
+    panel.append(history);
+    async function events(page) {
+        const data =
+            page === 1
+                ? state
+                : await api(
+                      path + "/case?page=" + page,
+                      "GET",
+                      undefined,
+                      signal,
+                  );
+        if (!live()) return;
+        history.replaceChildren();
+        for (const event of data.events?.data || []) {
+            const row = document.createElement("article");
+            row.append(
+                document.createTextNode(event.action + " · " + event.note),
+            );
+            history.append(row);
+        }
+        if (data.events?.current_page < data.events?.last_page) {
+            const next = ui("button", "Next");
+            next.type = "button";
+            next.onclick = () => events(page + 1).catch(notice);
+            history.append(next);
+        }
+    }
+    await events(1);
+}
+async function commandHistory(page = 1) {
+    if (!["vendor", "admin"].includes(user?.role)) return;
+    commandRequest?.abort();
+    const request = new AbortController(),
+        actor = user;
+    commandRequest = request;
+    el("commands-refresh").disabled = true;
+    el("command-list").setAttribute("aria-busy", "true");
+    EvLocale.bind(el("commands-state"), "Loading command history…");
+    try {
+        const result = await api(
+            "charger-commands?page=" + page,
+            "GET",
+            undefined,
+            request.signal,
+        );
+        if (request.signal.aborted || user !== actor) return;
+        const list = el("command-list"),
+            pager = el("command-pagination");
+        list.replaceChildren();
+        pager.replaceChildren();
+        commandPage = result.current_page;
+        for (const row of result.data) {
+            const card = document.createElement("article");
+            card.dataset.commandId = row.id;
+            card.append(
+                ui("h3", "Command #{id}", { id: row.id }),
+                ui("p", "Station #{id}", { id: row.station_id }),
+                ui("p", "Command action: {action}", {
+                    action: { translate: row.action },
+                }),
+                ui("p", "Transport status: {status}", {
+                    status: { translate: row.status },
+                }),
+            );
+            if (
+                [
+                    "dispatching",
+                    "submitted",
+                    "outcome_unknown",
+                    "rejected",
+                    "source_observed",
+                ].includes(row.status)
+            ) {
+                const recovery = ui("button", "Operational recovery");
+                recovery.type = "button";
+                recovery.onclick = () =>
+                    openOperationalCase(row, card, actor, request.signal).catch(
+                        (e) => {
+                            if (user === actor) notice(e);
+                        },
+                    );
+                card.append(recovery);
+            }
+            list.append(card);
+        }
+        if (!result.data.length) empty("command-list", "No recorded commands.");
+        EvLocale.bind(
+            el("commands-state"),
+            "Page {page} of {last} · {total} commands",
+            {
+                page: result.current_page,
+                last: result.last_page,
+                total: result.total,
+            },
+        );
+        for (const [label, target, enabled] of [
+            ["Previous", result.current_page - 1, result.current_page > 1],
+            [
+                "Next",
+                result.current_page + 1,
+                result.current_page < result.last_page,
+            ],
+        ]) {
+            const button = ui("button", label);
+            button.disabled = !enabled;
+            button.onclick = () => commandHistory(target);
+            pager.append(button);
+        }
+    } catch (error) {
+        if (!request.signal.aborted && user === actor)
+            EvLocale.bind(el("commands-state"), errorMessage(error));
+    } finally {
+        if (commandRequest === request) {
+            el("commands-refresh").disabled = false;
+            el("command-list").removeAttribute("aria-busy");
+        }
+    }
+}
+el("commands-refresh").onclick = () => commandHistory(commandPage);
+
+el("sessions-refresh").onclick = async function () {
+    this.disabled = true;
+    try {
+        await simulations();
+    } catch (error) {
+        notice(error);
+    } finally {
+        this.disabled = false;
+    }
+};

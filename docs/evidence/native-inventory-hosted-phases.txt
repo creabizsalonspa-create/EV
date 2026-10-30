@@ -1,0 +1,27 @@
+native (macos-15)	Select supported Xcode 16.4	﻿2026-10-27T12:44:13.9388560Z ##[group]Run test -d /Applications/Xcode_16.4.app/Contents/Developer
+native (macos-15)	Select supported Xcode 16.4	2026-10-27T12:44:13.9390800Z [36;1mtest -d /Applications/Xcode_16.4.app/Contents/Developer[0m
+native (macos-15)	Select supported Xcode 16.4	2026-10-27T12:44:13.9392490Z [36;1mexport DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer[0m
+native (macos-15)	Select supported Xcode 16.4	2026-10-27T12:44:13.9394070Z [36;1mecho "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"[0m
+native (macos-15)	Select supported Xcode 16.4	2026-10-27T12:44:13.9395340Z [36;1mxcodebuild -version[0m
+native (macos-15)	Select supported Xcode 16.4	2026-10-27T12:44:13.9550680Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+native (macos-15)	Select supported Xcode 16.4	2026-10-27T12:44:13.9551860Z ##[endgroup]
+native (macos-15)	Select supported Xcode 16.4	2026-10-27T12:44:14.2930580Z Xcode 16.4
+native (macos-15)	Select supported Xcode 16.4	2026-10-27T12:44:14.2946920Z Build version 16F6
+native (macos-15)	Validate native source and tests	2026-10-27T12:45:40.6532410Z 00:00 +0: /Users/runner/work/EV/EV/apps/mobile/test/live_inventory_test.dart: real Laravel native inventory hierarchy, owner maintenance and read-only staff enforcement
+native (macos-15)	Validate native source and tests	2026-10-27T12:46:14.8420440Z 00:34 +45 ~2: All tests passed!
+native (macos-15)	Create and boot an isolated iPhone simulator	2026-10-27T12:49:38.0321600Z Xcode 16.4
+native (macos-15)	Create and boot an isolated iPhone simulator	2026-10-27T12:49:38.0338240Z Build version 16F6
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1097460Z DEVICE: clearing isolated Keychain entry
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1098640Z DEVICE: validating fixture TLS before UI
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1100170Z DEVICE: fixture TLS ready
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1101260Z DEVICE: customer authenticated
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1102190Z DEVICE: read-only partner pagination verified
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1104030Z DEVICE: scoped read-only invoice history verified
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1105180Z DEVICE: Keychain session restored
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1106590Z DEVICE: vendor authenticated after secure logout
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1108010Z DEVICE: exact Arabic vendor pricing verified
+native (macos-15)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T12:56:31.1126520Z 00:48 +1: All tests passed!
+native (ubuntu-latest)	Validate native source and tests	2026-10-27T12:45:18.1739360Z 00:12 +45 ~1: /home/runner/work/EV/EV/apps/mobile/test/live_inventory_test.dart: real Laravel native inventory hierarchy, owner maintenance and read-only staff enforcement
+native (ubuntu-latest)	Validate native source and tests	2026-10-27T12:45:18.1849884Z 00:12 +45 ~2: All tests passed!
+native (ubuntu-latest)	Verify native inventory against local Laravel	2026-10-27T12:49:33.6053775Z 00:00 +0: real Laravel native inventory hierarchy, owner maintenance and read-only staff enforcement
+native (ubuntu-latest)	Verify native inventory against local Laravel	2026-10-27T12:49:35.0416130Z 00:01 +1: All tests passed!

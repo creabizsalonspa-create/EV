@@ -3,6 +3,7 @@
 namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -48,8 +49,19 @@ class PartnerClient
         return $url;
     }
 
+    private function assertCurrent(OcpiProvider $provider): void
+    {
+        $current = OcpiProvider::find($provider->id);
+        if (! $current || ! $current->authorized || $current->authorization_revision !== $provider->authorization_revision || $current->connection_key !== $provider->connection_key || $current->owner_id !== $provider->owner_id) {
+            throw new OcpiException('Operator authorization changed; refresh and negotiate again.');
+        }
+    }
+
     private function get(OcpiProvider $provider, string $url): array
     {
+        // An already dispatched read cannot be cancelled, but a revoked or superseded
+        // operation cannot dispatch another page or commit a stale result.
+        $this->assertCurrent($provider);
         $url = $this->guardedUrl($provider, $url);
         $c = $this->connection($provider);
         try {
@@ -101,6 +113,9 @@ class PartnerClient
         $selected = null;
         foreach ($versions as $version) {
             if (is_array($version) && ($version['version'] ?? null) === '2.2.1') {
+                if ($selected !== null) {
+                    throw new OcpiException('Ambiguous duplicate OCPI 2.2.1 version advertisement.');
+                }
                 $selected = $version;
             }
         }
@@ -127,13 +142,24 @@ class PartnerClient
         if (! isset($endpoints['locations'])) {
             throw new OcpiException('Operator does not advertise a readable locations module.');
         }
-        $provider->update(['version' => '2.2.1', 'endpoints' => $endpoints, 'negotiated_at' => now()]);
+        DB::transaction(function () use ($provider, $endpoints) {
+            $locked = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            if (! $locked->authorized || $locked->authorization_revision !== $provider->authorization_revision || $locked->connection_key !== $provider->connection_key || $locked->owner_id !== $provider->owner_id) {
+                throw new OcpiException('Operator authorization changed; stale negotiation was discarded.');
+            }
+            if ($locked->authorization_revision >= PHP_INT_MAX) {
+                throw new OcpiException('Operator authorization revision is exhausted.');
+            }
+            $locked->update(['version' => '2.2.1', 'endpoints' => $endpoints, 'negotiated_at' => now(), 'authorization_revision' => $locked->authorization_revision + 1]);
+            $provider->setRawAttributes($locked->getAttributes(), true);
+        }, 3);
 
         return $endpoints;
     }
 
     public function pull(OcpiProvider $provider, string $module): array
     {
+        $this->assertCurrent($provider);
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Requested module has not been negotiated.');
         }

@@ -1,0 +1,31 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+.............                                                     13 / 13 (100%)
+
+Time: 00:17.127, Memory: 46.50 MB
+
+Finance Concurrency (Tests\Postgres\FinanceConcurrency)
+ ✔ Concurrent tariff retries publish once and keep commission policy
+ ✔ Cross invoice payment key race returns conflict without double posting
+ ✔ Cross invoice refund key race returns conflict without double refund
+
+Gateway Concurrency (Tests\Postgres\GatewayConcurrency)
+ ✔ Simultaneous capture retries post exactly once
+ ✔ Competing authorizations cannot double capture invoice
+ ✔ Simultaneous signed webhook retries commit one event and one payment
+
+Settlement Concurrency (Tests\Postgres\SettlementConcurrency)
+ ✔ Concurrent drafts cannot reserve the same payable twice
+ ✔ Concurrent identical draft retries return one settlement
+
+Subscription Concurrency (Tests\Postgres\SubscriptionConcurrency)
+ ✔ Racing enrollment same key returns one subscription and invoice
+ ✔ Racing distinct enrollment keys cannot create two active subscriptions
+ ✔ Racing mock payment replays post one receipt and balanced journal
+ ✔ Racing distinct payment keys cannot double charge invoice
+ ✔ Racing due renewals issue one cycle without capturing money
+
+OK (13 tests, 155 assertions)

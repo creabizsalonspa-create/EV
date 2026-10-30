@@ -9,20 +9,115 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
       - run: ./scripts/setup
       - run: ./scripts/php /usr/bin/composer validate --strict
       - run: ./scripts/php vendor/bin/pint --test
+      - name: Check reproducible42-category coverage
+        run: |
+          python3 scripts/requirement-coverage --check
+          python3 -B -m unittest discover -s tests -p requirement_coverage_test.py
       - run: ./scripts/php artisan test --compact
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: ./scripts/start
       - run: npm run test:e2e
       - run: npm run test:frontend
+      - run: npm run test:nearby
+      - run: npm run test:maps
+      - run: npm run test:discovery-routing
       - run: npm run test:localization
+      - run: npm run test:web-session
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
       - run: npm run test:ocpp
+      - run: ./scripts/charging-setup
+      - run: ./scripts/charging-bridge-setup
+      - run: node tests/charging-session.cjs
+      - run: node tests/charging-business.cjs
+      - run: node tests/charging-client.cjs
+      - name: Verify continuous source ingestion and restart
+        run: EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs
+      - run: npm run test:vendor
+      - run: EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming
+      - run: npm run test:ocpi-provisioning
+      - name: Financial browser workflows
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/finance-commercial
+          npm run test:commercial | tee artifacts/finance-commercial/browser.txt
+          node tests/subscription-dunning.cjs
+          node tests/recurring-payments.cjs
+          ./scripts/payout-test-setup
+          ./scripts/loyalty-test-setup
+          docker restart ev-business-api
+          ./scripts/start > /tmp/finance-v3-start.txt
+          node --test tests/financial-connected.test.cjs
+          node tests/financial-connected.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: finance-browser-evidence
+          path: |
+            artifacts/finance-commercial
+            artifacts/finance-v3
+            artifacts/finance-corporate
+            artifacts/external-disputes
+            artifacts/finance-loyalty
+          if-no-files-found: warn
+      - name: Paced financial history and charger operational regressions
+        run: node tests/operational-connected.cjs
+      - name: Retain operational suite logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: operational-browser-evidence
+          path: artifacts/operational-browser/*.txt
+          if-no-files-found: warn
+      - name: Retain customer-favorites browser evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: customer-favorites-browser
+          path: artifacts/favorites/*.png
+          if-no-files-found: warn
       - if: failure()
         run: docker logs --tail 100 ev-business-api
+
+  finance-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/setup
+      - run: services/business-api/tests/Postgres/run-finance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-finance-evidence
+          path: artifacts/finance-postgres/*.txt
+          if-no-files-found: error
+
+  connector-postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/setup
+      - run: services/business-api/tests/Postgres/run-connectors
+
+  staging-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Seed synthetic build-context exclusion canaries
+        shell: bash
+        run: |
+          for suffix in sqlite sqlite3 sqlite-wal sqlite3-journal; do
+            printf 'synthetic image-exclusion canary\n' > "services/business-api/database/ev-image-guard.$suffix"
+          done
+          printf 'EV_IMAGE_CANARY=synthetic-only\n' > services/business-api/.env.image-canary
+      - name: Build pinned staging runtime and verify offline image boundaries
+        run: ./scripts/staging-image-build creabiz-ev-business:ci-review
+      - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership
+        run: ./scripts/staging-image-smoke creabiz-ev-business:ci-review

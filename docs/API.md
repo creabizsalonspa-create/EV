@@ -1,3 +1,31 @@
+# Verified discovery and native loyalty additions (PR18/19/20)
+
+Public discovery lookup: `GET /api/discovery/capabilities`, `POST /api/discovery/addresses`, `POST /api/discovery/route`; equivalent `/api/v1/discovery/...` routes. Web POST retains CSRF middleware. POST requires explicit consent; address accepts3..180-character query, en/ar language and optional two-letter country. Route accepts2..5 latitude/longitude points (endpoints plus up to3 ordered stops). Capabilities identify the fixed Geoapify adapter and whether it is configured. Server key is never returned. Defaults disabled; rate budgets12/IP/minute,30 globally/minute and5000/day. Route responses use sourced meters/seconds/geometry with traffic and charging-time flags false. Sanitized422/502/503 failures retain manual navigation;429 requires waiting. Full contract/activation/privacy: DISCOVERY_ROUTING.md.
+
+Authenticated native read-only loyalty uses existing `commercial/loyalty/account`, `ledger`, `rewards`, `redemptions` and `redemptions/{id}` under both API prefixes. Server integer noncash points, debt/holds, tiers, available stock, pagination and pending/manual fulfillment status remain authoritative. No GET posts earning, redemption or reconciliation. Cross-member request detail is404. Native UI does not expose administrator economics/publication/fulfillment or invent monetary value. Full endpoint contracts: LOYALTY_ECONOMICS.md and FINANCE_MOBILE_CONTRACT.md; native scope/evidence: NATIVE_LOYALTY.md.
+
+# Customer favorites additive APIs
+
+Protected GET favorites/status (1–25 station_ids), GET favorites (25/page), idempotent PUT/DELETE favorites/{station} share cookie/native-v1 records. Customer-only, existing CSRF/throttles, no private fields on public discovery and no change to charging capability. See CUSTOMER_FAVORITES.md for complete contracts and readiness.
+
+# Verified integration backlog closed — 28 October 2026
+
+PR14 verified source **ae8a10f3bb3758efb072bcea73fe0688197e6e53** passed all10 checks and merged at6d995d2. PR15 safely merged that base, reran all affected checks at **bb75151b1572e073f63f8b664336983a94198b2c**, passed all8 checks (two full platform/PostgreSQL matrices and Android/iOS native validation), and merged at **8573081d3712b1fd2249a9da9030d96f3aa82351**. Both merge trees exactly equal their tested source trees. Actual iOS runtime PDF-render/Keychain/Arabic markers and artifact/log digests are retained in `docs/evidence/native-vendor/hosted-checkpoint.json` and `docs/evidence/catalog-nearby/hosted-checkpoint.json`.
+
+The full42-category/312-atom weighted tracker now credits both verified merges. Reproduce coded/tested/merged/production-accepted coverage with `python3 scripts/requirement-coverage --check`; no commit/test-count percentage or production acceptance is inferred. Agent2 temporarily owns the entire original product. The temporary branch freeze has been fulfilled; resume remaining customer/EV/commercial/native/Admin software from this verified base, preserving canonical services. Interactive maps/navigation/favorites/reviews, full production OCPP/OCPI, remaining native commercial/vendor/Admin/security/deployment/release work are still unfinished. Physical chargers, live PSP/roaming partners, signing/stores and real operational acceptance remain external gates, not excuses for independent missing software.
+
+Earlier candidate/failed/pending records below are historical and superseded by this exact verified checkpoint.
+
+## Latest owner update and native CI correction — 28 October 2026
+
+Agent2 temporarily owns the full EV and finance/commercial scope while Agent1 is unavailable. Reuse existing canonical finance and preserve historical ownership records. Native-vendor PR14 source1b72354 passed backend/PostgreSQL/Android but failed the PDF-ready assertion after private upload; source5b258f1 now waits for actual asynchronous native PDF load and fails fast on a viewer error. Latest iOS validation is pending, so PR14 remains unmerged. Nearby search source2909566 plus that preserved fix remains an unmerged locally verified candidate. The 42-category audit in REQUIREMENT_STATUS separates implemented subsets and remaining software; no broad70% estimate or production acceptance is claimed.
+
+# Agent2 nearby catalog continuation — 28 October 2026
+
+GET `/api/stations` optionally accepts latitude−90..90, longitude−180..180 and radius_km1..200 together; returns numeric distance_km in great-circle km, nearest-first then ID-descending, and validated filters in pagination links. Without the group, existing behavior is retained. See CATALOG_NEARBY.md.
+
+Agent1 exclusively owns financial/commercial business logic and backend/web/Admin finance. This slice changes EV catalog APIs/UI/tests only. Native-vendor PR14 must pass exact-source iOS CI before integration. Interactive maps remain unfinished software.
+
 # Current HTTP API (development foundation)
 
 All endpoints are same-origin JSON, `Accept: application/json`. Mutations use Laravel's session cookie and `X-CSRF-TOKEN` from `GET /api/csrf`. Cookies are HttpOnly; CSRF is enabled outside Laravel's test runner. Native bearer authentication is not implemented. Errors: 401 unauthenticated, 403 wrong role, 404 inaccessible resource, 409 conflict, 422 validation, 429 rate limit. Auth endpoints are limited to 10/minute, authenticated endpoints 60/minute.
@@ -92,3 +120,60 @@ Current native auth supersedes earlier in-memory-only checkpoint: optional encry
 Current additive contracts and client requirements are in [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md). Finance, vendor-operations and OCPI are mounted in the application; request/role/response details are in [FINANCE.md](FINANCE.md), [VENDOR_OPS.md](VENDOR_OPS.md) and [OCPI.md](OCPI.md).
 
 New routes: owner-scoped `POST /api/reservations/{reservation}/csms-start`, authorized `POST /api/charging-sessions/{session}/csms-stop`, and signed service-only `POST /api/internal/csms/events`. See [OpenAPI 3.1 contract](openapi/charging-bridge.json). Completion requires correlated source final meters; this local simulator bridge is disabled in production and is not hardware verified.
+
+Vendor/admin web additionally reads GET /api/charger-commands with page query, displaying only ID, station ID, action and transport status. It never follows returned pagination origins or exposes raw payload/confirmation/idempotency data. No bind/create/dispatch/replay control is introduced. pending/dispatching/submitted/rejected/outcome_unknown are transport states; none proves physical energy, completed charging or commercial success. Existing API scoping remains authoritative.
+
+Reservation rows now include csms_bound; scoped session rows include csms_linked, source-specific evidence and start/stop transport statuses. These are additive capability/progress labels, never hardware/energy acceptance. Shared web/native select the existing linked control paths and simulated invoice summary. Continuous source observations are signed by a trusted local worker, never customer-held keys. See CHARGING.md.
+
+## Invoice history filters
+
+`GET /api/finance/invoices` and `/api/v1/finance/invoices` preserve existing role/tenant pagination and accept optional `q` (literal alphanumeric/hyphen invoice-number prefix, max 80), uppercase three-letter `currency`, `from` and `to` (`YYYY-MM-DD`, years 0001–9999). Dates are inclusive UTC calendar days; reversed/invalid ranges return 422. `GET .../finance/invoices/{id}` returns scoped immutable invoice/summary plus read-only payment/refund records; clients render only appropriate amount/time/reason fields, never idempotency/fingerprint metadata. No real PSP processing is implied by SIMULATED records.
+
+## Scoped pricing and publish identity
+
+`GET /api/finance/stations` (also `/api/v1`) is vendor/admin-only and paginated. Each item projects id/name/country/currency/minor_units/evidence, with null precision for missing matching region configuration. `GET stations/{id}/tariffs` requires current vendor ownership or admin and adds `pricing_context` without changing existing rows/pagination.
+
+Existing tariff POST fields remain rate_minor_per_kwh/tax_bps/commission_bps. Optional idempotency_key (nonempty max100), expected_minor_units (0–3) and expected_currency (uppercase ISO-shaped code) add retry/precondition safety. Identity hashes are never returned. Matching retries return the original 201 without another audit/version; changed payload or stale currency/precision returns409. Vendor commission_bps must be zero and means retain administrator policy; admin may set commission. Existing clients omitting the new fields keep compatible append behavior, so new clients should always supply them.
+
+## Managed catalog and pending-start cancellation
+
+Company inventory writers can GET vendor-ops/companies/{id}/catalog-stations?q=... with scoped numeric pagination to select owned unlinked same-country simulator stations. Site creation's existing optional station_id now has an operator UI. Public station rows add reservation_policy=legacy|managed_ready|managed_blocked; availability remains unknown, and reservable is false for blocked managed inventory. No private company/license/maintenance reason is projected.
+
+Session lists add start_admission_blocked and can_cancel_before_dispatch as UI hints; mutation handlers revalidate under locks. DELETE reservations/{id} still rejects started/manual/uncertain sessions, but can atomically cancel a proven pending, never-dispatched linked start. Repeating a completed cancellation is idempotent. Source link summaries distinguish closed_without_dispatch_at/closure_reason from actual ended_at; neither source completion nor an invoice is invented. Cookie/v1 finance and existing unlinked simulation contracts remain preserved.
+
+## Admin OCPI association options
+
+`GET /api/ocpi/connection-options` is admin-only and returns approved configured aliases with `configuration_valid` and `assigned`, plus `external_requests_made=false` and `partner_acceptance_verified=false`. Validation checks existing server config without a network request. No origin/endpoint, token value or token variable name is returned. `GET /api/ocpi/owner-options?q=<name>&page=N` is admin-only, paginated at25, vendor-role only and returns ID/name only; q is bounded at80 characters. Existing `POST /api/ocpi/providers` performs provider registration; the Admin web flow sends `authorized=false`, then requires separate explicit authorization. Duplicate aliases cannot create another provider. Registration does not call a partner. These admin web endpoints are not exposed as native Admin functionality.
+
+## Canonical topology continuation
+
+See [CANONICAL_TOPOLOGY.md](CANONICAL_TOPOLOGY.md) for new scoped EVSE/mapping APIs, connector choices, immutable source/booking snapshots, parallel capacity and protocol proof. Legacy contracts/history remain; direct-managed sources are simulation-tested only. Current owner handoff is MASTER_AGENT2_CONTINUATION.md, which supersedes historical account restrictions.
+
+## Self-reported arrival and unused booking expiry
+
+See [RESERVATION_LIFECYCLE.md](RESERVATION_LIFECYCLE.md) for the implemented customer web/Flutter workflow, scoped check-in API, bounded scheduler, immutable evidence and PostgreSQL concurrency checks. No physical-presence or no-show fee claim.
+
+## Received source evidence and command recovery
+
+See [COMMAND_RECOVERY.md](COMMAND_RECOVERY.md): source-observed state, immutable proof, scoped web/native reconciliation and bounded operational recovery. No uncertain command is resent and no command/hardware acceptance is claimed.
+
+## Secure charger admission and no-source case operations
+
+See [CHARGER_ADMISSION.md](CHARGER_ADMISSION.md) for new scoped APIs, owner/Admin web and vendor Flutter controls, TLS/mTLS simulation evidence, credential/version/replay safeguards, source inspection and remaining production boundaries. Financial truth remains Agent1-owned.
+
+
+## Recurring authorization continuation — 28 October 2026
+
+Saved provider-hosted consent, off-session subscription collection and customer/vendor web/Flutter controls extend the canonical financial gateway. See [RECURRING_PAYMENTS.md](RECURRING_PAYMENTS.md) for scoped endpoints, versions, scheduler, recovery, migration and test-mode limits. No live merchant acceptance or full-platform completion is claimed.
+
+
+Credential lifecycle: existing admission GET adds a stored-credential state; GET `vendor-ops/companies/{company}/chargers/{charger}/admission/events?page=1` returns scoped redacted immutable25-row audit. See CHARGER_ADMISSION.md. This is not charger availability or PKI validation.
+
+
+## Native company operations continuation — 28 October 2026
+
+See [NATIVE_VENDOR_OPERATIONS.md](NATIVE_VENDOR_OPERATIONS.md): current web/Flutter creation POSTs use optional stable UUID idempotency; company GET adds private submission-readiness hints; staff acceptance now requires the displayed `expected_version`. Migration/client rollout is coordinated and old unversioned acceptance fails safely. Native company/KYC/staff/inventory workflows use the existing APIs and permissions, with bounded private multipart/binary transport and in-app previews. This is internal/synthetic acceptance only.
+
+## Internal payment-case private evidence
+
+See [PRIVATE_CASE_EVIDENCE.md](PRIVATE_CASE_EVIDENCE.md). Authenticated customer/vendor/Admin invoice parties may list/upload/download `commercial/cases/{case}/evidence[/{evidence}]`. Upload is consented PDF/PNG/JPEG up to4 MiB,20 files/case, with an actor/case-scoped idempotency identity and frozen MIME/size/hash/category. New uploads require an open canonical case; replay is retained after closure. Storage is encrypted/private; metadata immutable; downloads verify integrity and never return storage/provider identities. These are `PRIVATE_REVIEW_ONLY`, `provider_submitted=false`; no provider submission, financial decision or refund is implied.

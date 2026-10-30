@@ -103,6 +103,26 @@ void main() {
           ),
           isTrue,
         );
+        final nearby = await customer.catalog(
+          filter: CatalogFilter(
+            search: 'Native smoke station $run',
+            latitude: 25.2,
+            longitude: 55.3,
+            radiusKm: 1,
+          ),
+          page: 2,
+        );
+        expect(nearby.total, 26);
+        expect(nearby.items.single.distanceKm, closeTo(0, 0.00001));
+        final far = await customer.catalog(
+          filter: CatalogFilter(
+            search: 'Native smoke station $run',
+            latitude: 26,
+            longitude: 55.3,
+            radiusKm: 1,
+          ),
+        );
+        expect(far.total, 0);
         final day = DateTime.now().toUtc().add(const Duration(days: 1));
         final slot = DateTime.utc(day.year, day.month, day.day, 12);
         final booking = {
@@ -273,6 +293,34 @@ void main() {
           method: 'POST',
         );
         expect(stopped['total_minor'], 150);
+        final issued = await customer.request(
+          'finance/sessions/${session['id']}/invoice',
+          method: 'POST',
+        );
+        final invoice = issued['invoice'];
+        expect(invoice['evidence'], 'SIMULATED');
+        final history = await customer.request(
+          'finance/invoices',
+          query: {
+            'q': invoice['number'] as String,
+            'currency': 'AED',
+            'page': '1',
+          },
+        );
+        expect(history['data'].length, 1);
+        expect(history['data'][0]['id'], invoice['id']);
+        final receipt = await customer.request(
+          'finance/invoices/${invoice['id']}',
+        );
+        expect(receipt['payment_provider'], 'SIMULATOR_ONLY');
+        expect(receipt['real_payment_processed'], false);
+        expect(receipt['invoice']['total_minor'], 150);
+        expect(receipt['payments'], isEmpty);
+        await expectLater(
+          outsider.request('finance/invoices/${invoice['id']}'),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+        );
+
         await expectLater(
           vendor.request(
             'simulations/${session['id']}/meter',
@@ -280,6 +328,47 @@ void main() {
             body: {'energy_wh': 2000},
           ),
           throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+        );
+        final pricingStations = await vendor.request(
+          'finance/stations',
+          query: {'page': '2'},
+        );
+        expect(pricingStations['total'], 26);
+        expect(pricingStations['data'].single['id'], station['id']);
+        final versions = await vendor.request(
+          'stations/${station['id']}/tariffs',
+        );
+        final context = versions['pricing_context'];
+        expect(context['evidence'], 'SIMULATED');
+        final priceBody = <String, dynamic>{
+          'rate_minor_per_kwh': 250,
+          'tax_bps': 500,
+          'commission_bps': 0,
+          'idempotency_key': 'native-price-$run',
+          'expected_minor_units': context['minor_units'],
+          'expected_currency': context['currency'],
+        };
+        final priceVersion = await vendor.request(
+          'stations/${station['id']}/tariffs',
+          method: 'POST',
+          body: priceBody,
+        );
+        final replay = await vendor.request(
+          'stations/${station['id']}/tariffs',
+          method: 'POST',
+          body: priceBody,
+        );
+        expect(replay['id'], priceVersion['id']);
+        expect(priceVersion.containsKey('publishing_key'), false);
+        expect(
+          (await customer.request(
+            'finance/invoices/${invoice['id']}',
+          ))['invoice']['total_minor'],
+          150,
+        );
+        await expectLater(
+          customer.request('finance/stations'),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 403)),
         );
         // Operator-only test fixture for an actual support notification; no admin mobile UI.
         final adminRole = await Process.run('../../scripts/php', [

@@ -11,6 +11,16 @@ dependencies:
     sdk: flutter
   shared_preferences: 2.5.3
   flutter_secure_storage: 9.2.4
+  url_launcher: 6.3.2
+  file_picker: 10.3.7
+  pdfrx: 2.2.24
+  flutter_map: 8.3.2
+  latlong2: 0.9.1
+  geolocator: 14.0.2
+  crypto: 3.0.8
+dependency_overrides:
+  pdfium_flutter:
+    path: third_party/pdfium_flutter
 dev_dependencies:
   integration_test:
     sdk: flutter
@@ -18,3 +28,5 @@ dev_dependencies:
     sdk: flutter
 flutter:
   uses-material-design: true
+  assets:
+    - third_party/pdfium_flutter/PDFIUM_LICENSES.txt

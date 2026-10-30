@@ -55,3 +55,24 @@ The reproducible isolated runtime/runner is retained in `tests/Postgres/Dockerfi
 The isolated review PHP/PostgreSQL runtime was prepared with TLS verification intact, but PostgreSQL initialization failed with `No space left on device` before those concurrency tests could execute. The failed empty review database and its temporary images/cache were removed; existing CSMS/business data was untouched. **PostgreSQL migration/concurrency is not claimed verified.** The SQLite finance regression suite passed 14 tests / 4,999 assertions after these changes. Its large assertion count still reflects exhaustive small-integer allocation checks, not thousands of independent business workflows.
 
 A later resource-expanded PostgreSQL attempt reached the runner but found a readiness bug: the temporary initialization server accepted a Unix-socket `pg_isready` probe before the final TCP server started. That run had 3 pure money tests pass and 11 feature setup errors (connection refused), with no PostgreSQL finance migration/concurrency success. Readiness now explicitly probes TCP; a corrected rerun was canceled at the 2 GiB free-space safety floor during cached image/container setup. Therefore PostgreSQL acceptance remains unverified. The runner now gives its PHP container an explicit unique name and cleans it on termination as well as normal exit, preventing canceled container creation from leaving an anonymous test resource. No unchanged local retry was treated as a passing result.
+
+## Integrated PostgreSQL verification
+
+The full-stack continuation executed the isolated runner successfully after correcting CREATE OR REPLACE for the immutability function (migrate:fresh retains PostgreSQL functions). Finance: 14 tests / 4,999 assertions. Concurrent cross-invoice payment/refund key races: 2 tests / 26 assertions. No duplicate journal posting/refund occurred; conflicting payloads return conflict. Reports: evidence/fullstack-postgres-finance.txt and evidence/fullstack-postgres-concurrency.txt. This supersedes the earlier unverified PostgreSQL checkpoint for these tests only; full production concurrency/load and deployment acceptance remain open.
+
+## Web/native read-only history
+
+Web Invoice history supports all authenticated roles; native Account → Invoice history supports customer/vendor roles. Both use scoped numeric pages and invoice-prefix/currency/UTC date filters, then GET existing document detail without reissuing it. Detail includes recorded simulated collections/refunds; vendor/admin web additionally shows immutable allocation snapshots explicitly before refunds and without payout claims. Logout/expiry removes private records. Read-only UI acceptance is distinct from payment checkout, refund mutations, PSP integrations and commercial settlements, which remain unfinished. Tests: FinanceTest history filter/privacy cases, `npm run test:invoices`, native invoice/history tests and opted-in real-Laravel smoke.
+
+## Versioned pricing interfaces and commission authority
+
+`GET finance/stations` lists only owned simulator stations for vendors and all simulator stations for admin, with current currency precision or null when regional configuration does not match. Customer-role company staff are not implicitly granted finance permissions. Tariff history returns additive `pricing_context` (current currency, minor_units, provenance); the old pagination remains. Native Account → Simulated pricing is vendor-only; Super Admin pricing remains web-only.
+
+Vendor publication must still send commission_bps=0 as its permission sentinel; the server now retains the current commission policy. Only an admin may change that policy. Clients publish decimal prices/tax percentages through exact integer conversion, send a fresh intent identity and expected currency/precision, and retain history/inputs on appropriate failures. Existing session quotes and invoice allocations remain immutable. These are simulated price versions, not legal tariff approval or settled earnings.
+
+Additive migration 080001 adds nullable publishing hashes to existing tariff versions without modifying old records. Rollback drops only the new unique index/columns; preserve database backups and immutable finance. Test evidence includes committed lost-ack replay and PostgreSQL concurrent same-station publication. Region and station locks protect current precision and commission; unique publishing identity binds actor/station/payload.
+
+
+## Recurring authorization continuation — 28 October 2026
+
+Saved provider-hosted consent, off-session subscription collection and customer/vendor web/Flutter controls extend the canonical financial gateway. See [RECURRING_PAYMENTS.md](RECURRING_PAYMENTS.md) for scoped endpoints, versions, scheduler, recovery, migration and test-mode limits. No live merchant acceptance or full-platform completion is claimed.

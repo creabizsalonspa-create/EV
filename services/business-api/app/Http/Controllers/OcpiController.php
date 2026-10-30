@@ -27,7 +27,7 @@ class OcpiController extends Controller
     {
         abort_unless(in_array($r->user()->role, ['vendor', 'admin']), 403);
 
-        return OcpiProvider::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id))->paginate(25);
+        return OcpiProvider::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id))->orderByDesc('id')->paginate(25);
     }
 
     public function create(Request $r, PartnerClient $client)
@@ -58,6 +58,10 @@ class OcpiController extends Controller
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
             $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
+            // Revocation must remain available at the terminal generation.
+            // Reauthorization is permanently blocked, so that generation cannot recur.
+            abort_if($v['authorized'] && $exhausted, 409, 'Operator authorization revision is exhausted.');
             $provider->authorized = $v['authorized'];
             if ($provider->authorized) {
                 try {
@@ -66,7 +70,7 @@ class OcpiController extends Controller
                     abort(422, $e->getMessage());
                 }
             }
-            $provider->fill(['version' => null, 'endpoints' => null, 'negotiated_at' => null])->save();
+            $provider->fill(['version' => null, 'endpoints' => null, 'negotiated_at' => null, 'authorization_revision' => $exhausted ? PHP_INT_MAX : (int) $provider->authorization_revision + 1])->save();
             $this->audit($r, $provider->authorized ? 'ocpi.provider_authorized' : 'ocpi.provider_revoked', $provider->id);
 
             return response()->json($provider);

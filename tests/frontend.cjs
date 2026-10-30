@@ -130,6 +130,11 @@ const assert = require("node:assert/strict");
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    let sourceStatus = "charging",
+      invoiceReads = 0;
+    let fixtureRole = "admin",
+      commandFailure = 0,
+      commandReads = 0;
     const admin = await context.newPage();
     admin.on("pageerror", (error) => errors.push(error.message));
     await admin.route("**/api/**", async (route) => {
@@ -139,10 +144,79 @@ const assert = require("node:assert/strict");
         body = {
           id: 99,
           name: "Admin fixture",
-          role: "admin",
+          role: fixtureRole,
           email_verified_at: null,
         };
       if (path === "/api/regions") body = [];
+      if (path === "/api/simulations")
+        body = {
+          data: [
+            {
+              id: 7,
+              reservation_id: 3,
+              status: sourceStatus,
+              energy_wh: 2500,
+              total_minor: sourceStatus === "stopped" ? 313 : null,
+              currency: "AED",
+              csms_linked: true,
+            },
+          ],
+          current_page: 1,
+          last_page: 1,
+          total: 1,
+        };
+      if (path === "/api/charging-sessions/7/csms-stop") {
+        assert.equal(route.request().method(), "POST");
+        sourceStatus = "stopping";
+        body = { session: { status: "stopping" } };
+      }
+      if (path === "/api/finance/sessions/7/invoice") {
+        assert.equal(route.request().method(), "POST");
+        invoiceReads++;
+        body = {
+          invoice: {
+            number: "SIM-BROWSER",
+            subtotal_minor: 313,
+            tax_minor: 16,
+            total_minor: 329,
+            currency: "AED",
+          },
+          paid_minor: 0,
+          refunded_minor: 0,
+          amount_due_minor: 329,
+          ledger_balanced: true,
+          payment_provider: "SIMULATOR_ONLY",
+          real_payment_processed: false,
+        };
+      }
+
+      if (path === "/api/charger-commands") {
+        assert.equal(route.request().method(), "GET");
+        commandReads++;
+        if (commandFailure)
+          return route.fulfill({
+            status: commandFailure,
+            contentType: "application/json",
+            body: JSON.stringify({ message: "fixture failure" }),
+          });
+        const second =
+          new URL(route.request().url()).searchParams.get("page") === "2";
+        body = {
+          data: [
+            {
+              id: second ? 26 : 1,
+              station_id: 7,
+              action: "start",
+              status: second ? "outcome_unknown" : "pending",
+            },
+          ],
+          current_page: second ? 2 : 1,
+          last_page: 2,
+          total: 26,
+          next_page_url: "https://invalid.example/never-follow",
+        };
+      }
+
       if (path === "/api/admin/overview")
         body = {
           users: 3,
@@ -184,9 +258,104 @@ const assert = require("node:assert/strict");
     assert(!csv.includes("station.created"));
     await admin.locator("#audit-search").fill("no matching event");
     assert.equal(await admin.locator("#audit-export").isDisabled(), true);
+
+    await admin.locator("#command-list h3").waitFor();
+    await admin.evaluate(() => EvLocale.set("en"));
+    await admin
+      .locator("#simulation-list")
+      .getByRole("button", { name: "Request CSMS stop", exact: true })
+      .click();
+    await admin
+      .locator("#simulation-list")
+      .getByText(/Waiting for source stop/)
+      .waitFor();
+    assert.equal(
+      await admin
+        .locator("#simulation-list")
+        .getByRole("button", { name: "View simulated invoice", exact: true })
+        .count(),
+      0,
+    );
+    sourceStatus = "stopped";
+    await admin.locator("#sessions-refresh").click();
+    await admin
+      .locator("#simulation-list")
+      .getByRole("button", { name: "View simulated invoice", exact: true })
+      .click();
+    await admin
+      .locator("#simulation-list")
+      .getByText("SIM-BROWSER", { exact: true })
+      .waitFor();
+    assert.match(
+      await admin.locator("#simulation-list").textContent(),
+      /Tax: 16 minor units AED/,
+    );
+    assert.match(
+      await admin.locator("#simulation-list").textContent(),
+      /Amount due: 329 minor units AED/,
+    );
+    assert.equal(invoiceReads, 1);
+
+    assert.match(
+      await admin.locator("#command-list").textContent(),
+      /Command #1/,
+    );
+    await admin
+      .locator("#command-pagination")
+      .getByRole("button", { name: "Next", exact: true })
+      .click();
+    await admin
+      .locator("#command-list h3")
+      .filter({ hasText: "Command #26" })
+      .waitFor();
+    await admin.locator("#language").click();
+    assert.equal(await admin.locator("html").getAttribute("dir"), "rtl");
+    assert.match(
+      await admin.locator("#command-list").textContent(),
+      /الأمر #26/,
+    );
+    commandFailure = 503;
+    await admin.locator("#commands-refresh").click();
+    await admin.waitForFunction(() =>
+      document.getElementById("commands-state").textContent.includes("الخدمة"),
+    );
+    assert.match(
+      await admin.locator("#command-list").textContent(),
+      /الأمر #26/,
+    );
+    commandFailure = 0;
+    await admin.locator("#commands-refresh").click();
+    await admin.waitForFunction(() =>
+      document.getElementById("commands-state").textContent.includes("26 أمر"),
+    );
+    commandFailure = 401;
+    await admin.locator("#commands-refresh").click();
+    await admin.locator("#command-history").waitFor({ state: "hidden" });
+    assert.equal(await admin.locator("#command-list").textContent(), "");
+    commandFailure = 0;
+    fixtureRole = "vendor";
+    sourceStatus = "charging";
+    await admin.reload();
+    await admin.locator("#command-list h3").waitFor();
+    assert.equal(await admin.locator("#command-history").isVisible(), true);
+    assert.equal(
+      await admin.locator("#simulation-list input[type=number]").count(),
+      0,
+    );
+    commandFailure = 419;
+    await admin.locator("#commands-refresh").click();
+    await admin.locator("#command-history").waitFor({ state: "hidden" });
+    assert.equal(await admin.locator("#command-list").textContent(), "");
+    commandFailure = 0;
+    fixtureRole = "customer";
+    const reads = commandReads;
+    await admin.reload();
+    await admin.locator("#signed").waitFor();
+    assert.equal(await admin.locator("#command-history").isVisible(), false);
+    assert.equal(commandReads, reads);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: isolated frontend contract fixtures; paginated catalog preserves filters, safe text rendering, role navigation, 503 recovery, offline/online state, 390/768/1440px layouts, RTL; zero page errors. Fixtures are not live data.",
+      "PASS: isolated frontend contract fixtures; paginated catalog preserves filters, safe text rendering, role navigation, read-only admin/vendor command history with pagination/Arabic/retry/auth cleanup; source-linked stop waits for final meters and displays simulated invoices; 503 recovery, offline/online state, 390/768/1440px layouts, RTL; zero page errors. Fixtures are not live data.",
     );
   } finally {
     await browser.close();

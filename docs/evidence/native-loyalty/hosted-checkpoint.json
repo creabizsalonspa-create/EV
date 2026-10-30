@@ -1,0 +1,226 @@
+{
+  "source_sha": "5ce44db2044ce0144650ef291b0db01b1706000d",
+  "integrated_sha": "222a211fe81b25621ef67b03b2efe8326ef518f2",
+  "pr": "https://github.com/creabizsalonspa-create/EV/pull/20",
+  "merge_tree_equals_tested_source": true,
+  "checks": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:44:33Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665444308/job/122738638461",
+      "name": "native (ubuntu-latest)",
+      "startedAt": "2026-10-28T09:35:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Native client validation (unverified until run)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:47:02Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665444306/job/122738638509",
+      "name": "business-platform",
+      "startedAt": "2026-10-28T09:35:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:47:32Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665437506/job/122738615967",
+      "name": "business-platform",
+      "startedAt": "2026-10-28T09:35:35Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:49:22Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665444308/job/122738637969",
+      "name": "native (macos-15)",
+      "startedAt": "2026-10-28T09:35:39Z",
+      "status": "COMPLETED",
+      "workflowName": "Native client validation (unverified until run)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:38:27Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665444306/job/122738638769",
+      "name": "finance-postgres",
+      "startedAt": "2026-10-28T09:35:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:37:54Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665437506/job/122738615736",
+      "name": "finance-postgres",
+      "startedAt": "2026-10-28T09:35:35Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:36:57Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665444306/job/122738638107",
+      "name": "connector-postgres",
+      "startedAt": "2026-10-28T09:35:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:36:58Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665437506/job/122738615818",
+      "name": "connector-postgres",
+      "startedAt": "2026-10-28T09:35:35Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:37:19Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665444306/job/122738638654",
+      "name": "staging-image",
+      "startedAt": "2026-10-28T09:35:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:37:14Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665437506/job/122738615409",
+      "name": "staging-image",
+      "startedAt": "2026-10-28T09:35:35Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    }
+  ],
+  "runs": [
+    {
+      "id": 40665437506,
+      "head_sha": "5ce44db2044ce0144650ef291b0db01b1706000d",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665437506"
+    },
+    {
+      "id": 40665444306,
+      "head_sha": "5ce44db2044ce0144650ef291b0db01b1706000d",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665444306"
+    },
+    {
+      "id": 40665444308,
+      "head_sha": "5ce44db2044ce0144650ef291b0db01b1706000d",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40665444308"
+    }
+  ],
+  "artifacts": [
+    {
+      "platform": "android",
+      "id": 12806128148,
+      "zip_bytes": 94596094,
+      "zip_sha256": "d8428a698d5f2614d51fc6daf3c48980a4e8c740f50cf341bfed521bf85eba75"
+    },
+    {
+      "platform": "ios",
+      "id": 12806611513,
+      "zip_bytes": 66423037,
+      "zip_sha256": "69203cd75e18d5b49553c34a26a6505e726f3593d4d9ff4140c17b3fda41bda7"
+    }
+  ],
+  "ios_runtime_markers": [
+    "DEVICE: clearing isolated Keychain entry",
+    "DEVICE: validating fixture TLS before UI",
+    "DEVICE: fixture TLS ready",
+    "DEVICE: customer authenticated",
+    "DEVICE: read-only partner pagination verified",
+    "DEVICE: customer favorites and private catalog status verified",
+    "DEVICE: consented one-shot GPS and sourced charging-stop route verified; synthetic platform/provider",
+    "DEVICE: customer map privacy consent navigation verified; no external tiles",
+    "DEVICE: scoped read-only invoice history verified",
+    "DEVICE: scoped noncash native loyalty evidence verified; synthetic economics",
+    "DEVICE: versioned saved mandate revocation verified; no external PSP",
+    "DEVICE: Keychain session restored",
+    "DEVICE: vendor authenticated after secure logout",
+    "DEVICE: exact Arabic vendor pricing verified",
+    "DEVICE: native vendor onboarding and private PDF preview verified"
+  ],
+  "ios_job_log_sha256": "3f12d64a3ab5b705651d45463ce46162dc9b1639eb9d7b8e673f5921ee902f69",
+  "android_job_log_sha256": "eb2ce8d9d28d3e566b06aac117f1c3a39b0bba887bf2f3c6734831a0b47c1d50",
+  "platform_job_log_sha256": "d40b8fa5a016015fdd87f701afca7bcbf49d74e9c8d60dbd7952d842e0706cff",
+  "local_logs": {
+    "ev-native-loyalty-full-flutter": {
+      "bytes": 28444,
+      "sha256": "68b8f2e30425ef88d251aa0bd4b42557f57522f1c197ad59408c66139568a71b"
+    },
+    "ev-native-loyalty-final-analysis": {
+      "bytes": 2582,
+      "sha256": "8b816101f15105c410506d247b09e072bb1d687a8f2987b5435280a81a9306b3"
+    },
+    "ev-native-loyalty-all-connected": {
+      "bytes": 24743,
+      "sha256": "25b9efa0850e3819a27e21dfab540c7b4a8971e057c76acdc546565a6958962f"
+    },
+    "ev-native-loyalty-connected": {
+      "bytes": 2695,
+      "sha256": "4f19dc589020dae555e6f1e20be0e168c49589675d8e928fc3d10fd003c557c6"
+    }
+  },
+  "laravel": {
+    "passed": 345,
+    "assertions": 8438
+  },
+  "flutter": {
+    "passed": 135,
+    "explicit_live_only_skips": 10,
+    "analysis": "clean",
+    "new_widget_tests": 7,
+    "actual_laravel_native_suites": 9
+  },
+  "orchestration_unit_tests": 3,
+  "finance_browser_batches_auth_requests": [
+    6,
+    7
+  ],
+  "operational_batches_auth_requests": [
+    9,
+    5,
+    5
+  ],
+  "production_authentication_limit_unchanged": "10/IP/minute",
+  "original_assertions_and_canonical_ocpp_flags_preserved": true,
+  "previous_failures": [
+    {
+      "source": "11cde2a407b48d688ab0ed8c31293f8599b35abd",
+      "job": 122728125625,
+      "failure": "second authentication429 in external disputes; finance aggregate pacing added"
+    },
+    {
+      "source": "d3f4fa9c7bb007c9ca9cf64dc6e7cf5128dcb63b",
+      "jobs": [
+        122732898460,
+        122732872541
+      ],
+      "failure": "shared post-finance authentication budget exhausted before charger-operations; all eleven later suites now run in fresh-window batches"
+    }
+  ],
+  "local_environment_correction": "Existing PHP container lacked ev-csms_default network; charging-setup restored the attachment without overwriting keys/data. Failed charger-operations and remaining canonical OCPP1.6/2.0.1 plus favorites then passed. All other earlier local operational suites passed. Latest hosted complete orchestrations passed unchanged assertions.",
+  "acceptance_boundary": "Real Laravel/PostgreSQL and compiled Android/iOS/Keychain/UI; synthetic provider/economics/location/TLS/charger fixtures. No physical GPS, live PSP/bank/partner/reward fulfillment/charger, signing/store, legal or production acceptance."
+}

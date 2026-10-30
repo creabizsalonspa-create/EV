@@ -10,7 +10,7 @@ class FleetFixture extends FixtureApi {
       invited = true,
       revoked = false,
       meterConflict = false;
-  bool lostMembership = false;
+  bool lostMembership = false, linked = false, sourceStopping = false;
   int energy = 1000;
   bool stopped = false;
   final centers = <Map<String, dynamic>>[];
@@ -109,7 +109,12 @@ class FleetFixture extends FixtureApi {
         {
           'id': 7,
           'reservation_id': 3,
-          'status': stopped ? 'stopped' : 'charging',
+          'status': stopped
+              ? 'stopped'
+              : sourceStopping
+              ? 'stopping'
+              : 'charging',
+          'csms_linked': linked,
           'energy_wh': energy,
           'total_minor': stopped ? 200 : null,
           'currency': 'AED',
@@ -120,6 +125,10 @@ class FleetFixture extends FixtureApi {
       energy = body!['energy_wh'] as int;
       return {'energy_wh': energy};
     }
+    if (path == 'charging-sessions/7/csms-stop') {
+      sourceStopping = true;
+      return {'status': 'stopping'};
+    }
     if (path == 'simulations/7/stop') {
       stopped = true;
       return {'status': 'stopped'};
@@ -129,6 +138,30 @@ class FleetFixture extends FixtureApi {
 }
 
 void main() {
+  testWidgets(
+    'CSMS-linked vendor hides manual meters and queues source stop instead of freezing energy',
+    (tester) async {
+      final api = FleetFixture()..linked = true;
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SessionsView(api: api, role: 'vendor', onExpired: () {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('CSMS SIMULATION'), findsOneWidget);
+      expect(find.text('Submit simulated meter'), findsNothing);
+      await tester.tap(find.text('Request CSMS stop'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(api.mutations, contains('POST charging-sessions/7/csms-stop'));
+      expect(api.mutations, isNot(contains('POST simulations/7/stop')));
+      expect(find.textContaining('Waiting for source stop'), findsOneWidget);
+    },
+  );
   testWidgets(
     'revoked access clears previously loaded fleet details on refresh',
     (tester) async {

@@ -631,3 +631,143 @@ form label {
     color: var(--muted);
     font-size: 0.85rem;
 }
+
+.vendor-permissions {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+}
+.vendor-permissions label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.vendor-permissions input[type="checkbox"] {
+    width: auto;
+    min-width: 24px;
+}
+#vendor-operations [data-vendor-form] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+    gap: 1rem;
+}
+#vendor-operations [data-vendor-form] > h3,
+#vendor-operations .vendor-permissions {
+    grid-column: 1 / -1;
+}
+#vendor-operations article {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.vendor-permissions {
+    min-inline-size: 0;
+}
+.vendor-permissions label {
+    flex-direction: row;
+    min-height: 44px;
+}
+
+.roaming-record {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    direction: ltr;
+    text-align: left;
+    max-width: 100%;
+}
+#roaming-operations article,
+#roaming-discovery article {
+    overflow-wrap: anywhere;
+    min-width: 0;
+}
+
+/* Financial surfaces inherit the shared light/dark palette and RTL flow. */
+.finance-panel {
+    border-block-start: 1px solid var(--border);
+    padding-block: 1.3rem;
+}
+.finance-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+    gap: 1rem;
+}
+.finance-metric {
+    padding: 1.3rem;
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: grid;
+    gap: 0.6rem;
+}
+.finance-metric strong {
+    font-size: 1.8rem;
+    letter-spacing: -0.04em;
+}
+.finance-row {
+    padding-block: 1rem;
+    border-block-end: 1px solid var(--border);
+    overflow-wrap: anywhere;
+}
+.finance-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    align-items: end;
+    margin-block: 0.8rem;
+}
+.finance-form label {
+    display: grid;
+    gap: 0.4rem;
+    flex: 1 1 180px;
+    min-width: 0;
+}
+.finance-form input,
+.finance-form select {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+#commercial-finance button {
+    margin-inline-end: 0.4rem;
+    margin-block: 0.3rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+    .finance-metric {
+        animation: finance-appear 0.2s ease-out;
+    }
+    @keyframes finance-appear {
+        from {
+            opacity: 0.5;
+            transform: translateY(4px);
+        }
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+}
+
+#discovery-map {margin-block:1rem;display:grid;gap:.75rem;min-width:0}
+#discovery-map label {display:flex;align-items:center;gap:.75rem}
+#discovery-map input[type=checkbox] {width:1.25rem;flex-shrink:0}
+#station-map {height:420px;isolation:isolate;border-radius:20px;max-width:100%}
+.station-map-pin {background:#087f75;color:white;border:2px solid white;border-radius:50%;display:grid;place-items:center;font-weight:700;box-shadow:0 2px 8px #0006}
+#station-map .leaflet-popup-content {color:#17242b;max-height:260px;overflow:auto}
+#station-map .leaflet-popup-content a {display:block;color:#075e57;margin-block:12px}
+.discovery-tools {min-width:0;display:grid;gap:1rem}
+.discovery-tools fieldset {min-width:0;display:grid;gap:.75rem;border:1px solid var(--border,#64748b);border-radius:16px;margin-block:1rem;padding:1rem}
+.discovery-tools [role=listbox] {display:grid;gap:.5rem}
+.discovery-tools [role=option] {text-align:start;white-space:normal;overflow-wrap:anywhere}
+.discovery-tools input[type=checkbox] {width:1.25rem;flex-shrink:0}
+.discovery-tools label {display:flex;flex-wrap:wrap;gap:.5rem}
+.discovery-tools label input[type=text] {flex-basis:100%;min-width:0}
+.journey-stations {display:grid;gap:1rem}
+.journey-stations>div {display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;overflow-wrap:anywhere}
+#discovery-map .discovery-tools label {align-items:stretch;flex-wrap:nowrap}
+#discovery-map .discovery-tools label:has(input[type=checkbox]) {flex-direction:row;align-items:flex-start}
+#discovery-map .discovery-tools label:has(input[type=checkbox]) span {flex:1;min-width:0}
+.discovery-tools label input[type=text] {flex-basis:auto;width:100%;min-width:0}
+.discovery-tools form {display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
+.discovery-tools form>* {min-width:0}
+.discovery-tools button {white-space:normal;overflow-wrap:anywhere}
+@media(min-width:800px){.discovery-tools form{grid-template-columns:repeat(2,minmax(0,1fr))}.discovery-tools form>*{grid-column:1/-1}.discovery-tools form>fieldset{grid-column:auto}}

@@ -1,0 +1,29 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/catalog_test.dart
+00:00 +0: /workspace/EV/apps/mobile/test/catalog_test.dart: query parameters are encoded and pagination stays on the configured service origin
+00:00 +1: /workspace/EV/apps/mobile/test/catalog_test.dart: late responses cannot replace a newer search and disposal ignores late completion
+00:00 +2: /workspace/EV/apps/mobile/test/catalog_test.dart: failed next page keeps current records and retries exactly the requested filtered page
+00:00 +3: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:02 +4: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:03 +5: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:05 +6: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:05 +7: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:06 +8: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: vendor meter validates monotonic readings, retains failed input, submits and stops; customers cannot edit meters
+00:06 +9: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:06 +9: /workspace/EV/apps/mobile/test/live_api_test.dart: native client exercises Laravel fleets, meters, bookings and privacy
+  Skip: Set EV_NATIVE_SMOKE_URL to the disposable local Laravel service.
+00:06 +9 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:07 +10 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: Arabic vendor layouts fit narrow and tablet screens and expired sessions clear private UI
+00:08 +11 ~1: /workspace/EV/apps/mobile/test/invoice_test.dart: read-only simulated invoice displays actual minor-unit totals and clears private data on expiry
+00:09 +12 ~1: /workspace/EV/apps/mobile/test/invoice_test.dart: unsupported finance evidence is not presented as a simulation document
+00:09 +13 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:10 +14 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:10 +15 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:11 +16 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:11 +17 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:12 +18 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:12 +19 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:12 +20 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:12 +21 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:13 +22 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:14 +23 ~1: /workspace/EV/apps/mobile/test/support_test.dart: inbox read actions update actual API state and notification opens its thread
+00:15 +24 ~1: All tests passed!

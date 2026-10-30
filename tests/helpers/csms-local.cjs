@@ -140,6 +140,24 @@ class SimulatedCharger {
       );
     });
   }
+  async reconnect() {
+    // isOnline=false can precede the upstream socket-registry cleanup. Retry
+    // only connection handshakes; never resend protocol commands/transactions.
+    const deadline = Date.now() + 12000;
+    let last;
+    do {
+      try {
+        await this.connect();
+        return;
+      } catch (error) {
+        last = error;
+        if (!error.message.includes("handshake rejected")) throw error;
+        this.socket.close();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    } while (Date.now() < deadline);
+    throw new Error("Simulator reconnect did not converge: " + last.message);
+  }
   call(action, payload, id = randomUUID()) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -178,12 +196,12 @@ class SimulatedCharger {
     assert.equal(result.status, "Accepted");
     return result;
   }
-  status(status = "Available") {
+  status(status = "Available", connector = 1, evse = 1) {
     return this.call(
       "StatusNotification",
       this.version === "1.6"
         ? {
-            connectorId: 1,
+            connectorId: connector,
             errorCode: status === "Faulted" ? "PowerSwitchFailure" : "NoError",
             status,
             timestamp: new Date().toISOString(),
@@ -191,8 +209,8 @@ class SimulatedCharger {
         : {
             timestamp: new Date().toISOString(),
             connectorStatus: status,
-            evseId: 1,
-            connectorId: 1,
+            evseId: evse,
+            connectorId: connector,
           },
     );
   }

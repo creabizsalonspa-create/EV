@@ -1,0 +1,76 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/catalog_test.dart
+00:00 +0: /workspace/EV/apps/mobile/test/catalog_test.dart: query parameters are encoded and pagination stays on the configured service origin
+00:00 +1: /workspace/EV/apps/mobile/test/catalog_test.dart: late responses cannot replace a newer search and disposal ignores late completion
+00:00 +2: /workspace/EV/apps/mobile/test/catalog_test.dart: failed next page keeps current records and retries exactly the requested filtered page
+00:03 +3: /workspace/EV/apps/mobile/test/tariffs_test.dart: exact prices support Arabic/Persian digits and reject rounding, exponent, overflow and ambiguous separators
+00:03 +4: /workspace/EV/apps/mobile/test/tariffs_test.dart: vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel
+00:03 +4: /workspace/EV/apps/mobile/test/live_reservation_lifecycle_test.dart: actual Laravel check-in is explicit, idempotent and scoped; unused expiry creates no session
+  Skip: Requires isolated actual Laravel fixture; run tests/native-reservation-lifecycle.cjs
+00:03 +4 ~1: /workspace/EV/apps/mobile/test/tariffs_test.dart: vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel
+00:04 +4 ~1: /workspace/EV/apps/mobile/test/live_topology_test.dart: actual native client maps inventory and reserves independent EVSEs with shared-connector capacity
+  Skip: Requires isolated local fixture; run node tests/native-topology.cjs.
+00:04 +4 ~2: /workspace/EV/apps/mobile/test/tariffs_test.dart: vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel
+00:05 +5 ~2: /workspace/EV/apps/mobile/test/tariffs_test.dart: lost publish acknowledgement never retries and requires history refresh; expiry removes private pricing
+00:06 +6 ~2: /workspace/EV/apps/mobile/test/managed_gate_test.dart: expired unsent session is localized in Arabic and offers no charging or cancellation controls
+00:07 +7 ~2: /workspace/EV/apps/mobile/test/managed_gate_test.dart: customer can confirm cancellation of a provably undispatched start and refresh its state
+00:07 +8 ~2: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:08 +9 ~2: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:08 +10 ~2: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:11 +11 ~2: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:12 +12 ~2: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:13 +13 ~2: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: owner creates cost center, invites privately, assigns own second-page vehicle and revokes membership
+00:14 +14 ~2: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:15 +15 ~2: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:15 +16 ~2: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: vendor meter validates monotonic readings, retains failed input, submits and stops; customers cannot edit meters
+00:15 +17 ~2: /workspace/EV/apps/mobile/test/workspace_test.dart: Arabic vendor layouts fit narrow and tablet screens and expired sessions clear private UI
+00:16 +18 ~2: /workspace/EV/apps/mobile/test/live_api_test.dart: native client exercises Laravel fleets, meters, bookings and privacy
+  Skip: Set EV_NATIVE_SMOKE_URL to the disposable local Laravel service.
+00:17 +18 ~3: /workspace/EV/apps/mobile/test/invoice_test.dart: read-only simulated invoice displays actual minor-unit totals and clears private data on expiry
+00:18 +19 ~3: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:19 +20 ~3: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:21 +21 ~3: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: arrival translations have equal keys and explicit physical-presence limits
+00:21 +22 ~3: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: consent is required and successful POST refreshes authoritative records once
+00:21 +22 ~3: /workspace/EV/apps/mobile/test/live_inventory_test.dart: real Laravel native inventory hierarchy, owner maintenance and read-only staff enforcement
+  Skip: Requires an isolated local native inventory fixture; run node tests/native-inventory.cjs.
+00:21 +22 ~4: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: consent is required and successful POST refreshes authoritative records once
+00:22 +23 ~4: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: consent is required and successful POST refreshes authoritative records once
+00:22 +24 ~4: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: consent is required and successful POST refreshes authoritative records once
+00:23 +25 ~4: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: lost acknowledgement never automatically repeats a write or exposes diagnostics
+00:23 +26 ~4: /workspace/EV/apps/mobile/test/session_test.dart: plaintext origins never persist credentials
+00:23 +27 ~4: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: expired authentication reaches root handler
+00:24 +28 ~4: /workspace/EV/apps/mobile/test/session_test.dart: secure HTTP-only cookies restore through real TLS and fresh me/CSRF; logout, origin and expiry are enforced
+00:24 +29 ~4: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: disposed in-flight response does not refresh or signal stale scope
+00:24 +30 ~4: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: Arabic narrow layout has RTL consent and no overflow
+00:25 +31 ~4: /workspace/EV/apps/mobile/test/command_recovery_test.dart: native reconciliation requires explicit consent and renders source outcome without acceptance claim
+00:27 +32 ~4: /workspace/EV/apps/mobile/test/command_recovery_test.dart: native reconciliation requires explicit consent and renders source outcome without acceptance claim
+00:27 +33 ~4: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:27 +34 ~4: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:28 +35 ~4: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:28 +36 ~4: /workspace/EV/apps/mobile/test/support_test.dart: inbox read actions update actual API state and notification opens its thread
+00:30 +37 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: inventory translation contracts match
+00:30 +38 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: company pagination and hierarchy use scoped APIs without hardware commands
+00:31 +39 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: company pagination and hierarchy use scoped APIs without hardware commands
+00:33 +40 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: company pagination and hierarchy use scoped APIs without hardware commands
+00:33 +41 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: company pagination and hierarchy use scoped APIs without hardware commands
+00:34 +42 ~4: /workspace/EV/apps/mobile/test/connector_topology_test.dart: disposed connector page ignores a late response
+00:34 +43 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: maintenance requires a reason and confirmation, then refreshes authoritative state
+00:35 +44 ~4: /workspace/EV/apps/mobile/test/connector_topology_test.dart: vendor creates a real payload with Arabic digits and refreshed immutable identity
+00:35 +45 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: lost acknowledgement never replays a maintenance update and requires refresh
+00:35 +46 ~4: /workspace/EV/apps/mobile/test/connector_topology_test.dart: mapping an application connector requires confirmation and has no source target
+00:35 +47 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: read-only staff cannot change maintenance and revoked scope clears private rows
+00:35 +48 ~4: /workspace/EV/apps/mobile/test/connector_topology_test.dart: read-only staff cannot create or map identities
+00:35 +49 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: Arabic narrow layout keeps literal data and blocks unapproved release
+00:36 +50 ~4: /workspace/EV/apps/mobile/test/connector_topology_test.dart: uncertain EVSE creation cannot replay without authoritative refresh
+00:36 +51 ~4: /workspace/EV/apps/mobile/test/connector_topology_test.dart: uncertain EVSE creation cannot replay without authoritative refresh
+00:36 +52 ~4: /workspace/EV/apps/mobile/test/connector_topology_test.dart: uncertain EVSE creation cannot replay without authoritative refresh
+00:36 +53 ~4: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: nested authentication expiry returns to the public root without reloading removed scopes
+00:38 +54 ~4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:40 +55 ~4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:42 +56 ~4: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:42 +57 ~4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: existing invoice detail uses GET and shows only receipt amounts, times and literal refund reason
+00:42 +58 ~4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: existing invoice detail uses GET and shows only receipt amounts, times and literal refund reason
+00:43 +59 ~4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invalid calendar and reversed date filters are rejected without a request
+00:44 +60 ~4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invalid calendar and reversed date filters are rejected without a request
+00:44 +61 ~4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invalid calendar and reversed date filters are rejected without a request
+00:44 +62 ~4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invalid calendar and reversed date filters are rejected without a request
+00:44 +63 ~4: All tests passed!

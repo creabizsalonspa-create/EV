@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Only new, run-owned containers/networks/anonymous volumes are destroyed.
+set -euo pipefail
+image=${1:?Usage: scripts/staging-image-smoke creabiz-ev-business:tag}
+case "$image" in creabiz-ev-business:*) ;; *) echo 'Use a built Crea-Biz review image.' >&2; exit 2 ;; esac
+review_id="ev-staging-review-${RANDOM}-$$"
+review_directory=$(mktemp -d /tmp/ev-staging-review.XXXXXX)
+network_id= database_id= application_id=
+diagnostics() {
+  [[ -n "$application_id" ]] || return 0
+  docker logs --tail 80 "$application_id" > "$review_directory/application.log" 2>&1 || true
+  python3 - "$review_directory" <<'PY_DIAGNOSTICS'
+import pathlib,sys
+root=pathlib.Path(sys.argv[1]); text=(root/'application.log').read_text(errors='replace')
+for filename in ['application.env','database.env']:
+ for line in (root/filename).read_text().splitlines():
+  name,_,value=line.partition('=')
+  if value and ('PASSWORD' in name or name=='APP_KEY'):text=text.replace(value,'[redacted synthetic credential]')
+print(text[-12000:])
+PY_DIAGNOSTICS
+}
+cleanup() {
+  result=$?
+  if [[ "$result" != 0 ]]; then diagnostics || true; fi
+  [[ -z "$application_id" ]] || docker rm -fv "$application_id" >/dev/null 2>&1 || true
+  [[ -z "$database_id" ]] || docker rm -fv "$database_id" >/dev/null 2>&1 || true
+  [[ -z "$network_id" ]] || docker network rm "$network_id" >/dev/null 2>&1 || true
+  rm -rf "$review_directory"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+python3 - "$review_directory" "${review_id}-db" <<'PY'
+import base64, os, pathlib, secrets, sys
+root=pathlib.Path(sys.argv[1]); password=secrets.token_hex(32)
+values={
+ 'database.env':{'POSTGRES_DB':'ev_staging_review','POSTGRES_USER':'ev_staging_review','POSTGRES_PASSWORD':password},
+ 'application.env':{'APP_ENV':'staging','APP_DEBUG':'false','APP_URL':'https://staging.example.invalid','APP_KEY':'base64:'+base64.b64encode(secrets.token_bytes(32)).decode(),'DB_CONNECTION':'pgsql','DB_HOST':sys.argv[2],'DB_PORT':'5432','DB_DATABASE':'ev_staging_review','DB_USERNAME':'ev_staging_review','DB_PASSWORD':password,'DB_URL':'','SESSION_DRIVER':'database','SESSION_COOKIE':'ev_staging_review_session','SESSION_ENCRYPT':'true','SESSION_SECURE_COOKIE':'true','CACHE_STORE':'database','QUEUE_CONNECTION':'database','LOG_CHANNEL':'stderr','LOG_LEVEL':'warning','CSMS_SIMULATOR_ENABLED':'false'}
+}
+for name,env in values.items():
+ fd=os.open(root/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+ with os.fdopen(fd,'w') as f:f.write(''.join(k+'='+v+'\n' for k,v in env.items()))
+PY
+network_id=$(docker network create "$review_id")
+database_id=$(docker run -d --name "${review_id}-db" --network "$network_id" --env-file "$review_directory/database.env" postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b)
+ready=false
+for attempt in {1..40}; do
+  if docker exec "$database_id" pg_isready -h 127.0.0.1 -U ev_staging_review -d ev_staging_review >/dev/null 2>&1; then ready=true; break; fi
+  sleep 1
+done
+[[ "$ready" == true ]] || { echo 'Disposable PostgreSQL17 did not become ready.' >&2; exit 1; }
+application_id=$(docker run -d --name "${review_id}-app" --network "$network_id" --env-file "$review_directory/application.env" --mount type=volume,target=/var/www/html/storage/app/private "$image")
+ready=false
+for attempt in {1..40}; do
+  if docker exec --user www-data "$application_id" php -r 'exit(@file_get_contents("http://127.0.0.1/up") === false ? 1 : 0);' >/dev/null 2>&1; then ready=true; break; fi
+  sleep 1
+done
+[[ "$ready" == true ]] || { echo 'Disposable staging application did not become ready.' >&2; exit 1; }
+docker exec --user www-data "$application_id" php artisan migrate --force --no-interaction
+docker exec -i --user www-data "$application_id" php <<'PHP'
+<?php
+function get(string $path): array {
+    $body = file_get_contents('http://127.0.0.1'.$path, false, stream_context_create(['http'=>['timeout'=>10, 'ignore_errors'=>true]]));
+    $headers = http_get_last_response_headers() ?? [];
+    if ($body === false || !preg_match('/^HTTP\/\S+ 200\b/', $headers[0] ?? '')) {
+        throw new RuntimeException('Staging HTTP smoke failed: '.$path);
+    }
+    return [$body, implode("\n", $headers)];
+}
+[$json] = get('/api/stations');
+$page = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+if ($page['data'] !== [] || $page['total'] !== 0) { throw new RuntimeException('Review database must remain empty and isolated.'); }
+[$html,$headers] = get('/');
+foreach (['/vendor/leaflet/leaflet.js', '/discovery-map.js', 'discovery-map'] as $asset) {
+    if (!str_contains($html,$asset)) { throw new RuntimeException('Discovery page asset missing.'); }
+}
+foreach (["img-src 'self' data: https://tile.openstreetmap.org", 'X-Content-Type-Options: nosniff'] as $header) {
+    if (stripos($headers,$header) === false) { throw new RuntimeException('Staging response security header/cookie missing.'); }
+}
+if (!preg_match('/^Set-Cookie: ev_staging_review_session=([^\r\n]+)/im', $headers, $cookie) || !preg_match('/;\s*secure(?:;|$)/i', $cookie[1]) || !preg_match('/;\s*httponly(?:;|$)/i', $cookie[1])) {
+    throw new RuntimeException('Staging session cookie security flags missing.');
+}
+[$asset] = get('/vendor/leaflet/leaflet.js');
+$provenance = json_decode(file_get_contents('/var/www/html/public/vendor/leaflet/PROVENANCE.json'),true,flags:JSON_THROW_ON_ERROR);
+if (hash('sha256',$asset) !== $provenance['files_sha256']['leaflet.js']) { throw new RuntimeException('Apache did not serve the reviewed map script.'); }
+$private = '/var/www/html/storage/app/private';
+$probe = tempnam($private,'.image-review-');
+if ($probe === false || dirname($probe) !== $private) { throw new RuntimeException('Fresh private volume is not writable by the runtime worker.'); }
+chmod($probe,0600);
+file_put_contents($probe,'synthetic-private-storage',LOCK_EX);
+$valid = file_get_contents($probe) === 'synthetic-private-storage' && (fileperms($probe)&0777) === 0600;
+unlink($probe);
+if (!$valid) { throw new RuntimeException('Private volume read/write permissions differ.'); }
+echo "PASS: actual pinned staging image migrated PostgreSQL17, served catalog/page/licensed map with secure headers/cookies, and wrote private storage as www-data. Synthetic isolated resources only.\n";
+PHP

@@ -63,3 +63,43 @@ The passed output is retained in `docs/evidence/charging-business-sessions.txt`.
 - An early test asserted energy immediately when the transaction first became inactive. Actual GraphQL observations showed final energy converging asynchronously afterward. The bounded final-state poll now requires inactive + end timestamp + reconciled energy together; the energy assertion remains enforced.
 - During this continuation disk exhaustion prevented command startup and interrupted protocol requests (including a boot timeout). Root retained/moved only task-owned regenerable toolchain/cache content; no CSMS data or credentials were removed. After filesystem recovery, RabbitMQ diagnostics reported no local/cluster alarms and fresh protocol and correlated business runs passed. Disk/resource monitoring and interrupted-session recovery remain operational release requirements.
 - A first correlated-test attempt incorrectly interpreted upstream `meterStart` as Wh; actual source observations showed kWh. The explicit unit conversion was corrected before a successful business run. Source units must never be inferred from a field name alone.
+
+## Continuous local simulator source consumer
+
+The canonical Laravel `SourceConsumer` now reads the authenticated, documented Hasura projection and forwards observations through the HMAC-signed event inbox. It never reads CSMS database tables directly or dispatches/replays commands. Run `scripts/charging-setup`, then `scripts/charging-bridge-setup` (preserves existing secrets and binds the private GraphQL key), then `scripts/csms-consume --interval=2`. Use `--once --link=<business-link-id>` for a bounded reconciliation pass. The wrapper uses host loopback networking and Docker init for reliable signal forwarding; PHP in the pinned image lacks pcntl. A local file lock permits one observer per shared checkout. A service manager must restart it after outages; processes are not snapshot state.
+
+Only provisioned ev-test identifiers and non-production simulator mode are accepted. Tenant/station/unique EV-SIM session authorization and OCPP 2.0.1 remote-start identity correlate source transactions. Ambiguity, unsupported precision/units, changed correlation and inbox conflicts fail without inventing energy. Source meter IDs and a separate durable scan cursor prevent replay and starvation on non-energy records. Wh/kWh conversion is exact; unsupported multipliers/phase ambiguity require reconciliation. End is forwarded only when inactive/end-time/final-register and source total energy agree. Lost acknowledgement after commit is safely retried using the same event identity; invoice uniqueness/immutability remains authoritative.
+
+Executed both protocols with `EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs`: actual continuous process, restart during charging, source meters/end to exactly one 329-minor-unit simulated invoice, payment/refund and balanced ledger. The protocol fixtures still explicitly provision synthetic authorization and dispatch authorized outbox commands. The observer does not automate those steps. Production source identity/JWT/mTLS, distributed scheduling/locks, terminal reconciliation/admin recovery, command provisioning/dispatch daemon and physical metering policies remain unfinished. Never auto-retry unknown start outcomes.
+
+Shared clients now route bound reservations to csms-start, linked stops to csms-stop, hide manual meter overrides and label source-wait states. Stopped sessions can open a read-only simulation invoice. No physical charging, PSP or legal tax-document acceptance is implied.
+
+## Managed-company admission and safe cancellation
+
+Existing vendor_sites.station_id links now enforce company approval/local-license validity and one matching simulator connector for new bookings and starts. Maintenance or ambiguous/mismatched/unverified inventory blocks admission; multiple connector targets require an explicit future mapping. CSMS claims recheck the current company policy and reservation window. A blocked pending command has not been dispatched; claim authorization cannot recall an already in-flight/uncertain command. Stops/source meters/finalization remain allowed.
+
+Migration090001 adds nullable closed_without_dispatch_at/closure_reason, preserving existing links. Only a locked pending start with no source transaction/event/energy may be cancelled through the owned reservation DELETE. Its command/session/reservation become cancelled, its link closes without a source ended_at, and subsequent starts can own the binding. Observers skip closed requests; authenticated unexpected activity is rejected for reconciliation. Dispatching/submitted/rejected/uncertain starts cannot be silently cancelled or retried. Known-unsent local simulator expiry is now implemented as documented below; reconciliation of admitted/uncertain requests and real token revocation remain unfinished. Apply migrations before starting updated workers; coordinate code/schema rollback and preserve data.
+
+## Bounded known-unsent expiry
+
+Apply migration `2026_10_27_100001_create_charging_request_expirations` before updated scheduler workers. It adds a separate operational evidence table; no finance schema is changed. Run `./scripts/php artisan csms:expire-unsent --limit=100` for a bounded pass, or add `--reservation=<id>` for one synthetic request. Invalid limits/IDs fail. Only enabled non-production session-bridge simulators with unchanged matching `ev-test-*` bindings are eligible. Pending-before-dispatch proof is rechecked under locks at the exact half-hour window end. Contradictory source/energy/end/total state is skipped, never repaired by invented source events. Event/link source completion fields stay null, and no invoice is issued.
+
+The standard Laravel scheduler registers `csms:expire-unsent --limit=100 --scheduled` every minute with overlap protection. A service manager/cron must execute Laravel `schedule:run` each minute (or supervise `schedule:work`); processes do not survive restoration. Scheduled mode cannot target an individual reservation; it stores a non-secret cache cursor to advance through bounded pages, resetting after a full pass. Cache loss repeats an idempotent scan. Use a suitable shared cache for multi-worker scheduling; database locks still enforce one closure. No scheduler has been deployed to production. Roll back code/workers together and retain operational evidence; schema down removes this evidence table and is not a data-preserving production rollback.
+
+Customer/vendor web and native display the localized `expired_unstarted` state with no start/stop/cancel/invoice actions. Existing source-active sessions are untouched. This does not implement full no-show, occupancy policy, real token revocation or financial penalties.
+
+## Canonical topology continuation
+
+See [CANONICAL_TOPOLOGY.md](CANONICAL_TOPOLOGY.md) for new scoped EVSE/mapping APIs, connector choices, immutable source/booking snapshots, parallel capacity and protocol proof. Legacy contracts/history remain; direct-managed sources are simulation-tested only. Current owner handoff is MASTER_AGENT2_CONTINUATION.md, which supersedes historical account restrictions.
+
+## Self-reported arrival and unused booking expiry
+
+See [RESERVATION_LIFECYCLE.md](RESERVATION_LIFECYCLE.md) for the implemented customer web/Flutter workflow, scoped check-in API, bounded scheduler, immutable evidence and PostgreSQL concurrency checks. No physical-presence or no-show fee claim.
+
+## Received source evidence and command recovery
+
+See [COMMAND_RECOVERY.md](COMMAND_RECOVERY.md): source-observed state, immutable proof, scoped web/native reconciliation and bounded operational recovery. No uncertain command is resent and no command/hardware acceptance is claimed.
+
+## Secure charger admission and no-source case operations
+
+See [CHARGER_ADMISSION.md](CHARGER_ADMISSION.md) for new scoped APIs, owner/Admin web and vendor Flutter controls, TLS/mTLS simulation evidence, credential/version/replay safeguards, source inspection and remaining production boundaries. Financial truth remains Agent1-owned.

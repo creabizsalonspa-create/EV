@@ -2,7 +2,7 @@
 **/.env
 **/.env.*
 !**/.env.example
-**/vendor
+services/business-api/vendor
 node_modules
 **/node_modules
 **/.dart_tool
@@ -15,3 +15,10 @@ artifacts
 attachments
 services/business-api/storage/**
 services/business-api/bootstrap/cache/*.php
+# Local Laravel databases and their journals must never enter a runtime image.
+**/*.sqlite
+**/*.sqlite3
+**/*.sqlite-*
+**/*.sqlite3-*
+services/business-api/.phpunit.result.cache
+services/business-api/tests

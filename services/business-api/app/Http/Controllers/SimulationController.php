@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ChargerCommand;
 use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Services\Charging\ConnectorTopology;
+use App\Services\Charging\StationGate;
 use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -36,7 +39,20 @@ class SimulationController extends Controller
             $q->whereIn('reservation_id', Reservation::where('user_id', $r->user()->id)->select('id'));
         }
 
-        return $q->orderByDesc('id')->paginate(25)->through(fn ($s) => $s->toArray() + ['evidence' => 'SIMULATED', 'payment_status' => 'not_processed']);
+        $page = $q->orderByDesc('id')->paginate(25);
+        $links = SessionLink::whereIn('charging_session_id', $page->getCollection()->pluck('id'))->get()->keyBy('charging_session_id');
+        $commands = ChargerCommand::whereIn('id', $links->pluck('start_command_id')->merge($links->pluck('stop_command_id'))->filter())->get(['id', 'status', 'failure_code'])->keyBy('id');
+
+        return $page->through(function ($session) use ($links, $commands) {
+            $link = $links->get($session->id);
+            $start = $link ? $commands->get($link->start_command_id) : null;
+
+            return $session->toArray() + ['evidence' => $link ? 'SIMULATED_CSMS' : 'SIMULATED', 'payment_status' => 'not_processed', 'csms_linked' => $link !== null,
+                'start_command_status' => $start?->status,
+                'start_admission_blocked' => in_array($start?->failure_code, ['pre_dispatch_company_gate', 'pre_dispatch_window_unavailable'], true),
+                'can_cancel_before_dispatch' => $link && $session->status === 'pending_start' && $start?->status === 'pending' && $link->transaction_id === null && $link->started_at === null && $link->closed_without_dispatch_at === null,
+                'stop_command_status' => $link ? $commands->get($link->stop_command_id)?->status : null];
+        });
     }
 
     public function start(Request $r, Reservation $reservation)
@@ -44,6 +60,7 @@ class SimulationController extends Controller
         abort_unless($r->user()->id === $reservation->user_id, 404);
 
         return DB::transaction(function () use ($r, $reservation) {
+            Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $b = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
             $old = ChargingSession::where('reservation_id', $b->id)->first();
             if ($old) {
@@ -54,10 +71,15 @@ class SimulationController extends Controller
             abort_unless(now()->gte($start) && now()->lt($start->addMinutes(30)), 409, 'Outside reserved slot.');
             $station = Station::findOrFail($b->station_id);
             abort_unless($station->source === 'simulator', 409);
+            app(StationGate::class)->requireReady($station, $b->connector_mapping_id);
+            if ($b->connector_mapping_id) {
+                abort_if(app(ConnectorTopology::class)->binding($b) !== null, 409, 'Use the mapped CSMS start.');
+            }
             // Capture the test tariff once; future pricing changes cannot reprice this session.
+            abort_if($b->charging_evse_id && ChargingSession::where('charging_evse_id', $b->charging_evse_id)->whereIn('status', ['pending_start', 'charging', 'stopping'])->exists(), 409, 'This EVSE still has an unresolved session.');
             $finance = app(FinanceService::class);
             $tariff = $finance->activeTariff($station);
-            $s = ChargingSession::create(['reservation_id' => $b->id, 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
+            $s = ChargingSession::create(['reservation_id' => $b->id, 'charging_evse_id' => $b->charging_evse_id, 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
             $finance->snapshotSession($s, $tariff);
             $this->audit($r, 'simulation.started', $s->id);
 

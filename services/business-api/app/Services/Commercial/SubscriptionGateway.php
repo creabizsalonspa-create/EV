@@ -1,0 +1,316 @@
+<?php
+
+namespace App\Services\Commercial;
+
+use App\Models\User;
+use App\Services\Commercial\Payments\MockPaymentProvider;
+use App\Services\Commercial\Payments\PaymentProvider;
+use App\Services\Commercial\Payments\PaymentRecovery;
+use App\Services\Commercial\Payments\StripeSandboxProvider;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+class SubscriptionGateway
+{
+    public function __construct(private SubscriptionService $subscriptions) {}
+
+    private function provider(): PaymentProvider
+    {
+        abort_if(app()->environment('production'), 503, 'Subscription test gateways are disabled in production.');
+
+        return match (config('payments.provider')) {
+            'mock' => new MockPaymentProvider, 'stripe_test' => new StripeSandboxProvider, default => abort(503, 'No approved subscription test provider configured.')
+        };
+    }
+
+    private function hash(array $data): string
+    {
+        return hash('sha256', json_encode($data, JSON_THROW_ON_ERROR));
+    }
+
+    private function invoice(int $subscription, int $invoice): object
+    {
+        $i = DB::table('commercial_subscription_invoices')->where('subscription_id', $subscription)->where('id', $invoice)->first();
+        abort_unless($i, 404);
+
+        return $i;
+    }
+
+    private function payable(object $s, object $i): void
+    {
+        abort_unless($s->status !== 'cancelled' && (int) $i->cycle_number === (int) $s->cycle_number + 1 && ! DB::table('commercial_subscription_receipts')->where('invoice_id', $i->id)->exists(), 409, 'The subscription invoice is not payable.');
+    }
+
+    public function checkout(User $actor, int $subscription, int $invoice, string $key, ?int $mandate = null, ?int $policyVersion = null): object
+    {
+        $this->provider();
+
+        return DB::transaction(function () use ($actor, $subscription, $invoice, $key, $mandate, $policyVersion) {
+            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            $s = $this->subscriptions->access($actor, $subscription, true);
+            abort_unless((int) $s->user_id === $actor->id, 404);
+            $i = $this->invoice($subscription, $invoice);
+            $requestKey = $this->hash(['subscription-checkout', $actor->id, $key]);
+            $fingerprint = $this->hash($mandate ? [$subscription, $invoice, config('payments.provider'), $mandate, $policyVersion] : [$subscription, $invoice, config('payments.provider')]);
+            if ($prior = DB::table('subscription_gateway_checkouts')->where('request_key', $requestKey)->first()) {
+                abort_unless(hash_equals($prior->fingerprint, $fingerprint), 409, 'Subscription checkout key payload mismatch.');
+
+                return $prior;
+            }
+            $this->payable($s, $i);
+            abort_if(DB::table('payment_recovery_intents as p')->join('subscription_gateway_checkouts as c', 'c.id', '=', 'p.checkout_id')->where('p.scope', 'subscription')->where('c.invoice_id', $invoice)->whereIn('p.status', ['executing', 'uncertain', 'needs_review'])->exists(), 409, 'Resolve the uncertain invoice operation before replacing a checkout.');
+            $extra = [];
+            if ($mandate) {
+                $m = app(PaymentMandates::class)->method($actor, $mandate, true);
+                app(PaymentMandates::class)->credentials($actor, $mandate, $m->version);
+                $extra = ['mandate_id' => $mandate, 'mandate_version' => $m->version, 'policy_version' => $policyVersion];
+                app(SubscriptionCollections::class)->authorize($actor, (object) ($extra + ['subscription_id' => $subscription]));
+            }
+            abort_unless((int) $i->total_minor > 0, 409, 'Zero-price invoices use the explicit no-funds mock settlement flow.');
+            abort_if(DB::table('subscription_gateway_checkouts')->where('invoice_id', $invoice)->whereIn('status', ['pending', 'authorized', 'action_required'])->exists(), 409, 'Resolve the outstanding checkout before creating a replacement.');
+            $id = DB::table('subscription_gateway_checkouts')->insertGetId($extra + ['subscription_id' => $subscription, 'invoice_id' => $invoice, 'user_id' => $actor->id, 'provider' => config('payments.provider'), 'provider_reference' => 'subscription_checkout_'.Str::ulid(), 'request_key' => $requestKey, 'fingerprint' => $fingerprint, 'currency' => $i->currency, 'amount_minor' => $i->total_minor, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
+
+            return DB::table('subscription_gateway_checkouts')->find($id);
+        }, 3);
+    }
+
+    public function access(User $actor, int $id): object
+    {
+        $q = DB::table('subscription_gateway_checkouts')->where('id', $id);
+        if ($actor->role !== 'admin') {
+            $q->where('user_id', $actor->id);
+        }
+        $c = $q->first();
+        abort_unless($c, 404);
+
+        return $c;
+    }
+
+    public function operate(User $actor, int $id, string $kind, string $key, ?string $token): object
+    {
+        $provider = $this->provider();
+        $initial = $this->access($actor, $id);
+        abort_unless((int) $initial->user_id === $actor->id, 404);
+
+        return app(PaymentRecovery::class)->run('subscription', $initial, $actor->id, $kind, $key, $initial->mandate_id ? [$kind, (int) $initial->amount_minor, $initial->mandate_id, $initial->mandate_version, $initial->policy_version] : [$kind, (int) $initial->amount_minor, $token], fn () => DB::transaction(function () use ($actor, $initial, $kind, $key, $token, $provider) {
+            User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            $s = $this->subscriptions->access($actor, $initial->subscription_id, true);
+            $c = DB::table('subscription_gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
+            abort_unless($c->provider === config('payments.provider'), 409, 'Use the checkout provider configuration.');
+            $requestKey = $this->hash(['subscription-operation', $actor->id, $key]);
+            $fingerprint = $this->hash([$c->id, $kind, $token]);
+            if ($old = DB::table('subscription_gateway_operations')->where('request_key', $requestKey)->first()) {
+                abort_unless(hash_equals($old->fingerprint, $fingerprint), 409, 'Subscription operation key payload mismatch.');
+
+                return $c;
+            }
+            $i = $this->invoice($s->id, $c->invoice_id);
+            $receipt = null;
+            $operationRef = 'subscription_'.$kind.'_'.$requestKey;
+            $values = ['updated_at' => now()];
+            if ($kind === 'authorize') {
+                $this->payable($s, $i);
+                abort_unless($c->status === 'pending', 409, 'Checkout is not pending authorization.');
+                if ($c->mandate_id) {
+                    abort_unless($provider instanceof StripeSandboxProvider, 409);
+                    $credentials = app(SubscriptionCollections::class)->authorize($actor, $c);
+                    $result = $provider->authorizeSaved($c->provider_reference, (int) $c->amount_minor, $c->currency, $credentials['method'], $credentials['customer']);
+                } else {
+                    $result = $provider->authorize($c->provider_reference, (int) $c->amount_minor, $c->currency, $token ?? '');
+                }
+                abort_unless(in_array($result['status'] ?? '', ['authorized', 'failed', 'action_required'], true), 502);
+                $values += $result + ['authorization_expires_at' => now()->addMinutes((int) config('payments.authorization_minutes', 30))];
+            } elseif ($kind === 'capture') {
+                if ($c->status === 'captured') {
+                    return $c;
+                }
+                $this->payable($s, $i);
+                if ($c->mandate_id) {
+                    app(SubscriptionCollections::class)->authorize($actor, $c);
+                }
+                abort_unless($c->status === 'authorized' && $c->authorization_expires_at && now()->lt($c->authorization_expires_at), 409, 'An unexpired subscription authorization is required.');
+                // External identity is stable for the checkout, even after a timeout and a changed client key.
+                $result = $provider->capture($c->provider_reference, (int) $c->amount_minor, 'subscription-capture:'.$c->id);
+                abort_unless(($result['status'] ?? null) === 'captured', 409, 'Subscription capture is not confirmed.');
+                $operationRef = $result['reference'];
+                $receipt = $this->subscriptions->recordProviderReceipt($s->id, $i->id, $operationRef, (int) $c->amount_minor, $c->currency, $c->provider === 'stripe_test' ? 'STRIPE_TEST_CONTRACT' : 'MOCK_PROVIDER', $actor->id);
+                $values['status'] = 'captured';
+            } elseif ($kind === 'cancel') {
+                abort_unless(in_array($c->status, ['pending', 'authorized', 'action_required'], true), 409, 'Only an uncaptured checkout can be cancelled.');
+                if ($c->status !== 'pending') {
+                    $provider->cancel($c->provider_reference, 'subscription-cancel:'.$c->id);
+                }
+                $values['status'] = 'cancelled';
+            } else {
+                abort(422);
+            }
+            DB::table('subscription_gateway_operations')->insert(['checkout_id' => $c->id, 'kind' => $kind, 'request_key' => $requestKey, 'fingerprint' => $fingerprint, 'provider_operation_reference' => $operationRef, 'amount_minor' => $c->amount_minor, 'receipt_id' => $receipt?->id, 'created_at' => now()]);
+            DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update($values);
+
+            return DB::table('subscription_gateway_checkouts')->find($c->id);
+        }, 3));
+    }
+
+    public function authenticate(User $actor, int $id): array
+    {
+        $initial = $this->access($actor, $id);
+        abort_unless($initial->user_id === $actor->id && $initial->mandate_id && preg_match('/^pi_[A-Za-z0-9]+$/D', $initial->provider_reference), 404);
+        $return = app(PaymentMandates::class)->returnUrl();
+        if ($initial->status === 'action_required') {
+            app(PaymentRecovery::class)->run('subscription', $initial, $actor->id, 'authenticate', 'authenticate:'.$id, ['authenticate', (int) $initial->amount_minor, $initial->mandate_id, $initial->mandate_version], fn () => DB::transaction(function () use ($actor, $initial, $return) {
+                User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+                $s = $this->subscriptions->access($actor, $initial->subscription_id, true);
+                $c = DB::table('subscription_gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
+                $this->payable($s, $this->invoice($s->id, $c->invoice_id));
+                $credentials = app(SubscriptionCollections::class)->authorize($actor, $c);
+                $r = (new StripeSandboxProvider)->authenticateSaved($c->provider_reference, (int) $c->amount_minor, $c->currency, $credentials['method'], $credentials['customer'], $return, true);
+                abort_unless(in_array($r['status'] ?? '', ['requires_action', 'requires_capture', 'requires_payment_method'], true), 409);
+                DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update(['status' => match ($r['status']) {
+                    'requires_capture' => 'authorized','requires_payment_method' => 'failed',default => 'action_required'
+                }, 'authorization_expires_at' => now()->addMinutes(30), 'updated_at' => now()]);
+
+                return DB::table('subscription_gateway_checkouts')->find($c->id);
+            }));
+        }
+        $c = $this->access($actor, $id);
+        $credentials = app(PaymentMandates::class)->credentials($actor, $c->mandate_id, $c->mandate_version);
+        $r = (new StripeSandboxProvider)->authenticateSaved($c->provider_reference, (int) $c->amount_minor, $c->currency, $credentials['method'], $credentials['customer'], $return, false);
+        if (in_array($r['status'] ?? '', ['requires_capture', 'requires_payment_method', 'succeeded'], true)) {
+            $type = match ($r['status']) {
+                'requires_capture' => 'payment_intent.amount_capturable_updated',
+                'succeeded' => 'payment_intent.succeeded',
+                default => 'payment_intent.payment_failed',
+            };
+            $event = ['id' => 'sca_inspection_'.hash('sha256', json_encode([$id, $r], JSON_THROW_ON_ERROR)), 'type' => $type, 'data' => ['object' => $r]];
+            $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR));
+            $c = $this->access($actor, $id);
+        }
+        $url = ($r['next_action']['type'] ?? null) === 'redirect_to_url' ? app(PaymentMandates::class)->hostedUrl($r['next_action']['redirect_to_url']['url'] ?? null) : null;
+
+        return ['checkout_id' => $id, 'status' => $c->status, 'hosted_url' => $url, 'hosted_action_supported' => $url !== null, 'evidence' => 'STRIPE_TEST_CONTRACT', 'external_provider_verified' => false];
+    }
+
+    public function stripeWebhook(string $raw, string $signature): array
+    {
+        $this->provider();
+        abort_unless(config('payments.provider') === 'stripe_test', 409);
+        $event = (new StripeSandboxProvider)->verifyWebhook($raw, $signature);
+
+        return $this->applyProviderEvidence($event, $raw);
+    }
+
+    public function recoverFromProvider(object $intent): array
+    {
+        $this->provider();
+        abort_unless(config('payments.provider') === 'stripe_test' && $intent->scope === 'subscription', 409);
+        $checkout = DB::table('subscription_gateway_checkouts')->find($intent->checkout_id);
+        abort_unless($checkout && $checkout->provider === 'stripe_test', 404);
+        $object = (new StripeSandboxProvider)->recoveryEvidence($intent, $checkout);
+        if ($intent->kind === 'cancel') {
+            return app(PaymentRecovery::class)->applyCancellation($intent, $object);
+        }
+        abort_if($intent->kind === 'refund', 409, 'Use subscription credit reconciliation for refunds.');
+        $type = match ($intent->kind) {
+            'refund' => 'refund.updated','capture' => 'payment_intent.succeeded','authorize', 'authenticate' => match ($object['status'] ?? '') {
+                'requires_capture' => 'payment_intent.amount_capturable_updated', 'requires_action' => 'payment_intent.requires_action', default => 'payment_intent.payment_failed'
+            },default => null
+        };
+        abort_unless($type, 409, 'Cancellation requires separate final cancellation evidence.');
+        abort_unless(! in_array($intent->kind, ['authorize', 'authenticate'], true) || in_array($object['status'] ?? '', ['requires_capture', 'requires_payment_method', 'requires_action'], true), 409, 'Authorization outcome is not final.');
+        $object['metadata']['creabiz_checkout'] = $checkout->provider_reference;
+        $object['metadata']['creabiz_recovery'] = (string) $intent->id;
+        $event = ['id' => 'inspection_'.hash('sha256', json_encode([$intent->id, $object], JSON_THROW_ON_ERROR)), 'type' => $type, 'data' => ['object' => $object]];
+
+        return $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR)) + ['provenance' => 'TEST_PROVIDER_GET', 'external_provider_verified' => false];
+    }
+
+    private function applyProviderEvidence(array $event, string $raw): array
+    {
+        $type = $event['type'] ?? '';
+        if (! in_array($type, ['payment_intent.succeeded', 'payment_intent.amount_capturable_updated', 'payment_intent.payment_failed', 'payment_intent.requires_action'], true)) {
+            return ['accepted' => true, 'ignored' => true, 'evidence' => 'STRIPE_TEST_CONTRACT'];
+        }
+        $object = $event['data']['object'] ?? null;
+        abort_unless(is_array($object) && ($object['livemode'] ?? null) === false && is_string($object['id'] ?? null) && preg_match('/^pi_[A-Za-z0-9]+$/D', $object['id']), 422);
+        $reference = $object['id'];
+        $metadata = $object['metadata']['creabiz_checkout'] ?? null;
+        $initial = DB::table('subscription_gateway_checkouts')->where('provider', 'stripe_test')->where(function ($q) use ($reference, $metadata) {
+            $q->where('provider_reference', $reference);
+            if (is_string($metadata)) {
+                $q->orWhere('provider_reference', $metadata);
+            }
+        })->first();
+        abort_unless($initial, 404, 'No matching subscription test checkout.');
+        $eventKey = hash('sha256', 'subscription-stripe:'.$event['id']);
+        $hash = hash('sha256', $raw);
+        try {
+            return DB::transaction(function () use ($initial, $object, $type, $reference, $eventKey, $hash) {
+                $s = DB::table('commercial_subscriptions')->where('id', $initial->subscription_id)->lockForUpdate()->first();
+                $c = DB::table('subscription_gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
+                if ($old = DB::table('subscription_gateway_webhooks')->where('provider_event_id', $eventKey)->first()) {
+                    abort_unless(hash_equals($old->fingerprint, $hash), 409, 'Subscription event payload mismatch.');
+
+                    return ['accepted' => true, 'duplicate' => true, 'evidence' => 'STRIPE_TEST_CONTRACT'];
+                }
+                abort_unless(($object['currency'] ?? null) === strtolower($c->currency) && (int) ($object['amount'] ?? -1) === (int) $c->amount_minor, 409, 'Subscription provider amount or currency mismatch.');
+                if ($c->mandate_id) {
+                    $account = DB::table('payment_customer_accounts')->where('user_id', $c->user_id)->first();
+                    abort_unless($account && ($object['customer'] ?? null) === Crypt::decryptString($account->provider_customer), 409, 'Provider customer does not match this invoice owner.');
+                }
+                $i = $this->invoice($s->id, $c->invoice_id);
+                if ($type === 'payment_intent.succeeded') {
+                    abort_unless(($object['status'] ?? null) === 'succeeded' && (int) ($object['amount_received'] ?? -1) === (int) $c->amount_minor, 409, 'Subscription provider capture is not final.');
+                    $operationRef = $reference.':capture';
+                    $receipt = $this->subscriptions->recordProviderReceipt($s->id, $i->id, $operationRef, (int) $c->amount_minor, $c->currency, 'STRIPE_TEST_CONTRACT', null);
+                    if (! DB::table('subscription_gateway_operations')->where('provider_operation_reference', $operationRef)->exists()) {
+                        DB::table('subscription_gateway_operations')->insert(['checkout_id' => $c->id, 'kind' => 'capture', 'request_key' => hash('sha256', 'subscription-stripe-capture:'.$operationRef), 'fingerprint' => hash('sha256', $operationRef), 'provider_operation_reference' => $operationRef, 'amount_minor' => $c->amount_minor, 'receipt_id' => $receipt->id, 'created_at' => now()]);
+                    }
+                    DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update(['provider_reference' => $reference, 'status' => 'captured', 'updated_at' => now()]);
+                } elseif ($type === 'payment_intent.amount_capturable_updated') {
+                    abort_unless(($object['status'] ?? null) === 'requires_capture' && (int) ($object['amount_capturable'] ?? -1) === (int) $c->amount_minor, 409);
+                    if (in_array($c->status, ['pending', 'action_required', 'authorized'], true)) {
+                        DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update(['provider_reference' => $reference, 'status' => 'authorized', 'authorization_expires_at' => $c->authorization_expires_at ?? now()->addMinutes(30), 'updated_at' => now()]);
+                    }
+                } elseif ($type === 'payment_intent.requires_action') {
+                    abort_unless(($object['status'] ?? null) === 'requires_action', 409);
+                    if (in_array($c->status, ['pending', 'action_required'], true)) {
+                        DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update(['provider_reference' => $reference, 'status' => 'action_required', 'failure_code' => 'authentication_required', 'updated_at' => now()]);
+                    }
+                } elseif (in_array($c->status, ['pending', 'action_required', 'authorized'], true)) {
+                    DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update(['provider_reference' => $reference, 'status' => 'failed', 'failure_code' => 'payment_declined', 'updated_at' => now()]);
+                }
+                app(PaymentRecovery::class)->resolveEvidence('subscription', (int) $c->id, $type === 'payment_intent.succeeded' ? 'capture' : 'authorize', ['id' => $object['id'], 'amount' => (int) $c->amount_minor, 'currency' => $c->currency, 'recovery_id' => $object['metadata']['creabiz_recovery'] ?? null]);
+                if ($type !== 'payment_intent.succeeded') {
+                    app(PaymentRecovery::class)->resolveEvidence('subscription', (int) $c->id, 'authenticate', ['id' => $object['id'], 'amount' => (int) $c->amount_minor, 'currency' => $c->currency]);
+                }
+                DB::table('subscription_gateway_webhooks')->insert(['provider_event_id' => $eventKey, 'fingerprint' => $hash, 'checkout_id' => $c->id, 'kind' => $type, 'created_at' => now()]);
+
+                return ['accepted' => true, 'duplicate' => false, 'evidence' => 'STRIPE_TEST_CONTRACT'];
+            }, 3);
+        } catch (UniqueConstraintViolationException $e) {
+            $old = DB::table('subscription_gateway_webhooks')->where('provider_event_id', $eventKey)->first();
+            if (! $old) {
+                throw $e;
+            }
+            abort_unless(hash_equals($old->fingerprint, $hash), 409, 'Subscription event payload mismatch.');
+
+            return ['accepted' => true, 'duplicate' => true, 'evidence' => 'STRIPE_TEST_CONTRACT'];
+        }
+    }
+
+    public function reconcile(User $actor, int $id): array
+    {
+        $this->provider();
+        $c = $this->access($actor, $id);
+        $receipt = DB::table('commercial_subscription_receipts')->where('invoice_id', $c->invoice_id)->first();
+        $observation = $c->provider === 'stripe_test' && str_starts_with($c->provider_reference, 'pi_') ? (new StripeSandboxProvider)->inspect($c->provider_reference) : null;
+        $matched = $c->status === 'captured' ? $receipt && (int) $receipt->amount_minor === (int) $c->amount_minor && $receipt->currency === $c->currency : ! $receipt;
+        if ($observation) {
+            $matched = $matched && $observation['currency'] === $c->currency && $observation['captured_minor'] === ($receipt ? (int) $receipt->amount_minor : 0) && $observation['refunded_minor'] === (int) DB::table('subscription_credits')->where('invoice_id', $c->invoice_id)->sum('amount_minor');
+        }
+
+        return ['checkout' => $c, 'receipt' => $receipt, 'observation' => $observation, 'matched' => (bool) $matched, 'evidence' => $c->provider === 'stripe_test' ? 'STRIPE_TEST_CONTRACT' : 'MOCK_PROVIDER', 'external_provider_verified' => false, 'real_payment_processed' => false];
+    }
+}

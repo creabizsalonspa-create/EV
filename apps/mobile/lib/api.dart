@@ -1,7 +1,24 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:math';
 import 'session_vault.dart';
+
+/// Non-secret operation identity; retained only for the current explicit form.
+String operationKey() {
+  final bytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  final h = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
+}
+
+class PrivateDocument {
+  final Uint8List bytes;
+  final String mime;
+  const PrivateDocument(this.bytes, this.mime);
+}
 
 class ApiException implements Exception {
   final int status;
@@ -30,13 +47,55 @@ class Station {
   final String source;
   final int powerKw;
   final bool reservable;
+  final String? reservationPolicy;
+  final int? mappingId, evseNumber, connectorNumber;
+  final double? distanceKm;
+  final double? latitude, longitude;
+  final bool favorite;
   Station.fromJson(Map<String, dynamic> json)
-    : id = json['id'] as int,
+    : latitude = double.tryParse('${json['latitude']}'),
+      longitude = double.tryParse('${json['longitude']}'),
+      id = json['id'] as int,
       name = json['name'] as String,
       connector = json['connector_type'] as String,
       source = json['evidence'] as String,
       powerKw = json['power_kw'] as int,
-      reservable = json['reservable'] == true;
+      reservable = json['reservable'] == true,
+      reservationPolicy = json['reservation_policy'] as String?,
+      distanceKm = (json['distance_km'] as num?)?.toDouble(),
+      favorite = json['is_favorite'] == true,
+      mappingId = null,
+      evseNumber = null,
+      connectorNumber = null;
+  Station.forConnector(Station parent, Map<String, dynamic> option)
+    : latitude = parent.latitude,
+      longitude = parent.longitude,
+      favorite = parent.favorite,
+      distanceKm = parent.distanceKm,
+      id = parent.id,
+      name = parent.name,
+      connector = option['connector_type'] as String,
+      source = parent.source,
+      powerKw = option['max_power_kw'] as int,
+      reservable = option['reservable'] == true,
+      reservationPolicy = 'canonical',
+      mappingId = option['id'] as int,
+      evseNumber = option['evse_number'] as int,
+      connectorNumber = option['connector_number'] as int;
+  Station.withFavorite(Station parent, this.favorite)
+    : latitude = parent.latitude,
+      longitude = parent.longitude,
+      id = parent.id,
+      name = parent.name,
+      connector = parent.connector,
+      source = parent.source,
+      powerKw = parent.powerKw,
+      reservable = parent.reservable,
+      reservationPolicy = parent.reservationPolicy,
+      mappingId = parent.mappingId,
+      evseNumber = parent.evseNumber,
+      connectorNumber = parent.connectorNumber,
+      distanceKm = parent.distanceKm;
 }
 
 /// Native-only same-origin session client; persistence is opt-in and encrypted.
@@ -50,6 +109,12 @@ class EvApi {
   bool _remembered = false;
   int _epoch = 0;
   Future<void> _vaultTail = Future.value();
+  // Capture the authenticated context across secure-storage or UI awaits.
+  bool Function() sessionFence() {
+    final generation = _epoch;
+    return () => generation == _epoch;
+  }
+
   bool get canRemember => base.scheme == 'https' && vault != null;
   bool get remembered => _remembered;
 
@@ -217,6 +282,102 @@ class EvApi {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
+  }) => _request(path, method: method, body: body, query: query);
+
+  Future<dynamic> uploadDocument(
+    String path, {
+    required String kind,
+    required Uint8List bytes,
+    required String mime,
+    required String key,
+  }) {
+    if (!['trade_license', 'identity', 'agreement'].contains(kind) ||
+        !['application/pdf', 'image/png', 'image/jpeg'].contains(mime) ||
+        bytes.isEmpty ||
+        bytes.length > 5 * 1024 * 1024)
+      throw const ApiException(422, 'Select a PDF, PNG or JPEG up to5 MB.');
+    if (!RegExp(r'^[a-zA-Z0-9-]{1,100}$').hasMatch(key))
+      throw ArgumentError('Invalid operation identity');
+    final boundary = 'ev' + operationKey().replaceAll('-', '');
+    final extension = {
+      'application/pdf': 'pdf',
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+    }[mime];
+    final body = BytesBuilder(copy: false)
+      ..add(
+        utf8.encode(
+          '--$boundary\r\nContent-Disposition: form-data; name="kind"\r\n\r\n$kind\r\n--$boundary\r\nContent-Disposition: form-data; name="idempotency_key"\r\n\r\n$key\r\n--$boundary\r\nContent-Disposition: form-data; name="document"; filename="document.$extension"\r\nContent-Type: $mime\r\n\r\n',
+        ),
+      )
+      ..add(bytes)
+      ..add(utf8.encode('\r\n--$boundary--\r\n'));
+    return _request(
+      path,
+      method: 'POST',
+      uploadBytes: body.takeBytes(),
+      uploadType: 'multipart/form-data; boundary=$boundary',
+    );
+  }
+
+  Future<dynamic> uploadCaseEvidence(
+    int caseId, {
+    required String kind,
+    required Uint8List bytes,
+    required String mime,
+    required String key,
+  }) {
+    if (caseId < 1 ||
+        ![
+          'service_record',
+          'receipt',
+          'correspondence',
+          'other',
+        ].contains(kind) ||
+        !['application/pdf', 'image/png', 'image/jpeg'].contains(mime) ||
+        bytes.isEmpty ||
+        bytes.length > 4 * 1024 * 1024 ||
+        !RegExp(r'^[a-zA-Z0-9-]{1,100}$').hasMatch(key))
+      throw const ApiException(422, 'Unsupported private evidence.');
+    final boundary = 'ev' + operationKey().replaceAll('-', '');
+    final extension = {
+      'application/pdf': 'pdf',
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+    }[mime];
+    final body = BytesBuilder(copy: false)
+      ..add(
+        utf8.encode(
+          '--$boundary\r\nContent-Disposition: form-data; name="kind"\r\n\r\n$kind\r\n--$boundary\r\nContent-Disposition: form-data; name="consent"\r\n\r\n1\r\n--$boundary\r\nContent-Disposition: form-data; name="idempotency_key"\r\n\r\n$key\r\n--$boundary\r\nContent-Disposition: form-data; name="document"; filename="evidence.$extension"\r\nContent-Type: $mime\r\n\r\n',
+        ),
+      )
+      ..add(bytes)
+      ..add(utf8.encode('\r\n--$boundary--\r\n'));
+    return _request(
+      'commercial/cases/$caseId/evidence',
+      method: 'POST',
+      uploadBytes: body.takeBytes(),
+      uploadType: 'multipart/form-data; boundary=$boundary',
+    );
+  }
+
+  Future<PrivateDocument> downloadFinancialAnalytics(
+    Map<String, String> query,
+  ) async =>
+      await _request('financial/analytics/pdf', query: query, binary: true)
+          as PrivateDocument;
+
+  Future<PrivateDocument> downloadDocument(String path) async =>
+      await _request(path, binary: true) as PrivateDocument;
+
+  Future<dynamic> _request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+    Uint8List? uploadBytes,
+    String? uploadType,
+    bool binary = false,
   }) async {
     if (!RegExp(r'^[a-z0-9/-]+$').hasMatch(path)) {
       throw ArgumentError('Invalid API path');
@@ -232,16 +393,26 @@ class EvApi {
             .resolve('/api/$path')
             .replace(queryParameters: query.isEmpty ? null : query),
       );
+      if (epoch != _epoch) {
+        req.abort(const ApiException(409, 'Session changed.'));
+        throw const ApiException(409, 'Session changed.');
+      }
       req.followRedirects = false;
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      req.headers.contentType = ContentType.json;
+      req.headers.contentType = uploadType == null
+          ? ContentType.json
+          : ContentType.parse(uploadType);
       req.cookies.addAll(
         _cookies.values.where(
           (cookie) => !cookie.secure || base.scheme == 'https',
         ),
       );
       if (_csrf != null) req.headers.set('X-CSRF-TOKEN', _csrf!);
-      if (body != null) req.write(jsonEncode(body));
+      if (uploadBytes != null) {
+        req.contentLength = uploadBytes.length;
+        req.add(uploadBytes);
+      } else if (body != null)
+        req.write(jsonEncode(body));
       final response = await req.close().timeout(const Duration(seconds: 25));
       if (epoch != _epoch) {
         await response.drain<void>();
@@ -256,10 +427,19 @@ class EvApi {
           _cookies[cookie.name] = cookie;
         }
       }
-      final text = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(const Duration(seconds: 25));
+      final chunks = BytesBuilder(copy: false);
+      await for (final chunk in response.timeout(const Duration(seconds: 25))) {
+        if (chunks.length + chunk.length >
+            (binary ? 5 * 1024 * 1024 : 8 * 1024 * 1024))
+          throw const ApiException(502, 'Response exceeds the supported size.');
+        chunks.add(chunk);
+      }
+      final bytes = chunks.takeBytes();
+      // Logout/forget may run while a response body is streaming. Recheck
+      // before returning private data or scheduling a rotated-cookie save.
+      if (epoch != _epoch) {
+        throw const ApiException(409, 'Session changed.');
+      }
       if ([401, 419].contains(response.statusCode)) {
         _cookies.clear();
         _csrf = null;
@@ -277,6 +457,14 @@ class EvApi {
           response.statusCode >= 200 &&
           response.statusCode < 300)
         await rememberSession();
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      if (binary && response.statusCode >= 200 && response.statusCode < 300) {
+        final mime = response.headers.contentType?.mimeType;
+        if (!['application/pdf', 'image/png', 'image/jpeg'].contains(mime))
+          throw const ApiException(502, 'Unsupported private document type.');
+        return PrivateDocument(bytes, mime!);
+      }
+      final text = utf8.decode(bytes, allowMalformed: true);
       if (response.statusCode == 204) return null;
       dynamic data;
       try {
@@ -339,15 +527,70 @@ class EvApi {
     }
   }
 
+  Future<bool> setFavorite(int station, bool desired) async {
+    final data = await request(
+      'favorites/$station',
+      method: desired ? 'PUT' : 'DELETE',
+    );
+    if (data is! Map || data['is_favorite'] is! bool)
+      throw const ApiException(502, 'Unreadable preference response.');
+    return data['is_favorite'] as bool;
+  }
+
+  Future<ApiPage<Station>> favorites({int page = 1}) async {
+    final epoch = _epoch;
+    var result = ApiPage<Station>.fromJson(
+      await request('favorites', query: {'page': '$page'}),
+      Station.fromJson,
+    );
+    if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+    // A removal on another client may have removed the last page. Only GETs
+    // are repeated, once, using the authoritative last-page number.
+    if (result.items.isEmpty && result.current > result.last) {
+      result = ApiPage<Station>.fromJson(
+        await request('favorites', query: {'page': '${result.last}'}),
+        Station.fromJson,
+      );
+    }
+    if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+    return result;
+  }
+
   Future<ApiPage<Station>> catalog({
     CatalogFilter filter = const CatalogFilter(),
     int page = 1,
+    bool includeFavorites = false,
   }) async {
+    final epoch = _epoch;
     final data = await request(
       'stations',
       query: {...filter.query, 'page': '$page'},
     );
-    return ApiPage.fromJson(data, Station.fromJson);
+    var result = ApiPage<Station>.fromJson(data, Station.fromJson);
+    if (includeFavorites && result.items.isNotEmpty) {
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      final query = <String, String>{};
+      for (var i = 0; i < result.items.length; i++)
+        query['station_ids[$i]'] = '${result.items[i].id}';
+      final status = await request('favorites/status', query: query);
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      if (status is! Map ||
+          status['favorite_station_ids'] is! List ||
+          !(status['favorite_station_ids'] as List).every(
+            (v) => v is int && v > 0,
+          ))
+        throw const ApiException(502, 'Unreadable preference response.');
+      final saved = (status['favorite_station_ids'] as List).toSet();
+      result = ApiPage(
+        items: result.items
+            .map((s) => Station.withFavorite(s, saved.contains(s.id)))
+            .toList(),
+        current: result.current,
+        last: result.last,
+        total: result.total,
+      );
+    }
+    return result;
   }
 
   Future<List<Station>> stations() async {
@@ -371,17 +614,24 @@ class CatalogFilter {
   final String connector;
   final String country;
   final int? minimumPower;
+  final double? latitude, longitude, radiusKm;
   const CatalogFilter({
     this.search = '',
     this.connector = '',
     this.country = '',
     this.minimumPower,
+    this.latitude,
+    this.longitude,
+    this.radiusKm,
   });
   Map<String, String> get query => {
     if (search.trim().isNotEmpty) 'q': search.trim(),
     if (connector.isNotEmpty) 'connector_type': connector,
     if (country.trim().isNotEmpty) 'country': country.trim().toUpperCase(),
     if (minimumPower != null) 'min_power_kw': '$minimumPower',
+    if (latitude != null) 'latitude': '$latitude',
+    if (longitude != null) 'longitude': '$longitude',
+    if (radiusKm != null) 'radius_km': '$radiusKm',
   };
 }
 

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Destructive test operations are confined to this script's disposable DB.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/../../../.." && pwd)
+review_id="ev-connector-tests-${RANDOM}-$$"
+review_image="ev-connector-pg-tests:$review_id"
+review_directory=$(mktemp -d /tmp/ev-finance-tests.XXXXXX)
+evidence=${EV_CONNECTOR_EVIDENCE_DIR:-"$root/artifacts/connectors-postgres"}
+mkdir -p "$evidence"
+cleanup() {
+  docker rm -fv "${review_id}-php" "$review_id" >/dev/null 2>&1 || true
+  docker network rm "$review_id" >/dev/null 2>&1 || true
+  docker image rm "$review_image" >/dev/null 2>&1 || true
+  rm -rf "$review_directory"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+export BUILDX_CONFIG=${BUILDX_CONFIG:-/tmp/ev-finance-buildx}
+mkdir -p "$BUILDX_CONFIG"
+python3 - "$review_directory/database.env" "$review_id" <<'PY'
+import os,secrets,sys
+secret=secrets.token_hex(32)
+fd=os.open(sys.argv[1],os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+with os.fdopen(fd,'w') as f:
+ f.write('\n'.join(['APP_ENV=testing','DB_CONNECTION=pgsql','DB_HOST='+sys.argv[2],'DB_PORT=5432','DB_DATABASE=ev_finance_review','DB_USERNAME=finance','DB_PASSWORD='+secret,'DB_URL=','POSTGRES_DB=ev_finance_review','POSTGRES_USER=finance','POSTGRES_PASSWORD='+secret,'CACHE_STORE=array','SESSION_DRIVER=array','MAIL_MAILER=array','QUEUE_CONNECTION=sync','BCRYPT_ROUNDS=4'])+'\n')
+PY
+# The CA bundle is trusted installation material, not a credential. TLS and apt
+# package signatures remain enabled; the test runtime uses an exact image digest.
+docker build --secret id=host_ca,src=/etc/ssl/certs/ca-certificates.crt \
+  -t "$review_image" "$root/services/business-api/tests/Postgres"
+docker network create "$review_id" >/dev/null
+docker run -d --name "$review_id" --network "$review_id" \
+  --env-file "$review_directory/database.env" \
+  postgis/postgis:16-3.5@sha256:94146ac37bc61e2322f88016056c5920729cb8c64c8542ed590af8fc2abdac07 >/dev/null
+review_ready=false
+for attempt in {1..40}; do
+  if docker exec "$review_id" pg_isready -h 127.0.0.1 -U finance -d ev_finance_review >/dev/null 2>&1; then review_ready=true; break; fi
+  sleep 1
+done
+[[ "$review_ready" == true ]] || { echo 'Disposable finance PostgreSQL did not become ready.' >&2; exit 1; }
+runner=(docker run --rm --name "${review_id}-php" --network "$review_id" --user "$(id -u):$(id -g)" --env-file "$review_directory/database.env" -v "$root:/app" -w /app/services/business-api "$review_image" php vendor/bin/phpunit)
+"${runner[@]}" --filter='OcpiAuthorizationBoundaryTest|StationFavoriteTest|CatalogGeoTest|ConnectorTopologyTest|ReservationLifecycleTest|CommandReconciliationTest|ChargerAdmissionTest|ChargingOperationsTest|SourceConsumerTest|CanonicalTopologyRollbackTest' --testdox | tee "$evidence/postgres-topology.txt"
+"${runner[@]}" --filter='OcpiAuthorizationConcurrencyTest|ConnectorReservationConcurrencyTest|ReservationLifecycleConcurrencyTest|CommandReconciliationConcurrencyTest|ChargerAdmissionConcurrencyTest' tests/Postgres --testdox | tee "$evidence/postgres-connector-concurrency.txt"

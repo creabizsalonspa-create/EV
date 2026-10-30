@@ -1,8 +1,10 @@
 const assert = require("node:assert/strict");
+const { BusinessClient } = require("./helpers/business-client.cjs");
 const fs = require("node:fs");
 const { randomUUID, createHash, createHmac } = require("node:crypto");
 const { promisify } = require("node:util");
-const execFile = promisify(require("node:child_process").execFile);
+const { execFile: execFileCallback, spawn } = require("node:child_process");
+const execFile = promisify(execFileCallback);
 const { graph, poll, SimulatedCharger } = require("./helpers/csms-local.cjs");
 const values = Object.fromEntries(
   fs
@@ -14,60 +16,29 @@ const values = Object.fromEntries(
 const eventSecret = values.CSMS_EVENT_SECRET?.replace(/^['"]|['"]$/g, "");
 assert(eventSecret?.length >= 32, "Run scripts/charging-bridge-setup first.");
 const base = "http://127.0.0.1:8000";
-class BusinessClient {
-  constructor() {
-    this.cookies = new Map();
-    this.csrf = null;
-    this.user = null;
-  }
-  async request(path, method = "GET", body) {
-    const r = await fetch(base + "/api/" + path, {
-      method,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        Cookie: [...this.cookies].map(([k, v]) => k + "=" + v).join("; "),
-        ...(this.csrf ? { "X-CSRF-TOKEN": this.csrf } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
-    });
-    for (const c of r.headers.getSetCookie()) {
-      const kv = c.split(";")[0],
-        n = kv.indexOf("=");
-      this.cookies.set(kv.slice(0, n), kv.slice(n + 1));
-    }
-    const data = r.status === 204 ? null : await r.json();
-    assert(
-      r.ok,
-      method +
-        " " +
-        path +
-        " failed (" +
-        r.status +
-        "): " +
-        (data?.message || "Request rejected"),
-    );
-    return data;
-  }
-  async register(role) {
-    this.csrf = (await this.request("csrf")).token;
-    const email = "protocol-" + role + "-" + randomUUID() + "@example.test";
-    this.user = await this.request("register", "POST", {
-      name: "Protocol QA " + role,
-      email,
-      password: randomUUID() + "aA9!",
-    });
-    this.csrf = (await this.request("csrf")).token;
-    if (role !== "customer")
-      await execFile("./scripts/php", [
-        "artisan",
-        "platform:role",
-        email,
-        role,
-      ]);
-    return this;
-  }
+const useConsumer = process.env.EV_CSMS_CONSUMER === "1";
+const useDaemon = useConsumer && process.env.EV_CSMS_DAEMON === "1";
+function startWorker(link) {
+  const child = spawn(
+    "./scripts/csms-consume",
+    ["--interval=1", "--link=" + link.id],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  child.stdout.on("data", () => {});
+  child.stderr.on("data", () => {});
+  return { child, done: new Promise((resolve) => child.once("exit", resolve)) };
+}
+async function stopWorker(worker) {
+  if (!worker) return;
+  worker.child.kill("SIGTERM");
+  await worker.done;
+}
+async function consume(link) {
+  await execFile("./scripts/csms-consume", ["--once", "--link=" + link.id]);
+}
+async function latestSession(client, id) {
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  return (await client.request("simulations")).data.find((s) => s.id === id);
 }
 async function signedEvent(payload, expectedStatus = 200) {
   const raw = JSON.stringify(payload),
@@ -94,6 +65,7 @@ async function signedEvent(payload, expectedStatus = 200) {
   );
   return json;
 }
+const canonicalTargets = process.env.EV_CANONICAL_TARGETS === "1";
 function event(session, station, version, tx, type, sequence, meter, at) {
   return {
     event_id:
@@ -109,6 +81,12 @@ function event(session, station, version, tx, type, sequence, meter, at) {
     sequence,
     meter_wh: meter,
     occurred_at: at,
+    ...(canonicalTargets
+      ? {
+          source_evse_number: version === "1.6" ? 0 : 5,
+          source_connector_number: 7,
+        }
+      : {}),
   };
 }
 async function sourceTransaction(station, tx) {
@@ -148,10 +126,18 @@ async function session(version, actors) {
   const fixture = JSON.parse(
     (
       await execFile("./scripts/php", [
-        "artisan",
-        "platform:charging-fixture",
-        String(customer.user.id),
-        String(station.id),
+        ...(canonicalTargets
+          ? [
+              "tests/Fixtures/protocol-canonical.php",
+              String(station.id),
+              String(customer.user.id),
+            ]
+          : [
+              "artisan",
+              "platform:charging-fixture",
+              String(customer.user.id),
+              String(station.id),
+            ]),
       ])
     ).stdout.trim(),
   );
@@ -188,11 +174,16 @@ async function session(version, actors) {
     },
   );
   const charger = new SimulatedCharger(version, name);
-  let transactionId;
+  let transactionId,
+    worker = useDaemon ? startWorker(pending.link) : null;
   try {
     await charger.connect();
     await charger.boot();
-    await charger.status();
+    await charger.status(
+      "Available",
+      canonicalTargets ? 7 : 1,
+      canonicalTargets ? 5 : 1,
+    );
     const auth = await charger.call(
       "Authorize",
       version === "1.6"
@@ -218,10 +209,14 @@ async function session(version, actors) {
       version === "1.6" ? remote.payload.idTag : remote.payload.idToken.idToken,
       tag,
     );
+    assert.equal(
+      version === "1.6" ? remote.payload.connectorId : remote.payload.evseId,
+      canonicalTargets ? (version === "1.6" ? 7 : 5) : 1,
+    );
     const startedAt = new Date().toISOString();
     if (version === "1.6") {
       const response = await charger.call("StartTransaction", {
-        connectorId: 1,
+        connectorId: canonicalTargets ? 7 : 1,
         idTag: tag,
         meterStart: 1000,
         timestamp: startedAt,
@@ -240,7 +235,10 @@ async function session(version, actors) {
           chargingState: "Charging",
           remoteStartId: pending.start_command.id,
         },
-        evse: { id: 1, connectorId: 1 },
+        evse: {
+          id: canonicalTargets ? 5 : 1,
+          connectorId: canonicalTargets ? 7 : 1,
+        },
         idToken: { idToken: tag, type: "Central" },
         meterValue: [
           {
@@ -281,11 +279,23 @@ async function session(version, actors) {
       body: JSON.stringify(first),
     });
     assert.equal(invalid.status, 401);
-    assert.equal((await signedEvent(first)).outcome, "applied");
+    if (useDaemon)
+      await poll(
+        async () =>
+          (await latestSession(customer, sessionId))?.status === "charging",
+        "continuous source start",
+        20000,
+      );
+    else if (useConsumer) await consume(pending.link);
+    assert.equal(
+      (await signedEvent(first)).outcome,
+      useConsumer ? "duplicate" : "applied",
+    );
+    await signedEvent({ ...first, meter_wh: first.meter_wh + 1 }, 409);
     const periodicAt = new Date().toISOString();
     if (version === "1.6")
       await charger.call("MeterValues", {
-        connectorId: 1,
+        connectorId: canonicalTargets ? 7 : 1,
         transactionId: Number(transactionId),
         meterValue: [
           {
@@ -308,7 +318,10 @@ async function session(version, actors) {
         triggerReason: "MeterValuePeriodic",
         seqNo: 1,
         transactionInfo: { transactionId, chargingState: "Charging" },
-        evse: { id: 1, connectorId: 1 },
+        evse: {
+          id: canonicalTargets ? 5 : 1,
+          connectorId: canonicalTargets ? 7 : 1,
+        },
         meterValue: [
           {
             timestamp: periodicAt,
@@ -348,10 +361,27 @@ async function session(version, actors) {
       Number(reading.value),
       middle.timestamp,
     );
-    const applied = await signedEvent(meterEvent);
-    assert.equal(applied.energy_wh, 1500);
-    assert.equal((await signedEvent(meterEvent)).outcome, "duplicate");
-    await signedEvent({ ...meterEvent, meter_wh: 2600 }, 409);
+    if (useConsumer) {
+      if (useDaemon) {
+        await poll(
+          async () =>
+            (await latestSession(customer, sessionId))?.energy_wh === 1500,
+          "continuous source meter",
+          20000,
+        );
+        await stopWorker(worker);
+        worker = startWorker(pending.link); // Actual daemon restart keeps its durable cursor.
+      } else {
+        await consume(pending.link);
+        await consume(pending.link);
+      }
+      assert.equal((await latestSession(customer, sessionId)).energy_wh, 1500);
+    } else {
+      const applied = await signedEvent(meterEvent);
+      assert.equal(applied.energy_wh, 1500);
+      assert.equal((await signedEvent(meterEvent)).outcome, "duplicate");
+      await signedEvent({ ...meterEvent, meter_wh: 2600 }, 409);
+    }
     const stop = await customer.request(
       "charging-sessions/" + sessionId + "/csms-stop",
       "POST",
@@ -408,7 +438,10 @@ async function session(version, actors) {
           chargingState: "Idle",
           stoppedReason: "Remote",
         },
-        evse: { id: 1, connectorId: 1 },
+        evse: {
+          id: canonicalTargets ? 5 : 1,
+          connectorId: canonicalTargets ? 7 : 1,
+        },
         meterValue: [
           {
             timestamp: endedAt,
@@ -453,10 +486,27 @@ async function session(version, actors) {
       Number(endReading.value),
       final.endTime,
     );
-    const ended = await signedEvent(ending);
-    assert.equal(ended.status, "stopped");
-    assert.equal(ended.energy_wh, 2500);
-    assert.equal((await signedEvent(ending)).outcome, "duplicate");
+    if (useConsumer) {
+      if (useDaemon)
+        await poll(
+          async () =>
+            (await latestSession(customer, sessionId))?.status === "stopped",
+          "continuous source end",
+          20000,
+        );
+      else {
+        await consume(pending.link);
+        await consume(pending.link);
+      }
+      const result = await latestSession(customer, sessionId);
+      assert.equal(result.status, "stopped");
+      assert.equal(result.energy_wh, 2500);
+    } else {
+      const ended = await signedEvent(ending);
+      assert.equal(ended.status, "stopped");
+      assert.equal(ended.energy_wh, 2500);
+      assert.equal((await signedEvent(ending)).outcome, "duplicate");
+    }
     const invoices = await customer.request("finance/invoices");
     const matches = invoices.data.filter(
       (i) => i.charging_session_id === sessionId,
@@ -524,14 +574,22 @@ async function session(version, actors) {
       assert.equal(row.status, "stopped");
       assert.equal(row.energy_wh, 2500);
       assert.equal(row.total_minor, 313);
+      assert.equal(row.start_command_status, "source_observed");
+      assert.equal(row.stop_command_status, "source_observed");
     }
     console.log(
       JSON.stringify({
         evidence: "SIMULATED_CSMS_BUSINESS",
+        canonical_targets: canonicalTargets,
+        continuous_consumer: useConsumer,
+        daemon_restart_verified: useDaemon,
         protocol: version,
         station: name,
         session_id: sessionId,
         source_transaction_id: transactionId,
+        source_outcome_reconciled: true,
+        command_acceptance_verified: false,
+
         current_slot_reservation: "operator_test_fixture",
         authenticated_event_inbox: true,
         source: "CitrineOS GraphQL transaction and persisted meters",
@@ -551,6 +609,7 @@ async function session(version, actors) {
       }),
     );
   } finally {
+    await stopWorker(worker);
     await charger.close();
   }
 }

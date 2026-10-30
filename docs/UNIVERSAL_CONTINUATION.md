@@ -1,10 +1,12 @@
 # Continue the complete platform
 
+Current owner directive: Agent2 is sole active full-project maintainer, including finance, until the owner explicitly reassigns it. Read MASTER_AGENT2_CONTINUATION.md before historical split instructions. Current canonical topology source and exact verification are in PROGRESS/QA/CANONICAL_TOPOLOGY; do not recreate it. Continue unused booking/check-in lifecycle, then production OCPP/OCPI, maps, full applications and complete financial/commercial requirements.
+
 All authorized accounts are full-stack maintainers. Continue existing verified work; do not restart or permanently divide backend/frontend ownership. Preserve all changes and push each verified checkpoint. No background execution is promised after a task stops.
 
 ## Resume task
 
-> Fetch every remote branch and inspect current commits/PRs in creabizsalonspa-create/EV. Safely continue development/universal-integration (or its integrated successor), retaining other account changes. Read all project Markdown and current PROGRESS/QA/FRONTEND_INTEGRATION/CHARGING/FINANCE/VENDOR_OPS/OCPI docs. Canonical native client is apps/mobile; do not regenerate duplicate apps. Complete the continuous authenticated CSMS consumer and client routing for linked sessions next, then PostgreSQL finance concurrency validation and the remaining full commercial requirements. Run all affected backend/browser/native/OCPP/finance/OCPI/security tests, fix failures, preserve evidence and commit/push each verified step. Never force-push or claim simulation as hardware/PSP/partner verification. Keep missing implementation separate from genuinely external prerequisites.
+> Fetch every remote branch and inspect current commits/PRs in creabizsalonspa-create/EV. Safely continue development/fullstack-continuation (safe successor of development/universal-integration), retaining other account changes. Read all project Markdown and current PROGRESS/QA/FRONTEND_INTEGRATION/CHARGING/FINANCE/VENDOR_OPS/OCPI docs. Canonical native client is apps/mobile; do not regenerate duplicate apps. Continue the verified source consumer and linked-session/invoice clients with safe outbox provisioning/dispatch/reconciliation and full vendor/connector workflows; preserve the passing PostgreSQL finance concurrency tests and the remaining full commercial requirements. Run all affected backend/browser/native/OCPP/finance/OCPI/security tests, fix failures, preserve evidence and commit/push each verified step. Never force-push or claim simulation as hardware/PSP/partner verification. Keep missing implementation separate from genuinely external prerequisites.
 
 ```sh
 cd /workspace/EV
@@ -32,6 +34,13 @@ npm ci --cache /tmp/ev-npm-cache
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:frontend
 EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:localization
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:web-session
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:vendor
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:roaming
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:ocpi-provisioning
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:invoices
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:tariffs
+EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:managed-gate
 node tests/charging-session.cjs
 node tests/charging-business.cjs
 ```
@@ -40,12 +49,30 @@ These tests create synthetic local data; never target production. Setup must pre
 
 Native: use pinned Flutter3.35.7/sourceadc901062556672b4138e18a4dc62a4be8f4b3c2 per apps/mobile/README.md, not the retired experimental SDK/client. `apps/mobile/tool/bootstrap` enforces lock, analyzes and runs tests. Set writable PUB_CACHE/XDG_CONFIG_HOME/ANALYZER_STATE_LOCATION_OVERRIDE without changing HOME. For actual local API coverage, run `flutter test --dart-define=EV_NATIVE_SMOKE_URL=http://127.0.0.1:8000 test/live_api_test.dart --reporter expanded` from apps/mobile. Keep default skipped live test separate from the opted-in pass.
 
-`tests/Postgres/run-finance` is the isolated PostgreSQL runner. Read its instructions, ensure enough disk and use only disposable resources; prior local storage/readiness failures do not count as passed. Prefer a hosted Linux runner if local capacity is insufficient. No global Docker prune or existing database removal.
+`tests/Postgres/run-finance` is the isolated PostgreSQL runner. Read its instructions, ensure enough disk and use only disposable resources; current local and hosted integrated finance/concurrency suites pass. Historical storage/readiness failures are retained as earlier evidence, not the current result. Prefer a hosted Linux runner if capacity is insufficient. No global Docker prune or existing database removal.
 
 ## Unfinished priorities
 
-1. Continuous authenticated event/command adapter, explicit CSMS-linked client controls, terminal failure/reconciliation and operational retry policies. The current passing end-to-end driver forwards actual source observations but is not a daemon.
-2. PostgreSQL immutable migrations/concurrent finance proof; complete connector-level booking and maintenance/company gates.
-3. Full existing web/native UX for the mounted finance/vendor/OCPI APIs and staff personas. Preserve themes/RTL/private views and the shared backend.
+1. Extend the verified simulator-only continuous authenticated source observer and linked client controls into safe production command provisioning/dispatch/reconciliation and terminal failure policies. The daemon now passes both protocol restart tests; do not recreate it.
+2. Complete connector-level booking and maintenance/company gates, preserving passing PostgreSQL immutable migrations/concurrent finance proof.
+3. Continue full native company/staff/KYC and operator roaming UX, secure admin connection onboarding and complete finance workflows. Web company/staff/inventory, web/native read-only partner catalogs and web OCPI operations are implemented. Preserve themes/RTL/private views and the shared backend.
 4. 2FA/privacy, PSP sandbox/webhooks/disputes, authoritative subscriptions/loyalty/settlements/fleet billing and all remaining PRD features.
 5. Premium visual/screenshot/accessibility/device/restore/load/security/staging QA; real release-ready APK/AAB/IPA and final source package only after implementation/verification. Hardware/merchant/operator/signing/legal prerequisites remain explicit.
+
+Current integrated branch preserves b0c43be and frontend through 0fe9e75. Source observer: ./scripts/csms-consume --interval=2 after charging setup + bridge setup. It must restart after restore. Both-protocol daemon restart simulation and isolated PostgreSQL finance/concurrency are now verified locally; current evidence and remaining gates are in PROGRESS/QA. Do not resume retired duplicate native paths from historical CONTINUATION/PROJECT_STATUS; apps/mobile is canonical.
+
+Read REQUIREMENT_STATUS.md for the complete PRD bullet mapping and the connector-identity/maintenance findings. The owner’s MASTER_CONTINUATION.md remains the standing objective; no claim of complete commercial software or inactive background execution is made.
+
+Native CI now uses macos-15/Xcode16.4/iOS18.5 and passed at 890b081. Do not infer latest iOS26/store readiness from this baseline. Web generation isolation and pending logout use no persistent credentials; delayed private responses must never repopulate a changed account. Keep the dedicated web-session ordering tests in CI.
+
+Current active-agent ownership is exclusive per NON_FINANCE_CONTINUATION.md: Agent 1 financial/commercial logic and backend/web/admin finance; Agent 2 EV/non-financial platform and native API consumption. Do not duplicate the other workstream. Native inventory source cabac72 passed hosted Android/iOS + iPhone TLS/Keychain integration with a fresh run-owned simulator, plus Linux actual-Laravel inventory acceptance. Later checks are revision-specific.
+
+## Latest coordinated integration
+
+PR #5 merged finance PR #4 through `7de6c4e` while preserving Agent 2 EV work through `41e350c`. Merge `0444ed1` matches the green source candidate `613534e`; source platform/PG runs40509969233/40509962767 passed. Integrated native build/device run40508611589 passed at `ccb38fa`, and native source remains identical. Follow current PROGRESS/QA and exclusive ownership in NON_FINANCE_CONTINUATION; older candidate notes are historical. Exact next EV work is explicit connector/EVSE mapping and parallel booking, source/token/operations recovery, complete OCPI, maps and native company/Admin parity. Finance APIs/logic remain owned by Agent 1; only consume them in Flutter.
+
+Additional checks: `services/business-api/tests/Postgres/run-connectors`; `EV_CHROMIUM_PATH=/usr/bin/chromium npm run test:connectors`; `node tests/native-topology.cjs` with the documented Flutter environment; `EV_CANONICAL_TARGETS=1 EV_CSMS_CONSUMER=1 EV_CSMS_DAEMON=1 node tests/charging-business.cjs`. Run auth-bearing suites sequentially. Setup applies the additive topology migration; do not force rollback parallel history.
+
+## Latest Agent2 software continuation
+
+Read PROGRESS/QA plus CANONICAL_TOPOLOGY, RESERVATION_LIFECYCLE and COMMAND_RECOVERY. These now implement explicit EVSE capacity/source mapping, parallel admission, self-reported arrival, unused simulator expiry and proof-backed command outcome reconciliation. Do not recreate them or treat source_observed as command/hardware acceptance. First reported local SessionBridge/mobile workflow edits were clean at ccd5e2e and preserved. Current sole ownership is governed by MASTER_AGENT2_CONTINUATION; earlier financial splits are historical. Exact next unimplemented slices: production OCPP credential/token provisioning and no-evidence triage/reconnect policy; partner-authorized OCPI interoperability/commands; interactive maps and remaining customer/vendor/Admin/commercial workflows from full requirements. Preserve all merged finance business rules. No automatic retry of an uncertain start, real hardware connection or real payment without authorized safe staging.

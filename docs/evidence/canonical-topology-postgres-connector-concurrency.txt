@@ -1,0 +1,16 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+....                                                                4 / 4 (100%)
+
+Time: 00:16.131, Memory: 44.50 MB
+
+Connector Reservation Concurrency (Tests\Postgres\ConnectorReservationConcurrency)
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #0
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #1
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #2
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #3
+
+OK (4 tests, 52 assertions)

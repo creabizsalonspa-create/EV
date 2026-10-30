@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'invoice.dart';
 import 'strings.dart';
 import 'action_form.dart';
+import 'charging_operations.dart';
 
 class SessionsView extends StatefulWidget {
   final EvApi api;
@@ -54,6 +56,32 @@ class _SessionsViewState extends State<SessionsView> {
     }
   }
 
+  Future<void> reconcile(int id) async {
+    if (!await confirmAction(
+          context,
+          'reconcileEvidence',
+          'reconcileConsent',
+        ) ||
+        !mounted)
+      return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await widget.api.request(
+        'charging-sessions/$id/reconcile',
+        method: 'POST',
+        body: {},
+      );
+      if (mounted) await load(page: data?.current ?? 1);
+    } catch (e) {
+      if (mounted) failed(e);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> meter(Map<String, dynamic> row) async {
     final initial = (row['energy_wh'] as num).toInt();
     final result = await apiForm(
@@ -85,13 +113,42 @@ class _SessionsViewState extends State<SessionsView> {
     if (result == null) return;
   }
 
-  Future<void> stop(int id) async {
-    if (!await confirmAction(context, 'stopSimulation', 'stopConsent') ||
+  Future<void> stop(int id, {bool linked = false}) async {
+    if (!await confirmAction(
+          context,
+          linked ? 'stopCsms' : 'stopSimulation',
+          linked ? 'stopCsmsConsent' : 'stopConsent',
+        ) ||
         !mounted)
       return;
     setState(() => busy = true);
     try {
-      await widget.api.request('simulations/$id/stop', method: 'POST');
+      await widget.api.request(
+        linked ? 'charging-sessions/$id/csms-stop' : 'simulations/$id/stop',
+        method: 'POST',
+      );
+      if (mounted) await load(page: data?.current ?? 1);
+    } catch (e) {
+      failed(e);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> cancelPending(Map<String, dynamic> row) async {
+    if (!await confirmAction(
+          context,
+          'cancelUndispatched',
+          'cancelUndispatchedConsent',
+        ) ||
+        !mounted)
+      return;
+    setState(() => busy = true);
+    try {
+      await widget.api.request(
+        'reservations/${row['reservation_id']}',
+        method: 'DELETE',
+      );
       if (mounted) await load(page: data?.current ?? 1);
     } catch (e) {
       failed(e);
@@ -109,6 +166,21 @@ class _SessionsViewState extends State<SessionsView> {
         padding: const EdgeInsets.all(16),
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
+          if (widget.role == 'vendor')
+            TextButton(
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ChargingOperationsView(
+                          api: widget.api,
+                          onExpired: widget.onExpired,
+                        ),
+                      ),
+                    ),
+              child: Text(opsText(context, 'title')),
+            ),
+
           Text(
             s.t('sessions'),
             style: Theme.of(context).textTheme.headlineLarge,
@@ -134,7 +206,15 @@ class _SessionsViewState extends State<SessionsView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Chip(label: Text(s.t('simulated'))),
+                    Chip(
+                      label: Text(
+                        s.t(
+                          row['csms_linked'] == true
+                              ? 'csmsSimulation'
+                              : 'simulated',
+                        ),
+                      ),
+                    ),
                     Text(
                       s.t('session', {
                         'id': row['id'],
@@ -152,11 +232,78 @@ class _SessionsViewState extends State<SessionsView> {
                         'currency': row['currency'],
                       }),
                     ),
+                    if (row['csms_linked'] == true) Text(s.t('sourceControls')),
+                    if (row['csms_linked'] == true) ...[
+                      if (row['start_command_status'] != null)
+                        Text(
+                          s.t('transportStart', {
+                            'status': s.t(row['start_command_status']),
+                          }),
+                        ),
+                      if (row['stop_command_status'] != null)
+                        Text(
+                          s.t('transportStop', {
+                            'status': s.t(row['stop_command_status']),
+                          }),
+                        ),
+                      if ([
+                        row['start_command_status'],
+                        row['stop_command_status'],
+                      ].contains('source_observed'))
+                        Text(s.t('sourceOutcome')),
+                      if (![
+                            "cancelled",
+                            "expired_unstarted",
+                          ].contains(row['status']) &&
+                          [
+                            row['start_command_status'],
+                            row['stop_command_status'],
+                          ].any(
+                            (v) => [
+                              "pending",
+                              "dispatching",
+                              "outcome_unknown",
+                              "submitted",
+                              "rejected",
+                            ].contains(v),
+                          ))
+                        TextButton(
+                          onPressed: busy
+                              ? null
+                              : () => reconcile(row['id'] as int),
+                          child: Text(s.t('reconcileEvidence')),
+                        ),
+                    ],
+                    if (row['start_admission_blocked'] == true)
+                      Text(s.t('startAdmissionBlocked')),
+                    if (widget.role == 'customer' &&
+                        row['can_cancel_before_dispatch'] == true)
+                      OutlinedButton(
+                        onPressed: busy ? null : () => cancelPending(row),
+                        child: Text(s.t('cancelUndispatched')),
+                      ),
+                    if (row['status'] == 'stopped')
+                      TextButton(
+                        onPressed: busy
+                            ? null
+                            : () => Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) => InvoicePage(
+                                    api: widget.api,
+                                    sessionId: row['id'] as int,
+                                    onExpired: widget.onExpired,
+                                  ),
+                                ),
+                              ),
+                        child: Text(s.t('invoice')),
+                      ),
                     if (row['status'] == 'charging')
                       Wrap(
                         spacing: 8,
                         children: [
-                          if (widget.role == 'vendor')
+                          if (widget.role == 'vendor' &&
+                              row['csms_linked'] != true)
                             FilledButton(
                               onPressed: busy ? null : () => meter(row),
                               child: Text(s.t('submitMeter')),
@@ -164,8 +311,17 @@ class _SessionsViewState extends State<SessionsView> {
                           OutlinedButton(
                             onPressed: busy
                                 ? null
-                                : () => stop(row['id'] as int),
-                            child: Text(s.t('stopSimulation')),
+                                : () => stop(
+                                    row['id'] as int,
+                                    linked: row['csms_linked'] == true,
+                                  ),
+                            child: Text(
+                              s.t(
+                                row['csms_linked'] == true
+                                    ? 'stopCsms'
+                                    : 'stopSimulation',
+                              ),
+                            ),
                           ),
                         ],
                       ),

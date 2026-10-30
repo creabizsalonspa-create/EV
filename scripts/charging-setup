@@ -7,11 +7,19 @@ import secrets,os
 p=Path('services/csms/charging/.env')
 if not p.exists():
  fd=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
- with os.fdopen(fd,'w') as f:f.write('CHARGING_HASURA_ADMIN_SECRET='+secrets.token_hex(32)+'\n')
+ os.close(fd)
+values=dict(line.split('=',1) for line in p.read_text().splitlines() if '=' in line and not line.startswith('#'))
+if not values.get('CHARGING_HASURA_ADMIN_SECRET','').strip('"\''):
+ with p.open('a') as f:f.write('\nCHARGING_HASURA_ADMIN_SECRET='+secrets.token_hex(32)+'\n')
 PY
 docker compose --env-file services/csms/.env --env-file services/csms/charging/.env -f services/csms/compose.yaml -f services/csms/charging/compose.yaml up -d charging-graphql
 for attempt in {1..45};do
  if curl --fail --silent http://127.0.0.1:8095/healthz >/dev/null;then
+  if docker inspect ev-business-api >/dev/null 2>&1; then
+   if ! docker inspect ev-business-api --format '{{json .NetworkSettings.Networks}}' | python3 -c 'import json,sys; sys.exit(0 if "ev-csms_default" in json.load(sys.stdin) else 1)'; then
+    docker network connect ev-csms_default ev-business-api
+   fi
+  fi
   node scripts/charging-metadata.cjs
   exit 0
  fi

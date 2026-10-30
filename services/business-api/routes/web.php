@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ChargerCommandController;
+use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\PlatformController as P;
+use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\SupportController;
 use App\Models\ChargingSession;
@@ -98,4 +100,15 @@ require __DIR__.'/ocpi.php';
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start']);
     Route::post('/api/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop']);
+    Route::post('/api/charging-sessions/{session}/reconcile', [CsmsSessionController::class, 'reconcile']);
 });
+
+Route::get('/api/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');
+
+Route::post('/api/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/charging_operations.php');
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/favorites.php');
+
+Route::prefix('api')->group(__DIR__.'/discovery.php');

@@ -1,0 +1,11 @@
+
+   PASS  Tests\Feature\CanonicalTopologyRollbackTest
+  ✓ disposable forward downgrade forward preserves legacy binding and r… 0.79s  
+  ✓ configured resources refuse downgrade before any schema change with… 0.22s  
+  ✓ configured resources refuse downgrade before any schema change with… 0.20s  
+  ✓ configured resources refuse downgrade before any schema change with… 0.18s  
+  ✓ configured resources refuse downgrade before any schema change with… 0.21s  
+
+  Tests:    5 passed (39 assertions)
+  Duration: 1.68s
+

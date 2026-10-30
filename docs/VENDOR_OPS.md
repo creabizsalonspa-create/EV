@@ -52,3 +52,32 @@ Staff permission is independent of the User.role field. A customer-role user who
 ## Evidence
 
 `./scripts/php artisan test --filter=VendorOpsTest --compact` passes eight meaningful tests covering applicant/admin transitions, evidence encryption and private downloads, tenant separation, staff consent/scope/revocation/reinvitation, hierarchy integrity, truthful capability labels, expired/suspended company gates, protected edits and invalid files/permissions. Exact latest assertion count is in the test output; full platform/real KYC/hardware acceptance is not claimed.
+
+## Connected web workflow and renewal
+
+The shared authenticated web workspace now covers the mounted company/evidence/review/staff/site/charger/connector/maintenance APIs, with pagination, EN/AR, actual permission hints and customer-role staff personas. Private evidence fetches validate binary MIME/size, trigger attachment downloads and revoke temporary blob URLs; no public storage URL or plaintext license number is persisted in the browser. Upload responses are consumed before replacing forms. All mutations retain server CSRF and authorization checks.
+
+GET company/list now includes capabilities (owner/reviewer, company/inventory read/write, private evidence, inventory_operational). These are UI hints; the server still rechecks active membership and company validity for operations. Pending staff invitations expose only company ID/name/country needed for consent, never license/evidence fields.
+
+Admin changes_requested is allowed from approved or suspended to support audited renewal; owner edits/resubmission and admin reapproval remain required. License operational validity is evaluated at the configured country calendar end of day, not server midnight. Current code/tests supersede the earlier API-only and renewal-incomplete checkpoint. Legal KYC, AV/storage/retention review, actual provisioning and connector reservation linkage remain open.
+
+## Catalog linking and charging policy
+
+The site form offers scoped paginated/searched simulator station choices without translating user names. Selecting a station copies its country/timezone/coordinates; an empty selection preserves an independent inventory site. Linking immediately gates new bookings/starts until one matching simulator connector is configured. Company approval, current local-date license, maintenance/type/power and binding protocol/connector-1 are enforced. Multiple targets are conservatively blocked until source mappings exist. Stop/finalization are never disabled by company maintenance. Legacy unlinked inventory and full native company workflows remain separate continuation work.
+
+## Native inventory maintenance
+
+`apps/mobile/lib/vendor_inventory.dart` consumes company/site/charger/connector pages and existing PATCH maintenance. Owners and consented customer-role staff retain the same backend scopes; derived read/write/operational hints do not replace current server authorization. Native does not provision equipment or infer live availability. Read-only traversal, confirmation/reason, uncertain-write refresh, expiry/revocation/disposal and Arabic phone layout are covered by unit/widget tests and a separate actual-Laravel client acceptance test. Native full KYC/company/staff and inventory creation are still separate unfinished workflows.
+
+## Canonical topology continuation
+
+See [CANONICAL_TOPOLOGY.md](CANONICAL_TOPOLOGY.md) for new scoped EVSE/mapping APIs, connector choices, immutable source/booking snapshots, parallel capacity and protocol proof. Legacy contracts/history remain; direct-managed sources are simulation-tested only. Current owner handoff is MASTER_AGENT2_CONTINUATION.md, which supersedes historical account restrictions.
+
+## Secure charger admission and no-source case operations
+
+See [CHARGER_ADMISSION.md](CHARGER_ADMISSION.md) for new scoped APIs, owner/Admin web and vendor Flutter controls, TLS/mTLS simulation evidence, credential/version/replay safeguards, source inspection and remaining production boundaries. Financial truth remains Agent1-owned.
+
+
+## Native company operations continuation — 28 October 2026
+
+See [NATIVE_VENDOR_OPERATIONS.md](NATIVE_VENDOR_OPERATIONS.md): current web/Flutter creation POSTs use optional stable UUID idempotency; company GET adds private submission-readiness hints; staff acceptance now requires the displayed `expected_version`. Migration/client rollout is coordinated and old unversioned acceptance fails safely. Native company/KYC/staff/inventory workflows use the existing APIs and permissions, with bounded private multipart/binary transport and in-app previews. This is internal/synthetic acceptance only.

@@ -1,0 +1,116 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+................................................................. 65 / 87 ( 74%)
+......................                                            87 / 87 (100%)
+
+Time: 00:14.143, Memory: 60.50 MB
+
+Commercial Finance (Tests\Feature\CommercialFinance)
+ ✔ Customer request vendor review credit note and private report
+ ✔ Rejection releases reserved amount and validation
+ ✔ External provider invoice cannot use ledger only simulation after config switch
+
+Finance (Tests\Feature\Finance)
+ ✔ Integer rounding tariff snapshot and invoice are immutable and reconcile
+ ✔ Database rejects direct financial record mutation
+ ✔ Legacy session does not pick up a new tariff retroactively
+ ✔ Partial payments idempotency credit notes and full refund reconcile
+ ✔ Overpayment overrefund and idempotency payload mismatch are rejected
+ ✔ Unfinished or inconsistent sessions cannot be invoiced
+ ✔ Finance http authorization and tenant scope
+ ✔ Invoice history filters preserve tenant scope and validate dates and literal prefix
+ ✔ Only vendor owner or admin can publish tariff and vendor cannot set commission
+ ✔ Vendor pricing retains admin commission and publish retries are payload bound
+ ✔ Pricing station selector is role scoped and requires matching currency configuration
+ ✔ Numeric form tariffs keep integer contract and snapshot comparisons
+ ✔ Money allocator has no negative or lost minor units
+ ✔ Production never processes simulated money
+
+Finance Money (Tests\Unit\FinanceMoney)
+ ✔ Every small refund preserves units component bounds and full reversal
+ ✔ Money math uses half up rounding and rejects overflow
+ ✔ Invalid components are rejected
+
+Managed Charging Gate (Tests\Feature\ManagedChargingGate)
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #0
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #1
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #2
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #3
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #4
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #5
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #6
+ ✔ Maintenance blocks new admission but preserves replay and safe stop
+ ✔ Provably undispatched start can cancel without faking source end and releases binding
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #0
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #1
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #2
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #3
+ ✔ Bound admission and dispatch recheck company policy window and target
+ ✔ Expiry is exactly at window end idempotent audited and releases binding without money or http
+ ✔ Expiry never closes admitted or unknown dispatch with data set #0
+ ✔ Expiry never closes admitted or unknown dispatch with data set #1
+ ✔ Expiry never closes admitted or unknown dispatch with data set #2
+ ✔ Expiry never closes admitted or unknown dispatch with data set #3
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #0
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #1
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #2
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #3
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #4
+ ✔ Expiry command validation feature gate and scheduler registration
+ ✔ Bounded scheduled scan advances past reconciliation records and restarts safely
+
+Payment Gateway (Tests\Feature\PaymentGateway)
+ ✔ Checkout authorize capture replay refund reconcile and exact ledger
+ ✔ Failed authorizations expiry cancel and competing checkout balance
+ ✔ Signed webhooks exact replay conflicts and invalid signatures
+ ✔ Customer cases admin approval credit notes replays and tenant isolation
+ ✔ Production and unconfigured provider fail closed and raw card fields are not accepted
+
+Settlement (Tests\Feature\Settlement)
+ ✔ Full capture commission reservation approval and payout simulation reconcile
+ ✔ Unpaid partial and unmatured invoices are not payable
+ ✔ Refund after reservation blocks approval and rejection releases revised funds
+ ✔ Post settlement refund debt is carried forward and offset against next earnings
+ ✔ Tenant isolation currency and admin adjustment dual control
+ ✔ Statements return configured three digit precision and reject mixed history
+ ✔ Precision migration backfills existing adjustments without changing economics
+ ✔ Precision backfill rejects ambiguous currency before schema change
+ ✔ Simulated payout is disabled in production
+ ✔ Pending refund or dispute holds earnings and approved settlement can be rejected
+
+Stripe Sandbox (Tests\Feature\StripeSandbox)
+ ✔ Stripe manual authorization capture refund and signed callback use immutable ledger
+ ✔ Signed provider capture can recover a lost response once without another network call
+ ✔ Live secret and live webhook are rejected without network calls
+ ✔ Provider declines action required unconfirmed refunds and unexpected live response
+ ✔ Cancellation and transport uncertainty do not invent success
+
+Subscription (Tests\Feature\Subscription)
+ ✔ Enrollment payment entitlements and replays are connected
+ ✔ Payment failure retry and period expiry never grant unpaid features
+ ✔ Upgrades and downgrades are scheduled with frozen current cycle prices
+ ✔ Cancellation resume and due command do not charge or reenable cancelled subscription
+ ✔ Tenant isolation and audience apply to every subscription operation
+ ✔ Plan versioning retirement and validation preserve historical terms
+ ✔ Database guards invoice receipt plan and event immutability
+ ✔ Yearly billing leap day and production mock guard
+ ✔ Month end anniversary is restored after short months
+
+Vendor Ops (Tests\Feature\VendorOps)
+ ✔ Catalog station picker is scoped to company writers and unlinked owned simulators
+ ✔ Onboarding requires private documents and explicit admin review
+ ✔ Kyc documents are not public or visible to other tenants or staff
+ ✔ Staff requires consent scope and cannot grant itself permissions
+ ✔ Inventory hierarchy is tenant scoped and does not enable live control
+ ✔ Unapproved or suspended company cannot create inventory
+ ✔ Company edits are locked after submission and expired license blocks inventory
+ ✔ Reinviting revoked staff requires fresh acceptance before new scope
+ ✔ Arbitrary files and invalid permissions are rejected
+ ✔ Client capabilities follow staff consent and revocation without private evidence
+ ✔ Expired approved license can be corrected only after audited review request
+ ✔ License operational gate uses the configured country calendar boundary
+
+OK (87 tests, 5768 assertions)

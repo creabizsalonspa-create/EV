@@ -16,6 +16,80 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'savedStations': 'Saved stations',
+    'noSavedStations': 'No saved stations yet.',
+    'saveFavorite': 'Save station',
+    'removeFavorite': 'Remove saved station',
+    'favoriteUnconfirmed':
+        'Preference could not be confirmed. Refresh before trying again. Saving does not verify availability or enable charging.',
+
+    'nearbySearch': 'Search near coordinates',
+    'nearbyPrivacy':
+        'Enter a search centre and radius. No device location is accessed. Search coordinates are sent to the service, not saved as a preference. Distance is straight-line, not driving distance; availability remains unverified.',
+    'nearbyLatitude': 'Latitude (−90 to 90)',
+    'nearbyLongitude': 'Longitude (−180 to 180)',
+    'radiusKm': 'Radius in km (1–200)',
+    'invalidNearby': 'Enter all three values within the displayed ranges.',
+    'straightDistance': '{km} km straight-line distance',
+
+    'startAdmissionBlocked':
+        'This start has not been dispatched because admission is unavailable. Refresh or cancel the undispatched reservation.',
+    'cancelUndispatched': 'Cancel undispatched start',
+    'cancelUndispatchedConsent':
+        'Cancel this reservation and its start only if dispatch has not begun? Dispatched or uncertain commands require reconciliation.',
+
+    'managedUnavailable':
+        'Reservations and new starts are temporarily unavailable for this managed simulator.',
+    'pricing': 'Simulated pricing',
+    'tariffDisclaimer':
+        'Pricing is limited to simulator stations. Real charging and payments are not enabled.',
+    'tariffSnapshot':
+        'New versions apply at session start. Existing session quotes and invoices stay unchanged.',
+    'refreshPricing': 'Refresh pricing history',
+    'pricePerKwh': 'Price per kWh ({currency})',
+    'taxPercent': 'Tax (%) · 0–100',
+    'commissionRetained':
+        'The administrator commission policy is retained automatically.',
+    'publishPricing': 'Publish pricing version',
+    'invalidExactPrice':
+        'Use an exact non-negative price within the displayed limits and currency precision.',
+    'pricingUncertain':
+        'Refresh pricing history before submitting again. The previous version may already have been saved.',
+    'pricingRegionMissing':
+        'Configure the matching country/currency before publishing pricing.',
+    'noPricingVersions': 'No pricing versions published.',
+    'noPricingStations': 'No owned simulator stations available for pricing.',
+    'pricingVersion': 'Pricing version {id}',
+    'pricingPercentages': 'Tax: {tax}% · Commission: {commission}%',
+    'pricingMaximum': 'Maximum price: {amount} {currency} per kWh',
+
+    'filterInvoices': 'Filter invoices',
+    'invoiceHistory': 'Invoice history',
+    'invoicePrefix': 'Invoice number prefix',
+    'invoiceFrom': 'From (UTC, YYYY-MM-DD)',
+    'invoiceTo': 'Through (UTC, YYYY-MM-DD)',
+    'invalidInvoicePrefix': 'Use letters, numbers and hyphens.',
+    'invalidCurrency': 'Use a three-letter currency code.',
+    'invalidDate': 'Enter a valid date as YYYY-MM-DD.',
+    'invalidDateRange': 'End date must be on or after the start date.',
+    'noInvoices': 'No invoices match these filters.',
+    'viewInvoice': 'View invoice',
+    'payments': 'Simulated collections',
+    'refunds': 'Simulated refunds',
+    'noTransactions': 'No transactions recorded.',
+    'invoiceTransaction': '{amount} minor units {currency} · {time}',
+
+    'roaming': 'Partner locations',
+    'roamingDisclaimer':
+        'Unverified partner-reported locations. Reservations, remote charging and payments are unavailable here.',
+    'roamingEmpty': 'No published partner locations.',
+    'roamingCoordinates': 'Coordinates: {value}',
+    'roamingUpdated': 'Source updated (UTC): {value}',
+    'roamingReceived': 'Received (UTC): {value}',
+    'roamingEvse': 'EVSE: {value}',
+    'roamingReported': 'Partner-reported status: {value}',
+    'roamingUnknown': 'Live availability is unknown.',
+
     'brand': 'Crea-Biz EV',
     'tagline': 'Your next charge, connected.',
     'discover': 'Discover',
@@ -55,6 +129,7 @@ class EvStrings {
     'saved': 'Saved',
     'cancel': 'Cancel',
     'close': 'Close',
+    'licenses': 'Open source licenses',
     'serviceUnavailable': 'The service is unavailable. Please contact support.',
     'genericError':
         'Unable to complete this request. Refresh before trying again.',
@@ -133,6 +208,9 @@ class EvStrings {
     'vendor': 'Operator',
     'confirmed': 'Confirmed',
     'cancelled': 'Cancelled',
+    'expired_unstarted': 'Expired before charging started',
+    'expired_unused':
+        'Reservation window ended without a linked charging session',
     'charging': 'Charging',
     'stopped': 'Stopped',
     'open': 'Open',
@@ -211,8 +289,126 @@ class EvStrings {
     "forgetSignIn": "Forget saved sign-in",
     "sessionForgotten":
         "Saved sign-in removed. Your current session remains open.",
+    "startCsms": "Request CSMS simulator start",
+    "stopCsms": "Request CSMS stop",
+    "stopCsmsConsent":
+        "Queue a stop request and wait for the source final meter. No physical charger or payment is connected.",
+    "csmsSimulation": "CSMS SIMULATION",
+    "recoveryReview": "Review recovery case",
+    "recoveryOpen": "Open recovery case",
+    "recoveryState": "Recovery state",
+    "recoveryNote": "Operator recovery note",
+    "recoveryNoteLength": "Enter at least10 characters.",
+    "recoveryInvestigating": "Investigating",
+    "recoveryAwaiting": "Awaiting source evidence",
+    "recoveryResolved": "Resolved with source evidence",
+    "prepareAdmission": "Prepare charger admission",
+    "admissionIdentity": "Charger identity",
+    "admissionPin": "Certificate SHA-256 (optional)",
+    "source_observed": "Source outcome observed",
+    "submitted": "Submitted to transport",
+    "dispatching": "Dispatching",
+    "outcome_unknown": "Outcome unknown",
+    "rejected": "Rejected by transport",
+    "transportStart": "Start transport: {status}",
+    "transportStop": "Stop transport: {status}",
+    "sourceOutcome":
+        "Authenticated simulator evidence shows the requested state. Command acceptance and physical charging are not verified.",
+    "reconcileEvidence": "Reconcile received evidence",
+    "reconcileConsent":
+        "Check already received authenticated evidence only? This sends no charger command and does not fetch new source events.",
+    "sourceControls":
+        "Source meters are authoritative. Pending and stopping states require source confirmation; refresh to check.",
+    "pending_start": "Waiting for source start",
+    "stopping": "Waiting for source stop",
+    "invoice": "Simulated invoice",
+    "invoiceDisclaimer":
+        "Simulation document and accounting only. This is not a legal tax invoice or a real payment.",
+    "invoiceLine": "{label}: {amount} minor units {currency}",
+    "subtotal": "Subtotal",
+    "tax": "Tax",
+    "total": "Total",
+    "paid": "Simulated collected",
+    "refunded": "Simulated refunded",
+    "due": "Amount due",
+    "ledgerBalanced": "Ledger balanced",
+    "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'savedStations': 'المحطات المحفوظة',
+    'noSavedStations': 'لا توجد محطات محفوظة بعد.',
+    'saveFavorite': 'حفظ المحطة',
+    'removeFavorite': 'إزالة المحطة المحفوظة',
+    'favoriteUnconfirmed':
+        'تعذر تأكيد التفضيل. حدّث قبل المحاولة مجددًا. الحفظ لا يؤكد التوفر ولا يتيح الشحن.',
+
+    'nearbySearch': 'البحث قرب إحداثيات',
+    'nearbyPrivacy':
+        'أدخل مركز البحث ونطاقه. لا يتم الوصول إلى موقع الجهاز. تُرسل إحداثيات البحث إلى الخدمة ولا تُحفظ كتفضيل. المسافة بخط مستقيم وليست مسافة قيادة؛ التوفر غير مؤكد.',
+    'nearbyLatitude': 'خط العرض (−90 إلى 90)',
+    'nearbyLongitude': 'خط الطول (−180 إلى 180)',
+    'radiusKm': 'النطاق بالكيلومتر (1–200)',
+    'invalidNearby': 'أدخل القيم الثلاث ضمن النطاقات المحددة.',
+    'straightDistance': '{km} كم بخط مستقيم',
+
+    'startAdmissionBlocked':
+        'لم يتم إرسال طلب البدء لأن شروط السماح غير متاحة. حدّث الحالة أو ألغِ الحجز الذي لم يُرسل طلبه.',
+    'cancelUndispatched': 'إلغاء طلب البدء غير المرسل',
+    'cancelUndispatchedConsent':
+        'هل تريد إلغاء الحجز وطلب البدء إذا لم يبدأ الإرسال؟ الأوامر المرسلة أو غير المؤكدة تتطلب المطابقة.',
+
+    'managedUnavailable':
+        'الحجوزات وبدء الجلسات الجديدة غير متاحة مؤقتاً لهذه المحطة التجريبية المُدارة.',
+    'pricing': 'التسعير التجريبي',
+    'tariffDisclaimer':
+        'التسعير متاح للمحطات التجريبية فقط. الشحن الفعلي والمدفوعات غير مفعلة.',
+    'tariffSnapshot':
+        'تسري الإصدارات الجديدة عند بدء الجلسة. تظل أسعار الجلسات والفواتير السابقة دون تغيير.',
+    'refreshPricing': 'تحديث سجل التسعير',
+    'pricePerKwh': 'السعر لكل كيلوواط ساعة ({currency})',
+    'taxPercent': 'الضريبة (%) · ٠–١٠٠',
+    'commissionRetained':
+        'يتم الاحتفاظ تلقائياً بسياسة العمولة التي حددها المسؤول.',
+    'publishPricing': 'نشر إصدار التسعير',
+    'invalidExactPrice':
+        'أدخل سعراً دقيقاً غير سالب ضمن الحدود والدقة العشرية المعروضة للعملة.',
+    'pricingUncertain':
+        'حدّث سجل التسعير قبل الإرسال مجدداً. قد يكون الإصدار السابق قد حُفظ بالفعل.',
+    'pricingRegionMissing':
+        'يجب إعداد الدولة والعملة المتطابقتين قبل نشر التسعير.',
+    'noPricingVersions': 'لم يتم نشر إصدارات تسعير.',
+    'noPricingStations': 'لا توجد محطات تجريبية تابعة لك متاحة للتسعير.',
+    'pricingVersion': 'إصدار التسعير {id}',
+    'pricingPercentages': 'الضريبة: {tax}% · العمولة: {commission}%',
+    'pricingMaximum': 'الحد الأقصى للسعر: {amount} {currency} لكل كيلوواط ساعة',
+
+    'filterInvoices': 'تصفية الفواتير',
+    'invoiceHistory': 'سجل الفواتير',
+    'invoicePrefix': 'بداية رقم الفاتورة',
+    'invoiceFrom': 'من (UTC، YYYY-MM-DD)',
+    'invoiceTo': 'حتى (UTC، YYYY-MM-DD)',
+    'invalidInvoicePrefix': 'استخدم الحروف والأرقام والشرطات.',
+    'invalidCurrency': 'استخدم رمز العملة من ثلاثة أحرف.',
+    'invalidDate': 'أدخل تاريخاً صالحاً بصيغة YYYY-MM-DD.',
+    'invalidDateRange': 'يجب ألا يسبق تاريخ النهاية تاريخ البداية.',
+    'noInvoices': 'لا توجد فواتير تطابق هذه المرشحات.',
+    'viewInvoice': 'عرض الفاتورة',
+    'payments': 'التحصيلات التجريبية',
+    'refunds': 'المبالغ المستردة التجريبية',
+    'noTransactions': 'لا توجد معاملات مسجلة.',
+    'invoiceTransaction': '{amount} وحدة صغرى {currency} · {time}',
+
+    'roaming': 'مواقع شبكات التجوال',
+    'roamingDisclaimer':
+        'مواقع واردة من الشريك وغير متحقق منها. الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.',
+    'roamingEmpty': 'لا توجد مواقع منشورة للشركاء.',
+    'roamingCoordinates': 'الإحداثيات: {value}',
+    'roamingUpdated': 'تحديث المصدر (UTC): {value}',
+    'roamingReceived': 'تاريخ الاستلام (UTC): {value}',
+    'roamingEvse': 'نقطة الشحن: {value}',
+    'roamingReported': 'الحالة حسب الشريك: {value}',
+    'roamingUnknown': 'التوافر المباشر غير معروف.',
+
     'brand': 'كريا بيز للشحن',
     'tagline': 'رحلتك التالية تبدأ بشحنة.',
     'discover': 'اكتشف',
@@ -252,6 +448,7 @@ class EvStrings {
     'saved': 'تم الحفظ',
     'cancel': 'إلغاء',
     'close': 'إغلاق',
+    'licenses': 'تراخيص المصادر المفتوحة',
     'serviceUnavailable': 'الخدمة غير متاحة. يرجى التواصل مع الدعم.',
     'genericError': 'تعذر إكمال الطلب. حدّث البيانات قبل المحاولة مجدداً.',
     'offline': 'تعذر الاتصال. تحقق من اتصالك وحاول مجدداً.',
@@ -328,6 +525,8 @@ class EvStrings {
     'vendor': 'مشغل',
     'confirmed': 'مؤكد',
     'cancelled': 'ملغى',
+    'expired_unstarted': 'انتهى الحجز قبل بدء الشحن',
+    'expired_unused': 'انتهى موعد الحجز دون جلسة شحن مرتبطة',
     'charging': 'جارٍ الشحن',
     'stopped': 'متوقف',
     'open': 'مفتوح',
@@ -404,6 +603,50 @@ class EvStrings {
     "forgetSignIn": "نسيان تسجيل الدخول المحفوظ",
     "sessionForgotten":
         "أُزيل تسجيل الدخول المحفوظ. جلستك الحالية ما زالت مفتوحة.",
+    "startCsms": "طلب بدء محاكاة CSMS",
+    "stopCsms": "طلب إيقاف CSMS",
+    "stopCsmsConsent":
+        "إرسال طلب إيقاف وانتظار قراءة العداد النهائية من المصدر. لا يوجد شاحن فعلي أو دفع متصل.",
+    "csmsSimulation": "محاكاة CSMS",
+    "recoveryReview": "مراجعة حالة الاسترداد",
+    "recoveryOpen": "فتح حالة استرداد",
+    "recoveryState": "حالة الاسترداد",
+    "recoveryNote": "ملاحظة الاسترداد التشغيلي",
+    "recoveryNoteLength": "أدخل10 أحرف على الأقل.",
+    "recoveryInvestigating": "قيد التحقيق",
+    "recoveryAwaiting": "بانتظار أدلة المصدر",
+    "recoveryResolved": "عولجت بأدلة المصدر",
+    "prepareAdmission": "إعداد قبول الشاحن",
+    "admissionIdentity": "هوية الشاحن",
+    "admissionPin": "بصمة الشهادة SHA-256 (اختياري)",
+    "source_observed": "رُصدت النتيجة في المصدر",
+    "submitted": "قُدم للنقل",
+    "dispatching": "جارٍ الإرسال",
+    "outcome_unknown": "النتيجة غير معروفة",
+    "rejected": "رفضه النقل",
+    "transportStart": "نقل طلب البدء: {status}",
+    "transportStop": "نقل طلب الإيقاف: {status}",
+    "sourceOutcome":
+        "تُظهر أدلة المحاكي الموثّقة الحالة المطلوبة. لم يُتحقق من قبول الأمر أو الشحن الفعلي.",
+    "reconcileEvidence": "مطابقة الأدلة المستلمة",
+    "reconcileConsent":
+        "هل تريد فحص الأدلة الموثقة المستلمة فقط؟ لا يُرسل أمر شاحن ولا تُجلب أحداث مصدر جديدة.",
+    "sourceControls":
+        "قراءات المصدر هي المعتمدة. حالات الانتظار والإيقاف تتطلب تأكيد المصدر؛ حدّث للتحقق.",
+    "pending_start": "بانتظار بدء المصدر",
+    "stopping": "بانتظار إيقاف المصدر",
+    "invoice": "فاتورة محاكاة",
+    "invoiceDisclaimer":
+        "مستند ومحاسبة للمحاكاة فقط. ليست فاتورة ضريبية قانونية أو دفعاً فعلياً.",
+    "invoiceLine": "{label}: {amount} وحدة نقدية صغرى {currency}",
+    "subtotal": "المجموع الفرعي",
+    "tax": "الضريبة",
+    "total": "الإجمالي",
+    "paid": "المحصّل بالمحاكاة",
+    "refunded": "المسترد بالمحاكاة",
+    "due": "المبلغ المستحق",
+    "ledgerBalanced": "دفتر الحسابات متوازن",
+    "ledgerUnbalanced": "دفتر الحسابات يتطلب تسوية",
   };
 }
 

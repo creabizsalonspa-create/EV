@@ -1,0 +1,76 @@
+Resolving dependencies...
+Downloading packages...
+  characters 1.4.0 (1.4.1 available)
+  clock 1.1.2 (1.1.3 available)
+  flutter_secure_storage 9.2.4 (11.2.0 available)
+  flutter_secure_storage_linux 1.2.3 (3.0.3 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.1.1 available)
+  flutter_secure_storage_web 1.2.1 (2.1.1 available)
+  flutter_secure_storage_windows 3.1.2 (4.2.2 available)
+  intl 0.20.2 (0.20.3 available)
+  js 0.6.7 (0.7.2 available)
+  matcher 0.12.17 (0.12.20 available)
+  material_color_utilities 0.11.1 (0.13.1 available)
+  meta 1.16.0 (1.19.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  path_provider 2.1.5 (2.1.6 available)
+  path_provider_foundation 2.5.1 (2.6.0 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  platform 3.1.6 (3.2.0 available)
+  shared_preferences 2.5.3 (2.5.6 available)
+  shared_preferences_android 2.4.23 (2.5.4 available)
+  shared_preferences_foundation 2.5.6 (2.6.1 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test_api 0.7.6 (0.7.15 available)
+  vector_math 2.2.0 (2.4.4 available)
+  web 1.1.1 (1.1.2 available)
+  win32 5.15.0 (6.4.0 available)
+Got dependencies!
+27 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing mobile...
+No issues found! (ran in 9.4s)
+00:00 +0: loading /workspace/EV/apps/mobile/test/catalog_test.dart
+00:00 +0: /workspace/EV/apps/mobile/test/catalog_test.dart: query parameters are encoded and pagination stays on the configured service origin
+00:00 +1: /workspace/EV/apps/mobile/test/catalog_test.dart: late responses cannot replace a newer search and disposal ignores late completion
+00:00 +2: /workspace/EV/apps/mobile/test/catalog_test.dart: failed next page keeps current records and retries exactly the requested filtered page
+00:00 +3: /workspace/EV/apps/mobile/test/tariffs_test.dart: exact prices support Arabic/Persian digits and reject rounding, exponent, overflow and ambiguous separators
+00:00 +4: /workspace/EV/apps/mobile/test/tariffs_test.dart: vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel
+00:03 +5: /workspace/EV/apps/mobile/test/tariffs_test.dart: vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel
+00:03 +6: /workspace/EV/apps/mobile/test/managed_gate_test.dart: customer can confirm cancellation of a provably undispatched start and refresh its state
+00:03 +7: /workspace/EV/apps/mobile/test/tariffs_test.dart: lost publish acknowledgement never retries and requires history refresh; expiry removes private pricing
+00:04 +8: /workspace/EV/apps/mobile/test/managed_gate_test.dart: managed blocked simulator shows Arabic policy state without a reserve action
+00:04 +9: /workspace/EV/apps/mobile/test/managed_gate_test.dart: Arabic Material route back navigation does not rely on an English tooltip
+00:05 +10: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:08 +11: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:08 +12: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:12 +13: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: owner creates cost center, invites privately, assigns own second-page vehicle and revokes membership
+00:12 +14: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:13 +15: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:14 +16: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:15 +17: /workspace/EV/apps/mobile/test/workspace_test.dart: Arabic vendor layouts fit narrow and tablet screens and expired sessions clear private UI
+00:15 +17: /workspace/EV/apps/mobile/test/live_api_test.dart: native client exercises Laravel fleets, meters, bookings and privacy
+  Skip: Set EV_NATIVE_SMOKE_URL to the disposable local Laravel service.
+00:15 +17 ~1: /workspace/EV/apps/mobile/test/workspace_test.dart: Arabic vendor layouts fit narrow and tablet screens and expired sessions clear private UI
+00:16 +18 ~1: /workspace/EV/apps/mobile/test/invoice_test.dart: read-only simulated invoice displays actual minor-unit totals and clears private data on expiry
+00:18 +19 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:18 +20 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:20 +21 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:20 +22 ~1: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:21 +23 ~1: /workspace/EV/apps/mobile/test/session_test.dart: plaintext origins never persist credentials
+00:21 +24 ~1: /workspace/EV/apps/mobile/test/session_test.dart: secure HTTP-only cookies restore through real TLS and fresh me/CSRF; logout, origin and expiry are enforced
+00:21 +25 ~1: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:23 +26 ~1: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:24 +27 ~1: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:25 +28 ~1: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:26 +29 ~1: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:27 +30 ~1: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:28 +31 ~1: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:28 +32 ~1: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:28 +33 ~1: /workspace/EV/apps/mobile/test/roaming_test.dart: disposed route ignores a pending response
+00:29 +34 ~1: /workspace/EV/apps/mobile/test/preferences_test.dart: device storage persists only validated appearance fields across controllers
+00:29 +35 ~1: /workspace/EV/apps/mobile/test/preferences_test.dart: corrupt or unsupported stored values use safe defaults; failed writes are visible
+00:29 +36 ~1: /workspace/EV/apps/mobile/test/preferences_test.dart: English and Arabic resource keys and interpolation contracts stay aligned
+00:29 +37 ~1: All tests passed!
