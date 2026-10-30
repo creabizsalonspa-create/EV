@@ -1,3 +1,24 @@
+# Latest candidate verification
+
+Finance PR24 source `8399af6`; native PR25 branch `development/native-financial-analytics` stacked on24. Local385Laravel/8726assertions and197Flutterpasses/14explicitfixture-skips pass, plus7focused native cases, actual Laravel/PDF/tenant checks, clean analysis and responsive bilingual browser checks. Hosted exact-head checks must finish before merge. Retarget25to integration after24merge. Coverage unchanged52.25/52.06/52.06/0 across42/312; next: hosted checkout/SCA, native campaign controls and remaining original scope.
+
+# Agent1 full-project checkpoint — 31 October 2026
+
+PR23 merged at `0e4296b`; exact source `f664a49` passed12 inspected jobs. PR24 finance/campaign/analytics/audit source `4ad26f3` is pushed; financial browser, financial and connector PostgreSQL and staging checks pass, full platform jobs pending at this record. Do not merge on a partial summary.
+
+Native analytics source `a4794b8` is pushed on `development/native-financial-analytics`. Full Flutter197passes/14explicit fixture-only skips,7focused tests, actual-Laravel source/PDF/privacy and clean analysis pass. Hosted Android/iOS builds and new synthetic iOS report/PDF assertions are pending; no signed release or physical-device claim. Preserve its parent PR24 while integrating.
+
+Next: finish PR24 exact-head checks/merge, open native analytics PR against refreshed integration, inspect all native/backend CI, fix failures and integrate; then complete hosted charging/subscription checkout/SCA, native campaign controls, operational analytics and remaining original OCPP/OCPI/security/release scope. Fixed42/312 coverage remains52.25coded/52.06tested/merged/0production because broad unfinished atoms receive no partial credit. No work runs after an active session ends.
+
+
+## Full-project continuation — private evidence integrated, native analytics candidate
+
+PR23 source `f664a49e4856d6d20239c7dae9e85f54bb46727b` passed all12 inspected push/PR jobs and merged at `0e4296b`. Individual steps establish Android debug builds, actual-Laravel native suites, iOS simulator builds/runtime, full platform, financial/connector PostgreSQL and staging image. OS-inapplicable steps were skipped; live integrations remain unverified. Evidence: `docs/evidence/private-case-evidence/hosted-checkpoint.json`.
+
+Finance PR24 source `4ad26f3` includes analytics, campaigns and financial audit guards plus patched Symfony MIME7.4.22 for CVE-2026-45070. Initial new audit failed on the newly disclosed vulnerability; patch passes Composer audit and31 focused financial/evidence tests235assertions. Latest CI must finish before merge.
+
+Next candidate `development/native-financial-analytics` adds customer/vendor report navigation, filters, currency-exact source cards, separate noncash points/paid-cycle equivalents and private localized management PDF. Seven focused native tests and actual Laravel integration pass; clean static analysis. Background/session fences prevent stale private reports. CI includes actual-Laravel execution and an added iOS synthetic UI/PDF assertion. Builds/simulator execution pending. Coverage remains unchanged52.25coded/52.06tested/merged/0production; no partial broad atom credit. Complete hosted checkout/SCA, campaign native controls, operational analytics, OCPP/OCPI and original remaining software are still unfinished.
+
 # Verified full-stack checkpoint — 28 October 2026
 
 PR20 is verified/merged at **222a211fe81b25621ef67b03b2efe8326ef518f2**, exactly matching tested source **5ce44db2044ce0144650ef291b0db01b1706000d**. All ten current exact-source checks passed: two full Laravel/OCPP/OCPI/browser matrices, financial/connector PostgreSQL and staging-image matrices, Android build/nine real-Laravel native suites, and iOS build/actual simulator UI. New noncash points/reward runtime assertions and all GPS/maps/favorites/Keychain/Arabic pricing/private-PDF assertions passed. Artifacts/logs and earlier real failures/corrections: docs/evidence/native-loyalty/hosted-checkpoint.json. PR18 and PR19 remain preserved; no original branch was overwritten or force-pushed.

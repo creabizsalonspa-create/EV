@@ -169,12 +169,16 @@ export function mountFinancialAnalytics({ container, api, ui, actor }) {
             "Current and previous equal-length periods. Instruction states and receivable aging reflect the current state, not historical reconstruction.",
             "فترتان متساويتان حالية وسابقة. حالات التعليمات وأعمار المستحقات تعكس الحالة الحالية وليست إعادة بناء تاريخية.",
         );
-        scope.append(
-            n(
-                "span",
-                ` ${report.period.from} → ${report.period.to} · ${report.period.previous_from} → ${report.period.previous_to}`,
-            ),
-        );
+        for (const [from, to, en, ar] of [
+            [report.period.from, report.period.to, "Current period", "الفترة الحالية"],
+            [report.period.previous_from, report.period.previous_to, "Previous period", "الفترة السابقة"],
+        ]) {
+            const line = document.createElement("div"), dates = n("bdi", `${from} → ${to} UTC`);
+            dates.dir = "ltr";
+            dates.dataset.analyticsPeriod = "true";
+            line.append(t("span", en, ar), document.createTextNode(" · "), dates);
+            scope.append(line);
+        }
         content.append(scope);
         const categoryFilter = document.createElement("select"),
             filterLabel = t("label", "Financial activity", "النشاط المالي");

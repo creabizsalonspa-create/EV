@@ -1,0 +1,9 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/financial_analytics_test.dart
+00:00 +0: source preserves three-decimal money and signed noncash points
+00:00 +1: reject inexact money false live claims wrong scope and cash points
+00:00 +2: source filters render exact amounts with no money mutation
+00:01 +3: invalid period blocked locally and old source cleared
+00:01 +4: Arabic dark PDF uses loaded filters rather than edited inputs
+00:01 +5: background erases source and suppresses late response
+00:01 +6: expired and platform-scoped responses never expose records
+00:01 +7: All tests passed!

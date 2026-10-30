@@ -295,6 +295,54 @@ void main() {
               },
             ],
           };
+        } else if (path == '/api/financial/analytics') {
+          expectSync(loggedIn, isTrue);
+          result = {
+            'scope': 'own_charging_and_own_billing',
+            'real_money_verified': false,
+            'period': {
+              'from': request.uri.queryParameters['from'],
+              'to': request.uri.queryParameters['to'],
+              'previous_from': '2026-01-01',
+              'previous_to': '2026-01-30',
+              'timezone': 'UTC',
+            },
+            'as_of': DateTime.now().toUtc().toIso8601String(),
+            'category_labels': {
+              'charging_invoiced': ['Charging invoices issued', 'فواتير الشحن'],
+            },
+            'state_labels': {
+              'issued': ['Issued', 'صادر'],
+            },
+            'groups': [
+              {
+                'period': 'current',
+                'category': 'charging_invoiced',
+                'currency': 'AED',
+                'minor_units': 2,
+                'state': 'issued',
+                'evidence': 'SIMULATED',
+                'record_count': 1,
+                'amount_minor': 105,
+              },
+            ],
+            'points': {
+              'unit': 'NON_MONETARY_POINTS',
+              'cash_value': false,
+              'groups': [],
+            },
+            'recurring_run_rates': [],
+          };
+        } else if (path == '/api/financial/analytics/pdf') {
+          expectSync(loggedIn, isTrue);
+          expectSync(request.uri.queryParameters['locale'], 'en');
+          request.response.headers.contentType = ContentType(
+            'application',
+            'pdf',
+          );
+          request.response.add(pdf);
+          await request.response.close();
+          return;
         } else if (path == '/api/financial/documents') {
           final row = {
             'id': 9,
@@ -884,6 +932,48 @@ void main() {
 
       await tester.tap(find.byTooltip('Account'));
       await settle();
+      await tester.scrollUntilVisible(
+        find.text('Financial insights'),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('Financial insights'));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.text('AED 1.05'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('AED 1.05'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('analytics-pdf')),
+        -150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('analytics-pdf')));
+      await settle();
+      final analyticsPdfDeadline = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
+      while (find
+              .byKey(const Key('private-document-ready'))
+              .evaluate()
+              .isEmpty &&
+          DateTime.now().isBefore(analyticsPdfDeadline)) {
+        await tester.pump(const Duration(milliseconds: 200));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      expect(find.byKey(const Key('private-document-ready')), findsOneWidget);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: scoped financial analytics and private management PDF verified; synthetic source only',
+      );
+
+      await tester.tap(find.byTooltip('Account'));
+      await settle();
       await tester.tap(find.text('Invoice history'));
       await settle();
       expect(find.text('SIM-DEVICE-INVOICE'), findsOneWidget);
@@ -1029,6 +1119,13 @@ void main() {
       expect(secondApi.remembered, isTrue);
       await tester.tap(find.byTooltip('الحساب'));
       await settle();
+      await tester.scrollUntilVisible(
+        find.text('تسجيل الخروج'),
+        120,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await settle();
+      expect(find.text('تسجيل الخروج').hitTestable(), findsOneWidget);
       await tester.tap(find.text('تسجيل الخروج'));
       await settle();
       expect(await vault.read(origin.origin), isNull);
