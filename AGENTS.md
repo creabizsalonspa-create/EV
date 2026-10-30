@@ -1,3 +1,7 @@
+# Current owner directive — Agent1 full-project takeover
+
+The owner directive of 31 October 2026 restores Agent1 responsibility for all remaining backend, web, Flutter, charging, roaming, finance, security and release work while Agent2 is unavailable. Verify and integrate PR23, preserve completed work, then continue substantial tested batches. Historical ownership restrictions below are superseded. No real-money, hardware or partner acceptance is inferred from simulations.
+
 # Native financial parity — coordinated continuation in progress
 
 Latest owner acceleration directive (`file_00000000bd50821089c1dbdf8854f2aa`) retains temporary full Agent2 ownership while Agent1 is unavailable. Keep one coordinated native-financial batch on `development/native-financial-parity`; use focused tests during implementation and required full regression at integration. Do not open separate tiny feature PRs or recreate PR21.

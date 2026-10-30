@@ -1,3 +1,32 @@
+
+## 31 October 2026 — finance v4 candidate and full-project takeover
+
+Owner restores Agent1 full-project responsibility while Agent2 is unavailable. Preserve and verify PR23 first, then integrate this candidate and continue cross-platform parity. The historical split below is superseded.
+
+Candidate branch: `development/finance-commercial-v4`, based on verified PR22 merge `70ac899`. Adds tenant-scoped financial analytics, exact currency-separated source comparisons, private CSV/Arabic management PDF, noncash points and paid-cycle equivalents; paid-package campaign lifecycle, moderation, signed server delivery and immutable audit; null-safe financial audit timestamp guards. No real-money movement or human-ad-impression acceptance.
+
+Verified local combined Laravel: 378 tests / 8678 assertions; Pint:347 files; refreshed connected analytics and campaign browsers pass EN/AR RTL light/dark responsive checks. Prior-to-PR22-refresh PostgreSQL financial:251 tests/7346 assertions; process concurrency:62 tests/801 assertions. Exact combined-head PostgreSQL remains a CI gate. Composer strict validation/audit and coverage check pass. Evidence: `docs/evidence/finance-v4`.
+
+Coverage remains coded52.25%, tested/merged52.06%, production0%; 42 categories/312 atoms unchanged. No candidate credit before verified integration.
+
+Next: verify and merge PR23, incorporate its additive evidence UI safely, push finance candidate and pass all CI; then implement native financial analytics/campaign parity, remaining hosted checkout and charging/roaming requirements. External acceptance still needs hardware, merchant/bank/network access, signing and legal approvals. This is an interim checkpoint, not final delivery.
+
+# Active Agent 1 finance-only continuation — 28 October2026 (Dubai)
+
+The latest owner directive restores Agent1 financial/commercial/backend/web/Admin ownership; Agent2 owns Flutter, EV/OCPP/OCPI, discovery, infrastructure and integration. Earlier temporary sole-Agent2 and integration-session records below are historical. No native/EV work is reapplied on this financial branch.
+
+Current branch: `development/finance-commercial-v4`, safely refreshed to integrated PR22 `70ac899` after inspecting all remote heads and PRs18–22. PR18 is merged at95a3dae; PR19/20/21/22 are merged. Preserve Agent2's native parity and current consent-version contract; do not recreate those modules or merge Agent2 PRs independently.
+
+Current substantial candidate: financial source analytics/period comparisons/current corporate aging/paid-cycle equivalents/noncash reporting/private Arabic PDF+CSV exports; paid vendor-package advertising campaign governance/quotas/signed-publisher attribution/vendor+Admin web controls; additive audit-date integrity hardening. Existing immutable journals, subscription gateway/renewals/recovery and charging source remain unchanged. See FINANCIAL_ANALYTICS.md, COMMERCIAL_CAMPAIGNS.md and FINANCIAL_AUDIT_HARDENING.md.
+
+Focused implementation and connected browser checks passed. Final combined exact-source counts, source commit, financial PR and mandatory CI must be recorded before calling the batch ready for integration. No full-platform release or external production acceptance is claimed. Existing42-category/312-subfeature weights and merged coverage are unchanged for this unmerged candidate; recalculate only from actual verified merged evidence.
+
+Remaining financial software: PSP/customer refund orchestration and canonical chargeback postings; subscription proration/grace/usage/eligibility and notification delivery policies; corporate PSP collection/automated cycles/negotiated contracts; coupons/referrals/partner promotions and actual authorized sponsored placement consumers; tax-inclusive/exclusive effective rules and legally approved invoice/retention configuration; broader accounting/analytics, independent security/restore and production acceptance. Mock/provider HTTP contracts and publisher attestations do not prove human ad exposure, real merchant/bank money or tax legality.
+
+Next: finish this batch's combined accounting/PostgreSQL/concurrency/browser regressions, push a coherent finance PR to `development/fullstack-continuation` for Agent2 integration, then continue the next independent financial batch. Never touch Agent2's active native/EV/discovery modules. Prior interrupted native/OCPI follow-up source is preserved in local Git stash and must not be blindly reapplied over mergedPR20–22.
+
+---
+
 # Verified full-stack checkpoint — 28 October 2026
 
 PR20 is verified/merged at **222a211fe81b25621ef67b03b2efe8326ef518f2**, exactly matching tested source **5ce44db2044ce0144650ef291b0db01b1706000d**. All ten current exact-source checks passed: two full Laravel/OCPP/OCPI/browser matrices, financial/connector PostgreSQL and staging-image matrices, Android build/nine real-Laravel native suites, and iOS build/actual simulator UI. New noncash points/reward runtime assertions and all GPS/maps/favorites/Keychain/Arabic pricing/private-PDF assertions passed. Artifacts/logs and earlier real failures/corrections: docs/evidence/native-loyalty/hosted-checkpoint.json. PR18 and PR19 remain preserved; no original branch was overwritten or force-pushed.

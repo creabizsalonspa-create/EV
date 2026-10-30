@@ -1,0 +1,22 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+..........                                                        10 / 10 (100%)
+
+Time: 00:01.546, Memory: 58.50 MB
+
+Commercial Campaign (Tests\Feature\CommercialCampaign)
+ ✔ Paid package campaign review delivery and governance preserve cash journals
+ ✔ Unpaid or non entitled package and foreign station cannot create campaign
+ ✔ Budget reservations idempotency and cancellation do not reopen used units
+ ✔ Signed delivery is required budget bounded and click parent is verified
+ ✔ Admin can suspend vendor cannot resume and refunded package stops delivery
+ ✔ Tenant roles expiry country dates and immutable terms fail closed
+ ✔ Authentication enablement dates and payload changes fail without new delivery
+ ✔ Invalid or expired signature never reserves package delivery
+ ✔ Expired paid cycle and station transfer stop previously approved campaign
+ ✔ Uncertain and pending refund sources hold delivery but known failure does not
+
+OK (10 tests, 99 assertions)

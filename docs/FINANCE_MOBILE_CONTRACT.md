@@ -59,3 +59,12 @@ New additive contracts are mounted under both cookie/CSRF `/api` and authenticat
 | Loyalty | [LOYALTY_ECONOMICS.md](LOYALTY_ECONOMICS.md) | Account/ledger, integer promotional units, qualified invoice earning, rewards/redemption/history. Points have no cash value; pending redemption is not delivery. Reconciliation/holds/debt/expiry remain server-authoritative. |
 
 The current source passes local combined Laravel/PostgreSQL/process/browser checks; hosted PR checks and safe integration remain required. Production activation, external providers, legal rules and partner fulfillment remain separate acceptance gates. Historical unfinished-implementation notes above refer to their earlier checkpoints; hosted mandates/recurring/dunning are already integrated and must not be rebuilt.
+
+
+## Finance v4 candidate — analytics and commercial campaigns
+
+Agent1 financial-only continuation adds authenticated `financial/analytics`, `/export` and `/pdf` with authorized source facts, exact minor units, UTC comparisons, current aging, separate noncash points and explicitly defined paid-cycle recurring equivalents. See [FINANCIAL_ANALYTICS.md](FINANCIAL_ANALYTICS.md). No financial calculations should be recreated in Dart. Downloads are private management reports, not legally approved tax invoices.
+
+Vendor/Admin campaign contracts reuse existing paid vendor subscription invoices and published `campaign_slots`/`campaign_units` entitlements. See [COMMERCIAL_CAMPAIGNS.md](COMMERCIAL_CAMPAIGNS.md) for endpoints, state transitions, bounded idempotency, unknown-refund holds, quota reservations and signed publisher attribution. Native customer/vendor UI integration remains Agent2-owned. Sponsored metadata must be intersected with authorized catalog/safety filters; publisher attestation does not prove human impressions or permit client-reported billing. No new capture/wallet ledger is introduced.
+
+Both route families are additive under existing cookie `/api` and Sanctum `/api/v1`; old subscription, payout, document, loyalty, corporate and refund contracts remain intact. Mandatory CI/merge status is recorded on the new financial PR; candidate code receives no merged coverage credit.

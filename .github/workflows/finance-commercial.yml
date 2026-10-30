@@ -1,0 +1,68 @@
+name: Finance commercial validation
+on:
+  push:
+    paths:
+      - 'services/business-api/app/Services/Commercial/**'
+      - 'services/business-api/app/Http/Controllers/FinancialAnalyticsController.php'
+      - 'services/business-api/app/Http/Controllers/CommercialCampaignController.php'
+      - 'services/business-api/public/financial-analytics.js'
+      - 'services/business-api/public/commercial-campaigns.js'
+      - 'services/business-api/public/commercial.js'
+      - 'services/business-api/routes/financial_analytics.php'
+      - 'services/business-api/routes/campaigns.php'
+      - 'services/business-api/routes/campaign_delivery.php'
+      - 'tests/financial-analytics.cjs'
+      - 'tests/commercial-campaigns.cjs'
+      - 'scripts/campaign-test-setup'
+      - '.github/workflows/finance-commercial.yml'
+  pull_request:
+    paths:
+      - 'services/business-api/app/Services/Commercial/**'
+      - 'services/business-api/app/Http/Controllers/FinancialAnalyticsController.php'
+      - 'services/business-api/app/Http/Controllers/CommercialCampaignController.php'
+      - 'services/business-api/public/financial-analytics.js'
+      - 'services/business-api/public/commercial-campaigns.js'
+      - 'services/business-api/public/commercial.js'
+      - 'services/business-api/routes/financial_analytics.php'
+      - 'services/business-api/routes/campaigns.php'
+      - 'services/business-api/routes/campaign_delivery.php'
+      - 'tests/financial-analytics.cjs'
+      - 'tests/commercial-campaigns.cjs'
+      - 'scripts/campaign-test-setup'
+      - '.github/workflows/finance-commercial.yml'
+permissions:
+  contents: read
+jobs:
+  financial-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: ./scripts/setup
+      - run: ./scripts/php /usr/bin/composer validate --strict
+      - run: ./scripts/php /usr/bin/composer audit --no-interaction
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: ./scripts/payout-test-setup
+      - run: ./scripts/campaign-test-setup
+      - run: ./scripts/start > /tmp/finance-commercial-start.txt
+      - name: Verify source analytics and commercial campaign workflows
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/financial-analytics artifacts/commercial-campaigns
+          node tests/financial-analytics.cjs | tee artifacts/financial-analytics/browser.txt
+          node tests/commercial-campaigns.cjs | tee artifacts/commercial-campaigns/browser.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: financial-analytics-commercial-campaigns
+          path: |
+            artifacts/financial-analytics
+            artifacts/commercial-campaigns
+            artifacts/finance-campaigns
+          if-no-files-found: warn
+      - if: failure()
+        run: docker logs --tail 80 ev-business-api
