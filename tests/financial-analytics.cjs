@@ -129,6 +129,7 @@ const assert = require("node:assert/strict");
       "ar",
     );
     await downloadedArabic.saveAs(dir + "/arabic-ui-management-report.pdf");
+    assert.equal(await panel.locator("bdi[data-analytics-period][dir=ltr]").count(), 2);
     for (const theme of ["light", "dark"]) {
       await vendor.setViewportSize({ width: 390, height: 1000 });
       await vendor.locator("#theme-choice").selectOption(theme);

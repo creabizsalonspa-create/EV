@@ -1,3 +1,7 @@
+# Latest candidate verification
+
+Finance PR24 source `8399af6`; native PR25 branch `development/native-financial-analytics` stacked on24. Local385Laravel/8726assertions and197Flutterpasses/14explicitfixture-skips pass, plus7focused native cases, actual Laravel/PDF/tenant checks, clean analysis and responsive bilingual browser checks. Hosted exact-head checks must finish before merge. Retarget25to integration after24merge. Coverage unchanged52.25/52.06/52.06/0 across42/312; next: hosted checkout/SCA, native campaign controls and remaining original scope.
+
 # Agent1 full-project checkpoint — 31 October 2026
 
 PR23 merged at `0e4296b`; exact source `f664a49` passed12 inspected jobs. PR24 finance/campaign/analytics/audit source `4ad26f3` is pushed; financial browser, financial and connector PostgreSQL and staging checks pass, full platform jobs pending at this record. Do not merge on a partial summary.
