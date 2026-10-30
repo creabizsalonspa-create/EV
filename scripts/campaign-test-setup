@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Strictly local synthetic sponsored-package tests; never activate a merchant or publisher.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+./scripts/php -r '
+require "vendor/autoload.php";
+$app = require "bootstrap/app.php";
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if (!$app->environment("local", "testing") || config("payments.provider") !== "mock") {fwrite(STDERR,"Local mock campaign configuration is required.\n");exit(1);}
+$path = ".env";
+$text = file_get_contents($path);
+$secret = config("campaigns.delivery_secret");
+if (!is_string($secret) || strlen($secret) < 32) $secret = bin2hex(random_bytes(32));
+$text = preg_replace("/^COMMERCIAL_CAMPAIGNS_(ENABLED|DELIVERY_SECRET)=.*\\R?/m", "", $text);
+file_put_contents($path, rtrim($text)."\nCOMMERCIAL_CAMPAIGNS_ENABLED=true\nCOMMERCIAL_CAMPAIGNS_DELIVERY_SECRET=".$secret."\n");
+chmod($path,0600);
+'
+./scripts/php artisan config:clear

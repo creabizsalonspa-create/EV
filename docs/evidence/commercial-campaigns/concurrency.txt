@@ -1,0 +1,16 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+....                                                                4 / 4 (100%)
+
+Time: 00:03.580, Memory: 46.50 MB
+
+Commercial Campaign Concurrency (Tests\Postgres\CommercialCampaignConcurrency)
+ ✔ Concurrent same creation key reserves one campaign and preserves cash
+ ✔ Distinct concurrent campaigns cannot overreserve paid package units
+ ✔ Concurrent verified delivery events cannot overspend one remaining unit
+ ✔ Same verified event is idempotent across processes
+
+OK (4 tests, 43 assertions)

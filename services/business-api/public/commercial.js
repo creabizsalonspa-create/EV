@@ -1208,6 +1208,42 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             ui,
             actor: () => actor,
         });
+        const analyticsPanel = panel(
+            "Financial analytics",
+            "التحليلات المالية",
+        );
+        import("/financial-analytics.js")
+            .then(({ mountFinancialAnalytics }) => {
+                if (current === epoch && actor)
+                    mountFinancialAnalytics({
+                        container: analyticsPanel,
+                        api,
+                        ui,
+                        actor: () => actor,
+                    });
+            })
+            .catch((error) => {
+                if (current === epoch) status(error.message);
+            });
+        if (operations) {
+            const campaignsPanel = panel(
+                "Commercial campaigns",
+                "الحملات التجارية",
+            );
+            import("/commercial-campaigns.js")
+                .then(() => {
+                    if (current === epoch && actor)
+                        window.mountCommercialCampaigns({
+                            container: campaignsPanel,
+                            api,
+                            ui,
+                            actor: () => actor,
+                        });
+                })
+                .catch((error) => {
+                    if (current === epoch) status(error.message);
+                });
+        }
         if (operations) {
             mountVendorPayouts({
                 container: panel("Vendor payouts", "دفعات الموردين"),

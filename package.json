@@ -24,7 +24,9 @@
     "test:corporate": "node tests/corporate-billing.cjs",
     "test:external-disputes": "node tests/external-disputes.cjs && node tests/external-disputes-ui.cjs",
     "test:loyalty": "node tests/loyalty.cjs",
-    "test:discovery-routing": "node tests/discovery-routing.cjs"
+    "test:discovery-routing": "node tests/discovery-routing.cjs",
+    "test:financial-analytics": "node tests/financial-analytics.cjs",
+    "test:commercial-campaigns": "node tests/commercial-campaigns.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

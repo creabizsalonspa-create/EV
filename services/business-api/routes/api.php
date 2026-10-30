@@ -91,3 +91,5 @@ require __DIR__.'/payout_webhooks.php';
 require __DIR__.'/external_dispute_webhooks.php';
 
 Route::prefix('v1')->group(__DIR__.'/discovery.php');
+
+require __DIR__.'/campaign_delivery.php';

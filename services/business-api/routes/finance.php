@@ -31,3 +31,7 @@ require __DIR__.'/financial_documents.php';
 require __DIR__.'/corporate_billing.php';
 require __DIR__.'/external_disputes.php';
 require __DIR__.'/loyalty.php';
+
+require __DIR__.'/financial_analytics.php';
+
+require __DIR__.'/campaigns.php';
