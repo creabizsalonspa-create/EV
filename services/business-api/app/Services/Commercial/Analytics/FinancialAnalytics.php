@@ -93,11 +93,11 @@ class FinancialAnalytics
 
     private function runRate(User $actor, ?string $currency, CarbonImmutable $asOf): Builder
     {
-        $credits = DB::table('subscription_credits')->where('created_at', '<=', $asOf)->select('invoice_id')->selectRaw('SUM(subtotal_minor) AS credited')->groupBy('invoice_id');
+        $credits = DB::table('subscription_credits as sc')->join('commercial_subscription_invoices as si', 'si.id', '=', 'sc.invoice_id')->where('sc.created_at', '<=', $asOf)->select('sc.invoice_id')->selectRaw('SUM(sc.subtotal_minor) AS credited, MIN(CASE WHEN sc.currency = si.currency AND sc.minor_units = si.minor_units THEN 1 ELSE 0 END) AS source_valid')->groupBy('sc.invoice_id');
         $q = $this->scope(DB::table('commercial_subscription_invoices as i')->join('commercial_subscriptions as s', 's.id', '=', 'i.subscription_id')->join('commercial_plan_versions as p', 'p.id', '=', 'i.plan_id')->join('commercial_subscription_receipts as r', 'r.invoice_id', '=', 'i.id')->leftJoinSub($credits, 'c', 'c.invoice_id', '=', 'i.id'), $actor, 's.user_id')
             ->where('s.status', 'active')->where('s.cancel_at_period_end', false)->whereColumn('s.cycle_number', 'i.cycle_number')->whereColumn('r.amount_minor', 'i.total_minor')->where('i.period_start', '<=', $asOf)->where('i.period_end', '>', $asOf)->where('r.created_at', '<=', $asOf)->whereIn('p.interval', ['month', 'year'])->when($currency, fn ($q) => $q->where('i.currency', $currency));
 
-        return $this->aggregate($q, 'snapshot', 'paid_cycle_run_rate', 'i.currency', 'i.minor_units', 'CASE WHEN i.subtotal_minor > COALESCE(c.credited,0) THEN i.subtotal_minor - COALESCE(c.credited,0) ELSE 0 END', 'p.interval', 'r.evidence');
+        return $this->aggregate($q, 'snapshot', 'paid_cycle_run_rate', 'i.currency', 'i.minor_units', 'CASE WHEN i.subtotal_minor > COALESCE(c.credited,0) THEN i.subtotal_minor - COALESCE(c.credited,0) ELSE 0 END', 'p.interval', 'r.evidence', 'CASE WHEN r.currency = i.currency AND COALESCE(c.source_valid,1) = 1 THEN 1 ELSE 0 END');
     }
 
     private function exact(mixed $value): int
