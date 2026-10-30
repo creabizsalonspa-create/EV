@@ -173,7 +173,11 @@ void main() {
       TextDirection.rtl,
     );
     await tester.enterText(find.byKey(const Key('analytics-currency')), 'USD');
-    await tester.ensureVisible(find.byKey(const Key('analytics-pdf')));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('analytics-pdf')),
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.byKey(const Key('analytics-pdf')));
     await tester.pumpAndSettle();
     expect(api.pdfQueries.single, {...api.queries.single, 'locale': 'ar'});
