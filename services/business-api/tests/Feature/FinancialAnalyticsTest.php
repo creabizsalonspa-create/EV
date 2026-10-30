@@ -219,6 +219,24 @@ class FinancialAnalyticsTest extends TestCase
         $this->getJson('/api/financial/analytics/export')->assertConflict();
     }
 
+    public function test_current_cycle_integrity_is_checked_even_when_receipt_posted_before_both_report_periods(): void
+    {
+        $old = now()->subDays(10);
+        $this->travelTo($old);
+        $f = $this->fixture();
+        $service = app(SubscriptionService::class);
+        $plan = $service->publish($f['maker'], ['code' => 'old-malformed-cycle', 'name' => 'Imported cycle', 'audience' => 'customer', 'currency' => 'AED', 'minor_units' => 2, 'price_minor' => 100, 'tax_bps' => 0, 'interval' => 'month', 'entitlements' => '{}']);
+        $s = $service->subscribe($f['customer'], $plan->id, 'old-import-enroll');
+        $invoice = $s['invoices']->first();
+        // Simulate a historically imported receipt: operational activation must
+        // not make a wrong-currency source a valid current paid-cycle equivalent.
+        DB::table('commercial_subscription_receipts')->insert(['invoice_id' => $invoice->id, 'provider_reference' => 'old-invalid-import', 'amount_minor' => 100, 'currency' => 'USD', 'evidence' => 'MOCK_PROVIDER', 'created_at' => now()]);
+        DB::table('commercial_subscriptions')->where('id', $s['subscription']->id)->update(['status' => 'active', 'cycle_number' => $invoice->cycle_number, 'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end]);
+        $this->travelTo($old->copy()->addDays(10));
+        $date = now()->utc()->toDateString();
+        $this->actingAs($f['customer'])->getJson('/api/financial/analytics?from='.$date.'&to='.$date)->assertConflict();
+    }
+
     public function test_json_client_integer_bounds_reject_an_oversized_imported_invoice(): void
     {
         $f = $this->fixture();
