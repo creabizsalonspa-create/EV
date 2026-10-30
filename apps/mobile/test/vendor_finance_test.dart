@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,16 @@ class VendorOperationStore implements FinancialOperationStore {
   @override
   Future<void> remove(String k) async {
     values.remove(k);
+  }
+}
+
+class PausedVendorStore extends VendorOperationStore {
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  Future<void> write(String scope, Map<String, dynamic> value) async {
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    await super.write(scope, value);
   }
 }
 

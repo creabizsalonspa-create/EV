@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\PaymentCaseEvidenceController;
 use App\Http\Controllers\PaymentGatewayController as G;
 use Illuminate\Support\Facades\Route;
 
@@ -13,3 +14,7 @@ Route::post('/commercial/cases/{case}/resolve', [G::class, 'resolveCase']);
 Route::get('/commercial/reconciliation/{invoice}', [G::class, 'reconciliation']);
 
 require __DIR__.'/payment_recovery.php';
+
+Route::get('/commercial/cases/{case}/evidence', [PaymentCaseEvidenceController::class, 'index'])->whereNumber('case');
+Route::post('/commercial/cases/{case}/evidence', [PaymentCaseEvidenceController::class, 'upload'])->whereNumber('case');
+Route::get('/commercial/cases/{case}/evidence/{evidence}', [PaymentCaseEvidenceController::class, 'download'])->whereNumber(['case', 'evidence']);

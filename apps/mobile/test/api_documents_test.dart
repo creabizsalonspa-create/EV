@@ -5,7 +5,95 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
 
+class HeldOpenRequest implements HttpClientRequest {
+  bool aborted = false, touched = false;
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {
+    aborted = true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    touched = true;
+    throw StateError('Stale request touched credentials or payload');
+  }
+}
+
+class HeldOpenClient implements HttpClient {
+  final entered = Completer<void>(), release = Completer<HttpClientRequest>();
+  @override
+  set connectionTimeout(Duration? value) {}
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) {
+    entered.complete();
+    return release.future;
+  }
+
+  @override
+  void close({bool force = false}) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
+  for (final multipart in [false, true]) {
+    test(
+      'session change while opening transport aborts before credentials or ${multipart ? 'multipart' : 'JSON'} body attach',
+      () async {
+        final client = HeldOpenClient(), request = HeldOpenRequest();
+        final api = EvApi(Uri.parse('http://127.0.0.1:8000'), http: client);
+        addTearDown(api.close);
+        final pending = multipart
+            ? api.uploadCaseEvidence(
+                7,
+                kind: 'receipt',
+                bytes: Uint8List.fromList('%PDF-1.4'.codeUnits),
+                mime: 'application/pdf',
+                key: operationKey(),
+              )
+            : api.request(
+                'commercial/subscriptions',
+                method: 'POST',
+                body: {'plan_id': 7},
+              );
+        await client.entered.future;
+        await api.forgetSession();
+        client.release.complete(request);
+        await expectLater(
+          pending,
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+        );
+        expect(request.aborted, true);
+        expect(request.touched, false);
+      },
+    );
+  }
+
+  test(
+    'case evidence transport rejects invalid source, category, type and four-MiB overflow before I/O',
+    () {
+      final api = EvApi(Uri.parse('http://127.0.0.1:9'));
+      addTearDown(api.close);
+      for (final args in [
+        (0, 'receipt', 'application/pdf', 1),
+        (1, 'identity', 'application/pdf', 1),
+        (1, 'receipt', 'text/html', 1),
+        (1, 'receipt', 'application/pdf', 4 * 1024 * 1024 + 1),
+      ]) {
+        expect(
+          () => api.uploadCaseEvidence(
+            args.$1,
+            kind: args.$2,
+            mime: args.$3,
+            bytes: Uint8List(args.$4),
+            key: operationKey(),
+          ),
+          throwsA(isA<ApiException>()),
+        );
+      }
+    },
+  );
+
   test(
     'multipart evidence reuses CSRF/cookie scope, fixed filename and stable operation identity',
     () async {

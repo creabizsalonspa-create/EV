@@ -33,19 +33,28 @@ class EvApi {
             if (!publicRead && epoch !== this.sessionEpoch)
                 throw new SessionChangedError();
         };
+        const multipart =
+            typeof FormData !== "undefined" && data instanceof FormData;
         const timeout = AbortSignal.timeout(20000);
         let response;
         try {
             response = await fetch("/api/" + path, {
                 method,
                 credentials: "same-origin",
+                ...(multipart ? { redirect: "error" } : {}),
                 cache: "no-store",
                 headers: {
                     Accept: "application/json",
-                    "Content-Type": "application/json",
+                    ...(multipart
+                        ? {}
+                        : { "Content-Type": "application/json" }),
                     "X-CSRF-TOKEN": this.token,
                 },
-                body: data ? JSON.stringify(data) : undefined,
+                body: multipart
+                    ? data
+                    : data
+                      ? JSON.stringify(data)
+                      : undefined,
                 signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
             });
         } catch (error) {

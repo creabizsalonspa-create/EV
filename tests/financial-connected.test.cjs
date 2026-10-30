@@ -28,11 +28,16 @@ test("fresh login windows include initial prior-suite budget, bounded waits and 
       "external-disputes",
       "external-disputes-ui",
       "loyalty",
+      "payment-case-evidence",
     ],
   );
   assert.equal(started[0].time, 61000);
   assert.equal(started[2].time - ended[1], 61000);
-  assert.deepEqual(waits, [30000, 30000, 1000, 30000, 30000, 1000]);
+  assert.equal(started[5].time - ended[4], 61000);
+  assert.deepEqual(
+    waits,
+    [30000, 30000, 1000, 30000, 30000, 1000, 30000, 30000, 1000],
+  );
 });
 test("a real assertion failure stops orchestration without replay or skipping ahead", async () => {
   let clock = 0;
