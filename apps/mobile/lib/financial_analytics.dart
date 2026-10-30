@@ -210,7 +210,8 @@ class _AnalyticsState extends State<FinancialAnalyticsView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final now = DateUtils.dateOnly(DateTime.now().toUtc());
+    final utcNow = DateTime.now().toUtc();
+    final now = DateTime.utc(utcNow.year, utcNow.month, utcNow.day);
     from.text = now
         .subtract(const Duration(days: 29))
         .toIso8601String()
