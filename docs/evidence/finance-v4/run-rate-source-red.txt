@@ -7,7 +7,7 @@ Failed asserting that 200 is identical to 409.
 
   at tests/Feature/FinancialAnalyticsTest.php:237
     233▕         DB::table('commercial_subscription_receipts')->insert(['invoice_id' => $invoice->id, 'provider_reference' => 'old-invalid-import', 'amount_minor' => 100, 'currency' => 'USD', 'evidence' => 'MOCK_PROVIDER', 'created_at' => now()]);
-    234▕         DB::table('commercial_subscriptions')->where('id', $s['subscription']->id)->update(['status' => 'active', 'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end]);
+    234▕         DB::table('commercial_subscriptions')->where('id', $s['subscription']->id)->update(['status' => 'active', 'cycle_number' => $invoice->cycle_number, 'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end]);
     235▕         $this->travelTo($old->copy()->addDays(10));
     236▕         $date = now()->utc()->toDateString();
   ➜ 237▕         $this->actingAs($f['customer'])->getJson('/api/financial/analytics?from='.$date.'&to='.$date)->assertConflict();
@@ -18,5 +18,5 @@ Failed asserting that 200 is identical to 409.
 
 
   Tests:    1 failed (1 assertions)
-  Duration: 0.40s
+  Duration: 0.46s
 

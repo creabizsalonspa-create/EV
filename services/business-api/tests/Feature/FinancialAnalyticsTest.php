@@ -231,7 +231,7 @@ class FinancialAnalyticsTest extends TestCase
         // Simulate a historically imported receipt: operational activation must
         // not make a wrong-currency source a valid current paid-cycle equivalent.
         DB::table('commercial_subscription_receipts')->insert(['invoice_id' => $invoice->id, 'provider_reference' => 'old-invalid-import', 'amount_minor' => 100, 'currency' => 'USD', 'evidence' => 'MOCK_PROVIDER', 'created_at' => now()]);
-        DB::table('commercial_subscriptions')->where('id', $s['subscription']->id)->update(['status' => 'active', 'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end]);
+        DB::table('commercial_subscriptions')->where('id', $s['subscription']->id)->update(['status' => 'active', 'cycle_number' => $invoice->cycle_number, 'period_start' => $invoice->period_start, 'period_end' => $invoice->period_end]);
         $this->travelTo($old->copy()->addDays(10));
         $date = now()->utc()->toDateString();
         $this->actingAs($f['customer'])->getJson('/api/financial/analytics?from='.$date.'&to='.$date)->assertConflict();
