@@ -10,5 +10,6 @@ if [[ ! -d android || ! -d ios ]]; then
   if [[ ! -d ios ]]; then cp -R "$platform_tmp/creabiz_ev/ios" ./ios; fi
 fi
 if [[ -f pubspec.lock ]]; then flutter pub get --enforce-lockfile; else flutter pub get; fi
+python3 -B tool/test_hosted_return_config.py
 flutter analyze
 flutter test --reporter expanded

@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:creabiz_ev/financial_operation_store.dart';
+import 'package:creabiz_ev/hosted_checkout.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:creabiz_ev/subscriptions.dart';
 import 'package:creabiz_ev/payment_cases.dart';
 import 'package:flutter/services.dart';
@@ -55,6 +57,38 @@ void main() {
       var subscriptionEnrollments = 0;
       var caseEvidenceUploads = 0;
       var authenticated = 0;
+      var hostedCreated = false, hostedState = 'open';
+      var hostedPosts = 0, hostedGets = 0;
+      String? hostedCreationKey;
+      Map<String, dynamic> hostedRow() => {
+        'id': 97,
+        'reference': 'c8138d65-22de-43ad-b132-1b55855672ac',
+        'user_id': authenticated,
+        'scope': 'charging',
+        'invoice_id': 73,
+        'subscription_id': null,
+        'canonical_checkout_id': 96,
+        'status': hostedState,
+        'canonical_status': hostedState == 'open' ? 'pending' : hostedState,
+        'amount_minor': 105,
+        'currency': 'AED',
+        'minor_units': 2,
+        'expires_at': DateTime.now()
+            .toUtc()
+            .add(const Duration(hours: 1))
+            .toIso8601String(),
+        'evidence': 'MOCK_HOSTED',
+        'real_money_moved': false,
+        'external_provider_verified': false,
+        'hosted_url': null,
+        'allowed_actions': [
+          'inspect',
+          if (hostedState == 'open' || hostedState == 'authorized') 'cancel',
+          if (hostedState == 'authorized') 'capture',
+        ],
+        'can_simulate': hostedState == 'open',
+        'can_retry': false,
+      };
       var loggedIn = false;
       var pricingAmount = 125, pricingVersion = 1;
       bool mandateRevoked = false;
@@ -188,6 +222,48 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/commercial/hosted-checkouts') {
+          expectSync(loggedIn, isTrue);
+          if (request.method == 'POST') {
+            hostedPosts++;
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+            expectSync(body['scope'], 'charging');
+            expectSync(body['invoice_id'], 73);
+            expectSync(body['consent'], true);
+            expectSync(body['idempotency_key'], isA<String>());
+            hostedCreationKey = body['idempotency_key'];
+            hostedCreated = true;
+            result = {'checkout': hostedRow()};
+          } else {
+            hostedGets++;
+            result = {
+              'data': hostedCreated ? [hostedRow()] : [],
+              'current_page': 1,
+              'last_page': 1,
+              'total': hostedCreated ? 1 : 0,
+            };
+          }
+        } else if (path.startsWith('/api/commercial/hosted-checkouts/97')) {
+          expectSync(loggedIn, isTrue);
+          if (request.method == 'POST') {
+            hostedPosts++;
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+            if (path.endsWith('/simulate')) {
+              expectSync(body['consent'], true);
+              expectSync(body['outcome'], 'authorized');
+              hostedState = 'authorized';
+            } else if (path.endsWith('/capture')) {
+              expectSync(hostedState, 'authorized');
+              hostedState = 'captured';
+            } else {
+              expectSync(path.endsWith('/inspect'), true);
+            }
+          } else {
+            hostedGets++;
+          }
+          result = {'checkout': hostedRow()};
         } else if (path == '/api/commercial/cases/75/evidence') {
           final row = {
             'id': 76,
@@ -930,6 +1006,84 @@ void main() {
         'DEVICE: customer map privacy consent navigation verified; no external tiles',
       );
 
+      Navigator.of(tester.element(find.byType(Workspace))).push(
+        MaterialPageRoute<void>(
+          builder: (_) => HostedCheckoutView(
+            api: firstApi,
+            onExpired: () {
+              throw StateError(
+                'Synthetic hosted session unexpectedly expired.',
+              );
+            },
+            scope: 'charging',
+            invoiceId: 73,
+          ),
+        ),
+      );
+      await settle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('hosted-consent')),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.byKey(const Key('hosted-consent')));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('hosted-create')),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.byKey(const Key('hosted-create')));
+      await settle();
+      expect(hostedCreated, true);
+      expect(hostedPosts, 1);
+      final storedHosted = await DeviceFinancialOperationStore().read(
+        '${origin.origin}:$authenticated:hosted:create:charging:73',
+      );
+      expect(storedHosted?['key'], hostedCreationKey);
+      final readsBeforeReturn = hostedGets;
+      expect(
+        await launchUrl(
+          Uri.parse('creabizev://payments/hosted-return'),
+          mode: LaunchMode.externalApplication,
+        ),
+        true,
+      );
+      await settle();
+      expect(hostedPosts, 1);
+      expect(hostedState, 'open');
+      expect(hostedGets, greaterThan(readsBeforeReturn));
+      await tester.scrollUntilVisible(
+        find.text('Simulate authorization'),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.text('Simulate authorization'));
+      await settle();
+      await tester.tap(find.text('Confirm'));
+      await settle();
+      expect(hostedState, 'authorized');
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('hosted-capture')),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.byKey(const Key('hosted-capture')));
+      await settle();
+      await tester.tap(find.text('Confirm'));
+      await settle();
+      expect(hostedState, 'captured');
+      expect(hostedPosts, 3);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: durable hosted intent, untrusted native return GET recovery and explicit mock authorization/capture verified; no PSP or real money',
+      );
+
       await tester.tap(find.byTooltip('Account'));
       await settle();
       await tester.scrollUntilVisible(
@@ -973,6 +1127,12 @@ void main() {
       );
 
       await tester.tap(find.byTooltip('Account'));
+      await settle();
+      await tester.scrollUntilVisible(
+        find.text('Invoice history'),
+        160,
+        scrollable: find.byType(Scrollable).last,
+      );
       await settle();
       await tester.tap(find.text('Invoice history'));
       await settle();

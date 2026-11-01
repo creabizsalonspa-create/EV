@@ -5,8 +5,9 @@ import 'financial_documents.dart';
 import 'refund_requests.dart';
 import 'corporate_billing.dart';
 import 'payment_cases.dart';
+import 'hosted_checkout.dart';
 
-/// Read-only simulated accounting; no checkout, card collection or payout UI.
+/// Canonical invoice details with explicit server-authoritative TEST checkout.
 class InvoicePage extends StatefulWidget {
   final EvApi api;
   final int? sessionId;
@@ -146,6 +147,22 @@ class _InvoicePageState extends State<InvoicePage> {
                       ),
                     ),
               child: Text(caseText(context, 'new')),
+            ),
+            OutlinedButton(
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => HostedCheckoutView(
+                          api: widget.api,
+                          onExpired: widget.onExpired,
+                          scope: 'charging',
+                          invoiceId: invoice['id'] as int,
+                          sourceOwnerId: invoice['user_id'] as int?,
+                        ),
+                      ),
+                    ),
+              child: Text(hostedText(context, 'title')),
             ),
             for (final entry in {
               'subtotal': invoice['subtotal_minor'],

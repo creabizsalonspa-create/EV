@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Services\Commercial\Payments\HostedCheckout;
 use App\Services\Commercial\Payments\MockPaymentProvider;
 use App\Services\Commercial\Payments\PaymentProvider;
 use App\Services\Commercial\Payments\PaymentRecovery;
@@ -43,6 +44,10 @@ class SubscriptionCreditService
             abort_unless($capture && $checkout && $checkout->provider === 'stripe_test' && $checkout->status === 'captured' && $checkout->currency === $receipt->currency && (int) $checkout->amount_minor === (int) $receipt->amount_minor && (int) $checkout->invoice_id === (int) $receipt->invoice_id && (int) $capture->amount_minor === (int) $receipt->amount_minor && $capture->provider_operation_reference === $receipt->provider_reference && preg_match('/^pi_[A-Za-z0-9]+$/D', $checkout->provider_reference), 409, 'A reconciled Stripe test capture is required; local-only external credits are prohibited.');
         } else {
             abort_unless($receipt->evidence === 'MOCK_PROVIDER' && (! $checkout || $checkout->provider === 'mock'), 409, 'Receipt provider evidence does not reconcile.');
+        }
+
+        if ($checkout) {
+            HostedCheckout::guardCanonicalConfiguration('subscription', (int) $checkout->id);
         }
 
         return $checkout;

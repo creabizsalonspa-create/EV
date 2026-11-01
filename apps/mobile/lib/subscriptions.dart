@@ -1,3 +1,4 @@
+import 'hosted_checkout.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -700,6 +701,20 @@ class _SubscriptionDetailState extends State<SubscriptionDetailView> {
                       '#${raw['id']} · ${nativeFinancialAmount(c, Map<String, dynamic>.from(raw as Map), 'total_minor')}',
                     ),
                     Text(t(raw['paid'] == true ? 'paid' : 'unpaid')),
+                    OutlinedButton(
+                      onPressed: () => push(
+                        HostedCheckoutView(
+                          api: widget.api,
+                          onExpired: widget.onExpired,
+                          scope: 'subscription',
+                          invoiceId: raw['id'] as int,
+                          subscriptionId: widget.id,
+                          sourceOwnerId:
+                              summary!['subscription']['user_id'] as int?,
+                        ),
+                      ),
+                      child: Text(hostedText(c, 'title')),
+                    ),
                     Text('${raw['period_start']} — ${raw['period_end']}'),
                     OutlinedButton(
                       onPressed: () => push(

@@ -5,12 +5,21 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         reportQuery = {},
         actor = null,
         epoch = 0,
-        controller = null;
+        controller = null,
+        hostedWorkspace = null;
     async function api(path, method = "GET", data, signal) {
         const result = await clientApi(path, method, data, signal);
         if (method !== "GET") {
             const paths = [];
-            if (path.startsWith("commercial/checkouts")) {
+            if (path.startsWith("commercial/hosted-checkouts")) {
+                paths.push(
+                    "commercial/checkouts",
+                    "commercial/subscription-checkouts",
+                    "commercial/subscriptions",
+                    "finance/report",
+                    "finance/invoices",
+                );
+            } else if (path.startsWith("commercial/checkouts")) {
                 paths.push("commercial/checkouts");
                 if (/\/(capture|refund)$/.test(path))
                     paths.push("finance/report", "finance/invoices");
@@ -65,6 +74,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         root.removeAttribute("aria-busy");
         root.hidden = true;
         actor = null;
+        hostedWorkspace = null;
         pages = {};
         cache = new Map();
         reportQuery = {};
@@ -174,12 +184,31 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         required,
         maxLength: ["reason", "note", "resolution"].includes(name) ? 500 : 100,
     });
+    async function openHosted(context) {
+        const current = epoch;
+        if (!hostedWorkspace) {
+            const { mountHostedCheckout } = await import("/hosted-checkout.js");
+            if (current !== epoch || !actor) return;
+            const container = panel(
+                "Secure hosted checkout",
+                "الدفع المستضاف الآمن",
+            );
+            hostedWorkspace = mountHostedCheckout({
+                container,
+                api,
+                ui,
+                actor: () => actor,
+            });
+        }
+        await hostedWorkspace.open(context);
+    }
     async function load() {
         const current = ++epoch;
         controller?.abort();
         controller = new AbortController();
         const signal = controller.signal;
         root.replaceChildren();
+        hostedWorkspace = null;
         root.hidden = !actor;
         if (!actor) return;
         root.append(
@@ -200,6 +229,12 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             cache.clear();
             await load();
         });
+        button(
+            root,
+            "Hosted checkout & recovery",
+            "الدفع المستضاف والاستعادة",
+            () => openHosted(),
+        );
         const report = panel("Financial overview", "نظرة مالية"),
             invoices = panel(
                 "Payments & refund requests",
@@ -437,6 +472,16 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     },
                 );
             if (actor.id === invoice.user_id) {
+                button(
+                    row,
+                    "Secure hosted checkout",
+                    "الدفع المستضاف الآمن",
+                    () =>
+                        openHosted({
+                            scope: "charging",
+                            invoice_id: invoice.id,
+                        }),
+                );
                 form(
                     row,
                     [],
@@ -759,6 +804,22 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         ),
                     );
                 for (const invoice of detail.invoices) {
+                    if (
+                        !invoice.paid &&
+                        subscription.user_id === actor.id &&
+                        subscription.status !== "cancelled"
+                    )
+                        button(
+                            content,
+                            "Hosted subscription payment",
+                            "دفع الاشتراك المستضاف",
+                            () =>
+                                openHosted({
+                                    scope: "subscription",
+                                    invoice_id: invoice.id,
+                                    subscription_id: subscription.id,
+                                }),
+                        );
                     content.append(
                         text(
                             "p",

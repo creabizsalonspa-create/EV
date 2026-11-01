@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Services\Commercial\Payments\HostedCheckout;
 use App\Services\Finance\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -192,6 +193,7 @@ class SubscriptionService
         return DB::transaction(function () use ($actor, $id, $invoiceId, $outcome, $key) {
             User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
             $s = $this->access($actor, $id, true);
+            HostedCheckout::guard('subscription', $invoiceId);
             $k = $this->key($actor->id, $key);
             $h = $this->hash('mock_pay', [$id, $invoiceId, $outcome]);
             if ($this->prior($k, $h)) {
@@ -234,6 +236,7 @@ class SubscriptionService
             return DB::transaction(function () use ($subscription, $invoice, $reference, $amount, $currency, $evidence, $actor) {
                 $s = DB::table('commercial_subscriptions')->where('id', $subscription)->lockForUpdate()->first();
                 abort_unless($s, 404);
+                HostedCheckout::guard('subscription', $invoice);
                 $i = DB::table('commercial_subscription_invoices')->where('subscription_id', $subscription)->where('id', $invoice)->first();
                 abort_unless($i, 404);
                 abort_unless((int) $i->total_minor === $amount && $i->currency === $currency, 409, 'Provider settlement does not match subscription invoice.');
