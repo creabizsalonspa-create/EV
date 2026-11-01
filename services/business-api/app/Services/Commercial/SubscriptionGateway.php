@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Services\Commercial\Payments\HostedCheckout;
 use App\Services\Commercial\Payments\MockPaymentProvider;
 use App\Services\Commercial\Payments\PaymentProvider;
 use App\Services\Commercial\Payments\PaymentRecovery;
@@ -10,6 +11,7 @@ use App\Services\Commercial\Payments\StripeSandboxProvider;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class SubscriptionGateway
@@ -52,6 +54,7 @@ class SubscriptionGateway
             $s = $this->subscriptions->access($actor, $subscription, true);
             abort_unless((int) $s->user_id === $actor->id, 404);
             $i = $this->invoice($subscription, $invoice);
+            HostedCheckout::guard('subscription', $invoice);
             $requestKey = $this->hash(['subscription-checkout', $actor->id, $key]);
             $fingerprint = $this->hash($mandate ? [$subscription, $invoice, config('payments.provider'), $mandate, $policyVersion] : [$subscription, $invoice, config('payments.provider')]);
             if ($prior = DB::table('subscription_gateway_checkouts')->where('request_key', $requestKey)->first()) {
@@ -93,11 +96,13 @@ class SubscriptionGateway
         $provider = $this->provider();
         $initial = $this->access($actor, $id);
         abort_unless((int) $initial->user_id === $actor->id, 404);
+        HostedCheckout::guardCanonicalConfiguration('subscription', (int) $initial->id);
 
         return app(PaymentRecovery::class)->run('subscription', $initial, $actor->id, $kind, $key, $initial->mandate_id ? [$kind, (int) $initial->amount_minor, $initial->mandate_id, $initial->mandate_version, $initial->policy_version] : [$kind, (int) $initial->amount_minor, $token], fn () => DB::transaction(function () use ($actor, $initial, $kind, $key, $token, $provider) {
             User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
             $s = $this->subscriptions->access($actor, $initial->subscription_id, true);
             $c = DB::table('subscription_gateway_checkouts')->where('id', $initial->id)->lockForUpdate()->first();
+            HostedCheckout::guard('subscription', (int) $c->invoice_id, (int) $c->id);
             abort_unless($c->provider === config('payments.provider'), 409, 'Use the checkout provider configuration.');
             $requestKey = $this->hash(['subscription-operation', $actor->id, $key]);
             $fingerprint = $this->hash([$c->id, $kind, $token]);
@@ -207,6 +212,7 @@ class SubscriptionGateway
         abort_unless(config('payments.provider') === 'stripe_test' && $intent->scope === 'subscription', 409);
         $checkout = DB::table('subscription_gateway_checkouts')->find($intent->checkout_id);
         abort_unless($checkout && $checkout->provider === 'stripe_test', 404);
+        HostedCheckout::guardCanonicalConfiguration('subscription', (int) $checkout->id);
         $object = (new StripeSandboxProvider)->recoveryEvidence($intent, $checkout);
         if ($intent->kind === 'cancel') {
             return app(PaymentRecovery::class)->applyCancellation($intent, $object);
@@ -219,11 +225,21 @@ class SubscriptionGateway
         };
         abort_unless($type, 409, 'Cancellation requires separate final cancellation evidence.');
         abort_unless(! in_array($intent->kind, ['authorize', 'authenticate'], true) || in_array($object['status'] ?? '', ['requires_capture', 'requires_payment_method', 'requires_action'], true), 409, 'Authorization outcome is not final.');
-        $object['metadata']['creabiz_checkout'] = $checkout->provider_reference;
+        // Hosted metadata is original provider evidence and must not be
+        // rewritten to a later PaymentIntent reference during recovery.
+        $hosted = Schema::hasTable('hosted_payment_checkouts') && DB::table('hosted_payment_checkouts')->where('scope', 'subscription')->where('canonical_checkout_id', $checkout->id)->exists();
+        if (! $hosted) {
+            $object['metadata']['creabiz_checkout'] = $checkout->provider_reference;
+        }
         $object['metadata']['creabiz_recovery'] = (string) $intent->id;
         $event = ['id' => 'inspection_'.hash('sha256', json_encode([$intent->id, $object], JSON_THROW_ON_ERROR)), 'type' => $type, 'data' => ['object' => $object]];
 
         return $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR)) + ['provenance' => 'TEST_PROVIDER_GET', 'external_provider_verified' => false];
+    }
+
+    public function applyHostedEvidence(array $event): array
+    {
+        return $this->applyProviderEvidence($event, json_encode($event, JSON_THROW_ON_ERROR));
     }
 
     private function applyProviderEvidence(array $event, string $raw): array
@@ -254,6 +270,7 @@ class SubscriptionGateway
 
                     return ['accepted' => true, 'duplicate' => true, 'evidence' => 'STRIPE_TEST_CONTRACT'];
                 }
+                $hosted = HostedCheckout::bindEvidence('subscription', $c, $object);
                 abort_unless(($object['currency'] ?? null) === strtolower($c->currency) && (int) ($object['amount'] ?? -1) === (int) $c->amount_minor, 409, 'Subscription provider amount or currency mismatch.');
                 if ($c->mandate_id) {
                     $account = DB::table('payment_customer_accounts')->where('user_id', $c->user_id)->first();
@@ -263,7 +280,8 @@ class SubscriptionGateway
                 if ($type === 'payment_intent.succeeded') {
                     abort_unless(($object['status'] ?? null) === 'succeeded' && (int) ($object['amount_received'] ?? -1) === (int) $c->amount_minor, 409, 'Subscription provider capture is not final.');
                     $operationRef = $reference.':capture';
-                    $receipt = $this->subscriptions->recordProviderReceipt($s->id, $i->id, $operationRef, (int) $c->amount_minor, $c->currency, 'STRIPE_TEST_CONTRACT', null);
+                    $post = fn () => $this->subscriptions->recordProviderReceipt($s->id, $i->id, $operationRef, (int) $c->amount_minor, $c->currency, 'STRIPE_TEST_CONTRACT', null);
+                    $receipt = $hosted ? HostedCheckout::within($hosted, $post) : $post();
                     if (! DB::table('subscription_gateway_operations')->where('provider_operation_reference', $operationRef)->exists()) {
                         DB::table('subscription_gateway_operations')->insert(['checkout_id' => $c->id, 'kind' => 'capture', 'request_key' => hash('sha256', 'subscription-stripe-capture:'.$operationRef), 'fingerprint' => hash('sha256', $operationRef), 'provider_operation_reference' => $operationRef, 'amount_minor' => $c->amount_minor, 'receipt_id' => $receipt->id, 'created_at' => now()]);
                     }
@@ -278,13 +296,14 @@ class SubscriptionGateway
                     if (in_array($c->status, ['pending', 'action_required'], true)) {
                         DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update(['provider_reference' => $reference, 'status' => 'action_required', 'failure_code' => 'authentication_required', 'updated_at' => now()]);
                     }
-                } elseif (in_array($c->status, ['pending', 'action_required', 'authorized'], true)) {
+                } elseif (! $hosted && in_array($c->status, ['pending', 'action_required', 'authorized'], true)) {
                     DB::table('subscription_gateway_checkouts')->where('id', $c->id)->update(['provider_reference' => $reference, 'status' => 'failed', 'failure_code' => 'payment_declined', 'updated_at' => now()]);
                 }
                 app(PaymentRecovery::class)->resolveEvidence('subscription', (int) $c->id, $type === 'payment_intent.succeeded' ? 'capture' : 'authorize', ['id' => $object['id'], 'amount' => (int) $c->amount_minor, 'currency' => $c->currency, 'recovery_id' => $object['metadata']['creabiz_recovery'] ?? null]);
                 if ($type !== 'payment_intent.succeeded') {
                     app(PaymentRecovery::class)->resolveEvidence('subscription', (int) $c->id, 'authenticate', ['id' => $object['id'], 'amount' => (int) $c->amount_minor, 'currency' => $c->currency]);
                 }
+                HostedCheckout::observed('subscription', (int) $c->id, DB::table('subscription_gateway_checkouts')->find($c->id)->status);
                 DB::table('subscription_gateway_webhooks')->insert(['provider_event_id' => $eventKey, 'fingerprint' => $hash, 'checkout_id' => $c->id, 'kind' => $type, 'created_at' => now()]);
 
                 return ['accepted' => true, 'duplicate' => false, 'evidence' => 'STRIPE_TEST_CONTRACT'];

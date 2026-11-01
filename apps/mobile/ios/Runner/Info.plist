@@ -4,6 +4,9 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleURLTypes</key>
+	<array><dict><key>CFBundleURLName</key><string>com.creabiz.ev.payment-return</string><key>CFBundleURLSchemes</key><array><string>creabizev</string></array></dict></array>
+	<key>FlutterDeepLinkingEnabled</key><false/>
 	<key>CFBundleDisplayName</key>
 	<string>Crea-Biz EV</string>
 	<key>CFBundleExecutable</key>

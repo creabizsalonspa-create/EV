@@ -2,6 +2,7 @@
 
 namespace App\Services\Commercial\Payments;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
@@ -50,6 +51,43 @@ class StripeSandboxProvider implements PaymentProvider
         }
 
         return $body;
+    }
+
+    public function hostedPayment(object $hosted, string $checkoutReference): array
+    {
+        return $this->request('/checkout/sessions', ['mode' => 'payment', 'client_reference_id' => $hosted->reference, 'payment_method_types' => ['card'], 'payment_intent_data' => ['capture_method' => 'manual', 'metadata' => ['creabiz_checkout' => $checkoutReference, 'creabiz_hosted' => $hosted->reference]], 'metadata' => ['creabiz_hosted' => $hosted->reference], 'line_items' => [['price_data' => ['currency' => strtolower($hosted->currency), 'unit_amount' => (int) $hosted->amount_minor, 'product_data' => ['name' => 'Crea-Biz EV invoice']], 'quantity' => 1]], 'success_url' => $hosted->return_url, 'cancel_url' => $hosted->return_url, 'expires_at' => CarbonImmutable::parse($hosted->expires_at)->timestamp], 'hosted:'.$hosted->reference);
+    }
+
+    public function readHostedPayment(string $session): array
+    {
+        abort_unless(preg_match('/^cs_test_[A-Za-z0-9]+$/D', $session), 409);
+
+        return $this->request('/checkout/sessions/'.$session, ['expand' => ['payment_intent']], 'hosted-read:'.$session, 'get');
+    }
+
+    public function findHostedPayment(string $reference): ?array
+    {
+        $after = null;
+        $matches = [];
+        for ($page = 0; $page < 10; $page++) {
+            $list = $this->request('/checkout/sessions', array_filter(['limit' => 100, 'starting_after' => $after]), 'hosted-find:'.$reference, 'get');
+            $found = array_values(array_filter($list['data'], fn ($r) => ($r['client_reference_id'] ?? null) === $reference));
+            $matches = array_merge($matches, $found);
+            abort_if(count($matches) > 1, 409, 'Ambiguous hosted sessions require investigation.');
+            if (! ($list['has_more'] ?? false)) {
+                return $matches ? $this->readHostedPayment($matches[0]['id']) : null;
+            }
+            $after = $list['data'][array_key_last($list['data'])]['id'] ?? null;
+            abort_unless(is_string($after), 502);
+        }
+        abort(409, 'Provider session search exceeded its bounded window; manual reconciliation is required.');
+    }
+
+    public function expireHostedPayment(string $session, string $reference): array
+    {
+        abort_unless(preg_match('/^cs_test_[A-Za-z0-9]+$/D', $session), 409);
+
+        return $this->request('/checkout/sessions/'.$session.'/expire', [], 'hosted-expire:'.$reference);
     }
 
     public function createCustomer(string $reference): array
@@ -209,7 +247,7 @@ class StripeSandboxProvider implements PaymentProvider
         abort_unless(is_string($object['id'] ?? null) && preg_match($intent->kind === 'refund' ? '/^re_[A-Za-z0-9]+$/D' : '/^pi_[A-Za-z0-9]+$/D', $object['id']), 409, 'Invalid provider recovery identity.');
         abort_unless((int) ($object['amount'] ?? -1) === (int) $intent->amount_minor && strtoupper($object['currency'] ?? '') === $intent->currency, 409, 'Recovery evidence amount or currency mismatch.');
 
-        return array_intersect_key($object, array_flip(['id', 'livemode', 'status', 'amount', 'amount_received', 'amount_capturable', 'currency', 'payment_intent', 'metadata', 'customer']));
+        return array_intersect_key($object, array_flip(['id', 'livemode', 'status', 'amount', 'amount_received', 'amount_capturable', 'capture_method', 'currency', 'payment_intent', 'metadata', 'customer']));
     }
 
     public function inspect(string $reference): array

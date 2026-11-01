@@ -23,6 +23,13 @@ on:
         "tests/native-financial-operations.cjs",
         "tests/native-commercial-parity.cjs",
         "tests/native-case-evidence.cjs",
+        "tests/native-hosted-checkout.cjs",
+        "services/business-api/tests/Fixtures/hosted.php",
+        "services/business-api/tests/Fixtures/hosted-browser.php",
+        "services/business-api/routes/hosted_checkout.php",
+        "services/business-api/app/Services/Commercial/Payments/HostedCheckout.php",
+        "services/business-api/app/Services/Commercial/Payments/StripeSandboxProvider.php",
+        "services/business-api/app/Http/Controllers/HostedCheckoutController.php",
         "tests/native-financial-analytics.cjs",
         "services/business-api/tests/Fixtures/native-financial-analytics.php",
         "services/business-api/tests/Fixtures/payment-case-evidence.php",
@@ -78,6 +85,13 @@ on:
         "tests/native-financial-operations.cjs",
         "tests/native-commercial-parity.cjs",
         "tests/native-case-evidence.cjs",
+        "tests/native-hosted-checkout.cjs",
+        "services/business-api/tests/Fixtures/hosted.php",
+        "services/business-api/tests/Fixtures/hosted-browser.php",
+        "services/business-api/routes/hosted_checkout.php",
+        "services/business-api/app/Services/Commercial/Payments/HostedCheckout.php",
+        "services/business-api/app/Services/Commercial/Payments/StripeSandboxProvider.php",
+        "services/business-api/app/Http/Controllers/HostedCheckoutController.php",
         "tests/native-financial-analytics.cjs",
         "services/business-api/tests/Fixtures/native-financial-analytics.php",
         "services/business-api/tests/Fixtures/payment-case-evidence.php",
@@ -135,12 +149,21 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/**/*.gradle*
+            apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
       - name: Install pinned official Flutter source
         shell: bash
         run: |
           git clone --depth 1 --branch 3.35.7 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = adc901062556672b4138e18a4dc62a4be8f4b3c2
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-flutter-3.35.7-pub-${{ hashFiles('apps/mobile/pubspec.lock') }}
+          restore-keys: ${{ runner.os }}-flutter-3.35.7-pub-
       - run: flutter --version
       - name: Validate native source and tests
         shell: bash
