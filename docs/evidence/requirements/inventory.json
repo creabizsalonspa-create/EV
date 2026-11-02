@@ -52,6 +52,18 @@
       "test_result": "passed",
       "merge_sha": "d846de0bdcd6346578d8ffa1959807fcbd8762a6",
       "evidence": "docs/evidence/discovery-routing/hosted-checkpoint.json"
+    },
+    "pr28": {
+      "source_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "test_result": "passed",
+      "merge_sha": "f2fe9d8b2a69b1c3054551152d0eb2dc2a1efd80",
+      "evidence": "docs/evidence/hosted-checkout/hosted-checkpoint.json"
+    },
+    "pr29": {
+      "source_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "test_result": "passed",
+      "merge_sha": "b31f1b62a5d52f40c717c21698b03d405e0324ea",
+      "evidence": "docs/evidence/corporate-hosted/hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -507,9 +519,9 @@
     {
       "prd": "2.8",
       "requirement": "Checkout, wallet, invoices, disputes",
-      "implemented_code_scope": "Canonical checkout/gateway intents, immutable payments/refunds/credits/disputes, durable lost-ack recovery; scoped web finance and native invoice/recovery/dunning/mandate history; PR12 hosted consent/test off-session collection",
-      "automated_evidence_scope": "PaymentGatewayTest, PaymentRecoveryTest, SubscriptionRecurringTest; finance browser/native recovery. Integrated subset through63886428; later candidates explicitly noted",
-      "remaining_scope": "Full native checkout/plan/refund/dispute parity, provider dispute submission/reconciliation, legal invoice documents; wallet remains separately blocked by legal approval",
+      "implemented_code_scope": "Canonical checkout/gateway intents, immutable payments/refunds/credits/disputes, durable lost-ack recovery; scoped web finance and native invoice/recovery/dunning/mandate history; PR12 hosted consent/test off-session collection; PR28 durable hosted charging/customer/vendor subscription checkout with web/native recovery and explicit source capture; PR29 separately authorized corporate statement collection",
+      "automated_evidence_scope": "PaymentGatewayTest, PaymentRecoveryTest, SubscriptionRecurringTest; finance browser/native recovery. Integrated subset through63886428; later candidates explicitly noted; PR28/29 exact-head14-check matrices, actual Laravel browser/native and both iOS runtimes; see hosted-checkout/corporate-hosted evidence",
+      "remaining_scope": "Statement-level corporate provider refund/dispute allocations, provider dispute submission/reconciliation, complete native commercial parity and legal invoice acceptance; wallet remains separately blocked by legal approval",
       "atoms": [
         {
           "id": "2.8.1",
@@ -2108,9 +2120,9 @@
     {
       "prd": "7.2",
       "requirement": "PSP/tokenization/webhooks/legal invoices",
-      "implemented_code_scope": "Shared canonical gateway adapter, Stripe test HTTP contracts, provider-bound intents/checkout/webhooks/refunds, hosted saved consent/mandates, recovery and recurring collection; no raw cards",
-      "automated_evidence_scope": "StripeSandboxTest, PaymentGatewayTest, PaymentRecoveryTest; HTTP contract fakes, not live PSP. Integrated subset through63886428; later candidates explicitly noted",
-      "remaining_scope": "Provider-specific completion, merchant sandbox/callback/SCA acceptance, tax/legal invoice artifacts and reviews; full native actions",
+      "implemented_code_scope": "Shared canonical gateway adapter, Stripe test HTTP contracts, provider-bound intents/checkout/webhooks/refunds, hosted saved consent/mandates, recovery and recurring collection; no raw cards; PR28/29 merchant-pinned hosted manual-capture TEST contracts, immutable original identities, source holds and authoritative recovery across web/native",
+      "automated_evidence_scope": "StripeSandboxTest, PaymentGatewayTest, PaymentRecoveryTest; HTTP contract fakes, not live PSP. Integrated subset through63886428; later candidates explicitly noted; verified PR28/29 platform/PostgreSQL/browser/Android/iOS matrices; provider HTTP fakes and local mocks remain distinct from live acceptance",
+      "remaining_scope": "Live merchant sandbox/SCA acceptance, provider-specific completion, corporate provider refunds/disputes and allocation, legal/tax approval and remaining native actions",
       "atoms": [
         {
           "id": "7.2.1",
@@ -2261,9 +2273,9 @@
     {
       "prd": "8.1",
       "requirement": "Enterprise organizations/billing",
-      "implemented_code_scope": "Scoped organizations/invitations/consent/members/cost centers/vehicle assignments web/native",
-      "automated_evidence_scope": "EnterpriseTest; fleet browser/native. Integrated subset through63886428; later candidates explicitly noted",
-      "remaining_scope": "Eligibility/policies, corporate administrative roles/agreements/consolidated billing and reports",
+      "implemented_code_scope": "Scoped organizations/invitations/consent/members/cost centers/vehicle assignments web/native; accepted corporate agreements/claims/statements and PR29 statement-root hosted TEST collection with atomic canonical per-invoice allocation",
+      "automated_evidence_scope": "EnterpriseTest; fleet browser/native. Integrated subset through63886428; later candidates explicitly noted; CorporateHostedCollectionTest21/196, corporate process races3/42, actual web/native and both synthetic iOS runtimes at verified PR29",
+      "remaining_scope": "Complete enterprise policies/administrative parity, provider statement-level refund/dispute resolution and reconciliation, consolidated commercial reporting/acceptance",
       "atoms": [
         {
           "id": "8.1.1",

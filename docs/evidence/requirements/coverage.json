@@ -54,6 +54,18 @@
       "test_result": "passed",
       "merge_sha": "d846de0bdcd6346578d8ffa1959807fcbd8762a6",
       "evidence": "docs/evidence/discovery-routing/hosted-checkpoint.json"
+    },
+    "pr28": {
+      "source_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "test_result": "passed",
+      "merge_sha": "f2fe9d8b2a69b1c3054551152d0eb2dc2a1efd80",
+      "evidence": "docs/evidence/hosted-checkout/hosted-checkpoint.json"
+    },
+    "pr29": {
+      "source_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "test_result": "passed",
+      "merge_sha": "b31f1b62a5d52f40c717c21698b03d405e0324ea",
+      "evidence": "docs/evidence/corporate-hosted/hosted-checkpoint.json"
     }
   },
   "weighted_percent": {

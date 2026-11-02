@@ -134,5 +134,6 @@
       "kind": "Interim source checkpoint ZIP; not complete platform release",
       "sha256": "ae37e1528eb5c7125d82435d9722b8f3d0b05bb3acbeff5dae5f6b09863ff7e4"
     }
-  ]
+  ],
+  "integrated_sha": "f2fe9d8b2a69b1c3054551152d0eb2dc2a1efd80"
 }

@@ -1,0 +1,1299 @@
+{
+  "source_sha": "f4d1252b81d347efb4774535231080d89a637370",
+  "integrated_sha": "b31f1b62a5d52f40c717c21698b03d405e0324ea",
+  "merge_sha": "b31f1b62a5d52f40c717c21698b03d405e0324ea",
+  "source_tree": "ca678c79545eb24a03a5a19f57dd141326709eb8",
+  "merge_tree": "ca678c79545eb24a03a5a19f57dd141326709eb8",
+  "pull_request": 29,
+  "test_result": "passed",
+  "checks": [
+    {
+      "name": "native (macos-15)",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923080/job/125395210485"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923080/job/125395209836"
+    },
+    {
+      "name": "financial-browser",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923221/job/125395207537"
+    },
+    {
+      "name": "business-platform",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923025/job/125395206530"
+    },
+    {
+      "name": "finance-postgres",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923025/job/125395206389"
+    },
+    {
+      "name": "connector-postgres",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923025/job/125395206312"
+    },
+    {
+      "name": "staging-image",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923025/job/125395205804"
+    },
+    {
+      "name": "native (macos-15)",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479742907/job/125394548986"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479742907/job/125394548335"
+    },
+    {
+      "name": "staging-image",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741642/job/125394544460"
+    },
+    {
+      "name": "financial-browser",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741725/job/125394542922"
+    },
+    {
+      "name": "finance-postgres",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741642/job/125394542037"
+    },
+    {
+      "name": "connector-postgres",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741642/job/125394541961"
+    },
+    {
+      "name": "business-platform",
+      "conclusion": "success",
+      "head_sha": "f4d1252b81d347efb4774535231080d89a637370",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741642/job/125394541574"
+    }
+  ],
+  "jobs": [
+    {
+      "id": 125395210485,
+      "name": "native (macos-15)",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923080/job/125395210485",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Select supported Xcode 16.4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-java@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Install pinned official Flutter source",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/cache@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter --version",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate native source and tests",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify foreground-only native privacy configuration",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify native PDF artifact security boundaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter build apk --debug",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify actual merged Android foreground location permissions",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify native inventory against local Laravel",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run flutter build ios --simulator --no-codesign",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify bundled iOS foreground privacy permissions and localizations",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Archive unsigned simulator application",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Create and boot an isolated iPhone simulator",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify simulator startup recovery guards",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run native UI integration on iOS simulator (synthetic TLS fixtures)",
+          "conclusion": "success"
+        },
+        {
+          "name": "Capture simulator failure state",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Remove this run's simulator",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/cache@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125395209836,
+      "name": "native (ubuntu-latest)",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923080/job/125395209836",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Select supported Xcode 16.4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/setup-java@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install pinned official Flutter source",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/cache@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter --version",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate native source and tests",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify foreground-only native privacy configuration",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify native PDF artifact security boundaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter build apk --debug",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify actual merged Android foreground location permissions",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify native inventory against local Laravel",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter build ios --simulator --no-codesign",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify bundled iOS foreground privacy permissions and localizations",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Archive unsigned simulator application",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Create and boot an isolated iPhone simulator",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify simulator startup recovery guards",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run native UI integration on iOS simulator (synthetic TLS fixtures)",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Capture simulator failure state",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Remove this run's simulator",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/cache@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-java@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125395207537,
+      "name": "financial-browser",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923221/job/125395207537",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php /usr/bin/composer validate --strict",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php /usr/bin/composer audit --no-interaction",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npx playwright install --with-deps chromium",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/payout-test-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/campaign-test-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/start > /tmp/finance-commercial-start.txt",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify source analytics and commercial campaign workflows",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run docker logs --tail 80 ev-business-api",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125395206530,
+      "name": "business-platform",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923025/job/125395206530",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php /usr/bin/composer validate --strict",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php vendor/bin/pint --test",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check reproducible42-category coverage",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php artisan test --compact",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npx playwright install --with-deps chromium",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/start",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:e2e",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:frontend",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:nearby",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:maps",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:discovery-routing",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:localization",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:web-session",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/csms-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/csms-start",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:ocpp",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/charging-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/charging-bridge-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run node tests/charging-session.cjs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run node tests/charging-business.cjs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run node tests/charging-client.cjs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify continuous source ingestion and restart",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:vendor",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:ocpi-provisioning",
+          "conclusion": "success"
+        },
+        {
+          "name": "Financial browser workflows",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Paced financial history and charger operational regressions",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain operational suite logs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain customer-favorites browser evidence",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run docker logs --tail 100 ev-business-api",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125395206389,
+      "name": "finance-postgres",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923025/job/125395206389",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run services/business-api/tests/Postgres/run-finance",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125395206312,
+      "name": "connector-postgres",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923025/job/125395206312",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run services/business-api/tests/Postgres/run-connectors",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125395205804,
+      "name": "staging-image",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479923025/job/125395205804",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Seed synthetic build-context exclusion canaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build pinned staging runtime and verify offline image boundaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125394548986,
+      "name": "native (macos-15)",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479742907/job/125394548986",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Select supported Xcode 16.4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-java@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Install pinned official Flutter source",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/cache@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter --version",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate native source and tests",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify foreground-only native privacy configuration",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify native PDF artifact security boundaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter build apk --debug",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify actual merged Android foreground location permissions",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify native inventory against local Laravel",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run flutter build ios --simulator --no-codesign",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify bundled iOS foreground privacy permissions and localizations",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Archive unsigned simulator application",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Create and boot an isolated iPhone simulator",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify simulator startup recovery guards",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run native UI integration on iOS simulator (synthetic TLS fixtures)",
+          "conclusion": "success"
+        },
+        {
+          "name": "Capture simulator failure state",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Remove this run's simulator",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/cache@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125394548335,
+      "name": "native (ubuntu-latest)",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479742907/job/125394548335",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Select supported Xcode 16.4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/setup-java@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install pinned official Flutter source",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/cache@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter --version",
+          "conclusion": "success"
+        },
+        {
+          "name": "Validate native source and tests",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify foreground-only native privacy configuration",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify native PDF artifact security boundaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter build apk --debug",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify actual merged Android foreground location permissions",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify native inventory against local Laravel",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run flutter build ios --simulator --no-codesign",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify bundled iOS foreground privacy permissions and localizations",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Archive unsigned simulator application",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Create and boot an isolated iPhone simulator",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify simulator startup recovery guards",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run native UI integration on iOS simulator (synthetic TLS fixtures)",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Capture simulator failure state",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Remove this run's simulator",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/cache@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-java@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125394544460,
+      "name": "staging-image",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741642/job/125394544460",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Seed synthetic build-context exclusion canaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build pinned staging runtime and verify offline image boundaries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125394542922,
+      "name": "financial-browser",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741725/job/125394542922",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php /usr/bin/composer validate --strict",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php /usr/bin/composer audit --no-interaction",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npx playwright install --with-deps chromium",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/payout-test-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/campaign-test-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/start > /tmp/finance-commercial-start.txt",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify source analytics and commercial campaign workflows",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run docker logs --tail 80 ev-business-api",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125394542037,
+      "name": "finance-postgres",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741642/job/125394542037",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run services/business-api/tests/Postgres/run-finance",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125394541961,
+      "name": "connector-postgres",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741642/job/125394541961",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run services/business-api/tests/Postgres/run-connectors",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 125394541574,
+      "name": "business-platform",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41479741642/job/125394541574",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php /usr/bin/composer validate --strict",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php vendor/bin/pint --test",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check reproducible42-category coverage",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/php artisan test --compact",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npx playwright install --with-deps chromium",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/start",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:e2e",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:frontend",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:nearby",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:maps",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:discovery-routing",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:localization",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:web-session",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/csms-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/csms-start",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:ocpp",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/charging-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./scripts/charging-bridge-setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run node tests/charging-session.cjs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run node tests/charging-business.cjs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run node tests/charging-client.cjs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify continuous source ingestion and restart",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:vendor",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run npm run test:ocpi-provisioning",
+          "conclusion": "success"
+        },
+        {
+          "name": "Financial browser workflows",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Paced financial history and charger operational regressions",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain operational suite logs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Retain customer-favorites browser evidence",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run docker logs --tail 100 ev-business-api",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "tests": {
+    "laravel": {
+      "passed": 448,
+      "assertions": 9215
+    },
+    "flutter": {
+      "passed": 221,
+      "explicit_fixture_skips": 16
+    },
+    "financial_postgresql": {
+      "passed": 312,
+      "assertions": 7851
+    },
+    "financial_process_races": {
+      "passed": 71,
+      "assertions": 922
+    },
+    "connected_native_suites_per_android_job": 15,
+    "actual_ios_runtime_jobs": 2
+  },
+  "limitations": [
+    "Statement-level provider refunds and disputes/allocation remain unfinished software; local credits blocked and Stripe corporate settlement/payout held",
+    "No live PSP/SCA challenge, bank, charger, partner, legal, signing/store or production acceptance",
+    "Fixed42/312 coverage unchanged; no partial atom credited"
+  ],
+  "development_artifacts": [
+    {
+      "path": "artifacts/corporate-ci-f4d1252/app-debug.apk",
+      "kind": "Shared customer/vendor role-based Android debug APK",
+      "sha256": "c0feb40b8d5eb12de795cbf29b7a3c55a42e3958789dcd44921cfbe37d0aaa0e"
+    },
+    {
+      "path": "artifacts/corporate-ci-f4d1252/creabiz-ios-simulator.tar.gz",
+      "kind": "Unsigned iOS simulator archive; not signed IPA",
+      "sha256": "3597cd7aa9e9f0e127f93e876b0708ae2ac864db9ebd3a22909f474ab63224da"
+    },
+    {
+      "path": "artifacts/corporate-hosted-source-f4d1252.zip",
+      "kind": "Interim source ZIP; not complete platform release",
+      "sha256": "9befb09531dd05eab7430ab5cacf541f574a5ebd1fbb08e8edf23f7e057a9e11"
+    }
+  ]
+}
