@@ -38,3 +38,7 @@
 .hosted-return p {
     overflow-wrap: anywhere;
 }
+.hosted-return .finance-panel > button {
+    margin-inline-end: 0.5rem;
+    margin-block: 0.25rem;
+}

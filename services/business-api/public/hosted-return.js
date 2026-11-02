@@ -1,6 +1,10 @@
 /* A navigation hint is never payment confirmation. Every amount/state comes from authenticated API. */
 (() => {
     const root = document.querySelector("[data-hosted-return]");
+    const corporate = root.dataset.checkoutFamily === "corporate";
+    const endpoint = corporate
+        ? "commercial/corporate/hosted-checkouts"
+        : "commercial/hosted-checkouts";
     if (!root) return;
     const strings = {
         en: {
@@ -117,6 +121,12 @@
             !Number.isInteger(r.minor_units) ||
             r.minor_units < 0 ||
             r.minor_units > 3 ||
+            (corporate
+                ? r.scope !== "corporate" ||
+                  !Number.isSafeInteger(r.statement_id) ||
+                  r.statement_id < 1
+                : !["charging", "subscription"].includes(r.scope)) ||
+            r.external_provider_verified !== false ||
             r.real_money_moved !== false
         )
             throw Error("Invalid source");
@@ -210,24 +220,19 @@
         return run(() =>
             request(
                 id
-                    ? `commercial/hosted-checkouts/${id}`
-                    : `commercial/hosted-checkouts/by-reference/${reference}`,
+                    ? `${endpoint}/${id}`
+                    : `${endpoint}/by-reference/${reference}`,
             ),
         );
     }
     document.getElementById("return-refresh").onclick = refresh;
     document.getElementById("return-inspect").onclick = () =>
-        id &&
-        run(() =>
-            request(`commercial/hosted-checkouts/${id}/inspect`, "POST", {}),
-        );
+        id && run(() => request(`${endpoint}/${id}/inspect`, "POST", {}));
     document.getElementById("return-capture").onclick = () =>
         id &&
         row?.can_capture &&
         confirm(t("captureConfirm")) &&
-        run(() =>
-            request(`commercial/hosted-checkouts/${id}/capture`, "POST", {}),
-        );
+        run(() => request(`${endpoint}/${id}/capture`, "POST", {}));
     document.getElementById("return-consent").onchange = (e) => {
         document.getElementById("return-simulate").disabled = !e.target.checked;
     };
@@ -236,7 +241,7 @@
         row?.can_simulate &&
         document.getElementById("return-consent").checked &&
         run(() =>
-            request(`commercial/hosted-checkouts/${id}/simulate`, "POST", {
+            request(`${endpoint}/${id}/simulate`, "POST", {
                 consent: true,
                 outcome: document.getElementById("return-outcome").value,
             }),
@@ -254,6 +259,9 @@
             controller.abort();
             controller = new AbortController();
             source.replaceChildren();
+            row = null;
+            document.getElementById("return-capture").hidden = true;
+            document.getElementById("return-simulation").hidden = true;
             busy = false;
         } else refresh();
     });

@@ -34,8 +34,8 @@ window.mountCorporateBilling = ({ container, api, ui, actor }) => {
         t("h3", "Corporate billing", "الفوترة المؤسسية"),
         t(
             "p",
-            "Allocate your own charging invoices to an accepted company agreement. Statements preserve the original invoices and tax. Collection is explicitly simulated; no real money or credit is issued.",
-            "خصص فواتير شحنك لاتفاقية شركة مقبولة. تحتفظ الكشوف بالفواتير والضرائب الأصلية. التحصيل محاكاة صريحة؛ لا تُصدر أموال أو ائتمان حقيقي.",
+            "Allocate your own charging invoices to an accepted company agreement. Statements preserve the original invoices and tax. Collection supports explicitly labeled TEST workflows; no real money or credit is verified.",
+            "خصص فواتير شحنك لاتفاقية شركة مقبولة. تحتفظ الكشوف بالفواتير والضرائب الأصلية. التحصيل يدعم عمليات اختبار واضحة؛ لا يُثبت تحويل أموال أو ائتمان حقيقي.",
         ),
         status,
     );
@@ -669,7 +669,17 @@ window.mountCorporateBilling = ({ container, api, ui, actor }) => {
             );
             if (statement.receipt)
                 row.append(
-                    t("p", "Simulated payment recorded", "سُجل دفع بالمحاكاة"),
+                    statement.receipt.evidence === "STRIPE_TEST_CONTRACT"
+                        ? t(
+                              "p",
+                              "Captured in TEST provider accounting",
+                              "سُجل التحصيل في محاسبة مزود اختباري",
+                          )
+                        : t(
+                              "p",
+                              "Simulated payment recorded",
+                              "سُجل دفع بالمحاكاة",
+                          ),
                 );
             button(
                 row,
@@ -697,6 +707,10 @@ window.mountCorporateBilling = ({ container, api, ui, actor }) => {
             simulated_paid: [
                 "Simulated payment recorded",
                 "سُجل دفع بالمحاكاة",
+            ],
+            test_provider_collected: [
+                "Captured in TEST provider accounting",
+                "سُجل التحصيل في محاسبة مزود اختباري",
             ],
             collection_attention: [
                 "Collection requires investigation",
@@ -747,6 +761,37 @@ window.mountCorporateBilling = ({ container, api, ui, actor }) => {
         link.referrerPolicy = "no-referrer";
         content.append(link);
         if (data.receipt) content.append(text("p", data.receipt.number));
+        button(
+            content,
+            "Corporate hosted checkout & recovery",
+            "الدفع المستضاف للشركة والاستعادة",
+            async () => {
+                const current = generation;
+                const { mountHostedCheckout } =
+                    await import("/hosted-checkout.js");
+                if (!alive() || current !== generation) return;
+                const hostedContainer = document.createElement("section");
+                hostedContainer.className = "finance-panel";
+                content.replaceChildren(
+                    t("h4", "Corporate statement payment", "دفع كشف الشركة"),
+                );
+                button(content, "Back to statement", "العودة إلى الكشف", () =>
+                    statementDetail(agreement, id, page),
+                );
+                content.append(hostedContainer);
+                const mounted = mountHostedCheckout({
+                    container: hostedContainer,
+                    api,
+                    ui,
+                    actor,
+                    family: "corporate",
+                });
+                await mounted.open({
+                    scope: "corporate",
+                    statement_id: Number(id),
+                });
+            },
+        );
         if (
             !data.receipt &&
             Number(s.payer_id) === Number(identity) &&

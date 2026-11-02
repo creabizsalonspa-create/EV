@@ -120,3 +120,11 @@ Route::get('/payments/hosted-simulation/{checkout}', function (string $checkout)
 
     return response()->view('payments.hosted-return', ['simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
 })->whereNumber('checkout')->middleware('auth');
+
+// Server-selected corporate family; query parameters never choose an API or prove payment.
+Route::get('/payments/corporate-hosted-return', fn () => response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate'])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer'));
+Route::get('/payments/corporate-hosted-simulation/{checkout}', function (string $checkout) {
+    abort_unless(app()->environment('local', 'testing') && config('payments.provider') === 'mock', 404);
+
+    return response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate', 'simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer');
+})->whereNumber('checkout')->middleware('auth');

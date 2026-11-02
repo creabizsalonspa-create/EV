@@ -89,6 +89,35 @@ void main() {
         'can_simulate': hostedState == 'open',
         'can_retry': false,
       };
+      var corporateCreated = false, corporateState = 'open';
+      var corporatePosts = 0, corporateGets = 0;
+      String? corporateKey;
+      final corporateHash = List.filled(64, 'a').join();
+      Map<String, dynamic> corporateRow() => {
+        ...hostedRow(),
+        'id': 197,
+        'canonical_checkout_id': 197,
+        'reference': 'c8138d65-22de-43ad-b132-1b55855672ad',
+        'scope': 'corporate',
+        'invoice_id': null,
+        'subscription_id': null,
+        'statement_id': 131,
+        'payer_id': authenticated,
+        'owner': true,
+        'line_fingerprint': corporateHash,
+        'amount_minor': 210,
+        'status': corporateState,
+        'canonical_status': corporateState == 'open'
+            ? 'pending'
+            : corporateState,
+        'allowed_actions': [
+          'inspect',
+          if (corporateState == 'open' || corporateState == 'authorized')
+            'cancel',
+          if (corporateState == 'authorized') 'capture',
+        ],
+        'can_simulate': corporateState == 'open',
+      };
       var loggedIn = false;
       var pricingAmount = 125, pricingVersion = 1;
       bool mandateRevoked = false;
@@ -222,6 +251,73 @@ void main() {
         } else if (path == '/api/logout') {
           loggedIn = false;
           request.response.statusCode = 204;
+        } else if (path == '/api/commercial/corporate/statements/131') {
+          corporateGets++;
+          result = {
+            'statement': {
+              'id': 131,
+              'payer_id': authenticated,
+              'fleet_id': 8,
+              'number': 'SYNTHETIC-CORP-131',
+              'total_minor': 210,
+              'currency': 'AED',
+              'minor_units': 2,
+              'due_at': '2026-12-30T00:00:00Z',
+            },
+            'lines': [],
+            'state': corporateState == 'captured' ? 'simulated_paid' : 'unpaid',
+            'receipt': null,
+            'can_collect_hosted': corporateState != 'captured',
+            'line_fingerprint': corporateHash,
+            'real_payment_processed': false,
+          };
+        } else if (path == '/api/commercial/corporate/hosted-checkouts') {
+          expectSync(loggedIn, true);
+          if (request.method == 'POST') {
+            corporatePosts++;
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+            expectSync(body.keys.toSet(), {
+              'statement_id',
+              'consent',
+              'idempotency_key',
+            });
+            expectSync(body['statement_id'], 131);
+            expectSync(body['consent'], true);
+            corporateKey = body['idempotency_key'];
+            corporateCreated = true;
+            result = {'checkout': corporateRow()};
+          } else {
+            corporateGets++;
+            result = {
+              'data': corporateCreated ? [corporateRow()] : [],
+              'current_page': 1,
+              'last_page': 1,
+              'total': corporateCreated ? 1 : 0,
+            };
+          }
+        } else if (path.startsWith(
+          '/api/commercial/corporate/hosted-checkouts/197',
+        )) {
+          expectSync(loggedIn, true);
+          if (request.method == 'POST') {
+            corporatePosts++;
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+            if (path.endsWith('/simulate')) {
+              expectSync(body['consent'], true);
+              expectSync(body['outcome'], 'authorized');
+              corporateState = 'authorized';
+            } else if (path.endsWith('/capture')) {
+              expectSync(corporateState, 'authorized');
+              corporateState = 'captured';
+            } else {
+              expectSync(path.endsWith('/inspect'), true);
+            }
+          } else {
+            corporateGets++;
+          }
+          result = {'checkout': corporateRow()};
         } else if (path == '/api/commercial/hosted-checkouts') {
           expectSync(loggedIn, isTrue);
           if (request.method == 'POST') {
@@ -1082,6 +1178,76 @@ void main() {
       await settle();
       debugPrint(
         'DEVICE: durable hosted intent, untrusted native return GET recovery and explicit mock authorization/capture verified; no PSP or real money',
+      );
+
+      Navigator.of(tester.element(find.byType(Workspace))).push(
+        MaterialPageRoute<void>(
+          builder: (_) => HostedCheckoutView(
+            api: firstApi,
+            onExpired: () {
+              throw StateError('Synthetic corporate session expired');
+            },
+            scope: 'corporate',
+            statementId: 131,
+          ),
+        ),
+      );
+      await settle();
+      for (final key in ['hosted-consent', 'hosted-create']) {
+        await tester.scrollUntilVisible(
+          find.byKey(Key(key)),
+          150,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await settle();
+        await tester.tap(find.byKey(Key(key)));
+        await settle();
+      }
+      expect(corporateCreated, true);
+      expect(corporatePosts, 1);
+      final corporateStored = await DeviceFinancialOperationStore().read(
+        '${origin.origin}:$authenticated:corporate-hosted:corporate:create:statement:131',
+      );
+      expect(corporateStored?['key'], corporateKey);
+      final corporateBeforeReturn = corporateGets;
+      expect(
+        await launchUrl(
+          Uri.parse('creabizev://payments/hosted-return'),
+          mode: LaunchMode.externalApplication,
+        ),
+        true,
+      );
+      await settle();
+      expect(corporatePosts, 1);
+      expect(corporateState, 'open');
+      expect(corporateGets, greaterThan(corporateBeforeReturn));
+      await tester.scrollUntilVisible(
+        find.text('Simulate authorization'),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.text('Simulate authorization'));
+      await settle();
+      await tester.tap(find.text('Confirm'));
+      await settle();
+      expect(corporateState, 'authorized');
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('hosted-capture')),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      await tester.tap(find.byKey(const Key('hosted-capture')));
+      await settle();
+      await tester.tap(find.text('Confirm'));
+      await settle();
+      expect(corporateState, 'captured');
+      expect(corporatePosts, 3);
+      await tester.tap(find.byType(BackButton));
+      await settle();
+      debugPrint(
+        'DEVICE: synthetic corporate source fingerprint, durable intent, GET-only native return and explicit mock capture verified; no real PSP or funds',
       );
 
       await tester.tap(find.byTooltip('Account'));

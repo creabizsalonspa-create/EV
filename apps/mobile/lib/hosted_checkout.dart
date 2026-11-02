@@ -5,11 +5,22 @@ import 'api.dart';
 import 'strings.dart';
 import 'invoice.dart';
 import 'subscriptions.dart';
+import 'corporate_billing.dart';
 import 'financial_operation_store.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
 
 const hostedEn = {
   'title': 'Hosted checkout',
+  'corporateTitle': 'Corporate hosted collection',
+  'corporateHistory': 'Corporate payment history',
+  'corporateNotice':
+      'TEST company collection only. The original statement, payer and line snapshot remain authoritative. Returning from a browser never proves payment or a bank transfer.',
+  'corporateOwnerOnly':
+      'Only the original statement payer who still owns the company may authorize collection.',
+  'corporateConsent':
+      'I reviewed this original company statement and authorize this TEST checkout. The backend controls its exact amount and taxes.',
+  'statementSource': 'Source statement',
+  'statementDetails': 'Review statement and private documents',
   'history': 'Hosted payment history',
   'notice':
       'TEST checkout only. Card details stay with the provider. Returning to this app never confirms payment. Only the authenticated backend/provider state below is authoritative.',
@@ -69,6 +80,16 @@ const hostedEn = {
 };
 const hostedAr = {
   'title': 'الدفع عبر موقع المزود',
+  'corporateTitle': 'التحصيل المستضاف للشركة',
+  'corporateHistory': 'سجل مدفوعات الشركة',
+  'corporateNotice':
+      'تحصيل اختباري للشركة فقط. يظل الكشف الأصلي والدافع ولقطة البنود هي المرجع. لا تثبت العودة من المتصفح نجاح الدفع أو التحويل المصرفي.',
+  'corporateOwnerOnly':
+      'الدافع الأصلي للكشف الذي لا يزال مالك المؤسسة وحده يستطيع تفويض التحصيل.',
+  'corporateConsent':
+      'راجعت كشف الشركة الأصلي وأفوض عملية الدفع الاختبارية هذه. يتحكم الخادم في المبلغ والضرائب الدقيقة.',
+  'statementSource': 'الكشف الأصلي',
+  'statementDetails': 'مراجعة الكشف والمستندات الخاصة',
   'history': 'سجل الدفع عبر المزود',
   'notice':
       'دفع اختباري فقط. تبقى بيانات البطاقة لدى المزود. لا تؤكد العودة للتطبيق نجاح الدفع؛ الحالة المؤكدة لدى الخادم والمزود أدناه هي المرجع.',
@@ -172,18 +193,37 @@ bool approvedHostedPaymentUrl(Uri u) =>
 
 class HostedCheckoutRecord {
   final Map<String, dynamic> source;
-  HostedCheckoutRecord(dynamic raw)
+  HostedCheckoutRecord(dynamic raw, {bool corporate = false})
     : source = Map<String, dynamic>.from(raw as Map) {
-    for (final k in ['id', 'user_id', 'invoice_id', 'canonical_checkout_id']) {
+    for (final k in [
+      'id',
+      'user_id',
+      if (!corporate) 'invoice_id',
+      'canonical_checkout_id',
+    ]) {
       if (source[k] is! int || source[k] < 1)
         throw const FormatException('Invalid checkout identity.');
     }
-    if (!['charging', 'subscription'].contains(source['scope']) ||
-        source['scope'] == 'subscription' &&
-            (source['subscription_id'] is! int ||
-                source['subscription_id'] < 1) ||
-        source['scope'] == 'charging' && source['subscription_id'] != null)
-      throw const FormatException('Invalid billable scope.');
+    if (corporate) {
+      if (source['scope'] != 'corporate' ||
+          source['statement_id'] is! int ||
+          source['statement_id'] < 1 ||
+          source['payer_id'] != source['user_id'] ||
+          source['invoice_id'] != null ||
+          source['subscription_id'] != null ||
+          source['canonical_checkout_id'] != source['id'] ||
+          source['line_fingerprint'] is! String ||
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(source['line_fingerprint']) ||
+          source['owner'] is! bool)
+        throw const FormatException('Invalid corporate collection identity.');
+    } else {
+      if (!['charging', 'subscription'].contains(source['scope']) ||
+          source['scope'] == 'subscription' &&
+              (source['subscription_id'] is! int ||
+                  source['subscription_id'] < 1) ||
+          source['scope'] == 'charging' && source['subscription_id'] != null)
+        throw const FormatException('Invalid billable scope.');
+    }
     if (![
           'preparing',
           'open',
@@ -254,7 +294,7 @@ class HostedCheckoutView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
   final String? scope;
-  final int? invoiceId, subscriptionId, checkoutId, sourceOwnerId;
+  final int? invoiceId, subscriptionId, checkoutId, sourceOwnerId, statementId;
   final FinancialOperationStore? store;
   final Future<bool> Function(Uri)? openProvider;
   const HostedCheckoutView({
@@ -266,9 +306,18 @@ class HostedCheckoutView extends StatefulWidget {
     this.subscriptionId,
     this.checkoutId,
     this.sourceOwnerId,
+    this.statementId,
     this.store,
     this.openProvider,
-  }) : assert((scope == null) == (invoiceId == null));
+  }) : assert(
+         scope == 'corporate'
+             ? statementId != null &&
+                   invoiceId == null &&
+                   subscriptionId == null
+             : statementId == null && ((scope == null) == (invoiceId == null)),
+       );
+  bool get corporate => scope == 'corporate';
+  int? get billableId => corporate ? statementId : invoiceId;
   @override
   State<HostedCheckoutView> createState() => _HostedState();
 }
@@ -279,15 +328,78 @@ class _HostedState extends State<HostedCheckoutView>
   int? selected;
   List<HostedCheckoutRecord>? records;
   HostedCheckoutRecord? record;
+  Map<String, dynamic>? statementSource;
   FinancialOperation? creation;
   final operations = <String, FinancialOperation>{};
-  bool busy = true, consent = false, hidden = false, returned = false;
+  bool busy = true,
+      consent = false,
+      hidden = false,
+      returned = false,
+      retryDraft = false;
   Object? error;
   bool Function()? actor;
   FinancialOperationStore get store =>
       widget.store ?? DeviceFinancialOperationStore();
+  String get endpoint => widget.corporate
+      ? 'commercial/corporate/hosted-checkouts'
+      : 'commercial/hosted-checkouts';
+  HostedCheckoutRecord parse(dynamic raw) =>
+      HostedCheckoutRecord(raw, corporate: widget.corporate);
+  bool contextMatches(HostedCheckoutRecord row) =>
+      widget.billableId == null ||
+      (widget.corporate
+          ? row.source['scope'] == 'corporate' &&
+                row.source['statement_id'] == widget.statementId
+          : row.source['scope'] == widget.scope &&
+                row.source['invoice_id'] == widget.invoiceId &&
+                row.source['subscription_id'] == widget.subscriptionId);
+  bool ownRecord(HostedCheckoutRecord row) =>
+      row.source['user_id'] == owner &&
+      (!widget.corporate || row.source['owner'] == true);
+  void verifyStatement(HostedCheckoutRecord row) {
+    if (!widget.corporate) return;
+    final quote = statementSource;
+    if (quote == null ||
+        row.source['statement_id'] != quote['id'] ||
+        row.source['payer_id'] != quote['payer_id'] ||
+        row.source['amount_minor'] != quote['total_minor'] ||
+        row.source['currency'] != quote['currency'] ||
+        row.source['minor_units'] != quote['minor_units'] ||
+        row.source['line_fingerprint'] != quote['line_fingerprint'])
+      throw const FormatException('Statement checkout source mismatch.');
+  }
+
+  Future<Map<String, dynamic>> loadStatement() async {
+    final data = await widget.api.request(
+      'commercial/corporate/statements/${widget.statementId}',
+    );
+    final quote = Map<String, dynamic>.from(data['statement'] as Map);
+    if (data['real_payment_processed'] != false ||
+        quote['id'] != widget.statementId ||
+        quote['payer_id'] is! int ||
+        quote['payer_id'] < 1 ||
+        quote['total_minor'] is! int ||
+        quote['total_minor'] < 1 ||
+        quote['total_minor'] > 9007199254740991 ||
+        quote['currency'] is! String ||
+        !RegExp(r'^[A-Z]{3}$').hasMatch(quote['currency']) ||
+        quote['minor_units'] is! int ||
+        quote['minor_units'] < 0 ||
+        quote['minor_units'] > 3 ||
+        data['can_collect_hosted'] is! bool ||
+        data['line_fingerprint'] is! String ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(data['line_fingerprint']) ||
+        data['lines'] is! List)
+      throw const FormatException('Invalid corporate statement source.');
+    return {
+      ...quote,
+      'line_fingerprint': data['line_fingerprint'],
+      'can_collect_hosted': data['can_collect_hosted'],
+    };
+  }
+
   String key(String suffix) =>
-      '${widget.api.base.origin}:$owner:hosted:$suffix';
+      '${widget.api.base.origin}:$owner:${widget.corporate ? 'corporate-hosted' : 'hosted'}:$suffix';
   @override
   void initState() {
     super.initState();
@@ -322,6 +434,7 @@ class _HostedState extends State<HostedCheckoutView>
       setState(() {
         record = null;
         records = null;
+        statementSource = null;
         busy = false;
         hidden = true;
       });
@@ -340,6 +453,7 @@ class _HostedState extends State<HostedCheckoutView>
     error = e;
     record = null;
     records = null;
+    statementSource = null;
     if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
   }
 
@@ -352,11 +466,15 @@ class _HostedState extends State<HostedCheckoutView>
       if (me['id'] is! int || !['customer', 'vendor'].contains(me['role']))
         throw const ApiException(403, 'Unsupported mobile actor.');
       owner = me['id'];
-      if (widget.invoiceId != null &&
+      if (widget.billableId != null &&
           (widget.sourceOwnerId == null || widget.sourceOwnerId == owner)) {
         creation = FinancialOperation(
           store,
-          key('create:${widget.scope}:${widget.invoiceId}'),
+          key(
+            widget.corporate
+                ? 'corporate:create:statement:${widget.statementId}'
+                : 'create:${widget.scope}:${widget.invoiceId}',
+          ),
           isCurrent: actor,
         );
         await creation!.restore();
@@ -379,44 +497,59 @@ class _HostedState extends State<HostedCheckoutView>
       record = null;
       records = null;
       hidden = false;
+      retryDraft = false;
     });
     try {
+      if (widget.corporate) {
+        final quote = await loadStatement();
+        if (!current || epoch != generation) return;
+        statementSource = quote;
+        if (selected != null) {
+          final raw = await widget.api.request(
+            endpoint,
+            query: {'statement_id': '${widget.statementId}', 'page': '$page'},
+          );
+          final history = ApiPage.fromJson(raw, (r) => parse(r));
+          for (final row in history.items) {
+            if (!contextMatches(row))
+              throw const FormatException('Statement history mismatch.');
+            verifyStatement(row);
+          }
+          if (!current || epoch != generation) return;
+          records = history.items;
+          last = history.last;
+        }
+      }
       if (selected != null) {
-        final r = HostedCheckoutRecord(
-          (await widget.api.request(
-            'commercial/hosted-checkouts/$selected',
-          ))['checkout'],
+        final r = parse(
+          (await widget.api.request('$endpoint/$selected'))['checkout'],
         );
-        if (r.id != selected ||
-            (widget.invoiceId != null &&
-                (r.source['scope'] != widget.scope ||
-                    r.source['invoice_id'] != widget.invoiceId ||
-                    r.source['subscription_id'] != widget.subscriptionId)))
+        if (r.id != selected || !contextMatches(r))
           throw const FormatException('Wrong checkout identity.');
+        verifyStatement(r);
         if (!current || epoch != generation) return;
         record = r;
       } else {
         final raw = await widget.api.request(
-          'commercial/hosted-checkouts',
+          endpoint,
           query: {
             'page': '$page',
-            if (widget.scope != null) 'scope': widget.scope!,
+            if (!widget.corporate && widget.scope != null)
+              'scope': widget.scope!,
+            if (widget.corporate) 'statement_id': '${widget.statementId}',
             if (widget.invoiceId != null) 'invoice_id': '${widget.invoiceId}',
           },
         );
-        final p = ApiPage.fromJson(raw, (r) => HostedCheckoutRecord(r));
-        if (widget.invoiceId != null &&
-            p.items.any(
-              (r) =>
-                  r.source['scope'] != widget.scope ||
-                  r.source['invoice_id'] != widget.invoiceId ||
-                  r.source['subscription_id'] != widget.subscriptionId,
-            ))
+        final p = ApiPage.fromJson(raw, (r) => parse(r));
+        if (p.items.any((r) => !contextMatches(r)))
           throw const FormatException('Checkout filter mismatch.');
+        for (final row in p.items) {
+          verifyStatement(row);
+        }
         if (!current || epoch != generation) return;
         records = p.items;
         last = p.last;
-        if (widget.invoiceId != null && p.items.isNotEmpty) {
+        if (widget.billableId != null && p.items.isNotEmpty) {
           selected = p.items.first.id;
           record = p.items.first;
         }
@@ -437,28 +570,30 @@ class _HostedState extends State<HostedCheckoutView>
     });
     try {
       final body = await creation!.prepare({
-        'scope': widget.scope,
-        'invoice_id': widget.invoiceId,
+        if (widget.corporate) 'statement_id': widget.statementId,
+        if (!widget.corporate) 'scope': widget.scope,
+        if (!widget.corporate) 'invoice_id': widget.invoiceId,
         if (widget.scope == 'subscription')
           'subscription_id': widget.subscriptionId,
         'consent': true,
       });
       if (!current || epoch != generation) return;
-      final r = HostedCheckoutRecord(
+      final r = parse(
         (await widget.api.request(
-          'commercial/hosted-checkouts',
+          endpoint,
           method: 'POST',
           body: body,
         ))['checkout'],
       );
-      if (r.source['user_id'] != owner ||
-          r.source['scope'] != widget.scope ||
-          r.source['invoice_id'] != widget.invoiceId ||
-          r.source['subscription_id'] != widget.subscriptionId)
+      if (!ownRecord(r) || !contextMatches(r))
         throw const FormatException('Wrong checkout acknowledgement.');
+      verifyStatement(r);
       if (!current || epoch != generation) return;
       selected = r.id;
       record = r;
+      if (widget.corporate)
+        records = [r, ...?records?.where((old) => old.id != r.id)];
+      retryDraft = false;
       consent = false;
       // Retain creation identity while the financial session exists. An uncertain
       // or lost provider/browser outcome can never allocate a replacement key.
@@ -474,7 +609,7 @@ class _HostedState extends State<HostedCheckoutView>
     if (busy ||
         creation == null ||
         before == null ||
-        before.source['user_id'] != owner ||
+        !ownRecord(before) ||
         !before.permits('retry'))
       return;
     if (!await confirm('retryNotice') || !current || record?.id != before.id)
@@ -487,15 +622,12 @@ class _HostedState extends State<HostedCheckoutView>
       error = null;
     });
     try {
-      final fresh = HostedCheckoutRecord(
-        (await widget.api.request(
-          'commercial/hosted-checkouts/${before.id}',
-        ))['checkout'],
+      final fresh = parse(
+        (await widget.api.request('$endpoint/${before.id}'))['checkout'],
       );
       if (!current || epoch != generation) return;
-      if (fresh.id != before.id ||
-          fresh.source['user_id'] != owner ||
-          !fresh.permits('retry'))
+      verifyStatement(fresh);
+      if (fresh.id != before.id || !ownRecord(fresh) || !fresh.permits('retry'))
         throw const ApiException(
           409,
           'Original checkout is not safely closed.',
@@ -505,7 +637,8 @@ class _HostedState extends State<HostedCheckoutView>
       setState(() {
         selected = null;
         record = null;
-        records = [];
+        if (!widget.corporate) records = [];
+        retryDraft = widget.corporate;
         consent = false;
       });
     } catch (e) {
@@ -535,10 +668,7 @@ class _HostedState extends State<HostedCheckoutView>
       false;
   Future<void> action(String name, {String? outcome}) async {
     final before = record;
-    if (busy ||
-        before == null ||
-        before.source['user_id'] != owner ||
-        !before.permits(name))
+    if (busy || before == null || !ownRecord(before) || !before.permits(name))
       return;
     if (['capture', 'cancel'].contains(name) && !await confirm('${name}Notice'))
       return;
@@ -567,9 +697,9 @@ class _HostedState extends State<HostedCheckoutView>
         body = {'outcome': outcome, 'consent': true};
       }
       if (!current || epoch != generation) return;
-      final r = HostedCheckoutRecord(
+      final r = parse(
         (await widget.api.request(
-          'commercial/hosted-checkouts/${before.id}/${name == 'retry_preparation' ? 'retry-preparation' : name}',
+          '$endpoint/${before.id}/${name == 'retry_preparation' ? 'retry-preparation' : name}',
           method: 'POST',
           body: body,
         ))['checkout'],
@@ -582,8 +712,11 @@ class _HostedState extends State<HostedCheckoutView>
           r.source['currency'] != before.source['currency'] ||
           r.source['minor_units'] != before.source['minor_units'])
         throw const FormatException('Payment acknowledgement mismatch.');
+      verifyStatement(r);
       if (!current || epoch != generation) return;
       record = r;
+      if (widget.corporate && records != null)
+        records = records!.map((old) => old.id == r.id ? r : old).toList();
       if (intent != null &&
           !['uncertain', 'needs_review', 'preparing'].contains(r.status))
         await intent.confirmed();
@@ -598,7 +731,7 @@ class _HostedState extends State<HostedCheckoutView>
     final before = record, u = before?.hosted;
     if (busy ||
         before == null ||
-        before.source['user_id'] != owner ||
+        !ownRecord(before) ||
         u == null ||
         !approvedHostedPaymentUrl(u))
       return;
@@ -630,13 +763,29 @@ class _HostedState extends State<HostedCheckoutView>
 
   @override
   Widget build(BuildContext c) {
-    String t(String k) => hostedText(c, k);
+    String t(String k) => hostedText(
+      c,
+      widget.corporate
+          ? (const {
+                  'title': 'corporateTitle',
+                  'history': 'corporateHistory',
+                  'notice': 'corporateNotice',
+                  'consent': 'corporateConsent',
+                  'source': 'statementSource',
+                  'sourceDetails': 'statementDetails',
+                  'ownerOnly': 'corporateOwnerOnly',
+                }[k] ??
+                k)
+          : k,
+    );
     final r = record;
-    final own = r?.source['user_id'] == owner;
+    final own = r != null && ownRecord(r);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          t(widget.invoiceId == null && selected == null ? 'history' : 'title'),
+          t(
+            widget.billableId == null && selected == null ? 'history' : 'title',
+          ),
         ),
       ),
       body: ListView(
@@ -661,15 +810,24 @@ class _HostedState extends State<HostedCheckoutView>
           if (returned) Text(t('resume')),
           if (creation?.pending != null && r?.status != 'captured')
             Text(t('pending')),
+          if (widget.corporate &&
+              statementSource != null &&
+              statementSource!['can_collect_hosted'] != true &&
+              r == null)
+            Text(t('ownerOnly')),
           if (widget.sourceOwnerId != null && widget.sourceOwnerId != owner)
             Text(t('ownerOnly')),
           if (creation != null &&
-              widget.invoiceId != null &&
+              widget.billableId != null &&
+              (!widget.corporate ||
+                  statementSource?['can_collect_hosted'] == true) &&
               r == null &&
               records != null &&
-              records!.isEmpty &&
+              (records!.isEmpty || retryDraft) &&
               error == null) ...[
-            Text('${t('source')}: #${widget.invoiceId}'),
+            Text('${t('source')}: #${widget.billableId}'),
+            if (widget.corporate && statementSource != null)
+              Text(nativeFinancialAmount(c, statementSource!, 'total_minor')),
             CheckboxListTile(
               key: const Key('hosted-consent'),
               value: consent,
@@ -694,7 +852,7 @@ class _HostedState extends State<HostedCheckoutView>
                       style: Theme.of(c).textTheme.headlineSmall,
                     ),
                     Text(
-                      '${t('source')}: ${r.source['scope']} #${r.source['invoice_id']}',
+                      '${t('source')}: ${r.source['scope']} #${widget.corporate ? r.source['statement_id'] : r.source['invoice_id']}',
                     ),
                     Text(
                       '${t('amount')}: ${nativeFinancialAmount(c, r.source, 'amount_minor')}',
@@ -711,8 +869,13 @@ class _HostedState extends State<HostedCheckoutView>
                           : () async {
                               await Navigator.of(c).push(
                                 MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      r.source['scope'] == 'charging'
+                                  builder: (_) => widget.corporate
+                                      ? CorporateStatementView(
+                                          api: widget.api,
+                                          onExpired: widget.onExpired,
+                                          id: r.source['statement_id'] as int,
+                                        )
+                                      : r.source['scope'] == 'charging'
                                       ? InvoicePage(
                                           api: widget.api,
                                           invoiceId:
@@ -800,7 +963,45 @@ class _HostedState extends State<HostedCheckoutView>
                 ),
               ),
             ),
-          if (r == null && records != null && widget.invoiceId == null) ...[
+          if (widget.corporate && records != null) ...[
+            const SizedBox(height: 16),
+            Text(t('history'), style: Theme.of(c).textTheme.titleMedium),
+            if (records!.isEmpty) Text(t('empty')),
+            for (final item in records!)
+              ListTile(
+                key: Key('corporate-hosted-history-${item.id}'),
+                selected: selected == item.id,
+                title: Text('#${item.id} · ${t(item.status)}'),
+                subtitle: Text(
+                  nativeFinancialAmount(c, item.source, 'amount_minor'),
+                ),
+                onTap: busy
+                    ? null
+                    : () {
+                        selected = item.id;
+                        load();
+                      },
+              ),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: busy || page <= 1
+                      ? null
+                      : () => load(number: page - 1),
+                  child: Text(t('previous')),
+                ),
+                Text('$page / $last'),
+                OutlinedButton(
+                  onPressed: busy || page >= last
+                      ? null
+                      : () => load(number: page + 1),
+                  child: Text(t('next')),
+                ),
+              ],
+            ),
+          ],
+          if (r == null && records != null && widget.billableId == null) ...[
             if (records!.isEmpty) Text(t('empty')),
             for (final item in records!)
               ListTile(
@@ -817,6 +1018,8 @@ class _HostedState extends State<HostedCheckoutView>
                             api: widget.api,
                             onExpired: widget.onExpired,
                             checkoutId: item.id,
+                            scope: widget.corporate ? 'corporate' : null,
+                            statementId: widget.statementId,
                             store: widget.store,
                             openProvider: widget.openProvider,
                           ),

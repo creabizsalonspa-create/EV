@@ -20,6 +20,11 @@ on:
       - "services/business-api/app/Http/Controllers/HostedCheckoutController.php"
       - "services/business-api/tests/Fixtures/hosted*.php"
       - "tests/hosted-checkout.cjs"
+      - "tests/corporate-hosted.cjs"
+      - "services/business-api/public/corporate-billing.js"
+      - "services/business-api/routes/corporate_hosted*.php"
+      - "services/business-api/app/Http/Controllers/CorporateHostedCheckoutController.php"
+      - "services/business-api/tests/Fixtures/corporate-hosted*.php"
       - "tests/financial-analytics.cjs"
       - "tests/commercial-campaigns.cjs"
       - "scripts/campaign-test-setup"
@@ -44,6 +49,11 @@ on:
       - "services/business-api/app/Http/Controllers/HostedCheckoutController.php"
       - "services/business-api/tests/Fixtures/hosted*.php"
       - "tests/hosted-checkout.cjs"
+      - "tests/corporate-hosted.cjs"
+      - "services/business-api/public/corporate-billing.js"
+      - "services/business-api/routes/corporate_hosted*.php"
+      - "services/business-api/app/Http/Controllers/CorporateHostedCheckoutController.php"
+      - "services/business-api/tests/Fixtures/corporate-hosted*.php"
       - "tests/financial-analytics.cjs"
       - "tests/commercial-campaigns.cjs"
       - "scripts/campaign-test-setup"
@@ -75,6 +85,8 @@ jobs:
           node tests/commercial-campaigns.cjs | tee artifacts/commercial-campaigns/browser.txt
           mkdir -p artifacts/hosted-checkout
           node tests/hosted-checkout.cjs | tee artifacts/hosted-checkout/browser.txt
+          mkdir -p artifacts/corporate-hosted
+          node tests/corporate-hosted.cjs | tee artifacts/corporate-hosted/browser.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -84,6 +96,7 @@ jobs:
             artifacts/commercial-campaigns
             artifacts/finance-campaigns
             artifacts/hosted-checkout
+            artifacts/corporate-hosted
           if-no-files-found: warn
       - if: failure()
         run: docker logs --tail 80 ev-business-api

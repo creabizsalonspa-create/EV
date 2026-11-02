@@ -2,6 +2,7 @@
 
 return [
     // Mock and explicitly configured Stripe test contracts only; live money is disabled.
+    'corporate_hosted_return_url' => env('CORPORATE_PAYMENT_HOSTED_RETURN_URL'),
     'hosted_return_url' => env('PAYMENT_HOSTED_RETURN_URL'),
     'mandate_consent_version' => 'recurring-v1',
     'mandate_consent_days' => 365,

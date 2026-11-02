@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Payouts;
 
 use App\Models\User;
+use App\Services\Commercial\Payments\CorporateHostedCollection;
 use App\Services\Commercial\SettlementService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
@@ -147,7 +148,7 @@ class PayoutService
         foreach ($lines->where('amount_minor', '>', 0)->whereNotNull('invoice_id') as $line) {
             $invoice = DB::table('finance_invoices')->where('id', $line->invoice_id)->first();
             abort_unless(Carbon::parse($invoice->created_at)->addDays((int) $schedule->hold_days)->lte(now()), 409, 'Invoice holding period has not elapsed.');
-            abort_if(DB::table('finance_refund_requests')->where('invoice_id', $line->invoice_id)->where('status', 'pending')->exists() || DB::table('gateway_cases')->where('invoice_id', $line->invoice_id)->where('status', 'open')->exists() || DB::table('payment_recovery_intents as p')->join('gateway_checkouts as c', 'c.id', '=', 'p.checkout_id')->where('p.scope', 'charging')->where('c.invoice_id', $line->invoice_id)->whereIn('p.status', ['executing', 'uncertain', 'needs_review'])->exists(), 409, 'Unresolved refund, dispute or payment evidence holds the payout.');
+            abort_if(CorporateHostedCollection::settlementHeld((int) $line->invoice_id) || DB::table('finance_refund_requests')->where('invoice_id', $line->invoice_id)->where('status', 'pending')->exists() || DB::table('gateway_cases')->where('invoice_id', $line->invoice_id)->where('status', 'open')->exists() || DB::table('payment_recovery_intents as p')->join('gateway_checkouts as c', 'c.id', '=', 'p.checkout_id')->where('p.scope', 'charging')->where('c.invoice_id', $line->invoice_id)->whereIn('p.status', ['executing', 'uncertain', 'needs_review'])->exists(), 409, 'Unresolved refund, dispute or payment evidence holds the payout.');
         }
     }
 

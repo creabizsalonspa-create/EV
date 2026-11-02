@@ -1,0 +1,138 @@
+{
+  "source_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+  "merge_sha": "f2fe9d8b2a69b1c3054551152d0eb2dc2a1efd80",
+  "source_tree": "285c00cf3b284556711c1f908821b1aa64515aad",
+  "merge_tree": "285c00cf3b284556711c1f908821b1aa64515aad",
+  "pull_request": 28,
+  "test_result": "passed",
+  "checks": [
+    {
+      "name": "financial-browser",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362370741/job/125015290389"
+    },
+    {
+      "name": "business-platform",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362370713/job/125015290229"
+    },
+    {
+      "name": "native (macos-15)",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362370710/job/125015290201"
+    },
+    {
+      "name": "finance-postgres",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362370713/job/125015290184"
+    },
+    {
+      "name": "connector-postgres",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362370713/job/125015290160"
+    },
+    {
+      "name": "staging-image",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362370713/job/125015290038"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362370710/job/125015289998"
+    },
+    {
+      "name": "staging-image",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362342780/job/125015205227"
+    },
+    {
+      "name": "connector-postgres",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362342780/job/125015205226"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362342782/job/125015205220"
+    },
+    {
+      "name": "finance-postgres",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362342780/job/125015205172"
+    },
+    {
+      "name": "financial-browser",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362342862/job/125015205061"
+    },
+    {
+      "name": "native (macos-15)",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362342782/job/125015205037"
+    },
+    {
+      "name": "business-platform",
+      "conclusion": "success",
+      "head_sha": "c3af6567afd2d3abcbe89ebcffebd38e55ea0318",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/41362342780/job/125015205021"
+    }
+  ],
+  "tests": {
+    "laravel": {
+      "passed": 425,
+      "assertions": 9009
+    },
+    "flutter": {
+      "passed": 210,
+      "explicit_fixture_skips": 15
+    },
+    "financial_postgresql": {
+      "passed": 289,
+      "assertions": 7645
+    },
+    "financial_process_races": {
+      "passed": 68,
+      "assertions": 880
+    },
+    "connected_flutter_suites_per_android_run": 14,
+    "ios_runtime_runs": 2,
+    "native_return_configuration_tests": 2
+  },
+  "evidence_limits": [
+    "Stripe HTTP contracts use fakes; browser/native use explicit local mocks",
+    "No real PSP, SCA challenge, bank, charger, partner, legal, signing or store acceptance",
+    "Corporate hosted statement collection remains unfinished software",
+    "No complete broad requirement atom credited; fixed42/312 coverage unchanged"
+  ],
+  "development_artifacts": [
+    {
+      "path": "artifacts/hosted-ci-c3af656/android/app-debug.apk",
+      "kind": "Shared customer/vendor role-based Android debug APK",
+      "sha256": "858aed3d48843b6160ddccb923284f75808c606edc986b122d15ec82da9b002f"
+    },
+    {
+      "path": "artifacts/hosted-ci-c3af656/ios/creabiz-ios-simulator.tar.gz",
+      "kind": "Unsigned iOS simulator archive; not signed IPA",
+      "sha256": "35317718de21cfa93613a0b53faca2a4e40e86c2bf463eb1c5527f0c1c0d36de"
+    },
+    {
+      "path": "artifacts/hosted-checkout-source-c3af656.zip",
+      "kind": "Interim source checkpoint ZIP; not complete platform release",
+      "sha256": "ae37e1528eb5c7125d82435d9722b8f3d0b05bb3acbeff5dae5f6b09863ff7e4"
+    }
+  ]
+}

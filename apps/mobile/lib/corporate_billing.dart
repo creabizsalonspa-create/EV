@@ -4,6 +4,7 @@ import 'strings.dart';
 import 'money_input.dart';
 import 'financial_operation_store.dart';
 import 'financial_documents.dart';
+import 'hosted_checkout.dart';
 import 'vendor_finance.dart' show nativeFinancialAmount;
 
 const corporateEn = {
@@ -41,6 +42,7 @@ const corporateEn = {
   'unknown': 'Unknown state',
   'statement': 'Private statement document',
   'detail': 'Statement details',
+  'receipt': 'Canonical company receipt',
   'saved':
       'Unconfirmed intent is saved. Refresh source history before explicitly resending the same exact request. No automatic retry or replacement key.',
   'done':
@@ -53,6 +55,7 @@ const corporateEn = {
   'issued': 'Issued',
   'overdue': 'Overdue',
   'simulated_paid': 'Simulated receipt posted',
+  'test_provider_collected': 'TEST provider collection recorded',
   'collection_attention': 'Collection needs review',
   'total': 'Statement total',
   'due': 'Due date (UTC)',
@@ -92,6 +95,7 @@ const corporateAr = {
   'unknown': 'حالة غير معروفة',
   'statement': 'مستند الكشف الخاص',
   'detail': 'تفاصيل الكشف',
+  'receipt': 'إيصال الشركة الأصلي',
   'saved':
       'النية غير المؤكدة محفوظة. حدّث السجل قبل إعادة إرسال الطلب نفسه صراحةً. لا إعادة تلقائية أو معرف بديل.',
   'done': 'أكد الخادم العملية. حدّث السجل الأصلي. لا يُدعى سداد فعلي للشركة.',
@@ -103,6 +107,7 @@ const corporateAr = {
   'issued': 'صادر',
   'overdue': 'متأخر',
   'simulated_paid': 'تم تسجيل إيصال محاكى',
+  'test_provider_collected': 'تم تسجيل تحصيل لدى مزود الاختبار',
   'collection_attention': 'التحصيل يحتاج مراجعة',
   'total': 'إجمالي الكشف',
   'due': 'تاريخ الاستحقاق (UTC)',
@@ -979,6 +984,16 @@ class _CorporateStatementState extends State<CorporateStatementView> {
         Map<String, dynamic>.from(result['statement'] as Map),
         'total_minor',
       );
+      if (result['receipt'] != null &&
+          (result['receipt'] is! Map ||
+              result['receipt']['statement_id'] != widget.id ||
+              result['receipt']['amount_minor'] !=
+                  result['statement']['total_minor'] ||
+              result['receipt']['number'] is! String ||
+              result['receipt']['evidence'] is! String))
+        throw const FormatException(
+          'Corporate receipt does not match its original statement.',
+        );
       data = result;
     } catch (e) {
       if (mounted && generation == epoch) {
@@ -1008,11 +1023,72 @@ class _CorporateStatementState extends State<CorporateStatementView> {
           if (error != null) Text(EvStrings.of(c).t(errorKey(error!))),
           if (data != null) ...[
             Text('${data!['statement']['number']}'),
+            OutlinedButton(
+              key: const Key('corporate-hosted-checkout'),
+              onPressed: busy
+                  ? null
+                  : () async {
+                      await Navigator.of(c).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => HostedCheckoutView(
+                            api: widget.api,
+                            onExpired: widget.onExpired,
+                            scope: 'corporate',
+                            statementId: widget.id,
+                          ),
+                        ),
+                      );
+                      if (mounted) await load();
+                    },
+              child: Text(hostedText(c, 'corporateTitle')),
+            ),
             Text(t('${data!['state']}')),
             Text(
               '${t('total')}: ${nativeFinancialAmount(c, Map<String, dynamic>.from(data!['statement'] as Map), 'total_minor')}',
             ),
             Text('${t('due')}: ${data!['statement']['due_at']}'),
+            OutlinedButton(
+              key: const Key('corporate-statement-document'),
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(c).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => FinancialDocumentsView(
+                          api: widget.api,
+                          onExpired: widget.onExpired,
+                          sourceKind: 'corporate_statement',
+                          sourceId: widget.id,
+                        ),
+                      ),
+                    ),
+              child: Text(t('statement')),
+            ),
+            if (data!['receipt'] != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        t('receipt'),
+                        style: Theme.of(c).textTheme.titleMedium,
+                      ),
+                      Text('${data!['receipt']['number']}'),
+                      Text(
+                        nativeFinancialAmount(c, {
+                          ...Map<String, dynamic>.from(
+                            data!['statement'] as Map,
+                          ),
+                          'amount_minor': data!['receipt']['amount_minor'],
+                        }, 'amount_minor'),
+                      ),
+                      Text('${data!['receipt']['evidence']}'),
+                      Text('${data!['receipt']['created_at']}'),
+                    ],
+                  ),
+                ),
+              ),
             for (final row in data!['lines'] as List)
               ListTile(
                 title: Text('${row['invoice_number']}'),
