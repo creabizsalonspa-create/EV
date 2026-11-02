@@ -42,6 +42,7 @@ class GatewayService
         return DB::transaction(function () use ($invoice, $actor, $amount, $key) {
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
             HostedCheckout::guard('charging', (int) $invoice->id);
+            CorporateHostedCollection::guardPayment((int) $invoice->id);
             $requestKey = $this->fingerprint(['checkout', $invoice->id, $actor, $key]);
             $fingerprint = $this->fingerprint([$invoice->id, $amount, $invoice->currency]);
             if ($old = DB::table('gateway_checkouts')->where('request_key', $requestKey)->first()) {

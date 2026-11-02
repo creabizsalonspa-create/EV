@@ -11,7 +11,7 @@ use App\Services\Finance\FinanceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-return static function (bool $approveClaims = true): array {
+return static function (bool $approveClaims = true, int $creditLimit = 1500): array {
     abort_unless(app()->environment('testing'), 403);
     $owner = User::factory()->create();
     $driver = User::factory()->create();
@@ -21,7 +21,7 @@ return static function (bool $approveClaims = true): array {
     DB::table('fleet_members')->insert(['fleet_id' => $fleet->id, 'user_id' => $driver->id, 'status' => 'active', 'role' => 'driver', 'created_at' => now(), 'updated_at' => now()]);
     $center = DB::table('cost_centers')->insertGetId(['fleet_id' => $fleet->id, 'code' => 'TEST', 'name' => 'Concurrency test', 'created_at' => now(), 'updated_at' => now()]);
     $service = app(CorporateBilling::class);
-    $a = $service->publish($fleet->id, $admin->id, ['currency' => 'AED', 'minor_units' => 2, 'credit_limit_minor' => 1500, 'payment_terms_days' => 30, 'billing_day' => 1, 'effective_from' => now()->subDay(), 'expires_at' => now()->addYear(), 'legal_name' => 'Fixture test company', 'terms' => 'Synthetic test contract', 'idempotency_key' => 'agreement']);
+    $a = $service->publish($fleet->id, $admin->id, ['currency' => 'AED', 'minor_units' => 2, 'credit_limit_minor' => $creditLimit, 'payment_terms_days' => 30, 'billing_day' => 1, 'effective_from' => now()->subDay(), 'expires_at' => now()->addYear(), 'legal_name' => 'Fixture test company', 'terms' => 'Synthetic test contract', 'idempotency_key' => 'agreement']);
     $service->accept($a->id, $owner->id);
     $invoices = [];
     $claims = [];

@@ -3,6 +3,7 @@
 namespace App\Services\Commercial;
 
 use App\Models\User;
+use App\Services\Commercial\Payments\CorporateHostedCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -76,7 +77,7 @@ class SettlementService
 
     private function held(int $invoice): bool
     {
-        return DB::table('finance_refund_requests')->where('invoice_id', $invoice)->where('status', 'pending')->exists()
+        return CorporateHostedCollection::settlementHeld($invoice) || DB::table('finance_refund_requests')->where('invoice_id', $invoice)->where('status', 'pending')->exists()
             || DB::table('gateway_cases')->where('invoice_id', $invoice)->where('status', 'open')->exists();
     }
 

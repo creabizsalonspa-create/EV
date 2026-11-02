@@ -1,5 +1,18 @@
 /* Hosted payment controls consume canonical backend state; return URLs prove nothing. */
-export function mountHostedCheckout({ container, api, ui, actor }) {
+export function mountHostedCheckout({
+    container,
+    api,
+    ui,
+    actor,
+    family = "invoice",
+}) {
+    if (!["invoice", "corporate"].includes(family))
+        throw Error("Unsupported checkout family.");
+    const corporate = family === "corporate";
+    const endpoint = corporate
+        ? "commercial/corporate/hosted-checkouts"
+        : "commercial/hosted-checkouts";
+    let sourceContext = null;
     const owner = actor()?.id,
         abort = new AbortController();
     let busy = false,
@@ -82,7 +95,9 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
         }
     }
     const keyName = (context) =>
-        `creabiz-hosted-v1:${location.origin}:${owner}:${context.scope}:${context.invoice_id}:${context.subscription_id || 0}`;
+        corporate
+            ? `creabiz-corporate-hosted-v1:${location.origin}:${owner}:${context.statement_id}`
+            : `creabiz-hosted-v1:${location.origin}:${owner}:${context.scope}:${context.invoice_id}:${context.subscription_id || 0}`;
     function intent(context, retryRow = null) {
         const key = keyName(context),
             raw = localStorage.getItem(key);
@@ -92,6 +107,14 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                 value.scope !== context.scope ||
                 value.invoice_id !== context.invoice_id ||
                 value.subscription_id !== context.subscription_id ||
+                value.statement_id !== context.statement_id ||
+                (corporate &&
+                    (value.line_fingerprint !== context.line_fingerprint ||
+                        value.expected_amount_minor !==
+                            context.expected_amount_minor ||
+                        value.expected_currency !== context.expected_currency ||
+                        value.expected_minor_units !==
+                            context.expected_minor_units)) ||
                 typeof value.idempotency_key !== "string"
             )
                 throw Error("Stored checkout identity conflicts.");
@@ -109,14 +132,18 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
         const payload = intent(context, retryRow);
         const row = validate(
             await api(
-                "commercial/hosted-checkouts",
+                endpoint,
                 "POST",
                 {
-                    scope: payload.scope,
-                    invoice_id: payload.invoice_id,
-                    ...(payload.subscription_id
-                        ? { subscription_id: payload.subscription_id }
-                        : {}),
+                    ...(corporate
+                        ? { statement_id: payload.statement_id }
+                        : {
+                              scope: payload.scope,
+                              invoice_id: payload.invoice_id,
+                              ...(payload.subscription_id
+                                  ? { subscription_id: payload.subscription_id }
+                                  : {}),
+                          }),
                     idempotency_key: payload.idempotency_key,
                     consent: true,
                 },
@@ -125,8 +152,18 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
         );
         if (!alive()) return;
         if (
+            corporate &&
+            (row.line_fingerprint !== payload.line_fingerprint ||
+                row.amount_minor !== payload.expected_amount_minor ||
+                row.currency !== payload.expected_currency ||
+                row.minor_units !== payload.expected_minor_units)
+        )
+            throw Error("Corporate source terms do not reconcile.");
+        if (
             row.scope !== context.scope ||
-            row.invoice_id !== context.invoice_id
+            (corporate
+                ? row.statement_id !== context.statement_id
+                : row.invoice_id !== context.invoice_id)
         )
             throw Error("Wrong checkout acknowledgement.");
         const saved = JSON.parse(
@@ -151,7 +188,11 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
             row.minor_units < 0 ||
             row.minor_units > 3 ||
             !/^[A-Z]{3}$/.test(row.currency) ||
-            !["charging", "subscription"].includes(row.scope) ||
+            !(corporate
+                ? row.scope === "corporate" &&
+                  Number.isSafeInteger(row.statement_id) &&
+                  row.statement_id > 0
+                : ["charging", "subscription"].includes(row.scope)) ||
             row.real_money_moved !== false ||
             row.external_provider_verified !== false ||
             !["MOCK_HOSTED", "STRIPE_TEST_CONTRACT"].includes(row.evidence)
@@ -202,7 +243,13 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
             const u = new URL(row.simulation_url, location.origin);
             if (
                 u.origin !== location.origin ||
-                !/^\/payments\/hosted-simulation\/\d+$/.test(u.pathname) ||
+                !(corporate
+                    ? /^\/payments\/corporate-hosted-simulation\/\d+$/.test(
+                          u.pathname,
+                      )
+                    : /^\/payments\/hosted-simulation\/\d+$/.test(
+                          u.pathname,
+                      )) ||
                 u.search ||
                 u.hash
             )
@@ -225,7 +272,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                 draw(
                     validate(
                         await api(
-                            `commercial/hosted-checkouts/${row.id}`,
+                            `${endpoint}/${row.id}`,
                             "GET",
                             undefined,
                             abort.signal,
@@ -241,7 +288,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                 draw(
                     validate(
                         await api(
-                            `commercial/hosted-checkouts/${row.id}/inspect`,
+                            `${endpoint}/${row.id}/inspect`,
                             "POST",
                             {},
                             abort.signal,
@@ -266,7 +313,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                     draw(
                         validate(
                             await api(
-                                `commercial/hosted-checkouts/${row.id}/retry-preparation`,
+                                `${endpoint}/${row.id}/retry-preparation`,
                                 "POST",
                                 {},
                                 abort.signal,
@@ -292,7 +339,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                     draw(
                         validate(
                             await api(
-                                `commercial/hosted-checkouts/${row.id}/capture`,
+                                `${endpoint}/${row.id}/capture`,
                                 "POST",
                                 {},
                                 abort.signal,
@@ -318,7 +365,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                     draw(
                         validate(
                             await api(
-                                `commercial/hosted-checkouts/${row.id}/cancel`,
+                                `${endpoint}/${row.id}/cancel`,
                                 "POST",
                                 {},
                                 abort.signal,
@@ -335,7 +382,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                 async () => {
                     const fresh = validate(
                         await api(
-                            `commercial/hosted-checkouts/${row.id}`,
+                            `${endpoint}/${row.id}`,
                             "GET",
                             undefined,
                             abort.signal,
@@ -353,11 +400,25 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                         return;
                     await create(
                         {
-                            scope: fresh.scope,
-                            invoice_id: fresh.invoice_id,
-                            ...(fresh.subscription_id
-                                ? { subscription_id: fresh.subscription_id }
-                                : {}),
+                            ...(corporate
+                                ? {
+                                      scope: "corporate",
+                                      statement_id: fresh.statement_id,
+                                      line_fingerprint: fresh.line_fingerprint,
+                                      expected_amount_minor: fresh.amount_minor,
+                                      expected_currency: fresh.currency,
+                                      expected_minor_units: fresh.minor_units,
+                                  }
+                                : {
+                                      scope: fresh.scope,
+                                      invoice_id: fresh.invoice_id,
+                                      ...(fresh.subscription_id
+                                          ? {
+                                                subscription_id:
+                                                    fresh.subscription_id,
+                                            }
+                                          : {}),
+                                  }),
                         },
                         fresh,
                     );
@@ -368,7 +429,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
     async function list(number = 1) {
         const version = ++epoch;
         const data = await api(
-            `commercial/hosted-checkouts?page=${number}`,
+            `${endpoint}?page=${number}${corporate && sourceContext ? `&statement_id=${sourceContext.statement_id}` : ""}`,
             "GET",
             undefined,
             abort.signal,
@@ -388,7 +449,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                     draw(
                         validate(
                             await api(
-                                `commercial/hosted-checkouts/${row.id}`,
+                                `${endpoint}/${row.id}`,
                                 "GET",
                                 undefined,
                                 abort.signal,
@@ -407,6 +468,16 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
             button(history, "Next", "التالي", () => list(page + 1));
     }
     async function open(context) {
+        if (
+            context &&
+            (corporate
+                ? context.scope !== "corporate" ||
+                  !Number.isSafeInteger(context.statement_id) ||
+                  context.statement_id < 1
+                : !["charging", "subscription"].includes(context.scope))
+        )
+            throw Error("Invalid original billable context.");
+        sourceContext = context;
         container.scrollIntoView({ block: "start", behavior: "smooth" });
         return perform(async () => {
             await list();
@@ -414,29 +485,39 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
             detail.replaceChildren(
                 t(
                     "h4",
-                    "Review original invoice checkout",
-                    "مراجعة دفع الفاتورة الأصلية",
+                    corporate
+                        ? "Review original corporate statement checkout"
+                        : "Review original invoice checkout",
+                    corporate
+                        ? "مراجعة دفع كشف الشركة الأصلي"
+                        : "مراجعة دفع الفاتورة الأصلية",
                 ),
             );
             const source = await api(
-                context.scope === "charging"
-                    ? `finance/invoices/${context.invoice_id}`
-                    : `commercial/subscriptions/${context.subscription_id}`,
+                corporate
+                    ? `commercial/corporate/statements/${context.statement_id}`
+                    : context.scope === "charging"
+                      ? `finance/invoices/${context.invoice_id}`
+                      : `commercial/subscriptions/${context.subscription_id}`,
                 "GET",
                 undefined,
                 abort.signal,
             );
             if (!alive()) return;
-            const invoice =
-                context.scope === "charging"
-                    ? source.invoice
-                    : source.invoices.find((i) => i.id === context.invoice_id);
-            const due =
-                context.scope === "charging"
-                    ? source.amount_due_minor
-                    : invoice?.paid
-                      ? 0
-                      : invoice?.total_minor;
+            const invoice = corporate
+                ? source.statement
+                : context.scope === "charging"
+                  ? source.invoice
+                  : source.invoices.find((i) => i.id === context.invoice_id);
+            const due = corporate
+                ? source.receipt
+                    ? 0
+                    : source.statement?.total_minor
+                : context.scope === "charging"
+                  ? source.amount_due_minor
+                  : invoice?.paid
+                    ? 0
+                    : invoice?.total_minor;
             if (
                 !invoice ||
                 !Number.isSafeInteger(due) ||
@@ -453,6 +534,31 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                     `${invoice.currency} ${EvMoney.format(due, invoice.minor_units)}`,
                 ),
             );
+            if (corporate && source.can_collect_hosted !== true) {
+                detail.append(
+                    t(
+                        "p",
+                        "Only the original authorized corporate payer can collect this statement. Checkout history remains available.",
+                        "يمكن للدافع المؤسسي الأصلي المصرح له وحده تحصيل هذا الكشف. يبقى سجل الدفع متاحاً.",
+                    ),
+                );
+                return;
+            }
+            if (
+                corporate &&
+                (!/^[a-f0-9]{64}$/.test(source.line_fingerprint || "") ||
+                    invoice.id !== context.statement_id)
+            )
+                throw Error("Invalid original statement terms.");
+            const preparedContext = corporate
+                ? {
+                      ...context,
+                      line_fingerprint: source.line_fingerprint,
+                      expected_amount_minor: due,
+                      expected_currency: invoice.currency,
+                      expected_minor_units: invoice.minor_units,
+                  }
+                : context;
             if (!due) {
                 detail.append(
                     t(
@@ -466,8 +572,12 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
 
             const l = t(
                 "label",
-                "I authorize opening the provider TEST checkout for this invoice. Prices and taxes come from the server.",
-                "أوافق على فتح دفع اختباري لهذه الفاتورة لدى المزود. يحدد الخادم الأسعار والضرائب.",
+                corporate
+                    ? "I authorize the original corporate statement TEST checkout. Its accepted source invoices, taxes and payer authority are checked by the server."
+                    : "I authorize opening the provider TEST checkout for this invoice. Prices and taxes come from the server.",
+                corporate
+                    ? "أفوض الدفع الاختباري لكشف الشركة الأصلي. يتحقق الخادم من الفواتير والضرائب وصلاحية الدافع."
+                    : "أوافق على فتح دفع اختباري لهذه الفاتورة لدى المزود. يحدد الخادم الأسعار والضرائب.",
             );
             const consent = document.createElement("input");
             consent.type = "checkbox";
@@ -479,7 +589,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                 "إنشاء أو استعادة الدفع المستضاف الأصلي",
                 async () => {
                     if (!consent.checked) return;
-                    await create(context);
+                    await create(preparedContext);
                 },
             );
             start.disabled = true;
@@ -506,7 +616,7 @@ export function mountHostedCheckout({ container, api, ui, actor }) {
                     draw(
                         validate(
                             await api(
-                                `commercial/hosted-checkouts/${selected}`,
+                                `${endpoint}/${selected}`,
                                 "GET",
                                 undefined,
                                 abort.signal,

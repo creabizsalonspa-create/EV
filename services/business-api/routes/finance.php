@@ -37,3 +37,5 @@ require __DIR__.'/financial_analytics.php';
 require __DIR__.'/campaigns.php';
 
 require __DIR__.'/hosted_checkout.php';
+
+require __DIR__.'/corporate_hosted_checkout.php';

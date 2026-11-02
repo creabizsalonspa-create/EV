@@ -26,4 +26,21 @@ class HostedCheckoutPageTest extends TestCase
         $this->get('/payments/hosted-simulation/1')->assertStatus(302);
         $this->get('/payments/hosted-return')->assertOk()->assertDontSee('data-simulation-checkout=', false);
     }
+
+    public function test_corporate_return_family_is_server_selected_and_cannot_accept_query_success(): void
+    {
+        Http::preventStrayRequests();
+        $response = $this->get('/payments/corporate-hosted-return?checkout_family=invoice&success=paid&hosted_reference=untrusted-corporate-value');
+        $response->assertOk()->assertSee('data-checkout-family="corporate"', false)->assertDontSee('untrusted-corporate-value', false)->assertDontSee('data-simulation-checkout=', false);
+        $this->assertSame('no-referrer', $response->headers->get('Referrer-Policy'));
+        $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        $this->get('/payments/hosted-return?checkout_family=corporate')->assertOk()->assertSee('data-checkout-family="invoice"', false);
+        Http::assertNothingSent();
+    }
+
+    public function test_corporate_mock_page_remains_private(): void
+    {
+        config(['payments.provider' => 'mock']);
+        $this->get('/payments/corporate-hosted-simulation/1')->assertRedirect();
+    }
 }

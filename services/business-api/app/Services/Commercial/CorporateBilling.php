@@ -5,6 +5,7 @@ namespace App\Services\Commercial;
 use App\Models\Finance\Invoice;
 use App\Models\Fleet;
 use App\Models\User;
+use App\Services\Commercial\Payments\CorporateHostedCollection;
 use App\Services\Finance\FinanceService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -103,6 +104,7 @@ class CorporateBilling
 
     private function cleanInvoice(Invoice $invoice): void
     {
+        CorporateHostedCollection::guardPayment((int) $invoice->id);
         abort_unless((int) DB::table('finance_payments')->where('invoice_id', $invoice->id)->sum('amount_minor') === 0, 409, 'Corporate billing only accepts wholly unpaid invoices.');
         abort_if(DB::table('gateway_checkouts')->where('invoice_id', $invoice->id)->exists(), 409, 'An invoice with a PSP checkout must remain on its original provider collection path.');
         abort_if(DB::table('finance_refund_requests')->where('invoice_id', $invoice->id)->where('status', 'pending')->exists() || DB::table('gateway_cases')->where('invoice_id', $invoice->id)->where('status', 'open')->exists(), 409, 'Unresolved financial cases hold corporate billing.');
@@ -209,7 +211,7 @@ class CorporateBilling
     public function statementStatus(object $statement): string
     {
         if (DB::table('corporate_receipts')->where('statement_id', $statement->id)->exists()) {
-            return 'simulated_paid';
+            return DB::table('corporate_receipts')->where('statement_id', $statement->id)->value('evidence') === 'STRIPE_TEST_CONTRACT' ? 'test_provider_collected' : 'simulated_paid';
         }
         $invoiceIds = DB::table('corporate_statement_lines')->where('statement_id', $statement->id)->select('invoice_id');
         if (DB::table('finance_payments')->whereIn('invoice_id', $invoiceIds)->exists() || DB::table('gateway_checkouts')->whereIn('invoice_id', $invoiceIds)->exists()) {
@@ -230,7 +232,7 @@ class CorporateBilling
         $paid = (int) DB::table('finance_payments')->whereIn('invoice_id', $invoiceIds)->sum('amount_minor');
         $refunded = (int) DB::table('finance_refunds')->whereIn('invoice_id', $invoiceIds)->sum('amount_minor');
 
-        return ['statement' => $s, 'lines' => $lines, 'receipt' => $receipt, 'state' => $this->statementStatus($s), 'paid_minor' => $paid, 'refunded_minor' => $refunded, 'net_collected_minor' => $paid - $refunded, 'credit_notes' => DB::table('finance_refunds')->whereIn('invoice_id', $invoiceIds)->orderBy('id')->get(['id', 'invoice_id', 'credit_note_number', 'amount_minor', 'tax_minor', 'reason', 'evidence', 'created_at']), 'real_payment_processed' => false];
+        return app(CorporateHostedCollection::class)->statementContract($s, $lines, $actor) + ['statement' => $s, 'lines' => $lines, 'receipt' => $receipt, 'state' => $this->statementStatus($s), 'paid_minor' => $paid, 'refunded_minor' => $refunded, 'net_collected_minor' => $paid - $refunded, 'credit_notes' => DB::table('finance_refunds')->whereIn('invoice_id', $invoiceIds)->orderBy('id')->get(['id', 'invoice_id', 'credit_note_number', 'amount_minor', 'tax_minor', 'reason', 'evidence', 'created_at']), 'real_payment_processed' => false];
     }
 
     public function simulatePayment(int $id, int $actor, string $key): object
