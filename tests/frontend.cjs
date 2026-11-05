@@ -190,6 +190,17 @@ const assert = require("node:assert/strict");
         };
       }
 
+      if (path === "/api/charging-operations/dashboard") {
+        assert.equal(route.request().method(), "GET");
+        body = {
+          station_count: 2,
+          command_counts: { pending: 1, outcome_unknown: 1 },
+          active_session_count: 1,
+          missing_recent_evidence_count: 1,
+          unresolved_case_count: 0,
+          physical_charging_verified: false,
+        };
+      }
       if (path === "/api/charger-commands") {
         assert.equal(route.request().method(), "GET");
         commandReads++;
