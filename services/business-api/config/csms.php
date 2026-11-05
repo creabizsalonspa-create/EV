@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'fault_worker_enabled' => env('CSMS_FAULT_WORKER_ENABLED', false),
     'firmware_enabled' => env('CSMS_SIGNED_FIRMWARE_ENABLED', false),
     'firmware_catalog_root' => storage_path('app/private/firmware/catalog'),
     'firmware_signer_pins' => array_values(array_filter(explode(',', (string) env('CSMS_FIRMWARE_SIGNER_PINS', '')))),

@@ -5,6 +5,7 @@ import 'catalog.dart';
 import 'connector_choices.dart';
 import 'reservation_arrival.dart';
 import 'roaming.dart';
+import 'ocpi_operations.dart';
 import 'invoice_history.dart';
 import 'payment_recovery.dart';
 import 'loyalty.dart';
@@ -937,6 +938,8 @@ class _WorkspaceState extends State<Workspace> {
               onSelected: (value) async {
                 if (value == 'profile') {
                   profile();
+                } else if (value == 'ocpiOperations') {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => OcpiOperationsView(api: api!, admin: account?.role == 'admin', onExpired: expiredSession)));
                 } else if (value == 'inventory') {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1202,6 +1205,7 @@ class _WorkspaceState extends State<Workspace> {
                   enabled: !busy,
                   child: Text(loyaltyText(context, 'title')),
                 ),
+                if (['vendor', 'admin'].contains(account?.role)) PopupMenuItem(value: 'ocpiOperations', enabled: !busy, child: Text(partnerOperationsTitle(context))),
                 if (account?.role == 'customer') PopupMenuItem(value: 'riderAccess', enabled: !busy, child: Text(riderTitle(context))),
                 PopupMenuItem(
                   value: 'profile',

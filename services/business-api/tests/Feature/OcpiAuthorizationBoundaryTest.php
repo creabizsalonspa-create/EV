@@ -39,6 +39,17 @@ class OcpiAuthorizationBoundaryTest extends TestCase
         return $this->envelope([['version' => '2.2.1', 'url' => 'https://partner.example/details']]);
     }
 
+    public function test_native_partner_capabilities_expose_only_current_readable_module_names(): void
+    {
+        $p = $this->provider();
+        $p->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/private-location', 'commands' => 'https://partner.example/private-command'], 'negotiated_at' => now()]);
+        $reply = $this->actingAs(User::findOrFail($p->owner_id))->getJson('/api/ocpi/providers')->assertOk()->assertJsonPath('data.0.readable_modules', ['locations'])->assertJsonPath('data.0.commands_enabled', false)->assertJsonPath('data.0.billing_eligible', false)->assertJsonMissingPath('data.0.endpoints')->assertJsonMissingPath('data.0.connection_key');
+        $this->assertStringNotContainsString('private-location', $reply->getContent());
+        $p->update(['authorized' => false]);
+        $this->getJson('/api/ocpi/providers')->assertOk()->assertJsonPath('data.0.readable_modules', []);
+        Http::assertNothingSent();
+    }
+
     public function test_authorization_changes_advance_hidden_generation_and_clear_capabilities(): void
     {
         $p = $this->provider();

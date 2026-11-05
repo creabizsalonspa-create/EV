@@ -1243,6 +1243,22 @@ window.createVendorWorkspace = ({
                             );
                     }
                 });
+            const monitor = result.automatic_monitor;
+            pane.append(ui("p", "Automatic fault monitoring"));
+            pane.append(
+                ui(
+                    "p",
+                    monitor
+                        ? {
+                              caught_up: "Fault monitor caught up",
+                              catching_up: "Fault monitor catching up",
+                              not_observed: "Fault monitor awaiting source",
+                              requires_review: "Fault monitor requires review",
+                          }[monitor.state] || "Fault monitor not observed"
+                        : "Fault monitor not observed",
+                ),
+            );
+            if (monitor?.checked_at) pane.append(raw("p", monitor.checked_at));
             pane.append(raw("p", result.protocol));
             pane.append(
                 ui(

@@ -1,4 +1,29 @@
 window.EV_MESSAGES = {
+    "Automatic fault monitoring": {
+        en: "Automatic fault monitoring",
+        ar: "المراقبة التلقائية لأعطال الشاحن",
+    },
+    "Fault monitor caught up": {
+        en: "Fault monitor caught up",
+        ar: "اكتملت متابعة أحداث المصدر عند آخر فحص",
+    },
+    "Fault monitor catching up": {
+        en: "Fault monitor catching up",
+        ar: "جارٍ استكمال سجل المصدر",
+    },
+    "Fault monitor awaiting source": {
+        en: "Fault monitor awaiting source",
+        ar: "في انتظار تسجيل المصدر",
+    },
+    "Fault monitor requires review": {
+        en: "Fault monitor requires review",
+        ar: "تتطلب مراقبة المصدر مراجعة",
+    },
+    "Fault monitor not observed": {
+        en: "Fault monitor not observed",
+        ar: "لم تُرصد المراقبة التلقائية",
+    },
+
     "Find a place to recharge": {
         en: "Find a place to recharge",
         ar: "ابحث عن مكان للشحن",
