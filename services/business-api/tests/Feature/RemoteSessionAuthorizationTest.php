@@ -35,7 +35,7 @@ class RemoteSessionAuthorizationTest extends TestCase
 
     public function test_generated_remote_credential_is_opaque_stable_and_not_exposed_in_session_responses(): void
     {
-        [$customer,$reservation,$response,$command,$link] = $this->fixture();
+        [$customer, $reservation, $response, $command, $link] = $this->fixture();
         $tag = $command->payload['id_token'];
         $this->assertMatchesRegularExpression('/^EV-[A-F0-9]{16}$/D', $tag);
         $this->assertSame(hash('sha256', $tag), $link->remote_token_digest);
@@ -51,7 +51,9 @@ class RemoteSessionAuthorizationTest extends TestCase
 
     public function test_unverified_source_cannot_receive_an_accepted_remote_authorization(): void
     {
-        [,,,$command,$link] = $this->fixture();
+        $fixture = $this->fixture();
+        $command = $fixture[3];
+        $link = $fixture[4];
         Http::fake(['source.test/*' => Http::response(['ready' => true, 'remote_session_authorization' => true, 'tenant_id' => 1, 'offline_fallback' => false, 'cache_seconds' => 0, 'proof' => str_repeat('0', 64)])]);
         try {
             app(RemoteSessionAuthorization::class)->publish($command);
@@ -72,6 +74,6 @@ class RemoteSessionAuthorizationTest extends TestCase
         $bearer = $this->postJson('/api/internal/rider-oauth/token', ['grant_type' => 'client_credentials', 'client_id' => 'creabiz-csms-rider', 'client_secret' => str_repeat('s', 64), 'audience' => 'creabiz-rider-authorize'])->assertOk()->json('access_token');
         $this->withToken($bearer)->postJson('/api/internal/remote-session-authorize', $body)->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
         Http::assertNothingSent();
-        $this->assertDatabaseCount('csms_session_links',1);
+        $this->assertDatabaseCount('csms_session_links', 1);
     }
 }

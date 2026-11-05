@@ -23,14 +23,20 @@ if [[ "$mode" == start ]]; then
  curl --fail --silent http://127.0.0.1:8080/docs/json >/dev/null
  curl --fail --silent http://127.0.0.1:8095/healthz >/dev/null
  for name in ev-csms-command-worker ev-csms-source-worker; do
-  if docker inspect "$name" >/dev/null 2>&1; then docker start "$name" >/dev/null; continue; fi
+  if docker inspect "$name" >/dev/null 2>&1; then
+   version=$(docker inspect --format '{{index .Config.Labels "creabiz.charging-worker.version"}}' "$name")
+   if [[ "$version" == 2 ]]; then docker start "$name" >/dev/null; continue; fi
+   # Upgrade only owned disposable runners; durable outbox/cursors stay mounted.
+   docker stop --time 45 "$name" >/dev/null
+   docker rm "$name" >/dev/null
+  fi
   args=(csms:dispatch-pending --interval=2)
   extra=(-e CSMS_SIMULATOR_ENABLED=true -e CSMS_COMMAND_WORKER_ENABLED=true -e CSMS_GRAPHQL_URL=http://127.0.0.1:8095/v1/graphql -e CSMS_RIDER_SOURCE_API_URL=http://127.0.0.1:8080)
   if [[ "$name" == ev-csms-source-worker ]]; then
    args=(csms:consume --interval=2)
    extra=(-e CSMS_GRAPHQL_URL=http://127.0.0.1:8095/v1/graphql)
   fi
-  docker run -d --name "$name" --restart unless-stopped --init --network host \
+  docker run -d --name "$name" --label creabiz.charging-worker.version=2 --restart unless-stopped --init --network host \
    --user "$(id -u):$(id -g)" "${extra[@]}" -v "$root:/app" \
    -w /app/services/business-api --entrypoint php \
    composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc artisan "${args[@]}" >/dev/null
