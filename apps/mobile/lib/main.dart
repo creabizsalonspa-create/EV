@@ -59,6 +59,18 @@ class _EvAppState extends State<EvApp> {
     animation: preferences,
     builder: (context, _) => MaterialApp(
       title: 'Crea-Biz EV',
+      builder:
+          const bool.fromEnvironment('EV_LOCAL_DEMO') &&
+              !const bool.fromEnvironment('dart.vm.product') &&
+              !const bool.fromEnvironment('dart.vm.profile')
+          ? (context, child) => Column(
+              children: [
+                const LocalDemoNotice(),
+                Expanded(child: child ?? const SizedBox.shrink()),
+              ],
+            )
+          : null,
+
       themeMode: preferences.theme,
       locale: preferences.locale,
       supportedLocales: const [Locale('en'), Locale('ar')],
@@ -99,6 +111,25 @@ class _EvAppState extends State<EvApp> {
     if (widget.preferences == null) preferences.dispose();
     super.dispose();
   }
+}
+
+/// Visible on every route in explicitly compiled local demo builds only.
+class LocalDemoNotice extends StatelessWidget {
+  const LocalDemoNotice({super.key});
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.tertiaryContainer,
+    child: SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Text(
+          EvStrings.of(context).t('localDemoNotice'),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    ),
+  );
 }
 
 class Workspace extends StatefulWidget {
@@ -939,7 +970,15 @@ class _WorkspaceState extends State<Workspace> {
                 if (value == 'profile') {
                   profile();
                 } else if (value == 'ocpiOperations') {
-                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => OcpiOperationsView(api: api!, admin: account?.role == 'admin', onExpired: expiredSession)));
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => OcpiOperationsView(
+                        api: api!,
+                        admin: account?.role == 'admin',
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'inventory') {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -987,7 +1026,12 @@ class _WorkspaceState extends State<Workspace> {
                     ),
                   );
                 } else if (value == 'riderAccess') {
-                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RiderAccessView(api: api!, onExpired: expiredSession)));
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          RiderAccessView(api: api!, onExpired: expiredSession),
+                    ),
+                  );
                 } else if (value == 'paymentCases') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1205,8 +1249,18 @@ class _WorkspaceState extends State<Workspace> {
                   enabled: !busy,
                   child: Text(loyaltyText(context, 'title')),
                 ),
-                if (['vendor', 'admin'].contains(account?.role)) PopupMenuItem(value: 'ocpiOperations', enabled: !busy, child: Text(partnerOperationsTitle(context))),
-                if (account?.role == 'customer') PopupMenuItem(value: 'riderAccess', enabled: !busy, child: Text(riderTitle(context))),
+                if (['vendor', 'admin'].contains(account?.role))
+                  PopupMenuItem(
+                    value: 'ocpiOperations',
+                    enabled: !busy,
+                    child: Text(partnerOperationsTitle(context)),
+                  ),
+                if (account?.role == 'customer')
+                  PopupMenuItem(
+                    value: 'riderAccess',
+                    enabled: !busy,
+                    child: Text(riderTitle(context)),
+                  ),
                 PopupMenuItem(
                   value: 'profile',
                   enabled: !busy,

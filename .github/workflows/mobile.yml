@@ -210,11 +210,16 @@ jobs:
           PY
             exit 1
           fi
+      - name: Verify explicit local demo bootstrap and debug transport boundaries
+        run: |
+          python3 -B apps/mobile/tool/local_demo_config_test.py
+          cd apps/mobile
+          flutter test test/local_demo_build_test.dart --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true
       - name: Verify foreground-only native privacy configuration
         run: python3 -B apps/mobile/tool/foreground_location_config_test.py
       - name: Verify native PDF artifact security boundaries
         run: python3 -B apps/mobile/tool/test_pdfium_assets.py
-      - run: flutter build apk --debug
+      - run: flutter build apk --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true
         if: runner.os == 'Linux'
         working-directory: apps/mobile
       - name: Verify actual merged Android foreground location permissions
@@ -228,7 +233,7 @@ jobs:
           ./scripts/setup
           ./scripts/start
           node tests/native-connected.cjs
-      - run: flutter build ios --simulator --no-codesign
+      - run: flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true
         if: runner.os == 'macOS'
         working-directory: apps/mobile
       - name: Verify bundled iOS foreground privacy permissions and localizations

@@ -47,6 +47,27 @@ void main() {
   testWidgets(
     'device trusted-TLS sign-in, Keychain restore/logout, pagination and persistent RTL/themes',
     (tester) async {
+      // Exercise actual native loopback transport before the unchanged trusted-TLS/Keychain workflow.
+      final demoServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      demoServer.listen((request) async {
+        expect(request.uri.path, '/api/demo-probe');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'local_demo_transport': true}));
+        await request.response.close();
+      });
+      final demoApi = EvApi(Uri.parse('http://127.0.0.1:${demoServer.port}'));
+      try {
+        expect(
+          (await demoApi.request('demo-probe'))['local_demo_transport'],
+          true,
+        );
+      } finally {
+        demoApi.close();
+        await demoServer.close(force: true);
+      }
+      print(
+        'Verified actual native loopback demo transport; trusted-TLS and Keychain checks remain required.',
+      );
       final serverContext = fixtureServerContext();
       final server = await HttpServer.bindSecure(
         InternetAddress.loopbackIPv4,
