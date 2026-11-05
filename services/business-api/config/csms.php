@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'command_worker_enabled' => env('CSMS_COMMAND_WORKER_ENABLED', false),
     'operations_base_url' => env('CSMS_OPERATIONS_BASE_URL', 'http://citrine:8080'),
     'safe_reset_enabled' => env('CSMS_SAFE_RESET_ENABLED', false),
     'rider_enabled' => env('CSMS_RIDER_AUTH_ENABLED', false),

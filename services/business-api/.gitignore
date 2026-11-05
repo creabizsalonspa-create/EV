@@ -24,3 +24,5 @@ Homestead.yaml
 Thumbs.db
 
 /storage/framework/csms-consumer.lock
+
+/storage/framework/csms-command-worker.lock

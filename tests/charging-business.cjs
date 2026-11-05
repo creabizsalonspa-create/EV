@@ -18,6 +18,17 @@ assert(eventSecret?.length >= 32, "Run scripts/charging-bridge-setup first.");
 const base = "http://127.0.0.1:8000";
 const useConsumer = process.env.EV_CSMS_CONSUMER === "1";
 const useDaemon = useConsumer && process.env.EV_CSMS_DAEMON === "1";
+const autoDispatch = process.env.EV_CSMS_AUTO_DISPATCH === "1";
+function startDispatcher(station) {
+  const child = spawn(
+    "./scripts/csms-dispatch-pending",
+    ["--interval=1", "--station=" + station],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  child.stdout.on("data", () => {});
+  child.stderr.on("data", () => {});
+  return { child, done: new Promise((resolve) => child.once("exit", resolve)) };
+}
 function startWorker(link) {
   const child = spawn(
     "./scripts/csms-consume",
@@ -175,7 +186,8 @@ async function session(version, actors) {
   );
   const charger = new SimulatedCharger(version, name);
   let transactionId,
-    worker = useDaemon ? startWorker(pending.link) : null;
+    worker = useDaemon ? startWorker(pending.link) : null,
+    dispatcher = null;
   try {
     await charger.connect();
     await charger.boot();
@@ -191,9 +203,11 @@ async function session(version, actors) {
         : { idToken: { idToken: tag, type: "Central" } },
     );
     assert.equal((auth.idTagInfo ?? auth.idTokenInfo).status, "Accepted");
-    await execFile("./scripts/csms-dispatch", [
-      String(pending.start_command.id),
-    ]);
+    if (autoDispatch) dispatcher = startDispatcher(station.id);
+    else
+      await execFile("./scripts/csms-dispatch", [
+        String(pending.start_command.id),
+      ]);
     const remote = await poll(
       async () =>
         charger.commands.find(
@@ -393,7 +407,8 @@ async function session(version, actors) {
       "POST",
     );
     assert.equal(repeatedStop.stop_command.id, stop.stop_command.id);
-    await execFile("./scripts/csms-dispatch", [String(stop.stop_command.id)]);
+    if (!autoDispatch)
+      await execFile("./scripts/csms-dispatch", [String(stop.stop_command.id)]);
     await poll(
       async () =>
         charger.commands.some(
@@ -583,6 +598,7 @@ async function session(version, actors) {
         canonical_targets: canonicalTargets,
         continuous_consumer: useConsumer,
         daemon_restart_verified: useDaemon,
+        continuous_dispatch_verified: autoDispatch,
         protocol: version,
         station: name,
         session_id: sessionId,
@@ -610,6 +626,7 @@ async function session(version, actors) {
     );
   } finally {
     await stopWorker(worker);
+    await stopWorker(dispatcher);
     await charger.close();
   }
 }

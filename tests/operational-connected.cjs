@@ -29,6 +29,7 @@ if (require.main === module) {
               EV_CANONICAL_TARGETS: "1",
               EV_CSMS_CONSUMER: "1",
               EV_CSMS_DAEMON: "1",
+              EV_CSMS_AUTO_DISPATCH: "1",
             }
           : {};
       const result = spawnSync(process.execPath, ["tests/" + suite + ".cjs"], {
