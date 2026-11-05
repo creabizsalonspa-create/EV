@@ -1865,6 +1865,195 @@ window.EV_MESSAGES = {
         en: "Credential revoked",
         ar: "أُبطلت بيانات الدخول",
     },
+    "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Safe reset operations": {
+        en: "Safe reset operations",
+        ar: "عمليات إعادة التشغيل الآمنة",
+    },
+    "Safe reset disclaimer": {
+        en: "Local simulator only. Uses Soft (1.6) or OnIdle (2.0.1). Active sessions and current bookings block resets. A transport receipt does not prove execution. New starts remain blocked until an operator reviews fresh idle source evidence. No automatic retry or session closure.",
+        ar: "للمحاكاة المحلية فقط. يستخدم Soft أو OnIdle. تمنع الجلسات والحجوزات الحالية إعادة التشغيل. لا يثبت إيصال النقل التنفيذ. يبقى بدء الشحن محظوراً حتى مراجعة دليل مصدر حديث وخامل. لا توجد إعادة تلقائية أو إغلاق للجلسات.",
+    },
+    "Request safe reset": {
+        en: "Request safe reset",
+        ar: "طلب إعادة تشغيل آمنة",
+    },
+    "Reset reason": {
+        en: "Reset reason (at least 10 characters)",
+        ar: "سبب إعادة التشغيل (١٠ أحرف على الأقل)",
+    },
+    "Review source after reset": {
+        en: "Review source after reset",
+        ar: "مراجعة المصدر بعد إعادة التشغيل",
+    },
+    "Reset source reviewed": {
+        en: "Fresh idle source reviewed; physical reset execution remains unverified",
+        ar: "تمت مراجعة مصدر حديث وخامل؛ يبقى تنفيذ إعادة التشغيل الفعلي غير مثبت",
+    },
+    "Card source authorization": {
+        en: "Card/token authorization; simulated source evidence only",
+        ar: "التفويض ببطاقة أو رمز؛ دليل مصدر محاكاة فقط",
+    },
+    "Awaiting rider transaction": {
+        en: "Authorization recorded; awaiting a source transaction. Capacity stays reserved until reconciled.",
+        ar: "تم تسجيل التفويض؛ بانتظار معاملة المصدر. تبقى السعة محجوزة حتى تسوية الحالة.",
+    },
+    "Rider access tokens": {
+        en: "Charging cards & tokens",
+        ar: "بطاقات ورموز الشحن",
+    },
+    "Rider access unavailable": {
+        en: "Charging access records are unavailable. Refresh this section to retry.",
+        ar: "سجلات وصول الشحن غير متاحة. حدّث هذا القسم لإعادة المحاولة.",
+    },
+    "Rider access disclaimer": {
+        en: "Register a card identifier or virtual token, request operator approval, and book the charger before use. Test-source authorization is not physical card or hardware acceptance.",
+        ar: "سجل معرّف بطاقة أو رمزاً افتراضياً واطلب موافقة المشغل واحجز الشاحن قبل الاستخدام. تفويض مصدر الاختبار ليس قبولاً للبطاقة أو الأجهزة الفعلية.",
+    },
+    "Register rider token": {
+        en: "Register charging access",
+        ar: "تسجيل وصول الشحن",
+    },
+    "Token label": { en: "Label", ar: "الاسم" },
+    "Token type": { en: "Identifier type", ar: "نوع المعرّف" },
+    "Virtual token": { en: "Virtual token", ar: "رمز افتراضي" },
+    "Card identifier (optional for virtual)": {
+        en: "Card identifier (leave empty for a generated virtual token)",
+        ar: "معرّف البطاقة (اتركه فارغاً لإنشاء رمز افتراضي)",
+    },
+    "Token expiry UTC": {
+        en: "Token expiry UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "انتهاء الرمز UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "One-time rider identifier": {
+        en: "One-time identifier",
+        ar: "المعرّف المعروض مرة واحدة",
+    },
+    "Rider identifier privacy": {
+        en: "Keep this identifier private. It is not saved in browser storage and cannot be shown again after hiding or leaving this page.",
+        ar: "احتفظ بالمعرّف بشكل خاص. لا يحفظ في تخزين المتصفح ولا يمكن عرضه مجدداً بعد إخفائه أو مغادرة الصفحة.",
+    },
+    "Show identifier": { en: "Show identifier", ar: "عرض المعرّف" },
+    "Hide identifier": { en: "Hide identifier", ar: "إخفاء المعرّف" },
+    "Station approvals": { en: "Station approvals", ar: "موافقات المحطات" },
+    "Withdraw station approval": {
+        en: "Withdraw station approval",
+        ar: "سحب موافقة المحطة",
+    },
+    "Station search": { en: "Station name", ar: "اسم المحطة" },
+    "Search stations": { en: "Search stations", ar: "بحث المحطات" },
+    "Request station approval": {
+        en: "Request station approval",
+        ar: "طلب موافقة المحطة",
+    },
+    "Rider token revoked": { en: "Revoked", ar: "مبطل" },
+    "Rider token expired": { en: "Expired", ar: "منتهي الصلاحية" },
+    "Operator approval required": {
+        en: "Operator approval and a current reservation are required",
+        ar: "تلزم موافقة المشغل وحجز حالي",
+    },
+    "Revoke rider token": { en: "Revoke token", ar: "إبطال الرمز" },
+    "Change token expiry": { en: "Change expiry", ar: "تغيير الانتهاء" },
+    "Revoke rider token confirmation": {
+        en: "Revoke this identifier and all its station approvals? Active sessions will not be forcibly stopped.",
+        ar: "إبطال هذا المعرّف وجميع موافقات محطاته؟ لن يتم إيقاف الجلسات النشطة قسراً.",
+    },
+    "Rider authorization requests": {
+        en: "Charging access requests",
+        ar: "طلبات وصول الشحن",
+    },
+    "Rider approval disclaimer": {
+        en: "Review the masked identifier and expiry. Approval is station-specific; source provisioning and a current reservation are also required. No hardware command is sent by approval.",
+        ar: "راجع المعرّف المقنّع والانتهاء. الموافقة خاصة بالمحطة ويلزم إعداد المصدر وحجز حالي أيضاً. لا تُرسل الموافقة أمراً للأجهزة.",
+    },
+    "Review rider approval": {
+        en: "Review access request",
+        ar: "مراجعة طلب الوصول",
+    },
+    "Approval decision": { en: "Decision", ar: "القرار" },
+    "Approval expiry UTC": {
+        en: "Approval expiry UTC",
+        ar: "انتهاء الموافقة UTC",
+    },
+    "Provision rider source": {
+        en: "Provision test-source authorization",
+        ar: "إعداد تفويض مصدر الاختبار",
+    },
+    "Scheduled maintenance": {
+        en: "Scheduled maintenance",
+        ar: "الصيانة المجدولة",
+    },
+    "Schedule maintenance": { en: "Schedule maintenance", ar: "جدولة الصيانة" },
+    "Scheduled maintenance disclaimer": {
+        en: "UTC intervals block new bookings and starts only. Existing reservations must be resolved first. Active sessions are not stopped, and physical maintenance readiness is not verified.",
+        ar: "فترات UTC تمنع الحجوزات والبدء الجديد فقط. يجب معالجة الحجوزات الحالية أولاً. لا تتوقف الجلسات النشطة ولا يُتحقق من جاهزية الصيانة الفعلية.",
+    },
+    "Maintenance starts (UTC ISO)": {
+        en: "Starts UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "البداية UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "Maintenance ends (UTC ISO)": {
+        en: "Ends UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "النهاية UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "Maintenance cancelled": {
+        en: "Maintenance cancelled",
+        ar: "أُلغيت الصيانة",
+    },
+    "Cancel maintenance": { en: "Cancel maintenance", ar: "إلغاء الصيانة" },
+    "Cancel scheduled maintenance confirmation": {
+        en: "Cancel this admission block? This does not send a charger command or verify physical readiness.",
+        ar: "هل تريد إلغاء منع القبول؟ لا يُرسل أمر للشاحن ولا يتم التحقق من الجاهزية الفعلية.",
+    },
+    "Fault alerts": { en: "Fault alerts", ar: "تنبيهات الأعطال" },
+    "Inspect source faults": {
+        en: "Inspect source faults",
+        ar: "فحص أعطال المصدر",
+    },
+    "Inspect older source faults": {
+        en: "Inspect older source faults",
+        ar: "فحص أعطال مصدر أقدم",
+    },
+    "Fault acknowledgment disclaimer": {
+        en: "Acknowledgment records review only. Source recovery is historical evidence, not physical repair, connector availability or release of charging capacity.",
+        ar: "الإقرار يسجل المراجعة فقط. تعافي المصدر دليل تاريخي وليس إصلاحاً فعلياً أو توفر الموصل أو تحرير سعة الشحن.",
+    },
+    "Acknowledge fault": { en: "Acknowledge fault", ar: "الإقرار بالعطل" },
+    "Fault acknowledged": { en: "Fault acknowledged", ar: "تم الإقرار بالعطل" },
+    "Recovery source observed": {
+        en: "Recovery source observed",
+        ar: "رُصد دليل تعافٍ من المصدر",
+    },
+    "No recovery source observed": {
+        en: "No recovery source observed",
+        ar: "لم يُرصد دليل تعافٍ من المصدر",
+    },
+    "Source diagnostics disclaimer": {
+        en: "Authenticated simulator source only. Status history is not connector availability or physical acceptance. Refresh explicitly; no command is sent.",
+        ar: "مصدر محاكي موثق فقط. سجل الحالة ليس توفر الموصل أو قبول الأجهزة الفعلية. حدّث صراحة؛ لا تُرسل أوامر.",
+    },
+    "Source registered": { en: "Source registered", ar: "المصدر مسجل" },
+    "Source not observed": { en: "Source not observed", ar: "لم يُرصد المصدر" },
+    "Source reports online": {
+        en: "Source reports online",
+        ar: "المصدر يبلغ عن الاتصال",
+    },
+    "Source reports offline": {
+        en: "Source reports offline",
+        ar: "المصدر يبلغ عن انقطاع الاتصال",
+    },
+    "Recent source message": {
+        en: "Recent source message",
+        ar: "رسالة مصدر حديثة",
+    },
+    "No recent source message": {
+        en: "No recent source message",
+        ar: "لا توجد رسالة مصدر حديثة",
+    },
+    "Source diagnostics unavailable": {
+        en: "Source diagnostics unavailable",
+        ar: "تشخيص المصدر غير متاح",
+    },
     "admission.event.expired": {
         en: "Expired credential disabled by system",
         ar: "أعطّل النظام بيانات الدخول المنتهية",

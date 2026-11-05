@@ -302,6 +302,10 @@ window.createVendorWorkspace = ({
         const caps = company.capabilities || {},
             owner = caps.owner,
             admin = caps.reviewer;
+        if (owner || admin)
+            button(host, "Rider authorization requests", () =>
+                riderRequests(company, host, epoch),
+            );
         host.append(
             ui("p", "Company status: {status}", {
                 status: companyStatus(company.status),
@@ -823,11 +827,278 @@ window.createVendorWorkspace = ({
                 button(row, "Secure charger admission", () =>
                     admission(company, charger, row, epoch),
                 );
+                button(row, "Safe reset operations", () =>
+                    resets(company, charger, row, epoch),
+                );
+                button(row, "Source diagnostics", () =>
+                    diagnostics(company, charger, row, epoch),
+                );
                 p.append(row);
             },
             1,
             epoch,
         );
+    }
+    async function resets(company, charger, parent, epoch, page = 1) {
+        parent.querySelector("[data-reset-operations]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.resetOperations = "";
+        parent.append(pane);
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/reset-operations`;
+        const result = await api(
+            path + `?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        pane.append(
+            ui("h3", "Safe reset operations"),
+            ui("p", "Safe reset disclaimer"),
+        );
+        const refresh = () => resets(company, charger, parent, epoch, page);
+        button(pane, "Refresh", refresh);
+        if (result.can_manage && result.adapter_enabled)
+            form(
+                pane,
+                "Request safe reset",
+                [{ name: "reason", label: "Reset reason", max: 2000 }],
+                async (body) => {
+                    await api(path, "POST", body, controller?.signal);
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                },
+            );
+        for (const operation of result.data) {
+            const row = document.createElement("article");
+            row.dataset.resetOperation = operation.id;
+            row.append(
+                raw("h4", `#${operation.id} · ${operation.reset_type}`),
+                raw("p", operation.status),
+                raw("p", operation.created_at),
+            );
+            if (operation.reviewed_at)
+                row.append(ui("p", "Reset source reviewed"));
+            else if (result.can_manage && result.adapter_enabled)
+                form(
+                    row,
+                    "Review source after reset",
+                    [
+                        {
+                            name: "note",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (body) => {
+                        await api(
+                            path + `/${operation.id}/review`,
+                            "POST",
+                            { note: body.note },
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected) await refresh();
+                    },
+                );
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                resets(company, charger, parent, epoch, page - 1),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                resets(company, charger, parent, epoch, page + 1),
+            );
+    }
+    async function diagnostics(company, charger, parent, epoch, before = null) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-source-diagnostics]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.sourceDiagnostics = "";
+        parent.append(pane);
+        pane.append(
+            ui("h3", "Source diagnostics"),
+            ui("p", "Source diagnostics disclaimer"),
+        );
+        button(pane, "Refresh", () =>
+            diagnostics(company, charger, parent, epoch),
+        );
+        const faults = document.createElement("section");
+        pane.append(faults);
+        button(pane, "Fault alerts", () =>
+            faultAlerts(company, charger, faults, epoch),
+        );
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/source-diagnostics` +
+            (before ? `?before=${before}` : "");
+        try {
+            const result = await api(
+                path,
+                "GET",
+                undefined,
+                controller?.signal,
+            );
+            if (!valid(epoch) || !pane.isConnected) return;
+            if (result.can_manage_faults)
+                button(pane, "Inspect source faults", async () => {
+                    const inspected = await api(
+                        base +
+                            `companies/${company.id}/chargers/${charger.id}/fault-alerts/inspect` +
+                            (before ? `?before=${before}` : ""),
+                        "POST",
+                        {},
+                        controller?.signal,
+                    );
+                    if (valid(epoch) && pane.isConnected) {
+                        await faultAlerts(company, charger, faults, epoch);
+                        if (inspected.next_before)
+                            button(pane, "Inspect older source faults", () =>
+                                diagnostics(
+                                    company,
+                                    charger,
+                                    parent,
+                                    epoch,
+                                    inspected.next_before,
+                                ),
+                            );
+                    }
+                });
+            pane.append(raw("p", result.protocol));
+            pane.append(
+                ui(
+                    "p",
+                    result.source_registered
+                        ? "Source registered"
+                        : "Source not observed",
+                ),
+            );
+            if (result.source_registered) {
+                pane.append(
+                    ui(
+                        "p",
+                        result.source_online
+                            ? "Source reports online"
+                            : "Source reports offline",
+                    ),
+                );
+                pane.append(
+                    ui(
+                        "p",
+                        result.recent_message_observed
+                            ? "Recent source message"
+                            : "No recent source message",
+                    ),
+                );
+                pane.append(
+                    raw("p", result.last_message_at || "—"),
+                    raw("p", result.firmware_version || "—"),
+                );
+            }
+            for (const event of result.events) {
+                const card = document.createElement("article");
+                card.append(
+                    raw(
+                        "p",
+                        `${event.evseId ?? "—"}/${event.connectorId ?? "—"} · ${event.connectorStatus} · ${event.errorCode ?? "—"}`,
+                    ),
+                    raw("p", event.timestamp),
+                );
+                pane.append(card);
+            }
+            if (result.next_before)
+                button(pane, "Next", () =>
+                    diagnostics(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        result.next_before,
+                    ),
+                );
+        } catch (error) {
+            if (valid(epoch) && pane.isConnected) {
+                pane.append(ui("p", "Source diagnostics unavailable"));
+                if ([401, 419].includes(error.status)) expired();
+            }
+        }
+    }
+    async function faultAlerts(company, charger, pane, epoch, page = 1) {
+        if (!valid(epoch) || !pane.isConnected) return;
+        pane.replaceChildren(
+            ui("h3", "Fault alerts"),
+            ui("p", "Fault acknowledgment disclaimer"),
+        );
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/fault-alerts`;
+        const result = await api(
+            path + `?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        for (const alert of result.data) {
+            const row = document.createElement("article");
+            row.dataset.faultAlert = alert.id;
+            row.append(
+                raw(
+                    "p",
+                    `${alert.evse_number}/${alert.connector_number} · ${alert.status} · ${alert.error_code ?? "—"}`,
+                ),
+                raw("p", alert.occurred_at),
+            );
+            row.append(
+                ui(
+                    "p",
+                    alert.recovery_observed_at
+                        ? "Recovery source observed"
+                        : "No recovery source observed",
+                ),
+            );
+            if (alert.acknowledged_at)
+                row.append(ui("p", "Fault acknowledged"));
+            else if (result.can_manage_faults)
+                form(
+                    row,
+                    "Acknowledge fault",
+                    [
+                        {
+                            name: "note",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (values) => {
+                        await api(
+                            path + `/${alert.id}/acknowledge`,
+                            "PATCH",
+                            { note: values.note },
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected)
+                            await faultAlerts(
+                                company,
+                                charger,
+                                pane,
+                                epoch,
+                                page,
+                            );
+                    },
+                );
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                faultAlerts(company, charger, pane, epoch, page - 1),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                faultAlerts(company, charger, pane, epoch, page + 1),
+            );
     }
     async function admission(company, charger, parent, epoch) {
         if (!valid(epoch)) return;
@@ -1180,6 +1451,214 @@ window.createVendorWorkspace = ({
             epoch,
         );
     }
+    async function riderRequests(company, parent, epoch, page = 1) {
+        parent.querySelector("[data-rider-grants]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.riderGrants = "";
+        parent.append(pane);
+        pane.append(
+            ui("h3", "Rider authorization requests"),
+            ui("p", "Rider approval disclaimer"),
+        );
+        const result = await api(
+            base + `companies/${company.id}/rider-grants?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        const refresh = () => riderRequests(company, parent, epoch, page);
+        button(pane, "Refresh", refresh);
+        for (const grant of result.data) {
+            const row = document.createElement("article");
+            row.dataset.riderGrant = grant.id;
+            row.append(
+                raw("h4", grant.label),
+                raw(
+                    "p",
+                    `${grant.token_type} · ••••${grant.suffix} · ${grant.state}`,
+                ),
+                raw("p", grant.provisioning_state),
+            );
+            if (!grant.revoked_at && !grant.token_revoked_at)
+                form(
+                    row,
+                    "Review rider approval",
+                    [
+                        {
+                            name: "state",
+                            label: "Approval decision",
+                            choices: {
+                                approved: "Approve",
+                                rejected: "Reject",
+                                revoked: "Revoke",
+                            },
+                        },
+                        {
+                            name: "expires_at",
+                            label: "Approval expiry UTC",
+                            max: 20,
+                            optional: true,
+                        },
+                        {
+                            name: "note",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (body) => {
+                        if (!body.expires_at) delete body.expires_at;
+                        await api(
+                            base +
+                                `companies/${company.id}/rider-grants/${grant.id}/review`,
+                            "POST",
+                            body,
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected) await refresh();
+                    },
+                );
+            if (
+                result.source_adapter_enabled &&
+                grant.state === "approved" &&
+                !grant.revoked_at &&
+                !grant.token_revoked_at
+            )
+                button(row, "Provision rider source", async () => {
+                    await api(
+                        base +
+                            `companies/${company.id}/rider-tokens/${grant.token_id}/provision`,
+                        "POST",
+                        {},
+                        controller?.signal,
+                    );
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                });
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                riderRequests(company, parent, epoch, page - 1),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                riderRequests(company, parent, epoch, page + 1),
+            );
+    }
+    async function maintenanceWindows(
+        company,
+        charger,
+        connector,
+        parent,
+        epoch,
+        page = 1,
+    ) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-maintenance-windows]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.maintenanceWindows = "";
+        parent.append(pane);
+        pane.append(
+            ui("h3", "Scheduled maintenance"),
+            ui("p", "Scheduled maintenance disclaimer"),
+        );
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/connectors/${connector.id}/maintenance-windows`;
+        const result = await api(
+            path + `?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        const refresh = () =>
+            maintenanceWindows(
+                company,
+                charger,
+                connector,
+                parent,
+                epoch,
+                page,
+            );
+        button(pane, "Refresh", refresh);
+        if (company.capabilities.inventory_write)
+            form(
+                pane,
+                "Schedule maintenance",
+                [
+                    {
+                        name: "starts_at",
+                        label: "Maintenance starts (UTC ISO)",
+                        max: 20,
+                    },
+                    {
+                        name: "ends_at",
+                        label: "Maintenance ends (UTC ISO)",
+                        max: 20,
+                    },
+                    { name: "reason", label: "Maintenance reason", max: 1000 },
+                ],
+                async (values) => {
+                    await api(path, "POST", values, controller?.signal);
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                },
+            );
+        for (const window of result.data) {
+            const row = document.createElement("article");
+            row.dataset.maintenanceWindow = window.id;
+            row.append(
+                raw("p", `${window.starts_at} → ${window.ends_at} UTC`),
+                raw("p", window.reason),
+            );
+            if (window.cancelled_at)
+                row.append(ui("p", "Maintenance cancelled"));
+            else if (
+                company.capabilities.inventory_write &&
+                company.capabilities.inventory_operational
+            )
+                button(row, "Cancel maintenance", async () => {
+                    if (
+                        !confirm(
+                            EvLocale.text(
+                                "Cancel scheduled maintenance confirmation",
+                            ),
+                        )
+                    )
+                        return;
+                    await api(
+                        path + `/${window.id}`,
+                        "DELETE",
+                        undefined,
+                        controller?.signal,
+                    );
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                });
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                maintenanceWindows(
+                    company,
+                    charger,
+                    connector,
+                    parent,
+                    epoch,
+                    page - 1,
+                ),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                maintenanceWindows(
+                    company,
+                    charger,
+                    connector,
+                    parent,
+                    epoch,
+                    page + 1,
+                ),
+            );
+    }
     async function connectors(company, charger, parent, operational, epoch) {
         parent.querySelector("[data-connectors]")?.remove();
         const pane = document.createElement("div");
@@ -1256,6 +1735,9 @@ window.createVendorWorkspace = ({
                             ? "Maintenance blocked"
                             : "Maintenance not blocked",
                     ),
+                );
+                button(row, "Scheduled maintenance", () =>
+                    maintenanceWindows(company, charger, c, row, epoch),
                 );
                 if (company.capabilities.inventory_write)
                     form(

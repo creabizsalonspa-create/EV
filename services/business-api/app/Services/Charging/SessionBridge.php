@@ -5,6 +5,7 @@ namespace App\Services\Charging;
 use App\Models\ChargerCommand;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
+use App\Models\Charging\RiderAccessToken;
 use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
@@ -31,20 +32,27 @@ class SessionBridge
         return ChargerCommand::create(['actor_id' => $actor, 'station_id' => $station, 'action' => $action, 'payload' => $payload, 'idempotency_key' => $key, 'payload_hash' => hash('sha256', json_encode([$station, $action, $payload], JSON_THROW_ON_ERROR))]);
     }
 
-    public function start(Reservation $reservation, int $actor): array
+    public function start(Reservation $reservation, int $actor, ?RiderAccessToken $rider = null, ?int $grantId = null): array
     {
         $this->enabled();
         abort_unless($reservation->user_id === $actor, 404);
 
-        return DB::transaction(function () use ($reservation, $actor) {
+        return DB::transaction(function () use ($reservation, $actor, $rider, $grantId) {
             Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $binding = app(ConnectorTopology::class)->binding($reservation, true);
             abort_unless($binding, 409, 'No CSMS simulator binding.');
             $r = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
+            if ($rider) {
+                app(StationGate::class)->requireReady(Station::findOrFail($r->station_id), $r->connector_mapping_id);
+                $rider = app(RiderAuthority::class)->requireGrant($r, $rider->id, $grantId ?? 0);
+            }
             $old = ChargingSession::where('reservation_id', $r->id)->first();
             if ($old) {
                 $link = SessionLink::where('charging_session_id', $old->id)->first();
                 abort_unless($link, 409, 'This reservation already uses the independent application simulator.');
+                if ($rider) {
+                    abort_unless($link->rider_token_id === $rider->id && $link->rider_grant_id === $grantId && $link->closed_without_dispatch_at === null && $link->ended_at === null, 409, 'Reservation uses a different or terminal charging authorization.');
+                }
 
                 return $this->summary($link);
             }
@@ -61,8 +69,11 @@ class SessionBridge
             $tariff = $finance->activeTariff($station);
             $s = ChargingSession::create(['reservation_id' => $r->id, 'charging_evse_id' => $r->charging_evse_id, 'status' => 'pending_start', 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
             $finance->snapshotSession($s, $tariff);
-            $c = $this->command($actor, $station->id, 'start', ['session_id' => $s->id, 'id_token' => 'EV-SIM-'.$s->id], 'csms-session:'.$s->id.':start');
-            $link = SessionLink::create(['charging_session_id' => $s->id, 'binding_id' => $binding->id, 'start_command_id' => $c->id, 'connector_mapping_id' => $r->connector_mapping_id, 'protocol' => $binding->protocol, 'identifier' => $binding->identifier, 'last_sequence' => -1]);
+            if ($rider) {
+                abort_if(SessionLink::where('rider_token_id', $rider->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'This rider token has an unresolved source session.');
+            }
+            $c = $rider ? null : $this->command($actor, $station->id, 'start', ['session_id' => $s->id, 'id_token' => 'EV-SIM-'.$s->id], 'csms-session:'.$s->id.':start');
+            $link = SessionLink::create(['charging_session_id' => $s->id, 'binding_id' => $binding->id, 'start_command_id' => $c?->id, 'rider_token_id' => $rider?->id, 'rider_grant_id' => $rider ? $grantId : null, 'connector_mapping_id' => $r->connector_mapping_id, 'protocol' => $binding->protocol, 'identifier' => $binding->identifier, 'last_sequence' => -1]);
             $this->audit($actor, 'csms.session_requested', $s->id);
 
             return $this->summary($link);
@@ -90,6 +101,7 @@ class SessionBridge
         }
         $candidate = SessionLink::where('charging_session_id', $session->id)->first();
         abort_unless($candidate, 409, 'A started reservation cannot be cancelled.');
+        abort_if($candidate->start_command_id === null, 409, 'Source-authorized charging requires source reconciliation before capacity release.');
         $command = ChargerCommand::whereKey($candidate->start_command_id)->lockForUpdate()->firstOrFail();
         $link = SessionLink::whereKey($candidate->id)->lockForUpdate()->firstOrFail();
         $session = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();

@@ -180,7 +180,8 @@ class PlatformController extends Controller
 
                     return response()->json($prior);
                 }
-                app(StationGate::class)->requireReady($station, isset($v['connector_mapping_id']) ? (int) $v['connector_mapping_id'] : null);
+                $bookingStart = CarbonImmutable::parse($v['starts_at'], 'UTC');
+                app(StationGate::class)->requireReady($station, isset($v['connector_mapping_id']) ? (int) $v['connector_mapping_id'] : null, $bookingStart, $bookingStart->addMinutes(30));
                 if (! empty($v['connector_mapping_id'])) {
                     $target = app(ConnectorTopology::class)->target($station, (int) $v['connector_mapping_id']);
                     $v['charging_evse_id'] = $target['evse']->id;

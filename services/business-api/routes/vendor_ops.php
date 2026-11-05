@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ChargerDiagnosticsController;
+use App\Http\Controllers\ChargerResetController;
 use App\Http\Controllers\ConnectorTopologyController;
+use App\Http\Controllers\MaintenanceWindowController;
 use App\Http\Controllers\VendorOpsController as V;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +29,9 @@ Route::post('/companies/{company}/sites/{site}/chargers', [V::class, 'createChar
 Route::get('/companies/{company}/chargers/{charger}/connectors', [V::class, 'connectors']);
 Route::post('/companies/{company}/chargers/{charger}/connectors', [V::class, 'createConnector']);
 Route::patch('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance', [V::class, 'maintenance']);
+Route::get('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows', [MaintenanceWindowController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows', [MaintenanceWindowController::class, 'create']);
+Route::delete('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows/{window}', [MaintenanceWindowController::class, 'cancel'])->whereNumber('window');
 
 Route::patch('/companies/{company}', [V::class, 'updateCompany']);
 Route::get('/companies/{company}/reviews', [V::class, 'reviews']);
@@ -36,8 +42,16 @@ Route::post('/companies/{company}/chargers/{charger}/evses', [ConnectorTopologyC
 Route::post('/companies/{company}/chargers/{charger}/evses/{evse}/connectors/{connector}/mapping', [ConnectorTopologyController::class, 'map']);
 
 Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'show']);
+Route::get('/companies/{company}/chargers/{charger}/source-diagnostics', ChargerDiagnosticsController::class);
+Route::post('/companies/{company}/chargers/{charger}/fault-alerts/inspect', [ChargerDiagnosticsController::class, 'inspect']);
+Route::get('/companies/{company}/chargers/{charger}/fault-alerts', [ChargerDiagnosticsController::class, 'alerts']);
+Route::patch('/companies/{company}/chargers/{charger}/fault-alerts/{alert}/acknowledge', [ChargerDiagnosticsController::class, 'acknowledge'])->whereNumber('alert');
 Route::post('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'configure']);
 Route::post('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'credential']);
 Route::delete('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'revoke']);
 
 Route::get('/companies/{company}/chargers/{charger}/admission/events', [ChargerAdmissionController::class, 'events']);
+
+Route::get('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'create']);
+Route::post('/companies/{company}/chargers/{charger}/reset-operations/{operation}/review', [ChargerResetController::class, 'review'])->whereNumber('operation');

@@ -10,3 +10,5 @@ test-results/
 **/build/
 
 /services/charger-ingress/.env
+services/csms/rider/runtime/*
+!services/csms/rider/runtime/.gitkeep

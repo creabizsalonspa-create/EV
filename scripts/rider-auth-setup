@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3 - <<'PY'
+from pathlib import Path
+import os,secrets
+p=Path('services/business-api/.env')
+values=dict(line.split('=',1) for line in p.read_text().splitlines() if '=' in line and not line.startswith('#'))
+clean=lambda x:x.strip('"\'')
+if clean(values.get('APP_ENV',''))!='local' or clean(values.get('CSMS_INGRESS_ALLOW_LOCAL_HTTP',''))!='true':raise SystemExit('Requires the existing isolated local ingress setup; never use production credentials.')
+s=Path('services/csms/rider/runtime/client-secret')
+left=clean(values.get('CSMS_RIDER_CLIENT_SECRET',''));right=s.read_text().strip() if s.exists() else ''
+if left and right and left!=right:raise SystemExit('Existing rider client bindings differ; refusing to overwrite.')
+key=left or right or secrets.token_hex(32)
+if len(key)<32:raise SystemExit('Existing rider client binding is too short.')
+expected={'CSMS_RIDER_AUTH_ENABLED':'true','CSMS_RIDER_CLIENT_ID':'creabiz-csms-rider','CSMS_RIDER_CALLBACK_URL':'http://ev-business-api:8000/api/internal/rider-authorize','CSMS_RIDER_SOURCE_API_URL':'http://citrine:8080'}
+for k,v in expected.items():
+ if k in values and clean(values[k])!=v:raise SystemExit('Existing '+k+' differs; review local configuration.')
+if not s.exists():
+ s.with_name('.reload-required').touch(mode=0o600)
+ fd=os.open(s,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+ with os.fdopen(fd,'w') as f:f.write(key+'\n')
+with p.open('a') as f:
+ for k,v in expected.items():
+  if k not in values:f.write('\n'+k+'='+v+'\n')
+ if not left:f.write('\nCSMS_RIDER_CLIENT_SECRET='+key+'\n')
+os.chmod(p,0o600)
+print('Local rider client bindings prepared; no credentials printed.')
+PY
+docker compose -f services/csms/compose.yaml up -d citrine
+# The mounted file appears without changing Compose's container configuration.
+# Reload only a newly installed binding; never rotate an existing client key.
+if [[ -f services/csms/rider/runtime/.reload-required ]]; then
+  docker compose -f services/csms/compose.yaml restart citrine
+  rm services/csms/rider/runtime/.reload-required
+fi
+for attempt in {1..45}; do
+  if node --input-type=module - <<'JS'
+import {readFileSync} from 'node:fs';
+import {randomUUID,createHmac,timingSafeEqual} from 'node:crypto';
+const secret=readFileSync('services/csms/rider/runtime/client-secret','utf8').trim();
+const nonce=randomUUID();
+try {
+ const r=await fetch('http://127.0.0.1:8080/creabiz/rider-auth/capabilities?nonce='+nonce,{signal:AbortSignal.timeout(2000)});
+ const j=await r.json();
+ const wanted=createHmac('sha256',secret).update('creabiz-rider-v1\n'+nonce).digest('hex');
+ if(!r.ok || j.ready!==true || j.proof?.length!==64 || !timingSafeEqual(Buffer.from(j.proof),Buffer.from(wanted))) process.exit(1);
+} catch {process.exit(1);}
+JS
+  then echo 'Authenticated local rider authorizer ready; no offline fallback.'; exit 0; fi
+  sleep 1
+done
+echo 'Rider source startup did not pass its bounded readiness check.' >&2
+exit 1

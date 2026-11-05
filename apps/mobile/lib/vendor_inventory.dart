@@ -3,6 +3,9 @@ import 'api.dart';
 import 'strings.dart';
 import 'vendor_topology.dart';
 import 'charger_admission.dart';
+import 'charger_diagnostics.dart';
+import 'charger_resets.dart';
+import 'maintenance_windows.dart';
 import 'topology_strings.dart';
 import 'vendor_company.dart';
 import 'vendor_forms.dart';
@@ -348,7 +351,59 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                   },
                             child: Text(admissionText(context, 'title')),
                           ),
+                        if (level == 2)
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => ChargerDiagnosticsView(
+                                        api: widget.api,
+                                        companyId: widget.company!['id'] as int,
+                                        chargerId: row['id'] as int,
+                                        onExpired: widget.onExpired,
+                                      ),
+                                    ),
+                                  ),
+                            child: Text(diagnosticsTitle(context)),
+                          ),
+                        if (level == 2)
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => ChargerResetsView(
+                                        api: widget.api,
+                                        companyId: widget.company!['id'] as int,
+                                        chargerId: row['id'] as int,
+                                        onExpired: widget.onExpired,
+                                      ),
+                                    ),
+                                  ),
+                            child: Text(resetTitle(context)),
+                          ),
                         if (level == 3) ...[
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => MaintenanceWindowsView(
+                                        api: widget.api,
+                                        companyId: widget.company!['id'] as int,
+                                        chargerId: widget.charger!['id'] as int,
+                                        connectorId: row['id'] as int,
+                                        canManage: writer,
+                                        operational:
+                                            capabilities['inventory_operational'] ==
+                                            true,
+                                        onExpired: widget.onExpired,
+                                      ),
+                                    ),
+                                  ),
+                            child: Text(maintenanceTitle(context)),
+                          ),
                           Text(
                             '${row['connector_type']} · ${row['max_power_kw']} kW',
                           ),

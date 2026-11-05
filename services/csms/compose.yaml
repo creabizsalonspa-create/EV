@@ -38,6 +38,8 @@ services:
       CITRINEOS_AUTH_MODE: localDev
     volumes:
       - ./websocket-servers.json:/usr/local/apps/citrineos/apps/ocpp-server/dist/assets/websocket-servers.json:ro
+      - ./rider/bootstrap.js:/usr/local/apps/citrineos/apps/ocpp-server/dist/index.js:ro
+      - ./rider/runtime:/run/creabiz-rider:ro
     ports:
       - 127.0.0.1:8080:8080
       - 127.0.0.1:8081:8081

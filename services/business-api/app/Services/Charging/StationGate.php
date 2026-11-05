@@ -9,6 +9,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
 use App\Services\VendorOps\VendorAccess;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -19,6 +20,10 @@ class StationGate
 
     private function ready(Station $station, VendorSite $site, ?VendorCompany $company, Collection $connectors, Collection $chargers, ?object $binding, ?string $timezone): bool
     {
+        if (DB::table('charger_reset_operations as reset')->join('csms_bindings as binding', 'binding.id', '=', 'reset.binding_id')->where('binding.station_id', $station->id)->whereNull('reset.reviewed_at')->exists()) {
+            return false;
+        }
+
         if (! $company || $company->owner_id !== $station->vendor_id || $site->country !== $station->country || $company->status !== 'approved' || ! $this->access->licenseValid($company, $timezone) || $connectors->count() !== 1) {
             return false;
         }
@@ -45,6 +50,7 @@ class StationGate
             ->selectRaw('chargers.site_id, COUNT(*) as connector_count, MIN(connectors.id) as first_id')->get()->keyBy('site_id');
         $singleIds = $counts->filter(fn ($row) => (int) $row->connector_count === 1)->pluck('first_id');
         $connectors = VendorConnector::whereIn('id', $singleIds)->get()->keyBy('id');
+        $scheduled = DB::table('connector_maintenance_windows')->whereIn('connector_id', $singleIds)->whereNull('cancelled_at')->where('starts_at', '<=', now())->where('ends_at', '>', now())->pluck('connector_id')->all();
         $chargers = VendorCharger::whereIn('id', $connectors->pluck('charger_id'))->get()->keyBy('id');
         $bindings = DB::table('csms_bindings')->whereIn('station_id', $stations->pluck('id'))->get()->groupBy('station_id');
         $timezones = DB::table('regions')->pluck('timezone', 'country');
@@ -57,7 +63,7 @@ class StationGate
                 continue;
             }
             $count = $counts->get($site->id);
-            $candidate = $count && (int) $count->connector_count === 1 ? $connectors->only([$count->first_id]) : collect();
+            $candidate = $count && (int) $count->connector_count === 1 && ! in_array((int) $count->first_id, $scheduled, true) ? $connectors->only([$count->first_id]) : collect();
             $company = $companies->get($site->company_id);
             $ready = ($bindings->get($station->id)?->count() ?? 0) <= 1 && $this->ready($station, $site, $company, $candidate, $chargers, $bindings->get($station->id)?->first(), $company ? $timezones->get($company->country) : null);
             $result[$station->id] = $ready ? 'managed_ready' : 'managed_blocked';
@@ -71,12 +77,16 @@ class StationGate
     }
 
     /** Call only inside a booking/start transaction. Stop and source finalization must remain available. */
-    public function requireReady(Station $station, ?int $mappingId = null): void
+    public function requireReady(Station $station, ?int $mappingId = null, ?CarbonInterface $start = null, ?CarbonInterface $end = null): void
     {
+
         $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
+        abort_if(DB::table('charger_reset_operations as reset')->join('csms_bindings as binding', 'binding.id', '=', 'reset.binding_id')->where('binding.station_id', $station->id)->whereNull('reset.reviewed_at')->exists(), 409, 'Charger has an unresolved maintenance operation.');
+
         abort_unless($station->source === 'simulator', 409, 'Only simulator charging admission is enabled.');
         if ($mappingId !== null) {
-            app(ConnectorTopology::class)->target($station, $mappingId, true);
+            $target = app(ConnectorTopology::class)->target($station, $mappingId, true);
+            app(MaintenancePolicy::class)->requireAvailable($target['connector']->id, $start, $end);
 
             return;
         }
@@ -91,5 +101,6 @@ class StationGate
         $chargers = VendorCharger::whereIn('id', $connectors->pluck('charger_id'))->get()->keyBy('id');
         $binding = DB::table('csms_bindings')->where('station_id', $station->id)->first();
         abort_unless($this->ready($station, $site, $company, $connectors, $chargers, $binding, null), 409, 'Managed simulator reservations and starts are temporarily unavailable.');
+        app(MaintenancePolicy::class)->requireAvailable($connectors->first()->id, $start, $end);
     }
 }

@@ -1,14 +1,20 @@
 <?php
 
+use App\Http\Controllers\ChargerDiagnosticsController;
 use App\Models\Charging\SessionLink;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
 use Illuminate\Foundation\Inspiring;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -90,3 +96,39 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
         fclose($lock);
     }
 })->purpose('Continuously forward authenticated simulator observations; never dispatch commands');
+
+Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--before=}', function () {
+    if (app()->environment('production') || ! config('csms.session_bridge_enabled')) {
+        $this->error('Only the configured local simulator source monitor is enabled.');
+
+        return 1;
+    }
+    $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 100]]);
+    $after = filter_var($this->option('after'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+    $bindingId = $this->option('binding');
+    $before = $this->option('before');
+    if ($limit === false || $after === false || ($bindingId !== null && (! ctype_digit($bindingId) || (int) $bindingId < 1)) || ($before !== null && ($bindingId === null || ! ctype_digit($before) || (int) $before < 1 || (int) $before > 2147483647))) {
+        $this->error('Use limit1–100, after>=0, and a positive binding for bounded before-cursor catch-up.');
+
+        return 1;
+    }
+    $bindings = DB::table('csms_bindings')->whereNotNull('vendor_charger_id')->where('id', '>', $after)->when($bindingId, fn ($q) => $q->where('id', (int) $bindingId))->orderBy('id')->limit($limit)->get();
+    $failed = 0;
+    foreach ($bindings as $binding) {
+        try {
+            $charger = VendorCharger::findOrFail($binding->vendor_charger_id);
+            $company = VendorCompany::findOrFail($charger->company_id);
+            $owner = User::findOrFail($company->owner_id);
+            $request = Request::create('/internal/fault-monitor', 'POST', $before === null ? [] : ['before' => (int) $before]);
+            $request->setUserResolver(fn () => $owner);
+            $result = app(ChargerDiagnosticsController::class)->inspect($request, $company, $charger, app(FaultMonitor::class))->getData(true);
+            $this->line(json_encode(['binding_id' => $binding->id, 'alerts_created' => $result['alerts_created'], 'next_before' => $result['next_before'], 'commands_sent' => false, 'evidence' => 'SIMULATED_SOURCE']));
+        } catch (Throwable $e) {
+            $failed++;
+            $guard = collect($e->getTrace())->first(fn ($frame) => str_ends_with($frame['file'] ?? '', '/ChargerDiagnosticsController.php'));
+            $this->error('Binding '.$binding->id.' requires source/access reconciliation ('.$e::class.' guard '.($guard['line'] ?? 0).').');
+        }
+    }
+
+    return $failed ? 1 : 0;
+})->purpose('Bounded durable simulator fault observation; no hardware or capacity commands');

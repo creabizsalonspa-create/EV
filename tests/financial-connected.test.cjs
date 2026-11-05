@@ -90,11 +90,19 @@ test("post-finance operational windows preserve all suites and do not consume th
       "command-recovery",
       "charger-ingress",
       "charger-operations",
+      "charger-diagnostics",
+      "maintenance-windows",
+      "rider-access",
+      "charger-resets",
       "charging-business",
       "station-favorites",
     ],
   );
   assert.equal(starts[0].time, 61000);
   assert.equal(starts[4].time - ends[3], 61000);
-  assert.equal(starts[9].time - ends[8], 61000);
+  let offset = 0;
+  for (const group of groups) {
+    assert.equal(starts[offset].time - (offset ? ends[offset - 1] : 0), 61000);
+    offset += group.length;
+  }
 });

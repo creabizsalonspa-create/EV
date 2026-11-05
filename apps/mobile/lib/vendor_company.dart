@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'api.dart';
+import 'rider_access.dart';
 import 'strings.dart';
 import 'vendor_forms.dart';
 import 'vendor_operations_strings.dart';
@@ -228,6 +229,7 @@ class _CompanyState extends State<VendorCompanyView> {
               Text(
                 '${t('license_expires_on')}: ${(c['license_expires_on'] as String).substring(0, 10)}',
               ),
+              if (caps['owner'] == true || caps['reviewer'] == true) TextButton(onPressed: busy ? null : () => open(RiderAccessView(api: widget.api, onExpired: widget.onExpired, records: RiderRecords.operatorRequests, companyId: c['id'] as int)), child: Text(riderTitle(context))),
               if (caps['owner'] == true) ...[
                 if (editable)
                   FilledButton(

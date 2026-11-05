@@ -10,6 +10,7 @@ use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\ReservationLifecycleController;
+use App\Http\Controllers\RiderSourceController;
 use App\Http\Controllers\SimulationController as S;
 use App\Http\Controllers\SupportController as T;
 use App\Models\Station;
@@ -80,6 +81,9 @@ Route::post('/v1/charging-sessions/{session}/csms-stop', [CsmsSessionController:
 Route::post('/internal/charger-ingress/authenticate', [ChargerIngressController::class, 'authenticate'])->middleware('throttle:charger-admission');
 
 Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/charging_operations.php');
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/rider_access.php');
+Route::post('/internal/rider-oauth/token', [RiderSourceController::class, 'token'])->middleware('throttle:charger-admission');
+Route::post('/internal/rider-authorize', [RiderSourceController::class, 'authorize'])->middleware('throttle:charger-admission');
 
 require __DIR__.'/subscription_credit_webhooks.php';
 

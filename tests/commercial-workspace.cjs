@@ -248,6 +248,11 @@ const assert = require("node:assert/strict");
     await subAdmin
       .getByRole("button", { name: "Manage subscription", exact: true })
       .click();
+    // Manage renders its detail before the asynchronous action releases inert.
+    // Interact only after the existing financial mutation fence is released.
+    await admin.waitForFunction(
+      () => !document.querySelector("#commercial-finance").inert,
+    );
     const credit = subAdmin.locator("form").filter({
       has: admin.getByRole("button", {
         name: "Refund subscription invoice",

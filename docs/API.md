@@ -1,3 +1,11 @@
+# Durable fault operations (candidate)
+
+Under each existing charger path, GET `fault-alerts` provides scoped25/page durable observations; POST `fault-alerts/inspect` reads one authenticated source page and atomically records immutable events/alerts (inventory.write). Its `next_before` supports bounded catch-up. PATCH `fault-alerts/{id}/acknowledge` requires a10..2000-character note, stores the first encrypted acknowledgment once and audits it; it cannot resolve a fault or change charging capacity. Changed source-event replay conflicts, generation changes and revoked access fail closed. Recovery requires newer, later Available/NoError source evidence on the same component. GET remains read-only; no remote command/payment is sent. Cookie and bearer prefixes share records. Inspect/acknowledge do not blindly retry unknown responses. Bounded monitor: `scripts/csms-monitor-faults`; source simulator-only truth labels remain in force.
+
+# Source-backed charger diagnostics (candidate)
+
+`GET /api/vendor-ops/companies/{company}/chargers/{charger}/source-diagnostics` and the equivalent bearer `/api/v1/` route require current `inventory.read` and canonical owned simulator mapping. Reads the authenticated CitrineOS projection, not business-session inference. Returns reported online state, protocol, firmware, last source-message age and25status/fault events; `before` is an exclusive positive source-ID cursor. Missing registration returns unknown online state; transport/auth/schema failures return503. Rechecks ownership/permission/mapping after source calls. Private/no-store, no raw source info/credentials, no command/finance writes. Only the local simulator adapter is enabled; production access returns503. Both protocol source/browser tests: `node tests/charger-diagnostics.cjs`. Native tests remain pending SDK restoration.
+
 # Charging evidence overview (candidate)
 
 Vendor/admin read-only `GET /api/charging-operations/dashboard` and `/api/v1/charging-operations/dashboard` expose scoped command counts, open source-linked sessions, missing recent evidence and unresolved recovery counts. Attention records paginate25/page; no token/payload/customer identity or recovery note is exposed. No command dispatch or financial write occurs. Evidence freshness is not charger availability. Contract and validation: [CHARGING_DASHBOARD.md](CHARGING_DASHBOARD.md).
