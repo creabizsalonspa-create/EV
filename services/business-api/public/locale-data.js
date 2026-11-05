@@ -1866,6 +1866,32 @@ window.EV_MESSAGES = {
         ar: "أُبطلت بيانات الدخول",
     },
     "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Scheduled maintenance": {
+        en: "Scheduled maintenance",
+        ar: "الصيانة المجدولة",
+    },
+    "Schedule maintenance": { en: "Schedule maintenance", ar: "جدولة الصيانة" },
+    "Scheduled maintenance disclaimer": {
+        en: "UTC intervals block new bookings and starts only. Existing reservations must be resolved first. Active sessions are not stopped, and physical maintenance readiness is not verified.",
+        ar: "فترات UTC تمنع الحجوزات والبدء الجديد فقط. يجب معالجة الحجوزات الحالية أولاً. لا تتوقف الجلسات النشطة ولا يُتحقق من جاهزية الصيانة الفعلية.",
+    },
+    "Maintenance starts (UTC ISO)": {
+        en: "Starts UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "البداية UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "Maintenance ends (UTC ISO)": {
+        en: "Ends UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "النهاية UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "Maintenance cancelled": {
+        en: "Maintenance cancelled",
+        ar: "أُلغيت الصيانة",
+    },
+    "Cancel maintenance": { en: "Cancel maintenance", ar: "إلغاء الصيانة" },
+    "Cancel scheduled maintenance confirmation": {
+        en: "Cancel this admission block? This does not send a charger command or verify physical readiness.",
+        ar: "هل تريد إلغاء منع القبول؟ لا يُرسل أمر للشاحن ولا يتم التحقق من الجاهزية الفعلية.",
+    },
     "Fault alerts": { en: "Fault alerts", ar: "تنبيهات الأعطال" },
     "Inspect source faults": {
         en: "Inspect source faults",

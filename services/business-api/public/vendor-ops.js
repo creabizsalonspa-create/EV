@@ -1371,6 +1371,120 @@ window.createVendorWorkspace = ({
             epoch,
         );
     }
+    async function maintenanceWindows(
+        company,
+        charger,
+        connector,
+        parent,
+        epoch,
+        page = 1,
+    ) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-maintenance-windows]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.maintenanceWindows = "";
+        parent.append(pane);
+        pane.append(
+            ui("h3", "Scheduled maintenance"),
+            ui("p", "Scheduled maintenance disclaimer"),
+        );
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/connectors/${connector.id}/maintenance-windows`;
+        const result = await api(
+            path + `?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        const refresh = () =>
+            maintenanceWindows(
+                company,
+                charger,
+                connector,
+                parent,
+                epoch,
+                page,
+            );
+        button(pane, "Refresh", refresh);
+        if (company.capabilities.inventory_write)
+            form(
+                pane,
+                "Schedule maintenance",
+                [
+                    {
+                        name: "starts_at",
+                        label: "Maintenance starts (UTC ISO)",
+                        max: 20,
+                    },
+                    {
+                        name: "ends_at",
+                        label: "Maintenance ends (UTC ISO)",
+                        max: 20,
+                    },
+                    { name: "reason", label: "Maintenance reason", max: 1000 },
+                ],
+                async (values) => {
+                    await api(path, "POST", values, controller?.signal);
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                },
+            );
+        for (const window of result.data) {
+            const row = document.createElement("article");
+            row.dataset.maintenanceWindow = window.id;
+            row.append(
+                raw("p", `${window.starts_at} → ${window.ends_at} UTC`),
+                raw("p", window.reason),
+            );
+            if (window.cancelled_at)
+                row.append(ui("p", "Maintenance cancelled"));
+            else if (
+                company.capabilities.inventory_write &&
+                company.capabilities.inventory_operational
+            )
+                button(row, "Cancel maintenance", async () => {
+                    if (
+                        !confirm(
+                            EvLocale.text(
+                                "Cancel scheduled maintenance confirmation",
+                            ),
+                        )
+                    )
+                        return;
+                    await api(
+                        path + `/${window.id}`,
+                        "DELETE",
+                        undefined,
+                        controller?.signal,
+                    );
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                });
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                maintenanceWindows(
+                    company,
+                    charger,
+                    connector,
+                    parent,
+                    epoch,
+                    page - 1,
+                ),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                maintenanceWindows(
+                    company,
+                    charger,
+                    connector,
+                    parent,
+                    epoch,
+                    page + 1,
+                ),
+            );
+    }
     async function connectors(company, charger, parent, operational, epoch) {
         parent.querySelector("[data-connectors]")?.remove();
         const pane = document.createElement("div");
@@ -1447,6 +1561,9 @@ window.createVendorWorkspace = ({
                             ? "Maintenance blocked"
                             : "Maintenance not blocked",
                     ),
+                );
+                button(row, "Scheduled maintenance", () =>
+                    maintenanceWindows(company, charger, c, row, epoch),
                 );
                 if (company.capabilities.inventory_write)
                     form(

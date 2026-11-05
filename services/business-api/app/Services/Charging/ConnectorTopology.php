@@ -49,6 +49,7 @@ class ConnectorTopology
         $ready = true;
         try {
             $this->target($station, $map->id);
+            app(MaintenancePolicy::class)->requireAvailable($connector->id);
         } catch (HttpException $e) {
             $ready = false;
         }

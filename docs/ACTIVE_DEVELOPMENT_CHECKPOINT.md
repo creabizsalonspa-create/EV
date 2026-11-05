@@ -1,3 +1,7 @@
+# Scheduled maintenance continuation
+
+Branch development/charging-maintenance extends durable-fault candidate e9bf9f2. Added connector-specific UTC downtime windows with encrypted reasons, payload-bound creation replay, auditable cancellation, reservation/start/dispatch admission checks, operator web and Flutter controls. Station/company/connector lock order serializes scheduling with bookings; existing overlapping reservations are rejected and active-session stops remain available. Focused maintenance/topology tests and actual Laravel EN/AR390px operator-create/customer-block/cancel/customer-book workflow pass. New native maintenance/lost-response fixture requires hosted validation; local SDK download remains denied. No full-suite rerun or coverage change performed. Next: resolve actual hosted failures, integrate only after mandatory gates, then rider RFID/IdToken lifecycle and supported upstream authorization adapter. PR30 is integrated at a814c4d; do not recreate it.
+
 # Durable charger fault operations — 5 November 2026
 
 PR30 integrated at `a814c4df03ef0263800b642ef0801deca137e2c3` after all10 exact-head hosted jobs passed on887ddd4 and the local merge tree matched GitHub's test merge. Diagnostics candidate75d7884 then passed hosted Android/macOS native validation (run41982504062); earlier platform9181fa3/ada124c passed all4jobs. These results do not validate later fault-operation changes automatically.

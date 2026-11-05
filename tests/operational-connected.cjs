@@ -11,7 +11,8 @@ const groups = [
     "charger-ingress",
     "charger-operations",
     "charger-diagnostics",
-  ], // 2+1+1+0+1+2 = 7 logins
+    "maintenance-windows",
+  ], // 2+1+1+0+1+2+2 = 9 logins
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
 ];
 if (require.main === module) {

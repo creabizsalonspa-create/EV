@@ -3,6 +3,7 @@
 use App\Http\Controllers\ChargerAdmissionController;
 use App\Http\Controllers\ChargerDiagnosticsController;
 use App\Http\Controllers\ConnectorTopologyController;
+use App\Http\Controllers\MaintenanceWindowController;
 use App\Http\Controllers\VendorOpsController as V;
 use Illuminate\Support\Facades\Route;
 
@@ -27,6 +28,9 @@ Route::post('/companies/{company}/sites/{site}/chargers', [V::class, 'createChar
 Route::get('/companies/{company}/chargers/{charger}/connectors', [V::class, 'connectors']);
 Route::post('/companies/{company}/chargers/{charger}/connectors', [V::class, 'createConnector']);
 Route::patch('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance', [V::class, 'maintenance']);
+Route::get('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows', [MaintenanceWindowController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows', [MaintenanceWindowController::class, 'create']);
+Route::delete('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows/{window}', [MaintenanceWindowController::class, 'cancel'])->whereNumber('window');
 
 Route::patch('/companies/{company}', [V::class, 'updateCompany']);
 Route::get('/companies/{company}/reviews', [V::class, 'reviews']);
