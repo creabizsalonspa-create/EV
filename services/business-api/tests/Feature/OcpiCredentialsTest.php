@@ -201,4 +201,74 @@ class OcpiCredentialsTest extends TestCase
         $this->assertSame(PHP_INT_MAX, $p->fresh()->authorization_revision);
         $this->assertCount(2, $this->writes);
     }
+
+    private function incomingFixture(): array
+    {
+        $f = $this->fixture();
+        config(['ocpi.connections.managed.registration_direction' => 'incoming', 'ocpi.connections.managed.authorization_token' => null, 'ocpi.connections.managed.inbound_authorization_token' => base64_encode('INCOMING-A-SYNTHETIC')]);
+
+        return $f;
+    }
+
+    public function test_preapproved_incoming_enrollment_consumes_bootstrap_and_retains_its_history_through_reciprocal_rotation(): void
+    {
+        [$p, $admin, $owner, $url] = $this->incomingFixture();
+        $intent = $this->intent('prepare_incoming');
+        $this->actingAs($owner)->postJson($url, $intent)->assertForbidden();
+        $this->actingAs($admin)->getJson($url)->assertOk()->assertJsonPath('available_actions', ['prepare_incoming']);
+        $this->postJson($url, $intent)->assertOk()->assertJsonPath('state', 'awaiting_peer');
+        $this->postJson($url, $intent)->assertOk();
+        Http::assertNothingSent();
+        $headers = $this->protocol('INCOMING-A-SYNTHETIC');
+        $this->getJson('/api/roaming-protocol/versions', $headers)->assertOk();
+        $this->getJson('/api/roaming-protocol/2.2.1/credentials', $headers)->assertUnauthorized();
+        $this->putJson('/api/roaming-protocol/2.2.1/credentials', $this->peer('B'), $headers)->assertUnauthorized();
+        $this->source();
+        $reply = $this->postJson('/api/roaming-protocol/2.2.1/credentials', $this->peer('INCOMING-PEER-B'), $headers)->assertCreated();
+        $token = $reply->json('data.token');
+        $this->assertSame(64, strlen($token));
+        $this->assertSame([], $this->writes); // Only read-only peer discovery is sent.
+        Http::assertSentCount(2);
+        Http::assertSent(fn ($r) => $r->hasHeader('Authorization', 'Token '.base64_encode('INCOMING-PEER-B')));
+        $this->postJson('/api/roaming-protocol/2.2.1/credentials', $this->peer('INCOMING-PEER-B'), $headers)->assertUnauthorized();
+        $this->getJson('/api/roaming-protocol/versions', $headers)->assertUnauthorized();
+        $this->getJson('/api/roaming-protocol/versions', $this->protocol($token))->assertOk();
+        $this->postJson('/api/roaming-protocol/2.2.1/credentials', $this->peer('INCOMING-PEER-B'), $this->protocol($token))->assertStatus(405);
+        $this->assertSame(base64_encode('INCOMING-PEER-B'), app(PartnerClient::class)->connection($p->fresh())['authorization_token']);
+        $this->assertDatabaseHas('ocpi_credential_operations', ['action' => 'peer_register', 'state' => 'acknowledged']);
+        $this->source('RECIPROCAL-C');
+        $this->postJson($url, $this->intent('rotate', 'reciprocal'))->assertOk()->assertJsonPath('state', 'acknowledged');
+        $this->assertSame(hash('sha256', base64_encode('INCOMING-A-SYNTHETIC')), DB::table('ocpi_credential_links')->value('bootstrap_hash'));
+        $this->patchJson('/api/ocpi/providers/'.$p->id.'/authorization', ['authorized' => false])->assertOk();
+        $this->patchJson('/api/ocpi/providers/'.$p->id.'/authorization', ['authorized' => true])->assertOk();
+        $this->postJson($url, $this->intent('prepare_incoming', 'cannot-reuse'))->assertConflict();
+    }
+
+    public function test_incoming_bootstrap_expires_and_replacement_requires_fresh_server_authority(): void
+    {
+        [$p, $admin, , $url] = $this->incomingFixture();
+        $this->actingAs($admin)->postJson($url, $this->intent('prepare_incoming'))->assertOk();
+        $invalid = $this->peer('INCOMING-B');
+        $invalid['roles'][0]['party_id'] = 'BAD';
+        $this->postJson('/api/roaming-protocol/2.2.1/credentials', $invalid, $this->protocol('INCOMING-A-SYNTHETIC'))->assertStatus(400);
+        Http::assertNothingSent();
+        $this->travel(31)->minutes();
+        $this->getJson('/api/roaming-protocol/versions', $this->protocol('INCOMING-A-SYNTHETIC'))->assertUnauthorized();
+        $this->getJson($url)->assertOk()->assertJsonPath('state', 'enrollment_expired')->assertJsonPath('available_actions', []);
+        $this->postJson($url, $this->intent('prepare_incoming', 'expired-reuse'))->assertConflict();
+        config(['ocpi.connections.managed.inbound_authorization_token' => base64_encode('FRESH-INCOMING-A')]);
+        $this->postJson($url, $this->intent('prepare_incoming', 'fresh'))->assertOk();
+        $this->getJson('/api/roaming-protocol/versions', $this->protocol('FRESH-INCOMING-A'))->assertOk();
+        $this->assertDatabaseHas('ocpi_credential_operations', ['generation' => 1, 'action' => 'prepare_incoming', 'state' => 'superseded']);
+        Http::assertNothingSent();
+    }
+
+    public function test_existing_outbound_credentials_keep_their_published_fingerprint_after_upgrade(): void
+    {
+        [$p] = $this->fixture();
+        // Golden fingerprint from the prior39e30cc configuration, not generated by the upgraded service.
+        DB::table('ocpi_credential_links')->insert(['provider_id' => $p->id, 'owner_id' => $p->owner_id, 'generation' => 1, 'state' => 'active', 'configuration_hash' => '5a8f4800292ee9d84bba30127815cd982630a652aab3fa84018dcfb6f904e21e', 'bootstrap_hash' => hash('sha256', base64_encode('BOOTSTRAP-A-SYNTHETIC')), 'local_token_digest' => hash('sha256', 'OLD-LOCAL'), 'local_token_ciphertext' => Crypt::encryptString('OLD-LOCAL'), 'remote_token_ciphertext' => Crypt::encryptString('OLD-REMOTE'), 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertSame(base64_encode('OLD-REMOTE'), app(PartnerClient::class)->connection($p)['authorization_token']);
+        Http::assertNothingSent();
+    }
 }

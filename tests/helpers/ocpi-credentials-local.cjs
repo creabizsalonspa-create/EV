@@ -3,7 +3,7 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const net = require("node:net");
 const assert = require("node:assert/strict");
-async function withCredentialsFixture(runTest) {
+async function withCredentialsFixture(runTest, { incoming = false } = {}) {
   const run = randomBytes(4).toString("hex"),
     password = randomBytes(24).toString("hex") + "aA9!";
   const probe = net.createServer();
@@ -15,7 +15,12 @@ async function withCredentialsFixture(runTest) {
     ["managed_" + run]: {
       managed_credentials: true,
       origin: "https://partner.example",
-      token_env: "OCPI_SYNTHETIC_TOKEN",
+      ...(incoming
+        ? {
+            registration_direction: "incoming",
+            inbound_token_env: "OCPI_SYNTHETIC_INBOUND_TOKEN",
+          }
+        : { token_env: "OCPI_SYNTHETIC_TOKEN" }),
       environment: "sandbox",
       party_country: "NL",
       party_id: "ABC",
@@ -51,6 +56,8 @@ async function withCredentialsFixture(runTest) {
     "OCPI_LOCAL_CREDENTIALS_JSON=" + local,
     "-e",
     "OCPI_SYNTHETIC_TOKEN=" + bootstrap,
+    "-e",
+    "OCPI_SYNTHETIC_INBOUND_TOKEN=" + bootstrap,
     "--entrypoint",
     "php",
     "composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc",
@@ -66,6 +73,7 @@ async function withCredentialsFixture(runTest) {
           "tests/Fixtures/ocpi-credentials.php",
           run,
           password,
+          incoming ? "incoming" : "active",
         ],
         { encoding: "utf8" },
       ),
@@ -99,7 +107,7 @@ async function withCredentialsFixture(runTest) {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     assert(ready, "Synthetic credentials server did not become ready.");
-    await runTest({ ...fixture, run, password, base });
+    await runTest({ ...fixture, run, password, base, incoming });
   } finally {
     try {
       execFileSync("docker", ["rm", "-f", name], { stdio: "pipe" });

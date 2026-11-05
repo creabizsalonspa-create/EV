@@ -478,6 +478,12 @@ window.createRoamingWorkspace = ({
             ),
             ui("p", `Roaming credential state ${result.state}`),
         );
+        if (result.bootstrap_expires_at)
+            line(
+                target,
+                "Roaming enrollment expires",
+                result.bootstrap_expires_at,
+            );
         if (result.exchanged_at) target.append(raw("p", result.exchanged_at));
         button(target, "Refresh", () =>
             credentialWorkspace(provider, target, page),

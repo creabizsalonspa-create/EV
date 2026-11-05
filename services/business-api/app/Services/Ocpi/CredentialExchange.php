@@ -37,7 +37,14 @@ class CredentialExchange
     {
         [$c, $local] = $this->configuration($p);
 
-        return hash('sha256', json_encode([$p->connection_key, rtrim($c['origin'], '/'), $c['versions_path'] ?? '/ocpi/versions', $c['party_country'], $c['party_id'], $c['party_role'], hash('sha256', $c['authorization_token']), $local], JSON_THROW_ON_ERROR));
+        // Preserve every existing outbound fingerprint across the additive enrollment upgrade.
+        $identity = [$p->connection_key, rtrim($c['origin'], '/'), $c['versions_path'] ?? '/ocpi/versions', $c['party_country'], $c['party_id'], $c['party_role'], hash('sha256', (string) ($c['authorization_token'] ?? ''))];
+        if (($c['registration_direction'] ?? 'outbound') === 'incoming') {
+            $identity[] = ['incoming', hash('sha256', (string) ($c['inbound_authorization_token'] ?? ''))];
+        }
+        $identity[] = $local;
+
+        return hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR));
     }
 
     public function localPayload(string $token): array
@@ -87,7 +94,7 @@ class CredentialExchange
         }
     }
 
-    private function endpoint(OcpiProvider $p, string $token): string
+    public function endpoint(OcpiProvider $p, string $token): string
     {
         [$c] = $this->configuration($p);
         $versions = $this->wire($p, $c['versions_path'] ?? '/ocpi/versions', $token)['data'];
@@ -115,9 +122,12 @@ class CredentialExchange
         $client = app(PartnerClient::class);
         abort_unless($p->authorized && ($v['action'] === 'unregister' || $p->authorization_revision < PHP_INT_MAX) && User::whereKey($p->owner_id)->where('role', 'vendor')->exists(), 409);
         $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->first();
-        $bootstrap = (string) $c['authorization_token'];
+        abort_unless($v['action'] !== 'register' || ($c['registration_direction'] ?? 'outbound') === 'outbound', 409, 'This connection requires incoming partner enrollment.');
+        $bootstrap = (string) ($c['authorization_token'] ?? '');
         $rawBootstrap = base64_decode($bootstrap, true);
-        abort_unless(is_string($rawBootstrap) && preg_match('/^[\x21-\x7e]{1,64}$/D', $rawBootstrap) && base64_encode($rawBootstrap) === $bootstrap, 409, 'Managed bootstrap credentials must be OCPI Base64 encoded.');
+        if ($v['action'] === 'register') {
+            abort_unless(is_string($rawBootstrap) && preg_match('/^[\x21-\x7e]{1,64}$/D', $rawBootstrap) && base64_encode($rawBootstrap) === $bootstrap, 409, 'Managed bootstrap credentials must be OCPI Base64 encoded.');
+        }
         if ($v['action'] === 'register') {
             abort_unless(! $link || in_array($link->state, ['revoked', 'unregistered'], true), 409, 'An unresolved or active credentials exchange already exists.');
             abort_unless(! $link || ! hash_equals($link->bootstrap_hash, hash('sha256', $bootstrap)), 409, 'A fresh operator-provisioned bootstrap credential is required.');
@@ -142,7 +152,7 @@ class CredentialExchange
             abort_if(DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('idempotency_key', $v['idempotency_key'])->exists(), 409);
             $capsule = json_encode(['endpoint' => $endpoint, 'method' => ['register' => 'POST', 'rotate' => 'PUT', 'unregister' => 'DELETE'][$v['action']], 'body' => $payload], JSON_THROW_ON_ERROR);
             $id = DB::table('ocpi_credential_operations')->insertGetId(['provider_id' => $p->id, 'actor_id' => $actor, 'generation' => $version, 'action' => $v['action'], 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'source_payload_ciphertext' => Crypt::encryptString($capsule), 'source_payload_hash' => hash('sha256', $capsule), 'state' => 'dispatching', 'attempted_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
-            DB::table('ocpi_credential_links')->updateOrInsert(['provider_id' => $p->id], ['owner_id' => $p->owner_id, 'generation' => $version, 'state' => 'dispatching', 'configuration_hash' => $configuration, 'bootstrap_hash' => hash('sha256', $bootstrap), 'local_token_digest' => $payload ? hash('sha256', $localToken) : null, 'local_token_ciphertext' => Crypt::encryptString($localToken), 'remote_token_ciphertext' => $link->remote_token_ciphertext ?? null, 'created_at' => $link->created_at ?? now(), 'updated_at' => now()]);
+            DB::table('ocpi_credential_links')->updateOrInsert(['provider_id' => $p->id], ['owner_id' => $p->owner_id, 'generation' => $version, 'state' => 'dispatching', 'configuration_hash' => $configuration, 'bootstrap_hash' => $v['action'] === 'register' ? hash('sha256', $bootstrap) : $link->bootstrap_hash, 'local_token_digest' => $payload ? hash('sha256', $localToken) : null, 'local_token_ciphertext' => Crypt::encryptString($localToken), 'remote_token_ciphertext' => $link->remote_token_ciphertext ?? null, 'created_at' => $link->created_at ?? now(), 'updated_at' => now()]);
 
             return $id;
         }, 3);
