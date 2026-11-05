@@ -98,6 +98,6 @@ class MaintenanceWindowTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->postJson($f['base'], $f['payload'])->assertNotFound();
         $this->actingAs($f['owner'])->postJson($f['base'], array_replace($f['payload'], ['ends_at' => $f['payload']['starts_at']]))->assertUnprocessable();
         Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
-        $this->getJson(str_replace('/api/','/api/v1/',$f['base']))->assertOk()->assertJsonPath('total',0);
+        $this->getJson(str_replace('/api/', '/api/v1/', $f['base']))->assertOk()->assertJsonPath('total', 0);
     }
 }
