@@ -1866,6 +1866,14 @@ window.EV_MESSAGES = {
         ar: "أُبطلت بيانات الدخول",
     },
     "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Card source authorization": {
+        en: "Card/token authorization; simulated source evidence only",
+        ar: "التفويض ببطاقة أو رمز؛ دليل مصدر محاكاة فقط",
+    },
+    "Awaiting rider transaction": {
+        en: "Authorization recorded; awaiting a source transaction. Capacity stays reserved until reconciled.",
+        ar: "تم تسجيل التفويض؛ بانتظار معاملة المصدر. تبقى السعة محجوزة حتى تسوية الحالة.",
+    },
     "Rider access tokens": {
         en: "Charging cards & tokens",
         ar: "بطاقات ورموز الشحن",

@@ -112,6 +112,12 @@ const { SimulatedCharger, graph, poll } = require("./helpers/csms-local.cjs");
         "POST",
       );
       assert.equal(summary.start_command, null);
+      const awaiting = (await customer.request("simulations")).data.find(
+        (s) => s.id === summary.session.id,
+      );
+      assert.equal(awaiting.authorization_method, "rider_token");
+      assert.equal(awaiting.awaiting_rider_transaction, true);
+      assert.equal(awaiting.can_cancel_before_dispatch, false);
       const startAt = new Date().toISOString();
       let transactionId;
       const meter = (value, context, at) => [
@@ -226,6 +232,7 @@ const { SimulatedCharger, graph, poll } = require("./helpers/csms-local.cjs");
         (s) => s.id === summary.session.id,
       );
       assert.equal(finished.status, "stopped");
+      assert.equal(finished.awaiting_rider_transaction, false);
       assert.equal(Number(finished.energy_wh), 2500);
       const invoices = await customer.request("finance/invoices");
       assert.equal(

@@ -676,6 +676,10 @@ async function simulations() {
             },
         );
         if (s.csms_linked) a.append(ui("p", "Source controls disclaimer"));
+        if (s.authorization_method === "rider_token")
+            a.append(ui("p", "Card source authorization"));
+        if (s.awaiting_rider_transaction)
+            a.append(ui("p", "Awaiting rider transaction"));
         if (s.csms_linked) {
             for (const [label, value] of [
                 ["Start transport · {status}", s.start_command_status],

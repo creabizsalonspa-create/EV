@@ -233,6 +233,8 @@ class _SessionsViewState extends State<SessionsView> {
                       }),
                     ),
                     if (row['csms_linked'] == true) Text(s.t('sourceControls')),
+                    if (row['authorization_method'] == 'rider_token') Text(Localizations.localeOf(context).languageCode == 'ar' ? 'التفويض ببطاقة أو رمز؛ دليل مصدر محاكاة فقط' : 'Card/token authorization; simulated source evidence only'),
+                    if (row['awaiting_rider_transaction'] == true) Text(Localizations.localeOf(context).languageCode == 'ar' ? 'تم تسجيل التفويض؛ بانتظار معاملة المصدر. تبقى السعة محجوزة حتى تسوية الحالة.' : 'Authorization recorded; awaiting a source transaction. Capacity stays reserved until reconciled.'),
                     if (row['csms_linked'] == true) ...[
                       if (row['start_command_status'] != null)
                         Text(

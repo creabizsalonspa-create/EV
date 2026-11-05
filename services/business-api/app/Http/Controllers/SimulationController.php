@@ -48,6 +48,8 @@ class SimulationController extends Controller
             $start = $link ? $commands->get($link->start_command_id) : null;
 
             return $session->toArray() + ['evidence' => $link ? 'SIMULATED_CSMS' : 'SIMULATED', 'payment_status' => 'not_processed', 'csms_linked' => $link !== null,
+                'authorization_method' => $link?->rider_token_id ? 'rider_token' : ($link ? 'remote_start' : 'application_simulator'),
+                'awaiting_rider_transaction' => $link?->rider_token_id !== null && $link->started_at === null && $link->ended_at === null && $link->closed_without_dispatch_at === null,
                 'start_command_status' => $start?->status,
                 'start_admission_blocked' => in_array($start?->failure_code, ['pre_dispatch_company_gate', 'pre_dispatch_window_unavailable'], true),
                 'can_cancel_before_dispatch' => $link && $session->status === 'pending_start' && $start?->status === 'pending' && $link->transaction_id === null && $link->started_at === null && $link->closed_without_dispatch_at === null,
