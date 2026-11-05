@@ -85,6 +85,7 @@ class ChargerDiagnosticsController extends Controller
 
         return response()->json([
             'source_generation' => FaultMonitor::generation($binding),
+            'automatic_monitor' => DB::table('charging_fault_cursors')->where('source_generation', FaultMonitor::generation($binding))->first(['state', 'checked_at']),
             'can_manage_faults' => app(VendorAccess::class)->capabilities($r->user(), $company)['inventory_write'],
             'evidence' => 'SIMULATED_SOURCE', 'protocol' => $binding->protocol,
             'observed_at' => now()->toISOString(), 'source_registered' => $source !== null,

@@ -47,12 +47,25 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       assert.equal(report.commands_sent, false);
       assert.equal(report.physical_charging_verified, false);
       const faultPath = path.replace("/source-diagnostics", "/fault-alerts");
+      const runObserver = () =>
+        JSON.parse(
+          execFileSync(
+            "./scripts/csms-observe-faults",
+            ["--once", `--binding=${f.binding_id}`],
+            { encoding: "utf8" },
+          ).trim(),
+        );
+      assert(runObserver().alerts_created >= 1);
+      assert.equal(runObserver().alerts_created, 0);
+      const monitored = await client.request(path);
+      assert.equal(monitored.automatic_monitor.state, "caught_up");
+      assert(monitored.automatic_monitor.checked_at);
       const inspected = await client.request(
         faultPath + "/inspect",
         "POST",
         {},
       );
-      assert(inspected.alerts_created >= 1);
+      assert.equal(inspected.alerts_created, 0);
       assert.equal(
         (await client.request(faultPath + "/inspect", "POST", {}))
           .alerts_created,
