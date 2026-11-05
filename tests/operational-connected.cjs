@@ -16,6 +16,7 @@ const groups = [
   ["signed-firmware", "ocpi-credentials", "ocpi-incoming"], // signed delivery and two synthetic partner logins
   ["rider-access", "charger-resets"], // six logins; separate unchanged auth window
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
+  ["client-demo-lifecycle"], // six private fixture logins; dedicated window
 ];
 if (require.main === module) {
   const { spawnSync } = require("node:child_process");
