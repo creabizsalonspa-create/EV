@@ -18,7 +18,7 @@ if (! $app->environment('local', 'testing') || config('database.default') !== 's
 if (! preg_match('/^[a-f0-9]{8}$/', $run)) {
     throw new RuntimeException('Invalid fixture identity.');
 }
-foreach (['owner', 'other', 'admin'] as $name) {
+foreach (['owner', 'other', 'admin', 'customer'] as $name) {
     $email = "roaming-$name-$run@example.test";
     if ($action === 'clean') {
         $user = User::where('email', $email)->first();
@@ -35,10 +35,10 @@ foreach (['owner', 'other', 'admin'] as $name) {
     if ($action !== 'seed' || count($argv) !== 4) {
         throw new RuntimeException('Invalid fixture action.');
     }
-    $user = User::create(['name' => "Synthetic $name", 'email' => $email, 'password' => Hash::make($argv[3]), 'role' => $name === 'admin' ? 'admin' : 'vendor']);
-    $user->role = $name === 'admin' ? 'admin' : 'vendor';
+    $user = User::create(['name' => "Synthetic $name", 'email' => $email, 'password' => Hash::make($argv[3]), 'role' => in_array($name, ['admin', 'customer'], true) ? $name : 'vendor']);
+    $user->role = in_array($name, ['admin', 'customer'], true) ? $name : 'vendor';
     $user->save();
-    if ($name === 'admin') {
+    if (in_array($name, ['admin', 'customer'], true)) {
         continue;
     }
     $p = OcpiProvider::create(['owner_id' => $user->id, 'name' => "Synthetic $name $run", 'connection_key' => "fixture-$name-$run", 'authorized' => true, 'version' => '2.2.1']);

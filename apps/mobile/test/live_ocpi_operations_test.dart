@@ -52,6 +52,25 @@ void main() {
         true,
       );
       expect(jsonEncode(cdrs).contains('PRIVATE-CDR-DRIVER-TOKEN'), false);
+      final locationId = (records['data'] as List).first['id'];
+      await api.signOut();
+      await api.signIn(
+        'roaming-customer-${f['run']}@example.test',
+        f['password'],
+      );
+      await api.request('roaming/favorites/$locationId', method: 'PUT');
+      await api.request('roaming/favorites/$locationId', method: 'PUT');
+      final saved = await api.request('roaming/favorites');
+      expect(saved['total'], 1);
+      expect((saved['data'] as List).single['location_available'], true);
+      expect((saved['data'] as List).single['remote_control'], false);
+      final public = await api.request('roaming/locations');
+      expect(
+        (public['data'] as List).every(
+          (row) => !row.containsKey('is_favorite'),
+        ),
+        true,
+      );
       await api.signOut();
       await api.signIn('roaming-other-${f['run']}@example.test', f['password']);
       await expectLater(
@@ -81,6 +100,16 @@ void main() {
         ),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
       );
+      await api.signOut();
+      await api.signIn(
+        'roaming-customer-${f['run']}@example.test',
+        f['password'],
+      );
+      final unavailable = await api.request('roaming/favorites');
+      expect((unavailable['data'] as List).single['location_available'], false);
+      expect((unavailable['data'] as List).single['location'], isNull);
+      await api.request('roaming/favorites/$locationId', method: 'DELETE');
+      expect((await api.request('roaming/favorites'))['total'], 0);
     },
     skip: path == null
         ? 'Requires explicit local synthetic OCPI fixture.'

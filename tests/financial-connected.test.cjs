@@ -101,6 +101,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "charging-business",
       "station-favorites",
       "client-demo-lifecycle",
+      "partner-favorites",
     ],
   );
   assert.equal(starts[0].time, 61000);

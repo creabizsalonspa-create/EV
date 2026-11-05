@@ -1664,6 +1664,34 @@ window.EV_MESSAGES = {
         en: "Source fields require review",
         ar: "تتطلب حقول المصدر المراجعة",
     },
+    "No saved partner locations": {
+        en: "No saved partner locations",
+        ar: "لا توجد مواقع شركاء محفوظة",
+    },
+    "All partner locations": {
+        en: "All partner locations",
+        ar: "كل مواقع الشركاء",
+    },
+    "Saved partner locations": {
+        en: "Saved partner locations",
+        ar: "مواقع الشركاء المحفوظة",
+    },
+    "Remove saved partner location": {
+        en: "Remove saved partner location",
+        ar: "إزالة موقع الشريك المحفوظ",
+    },
+    "Save partner location": {
+        en: "Save partner location",
+        ar: "حفظ موقع الشريك",
+    },
+    "Saved partner location is unavailable": {
+        en: "Saved partner location is unavailable",
+        ar: "موقع الشريك المحفوظ غير متاح",
+    },
+    "Saved location update uncertain. Refresh to check.": {
+        en: "Saved location update uncertain. Refresh to check.",
+        ar: "نتيجة تحديث الموقع المحفوظ غير مؤكدة. حدّث للتحقق.",
+    },
     "Roaming gross cost": {
         en: "Reported cost including VAT:",
         ar: "التكلفة الواردة مع الضريبة:",

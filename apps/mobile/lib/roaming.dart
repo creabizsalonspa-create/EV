@@ -5,10 +5,25 @@ import 'strings.dart';
 /// A partner location cannot grant charging, availability or payment authority.
 class RoamingLocation {
   final Map<String, dynamic> location;
-  final String received;
+  final String? received;
+  final int? id;
+  final bool available;
   RoamingLocation.fromJson(Map<String, dynamic> json)
-    : location = Map<String, dynamic>.from(json['location'] as Map),
-      received = json['received_at'] as String {
+    : id = json['id'] as int?,
+      available = json['location_available'] != false,
+      location = json['location'] is Map
+          ? Map<String, dynamic>.from(json['location'] as Map)
+          : {},
+      received = json['received_at'] as String? {
+    if ((available && (json['location'] is! Map || received == null)) ||
+        (!available &&
+            (id == null ||
+                json['is_favorite'] != true ||
+                json['location'] != null ||
+                received != null)) ||
+        (id != null && id! <= 0)) {
+      throw const FormatException('Invalid partner location shape.');
+    }
     if (json['evidence'] != 'PARTNER_REPORTED_UNVERIFIED' ||
         json['availability'] != 'unknown' ||
         json['remote_control'] != false ||
@@ -22,7 +37,16 @@ typedef RoamingLoader = Future<ApiPage<RoamingLocation>> Function(int page);
 
 class RoamingView extends StatefulWidget {
   final RoamingLoader loader;
-  const RoamingView({super.key, required this.loader});
+  final EvApi? api;
+  final int? accountId;
+  final VoidCallback? onExpired;
+  const RoamingView({
+    super.key,
+    required this.loader,
+    this.api,
+    this.accountId,
+    this.onExpired,
+  }) : assert(api == null || accountId != null);
   @override
   State<RoamingView> createState() => _RoamingViewState();
 }
@@ -32,10 +56,24 @@ class _RoamingViewState extends State<RoamingView> {
   bool loading = true;
   Object? error;
   int generation = 0, target = 1;
+  bool savedOnly = false, saving = false, uncertain = false;
+  Set<int> saved = {};
+  String tr(String en, String ar) =>
+      Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   @override
   void initState() {
     super.initState();
     load(1);
+  }
+
+  @override
+  void didUpdateWidget(covariant RoamingView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.api != oldWidget.api ||
+        widget.accountId != oldWidget.accountId) {
+      savedOnly = false;
+      load(1);
+    }
   }
 
   Future<void> load(int page) async {
@@ -43,15 +81,90 @@ class _RoamingViewState extends State<RoamingView> {
     setState(() {
       loading = true;
       error = null;
+      data = null;
+      saved = {};
       target = page;
     });
     try {
-      final result = await widget.loader(page);
-      if (mounted && epoch == generation) setState(() => data = result);
+      final result = savedOnly && widget.api != null
+          ? ApiPage<RoamingLocation>.fromJson(
+              await widget.api!.request(
+                'roaming/favorites',
+                query: {'page': '$page'},
+              ),
+              RoamingLocation.fromJson,
+            )
+          : await widget.loader(page);
+      if (mounted &&
+          epoch == generation &&
+          savedOnly &&
+          result.items.isEmpty &&
+          result.last >= 1 &&
+          page > result.last) {
+        await load(result.last);
+        return;
+      }
+      final ids = result.items.map((row) => row.id).whereType<int>().toList();
+      Set<int> favorites = {};
+      if (widget.api != null && ids.isNotEmpty) {
+        if (savedOnly) {
+          favorites = ids.toSet();
+        } else {
+          final status = await widget.api!.request(
+            'roaming/favorites/status',
+            method: 'POST',
+            body: {'record_ids': ids},
+          );
+          favorites = (status['favorite_record_ids'] as List)
+              .cast<int>()
+              .toSet();
+        }
+      }
+      if (mounted && epoch == generation)
+        setState(() {
+          data = result;
+          saved = favorites;
+          uncertain = false;
+        });
     } catch (e) {
-      if (mounted && epoch == generation) setState(() => error = e);
+      if (mounted && epoch == generation) {
+        setState(() {
+          error = e;
+          data = null;
+          saved = {};
+        });
+        if (e is ApiException && [401, 419].contains(e.status))
+          widget.onExpired?.call();
+      }
     } finally {
       if (mounted && epoch == generation) setState(() => loading = false);
+    }
+  }
+
+  Future<void> toggle(RoamingLocation row) async {
+    if (saving || loading || uncertain || widget.api == null || row.id == null)
+      return;
+    final remove = saved.contains(row.id), epoch = generation;
+    setState(() => saving = true);
+    try {
+      await widget.api!.request(
+        'roaming/favorites/${row.id}',
+        method: remove ? 'DELETE' : 'PUT',
+      );
+      if (mounted && epoch == generation) await load(data?.current ?? 1);
+    } catch (e) {
+      if (mounted && epoch == generation) {
+        setState(() {
+          uncertain = true;
+          error = e;
+          data = null;
+          saved = {};
+        });
+        if (e is ApiException && [401, 419].contains(e.status))
+          widget.onExpired?.call();
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
     }
   }
 
@@ -73,7 +186,28 @@ class _RoamingViewState extends State<RoamingView> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             Text(s.t('roamingDisclaimer')),
+            if (widget.api != null)
+              TextButton(
+                onPressed: loading || saving
+                    ? null
+                    : () {
+                        setState(() => savedOnly = !savedOnly);
+                        load(1);
+                      },
+                child: Text(
+                  savedOnly
+                      ? tr('All partner locations', 'كل مواقع الشركاء')
+                      : tr('Saved partner locations', 'مواقع الشركاء المحفوظة'),
+                ),
+              ),
             if (loading) const LinearProgressIndicator(),
+            if (uncertain)
+              Text(
+                tr(
+                  "Saved location update uncertain. Refresh to check.",
+                  "نتيجة تحديث الموقع المحفوظ غير مؤكدة. حدّث للتحقق.",
+                ),
+              ),
             if (error != null) ...[
               Text(s.t('genericError'), semanticsLabel: s.t('genericError')),
               OutlinedButton(
@@ -83,7 +217,15 @@ class _RoamingViewState extends State<RoamingView> {
             ],
             // Do not leave previous-page data visible after a failed refresh.
             if (!loading && error == null && page != null) ...[
-              if (page.items.isEmpty) Text(s.t('roamingEmpty')),
+              if (page.items.isEmpty)
+                Text(
+                  savedOnly
+                      ? tr(
+                          'No saved partner locations',
+                          'لا توجد مواقع شركاء محفوظة',
+                        )
+                      : s.t('roamingEmpty'),
+                ),
               for (final row in page.items)
                 Card(
                   child: Padding(
@@ -91,39 +233,70 @@ class _RoamingViewState extends State<RoamingView> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '${row.location['name'] ?? row.location['id']}',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        Text(
-                          '${row.location['address']} · ${row.location['city']} · ${row.location['country']}',
-                        ),
-                        SelectableText(
-                          s.t('roamingCoordinates', {
-                            'value':
-                                '${row.location['latitude']}, ${row.location['longitude']}',
-                          }),
-                        ),
-                        Text(
-                          s.t('roamingUpdated', {
-                            'value': '${row.location['last_updated']}',
-                          }),
-                        ),
-                        Text(s.t('roamingReceived', {'value': row.received})),
-                        for (final evse
-                            in (row.location['evses'] as List? ?? [])) ...[
-                          Text(s.t('roamingEvse', {'value': '${evse['uid']}'})),
+                        if (widget.api != null && row.id != null)
+                          TextButton(
+                            onPressed: saving || loading || uncertain
+                                ? null
+                                : () => toggle(row),
+                            child: Text(
+                              saved.contains(row.id)
+                                  ? tr(
+                                      'Remove saved partner location',
+                                      'إزالة موقع الشريك المحفوظ',
+                                    )
+                                  : tr(
+                                      'Save partner location',
+                                      'حفظ موقع الشريك',
+                                    ),
+                            ),
+                          ),
+                        if (!row.available)
                           Text(
-                            s.t('roamingReported', {
-                              'value': '${evse['reported_status']}',
+                            tr(
+                              'Saved partner location is unavailable',
+                              'موقع الشريك المحفوظ غير متاح',
+                            ),
+                          ),
+                        if (row.available) ...[
+                          Text(
+                            '${row.location['name'] ?? row.location['id']}',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          Text(
+                            '${row.location['address']} · ${row.location['city']} · ${row.location['country']}',
+                          ),
+                          SelectableText(
+                            s.t('roamingCoordinates', {
+                              'value':
+                                  '${row.location['latitude']}, ${row.location['longitude']}',
                             }),
                           ),
-                          for (final connector in evse['connectors'] as List)
+                          Text(
+                            s.t('roamingUpdated', {
+                              'value': '${row.location['last_updated']}',
+                            }),
+                          ),
+                          if (row.received != null)
                             Text(
-                              '${connector['id']} · ${connector['standard']}',
+                              s.t('roamingReceived', {'value': row.received!}),
                             ),
+                          for (final evse
+                              in (row.location['evses'] as List? ?? [])) ...[
+                            Text(
+                              s.t('roamingEvse', {'value': '${evse['uid']}'}),
+                            ),
+                            Text(
+                              s.t('roamingReported', {
+                                'value': '${evse['reported_status']}',
+                              }),
+                            ),
+                            for (final connector in evse['connectors'] as List)
+                              Text(
+                                '${connector['id']} · ${connector['standard']}',
+                              ),
+                          ],
+                          Text(s.t('roamingUnknown')),
                         ],
-                        Text(s.t('roamingUnknown')),
                       ],
                     ),
                   ),

@@ -24,7 +24,7 @@ const { spawnSync } = require("node:child_process");
       "native-ocpi-operations",
       "native-ocpi-credentials",
       "native-ocpi-incoming",
-    ], // 7 identities; no live partner requests
+    ], // 9 identities including private saved-location redaction; no live partner requests
     ["native-financial-analytics"], // 3 logins, separate unchanged authentication window
   ];
   let started;
