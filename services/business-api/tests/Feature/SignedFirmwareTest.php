@@ -181,6 +181,7 @@ class SignedFirmwareTest extends TestCase
         $this->postJson($f['path'].'/'.$id.'/cancel', ['note' => 'Cancel the provably unsent intent'])->assertOk();
         $this->assertSame(0, DB::table('charger_firmware_operations')->where('id', $id)->where('status', 'requested')->update(['status' => 'dispatching']));
         $this->get('/api/internal/firmware/'.$raw)->assertNotFound();
+        $this->assertDatabaseHas('charger_firmware_operations', ['id' => $id, 'status' => 'cancelled_unsent']);
         $this->assertSame(1, DB::table('audit_events')->where('action', 'firmware.cancelled_before_dispatch')->count());
         Http::assertNothingSent();
     }

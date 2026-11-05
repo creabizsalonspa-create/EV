@@ -223,9 +223,9 @@ class ChargerFirmwareController extends Controller
             $guard->scope($r, $company, $charger, true);
             $op = DB::table('charger_firmware_operations')->where('id', $operation)->where('binding_id', $b->id)->lockForUpdate()->first();
             abort_unless($op, 404);
-            if ($op->status !== 'cancelled_before_dispatch') {
+            if ($op->status !== 'cancelled_unsent') {
                 abort_unless($op->status === 'requested' && $op->attempted_at === null && $op->reviewed_at === null, 409, 'An attempted firmware command cannot be cancelled or released.');
-                DB::table('charger_firmware_operations')->where('id', $op->id)->update(['status' => 'cancelled_before_dispatch', 'reviewed_at' => now(), 'reviewed_by' => $r->user()->id, 'review_note' => Crypt::encryptString($v['note']), 'updated_at' => now()]);
+                DB::table('charger_firmware_operations')->where('id', $op->id)->update(['status' => 'cancelled_unsent', 'reviewed_at' => now(), 'reviewed_by' => $r->user()->id, 'review_note' => Crypt::encryptString($v['note']), 'updated_at' => now()]);
                 DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'firmware.cancelled_before_dispatch', 'subject' => (string) $op->id, 'created_at' => now()]);
             }
 

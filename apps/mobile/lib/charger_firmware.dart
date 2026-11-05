@@ -188,7 +188,7 @@ class _FirmwareState extends State<ChargerFirmwareView> {
       'Source reports installed; reviewed',
       'المصدر يبلغ عن التثبيت؛ تمت المراجعة',
     ),
-    'cancelled_before_dispatch' => t(
+    'cancelled_unsent' => t(
       'Cancelled before dispatch',
       'تم الإلغاء قبل الإرسال',
     ),
