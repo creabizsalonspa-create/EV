@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\ChargerCommand;
+use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\CsmsDispatcher;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -52,6 +53,10 @@ class DispatchPendingChargerCommands extends Command
                         // Dispatcher atomically claims pending -> dispatching and
                         // rechecks booking, maintenance, company and source lineage.
                         // A second process can only observe that claim, never resend.
+                        $command = ChargerCommand::findOrFail($row->id);
+                        if ($command->action === 'start') {
+                            app(RemoteSessionAuthorization::class)->publish($command);
+                        }
                         $result = $dispatcher->dispatch($row->id);
                         $this->line(json_encode(['command_id' => $row->id, 'state' => $result->status, 'evidence' => 'SIMULATED_CSMS', 'acceptance_verified' => false], JSON_THROW_ON_ERROR));
                     } catch (Throwable $e) {

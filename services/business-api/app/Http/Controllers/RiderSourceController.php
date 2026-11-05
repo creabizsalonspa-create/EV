@@ -18,7 +18,7 @@ use Throwable;
 
 class RiderSourceController extends Controller
 {
-    private function targetMatches(object $binding, ConnectorMapping $map, Evse $evse, array $v): bool
+    public function targetMatches(object $binding, ConnectorMapping $map, Evse $evse, array $v): bool
     {
         if (empty($v['connectorId']) || strlen((string) config('csms.graphql_secret')) < 32) {
             return false;

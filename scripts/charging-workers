@@ -9,6 +9,7 @@ python3 - <<'PY'
 from pathlib import Path
 lines=Path('services/business-api/.env').read_text().splitlines()
 v=dict(line.split('=',1) for line in lines if '=' in line and not line.startswith('#'))
+if v.get('CSMS_REMOTE_AUTHORIZATION_ENABLED','').strip('"\'')!='true':raise SystemExit('Run scripts/remote-session-auth-setup before starting the unattended charging workers.')
 if v.get('APP_ENV','').strip('"\'')!='local' or v.get('CSMS_SESSION_BRIDGE_ENABLED','').strip('"\'')!='true':raise SystemExit('Local source charging configuration required; production is never enabled.')
 PY
 for name in ev-csms-command-worker ev-csms-source-worker; do
@@ -24,7 +25,7 @@ if [[ "$mode" == start ]]; then
  for name in ev-csms-command-worker ev-csms-source-worker; do
   if docker inspect "$name" >/dev/null 2>&1; then docker start "$name" >/dev/null; continue; fi
   args=(csms:dispatch-pending --interval=2)
-  extra=(-e CSMS_SIMULATOR_ENABLED=true -e CSMS_COMMAND_WORKER_ENABLED=true)
+  extra=(-e CSMS_SIMULATOR_ENABLED=true -e CSMS_COMMAND_WORKER_ENABLED=true -e CSMS_GRAPHQL_URL=http://127.0.0.1:8095/v1/graphql -e CSMS_RIDER_SOURCE_API_URL=http://127.0.0.1:8080)
   if [[ "$name" == ev-csms-source-worker ]]; then
    args=(csms:consume --interval=2)
    extra=(-e CSMS_GRAPHQL_URL=http://127.0.0.1:8095/v1/graphql)

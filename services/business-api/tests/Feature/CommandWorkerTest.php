@@ -6,6 +6,7 @@ use App\Models\ChargerCommand;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\CsmsDispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,7 @@ class CommandWorkerTest extends TestCase
     private function fixture(): ChargerCommand
     {
         Http::preventStrayRequests();
+        $this->mock(RemoteSessionAuthorization::class)->shouldReceive('publish')->once();
         config(['csms.command_worker_enabled' => true, 'csms.session_bridge_enabled' => true, 'csms.simulator_enabled' => true]);
         $vendor = User::factory()->create(['role' => 'vendor']);
         $customer = User::factory()->create(['role' => 'customer']);

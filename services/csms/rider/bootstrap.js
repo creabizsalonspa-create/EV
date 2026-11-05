@@ -8,6 +8,8 @@ const { asValue } = createRequire(import.meta.resolve("@citrineos/ocpp"))(
   "awilix",
 );
 const callback = "http://ev-business-api:8000/api/internal/rider-authorize";
+const remoteCallback =
+  "http://ev-business-api:8000/api/internal/remote-session-authorize";
 const secretFile = "/run/creabiz-rider/client-secret";
 const secret = existsSync(secretFile)
   ? readFileSync(secretFile, "utf8").trim()
@@ -38,17 +40,17 @@ class RiderServer extends CitrineOSServer {
     const adapter = {
       authorize: async (authorization, context, evse, connector) => {
         const managed =
-          authorization.realTimeAuthUrl === callback ||
+          [callback, remoteCallback].includes(authorization.realTimeAuthUrl) ||
           (Array.isArray(authorization.additionalInfo) &&
-            authorization.additionalInfo.some(
-              (m) => m?.type === "CREABIZ_RIDER",
+            authorization.additionalInfo.some((m) =>
+              ["CREABIZ_RIDER", "CREABIZ_REMOTE"].includes(m?.type),
             ));
         if (!managed) return authorization.status ?? "Invalid";
         if (
           !ready ||
           Number(context.tenantId) !== 1 ||
           !/^ev-test-[a-zA-Z0-9-]{1,80}$/.test(context.ocppConnectionName) ||
-          authorization.realTimeAuthUrl !== callback ||
+          ![callback, remoteCallback].includes(authorization.realTimeAuthUrl) ||
           authorization.realTimeAuth !== "Never" ||
           authorization.realTimeAuthTimeout !== 0
         )
@@ -70,6 +72,7 @@ class RiderServer extends CitrineOSServer {
         if (!ready) return reply.code(503).send({ ready: false });
         return {
           ready: true,
+          remote_session_authorization: true,
           adapter_version: version,
           tenant_id: 1,
           offline_fallback: false,

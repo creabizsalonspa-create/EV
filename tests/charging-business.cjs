@@ -159,8 +159,8 @@ async function session(version, actors) {
   );
   assert.equal(pending.session.status, "pending_start");
   assert.equal(pending.evidence, "SIMULATED_CSMS");
-  const sessionId = pending.session.id,
-    tag = "EV-SIM-" + sessionId;
+  const sessionId = pending.session.id;
+  let tag = "EV-SIM-" + sessionId;
   const repeatedStart = await customer.request(
     "reservations/" + fixture.reservation_id + "/csms-start",
     "POST",
@@ -168,22 +168,23 @@ async function session(version, actors) {
   assert.equal(repeatedStart.session.id, sessionId);
   assert.equal(repeatedStart.start_command.id, pending.start_command.id);
   const at = new Date().toISOString();
-  await graph(
-    "mutation($object:Authorizations_insert_input!){insert_Authorizations_one(object:$object){id}}",
-    {
-      object: {
-        tenantId: 1,
-        idToken: tag,
-        idTokenType: "Central",
-        status: "Accepted",
-        concurrentTransaction: false,
-        isPrepaid: false,
-        cacheExpiryDateTime: new Date(Date.now() + 86400000).toISOString(),
-        createdAt: at,
-        updatedAt: at,
+  if (!autoDispatch)
+    await graph(
+      "mutation($object:Authorizations_insert_input!){insert_Authorizations_one(object:$object){id}}",
+      {
+        object: {
+          tenantId: 1,
+          idToken: tag,
+          idTokenType: "Central",
+          status: "Accepted",
+          concurrentTransaction: false,
+          isPrepaid: false,
+          cacheExpiryDateTime: new Date(Date.now() + 86400000).toISOString(),
+          createdAt: at,
+          updatedAt: at,
+        },
       },
-    },
-  );
+    );
   const charger = new SimulatedCharger(version, name);
   let transactionId,
     worker = useDaemon ? startWorker(pending.link) : null,
@@ -196,13 +197,15 @@ async function session(version, actors) {
       canonicalTargets ? 7 : 1,
       canonicalTargets ? 5 : 1,
     );
-    const auth = await charger.call(
-      "Authorize",
-      version === "1.6"
-        ? { idTag: tag }
-        : { idToken: { idToken: tag, type: "Central" } },
-    );
-    assert.equal((auth.idTagInfo ?? auth.idTokenInfo).status, "Accepted");
+    if (!autoDispatch) {
+      const auth = await charger.call(
+        "Authorize",
+        version === "1.6"
+          ? { idTag: tag }
+          : { idToken: { idToken: tag, type: "Central" } },
+      );
+      assert.equal((auth.idTagInfo ?? auth.idTokenInfo).status, "Accepted");
+    }
     if (autoDispatch) dispatcher = startDispatcher(station.id);
     else
       await execFile("./scripts/csms-dispatch", [
@@ -219,6 +222,70 @@ async function session(version, actors) {
         ),
       "business remote start delivery",
     );
+    if (autoDispatch) {
+      tag = remote.payload.idTag ?? remote.payload.idToken?.idToken;
+      assert.match(tag, /^EV-[A-F0-9]{16}$/);
+      const other = new SimulatedCharger(
+        version,
+        "ev-test-wrong-target-" + randomUUID().slice(0, 8),
+      );
+      try {
+        await other.connect();
+        await other.boot();
+        await other.status();
+        const denied = await other.call(
+          "Authorize",
+          version === "1.6"
+            ? { idTag: tag }
+            : { idToken: { idToken: tag, type: "Central" } },
+        );
+        assert.notEqual(
+          (denied.idTagInfo ?? denied.idTokenInfo).status,
+          "Accepted",
+          "Session credential must be station-bound",
+        );
+      } finally {
+        await other.close();
+      }
+      await execFile("./scripts/php", [
+        "artisan",
+        "platform:role",
+        customer.user.email,
+        "vendor",
+      ]);
+      try {
+        const denied = await charger.call(
+          "Authorize",
+          version === "1.6"
+            ? { idTag: tag }
+            : { idToken: { idToken: tag, type: "Central" } },
+        );
+        assert.notEqual(
+          (denied.idTagInfo ?? denied.idTokenInfo).status,
+          "Accepted",
+          "Current customer authority must be rechecked online",
+        );
+      } finally {
+        await execFile("./scripts/php", [
+          "artisan",
+          "platform:role",
+          customer.user.email,
+          "customer",
+        ]);
+      }
+
+      const online = await charger.call(
+        "Authorize",
+        version === "1.6"
+          ? { idTag: tag }
+          : { idToken: { idToken: tag, type: "Central" } },
+      );
+      assert.equal(
+        (online.idTagInfo ?? online.idTokenInfo).status,
+        "Accepted",
+        "Online canonical source authorization",
+      );
+    }
     assert.equal(
       version === "1.6" ? remote.payload.idTag : remote.payload.idToken.idToken,
       tag,
@@ -631,6 +698,7 @@ async function session(version, actors) {
   }
 }
 (async () => {
+  if (autoDispatch) await execFile("./scripts/remote-session-auth-setup");
   const customer = await new BusinessClient().register("customer"),
     vendor = await new BusinessClient().register("vendor"),
     admin = await new BusinessClient().register("admin");

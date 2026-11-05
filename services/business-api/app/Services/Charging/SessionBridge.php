@@ -14,6 +14,7 @@ use App\Services\Finance\FinanceService;
 use App\Services\Finance\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class SessionBridge
 {
@@ -72,8 +73,10 @@ class SessionBridge
             if ($rider) {
                 abort_if(SessionLink::where('rider_token_id', $rider->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'This rider token has an unresolved source session.');
             }
-            $c = $rider ? null : $this->command($actor, $station->id, 'start', ['session_id' => $s->id, 'id_token' => 'EV-SIM-'.$s->id], 'csms-session:'.$s->id.':start');
-            $link = SessionLink::create(['charging_session_id' => $s->id, 'binding_id' => $binding->id, 'start_command_id' => $c?->id, 'rider_token_id' => $rider?->id, 'rider_grant_id' => $rider ? $grantId : null, 'connector_mapping_id' => $r->connector_mapping_id, 'protocol' => $binding->protocol, 'identifier' => $binding->identifier, 'last_sequence' => -1]);
+            $remote = ! $rider && config('csms.remote_authorization_enabled');
+            $tag = $remote ? 'EV-'.strtoupper(bin2hex(random_bytes(8))) : 'EV-SIM-'.$s->id;
+            $c = $rider ? null : $this->command($actor, $station->id, 'start', ['session_id' => $s->id, 'id_token' => $tag], 'csms-session:'.$s->id.':start');
+            $link = SessionLink::create(['charging_session_id' => $s->id, 'binding_id' => $binding->id, 'start_command_id' => $c?->id, 'rider_token_id' => $rider?->id, 'rider_grant_id' => $rider ? $grantId : null, 'connector_mapping_id' => $r->connector_mapping_id, 'protocol' => $binding->protocol, 'identifier' => $binding->identifier, 'last_sequence' => -1, 'remote_token_digest' => $remote ? hash('sha256', $tag) : null, 'remote_registration_nonce' => $remote ? (string) Str::uuid() : null]);
             $this->audit($actor, 'csms.session_requested', $s->id);
 
             return $this->summary($link);
