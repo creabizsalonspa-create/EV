@@ -50,6 +50,7 @@ class CommercialCampaignTest extends TestCase
 
     public function test_paid_package_campaign_review_delivery_and_governance_preserve_cash_journals(): void
     {
+        $this->freezeTime(); // A repeated publisher event must keep its original occurred_at.
         $f = $this->fixture();
         $cash = DB::table('commercial_subscription_ledger')->count();
         $c = $this->approved($f);
