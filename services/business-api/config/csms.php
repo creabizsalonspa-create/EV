@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'operations_base_url' => env('CSMS_OPERATIONS_BASE_URL', 'http://citrine:8080'),
+    'safe_reset_enabled' => env('CSMS_SAFE_RESET_ENABLED', false),
     'rider_enabled' => env('CSMS_RIDER_AUTH_ENABLED', false),
     'rider_client_id' => env('CSMS_RIDER_CLIENT_ID', 'creabiz-csms-rider'),
     'rider_client_secret' => env('CSMS_RIDER_CLIENT_SECRET'),

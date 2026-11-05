@@ -93,6 +93,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "charger-diagnostics",
       "maintenance-windows",
       "rider-access",
+      "charger-resets",
       "charging-business",
       "station-favorites",
     ],

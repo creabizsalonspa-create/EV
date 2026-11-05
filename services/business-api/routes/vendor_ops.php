@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ChargerAdmissionController;
 use App\Http\Controllers\ChargerDiagnosticsController;
+use App\Http\Controllers\ChargerResetController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\MaintenanceWindowController;
 use App\Http\Controllers\VendorOpsController as V;
@@ -50,3 +51,7 @@ Route::post('/companies/{company}/chargers/{charger}/admission/credential', [Cha
 Route::delete('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'revoke']);
 
 Route::get('/companies/{company}/chargers/{charger}/admission/events', [ChargerAdmissionController::class, 'events']);
+
+Route::get('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'create']);
+Route::post('/companies/{company}/chargers/{charger}/reset-operations/{operation}/review', [ChargerResetController::class, 'review'])->whereNumber('operation');

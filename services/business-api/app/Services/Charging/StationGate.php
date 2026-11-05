@@ -20,6 +20,10 @@ class StationGate
 
     private function ready(Station $station, VendorSite $site, ?VendorCompany $company, Collection $connectors, Collection $chargers, ?object $binding, ?string $timezone): bool
     {
+        if (DB::table('charger_reset_operations as reset')->join('csms_bindings as binding', 'binding.id', '=', 'reset.binding_id')->where('binding.station_id', $station->id)->whereNull('reset.reviewed_at')->exists()) {
+            return false;
+        }
+
         if (! $company || $company->owner_id !== $station->vendor_id || $site->country !== $station->country || $company->status !== 'approved' || ! $this->access->licenseValid($company, $timezone) || $connectors->count() !== 1) {
             return false;
         }
@@ -75,7 +79,10 @@ class StationGate
     /** Call only inside a booking/start transaction. Stop and source finalization must remain available. */
     public function requireReady(Station $station, ?int $mappingId = null, ?CarbonInterface $start = null, ?CarbonInterface $end = null): void
     {
+
         $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
+        abort_if(DB::table('charger_reset_operations as reset')->join('csms_bindings as binding', 'binding.id', '=', 'reset.binding_id')->where('binding.station_id', $station->id)->whereNull('reset.reviewed_at')->exists(), 409, 'Charger has an unresolved maintenance operation.');
+
         abort_unless($station->source === 'simulator', 409, 'Only simulator charging admission is enabled.');
         if ($mappingId !== null) {
             $target = app(ConnectorTopology::class)->target($station, $mappingId, true);

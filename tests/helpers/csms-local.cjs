@@ -78,6 +78,7 @@ class SimulatedCharger {
     this.name = name;
     this.pending = new Map();
     this.commands = [];
+    this.acceptSafeReset = false;
   }
   async connect() {
     this.socket = new WebSocket(
@@ -88,7 +89,10 @@ class SimulatedCharger {
       const m = JSON.parse(event.data);
       if (m[0] === 2) {
         this.commands.push({ action: m[2], payload: m[3] });
-        if (
+        if (m[2] === "Reset" && this.acceptSafeReset) {
+          assert(["Soft", "OnIdle"].includes(m[3].type), "Unsafe reset mode");
+          this.socket.send(JSON.stringify([3, m[1], { status: "Accepted" }]));
+        } else if (
           [
             "RemoteStartTransaction",
             "RequestStartTransaction",

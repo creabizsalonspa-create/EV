@@ -1866,6 +1866,30 @@ window.EV_MESSAGES = {
         ar: "أُبطلت بيانات الدخول",
     },
     "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Safe reset operations": {
+        en: "Safe reset operations",
+        ar: "عمليات إعادة التشغيل الآمنة",
+    },
+    "Safe reset disclaimer": {
+        en: "Local simulator only. Uses Soft (1.6) or OnIdle (2.0.1). Active sessions and current bookings block resets. A transport receipt does not prove execution. New starts remain blocked until an operator reviews fresh idle source evidence. No automatic retry or session closure.",
+        ar: "للمحاكاة المحلية فقط. يستخدم Soft أو OnIdle. تمنع الجلسات والحجوزات الحالية إعادة التشغيل. لا يثبت إيصال النقل التنفيذ. يبقى بدء الشحن محظوراً حتى مراجعة دليل مصدر حديث وخامل. لا توجد إعادة تلقائية أو إغلاق للجلسات.",
+    },
+    "Request safe reset": {
+        en: "Request safe reset",
+        ar: "طلب إعادة تشغيل آمنة",
+    },
+    "Reset reason": {
+        en: "Reset reason (at least 10 characters)",
+        ar: "سبب إعادة التشغيل (١٠ أحرف على الأقل)",
+    },
+    "Review source after reset": {
+        en: "Review source after reset",
+        ar: "مراجعة المصدر بعد إعادة التشغيل",
+    },
+    "Reset source reviewed": {
+        en: "Fresh idle source reviewed; physical reset execution remains unverified",
+        ar: "تمت مراجعة مصدر حديث وخامل؛ يبقى تنفيذ إعادة التشغيل الفعلي غير مثبت",
+    },
     "Card source authorization": {
         en: "Card/token authorization; simulated source evidence only",
         ar: "التفويض ببطاقة أو رمز؛ دليل مصدر محاكاة فقط",

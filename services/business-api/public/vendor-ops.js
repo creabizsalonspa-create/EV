@@ -827,6 +827,9 @@ window.createVendorWorkspace = ({
                 button(row, "Secure charger admission", () =>
                     admission(company, charger, row, epoch),
                 );
+                button(row, "Safe reset operations", () =>
+                    resets(company, charger, row, epoch),
+                );
                 button(row, "Source diagnostics", () =>
                     diagnostics(company, charger, row, epoch),
                 );
@@ -835,6 +838,79 @@ window.createVendorWorkspace = ({
             1,
             epoch,
         );
+    }
+    async function resets(company, charger, parent, epoch, page = 1) {
+        parent.querySelector("[data-reset-operations]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.resetOperations = "";
+        parent.append(pane);
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/reset-operations`;
+        const result = await api(
+            path + `?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        pane.append(
+            ui("h3", "Safe reset operations"),
+            ui("p", "Safe reset disclaimer"),
+        );
+        const refresh = () => resets(company, charger, parent, epoch, page);
+        button(pane, "Refresh", refresh);
+        if (result.can_manage && result.adapter_enabled)
+            form(
+                pane,
+                "Request safe reset",
+                [{ name: "reason", label: "Reset reason", max: 2000 }],
+                async (body) => {
+                    await api(path, "POST", body, controller?.signal);
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                },
+            );
+        for (const operation of result.data) {
+            const row = document.createElement("article");
+            row.dataset.resetOperation = operation.id;
+            row.append(
+                raw("h4", `#${operation.id} · ${operation.reset_type}`),
+                raw("p", operation.status),
+                raw("p", operation.created_at),
+            );
+            if (operation.reviewed_at)
+                row.append(ui("p", "Reset source reviewed"));
+            else if (result.can_manage && result.adapter_enabled)
+                form(
+                    row,
+                    "Review source after reset",
+                    [
+                        {
+                            name: "note",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (body) => {
+                        await api(
+                            path + `/${operation.id}/review`,
+                            "POST",
+                            { note: body.note },
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected) await refresh();
+                    },
+                );
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                resets(company, charger, parent, epoch, page - 1),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                resets(company, charger, parent, epoch, page + 1),
+            );
     }
     async function diagnostics(company, charger, parent, epoch, before = null) {
         if (!valid(epoch)) return;
