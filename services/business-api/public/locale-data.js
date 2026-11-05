@@ -1,4 +1,37 @@
 window.EV_MESSAGES = {
+    "Roaming credential state superseded": {
+        en: "Enrollment replaced",
+        ar: "تم استبدال التسجيل",
+    },
+    "Roaming credential state awaiting_registration": {
+        en: "Awaiting approved partner enrollment",
+        ar: "في انتظار تسجيل الشريك المعتمد",
+    },
+    "Roaming credential state awaiting_peer": {
+        en: "Awaiting approved partner enrollment",
+        ar: "في انتظار تسجيل الشريك المعتمد",
+    },
+    "Roaming credential state enrollment_expired": {
+        en: "Enrollment window expired",
+        ar: "انتهت مهلة التسجيل",
+    },
+    "Roaming credentials prepare_incoming": {
+        en: "Prepare incoming enrollment",
+        ar: "تهيئة تسجيل الشريك الوارد",
+    },
+    "Roaming credential action prepare_incoming": {
+        en: "Prepared incoming enrollment",
+        ar: "تمت تهيئة التسجيل الوارد",
+    },
+    "Roaming credential action peer_register": {
+        en: "Peer enrolled",
+        ar: "تم تسجيل الشريك",
+    },
+    "Roaming enrollment expires": {
+        en: "Enrollment expires (UTC)",
+        ar: "تنتهي مهلة التسجيل (UTC)",
+    },
+
     "Roaming credential state active": {
         en: "Credentials active",
         ar: "بيانات الاعتماد نشطة",

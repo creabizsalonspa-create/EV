@@ -20,7 +20,11 @@ const { spawnSync } = require("node:child_process");
     ["native-commercial-parity", "native-case-evidence"], // 8 logins; own fresh unchanged authentication window
     ["native-hosted-checkout"], // 3 independent authenticated identities
     ["native-corporate-hosted"], // 3 payer/driver/vendor identities; separate auth window
-    ["native-ocpi-operations", "native-ocpi-credentials"], // 5 identities; no live partner requests
+    [
+      "native-ocpi-operations",
+      "native-ocpi-credentials",
+      "native-ocpi-incoming",
+    ], // 7 identities; no live partner requests
     ["native-financial-analytics"], // 3 logins, separate unchanged authentication window
   ];
   let started;

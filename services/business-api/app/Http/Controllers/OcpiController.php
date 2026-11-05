@@ -71,6 +71,7 @@ class OcpiController extends Controller
                 }
             }
             $provider->fill(['version' => null, 'endpoints' => null, 'negotiated_at' => null, 'authorization_revision' => $exhausted ? PHP_INT_MAX : (int) $provider->authorization_revision + 1])->save();
+            DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->where('action', 'prepare_incoming')->where('state', 'awaiting_peer')->update(['state' => 'revoked', 'completed_at' => now(), 'updated_at' => now()]);
             DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update(['state' => 'revoked', 'local_token_digest' => null, 'updated_at' => now()]);
             $this->audit($r, $provider->authorized ? 'ocpi.provider_authorized' : 'ocpi.provider_revoked', $provider->id);
 

@@ -6,7 +6,7 @@ import 'test_support.dart';
 
 class CredentialsApi extends FixtureApi {
   int writes = 0;
-  bool lost = false, expired = false;
+  bool lost = false, expired = false, incoming = false;
   Map<String, dynamic>? intent;
   @override
   Future<dynamic> request(
@@ -25,9 +25,13 @@ class CredentialsApi extends FixtureApi {
     if (expired) throw const ApiException(401, 'PRIVATE TOKEN');
     return {
       'configured': true,
-      'state': lost ? 'outcome_unknown' : 'active',
+      'state': lost
+          ? 'outcome_unknown'
+          : (incoming ? 'not_exchanged' : 'active'),
       'generation': 1,
-      'available_actions': lost ? [] : ['rotate', 'unregister'],
+      'available_actions': lost
+          ? []
+          : (incoming ? ['prepare_incoming'] : ['rotate', 'unregister']),
       'charging_commands_enabled': false,
       'billing_eligible': false,
       'operations': {
@@ -50,6 +54,32 @@ class CredentialsApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets(
+    'incoming enrollment action uses the approved backend workflow without exposing a bootstrap token',
+    (tester) async {
+      final api = CredentialsApi()..incoming = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Prepare incoming enrollment'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField),
+        'Approved incoming synthetic partner',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(api.intent!['action'], 'prepare_incoming');
+      expect(api.writes, 1);
+      expect(find.textContaining('PRIVATE TOKEN'), findsNothing);
+      expect(find.text('Prepare incoming enrollment'), findsNothing);
+    },
+  );
+
   testWidgets(
     'credentials uncertainty cannot replay and current source history gates the next action',
     (tester) async {

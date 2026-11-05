@@ -18,7 +18,12 @@ class PartnerClient
             throw new OcpiException('Operator authorization is required.');
         }
         $c = config('ocpi.connections.'.$provider->connection_key);
-        if (! is_array($c) || ! is_string($c['origin'] ?? null) || ! is_string($c['authorization_token'] ?? null) || $c['authorization_token'] === '') {
+        if (! is_array($c) || ! is_string($c['origin'] ?? null)) {
+            throw new OcpiException('Approved operator connection is not configured.');
+        }
+        $incoming = ($c['managed_credentials'] ?? false) && ($c['registration_direction'] ?? 'outbound') === 'incoming';
+        $configuredCredential = $incoming ? ($c['inbound_authorization_token'] ?? null) : ($c['authorization_token'] ?? null);
+        if (! is_string($configuredCredential) || $configuredCredential === '') {
             throw new OcpiException('Approved operator connection is not configured.');
         }
         $origin = rtrim($c['origin'], '/');
@@ -27,7 +32,7 @@ class PartnerClient
         if (($parts['scheme'] ?? '') !== 'https' || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment']) || ! in_array($parts['port'] ?? 443, [443], true) || ! in_array($parts['path'] ?? '', ['', '/'], true) || ! preg_match('/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/', $host) || filter_var($host, FILTER_VALIDATE_IP) || preg_match('/(?:^|\.)(?:localhost|local|internal|invalid)$/', $host)) {
             throw new OcpiException('Operator origin must be an approved public HTTPS DNS origin.');
         }
-        if (strpbrk($c['authorization_token'], "\r\n") !== false) {
+        if (strpbrk($configuredCredential, "\r\n") !== false) {
             throw new OcpiException('Invalid operator credential format.');
         }
 

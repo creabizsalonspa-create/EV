@@ -110,5 +110,5 @@ Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'dow
 Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
     Route::get('versions', [OcpiProtocolCredentialsController::class, 'handle']);
     Route::get('2.2.1', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'details');
-    Route::match(['GET', 'PUT', 'DELETE'], '2.2.1/credentials', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');
+    Route::match(['GET', 'POST', 'PUT', 'DELETE'], '2.2.1/credentials', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');
 });

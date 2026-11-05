@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\IncomingEnrollment;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +31,8 @@ class OcpiProtocolCredentialsController extends Controller
         // read-only discovery, never credentials reads/updates or any modules.
         $provisional = $link->state === 'dispatching' && $r->isMethod('GET') && in_array($resource, ['versions', 'details'], true)
             && DB::table('ocpi_credential_operations')->where('provider_id', $link->provider_id)->where('generation', $link->generation)->where('state', 'dispatching')->whereIn('action', ['register', 'rotate'])->where('attempted_at', '>=', now()->subSeconds(60))->exists();
-        abort_unless($link->state === 'active' || $provisional, 401);
+        $enrolling = $link->state === 'awaiting_registration' && $link->bootstrap_expires_at && CarbonImmutable::parse($link->bootstrap_expires_at)->isFuture() && (($r->isMethod('GET') && in_array($resource, ['versions', 'details'], true)) || ($r->isMethod('POST') && $resource === 'credentials'));
+        abort_unless($link->state === 'active' || $provisional || $enrolling, 401);
         $p = OcpiProvider::findOrFail($link->provider_id);
         abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);
 
@@ -45,7 +48,15 @@ class OcpiProtocolCredentialsController extends Controller
     {
         try {
             [$p, $link] = $this->auth($r, $exchange, $resource);
-            $local = $exchange->localPayload(Crypt::decryptString($link->local_token_ciphertext));
+            $local = $exchange->localPayload($link->state === 'active' ? Crypt::decryptString($link->local_token_ciphertext) : '');
+            if ($r->isMethod('POST') && $resource === 'credentials') {
+                if ($link->state !== 'awaiting_registration') {
+                    return $this->reply(null, 2000, 405);
+                }
+                abort_unless(strlen($r->getContent()) <= 65536, 413);
+
+                return $this->reply(app(IncomingEnrollment::class)->accept($p, $link, $r->json()->all()), 1000, 201);
+            }
             $base = substr($local['url'], 0, -strlen('versions'));
             if ($r->isMethod('GET')) {
                 $data = match ($resource) {

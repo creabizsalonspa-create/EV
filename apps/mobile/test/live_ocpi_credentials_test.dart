@@ -23,10 +23,11 @@ void main() {
         String token, {
         Map<String, dynamic>? body,
         int expected = 200,
+        String resource = '2.2.1/credentials',
       }) async {
         final request = await http.openUrl(
           method,
-          Uri.parse('${f['base']}/api/roaming-protocol/2.2.1/credentials'),
+          Uri.parse('${f['base']}/api/roaming-protocol/$resource'),
         );
         request.headers.set(
           HttpHeaders.authorizationHeader,
@@ -43,6 +44,42 @@ void main() {
       await api.signIn(f['admin'], f['password']);
       final endpoint = 'ocpi/providers/${f['provider_id']}/credentials';
       final before = await api.request(endpoint);
+      if (f['incoming'] == true) {
+        expect(before['available_actions'], ['prepare_incoming']);
+        final receipt = await api.request(
+          endpoint,
+          method: 'POST',
+          body: {
+            'action': 'prepare_incoming',
+            'reason': 'Preapproved synthetic native incoming enrollment',
+            'idempotency_key': operationKey(),
+          },
+        );
+        expect(receipt['state'], 'awaiting_peer');
+        final pending = await api.request(endpoint);
+        expect(pending['state'], 'awaiting_registration');
+        expect(pending['bootstrap_expires_at'], isNotNull);
+        expect(jsonEncode(pending).contains(f['local_token']), false);
+        await protocol('GET', f['local_token'], resource: 'versions');
+        await protocol('GET', f['local_token'], expected: 401);
+        await protocol('DELETE', f['local_token'], expected: 401);
+        await api.signOut();
+        await api.signIn(f['owner'], f['password']);
+        expect((await api.request(endpoint))['available_actions'], isEmpty);
+        await expectLater(
+          api.request(
+            endpoint,
+            method: 'POST',
+            body: {
+              'action': 'prepare_incoming',
+              'reason': 'Vendor must not grant bootstrap access',
+              'idempotency_key': operationKey(),
+            },
+          ),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 403)),
+        );
+        return;
+      }
       expect(before['state'], 'active');
       expect(jsonEncode(before).contains(f['local_token']), false);
       final rotated = await protocol(

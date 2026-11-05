@@ -119,6 +119,15 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView> {
   }
 
   String stateTitle(String state) => switch (state) {
+    'awaiting_registration' || 'awaiting_peer' => tr(
+      'Awaiting approved partner enrollment',
+      'في انتظار تسجيل الشريك المعتمد',
+    ),
+    'enrollment_expired' => tr(
+      'Enrollment window expired',
+      'انتهت مهلة التسجيل',
+    ),
+    'superseded' => tr('Enrollment replaced', 'تم استبدال التسجيل'),
     'active' => tr('Credentials active', 'بيانات الاعتماد نشطة'),
     'not_exchanged' => tr(
       'Credentials not exchanged',
@@ -146,6 +155,11 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView> {
   };
 
   String actionTitle(String action) => switch (action) {
+    'prepare_incoming' => tr(
+      'Prepare incoming enrollment',
+      'تهيئة تسجيل الشريك الوارد',
+    ),
+    'peer_register' => tr('Peer enrolled', 'تم تسجيل الشريك'),
     'register' => tr(
       'Exchange partner credentials',
       'تبادل بيانات اعتماد الشريك',
@@ -193,10 +207,19 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView> {
                 'تهيئة بيانات الاعتماد المُدارة المعتمدة غير متاحة.',
               ),
             ),
+          if (status!['bootstrap_expires_at'] != null)
+            Text(
+              '${tr('Enrollment expires (UTC)', 'تنتهي مهلة التسجيل (UTC)')}: ${status!['bootstrap_expires_at']}',
+            ),
           if (status!['exchanged_at'] != null)
             Text('${status!['exchanged_at']}'),
           for (final action in (status!['available_actions'] as List? ?? []))
-            if (['register', 'rotate', 'unregister'].contains(action))
+            if ([
+              'register',
+              'rotate',
+              'unregister',
+              'prepare_incoming',
+            ].contains(action))
               TextButton(
                 onPressed: busy || uncertain
                     ? null
