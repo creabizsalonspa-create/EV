@@ -823,11 +823,98 @@ window.createVendorWorkspace = ({
                 button(row, "Secure charger admission", () =>
                     admission(company, charger, row, epoch),
                 );
+                button(row, "Source diagnostics", () =>
+                    diagnostics(company, charger, row, epoch),
+                );
                 p.append(row);
             },
             1,
             epoch,
         );
+    }
+    async function diagnostics(company, charger, parent, epoch, before = null) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-source-diagnostics]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.sourceDiagnostics = "";
+        parent.append(pane);
+        pane.append(
+            ui("h3", "Source diagnostics"),
+            ui("p", "Source diagnostics disclaimer"),
+        );
+        button(pane, "Refresh", () =>
+            diagnostics(company, charger, parent, epoch),
+        );
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/source-diagnostics` +
+            (before ? `?before=${before}` : "");
+        try {
+            const result = await api(
+                path,
+                "GET",
+                undefined,
+                controller?.signal,
+            );
+            if (!valid(epoch) || !pane.isConnected) return;
+            pane.append(raw("p", result.protocol));
+            pane.append(
+                ui(
+                    "p",
+                    result.source_registered
+                        ? "Source registered"
+                        : "Source not observed",
+                ),
+            );
+            if (result.source_registered) {
+                pane.append(
+                    ui(
+                        "p",
+                        result.source_online
+                            ? "Source reports online"
+                            : "Source reports offline",
+                    ),
+                );
+                pane.append(
+                    ui(
+                        "p",
+                        result.recent_message_observed
+                            ? "Recent source message"
+                            : "No recent source message",
+                    ),
+                );
+                pane.append(
+                    raw("p", result.last_message_at || "—"),
+                    raw("p", result.firmware_version || "—"),
+                );
+            }
+            for (const event of result.events) {
+                const card = document.createElement("article");
+                card.append(
+                    raw(
+                        "p",
+                        `${event.evseId ?? "—"}/${event.connectorId ?? "—"} · ${event.connectorStatus} · ${event.errorCode ?? "—"}`,
+                    ),
+                    raw("p", event.timestamp),
+                );
+                pane.append(card);
+            }
+            if (result.next_before)
+                button(pane, "Next", () =>
+                    diagnostics(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        result.next_before,
+                    ),
+                );
+        } catch (error) {
+            if (valid(epoch) && pane.isConnected) {
+                pane.append(ui("p", "Source diagnostics unavailable"));
+                if ([401, 419].includes(error.status)) expired();
+            }
+        }
     }
     async function admission(company, charger, parent, epoch) {
         if (!valid(epoch)) return;

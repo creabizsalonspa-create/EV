@@ -1865,6 +1865,33 @@ window.EV_MESSAGES = {
         en: "Credential revoked",
         ar: "أُبطلت بيانات الدخول",
     },
+    "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Source diagnostics disclaimer": {
+        en: "Authenticated simulator source only. Status history is not connector availability or physical acceptance. Refresh explicitly; no command is sent.",
+        ar: "مصدر محاكي موثق فقط. سجل الحالة ليس توفر الموصل أو قبول الأجهزة الفعلية. حدّث صراحة؛ لا تُرسل أوامر.",
+    },
+    "Source registered": { en: "Source registered", ar: "المصدر مسجل" },
+    "Source not observed": { en: "Source not observed", ar: "لم يُرصد المصدر" },
+    "Source reports online": {
+        en: "Source reports online",
+        ar: "المصدر يبلغ عن الاتصال",
+    },
+    "Source reports offline": {
+        en: "Source reports offline",
+        ar: "المصدر يبلغ عن انقطاع الاتصال",
+    },
+    "Recent source message": {
+        en: "Recent source message",
+        ar: "رسالة مصدر حديثة",
+    },
+    "No recent source message": {
+        en: "No recent source message",
+        ar: "لا توجد رسالة مصدر حديثة",
+    },
+    "Source diagnostics unavailable": {
+        en: "Source diagnostics unavailable",
+        ar: "تشخيص المصدر غير متاح",
+    },
     "admission.event.expired": {
         en: "Expired credential disabled by system",
         ar: "أعطّل النظام بيانات الدخول المنتهية",

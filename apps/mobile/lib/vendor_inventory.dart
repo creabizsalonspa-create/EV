@@ -3,6 +3,7 @@ import 'api.dart';
 import 'strings.dart';
 import 'vendor_topology.dart';
 import 'charger_admission.dart';
+import 'charger_diagnostics.dart';
 import 'topology_strings.dart';
 import 'vendor_company.dart';
 import 'vendor_forms.dart';
@@ -347,6 +348,16 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                       await load(page: data?.current ?? 1);
                                   },
                             child: Text(admissionText(context, 'title')),
+                          ),
+                        if (level == 2)
+                          OutlinedButton(
+                            onPressed: busy ? null : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(builder: (_) => ChargerDiagnosticsView(
+                                api: widget.api, companyId: widget.company!['id'] as int,
+                                chargerId: row['id'] as int, onExpired: widget.onExpired,
+                              )),
+                            ),
+                            child: Text(diagnosticsTitle(context)),
                           ),
                         if (level == 3) ...[
                           Text(
