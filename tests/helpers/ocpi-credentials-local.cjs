@@ -3,7 +3,14 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const net = require("node:net");
 const assert = require("node:assert/strict");
-async function withCredentialsFixture(runTest, { incoming = false } = {}) {
+async function withCredentialsFixture(
+  runTest,
+  { incoming = false, receiving = false } = {},
+) {
+  assert(
+    !(incoming && receiving),
+    "Receiver fixture requires active synthetic credentials.",
+  );
   const run = randomBytes(4).toString("hex"),
     password = randomBytes(24).toString("hex") + "aA9!";
   const probe = net.createServer();
@@ -14,6 +21,7 @@ async function withCredentialsFixture(runTest, { incoming = false } = {}) {
   const metadata = JSON.stringify({
     ["managed_" + run]: {
       managed_credentials: true,
+      ...(receiving ? { incoming_modules: ["sessions", "cdrs"] } : {}),
       origin: "https://partner.example",
       ...(incoming
         ? {
@@ -73,7 +81,7 @@ async function withCredentialsFixture(runTest, { incoming = false } = {}) {
           "tests/Fixtures/ocpi-credentials.php",
           run,
           password,
-          incoming ? "incoming" : "active",
+          incoming ? "incoming" : receiving ? "receiver" : "active",
         ],
         { encoding: "utf8" },
       ),
