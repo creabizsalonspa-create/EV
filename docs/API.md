@@ -1,3 +1,7 @@
+# Charging evidence overview (candidate)
+
+Vendor/admin read-only `GET /api/charging-operations/dashboard` and `/api/v1/charging-operations/dashboard` expose scoped command counts, open source-linked sessions, missing recent evidence and unresolved recovery counts. Attention records paginate25/page; no token/payload/customer identity or recovery note is exposed. No command dispatch or financial write occurs. Evidence freshness is not charger availability. Contract and validation: [CHARGING_DASHBOARD.md](CHARGING_DASHBOARD.md).
+
 # Verified discovery and native loyalty additions (PR18/19/20)
 
 Public discovery lookup: `GET /api/discovery/capabilities`, `POST /api/discovery/addresses`, `POST /api/discovery/route`; equivalent `/api/v1/discovery/...` routes. Web POST retains CSRF middleware. POST requires explicit consent; address accepts3..180-character query, en/ar language and optional two-letter country. Route accepts2..5 latitude/longitude points (endpoints plus up to3 ordered stops). Capabilities identify the fixed Geoapify adapter and whether it is configured. Server key is never returned. Defaults disabled; rate budgets12/IP/minute,30 globally/minute and5000/day. Route responses use sourced meters/seconds/geometry with traffic and charging-time flags false. Sanitized422/502/503 failures retain manual navigation;429 requires waiting. Full contract/activation/privacy: DISCOVERY_ROUTING.md.
