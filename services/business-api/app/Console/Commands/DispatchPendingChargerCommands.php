@@ -17,7 +17,7 @@ class DispatchPendingChargerCommands extends Command
 
     public function handle(CsmsDispatcher $dispatcher): int
     {
-        if (! config('csms.command_worker_enabled') || ! config('csms.simulator_enabled') || ! app()->environment(['local', 'testing'])) {
+        if (! config('csms.command_worker_enabled') || ! config('csms.simulator_enabled') || ! config('csms.session_bridge_enabled') || ! app()->environment(['local', 'testing'])) {
             $this->error('Explicit local simulator command worker configuration is required.');
 
             return self::FAILURE;

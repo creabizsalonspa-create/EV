@@ -62,7 +62,7 @@ class CommandWorkerTest extends TestCase
     {
         config(['csms.command_worker_enabled' => false]);
         $this->artisan('csms:dispatch-pending', ['--once' => true])->assertFailed();
-        config(['csms.command_worker_enabled' => true, 'csms.simulator_enabled' => true]);
+        config(['csms.command_worker_enabled' => true, 'csms.simulator_enabled' => true, 'csms.session_bridge_enabled' => true]);
         $this->artisan('csms:dispatch-pending', ['--once' => true, '--limit' => '101'])->assertExitCode(2);
         $this->app['env'] = 'production';
         $this->artisan('csms:dispatch-pending', ['--once' => true])->assertFailed();
