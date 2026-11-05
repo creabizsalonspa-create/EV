@@ -21,7 +21,7 @@ use Throwable;
 /** Safe local reset controls. A transport receipt never proves charger execution. */
 class ChargerResetController extends Controller
 {
-    private function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
+    public function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
     {
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
         if ($write) {
@@ -44,7 +44,7 @@ class ChargerResetController extends Controller
         abort_unless(config('csms.safe_reset_enabled') && config('csms.session_bridge_enabled') && app()->environment(['local', 'testing']) && strlen((string) config('csms.graphql_secret')) >= 32, 503, 'Local reset adapter is disabled.');
     }
 
-    private function idle(object $b, ?string $after = null): void
+    public function idle(object $b, ?string $after = null): void
     {
         abort_if(SessionLink::where('binding_id', $b->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'An unresolved charging session owns this charger.');
         abort_if(Reservation::where('station_id', $b->station_id)->where('status', 'confirmed')->where('starts_at', '<', now()->addMinutes(5))->where('starts_at', '>', now()->subMinutes(30))->exists(), 409, 'A current or imminent reservation owns this station.');
@@ -101,6 +101,7 @@ class ChargerResetController extends Controller
                 return ['row' => $old, 'created' => false];
             }
             abort_if(DB::table('charger_reset_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the previous operation before another reset.');
+            abort_if(DB::table('charger_firmware_operations')->where('binding_id', $b->id)->whereNull('reviewed_at')->exists(), 409, 'Review the signed firmware operation before a reset.');
             $this->idle($b);
             $id = DB::table('charger_reset_operations')->insertGetId(['binding_id' => $b->id, 'actor_id' => $r->user()->id, 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'reason' => Crypt::encryptString($v['reason']), 'reset_type' => $b->protocol === '1.6' ? 'Soft' : 'OnIdle', 'status' => 'requested', 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'charger.reset_requested', 'subject' => (string) $id, 'created_at' => now()]);

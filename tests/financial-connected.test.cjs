@@ -92,6 +92,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "charger-operations",
       "charger-diagnostics",
       "maintenance-windows",
+      "signed-firmware",
       "rider-access",
       "charger-resets",
       "charging-business",

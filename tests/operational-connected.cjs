@@ -13,6 +13,7 @@ const groups = [
     "charger-diagnostics",
     "maintenance-windows",
   ], // 2+1+1+0+1+2+2 = 9 logins
+  ["signed-firmware"], // independent authentication window for both protocols
   ["rider-access", "charger-resets"], // six logins; separate unchanged auth window
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
 ];

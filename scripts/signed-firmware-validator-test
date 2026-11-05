@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+docker exec -i -w /usr/local/apps/citrineos/apps/ocpp-server ev-csms-citrine-1 node --input-type=module - <<'JS'
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {OCPPValidator,mapToCallAction} from '@citrineos/base';
+import {OCPPVersion,OCPP_CallAction} from '@citrineos/types';
+import {installSignedFirmware} from './dist/creabiz-signed-firmware.js';
+const {createContainer,asValue}=createRequire(import.meta.resolve('@citrineos/ocpp'))('awilix');
+const c=createContainer();c.register({configurationHandlers:asValue([])});installSignedFirmware(c);
+const logger={getSubLogger(){return this;},debug(){},error(){},info(){}};
+const v=new OCPPValidator(logger);
+const valid={requestId:1,retries:0,firmware:{location:'https://example.test/synthetic.bin',retrieveDateTime:'2026-11-05T00:00:00Z',signingCertificate:'SYNTHETIC PUBLIC CERTIFICATE',signature:'c3ludGhldGlj'}};
+assert.equal(v.validateOCPPRequest(OCPP_CallAction.SignedUpdateFirmware,structuredClone(valid),OCPPVersion.OCPP1_6).isValid,true);
+const missing=structuredClone(valid);delete missing.firmware.signature;
+assert.equal(v.validateOCPPRequest(OCPP_CallAction.SignedUpdateFirmware,missing,OCPPVersion.OCPP1_6).isValid,false);
+assert.equal(v.validateOCPPRequest(OCPP_CallAction.SignedUpdateFirmware,{...valid,unrestricted:true},OCPPVersion.OCPP1_6).isValid,false);
+assert.equal(v.validateOCPPRequest(OCPP_CallAction.SignedFirmwareStatusNotification,{requestId:1,status:'Installed'},OCPPVersion.OCPP1_6).isValid,true);
+assert.equal(v.validateOCPPRequest(OCPP_CallAction.SignedFirmwareStatusNotification,{requestId:1,status:'PretendPhysicallyVerified'},OCPPVersion.OCPP1_6).isValid,false);
+assert.equal(v.validateOCPPRequest(OCPP_CallAction.SignedFirmwareStatusNotification,{requestId:'1',status:'Installed'},OCPPVersion.OCPP1_6).isValid,false);
+assert.equal(mapToCallAction(OCPPVersion.OCPP1_6,'SignedFirmwareStatusNotification'),'SignedFirmwareStatusNotification');
+assert.throws(()=>mapToCallAction(OCPPVersion.OCPP1_6,'TotallyUnknownAction'));
+assert.throws(()=>mapToCallAction(OCPPVersion.OCPP1_6,'GetLog'));
+assert.equal(v.validateOCPPRequest('TotallyUnknownAction',{},OCPPVersion.OCPP1_6).isValid,false);
+console.log('PASS: official signed firmware schemas validate; missing signatures, extra fields, invalid statuses, unknown actions and cross-version actions remain rejected. No device command sent.');
+JS

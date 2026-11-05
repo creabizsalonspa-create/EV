@@ -22,3 +22,6 @@ services/business-api/bootstrap/cache/*.php
 **/*.sqlite3-*
 services/business-api/.phpunit.result.cache
 services/business-api/tests
+
+# Local CSMS client bindings must never enter any Docker build context.
+services/csms/rider/runtime/**

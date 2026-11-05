@@ -27,7 +27,7 @@ with p.open('a') as f:
 os.chmod(p,0o600)
 print('Local rider client bindings prepared; no credentials printed.')
 PY
-docker compose -f services/csms/compose.yaml up -d citrine
+docker compose -f services/csms/compose.yaml up -d --build citrine
 # The mounted file appears without changing Compose's container configuration.
 # Reload only a newly installed binding; never rotate an existing client key.
 if [[ -f services/csms/rider/runtime/.reload-required ]]; then

@@ -1,3 +1,4 @@
+import { installSignedFirmware } from "./creabiz-signed-firmware.js";
 // Distribution bootstrap only: upstream owns all OCPP transport and handlers.
 import { ConfigLoader } from "@citrineos/base";
 import { CitrineOSServer, RealTimeAuthorizer } from "@citrineos/ocpp";
@@ -18,6 +19,10 @@ const version = "creabiz-rider-v1";
 class RiderServer extends CitrineOSServer {
   registerAdditionalServices(container) {
     super.registerAdditionalServices(container);
+    const signedFirmware =
+      this._config.auth.mode === "localDev" && this._config.env !== "production"
+        ? installSignedFirmware(container)
+        : false;
     const ready =
       secret.length >= 32 &&
       this._config.auth.mode === "localDev" &&
@@ -73,6 +78,7 @@ class RiderServer extends CitrineOSServer {
         return {
           ready: true,
           remote_session_authorization: true,
+          signed_firmware_protocols: signedFirmware ? ["1.6", "2.0.1"] : [],
           adapter_version: version,
           tenant_id: 1,
           offline_fallback: false,

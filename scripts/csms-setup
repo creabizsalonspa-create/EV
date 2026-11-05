@@ -10,5 +10,5 @@ if not p.exists():
  with os.fdopen(fd,'w') as f:
   f.write('CSMS_DB_PASSWORD='+secrets.token_hex(32)+'\nCSMS_BROKER_PASSWORD='+secrets.token_hex(32)+'\n')
 PY
-docker compose pull
-docker compose up -d
+docker compose pull --ignore-buildable
+docker compose up -d --build

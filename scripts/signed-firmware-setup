@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3 - <<'PY'
+from pathlib import Path
+p=Path('services/business-api/.env');text=p.read_text();v=dict(line.split('=',1) for line in text.splitlines() if '=' in line and not line.startswith('#'))
+clean=lambda x:x.strip('"\'')
+if clean(v.get('APP_ENV',''))!='local' or clean(v.get('CSMS_SESSION_BRIDGE_ENABLED',''))!='true':raise SystemExit('Existing isolated local source configuration is required.')
+if not clean(v.get('CSMS_FIRMWARE_SIGNER_PINS','')) or not Path('services/business-api/storage/app/private/firmware/catalog/catalog.json').is_file():raise SystemExit('Provision a private artifact catalog and independently trusted signing certificate fingerprints first.')
+k='CSMS_SIGNED_FIRMWARE_ENABLED'
+if k in v and clean(v[k]) not in ('true','false'):raise SystemExit('Unsupported signed firmware setting.')
+if k not in v:
+ with p.open('a') as f:f.write('\n'+k+'=true\n')
+elif clean(v[k])=='false':p.write_text('\n'.join(k+'=true' if line.startswith(k+'=') else line for line in text.splitlines())+'\n')
+print('Local signed firmware adapter configured; artifact signature verification and Admin approval remain required. Production stays disabled.')
+PY
+# Install the documented source extension; preserve credentials and volumes.
+touch services/csms/rider/runtime/.reload-required
+./scripts/rider-auth-setup
+# Laravel's development runner reloads after environment edits. Only readiness
+# GETs are repeated; no identity, approval or firmware mutation is replayed.
+ready=0
+for attempt in {1..30}; do
+ if curl --fail --silent http://127.0.0.1:8000/up >/dev/null; then ready=$((ready+1)); else ready=0; fi
+ if [[ "$ready" -ge 3 ]]; then exit 0; fi
+ sleep 1
+done
+echo 'Local API did not regain stable readiness after configuration.' >&2
+exit 1
