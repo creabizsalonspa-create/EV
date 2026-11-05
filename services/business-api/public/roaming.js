@@ -16,6 +16,35 @@ window.createRoamingWorkspace = ({
         node.textContent = value ?? "";
         return node;
     };
+    const reconciliationLabels = {
+        partner_not_authorized_and_negotiated:
+            "Partner authorization or negotiation is required",
+        credit_requires_separate_reconciliation:
+            "Credit record needs separate review",
+        session_reference_missing: "CDR has no session reference",
+        session_not_received:
+            "Referenced partner session has not been received",
+        session_not_completed: "Partner session is not completed",
+        energy_precision_unsupported: "Energy precision needs review",
+        energy_mismatch: "Session and CDR energy differ",
+        history_exceeds_comparison_limit:
+            "Partner history exceeds automatic comparison limit",
+        history_contains_unlinked_cdrs:
+            "Partner history contains unlinked CDRs",
+        multiple_cdrs_for_session: "Multiple CDRs claim the same session",
+        currency_mismatch: "Session and CDR currencies differ",
+        location_id_mismatch: "Session and CDR locations differ",
+        evse_uid_mismatch: "Session and CDR EVSEs differ",
+        connector_id_mismatch: "Session and CDR connectors differ",
+        start_date_time_mismatch: "Session and CDR start times differ",
+        end_date_time_mismatch: "Session and CDR end times differ",
+        cost_excl_vat_missing_or_unsupported:
+            "Net cost is missing or needs precision review",
+        cost_incl_vat_missing_or_unsupported:
+            "Gross cost is missing or needs precision review",
+        cost_excl_vat_mismatch: "Session and CDR net costs differ",
+        cost_incl_vat_mismatch: "Session and CDR gross costs differ",
+    };
     const line = (parent, label, value) => {
         const p = ui("p", label);
         p.append(raw("span", ` ${value ?? "—"}`));
@@ -642,6 +671,28 @@ window.createRoamingWorkspace = ({
                     line(card, "Roaming gross cost", n.cost?.incl_vat);
                 }
                 line(card, "Roaming source updated", n.last_updated);
+            }
+            if (row.reconciliation) {
+                const report = row.reconciliation;
+                card.append(
+                    ui(
+                        "p",
+                        report.status === "source_consistent"
+                            ? "Partner session and CDR agree"
+                            : "Partner reconciliation requires review",
+                    ),
+                );
+                card.append(
+                    ui("p", "Source comparison does not authorize billing"),
+                );
+                for (const issue of report.issues || [])
+                    card.append(
+                        ui(
+                            "p",
+                            reconciliationLabels[issue] ||
+                                "Source fields require review",
+                        ),
+                    );
             }
             target.append(card);
         }

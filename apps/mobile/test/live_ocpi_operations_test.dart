@@ -35,6 +35,23 @@ void main() {
         (next['data'] as List).first['id'],
         isNot((records['data'] as List).first['id']),
       );
+      final cdrs = await api.request('ocpi/providers/$id/records/cdrs');
+      final reports = (cdrs['data'] as List)
+          .map((row) => row['reconciliation'] as Map)
+          .toList();
+      expect(
+        reports.map((row) => row['status']),
+        containsAll(['source_consistent', 'requires_review']),
+      );
+      expect(
+        reports.every(
+          (row) =>
+              row['billing_eligible'] == false &&
+              row['local_invoice_created'] == false,
+        ),
+        true,
+      );
+      expect(jsonEncode(cdrs).contains('PRIVATE-CDR-DRIVER-TOKEN'), false);
       await api.signOut();
       await api.signIn('roaming-other-${f['run']}@example.test', f['password']);
       await expectLater(

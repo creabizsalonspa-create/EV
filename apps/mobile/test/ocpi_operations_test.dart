@@ -61,6 +61,36 @@ class PartnerApi extends FixtureApi {
   }
 }
 
+class CdrApi extends PartnerApi {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path.endsWith('/records/cdrs'))
+      return {
+        'current_page': 1,
+        'last_page': 1,
+        'total': 1,
+        'data': [
+          {
+            'external_id': 'cdr-1',
+            'payload': {'token': 'PRIVATE PARTNER TOKEN'},
+            'normalized': {'energy_kwh': '12.34'},
+            'reconciliation': {
+              'status': 'requires_review',
+              'issues': ['energy_mismatch'],
+              'billing_eligible': false,
+            },
+          },
+        ],
+      };
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 class ProvisionApi extends PartnerApi {
   Map<String, dynamic>? created;
   @override
@@ -97,6 +127,33 @@ class ProvisionApi extends PartnerApi {
 }
 
 void main() {
+  testWidgets(
+    'CDR source discrepancies are visible without billing authority or private payloads',
+    (tester) async {
+      final api = CdrApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OcpiOperationsView(api: api, admin: false, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Inspect Charge detail records'));
+      await tester.tap(find.text('Inspect Charge detail records'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Session and CDR energy differ'));
+      expect(
+        find.text('Partner reconciliation requires review'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Source comparison does not authorize billing'),
+        findsOneWidget,
+      );
+      expect(find.text('Session and CDR energy differ'), findsOneWidget);
+      expect(find.textContaining('PRIVATE PARTNER TOKEN'), findsNothing);
+      expect(api.mutations, 0);
+    },
+  );
   testWidgets(
     'Admin provisions only approved server connections, initially unauthorized, with no blind retry',
     (tester) async {

@@ -47,4 +47,12 @@ foreach (['owner', 'other', 'admin'] as $name) {
         $records[] = ['country_code' => 'AE', 'party_id' => 'TST', 'id' => "$run-$i", 'publish' => $name === 'owner', 'name' => "Fixture $run $i <img src=x onerror=alert(1)>", 'address' => 'Synthetic address', 'city' => 'Test city', 'country' => 'ARE', 'coordinates' => ['latitude' => '25.2', 'longitude' => '55.3'], 'last_updated' => now()->subMinute()->toISOString(), 'evses' => [['uid' => "evse-$i", 'status' => 'AVAILABLE', 'connectors' => [['id' => '1', 'standard' => 'IEC_62196_T2_COMBO']]]]];
     }
     app(RecordSynchronizer::class)->ingest($p, 'locations', $records);
+    if ($name === 'owner') {
+        $common = ['country_code' => 'AE', 'party_id' => 'TST', 'last_updated' => now()->subMinute()->toISOString(), 'start_date_time' => now()->subHours(2)->toISOString(), 'end_date_time' => now()->subHour()->toISOString(), 'currency' => 'AED'];
+        foreach (['consistent', 'mismatch'] as $kind) {
+            $sessionId = $run.'-'.$kind;
+            app(RecordSynchronizer::class)->ingest($p, 'sessions', [$common + ['id' => $sessionId, 'status' => 'COMPLETED', 'kwh' => '12.34', 'location_id' => $run.'-0', 'evse_uid' => 'evse-0', 'connector_id' => '1', 'total_cost' => ['excl_vat' => '12.34']]]);
+            app(RecordSynchronizer::class)->ingest($p, 'cdrs', [$common + ['id' => 'cdr-'.$sessionId, 'session_id' => $sessionId, 'total_energy' => $kind === 'consistent' ? '12.3400' : '13', 'total_time' => '1', 'total_cost' => ['excl_vat' => '12.340'], 'cdr_location' => ['id' => $run.'-0', 'evse_uid' => 'evse-0', 'connector_id' => '1'], 'cdr_token' => ['uid' => 'PRIVATE-CDR-DRIVER-TOKEN']]]);
+        }
+    }
 }

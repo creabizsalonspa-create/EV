@@ -235,6 +235,90 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
     _ => '',
   };
 
+  String reconciliationIssue(Object? issue) => switch (issue) {
+    "partner_not_authorized_and_negotiated" => tr(
+      "Partner authorization or negotiation is required",
+      "يلزم تصريح الشريك والتفاوض معه",
+    ),
+    "credit_requires_separate_reconciliation" => tr(
+      "Credit record needs separate review",
+      "يتطلب سجل الرصيد مراجعة منفصلة",
+    ),
+    "session_reference_missing" => tr(
+      "CDR has no session reference",
+      "لا يتضمن سجل الشحن مرجع جلسة",
+    ),
+    "session_not_received" => tr(
+      "Referenced partner session has not been received",
+      "لم تُستلم جلسة الشريك المشار إليها",
+    ),
+    "session_not_completed" => tr(
+      "Partner session is not completed",
+      "جلسة الشريك غير مكتملة",
+    ),
+    "energy_precision_unsupported" => tr(
+      "Energy precision needs review",
+      "تتطلب دقة الطاقة المراجعة",
+    ),
+    "energy_mismatch" => tr(
+      "Session and CDR energy differ",
+      "تختلف طاقة الجلسة وسجل الشحن",
+    ),
+    "history_exceeds_comparison_limit" => tr(
+      "Partner history exceeds automatic comparison limit",
+      "يتجاوز سجل الشريك حد المقارنة التلقائية",
+    ),
+    "history_contains_unlinked_cdrs" => tr(
+      "Partner history contains unlinked CDRs",
+      "يتضمن سجل الشريك سجلات شحن غير مرتبطة",
+    ),
+    "multiple_cdrs_for_session" => tr(
+      "Multiple CDRs claim the same session",
+      "تشير سجلات شحن متعددة إلى الجلسة نفسها",
+    ),
+    "currency_mismatch" => tr(
+      "Session and CDR currencies differ",
+      "تختلف عملة الجلسة وسجل الشحن",
+    ),
+    "location_id_mismatch" => tr(
+      "Session and CDR locations differ",
+      "يختلف موقع الجلسة وسجل الشحن",
+    ),
+    "evse_uid_mismatch" => tr(
+      "Session and CDR EVSEs differ",
+      "تختلف وحدة شحن الجلسة وسجل الشحن",
+    ),
+    "connector_id_mismatch" => tr(
+      "Session and CDR connectors differ",
+      "يختلف موصل الجلسة وسجل الشحن",
+    ),
+    "start_date_time_mismatch" => tr(
+      "Session and CDR start times differ",
+      "يختلف وقت بدء الجلسة وسجل الشحن",
+    ),
+    "end_date_time_mismatch" => tr(
+      "Session and CDR end times differ",
+      "يختلف وقت انتهاء الجلسة وسجل الشحن",
+    ),
+    "cost_excl_vat_missing_or_unsupported" => tr(
+      "Net cost is missing or needs precision review",
+      "التكلفة الصافية مفقودة أو تتطلب مراجعة الدقة",
+    ),
+    "cost_incl_vat_missing_or_unsupported" => tr(
+      "Gross cost is missing or needs precision review",
+      "التكلفة الإجمالية مفقودة أو تتطلب مراجعة الدقة",
+    ),
+    "cost_excl_vat_mismatch" => tr(
+      "Session and CDR net costs differ",
+      "تختلف التكلفة الصافية للجلسة وسجل الشحن",
+    ),
+    "cost_incl_vat_mismatch" => tr(
+      "Session and CDR gross costs differ",
+      "تختلف التكلفة الإجمالية للجلسة وسجل الشحن",
+    ),
+    _ => tr("Source fields require review", "تتطلب حقول المصدر المراجعة"),
+  };
+
   List<Widget> record(Map<String, dynamic> row) {
     final n = row['normalized'] as Map? ?? {};
     // Render only normalized allowlisted fields, never opaque tokens or source payloads.
@@ -257,6 +341,28 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
           Text(
             '${(component as Map)['type']} · ${component['price']} · ${tr('Step', 'الخطوة')} ${component['step_size']}',
           ),
+      if (row['reconciliation'] is Map) ...[
+        Text(
+          (row['reconciliation'] as Map)['status'] == 'source_consistent'
+              ? tr(
+                  'Partner session and CDR agree',
+                  'تتطابق جلسة الشريك وسجل تفاصيل الشحن',
+                )
+              : tr(
+                  'Partner reconciliation requires review',
+                  'تتطلب مطابقة سجلات الشريك المراجعة',
+                ),
+        ),
+        Text(
+          tr(
+            'Source comparison does not authorize billing',
+            'لا تمنح مقارنة المصدر تصريحاً بالفوترة',
+          ),
+        ),
+        for (final issue
+            in ((row['reconciliation'] as Map)['issues'] as List? ?? []))
+          Text(reconciliationIssue(issue)),
+      ],
       if (row['source_updated_at'] != null)
         Text(
           '${tr('Source updated (UTC)', 'تحديث المصدر (UTC)')}: ${row['source_updated_at']}',
