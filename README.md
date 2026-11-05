@@ -29,3 +29,54 @@ Not delivered: full production security/2FA/KYC, multi-connector inventory, full
 The isolated CitrineOS development stack and tested OCPP subset are documented in [services/csms/README.md](services/csms/README.md). Full internal checkpoint evidence and release blockers are in [docs/QA_REPORT.md](docs/QA_REPORT.md).
 
 See [API contract](docs/API.md), [decisions](docs/DECISIONS.md), and [operations](docs/OPERATIONS.md).
+
+### Persistent local charging demonstration
+
+After the existing local application, CitrineOS, charging bridge, rider authorization
+and remote-session authorization setup, run:
+
+```sh
+./scripts/charging-workers start
+./scripts/client-demo prepare
+./scripts/client-demo start
+./scripts/client-demo status
+```
+
+`prepare` creates separate synthetic customer, vendor and Admin accounts and two
+owned simulator stations (OCPP 1.6 and 2.0.1). It prints the path of an owner-only
+`artifacts/client-demo/<run>/access.json` file. Read that file locally for sign-in;
+never publish it, its passwords or the station control files. Normal preparation
+does not create reservations. Use the existing customer web or configured mobile
+app to discover the named **LOCAL SIMULATOR** stations and book a future half-hour.
+Start during the confirmed window. Vendor/Admin charging dashboards show canonical
+source operations, live meter readings, stop status and the resulting invoice.
+Keep the application, CSMS and workers running while demonstrating.
+
+For a card demonstration, register an RFID/IdToken in customer Rider access,
+request station access, then approve and provision it from the owning vendor
+company. During a current reservation, submit the private token through stdin:
+
+```sh
+./scripts/client-demo swipe 1.6 ISO14443 < /path/to/private-card-value
+# or: ./scripts/client-demo swipe 2.0.1 Central < /path/to/private-card-value
+```
+
+The token is not a command-line argument. The single swipe expires after ten
+seconds, requires an idle device, managed source provisioning and current online
+Laravel authorization. Revoking a card does not fabricate a transaction stop.
+Stop an active session through its existing authorized application control.
+
+`./scripts/client-demo stop` disconnects only the owned device processes. It never
+invents a source stop, issues a refund or deletes a pending command. Idle restarts
+retain the meter. An interrupted/uncertain transaction is held for operator/source
+reconciliation; do not delete its journal or replay its start. Devices reconnect
+only while idle. Synthetic energy advances at 18 kW and passes through actual
+CitrineOS source ingestion and the existing invoice ledger. This proves local
+software integration, not physical charging, live roaming or real payments.
+
+For focused automated lab proof only, `prepare --qa-current-slot` explicitly seeds
+current-slot reservations; `node tests/client-demo.cjs` exercises remote charging,
+and `node tests/client-demo.cjs --rfid` exercises managed cards on a fresh fixture.
+This does not prove customer booking creation. CI runs the owned lifecycle wrapper
+after the existing charging regressions and retains only sanitized test output;
+private demo access files are excluded from uploaded artifacts.
