@@ -376,6 +376,9 @@ window.createRoamingWorkspace = ({
                     button(card, `Roaming ${module}`, () =>
                         records(provider, module, detail),
                     );
+                button(card, "Roaming credentials", () =>
+                    credentialWorkspace(provider, detail),
+                );
                 if (provider.authorized) {
                     button(card, "Roaming negotiate", async () => {
                         if (
@@ -433,6 +436,120 @@ window.createRoamingWorkspace = ({
                 button(privateRoot, "Retry", () => providers(page));
             }
         }
+    }
+    async function credentialWorkspace(provider, target, page = 1) {
+        const epoch = generation,
+            version = ++details;
+        target.replaceChildren(
+            ui("h3", "Roaming credentials"),
+            ui("p", "Loading…"),
+        );
+        let result;
+        try {
+            result = await api(
+                `ocpi/providers/${provider.id}/credentials?page=${page}`,
+                "GET",
+                undefined,
+                privateRequest.signal,
+            );
+        } catch (e) {
+            if (epoch === generation && version === details) {
+                target.replaceChildren(
+                    ui("p", "Roaming credentials unavailable"),
+                );
+                button(target, "Refresh", () =>
+                    credentialWorkspace(provider, target, page),
+                );
+            }
+            return;
+        }
+        if (epoch !== generation || version !== details) return;
+        target.replaceChildren(
+            raw("h3", provider.name),
+            ui("h4", "Roaming credentials"),
+            ui("p", "Roaming credentials disclaimer"),
+        );
+        target.append(
+            ui(
+                "p",
+                result.configured
+                    ? "Roaming managed credentials configured"
+                    : "Roaming credentials unavailable",
+            ),
+            ui("p", `Roaming credential state ${result.state}`),
+        );
+        if (result.exchanged_at) target.append(raw("p", result.exchanged_at));
+        button(target, "Refresh", () =>
+            credentialWorkspace(provider, target, page),
+        );
+        if (actor()?.role === "admin")
+            for (const action of result.available_actions) {
+                const form = document.createElement("form");
+                const label = ui("label", "Roaming credentials reason"),
+                    note = document.createElement("textarea");
+                note.required = true;
+                note.minLength = 10;
+                note.maxLength = 2000;
+                label.append(note);
+                const submit = ui("button", `Roaming credentials ${action}`);
+                submit.type = "submit";
+                form.append(label, submit);
+                target.append(form);
+                form.onsubmit = async (event) => {
+                    event.preventDefault();
+                    if (!form.reportValidity() || form.dataset.attempted)
+                        return;
+                    if (
+                        !confirm(EvLocale.text("Roaming external confirmation"))
+                    )
+                        return;
+                    const body = {
+                        action,
+                        reason: note.value,
+                        idempotency_key: crypto.randomUUID(),
+                    };
+                    form.dataset.attempted = "true";
+                    for (const input of target.querySelectorAll(
+                        "input,textarea,button",
+                    ))
+                        input.disabled = true;
+                    try {
+                        await api(
+                            `ocpi/providers/${provider.id}/credentials`,
+                            "POST",
+                            body,
+                        );
+                        if (epoch === generation && version === details) {
+                            await providers();
+                            const fresh = privateRoot.querySelector(
+                                "[data-roaming-detail]",
+                            );
+                            if (fresh)
+                                await credentialWorkspace(provider, fresh);
+                        }
+                    } catch (e) {
+                        if (epoch === generation && version === details) {
+                            target.replaceChildren(
+                                ui("p", "Roaming credentials uncertain"),
+                            );
+                            button(target, "Refresh", () =>
+                                credentialWorkspace(provider, target),
+                            );
+                            notice(e);
+                        }
+                    }
+                };
+            }
+        for (const operation of result.operations.data)
+            target.append(
+                raw(
+                    "p",
+                    `#${operation.id} · ${EvLocale.text("Roaming credential action " + operation.action)} · ${EvLocale.text("Roaming credential state " + operation.state)} · ${operation.attempted_at || operation.created_at}`,
+                ),
+            );
+        pager(target, result.operations, (p) =>
+            credentialWorkspace(provider, target, p),
+        );
     }
     async function records(provider, module, target, page = 1) {
         const epoch = generation,

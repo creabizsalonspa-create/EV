@@ -3,6 +3,7 @@
 namespace App\Services\Ocpi;
 
 use App\Models\OcpiProvider;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -11,7 +12,7 @@ class PartnerClient
 {
     public const MODULES = ['locations', 'tariffs', 'sessions', 'cdrs'];
 
-    public function connection(OcpiProvider $provider): array
+    public function connection(OcpiProvider $provider, bool $bootstrap = false): array
     {
         if (! $provider->authorized) {
             throw new OcpiException('Operator authorization is required.');
@@ -30,12 +31,25 @@ class PartnerClient
             throw new OcpiException('Invalid operator credential format.');
         }
 
+        if (($c['managed_credentials'] ?? false) && ! $bootstrap && $provider->exists) {
+            $link = DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->first();
+            if (! $link) {
+                throw new OcpiException('Managed partner credentials must be exchanged before data synchronization.');
+            }
+            if ($link) {
+                if ($link->state !== 'active' || $link->owner_id !== $provider->owner_id || ! hash_equals($link->configuration_hash, app(CredentialExchange::class)->configurationHash($provider)) || ! $link->remote_token_ciphertext) {
+                    throw new OcpiException('Managed partner credentials require reconciliation.');
+                }
+                $c['authorization_token'] = base64_encode(Crypt::decryptString($link->remote_token_ciphertext));
+            }
+        }
+
         return $c + ['origin' => $origin];
     }
 
     public function guardedUrl(OcpiProvider $provider, string $url): string
     {
-        $c = $this->connection($provider);
+        $c = $this->connection($provider, true);
         $origin = rtrim($c['origin'], '/');
         if (str_starts_with($url, '/') && ! str_starts_with($url, '//')) {
             $url = $origin.$url;

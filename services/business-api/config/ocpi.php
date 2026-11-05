@@ -16,6 +16,10 @@ foreach ($metadata as $key => $connection) {
         throw new RuntimeException('OCPI token_env must name an OCPI_*_TOKEN variable.');
     }
     $connections[$key] = [
+        'managed_credentials' => ($connection['managed_credentials'] ?? false) === true,
+        'party_country' => $connection['party_country'] ?? null,
+        'party_id' => $connection['party_id'] ?? null,
+        'party_role' => $connection['party_role'] ?? null,
         'origin' => $connection['origin'] ?? null,
         'versions_path' => $connection['versions_path'] ?? '/ocpi/versions',
         'environment' => $connection['environment'] ?? 'unverified',
@@ -23,4 +27,4 @@ foreach ($metadata as $key => $connection) {
     ];
 }
 
-return ['connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];
+return ['local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];

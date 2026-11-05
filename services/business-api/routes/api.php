@@ -105,3 +105,9 @@ require __DIR__.'/corporate_hosted_webhook.php';
 Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationController::class)->middleware('throttle:charger-admission');
 
 Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->where('token', '[a-f0-9]{64}')->middleware('throttle:30,1');
+
+Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
+    Route::get('versions', [\App\Http\Controllers\OcpiProtocolCredentialsController::class, 'handle']);
+    Route::get('2.2.1', [\App\Http\Controllers\OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'details');
+    Route::match(['GET', 'PUT', 'DELETE'], '2.2.1/credentials', [\App\Http\Controllers\OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');
+});

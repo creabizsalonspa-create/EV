@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'ocpi_credentials.dart';
 
 String partnerOperationsTitle(BuildContext context) =>
     Localizations.localeOf(context).languageCode == 'ar'
@@ -187,6 +188,20 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
     }
   }
 
+  Future<void> credentials(Map<String, dynamic> provider) async {
+    if (busy || uncertain) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OcpiCredentialsView(
+          api: widget.api,
+          providerId: provider['id'] as int,
+          onExpired: widget.onExpired,
+        ),
+      ),
+    );
+    if (mounted) await refresh(page: providers?.current ?? 1);
+  }
+
   Future<void> provision() async {
     if (busy || uncertain) return;
     await Navigator.of(context).push(
@@ -303,6 +318,12 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
                     ),
                     if (p['last_synced_at'] != null)
                       Text('${p['last_synced_at']}'),
+                    TextButton(
+                      onPressed: busy || uncertain
+                          ? null
+                          : () => credentials(p),
+                      child: Text(partnerCredentialsTitle(context)),
+                    ),
                     if (widget.admin)
                       TextButton(
                         onPressed: busy || uncertain

@@ -41,7 +41,7 @@ class OcpiController extends Controller
             $provider = OcpiProvider::create($v);
             if ($provider->authorized) {
                 try {
-                    $client->connection($provider);
+                    $client->connection($provider, true);
                 } catch (OcpiException $e) {
                     abort(422, $e->getMessage());
                 }
@@ -65,12 +65,13 @@ class OcpiController extends Controller
             $provider->authorized = $v['authorized'];
             if ($provider->authorized) {
                 try {
-                    $client->connection($provider);
+                    $client->connection($provider, true);
                 } catch (OcpiException $e) {
                     abort(422, $e->getMessage());
                 }
             }
             $provider->fill(['version' => null, 'endpoints' => null, 'negotiated_at' => null, 'authorization_revision' => $exhausted ? PHP_INT_MAX : (int) $provider->authorization_revision + 1])->save();
+            DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update(['state' => 'revoked', 'local_token_digest' => null, 'updated_at' => now()]);
             $this->audit($r, $provider->authorized ? 'ocpi.provider_authorized' : 'ocpi.provider_revoked', $provider->id);
 
             return response()->json($provider);

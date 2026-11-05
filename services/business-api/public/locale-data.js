@@ -1,4 +1,95 @@
 window.EV_MESSAGES = {
+    "Roaming credential state active": {
+        en: "Credentials active",
+        ar: "بيانات الاعتماد نشطة",
+    },
+    "Roaming credential state not_exchanged": {
+        en: "Credentials not exchanged",
+        ar: "لم يتم تبادل بيانات الاعتماد",
+    },
+    "Roaming credential state dispatching": {
+        en: "Exchange awaiting acknowledgement",
+        ar: "تبادل البيانات في انتظار التأكيد",
+    },
+    "Roaming credential state acknowledged": {
+        en: "Exchange acknowledged",
+        ar: "تم تأكيد التبادل",
+    },
+    "Roaming credential state outcome_unknown": {
+        en: "Exchange outcome uncertain",
+        ar: "نتيجة التبادل غير مؤكدة",
+    },
+    "Roaming credential state revoked": {
+        en: "Credentials revoked",
+        ar: "تم إلغاء بيانات الاعتماد",
+    },
+    "Roaming credential state unregistered": {
+        en: "Credentials unregistered",
+        ar: "تم إلغاء تسجيل بيانات الاعتماد",
+    },
+    "Roaming credential state configuration_changed": {
+        en: "Configuration requires review",
+        ar: "تتطلب التهيئة مراجعة",
+    },
+    "Roaming credential state ownership_changed": {
+        en: "Ownership requires review",
+        ar: "تتطلب الملكية مراجعة",
+    },
+    "Roaming credential action register": { en: "Registration", ar: "التسجيل" },
+    "Roaming credential action rotate": {
+        en: "Credential rotation",
+        ar: "تدوير بيانات الاعتماد",
+    },
+    "Roaming credential action unregister": {
+        en: "Deregistration",
+        ar: "إلغاء التسجيل",
+    },
+    "Roaming credential action peer_rotate": {
+        en: "Peer rotated credentials",
+        ar: "قام الشريك بتدوير بيانات الاعتماد",
+    },
+    "Roaming credential action peer_revoke": {
+        en: "Peer revoked credentials",
+        ar: "قام الشريك بإلغاء بيانات الاعتماد",
+    },
+
+    "Roaming credentials": {
+        en: "Partner credentials",
+        ar: "بيانات اعتماد الشريك",
+    },
+    "Roaming credentials disclaimer": {
+        en: "Tokens stay on the server. Exchange is one-shot; uncertain outcomes require partner reconciliation. This does not enable charging or billing.",
+        ar: "تبقى الرموز على الخادم. يتم التبادل مرة واحدة؛ تتطلب النتائج غير المؤكدة مطابقة مع الشريك. لا يمنح هذا صلاحية الشحن أو الفوترة.",
+    },
+    "Roaming credentials unavailable": {
+        en: "Approved managed credentials configuration unavailable.",
+        ar: "تهيئة بيانات الاعتماد المُدارة المعتمدة غير متاحة.",
+    },
+    "Roaming managed credentials configured": {
+        en: "Managed credentials configuration approved.",
+        ar: "تهيئة بيانات الاعتماد المُدارة معتمدة.",
+    },
+    "Roaming credentials reason": {
+        en: "Operator approval note",
+        ar: "ملاحظة اعتماد المشغّل",
+    },
+    "Roaming credentials register": {
+        en: "Exchange partner credentials",
+        ar: "تبادل بيانات اعتماد الشريك",
+    },
+    "Roaming credentials rotate": {
+        en: "Rotate partner credentials",
+        ar: "تدوير بيانات اعتماد الشريك",
+    },
+    "Roaming credentials unregister": {
+        en: "Unregister partner credentials",
+        ar: "إلغاء تسجيل بيانات اعتماد الشريك",
+    },
+    "Roaming credentials uncertain": {
+        en: "Outcome uncertain. No automatic retry; refresh the recorded operation before further action.",
+        ar: "النتيجة غير مؤكدة. لن تتكرر العملية تلقائيًا؛ حدّث سجل العملية قبل أي إجراء آخر.",
+    },
+
     "Automatic fault monitoring": {
         en: "Automatic fault monitoring",
         ar: "المراقبة التلقائية لأعطال الشاحن",
