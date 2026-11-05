@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ChargerAdmissionController;
 use App\Http\Controllers\ChargerDiagnosticsController;
+use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerResetController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\MaintenanceWindowController;
@@ -55,3 +56,12 @@ Route::get('/companies/{company}/chargers/{charger}/admission/events', [ChargerA
 Route::get('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'create']);
 Route::post('/companies/{company}/chargers/{charger}/reset-operations/{operation}/review', [ChargerResetController::class, 'review'])->whereNumber('operation');
+
+Route::get('/companies/{company}/firmware-releases', [ChargerFirmwareController::class, 'releases']);
+Route::post('/companies/{company}/firmware-releases', [ChargerFirmwareController::class, 'approve']);
+Route::delete('/companies/{company}/firmware-releases/{release}', [ChargerFirmwareController::class, 'revoke'])->whereNumber('release');
+Route::get('/companies/{company}/chargers/{charger}/firmware-operations', [ChargerFirmwareController::class, 'operations']);
+Route::post('/companies/{company}/chargers/{charger}/firmware-operations', [ChargerFirmwareController::class, 'deploy']);
+Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/review', [ChargerFirmwareController::class, 'review'])->whereNumber('operation');
+
+Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/cancel', [ChargerFirmwareController::class, 'cancel'])->whereNumber('operation');

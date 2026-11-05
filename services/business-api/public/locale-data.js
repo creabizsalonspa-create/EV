@@ -1866,6 +1866,51 @@ window.EV_MESSAGES = {
         ar: "أُبطلت بيانات الدخول",
     },
     "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Cancel firmware before dispatch": {
+        en: "Cancel firmware before dispatch",
+        ar: "إلغاء البرنامج الثابت قبل الإرسال",
+    },
+    "Signed firmware releases": {
+        en: "Signed firmware releases",
+        ar: "إصدارات البرامج الثابتة الموقعة",
+    },
+    "Signed firmware operations": {
+        en: "Signed firmware operations",
+        ar: "عمليات البرامج الثابتة الموقعة",
+    },
+    "Signed firmware disclaimer": {
+        en: "Local simulator only. Admin approves server-provisioned artifacts after byte, signature, certificate pin and validity checks. Only compatible signed releases can be requested. No unsigned fallback or automatic retry. Starts stay blocked until correlated terminal source evidence and fresh idle state are reviewed. Source reports do not prove physical installation.",
+        ar: "للمحاكاة المحلية فقط. يعتمد المسؤول ملفات معدة على الخادم بعد فحص المحتوى والتوقيع وبصمة الشهادة وصلاحيتها. تُطلب الإصدارات الموقعة المتوافقة فقط. لا يوجد بديل غير موقع أو إعادة تلقائية. يبقى الشحن محظوراً حتى مراجعة تقرير مصدر نهائي مرتبط وحالة خمول حديثة. لا تثبت تقارير المصدر التثبيت الفعلي.",
+    },
+    "Approve configured firmware": {
+        en: "Approve configured firmware",
+        ar: "اعتماد برنامج ثابت مهيأ",
+    },
+    "Configured signed release": {
+        en: "Configured signed release",
+        ar: "الإصدار الموقع المهيأ",
+    },
+    "Approved signed release": {
+        en: "Approved signed release",
+        ar: "الإصدار الموقع المعتمد",
+    },
+    "Revoke signed release": {
+        en: "Revoke signed release",
+        ar: "إبطال الإصدار الموقع",
+    },
+    "Firmware release revoked": { en: "Release revoked", ar: "الإصدار مبطل" },
+    "Request signed firmware": {
+        en: "Request signed firmware",
+        ar: "طلب برنامج ثابت موقع",
+    },
+    "No compatible signed firmware": {
+        en: "No compatible approved signed release is available. Server artifact provisioning and Admin approval are required.",
+        ar: "لا يوجد إصدار موقع معتمد ومتوافق. يلزم إعداد الملف على الخادم واعتماد المسؤول.",
+    },
+    "Review firmware source evidence": {
+        en: "Review firmware source evidence",
+        ar: "مراجعة دليل مصدر البرنامج الثابت",
+    },
     "Safe reset operations": {
         en: "Safe reset operations",
         ar: "عمليات إعادة التشغيل الآمنة",

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController as A;
+use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerIngressController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
@@ -102,3 +103,5 @@ require __DIR__.'/campaign_delivery.php';
 require __DIR__.'/corporate_hosted_webhook.php';
 
 Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationController::class)->middleware('throttle:charger-admission');
+
+Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->where('token', '[a-f0-9]{64}')->middleware('throttle:30,1');

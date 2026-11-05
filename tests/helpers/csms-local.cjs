@@ -79,6 +79,7 @@ class SimulatedCharger {
     this.pending = new Map();
     this.commands = [];
     this.acceptSafeReset = false;
+    this.firmwareHandler = null;
   }
   async connect() {
     this.socket = new WebSocket(
@@ -92,6 +93,23 @@ class SimulatedCharger {
         if (m[2] === "Reset" && this.acceptSafeReset) {
           assert(["Soft", "OnIdle"].includes(m[3].type), "Unsafe reset mode");
           this.socket.send(JSON.stringify([3, m[1], { status: "Accepted" }]));
+        } else if (
+          ["SignedUpdateFirmware", "UpdateFirmware"].includes(m[2]) &&
+          this.firmwareHandler
+        ) {
+          Promise.resolve(this.firmwareHandler(m[3], m[2]))
+            .then((reply) => this.socket.send(JSON.stringify([3, m[1], reply])))
+            .catch(() =>
+              this.socket.send(
+                JSON.stringify([
+                  4,
+                  m[1],
+                  "GenericError",
+                  "Synthetic signed firmware handling failed",
+                  {},
+                ]),
+              ),
+            );
         } else if (
           [
             "RemoteStartTransaction",

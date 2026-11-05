@@ -303,9 +303,12 @@ window.createVendorWorkspace = ({
             owner = caps.owner,
             admin = caps.reviewer;
         if (owner || admin)
-            button(host, "Rider authorization requests", () =>
-                riderRequests(company, host, epoch),
+            button(host, "Signed firmware releases", () =>
+                firmwareReleases(company, host, epoch),
             );
+        button(host, "Rider authorization requests", () =>
+            riderRequests(company, host, epoch),
+        );
         host.append(
             ui("p", "Company status: {status}", {
                 status: companyStatus(company.status),
@@ -827,6 +830,9 @@ window.createVendorWorkspace = ({
                 button(row, "Secure charger admission", () =>
                     admission(company, charger, row, epoch),
                 );
+                button(row, "Signed firmware operations", () =>
+                    firmwareOperations(company, charger, row, epoch),
+                );
                 button(row, "Safe reset operations", () =>
                     resets(company, charger, row, epoch),
                 );
@@ -838,6 +844,277 @@ window.createVendorWorkspace = ({
             1,
             epoch,
         );
+    }
+    async function firmwareReleases(company, parent, epoch, page = 1) {
+        parent.querySelector("[data-firmware-releases]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.firmwareReleases = "";
+        parent.append(pane);
+        const path = base + `companies/${company.id}/firmware-releases`;
+        const result = await api(
+            path + `?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        pane.append(
+            ui("h3", "Signed firmware releases"),
+            ui("p", "Signed firmware disclaimer"),
+        );
+        const refresh = () => firmwareReleases(company, parent, epoch, page);
+        button(pane, "Refresh", refresh);
+        if (
+            result.can_publish &&
+            result.adapter_enabled &&
+            result.configured_candidates.length
+        )
+            form(
+                pane,
+                "Approve configured firmware",
+                [
+                    {
+                        name: "catalog_key",
+                        label: "Configured signed release",
+                        choices: Object.fromEntries(
+                            result.configured_candidates.map((v) => [
+                                v.key,
+                                `${v.manufacturer} · ${v.model} · ${v.version}`,
+                            ]),
+                        ),
+                    },
+                    {
+                        name: "note",
+                        label: "Operator recovery note",
+                        max: 2000,
+                    },
+                ],
+                async (body) => {
+                    await api(
+                        path,
+                        "POST",
+                        { catalog_key: body.catalog_key, note: body.note },
+                        controller?.signal,
+                    );
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                },
+            );
+        for (const release of result.data) {
+            const row = document.createElement("article");
+            row.dataset.firmwareRelease = release.id;
+            row.append(
+                raw(
+                    "h4",
+                    `${release.manufacturer} · ${release.model} · ${release.version}`,
+                ),
+                raw("p", release.sha256),
+                raw("p", release.signer_fingerprint),
+                raw("p", release.size),
+            );
+            if (release.revoked_at)
+                row.append(ui("p", "Firmware release revoked"));
+            else if (result.can_publish && result.adapter_enabled)
+                form(
+                    row,
+                    "Revoke signed release",
+                    [
+                        {
+                            name: "note",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (body) => {
+                        await api(
+                            path + `/${release.id}`,
+                            "DELETE",
+                            { note: body.note },
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected) await refresh();
+                    },
+                );
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                firmwareReleases(company, parent, epoch, page - 1),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                firmwareReleases(company, parent, epoch, page + 1),
+            );
+    }
+    async function firmwareOperations(
+        company,
+        charger,
+        parent,
+        epoch,
+        page = 1,
+        releasePage = 1,
+    ) {
+        parent.querySelector("[data-firmware-operations]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.firmwareOperations = "";
+        parent.append(pane);
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/firmware-operations`;
+        const result = await api(
+            path + `?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        pane.append(
+            ui("h3", "Signed firmware operations"),
+            ui("p", "Signed firmware disclaimer"),
+        );
+        const refresh = () =>
+            firmwareOperations(
+                company,
+                charger,
+                parent,
+                epoch,
+                page,
+                releasePage,
+            );
+        button(pane, "Refresh", refresh);
+        if (result.can_manage && result.adapter_enabled) {
+            const releases = await api(
+                base +
+                    `companies/${company.id}/firmware-releases?` +
+                    new URLSearchParams({
+                        page: String(releasePage),
+                        manufacturer: charger.manufacturer,
+                        model: charger.model,
+                        active: "true",
+                    }),
+                "GET",
+                undefined,
+                controller?.signal,
+            );
+            if (!valid(epoch) || !pane.isConnected) return;
+            const compatible = releases.data.filter(
+                (v) =>
+                    !v.revoked_at &&
+                    v.manufacturer === charger.manufacturer &&
+                    v.model === charger.model,
+            );
+            if (releases.current_page > 1)
+                button(pane, "Previous", () =>
+                    firmwareOperations(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page,
+                        releasePage - 1,
+                    ),
+                );
+            if (releases.current_page < releases.last_page)
+                button(pane, "Next", () =>
+                    firmwareOperations(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page,
+                        releasePage + 1,
+                    ),
+                );
+            if (compatible.length)
+                form(
+                    pane,
+                    "Request signed firmware",
+                    [
+                        {
+                            name: "release_id",
+                            label: "Approved signed release",
+                            choices: Object.fromEntries(
+                                compatible.map((v) => [v.id, v.version]),
+                            ),
+                        },
+                        {
+                            name: "reason",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (body) => {
+                        await api(
+                            path,
+                            "POST",
+                            { ...body, release_id: Number(body.release_id) },
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected) await refresh();
+                    },
+                );
+            else pane.append(ui("p", "No compatible signed firmware"));
+        }
+        for (const operation of result.data) {
+            const row = document.createElement("article");
+            row.dataset.firmwareOperation = operation.id;
+            row.append(
+                raw("h4", `#${operation.id} · ${operation.version}`),
+                raw("p", operation.status),
+                raw("p", operation.sha256),
+                raw("p", operation.created_at),
+            );
+            if (
+                !operation.reviewed_at &&
+                result.can_manage &&
+                result.adapter_enabled
+            )
+                form(
+                    row,
+                    operation.status === "requested"
+                        ? "Cancel firmware before dispatch"
+                        : "Review firmware source evidence",
+                    [
+                        {
+                            name: "note",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (body) => {
+                        await api(
+                            path +
+                                `/${operation.id}/${operation.status === "requested" ? "cancel" : "review"}`,
+                            "POST",
+                            { note: body.note },
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected) await refresh();
+                    },
+                );
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                firmwareOperations(
+                    company,
+                    charger,
+                    parent,
+                    epoch,
+                    page - 1,
+                    releasePage,
+                ),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                firmwareOperations(
+                    company,
+                    charger,
+                    parent,
+                    epoch,
+                    page + 1,
+                    releasePage,
+                ),
+            );
     }
     async function resets(company, charger, parent, epoch, page = 1) {
         parent.querySelector("[data-reset-operations]")?.remove();

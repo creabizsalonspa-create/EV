@@ -20,6 +20,10 @@ class StationGate
 
     private function ready(Station $station, VendorSite $site, ?VendorCompany $company, Collection $connectors, Collection $chargers, ?object $binding, ?string $timezone): bool
     {
+        if (DB::table('charger_firmware_operations as firmware')->join('csms_bindings as binding', 'binding.id', '=', 'firmware.binding_id')->where('binding.station_id', $station->id)->whereNull('firmware.reviewed_at')->exists()) {
+            return false;
+        }
+
         if (DB::table('charger_reset_operations as reset')->join('csms_bindings as binding', 'binding.id', '=', 'reset.binding_id')->where('binding.station_id', $station->id)->whereNull('reset.reviewed_at')->exists()) {
             return false;
         }
@@ -81,6 +85,7 @@ class StationGate
     {
 
         $station = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
+        abort_if(DB::table('charger_firmware_operations as firmware')->join('csms_bindings as binding', 'binding.id', '=', 'firmware.binding_id')->where('binding.station_id', $station->id)->whereNull('firmware.reviewed_at')->exists(), 409, 'Charger has an unresolved signed firmware operation.');
         abort_if(DB::table('charger_reset_operations as reset')->join('csms_bindings as binding', 'binding.id', '=', 'reset.binding_id')->where('binding.station_id', $station->id)->whereNull('reset.reviewed_at')->exists(), 409, 'Charger has an unresolved maintenance operation.');
 
         abort_unless($station->source === 'simulator', 409, 'Only simulator charging admission is enabled.');

@@ -1,6 +1,10 @@
 <?php
 
 return [
+    'firmware_enabled' => env('CSMS_SIGNED_FIRMWARE_ENABLED', false),
+    'firmware_catalog_root' => storage_path('app/private/firmware/catalog'),
+    'firmware_signer_pins' => array_values(array_filter(explode(',', (string) env('CSMS_FIRMWARE_SIGNER_PINS', '')))),
+    'firmware_download_base' => env('CSMS_FIRMWARE_DOWNLOAD_BASE', 'http://127.0.0.1:8000'),
     'remote_authorization_enabled' => env('CSMS_REMOTE_AUTHORIZATION_ENABLED', false),
     'command_worker_enabled' => env('CSMS_COMMAND_WORKER_ENABLED', false),
     'operations_base_url' => env('CSMS_OPERATIONS_BASE_URL', 'http://citrine:8080'),

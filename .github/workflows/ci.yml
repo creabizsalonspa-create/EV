@@ -31,6 +31,7 @@ jobs:
       - run: npm run test:web-session
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
+      - run: ./scripts/signed-firmware-validator-test
       - run: npm run test:ocpp
       - run: ./scripts/charging-setup
       - run: ./scripts/charging-bridge-setup

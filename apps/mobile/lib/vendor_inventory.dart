@@ -5,6 +5,7 @@ import 'vendor_topology.dart';
 import 'charger_admission.dart';
 import 'charger_diagnostics.dart';
 import 'charger_resets.dart';
+import 'charger_firmware.dart';
 import 'maintenance_windows.dart';
 import 'topology_strings.dart';
 import 'vendor_company.dart';
@@ -382,6 +383,24 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
                                     ),
                                   ),
                             child: Text(resetTitle(context)),
+                          ),
+                        if (level == 2)
+                          OutlinedButton(
+                            onPressed: busy
+                                ? null
+                                : () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => ChargerFirmwareView(
+                                        api: widget.api,
+                                        companyId: widget.company!['id'] as int,
+                                        chargerId: row['id'] as int,
+                                        manufacturer: '${row['manufacturer']}',
+                                        model: '${row['model']}',
+                                        onExpired: widget.onExpired,
+                                      ),
+                                    ),
+                                  ),
+                            child: Text(firmwareTitle(context)),
                           ),
                         if (level == 3) ...[
                           OutlinedButton(

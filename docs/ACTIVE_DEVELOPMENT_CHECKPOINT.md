@@ -1,3 +1,9 @@
+# Signed firmware continuation — 5 November 2026
+
+PR32 merged at569f4e55a2ff5fb0628066cc5e2a035fd2779b17 after all10 exact-source gates passed. PR31 remains integrated. Current development/charging-signed-firmware adds independently pinned, cryptographically verified catalog artifacts; Admin approval/revocation; vendor/Admin web and Flutter deployment/history/review/cancellation; protected expiring delivery; one-shot provenance and conservative station admission holds. Local/testing only, production disabled. Both OCPP protocols require signed commands, unique source request/status evidence and fresh matching boot version before recovery. Never infer physical installation or release uncertain operations manually.
+
+Pinned CitrineOS compatibility image restores only standard OCPP1.6 signed firmware actions/schema/handlers, including optional integer requestId; upstream checksum must match, unknown/cross-version actions remain denied. Focused backend recovery/safety tests and Flutter analysis/tests pass. Connected two-protocol simulator checks are being finalized; hosted CI remains mandatory before merge. No hardware, live PSP/partner/store or production acceptance, no revised feature inventory or whole-product completion claim. Continue authorized OCPI/application work after this batch; preserve all existing ledgers and held operations.
+
 # PR31 merged; unattended canonical authorization continuation — 5 November 2026
 
 PR31 merged through SHA-guarded GitHub API at84166a8a263eb42a3735e9219c717f47bb7633bc after all11 exact-source checks passed on e703b00, including Android/iOS, both platform/PostgreSQL/staging matrices and finance browser. Its merge tree exactly matches the verified source; no repeated full-suite execution was used locally. Actual validated Android/iOS artifacts are available from run42006505911.
