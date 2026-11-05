@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Bounded local source inspection; no OCPP command dispatch or capacity changes.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+exec docker run --rm --init --network ev-csms_default --user "$(id -u):$(id -g)" -v "$root:/app" -w /app/services/business-api --entrypoint sh composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc -c 'export NO_PROXY="${NO_PROXY:+$NO_PROXY,}charging-graphql"; export no_proxy="${no_proxy:+$no_proxy,}charging-graphql"; exec php artisan csms:monitor-faults "$@"' -- "$@"

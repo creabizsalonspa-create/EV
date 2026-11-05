@@ -6,9 +6,11 @@ use App\Models\Station;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\FaultMonitor;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -82,6 +84,8 @@ class ChargerDiagnosticsController extends Controller
         $events = array_slice($events, 0, 25);
 
         return response()->json([
+            'source_generation' => FaultMonitor::generation($binding),
+            'can_manage_faults' => app(VendorAccess::class)->capabilities($r->user(), $company)['inventory_write'],
             'evidence' => 'SIMULATED_SOURCE', 'protocol' => $binding->protocol,
             'observed_at' => now()->toISOString(), 'source_registered' => $source !== null,
             'source_online' => $source['isOnline'] ?? null, 'last_message_at' => $last?->toISOString(),
@@ -91,5 +95,55 @@ class ChargerDiagnosticsController extends Controller
             'next_before' => $more ? (int) end($events)['id'] : null,
             'physical_charging_verified' => false, 'commands_sent' => false,
         ])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function inspect(Request $r, VendorCompany $company, VendorCharger $charger, FaultMonitor $monitor)
+    {
+        app(VendorAccess::class)->require($r->user(), $company, 'inventory.write');
+        // Source reads happen before the transaction; the source generation and
+        // current authorization are fenced again while holding the binding lock.
+        $snapshot = $this($r, $company, $charger)->getData(true);
+
+        return DB::transaction(function () use ($r, $company, $charger, $snapshot, $monitor) {
+            $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(VendorAccess::class)->require($r->user(), $company, 'inventory.write');
+            $b = $this->binding($r, $company, VendorCharger::findOrFail($charger->id));
+            $b = DB::table('csms_bindings')->where('id', $b->id)->lockForUpdate()->firstOrFail();
+            $created = $monitor->ingest($b, $snapshot);
+
+            return response()->json(['alerts_created' => $created, 'next_before' => $snapshot['next_before'], 'commands_sent' => false, 'capacity_changed' => false])->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
+    public function alerts(Request $r, VendorCompany $company, VendorCharger $charger)
+    {
+        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+        $b = $this->binding($r, $company, $charger);
+        $rows = DB::table('charging_fault_alerts as a')->join('charging_status_observations as o', 'o.id', '=', 'a.observation_id')
+            ->leftJoin('charging_status_observations as recovery', 'recovery.id', '=', 'a.recovery_observation_id')
+            ->where('o.source_generation', FaultMonitor::generation($b))->orderByDesc('o.source_event_id')
+            ->select('a.id', 'o.source_event_id', 'o.evse_number', 'o.connector_number', 'o.status', 'o.error_code', 'o.occurred_at', 'a.acknowledged_at', 'recovery.occurred_at as recovery_observed_at')->paginate(25);
+
+        return response()->json($rows->toArray() + ['can_manage_faults' => app(VendorAccess::class)->capabilities($r->user(), $company)['inventory_write'], 'evidence' => 'SIMULATED_SOURCE', 'physical_charging_verified' => false])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function acknowledge(Request $r, VendorCompany $company, VendorCharger $charger, int $alert)
+    {
+        $v = $r->validate(['note' => 'required|string|min:10|max:2000']);
+
+        return DB::transaction(function () use ($r, $company, $charger, $alert, $v) {
+            $current = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(VendorAccess::class)->require($r->user(), $current, 'inventory.write');
+            $b = $this->binding($r, $current, VendorCharger::findOrFail($charger->id));
+            $b = DB::table('csms_bindings')->where('id', $b->id)->lockForUpdate()->firstOrFail();
+            $row = DB::table('charging_fault_alerts as a')->join('charging_status_observations as o', 'o.id', '=', 'a.observation_id')->where('a.id', $alert)->where('o.source_generation', FaultMonitor::generation($b))->select('a.*')->lockForUpdate()->first();
+            abort_unless($row, 404);
+            if ($row->acknowledged_at === null) {
+                DB::table('charging_fault_alerts')->where('id', $row->id)->update(['acknowledged_at' => now(), 'acknowledged_by' => $r->user()->id, 'operator_note' => Crypt::encryptString($v['note']), 'updated_at' => now()]);
+                app(VendorAccess::class)->audit($r->user(), 'charging_fault.acknowledged', $row->id);
+            }
+
+            return response()->json(['acknowledged' => true, 'fault_resolution_verified' => false, 'commands_sent' => false, 'capacity_changed' => false])->header('Cache-Control', 'private, no-store');
+        }, 3);
     }
 }

@@ -38,6 +38,9 @@ Route::post('/companies/{company}/chargers/{charger}/evses/{evse}/connectors/{co
 
 Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'show']);
 Route::get('/companies/{company}/chargers/{charger}/source-diagnostics', ChargerDiagnosticsController::class);
+Route::post('/companies/{company}/chargers/{charger}/fault-alerts/inspect', [ChargerDiagnosticsController::class, 'inspect']);
+Route::get('/companies/{company}/chargers/{charger}/fault-alerts', [ChargerDiagnosticsController::class, 'alerts']);
+Route::patch('/companies/{company}/chargers/{charger}/fault-alerts/{alert}/acknowledge', [ChargerDiagnosticsController::class, 'acknowledge'])->whereNumber('alert');
 Route::post('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'configure']);
 Route::post('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'credential']);
 Route::delete('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'revoke']);

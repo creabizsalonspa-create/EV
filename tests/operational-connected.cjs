@@ -10,7 +10,8 @@ const groups = [
     "command-recovery",
     "charger-ingress",
     "charger-operations",
-  ], // 2+1+1+0+1 = 5
+    "charger-diagnostics",
+  ], // 2+1+1+0+1+2 = 7 logins
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
 ];
 if (require.main === module) {

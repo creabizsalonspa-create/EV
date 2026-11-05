@@ -1866,6 +1866,29 @@ window.EV_MESSAGES = {
         ar: "أُبطلت بيانات الدخول",
     },
     "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Fault alerts": { en: "Fault alerts", ar: "تنبيهات الأعطال" },
+    "Inspect source faults": {
+        en: "Inspect source faults",
+        ar: "فحص أعطال المصدر",
+    },
+    "Inspect older source faults": {
+        en: "Inspect older source faults",
+        ar: "فحص أعطال مصدر أقدم",
+    },
+    "Fault acknowledgment disclaimer": {
+        en: "Acknowledgment records review only. Source recovery is historical evidence, not physical repair, connector availability or release of charging capacity.",
+        ar: "الإقرار يسجل المراجعة فقط. تعافي المصدر دليل تاريخي وليس إصلاحاً فعلياً أو توفر الموصل أو تحرير سعة الشحن.",
+    },
+    "Acknowledge fault": { en: "Acknowledge fault", ar: "الإقرار بالعطل" },
+    "Fault acknowledged": { en: "Fault acknowledged", ar: "تم الإقرار بالعطل" },
+    "Recovery source observed": {
+        en: "Recovery source observed",
+        ar: "رُصد دليل تعافٍ من المصدر",
+    },
+    "No recovery source observed": {
+        en: "No recovery source observed",
+        ar: "لم يُرصد دليل تعافٍ من المصدر",
+    },
     "Source diagnostics disclaimer": {
         en: "Authenticated simulator source only. Status history is not connector availability or physical acceptance. Refresh explicitly; no command is sent.",
         ar: "مصدر محاكي موثق فقط. سجل الحالة ليس توفر الموصل أو قبول الأجهزة الفعلية. حدّث صراحة؛ لا تُرسل أوامر.",

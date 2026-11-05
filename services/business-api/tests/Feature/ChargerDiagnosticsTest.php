@@ -8,7 +8,9 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\FaultMonitor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
@@ -106,6 +108,80 @@ class ChargerDiagnosticsTest extends TestCase
         $this->getJson($native)->assertOk()->assertJsonPath('source_registered', false);
         $this->app->instance('env', 'production');
         $this->getJson($native)->assertServiceUnavailable()->assertJsonMissingPath('source_online');
+        Http::assertSentCount(1);
+    }
+
+    private function sourceEvents(array $events): void
+    {
+        Http::fakeSequence()->push(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => 'ocpp1.6', 'isOnline' => true, 'latestOcppMessageTimestamp' => now()->toISOString()]]]])->push(['data' => ['StatusNotifications' => $events]]);
+    }
+
+    private function statusEvent(int $id, string $status, int $minutes, int $connector = 1): array
+    {
+        return ['id' => $id, 'evseId' => 1, 'connectorId' => $connector, 'connectorStatus' => $status, 'errorCode' => $status === 'Faulted' ? 'GroundFailure' : 'NoError', 'timestamp' => now()->subMinutes($minutes)->toISOString()];
+    }
+
+    public function test_fault_alerts_replay_recovery_and_acknowledgment_never_control_capacity(): void
+    {
+        [$owner, , , $url] = $this->fixture();
+        $this->travelTo(now()->startOfSecond());
+        $base = str_replace('/source-diagnostics', '/fault-alerts', $url);
+        $this->sourceEvents([$this->statusEvent(20, 'Available', 1), $this->statusEvent(10, 'Faulted', 2)]);
+        $this->actingAs($owner)->postJson($base.'/inspect')->assertOk()->assertJsonPath('alerts_created', 1)->assertJsonPath('capacity_changed', false)->assertJsonPath('commands_sent', false);
+        $row = $this->getJson($base)->assertOk()->assertJsonCount(1, 'data')->json('data.0');
+        $this->assertNotNull($row['recovery_observed_at']);
+        $this->patchJson($base.'/'.$row['id'].'/acknowledge', ['note' => 'tiny'])->assertUnprocessable();
+        $this->patchJson($base.'/'.$row['id'].'/acknowledge', ['note' => 'Investigating synthetic ground fault'])->assertOk()->assertJsonPath('fault_resolution_verified', false)->assertJsonPath('capacity_changed', false);
+        $this->patchJson($base.'/'.$row['id'].'/acknowledge', ['note' => 'Must preserve the original review'])->assertOk();
+        $stored = DB::table('charging_fault_alerts')->first();
+        $this->assertSame('Investigating synthetic ground fault', Crypt::decryptString($stored->operator_note));
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'vendor_ops.charging_fault.acknowledged')->count());
+    }
+
+    public function test_backward_source_pages_recover_old_faults_and_changed_replay_is_rejected(): void
+    {
+        [$owner, , $charger] = $this->fixture();
+        $binding = DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->first();
+        $monitor = app(FaultMonitor::class);
+        $generation = FaultMonitor::generation($binding);
+        $this->travelTo(now()->startOfSecond());
+        DB::transaction(function () use ($monitor, $binding, $generation) {
+            $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [$this->statusEvent(20, 'Available', 1)]]);
+            $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [$this->statusEvent(10, 'Faulted', 2)]]);
+            $this->assertSame(0, $monitor->ingest($binding, ['source_generation' => $generation, 'events' => [$this->statusEvent(10, 'Faulted', 2)]]));
+        });
+        $this->assertNotNull(DB::table('charging_fault_alerts')->value('recovery_observation_id'));
+        $url = '/api/vendor-ops/companies/'.$charger->company_id.'/chargers/'.$charger->id.'/fault-alerts/inspect';
+        $changed = $this->statusEvent(10, 'Faulted', 2);
+        $changed['errorCode'] = 'OverCurrentFailure';
+        $this->sourceEvents([$changed]);
+        $this->actingAs($owner)->postJson($url)->assertConflict();
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+    }
+
+    public function test_read_only_staff_can_read_alerts_but_cannot_inspect_or_acknowledge(): void
+    {
+        [, $company, , $url] = $this->fixture();
+        $staff = User::factory()->create();
+        VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $staff->id, 'email' => $staff->email, 'status' => 'active', 'permissions' => ['company.read', 'inventory.read']]);
+        $base = str_replace('/source-diagnostics', '/fault-alerts', $url);
+        $this->actingAs($staff)->getJson($base)->assertOk()->assertJsonPath('can_manage_faults', false)->assertJsonPath('total', 0);
+        $this->postJson($base.'/inspect')->assertNotFound();
+        $this->patchJson($base.'/1/acknowledge', ['note' => 'Unauthorized review attempt'])->assertNotFound();
+        Http::assertNothingSent();
+    }
+
+    public function test_monitor_command_is_bounded_and_does_not_send_device_commands(): void
+    {
+        [, , $charger] = $this->fixture();
+        $id = DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->value('id');
+        Http::fakeSequence()->push(['data' => ['ChargingStations' => []]]);
+        $this->artisan('csms:monitor-faults', ['--binding' => (string) $id, '--limit' => '1'])->expectsOutputToContain('"commands_sent":false')->assertSuccessful();
+        $this->artisan('csms:monitor-faults', ['--limit' => '0'])->assertFailed();
+        $this->assertDatabaseCount('charger_commands', 0);
         Http::assertSentCount(1);
     }
 }

@@ -845,6 +845,11 @@ window.createVendorWorkspace = ({
         button(pane, "Refresh", () =>
             diagnostics(company, charger, parent, epoch),
         );
+        const faults = document.createElement("section");
+        pane.append(faults);
+        button(pane, "Fault alerts", () =>
+            faultAlerts(company, charger, faults, epoch),
+        );
         const path =
             base +
             `companies/${company.id}/chargers/${charger.id}/source-diagnostics` +
@@ -857,6 +862,30 @@ window.createVendorWorkspace = ({
                 controller?.signal,
             );
             if (!valid(epoch) || !pane.isConnected) return;
+            if (result.can_manage_faults)
+                button(pane, "Inspect source faults", async () => {
+                    const inspected = await api(
+                        base +
+                            `companies/${company.id}/chargers/${charger.id}/fault-alerts/inspect` +
+                            (before ? `?before=${before}` : ""),
+                        "POST",
+                        {},
+                        controller?.signal,
+                    );
+                    if (valid(epoch) && pane.isConnected) {
+                        await faultAlerts(company, charger, faults, epoch);
+                        if (inspected.next_before)
+                            button(pane, "Inspect older source faults", () =>
+                                diagnostics(
+                                    company,
+                                    charger,
+                                    parent,
+                                    epoch,
+                                    inspected.next_before,
+                                ),
+                            );
+                    }
+                });
             pane.append(raw("p", result.protocol));
             pane.append(
                 ui(
@@ -915,6 +944,81 @@ window.createVendorWorkspace = ({
                 if ([401, 419].includes(error.status)) expired();
             }
         }
+    }
+    async function faultAlerts(company, charger, pane, epoch, page = 1) {
+        if (!valid(epoch) || !pane.isConnected) return;
+        pane.replaceChildren(
+            ui("h3", "Fault alerts"),
+            ui("p", "Fault acknowledgment disclaimer"),
+        );
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/fault-alerts`;
+        const result = await api(
+            path + `?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        for (const alert of result.data) {
+            const row = document.createElement("article");
+            row.dataset.faultAlert = alert.id;
+            row.append(
+                raw(
+                    "p",
+                    `${alert.evse_number}/${alert.connector_number} · ${alert.status} · ${alert.error_code ?? "—"}`,
+                ),
+                raw("p", alert.occurred_at),
+            );
+            row.append(
+                ui(
+                    "p",
+                    alert.recovery_observed_at
+                        ? "Recovery source observed"
+                        : "No recovery source observed",
+                ),
+            );
+            if (alert.acknowledged_at)
+                row.append(ui("p", "Fault acknowledged"));
+            else if (result.can_manage_faults)
+                form(
+                    row,
+                    "Acknowledge fault",
+                    [
+                        {
+                            name: "note",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (values) => {
+                        await api(
+                            path + `/${alert.id}/acknowledge`,
+                            "PATCH",
+                            { note: values.note },
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected)
+                            await faultAlerts(
+                                company,
+                                charger,
+                                pane,
+                                epoch,
+                                page,
+                            );
+                    },
+                );
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                faultAlerts(company, charger, pane, epoch, page - 1),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                faultAlerts(company, charger, pane, epoch, page + 1),
+            );
     }
     async function admission(company, charger, parent, epoch) {
         if (!valid(epoch)) return;

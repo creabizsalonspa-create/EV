@@ -46,6 +46,20 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       assert.equal(report.protocol, f.protocol);
       assert.equal(report.commands_sent, false);
       assert.equal(report.physical_charging_verified, false);
+      const faultPath = path.replace("/source-diagnostics", "/fault-alerts");
+      const inspected = await client.request(
+        faultPath + "/inspect",
+        "POST",
+        {},
+      );
+      assert(inspected.alerts_created >= 1);
+      assert.equal(
+        (await client.request(faultPath + "/inspect", "POST", {}))
+          .alerts_created,
+        0,
+      );
+      const alerts = await client.request(faultPath);
+      assert(alerts.data.some((a) => a.recovery_observed_at !== null));
       const browser = await chromium.launch({
         headless: true,
         executablePath: process.env.EV_CHROMIUM_PATH || undefined,
@@ -86,6 +100,20 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
           .getByText("Source reports online", { exact: true })
           .waitFor();
         assert.match(await panel.innerText(), /Faulted/);
+        await panel
+          .getByRole("button", { name: "Fault alerts", exact: true })
+          .click();
+        const faultRow = panel.locator("[data-fault-alert]").first();
+        await faultRow
+          .getByRole("textbox")
+          .fill("Investigating the observed simulator fault");
+        await faultRow
+          .getByRole("button", { name: "Save", exact: true })
+          .click();
+        await panel
+          .getByText("Fault acknowledged", { exact: true })
+          .first()
+          .waitFor();
         await page.locator("#language").click();
         await panel
           .getByText("المصدر يبلغ عن الاتصال", { exact: true })
