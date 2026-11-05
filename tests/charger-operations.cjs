@@ -40,6 +40,24 @@ const { chromium } = require("playwright"),
       .locator("#notice")
       .getByText("Signed in.", { exact: true })
       .waitFor();
+    await page
+      .locator("#charging-dashboard")
+      .getByText(/^Stations: /)
+      .waitFor();
+    assert.match(
+      await page.locator("#charging-dashboard").innerText(),
+      /Open source-linked sessions: \d+/,
+    );
+    assert.match(
+      await page.locator("#charging-dashboard").innerText(),
+      /does not prove connector availability/,
+    );
+    await page.locator("#language").click();
+    await page
+      .locator("#charging-dashboard")
+      .getByText(/^المحطات: /)
+      .waitFor();
+    await page.locator("#language").click();
     const ops = page.locator("#vendor-operations");
     await ops
       .locator("article")

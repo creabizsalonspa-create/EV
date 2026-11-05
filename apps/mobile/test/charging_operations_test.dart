@@ -14,6 +14,14 @@ class OpsApi extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'charging-operations/dashboard') {
+      expect(method, 'GET');
+      return {
+        'active_session_count': 3,
+        'missing_recent_evidence_count': 2,
+        'unresolved_case_count': 1,
+      };
+    }
     if (method != 'GET') {
       writes++;
       expect(path, 'charging-operations/7/case');
@@ -61,6 +69,9 @@ void main() {
         ),
       );
       await t.pumpAndSettle();
+      expect(find.text('Open source-linked sessions: 3'), findsOneWidget);
+      expect(find.text('No source evidence in the last 5 minutes: 2'), findsOneWidget);
+      await t.ensureVisible(find.text('Open recovery case'));
       await t.tap(find.text('Open recovery case'));
       await t.pumpAndSettle();
       await t.enterText(
@@ -70,6 +81,7 @@ void main() {
       await t.tap(find.text('Save'));
       await t.pumpAndSettle();
       expect(api.writes, 1);
+      await t.ensureVisible(find.text('Review case'));
       await t.tap(find.text('Review case'));
       await t.pumpAndSettle();
       await t.tap(find.byType(DropdownButtonFormField<String>));
@@ -86,6 +98,7 @@ void main() {
       ),
     );
     await t.pumpAndSettle();
+    await t.ensureVisible(find.text('Open recovery case'));
     await t.tap(find.text('Open recovery case'));
     await t.pumpAndSettle();
     await t.enterText(

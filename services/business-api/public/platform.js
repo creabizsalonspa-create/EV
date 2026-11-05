@@ -81,6 +81,7 @@ function clearPrivateViews() {
     commercialWorkspace.clear();
     tariffWorkspace.clear();
     commandRequest?.abort();
+    el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
     delete el("commands-state").dataset.i18n;
     for (const id of [
@@ -1608,7 +1609,65 @@ async function commandHistory(page = 1) {
     el("commands-refresh").disabled = true;
     el("command-list").setAttribute("aria-busy", "true");
     EvLocale.bind(el("commands-state"), "Loading command history…");
+    el("charging-dashboard").replaceChildren();
     try {
+        const dashboard = await api(
+            "charging-operations/dashboard",
+            "GET",
+            undefined,
+            request.signal,
+        );
+        if (request.signal.aborted || user !== actor) return;
+        const metrics = el("charging-dashboard");
+        const ar = document.documentElement.lang === "ar";
+        const line = (en, arabic, value) => {
+            const item = document.createElement("p");
+            item.dataset.en = `${en}: ${value}`;
+            item.dataset.ar = `${arabic}: ${value}`;
+            item.textContent = `${ar ? arabic : en}: ${value}`;
+            metrics.append(item);
+        };
+        line("Stations", "المحطات", dashboard.station_count);
+        line(
+            "Open source-linked sessions",
+            "جلسات مرتبطة بالمصدر لم تنته",
+            dashboard.active_session_count,
+        );
+        line(
+            "Sessions without source evidence in the last 5 minutes",
+            "جلسات بلا أدلة مصدر خلال آخر ٥ دقائق",
+            dashboard.missing_recent_evidence_count,
+        );
+        line(
+            "Unresolved recovery cases",
+            "حالات الاسترداد غير المعالجة",
+            dashboard.unresolved_case_count,
+        );
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.dataset.en = "Recorded command states";
+        summary.dataset.ar = "حالات الأوامر المسجلة";
+        summary.textContent = ar
+            ? "حالات الأوامر المسجلة"
+            : "Recorded command states";
+        details.append(summary);
+        for (const [status, count] of Object.entries(
+            dashboard.command_counts,
+        )) {
+            const row = document.createElement("p");
+            row.textContent = `${status}: ${count}`;
+            details.append(row);
+        }
+        metrics.append(details);
+        const warning = document.createElement("p");
+        warning.dataset.en =
+            "Recorded business evidence, not charger connectivity or verified physical charging. Recent evidence does not prove connector availability.";
+        warning.dataset.ar =
+            "هذه أدلة أعمال مسجلة، وليست حالة اتصال الشاحن أو إثبات شحن فعلي. حداثة الأدلة لا تثبت توفر الموصل.";
+        warning.textContent = ar
+            ? "هذه أدلة أعمال مسجلة، وليست حالة اتصال الشاحن أو إثبات شحن فعلي. حداثة الأدلة لا تثبت توفر الموصل."
+            : "Recorded business evidence, not charger connectivity or verified physical charging. Recent evidence does not prove connector availability.";
+        metrics.append(warning);
         const result = await api(
             "charger-commands?page=" + page,
             "GET",

@@ -1,3 +1,15 @@
+# Charging dashboard continuation — 5 November 2026
+
+Candidate branch: `development/charging-continuation`, based on verified integration `b31f1b62a5d52f40c717c21698b03d405e0324ea`. PR18–29 merges are present in Git history; remote integration still points to that SHA. Only unmerged remote branch `development/corporate-provider-returns` was inspected and preserved; its changes are checkpoint/evidence/coverage records, not an implementation to overwrite.
+
+Implemented: tenant-scoped read-only charging evidence dashboard shared by web and native recovery; command-state counts, open source-linked sessions, missing/stale evidence, unresolved cases, paginated private attention API. No charging commands, source reconciliation, capacity or finance mutation is added. Contract: `CHARGING_DASHBOARD.md`.
+
+Verified:25focused Laravel tests/424assertions (`ChargingDashboardTest|ChargingOperationsTest|CommandReconciliationTest|ChargerAdmissionTest`), targeted Pint, Composer strict validation, JS syntax and real-Laravel EN/AR390px charger-operations browser with dashboard assertions. Initial browser503 came from the missing source overlay; repository-supported charging-setup/charging-bridge-setup/charger-ingress-setup restored it and the rerun passed. PostgreSQL SELECT1, Laravel health and both CitrineOS API schema routes passed. Locked PHP dependencies were restored from recorded Git sources with the managed CA supplied to both Composer and Git; manifests/locks are unchanged. Root npm dependencies restored.
+
+Not verified: Flutter tests/analyzer/builds (toolchain absent; storage.googleapis.com denied), hosted CI, PR creation/merge (api.github.com denied). Network additions saved in environment draft; require user settings save/publication. No hardware/live partner/payment or fresh-task snapshot restoration claim. Fixed42categories/312atoms and recorded52.25coded/52.06tested/52.06merged/0production coverage are unchanged; this partial dashboard does not complete a broad atom.
+
+Resume: enable the saved network destinations, restore CI-pinned Flutter3.35.7 at commit adc901062556672b4138e18a4dc62a4be8f4b3c2, run focused native recovery tests/analyze and required exact-head CI before merge. Then extend secure RFID/IdToken authorization and operational diagnostics against the existing CitrineOS boundary; retain all real-device safety gates and original remaining full-project scope. This is a candidate checkpoint, not full delivery or background execution.
+
 # Required iOS navigation correction
 
 Earlier candidate33cd1dd passed Android/actual Laravel native suites but its iOS runtime failed after verified subscription enrollment: the next test navigation looked up the now-offstage Workspace and found no element. The evidence route now uses the active SubscriptionActionView context. Every consent/upload/private/runtime assertion and marker is retained; no failed assertion is retried or removed. Clean analysis/host recovery guards pass; exact-source hosted iOS and full CI must pass before PR23 merge. This is not a production-device or provider acceptance claim.

@@ -25,6 +25,13 @@ const opsEn = {
   'source_inspected': 'Source inspected',
   'next': 'Next',
   'previous': 'Previous',
+  'dashboard': 'Charging evidence',
+  'activeSessions': 'Open source-linked sessions',
+  'missingEvidence': 'No source evidence in the last 5 minutes',
+  'unresolvedCases': 'Unresolved recovery cases',
+  'evidenceNotice':
+      'Recorded business evidence does not prove charger connectivity, connector availability or physical charging.',
+  'commandStates': 'Recorded command states',
 };
 const opsAr = {
   'title': 'الاسترداد التشغيلي',
@@ -46,6 +53,13 @@ const opsAr = {
   'source_inspected': 'فُحص المصدر',
   'next': 'التالي',
   'previous': 'السابق',
+  'dashboard': 'أدلة الشحن',
+  'activeSessions': 'جلسات مرتبطة بالمصدر لم تنته',
+  'missingEvidence': 'بلا أدلة مصدر خلال آخر ٥ دقائق',
+  'unresolvedCases': 'حالات الاسترداد غير المعالجة',
+  'evidenceNotice':
+      'أدلة الأعمال المسجلة لا تثبت اتصال الشاحن أو توفر الموصل أو الشحن الفعلي.',
+  'commandStates': 'حالات الأوامر المسجلة',
 };
 
 class ChargingOperationsView extends StatefulWidget {
@@ -62,6 +76,7 @@ class ChargingOperationsView extends StatefulWidget {
 
 class _OperationsState extends State<ChargingOperationsView> {
   ApiPage<Map<String, dynamic>>? data;
+  Map<String, dynamic>? dashboard;
   Object? error;
   bool busy = false;
   int generation = 0;
@@ -76,6 +91,7 @@ class _OperationsState extends State<ChargingOperationsView> {
     if (!mounted) return;
     setState(() {
       data = null;
+      dashboard = null;
       error = e;
     });
     if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
@@ -86,14 +102,20 @@ class _OperationsState extends State<ChargingOperationsView> {
     setState(() {
       busy = true;
       error = null;
+      dashboard = null;
     });
     try {
+      final summary = await widget.api.request('charging-operations/dashboard');
+      if (!mounted || epoch != generation) return;
       final value = await widget.api.request(
         'charging-operations',
         query: {'page': '$page'},
       );
       if (mounted && epoch == generation)
-        setState(() => data = ApiPage.fromJson(value, (v) => v));
+        setState(() {
+          dashboard = Map<String, dynamic>.from(summary);
+          data = ApiPage.fromJson(value, (v) => v);
+        });
     } catch (e) {
       if (mounted && epoch == generation) fail(e);
     } finally {
@@ -165,6 +187,28 @@ class _OperationsState extends State<ChargingOperationsView> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(t('notice')),
+          if (dashboard != null) ...[
+            Text(t('dashboard'), style: Theme.of(context).textTheme.titleMedium),
+            Text('${t('activeSessions')}: ${dashboard!['active_session_count']}'),
+            Text(
+              '${t('missingEvidence')}: ${dashboard!['missing_recent_evidence_count']}',
+            ),
+            Text(
+              '${t('unresolvedCases')}: ${dashboard!['unresolved_case_count']}',
+            ),
+            Text(t('evidenceNotice')),
+            ExpansionTile(
+              title: Text(t('commandStates')),
+              children: [
+                for (final entry
+                    in (dashboard!['command_counts'] as Map? ?? {}).entries)
+                  ListTile(
+                    title: Text(s.t('${entry.key}')),
+                    trailing: Text('${entry.value}'),
+                  ),
+              ],
+            ),
+          ],
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(s.t(errorKey(error!))),
           TextButton(
