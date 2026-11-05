@@ -27,7 +27,7 @@ class LocalDemoConfigTest(unittest.TestCase):
         main = plistlib.loads((root / 'ios/Runner/Info.plist').read_bytes())
         debug = plistlib.loads((root / 'ios/Runner/Info-Debug.plist').read_bytes())
         self.assertNotIn('NSAppTransportSecurity', main)
-        self.assertEqual(debug.pop('NSAppTransportSecurity'), {'NSAllowsLocalNetworking': True})
+        self.assertEqual(debug.pop('NSAppTransportSecurity'), {'NSExceptionDomains': {host: {'NSIncludesSubdomains': False, 'NSExceptionAllowsInsecureHTTPLoads': True} for host in ['localhost', '127.0.0.1']}})
         self.assertEqual(debug, main)
         project = (root / 'ios/Runner.xcodeproj/project.pbxproj').read_text()
         block = project.split('97C147061CF9000F007C117D /* Debug */ = {')[1].split('\n\t\t};')[0]
