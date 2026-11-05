@@ -1,3 +1,7 @@
+# Permanent owner continuation directive — 5 November 2026
+
+Agent1 owns the full remaining platform. Read docs/AGENT1_CONTINUATION.md when resuming. CONTINUE resumes the exact pending source action and integration; do not restart audits or pause after an individual feature. Implement independent work while CI runs, preserve all existing ledgers/modules and merge only validated source. No physical/live partner/payment/store acceptance is inferred. This standing directive supersedes historical task/ownership restrictions below.
+
 # Current owner directive — Agent1 full-project takeover
 
 The owner directive of 31 October 2026 restores Agent1 responsibility for all remaining backend, web, Flutter, charging, roaming, finance, security and release work while Agent2 is unavailable. Verify and integrate PR23, preserve completed work, then continue substantial tested batches. Historical ownership restrictions below are superseded. No real-money, hardware or partner acceptance is inferred from simulations.
