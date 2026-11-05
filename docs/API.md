@@ -1,3 +1,7 @@
+# Source-backed charger diagnostics (candidate)
+
+`GET /api/vendor-ops/companies/{company}/chargers/{charger}/source-diagnostics` and the equivalent bearer `/api/v1/` route require current `inventory.read` and canonical owned simulator mapping. Reads the authenticated CitrineOS projection, not business-session inference. Returns reported online state, protocol, firmware, last source-message age and25status/fault events; `before` is an exclusive positive source-ID cursor. Missing registration returns unknown online state; transport/auth/schema failures return503. Rechecks ownership/permission/mapping after source calls. Private/no-store, no raw source info/credentials, no command/finance writes. Only the local simulator adapter is enabled; production access returns503. Both protocol source/browser tests: `node tests/charger-diagnostics.cjs`. Native tests remain pending SDK restoration.
+
 # Charging evidence overview (candidate)
 
 Vendor/admin read-only `GET /api/charging-operations/dashboard` and `/api/v1/charging-operations/dashboard` expose scoped command counts, open source-linked sessions, missing recent evidence and unresolved recovery counts. Attention records paginate25/page; no token/payload/customer identity or recovery note is exposed. No command dispatch or financial write occurs. Evidence freshness is not charger availability. Contract and validation: [CHARGING_DASHBOARD.md](CHARGING_DASHBOARD.md).
