@@ -6,14 +6,14 @@ import 'test_support.dart';
 
 class DiagnosticsApi extends FixtureApi {
   bool fail = false;
-  int calls = 0;
+  int requestCount = 0;
   @override
   Future<dynamic> request(String path, {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
-    calls++;
+    requestCount++;
     expect(method, 'GET');
     expect(path, 'vendor-ops/companies/1/chargers/2/source-diagnostics');
     if (fail) throw ApiException(503, 'PRIVATE SOURCE DETAILS');
@@ -44,6 +44,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Source reports online'), findsNothing);
     expect(find.textContaining('PRIVATE SOURCE DETAILS'), findsNothing);
-    expect(api.calls, 2);
+    expect(api.requestCount, 2);
   });
 }
