@@ -26,6 +26,7 @@ import 'sessions.dart';
 import 'vendor_inventory.dart';
 import 'vendor_company.dart' show registerVendorDocumentLicenses;
 import 'session_vault.dart';
+import 'rider_access.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -982,6 +983,8 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'riderAccess') {
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RiderAccessView(api: api!, onExpired: expiredSession)));
                 } else if (value == 'paymentCases') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1199,6 +1202,7 @@ class _WorkspaceState extends State<Workspace> {
                   enabled: !busy,
                   child: Text(loyaltyText(context, 'title')),
                 ),
+                if (account?.role == 'customer') PopupMenuItem(value: 'riderAccess', enabled: !busy, child: Text(riderTitle(context))),
                 PopupMenuItem(
                   value: 'profile',
                   enabled: !busy,

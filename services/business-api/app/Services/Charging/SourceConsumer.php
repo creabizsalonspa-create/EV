@@ -5,10 +5,12 @@ namespace App\Services\Charging;
 use App\Http\Controllers\CsmsSessionController;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
+use App\Models\Charging\RiderAccessToken;
 use App\Models\Charging\SessionLink;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -99,14 +101,27 @@ class SourceConsumer
         if (! preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $link->identifier) || ! in_array($link->protocol, ['1.6', '2.0.1'], true)) {
             throw new RuntimeException('Only provisioned local simulators are supported.');
         }
-        $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => 'EV-SIM-'.$link->charging_session_id]);
+        $rider = $link->rider_token_id ? RiderAccessToken::findOrFail($link->rider_token_id) : null;
+        // Revocation blocks new authorization, not observation/finalization of an
+        // already admitted session. Retain the encrypted original source identity.
+        $tag = $rider ? Crypt::decryptString($rider->token_ciphertext) : 'EV-SIM-'.$link->charging_session_id;
+        $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag]);
         if (count($identity['ChargingStations']) > 1 || count($identity['Authorizations']) > 1) {
             throw new RuntimeException('Ambiguous source identity requires reconciliation.');
         }
         if (! $identity['ChargingStations'] || ! $identity['Authorizations']) {
             return 0;
         }
-        $records = $this->graph('query($station:Int!,$auth:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth}},limit:2){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id']])['Transactions'];
+        if ($rider && (int) $identity['Authorizations'][0]['id'] !== (int) $rider->source_authorization_id) {
+            throw new RuntimeException('Rider source registration changed; reconciliation is required.');
+        }
+        if ($rider) {
+            $records = $this->graph('query($station:Int!,$auth:Int!,$after:timestamptz!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth},startTime:{_gte:$after}},order_by:{id:desc},limit:25){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id'], 'after' => $link->created_at->toImmutable()->subSeconds(2)->toISOString()])['Transactions'];
+            $assigned = SessionLink::where('binding_id', $link->binding_id)->where('id', '!=', $link->id)->whereNotNull('transaction_id')->pluck('transaction_id')->map(fn ($id) => (string) $id)->all();
+            $records = array_values(array_filter($records, fn ($tx) => ! in_array((string) $tx['transactionId'], $assigned, true)));
+        } else {
+            $records = $this->graph('query($station:Int!,$auth:Int!){Transactions(where:{tenantId:{_eq:1},stationId:{_eq:$station},authorizationId:{_eq:$auth}},limit:2){id transactionId remoteStartId meterStart startTime endTime isActive totalKwh}}', ['station' => $identity['ChargingStations'][0]['id'], 'auth' => $identity['Authorizations'][0]['id']])['Transactions'];
+        }
         if (count($records) > 1) {
             throw new RuntimeException('Multiple source transactions require reconciliation.');
         }
@@ -134,7 +149,11 @@ class SourceConsumer
             } else {
                 // CitrineOS 2.1 normalized transaction/EVSE projections do not retain
                 // protocol EVSE numbers. Verify the authenticated persisted Started call.
-                $proof = $this->graph('query($station:Int!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:"TransactionEvent"},payload:{_contains:$match}},limit:2){payload}}', ['station' => $identity['ChargingStations'][0]['id'], 'match' => ['eventType' => 'Started', 'transactionInfo' => ['transactionId' => (string) $tx['transactionId'], 'remoteStartId' => (int) $link->start_command_id]]])['OCPPMessages'];
+                $info = ['transactionId' => (string) $tx['transactionId']];
+                if (! $rider) {
+                    $info['remoteStartId'] = (int) $link->start_command_id;
+                }
+                $proof = $this->graph('query($station:Int!,$match:jsonb!){OCPPMessages(where:{tenantId:{_eq:1},stationId:{_eq:$station},origin:{_eq:"cs"},type:{_eq:2},action:{_eq:"TransactionEvent"},payload:{_contains:$match}},limit:2){payload}}', ['station' => $identity['ChargingStations'][0]['id'], 'match' => ['eventType' => 'Started', 'transactionInfo' => $info]])['OCPPMessages'];
                 if (! $proof) {
                     throw new RuntimeException('Source target proof is unavailable.');
                 }

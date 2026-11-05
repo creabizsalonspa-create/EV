@@ -302,6 +302,10 @@ window.createVendorWorkspace = ({
         const caps = company.capabilities || {},
             owner = caps.owner,
             admin = caps.reviewer;
+        if (owner || admin)
+            button(host, "Rider authorization requests", () =>
+                riderRequests(company, host, epoch),
+            );
         host.append(
             ui("p", "Company status: {status}", {
                 status: companyStatus(company.status),
@@ -1370,6 +1374,100 @@ window.createVendorWorkspace = ({
             1,
             epoch,
         );
+    }
+    async function riderRequests(company, parent, epoch, page = 1) {
+        parent.querySelector("[data-rider-grants]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.riderGrants = "";
+        parent.append(pane);
+        pane.append(
+            ui("h3", "Rider authorization requests"),
+            ui("p", "Rider approval disclaimer"),
+        );
+        const result = await api(
+            base + `companies/${company.id}/rider-grants?page=${page}`,
+            "GET",
+            undefined,
+            controller?.signal,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        const refresh = () => riderRequests(company, parent, epoch, page);
+        button(pane, "Refresh", refresh);
+        for (const grant of result.data) {
+            const row = document.createElement("article");
+            row.dataset.riderGrant = grant.id;
+            row.append(
+                raw("h4", grant.label),
+                raw(
+                    "p",
+                    `${grant.token_type} · ••••${grant.suffix} · ${grant.state}`,
+                ),
+                raw("p", grant.provisioning_state),
+            );
+            if (!grant.revoked_at && !grant.token_revoked_at)
+                form(
+                    row,
+                    "Review rider approval",
+                    [
+                        {
+                            name: "state",
+                            label: "Approval decision",
+                            choices: {
+                                approved: "Approve",
+                                rejected: "Reject",
+                                revoked: "Revoke",
+                            },
+                        },
+                        {
+                            name: "expires_at",
+                            label: "Approval expiry UTC",
+                            max: 20,
+                            optional: true,
+                        },
+                        {
+                            name: "note",
+                            label: "Operator recovery note",
+                            max: 2000,
+                        },
+                    ],
+                    async (body) => {
+                        if (!body.expires_at) delete body.expires_at;
+                        await api(
+                            base +
+                                `companies/${company.id}/rider-grants/${grant.id}/review`,
+                            "POST",
+                            body,
+                            controller?.signal,
+                        );
+                        if (valid(epoch) && pane.isConnected) await refresh();
+                    },
+                );
+            if (
+                result.source_adapter_enabled &&
+                grant.state === "approved" &&
+                !grant.revoked_at &&
+                !grant.token_revoked_at
+            )
+                button(row, "Provision rider source", async () => {
+                    await api(
+                        base +
+                            `companies/${company.id}/rider-tokens/${grant.token_id}/provision`,
+                        "POST",
+                        {},
+                        controller?.signal,
+                    );
+                    if (valid(epoch) && pane.isConnected) await refresh();
+                });
+            pane.append(row);
+        }
+        if (result.current_page > 1)
+            button(pane, "Previous", () =>
+                riderRequests(company, parent, epoch, page - 1),
+            );
+        if (result.current_page < result.last_page)
+            button(pane, "Next", () =>
+                riderRequests(company, parent, epoch, page + 1),
+            );
     }
     async function maintenanceWindows(
         company,

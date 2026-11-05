@@ -1,6 +1,11 @@
 <?php
 
 return [
+    'rider_enabled' => env('CSMS_RIDER_AUTH_ENABLED', false),
+    'rider_client_id' => env('CSMS_RIDER_CLIENT_ID', 'creabiz-csms-rider'),
+    'rider_client_secret' => env('CSMS_RIDER_CLIENT_SECRET'),
+    'rider_callback_url' => env('CSMS_RIDER_CALLBACK_URL'),
+    'rider_source_api_url' => env('CSMS_RIDER_SOURCE_API_URL', 'http://citrine:8080'),
     'ingress_allow_local_http' => env('CSMS_INGRESS_ALLOW_LOCAL_HTTP', false),
     'ingress_enabled' => env('CSMS_INGRESS_AUTH_ENABLED', false),
     'ingress_secret' => env('CSMS_INGRESS_AUTH_SECRET'),

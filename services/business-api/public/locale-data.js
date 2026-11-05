@@ -1866,6 +1866,87 @@ window.EV_MESSAGES = {
         ar: "أُبطلت بيانات الدخول",
     },
     "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Rider access tokens": {
+        en: "Charging cards & tokens",
+        ar: "بطاقات ورموز الشحن",
+    },
+    "Rider access unavailable": {
+        en: "Charging access records are unavailable. Refresh this section to retry.",
+        ar: "سجلات وصول الشحن غير متاحة. حدّث هذا القسم لإعادة المحاولة.",
+    },
+    "Rider access disclaimer": {
+        en: "Register a card identifier or virtual token, request operator approval, and book the charger before use. Test-source authorization is not physical card or hardware acceptance.",
+        ar: "سجل معرّف بطاقة أو رمزاً افتراضياً واطلب موافقة المشغل واحجز الشاحن قبل الاستخدام. تفويض مصدر الاختبار ليس قبولاً للبطاقة أو الأجهزة الفعلية.",
+    },
+    "Register rider token": {
+        en: "Register charging access",
+        ar: "تسجيل وصول الشحن",
+    },
+    "Token label": { en: "Label", ar: "الاسم" },
+    "Token type": { en: "Identifier type", ar: "نوع المعرّف" },
+    "Virtual token": { en: "Virtual token", ar: "رمز افتراضي" },
+    "Card identifier (optional for virtual)": {
+        en: "Card identifier (leave empty for a generated virtual token)",
+        ar: "معرّف البطاقة (اتركه فارغاً لإنشاء رمز افتراضي)",
+    },
+    "Token expiry UTC": {
+        en: "Token expiry UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "انتهاء الرمز UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "One-time rider identifier": {
+        en: "One-time identifier",
+        ar: "المعرّف المعروض مرة واحدة",
+    },
+    "Rider identifier privacy": {
+        en: "Keep this identifier private. It is not saved in browser storage and cannot be shown again after hiding or leaving this page.",
+        ar: "احتفظ بالمعرّف بشكل خاص. لا يحفظ في تخزين المتصفح ولا يمكن عرضه مجدداً بعد إخفائه أو مغادرة الصفحة.",
+    },
+    "Show identifier": { en: "Show identifier", ar: "عرض المعرّف" },
+    "Hide identifier": { en: "Hide identifier", ar: "إخفاء المعرّف" },
+    "Station approvals": { en: "Station approvals", ar: "موافقات المحطات" },
+    "Withdraw station approval": {
+        en: "Withdraw station approval",
+        ar: "سحب موافقة المحطة",
+    },
+    "Station search": { en: "Station name", ar: "اسم المحطة" },
+    "Search stations": { en: "Search stations", ar: "بحث المحطات" },
+    "Request station approval": {
+        en: "Request station approval",
+        ar: "طلب موافقة المحطة",
+    },
+    "Rider token revoked": { en: "Revoked", ar: "مبطل" },
+    "Rider token expired": { en: "Expired", ar: "منتهي الصلاحية" },
+    "Operator approval required": {
+        en: "Operator approval and a current reservation are required",
+        ar: "تلزم موافقة المشغل وحجز حالي",
+    },
+    "Revoke rider token": { en: "Revoke token", ar: "إبطال الرمز" },
+    "Change token expiry": { en: "Change expiry", ar: "تغيير الانتهاء" },
+    "Revoke rider token confirmation": {
+        en: "Revoke this identifier and all its station approvals? Active sessions will not be forcibly stopped.",
+        ar: "إبطال هذا المعرّف وجميع موافقات محطاته؟ لن يتم إيقاف الجلسات النشطة قسراً.",
+    },
+    "Rider authorization requests": {
+        en: "Charging access requests",
+        ar: "طلبات وصول الشحن",
+    },
+    "Rider approval disclaimer": {
+        en: "Review the masked identifier and expiry. Approval is station-specific; source provisioning and a current reservation are also required. No hardware command is sent by approval.",
+        ar: "راجع المعرّف المقنّع والانتهاء. الموافقة خاصة بالمحطة ويلزم إعداد المصدر وحجز حالي أيضاً. لا تُرسل الموافقة أمراً للأجهزة.",
+    },
+    "Review rider approval": {
+        en: "Review access request",
+        ar: "مراجعة طلب الوصول",
+    },
+    "Approval decision": { en: "Decision", ar: "القرار" },
+    "Approval expiry UTC": {
+        en: "Approval expiry UTC",
+        ar: "انتهاء الموافقة UTC",
+    },
+    "Provision rider source": {
+        en: "Provision test-source authorization",
+        ar: "إعداد تفويض مصدر الاختبار",
+    },
     "Scheduled maintenance": {
         en: "Scheduled maintenance",
         ar: "الصيانة المجدولة",
