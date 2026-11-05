@@ -3,6 +3,7 @@
 namespace App\Services\Charging;
 
 use App\Http\Controllers\CsmsSessionController;
+use App\Models\ChargerCommand;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\Charging\RiderAccessToken;
@@ -105,12 +106,22 @@ class SourceConsumer
         // Revocation blocks new authorization, not observation/finalization of an
         // already admitted session. Retain the encrypted original source identity.
         $tag = $rider ? Crypt::decryptString($rider->token_ciphertext) : 'EV-SIM-'.$link->charging_session_id;
+        if ($link->remote_token_digest) {
+            $command = ChargerCommand::findOrFail($link->start_command_id);
+            $tag = $command->payload['id_token'] ?? '';
+            if (! is_string($tag) || ! hash_equals($link->remote_token_digest, hash('sha256', $tag))) {
+                throw new RuntimeException('Remote source token lineage conflict.');
+            }
+        }
         $identity = $this->graph('query($station:String!,$tag:citext!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$station}},limit:2){id} Authorizations(where:{tenantId:{_eq:1},idToken:{_eq:$tag}},limit:2){id}}', ['station' => $link->identifier, 'tag' => $tag]);
         if (count($identity['ChargingStations']) > 1 || count($identity['Authorizations']) > 1) {
             throw new RuntimeException('Ambiguous source identity requires reconciliation.');
         }
         if (! $identity['ChargingStations'] || ! $identity['Authorizations']) {
             return 0;
+        }
+        if ($link->remote_token_digest && (int) $identity['Authorizations'][0]['id'] !== (int) $link->remote_authorization_id) {
+            throw new RuntimeException('Remote source registration changed; reconciliation is required.');
         }
         if ($rider && (int) $identity['Authorizations'][0]['id'] !== (int) $rider->source_authorization_id) {
             throw new RuntimeException('Rider source registration changed; reconciliation is required.');

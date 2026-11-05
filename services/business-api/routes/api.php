@@ -9,6 +9,7 @@ use App\Http\Controllers\MobileAuthController as M;
 use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\RecurringPaymentController;
+use App\Http\Controllers\RemoteSessionAuthorizationController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RiderSourceController;
 use App\Http\Controllers\SimulationController as S;
@@ -99,3 +100,5 @@ Route::prefix('v1')->group(__DIR__.'/discovery.php');
 require __DIR__.'/campaign_delivery.php';
 
 require __DIR__.'/corporate_hosted_webhook.php';
+
+Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationController::class)->middleware('throttle:charger-admission');
