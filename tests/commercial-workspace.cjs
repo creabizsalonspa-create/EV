@@ -242,6 +242,10 @@ const assert = require("node:assert/strict");
     await admin.waitForFunction(
       () => !document.querySelector("#commercial-finance").inert,
     );
+    // Settlement/review refreshes consume this Admin's unchanged60/min budget.
+    // Start the subscription-credit phase in a fresh window; never replay a refund.
+    for (const delay of [30000, 31000])
+      await new Promise((resolve) => setTimeout(resolve, delay));
     const subAdmin = rootAdmin.locator(
       `[data-subscription-id="${subscriptionId}"]`,
     );
@@ -262,9 +266,20 @@ const assert = require("node:assert/strict");
     await credit
       .locator("[name=reason]")
       .fill("Full subscription refund " + run);
+    const creditResponse = admin.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/commercial/subscriptions/${subscriptionId}/credits` &&
+        response.request().method() === "POST",
+    );
     await credit
       .getByRole("button", { name: "Refund subscription invoice", exact: true })
       .click();
+    const credited = await creditResponse;
+    assert(
+      credited.ok(),
+      `Subscription credit rejected with status ${credited.status()}; no retry issued.`,
+    );
     await rootAdmin
       .getByRole("heading", {
         name: new RegExp("#" + subscriptionId + " · cancelled"),

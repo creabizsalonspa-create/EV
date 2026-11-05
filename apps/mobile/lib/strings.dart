@@ -130,6 +130,8 @@ class EvStrings {
     'cancel': 'Cancel',
     'close': 'Close',
     'licenses': 'Open source licenses',
+    'localDemoNotice':
+        'Local demo · Use synthetic accounts only. Physical charging and live payments are unverified.',
     'serviceUnavailable': 'The service is unavailable. Please contact support.',
     'genericError':
         'Unable to complete this request. Refresh before trying again.',
@@ -449,6 +451,8 @@ class EvStrings {
     'cancel': 'إلغاء',
     'close': 'إغلاق',
     'licenses': 'تراخيص المصادر المفتوحة',
+    'localDemoNotice':
+        'عرض محلي · استخدم حسابات تجريبية فقط. لم يتم التحقق من الشحن الفعلي أو الدفع المباشر.',
     'serviceUnavailable': 'الخدمة غير متاحة. يرجى التواصل مع الدعم.',
     'genericError': 'تعذر إكمال الطلب. حدّث البيانات قبل المحاولة مجدداً.',
     'offline': 'تعذر الاتصال. تحقق من اتصالك وحاول مجدداً.',
