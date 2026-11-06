@@ -2524,4 +2524,86 @@ window.EV_MESSAGES = {
         en: "Clear pending form after reviewing repair history",
         ar: "مسح النموذج المعلق بعد مراجعة سجل الإصلاح",
     },
+    "Charging operational analytics": {
+        en: "Charging operational analytics",
+        ar: "تحليلات تشغيل الشحن",
+    },
+    "Operational analytics source notice": {
+        en: "Simulator source observations. Missing telemetry is unknown, not uptime or physical availability. Energy covers sessions ending in the period; busy time covers observed intervals across current EVSE inventory. Power is a session interval average, not simultaneous site demand. Invoice references are not cash or settlement.",
+        ar: "ملاحظات محاكي المصدر. غياب القياسات مجهول وليس وقت تشغيل أو توفر فعلياً. الطاقة للجلسات المنتهية في الفترة، والانشغال للفترة المرصودة ضمن مخزون EVSE الحالي. القدرة متوسط فترة جلسة وليست طلب الموقع المتزامن. الفواتير ليست مقبوضات أو تسويات.",
+    },
+    "Site number (optional)": {
+        en: "Site number (optional)",
+        ar: "رقم الموقع (اختياري)",
+    },
+    "Mapped EVSEs": { en: "Mapped EVSEs", ar: "وحدات EVSE المرتبطة" },
+    "Source starts": { en: "Source starts", ar: "بدايات المصدر" },
+    "Completed source sessions": {
+        en: "Completed source sessions",
+        ar: "جلسات المصدر المكتملة",
+    },
+    "Awaiting source start at snapshot": {
+        en: "Awaiting source start at snapshot",
+        ar: "بانتظار بداية المصدر وقت اللقطة",
+    },
+    "Completed energy (Wh)": {
+        en: "Completed energy (Wh)",
+        ar: "الطاقة المكتملة (واط ساعة)",
+    },
+    "Observed EVSE busy seconds": {
+        en: "Observed EVSE busy seconds",
+        ar: "ثواني انشغال EVSE المرصودة",
+    },
+    "Current EVSE window seconds": {
+        en: "Current EVSE window seconds",
+        ar: "ثواني الفترة لوحدات EVSE الحالية",
+    },
+    "Fresh status evidence seconds": {
+        en: "Fresh status evidence seconds",
+        ar: "ثواني دليل الحالة الحديث",
+    },
+    "Unknown connector seconds": {
+        en: "Unknown connector seconds",
+        ar: "ثواني الموصل المجهولة",
+    },
+    "Reported fault seconds": {
+        en: "Reported fault seconds",
+        ar: "ثواني الأعطال المبلغ عنها",
+    },
+    "Maximum observed session interval average (W)": {
+        en: "Maximum observed session interval average (W)",
+        ar: "أقصى متوسط فترة جلسة مرصودة (واط)",
+    },
+    "Sessions requiring review": {
+        en: "Sessions requiring review",
+        ar: "جلسات تحتاج مراجعة",
+    },
+    "Operational metric: {label} \u2014 {value}": {
+        en: "Operational metric: {label} — {value}",
+        ar: "مقياس التشغيل: {label} — {value}",
+    },
+    "Invoice references, not cash or settlements": {
+        en: "Invoice references, not cash or settlements",
+        ar: "فواتير مرجعية وليست مقبوضات أو تسويات",
+    },
+    "Operational report unavailable. Apply filters to retry.": {
+        en: "Operational report unavailable. Apply filters to retry.",
+        ar: "تقرير التشغيل غير متاح. طبّق المرشحات لإعادة المحاولة.",
+    },
+    "Apply and refresh": { en: "Apply and refresh", ar: "تطبيق وتحديث" },
+    "From (UTC)": { en: "From (UTC)", ar: "من (UTC)" },
+    "To (UTC)": { en: "To (UTC)", ar: "إلى (UTC)" },
+    "Download report CSV": {
+        en: "Download report CSV",
+        ar: "تنزيل التقرير CSV",
+    },
+    "Download report PDF": {
+        en: "Download report PDF",
+        ar: "تنزيل التقرير PDF",
+    },
+    "Invoiced amount": { en: "Invoiced amount", ar: "المبلغ المفوتر" },
+    "Vendor allocated amount": {
+        en: "Vendor allocated amount",
+        ar: "المبلغ المخصص للمورد",
+    },
 };

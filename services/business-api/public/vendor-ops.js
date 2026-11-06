@@ -318,6 +318,10 @@ window.createVendorWorkspace = ({
                 date: company.license_expires_on?.slice(0, 10),
             }),
         );
+        if (caps.inventory_read)
+            button(host, "Charging operational analytics", () =>
+                operationalAnalytics(company, host, epoch),
+            );
         const editable =
             owner &&
             ["draft", "changes_requested", "rejected"].includes(company.status);
@@ -1431,6 +1435,248 @@ window.createVendorWorkspace = ({
             }
         }
     }
+    async function operationalAnalytics(company, parent, epoch) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-operational-analytics]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.operationalAnalytics = "";
+        parent.append(pane);
+        const current = () => valid(epoch) && pane.isConnected;
+        const path = base + `companies/${company.id}/operational-analytics`;
+        pane.append(
+            ui("h3", "Charging operational analytics"),
+            ui("p", "Operational analytics source notice"),
+        );
+        const form = document.createElement("form");
+        const fields = {};
+        const now = new Date();
+        for (const [name, title, type, value] of [
+            [
+                "from",
+                "From (UTC)",
+                "date",
+                new Date(now.getTime() - 6 * 86400000)
+                    .toISOString()
+                    .slice(0, 10),
+            ],
+            ["to", "To (UTC)", "date", now.toISOString().slice(0, 10)],
+            ["site_id", "Site number (optional)", "number", ""],
+        ]) {
+            const label = ui("label", title),
+                input = document.createElement("input");
+            input.type = type;
+            input.name = "operational_" + name;
+            input.value = value;
+            if (type === "date") input.required = true;
+            else {
+                input.min = "1";
+                input.step = "1";
+            }
+            label.append(input);
+            form.append(label);
+            fields[name] = input;
+        }
+        const submit = ui("button", "Apply and refresh");
+        submit.type = "submit";
+        form.append(submit);
+        pane.append(form);
+        const content = document.createElement("section");
+        content.setAttribute("aria-live", "polite");
+        pane.append(content);
+        let version = 0,
+            request;
+        const metrics = {
+            mapped_evses: "Mapped EVSEs",
+            source_started: "Source starts",
+            source_completed: "Completed source sessions",
+            pending_source: "Awaiting source start at snapshot",
+            completed_energy_wh: "Completed energy (Wh)",
+            observed_busy_seconds: "Observed EVSE busy seconds",
+            possible_evse_seconds: "Current EVSE window seconds",
+            status_known_seconds: "Fresh status evidence seconds",
+            status_unknown_seconds: "Unknown connector seconds",
+            reported_fault_seconds: "Reported fault seconds",
+            maximum_session_interval_average_w:
+                "Maximum observed session interval average (W)",
+            excluded_sessions: "Sessions requiring review",
+        };
+        async function load() {
+            const own = ++version;
+            request?.abort();
+            request = new AbortController();
+            const filters = Object.fromEntries(
+                Object.entries(fields)
+                    .filter(([, v]) => v.value)
+                    .map(([k, v]) => [k, v.value]),
+            );
+            submit.disabled = true;
+            content.replaceChildren(ui("p", "Loading…"));
+            try {
+                const data = await api(
+                    path + "?" + new URLSearchParams(filters),
+                    "GET",
+                    undefined,
+                    request.signal,
+                );
+                if (!current() || version !== own) return;
+                if (
+                    data.company_id !== company.id ||
+                    data.evidence !== "SIMULATED_SOURCE" ||
+                    data.physical_uptime_verified !== false ||
+                    data.billing_authority !== false ||
+                    typeof data.financial_visible !== "boolean"
+                )
+                    throw Error("Unexpected analytics authority.");
+                content.replaceChildren(
+                    raw("p", data.from + " — " + data.to + " UTC"),
+                    raw("p", data.as_of),
+                );
+                const links = document.createElement("nav");
+                for (const [kind, title] of [
+                    ["export", "Download report CSV"],
+                    ["pdf", "Download report PDF"],
+                ]) {
+                    const link = ui("a", title);
+                    const query = {
+                        ...filters,
+                        ...(kind === "pdf"
+                            ? {
+                                  locale:
+                                      document.documentElement.lang === "ar"
+                                          ? "ar"
+                                          : "en",
+                              }
+                            : {}),
+                    };
+                    link.href =
+                        "/api/" +
+                        path +
+                        "/" +
+                        kind +
+                        "?" +
+                        new URLSearchParams(query);
+                    link.onclick = (event) => {
+                        if (!current()) {
+                            event.preventDefault();
+                            return;
+                        }
+                        if (kind === "pdf")
+                            link.href =
+                                "/api/" +
+                                path +
+                                "/pdf?" +
+                                new URLSearchParams({
+                                    ...filters,
+                                    locale:
+                                        document.documentElement.lang === "ar"
+                                            ? "ar"
+                                            : "en",
+                                });
+                    };
+                    link.rel = "noopener";
+                    link.download =
+                        "charging-operations." +
+                        (kind === "pdf" ? "pdf" : "csv");
+                    links.append(link);
+                }
+                content.append(links);
+                for (const row of data.sites) {
+                    const card = document.createElement("article");
+                    card.append(raw("h4", row.name + " · #" + row.site_id));
+                    for (const [key, title] of Object.entries(metrics)) {
+                        if (!Number.isSafeInteger(row[key]) || row[key] < 0)
+                            throw Error("Inexact source metric.");
+                        card.append(
+                            ui("p", "Operational metric: {label} — {value}", {
+                                label: { translate: title },
+                                value: row[key],
+                            }),
+                        );
+                    }
+                    content.append(card);
+                }
+                if (data.financial_visible)
+                    content.append(
+                        ui("h4", "Invoice references, not cash or settlements"),
+                    );
+                for (const row of data.invoice_facts) {
+                    if (
+                        !data.financial_visible ||
+                        !Number.isSafeInteger(row.invoiced_minor) ||
+                        !Number.isSafeInteger(row.vendor_allocated_minor) ||
+                        !Number.isInteger(row.minor_units) ||
+                        row.minor_units < 0 ||
+                        row.minor_units > 3 ||
+                        !/^[A-Z]{3}$/.test(row.currency) ||
+                        row.evidence !== "SIMULATED"
+                    )
+                        throw Error("Invalid invoice fact.");
+                    content.append(ui("p", "Invoiced amount"));
+                    content.append(
+                        raw(
+                            "p",
+                            row.currency +
+                                " " +
+                                EvMoney.format(
+                                    row.invoiced_minor,
+                                    row.minor_units,
+                                ) +
+                                " · " +
+                                row.evidence,
+                        ),
+                    );
+                    content.append(
+                        ui("p", "Vendor allocated amount"),
+                        raw(
+                            "p",
+                            row.currency +
+                                " " +
+                                EvMoney.format(
+                                    row.vendor_allocated_minor,
+                                    row.minor_units,
+                                ),
+                        ),
+                    );
+                }
+            } catch (error) {
+                if (current() && version === own) {
+                    content.replaceChildren(
+                        ui(
+                            "p",
+                            "Operational report unavailable. Apply filters to retry.",
+                        ),
+                    );
+                    if (error.name !== "AbortError") notice(error);
+                }
+            } finally {
+                if (current() && version === own) submit.disabled = false;
+            }
+        }
+        const visibility = () => {
+            if (document.hidden) {
+                version++;
+                request?.abort();
+                content.replaceChildren();
+                submit.disabled = false;
+            }
+        };
+        document.addEventListener("visibilitychange", visibility);
+        const observer = new MutationObserver(() => {
+            if (!current()) {
+                version++;
+                request?.abort();
+                document.removeEventListener("visibilitychange", visibility);
+                observer.disconnect();
+            }
+        });
+        observer.observe(parent, { childList: true });
+        form.onsubmit = (event) => {
+            event.preventDefault();
+            load();
+        };
+        await load();
+    }
+
     async function repairOrders(
         company,
         charger,

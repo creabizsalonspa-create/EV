@@ -173,6 +173,7 @@ async function main() {
       }),
     );
   }
+  await require("./helpers/operational-report-proof.cjs")(fixture, clients);
 }
 main().catch((error) => {
   console.error(error.message);
