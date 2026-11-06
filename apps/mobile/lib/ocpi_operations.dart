@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'ocpi_credentials.dart';
+import 'sandbox_roaming.dart';
 
 String partnerOperationsTitle(BuildContext context) =>
     Localizations.localeOf(context).languageCode == 'ar'
@@ -429,6 +430,22 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
                           ? null
                           : () => credentials(p),
                       child: Text(partnerCredentialsTitle(context)),
+                    ),
+                    TextButton(
+                      onPressed: busy
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => SandboxRoamingView(
+                                  api: widget.api,
+                                  providerId: p['id'] as int,
+                                  onExpired: widget.onExpired,
+                                ),
+                              ),
+                            ),
+                      child: Text(
+                        tr('Sandbox roaming activity', 'نشاط التجوال التجريبي'),
+                      ),
                     ),
                     if (widget.admin)
                       TextButton(

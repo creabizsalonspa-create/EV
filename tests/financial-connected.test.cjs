@@ -101,6 +101,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "charging-business",
       "station-favorites",
       "client-demo-lifecycle",
+      "sandbox-roaming",
       "partner-favorites",
       "charger-configuration",
     ],

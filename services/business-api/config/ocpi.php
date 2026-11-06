@@ -30,6 +30,8 @@ foreach ($metadata as $key => $connection) {
         'inbound_authorization_token' => $inboundVariable === null ? null : env($inboundVariable),
         'managed_credentials' => ($connection['managed_credentials'] ?? false) === true,
         'incoming_modules' => $connection['incoming_modules'] ?? [],
+        'test_commands' => ($connection['test_commands'] ?? false) === true,
+        'test_command_contract' => $connection['test_command_contract'] ?? null,
         'party_country' => $connection['party_country'] ?? null,
         'party_id' => $connection['party_id'] ?? null,
         'party_role' => $connection['party_role'] ?? null,
@@ -40,4 +42,4 @@ foreach ($metadata as $key => $connection) {
     ];
 }
 
-return ['local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];
+return ['test_commands_enabled' => env('OCPI_TEST_COMMANDS_ENABLED', false), 'local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];

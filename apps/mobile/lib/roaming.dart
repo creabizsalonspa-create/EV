@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'sandbox_roaming.dart';
 
 /// A partner location cannot grant charging, availability or payment authority.
 class RoamingLocation {
@@ -159,6 +160,20 @@ class _RoamingViewState extends State<RoamingView> {
     }
   }
 
+  Future<void> sandbox([int? locationId]) async {
+    final api = widget.api;
+    if (api == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SandboxRoamingView(
+          api: api,
+          locationId: locationId,
+          onExpired: widget.onExpired ?? () {},
+        ),
+      ),
+    );
+  }
+
   Future<void> toggle(RoamingLocation row) async {
     if (saving || loading || uncertain || widget.api == null || row.id == null)
       return;
@@ -206,6 +221,13 @@ class _RoamingViewState extends State<RoamingView> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             Text(s.t('roamingDisclaimer')),
+            if (widget.api != null)
+              TextButton(
+                onPressed: () => sandbox(),
+                child: Text(
+                  tr('Review sandbox history', 'مراجعة سجل التجوال التجريبي'),
+                ),
+              ),
             if (widget.api != null)
               TextButton(
                 onPressed: loading || saving
@@ -366,6 +388,18 @@ class _RoamingViewState extends State<RoamingView> {
                                       'Save partner location',
                                       'حفظ موقع الشريك',
                                     ),
+                            ),
+                          ),
+                        if (widget.api != null &&
+                            row.id != null &&
+                            row.available)
+                          TextButton(
+                            onPressed: () => sandbox(row.id),
+                            child: Text(
+                              tr(
+                                'View sandbox offers',
+                                'عرض عروض التجوال التجريبي',
+                              ),
                             ),
                           ),
                         if (!row.available)

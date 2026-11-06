@@ -89,7 +89,7 @@ class OcpiController extends Controller
             abort(409, $e->getMessage());
         }$this->audit($r, 'ocpi.version_negotiated', $provider->id);
 
-        return response()->json(['version' => '2.2.1', 'readable_modules' => array_keys($endpoints), 'commands_enabled' => false, 'evidence' => 'CONTRACT_UNVERIFIED']);
+        return response()->json(['version' => '2.2.1', 'readable_modules' => array_values(array_intersect(PartnerClient::MODULES, array_keys($endpoints))), 'commands_enabled' => false, 'evidence' => 'CONTRACT_UNVERIFIED']);
     }
 
     public function sync(Request $r, OcpiProvider $provider, string $module, PartnerClient $client, RecordSynchronizer $sync)

@@ -5,10 +5,10 @@ const net = require("node:net");
 const assert = require("node:assert/strict");
 async function withCredentialsFixture(
   runTest,
-  { incoming = false, receiving = false } = {},
+  { incoming = false, receiving = false, roaming = false } = {},
 ) {
   assert(
-    !(incoming && receiving),
+    !(incoming && (receiving || roaming)),
     "Receiver fixture requires active synthetic credentials.",
   );
   const run = randomBytes(4).toString("hex"),
@@ -21,7 +21,15 @@ async function withCredentialsFixture(
   const metadata = JSON.stringify({
     ["managed_" + run]: {
       managed_credentials: true,
-      ...(receiving ? { incoming_modules: ["sessions", "cdrs"] } : {}),
+      ...(receiving || roaming
+        ? { incoming_modules: ["sessions", "cdrs"] }
+        : {}),
+      ...(roaming
+        ? {
+            test_commands: true,
+            test_command_contract: "synthetic_roaming_" + run,
+          }
+        : {}),
       origin: "https://partner.example",
       ...(incoming
         ? {
@@ -66,6 +74,8 @@ async function withCredentialsFixture(
     "OCPI_SYNTHETIC_TOKEN=" + bootstrap,
     "-e",
     "OCPI_SYNTHETIC_INBOUND_TOKEN=" + bootstrap,
+    "-e",
+    "OCPI_TEST_COMMANDS_ENABLED=" + (roaming ? "true" : "false"),
     "--entrypoint",
     "php",
     "composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc",
@@ -81,7 +91,13 @@ async function withCredentialsFixture(
           "tests/Fixtures/ocpi-credentials.php",
           run,
           password,
-          incoming ? "incoming" : receiving ? "receiver" : "active",
+          incoming
+            ? "incoming"
+            : roaming
+              ? "roaming"
+              : receiving
+                ? "receiver"
+                : "active",
         ],
         { encoding: "utf8" },
       ),
@@ -95,11 +111,21 @@ async function withCredentialsFixture(
         "--name",
         name,
         ...args,
-        "artisan",
-        "serve",
-        "--no-reload",
-        "--host=127.0.0.1",
-        "--port=" + port,
+        ...(roaming
+          ? [
+              "-S",
+              "127.0.0.1:" + port,
+              "-t",
+              "public",
+              "tests/Fixtures/roaming-router.php",
+            ]
+          : [
+              "artisan",
+              "serve",
+              "--no-reload",
+              "--host=127.0.0.1",
+              "--port=" + port,
+            ]),
       ],
       { stdio: "pipe" },
     );
@@ -115,7 +141,23 @@ async function withCredentialsFixture(
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     assert(ready, "Synthetic credentials server did not become ready.");
-    await runTest({ ...fixture, run, password, base, incoming });
+    const inspect = roaming
+      ? () =>
+          JSON.parse(
+            execFileSync(
+              "docker",
+              ["exec", name, "php", "tests/Fixtures/roaming-source.php", run],
+              { encoding: "utf8" },
+            ),
+          )
+      : undefined;
+    await runTest({ ...fixture, run, password, base, incoming, inspect });
+  } catch (error) {
+    if (error?.spawnargs || error?.cmd || error?.stderr)
+      throw new Error(
+        "Synthetic fixture process failed; credential details withheld.",
+      );
+    throw error;
   } finally {
     try {
       execFileSync("docker", ["rm", "-f", name], { stdio: "pipe" });

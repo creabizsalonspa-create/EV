@@ -2606,4 +2606,107 @@ window.EV_MESSAGES = {
         en: "Vendor allocated amount",
         ar: "المبلغ المخصص للمورد",
     },
+    "Sandbox roaming activity": {
+        en: "Sandbox roaming activity",
+        ar: "نشاط التجوال التجريبي",
+    },
+    "Sandbox roaming warning": {
+        en: "Sandbox partner evidence is unverified. Command acceptance does not prove charging started or stopped. No invoice or payment is created. Live charging requires an approved partner agreement.",
+        ar: "تجربة مع شريك غير متحقق منه. قبول الأمر لا يثبت بدء الشحن أو إيقافه. لا تُنشأ فاتورة ولا تُحصّل دفعة. يتطلب الشحن الحقيقي اتفاق شريك معتمدًا.",
+    },
+    "Sandbox response uncertain": {
+        en: "Response uncertain. Review history or retry the same request only. Do not create a replacement attempt.",
+        ar: "الاستجابة غير مؤكدة. راجع السجل أو أعد نفس الطلب فقط. لا تبدأ محاولة بديلة.",
+    },
+    "Retry same sandbox request": {
+        en: "Retry same sandbox request",
+        ar: "إعادة نفس الطلب التجريبي",
+    },
+    "Review sandbox history": {
+        en: "Review sandbox history",
+        ar: "مراجعة سجل التجوال التجريبي",
+    },
+    "Sandbox order state": {
+        en: "Sandbox order state",
+        ar: "حالة الطلب التجريبي",
+    },
+    "Sandbox token state": {
+        en: "Sandbox token state",
+        ar: "حالة رمز التفويض التجريبي",
+    },
+    "Sandbox reported energy Wh": {
+        en: "Sandbox reported energy Wh",
+        ar: "الطاقة المبلّغ عنها بالواط ساعة",
+    },
+    "Sandbox source observed": {
+        en: "Sandbox source observed",
+        ar: "وقت رصد مصدر الشريك",
+    },
+    "Sandbox reconciliation": {
+        en: "Sandbox reconciliation",
+        ar: "مطابقة بيانات الشريك",
+    },
+    "Sandbox reported cost": {
+        en: "Partner-reported cost — not an invoice",
+        ar: "تكلفة الشريك المبلّغ عنها — ليست فاتورة",
+    },
+    "Refresh sandbox source": {
+        en: "Refresh sandbox source",
+        ar: "تحديث بيانات المصدر التجريبي",
+    },
+    "Request sandbox stop": {
+        en: "Request sandbox stop",
+        ar: "طلب إيقاف تجريبي",
+    },
+    "Sandbox stop confirmation": {
+        en: "Request a stop for this sandbox session only? Command acceptance does not prove charging stopped. Wait for source evidence.",
+        ar: "إرسال طلب إيقاف لهذه الجلسة التجريبية فقط؟ قبول الأمر لا يثبت توقف الشحن. انتظر حالة المصدر.",
+    },
+    "Revoke sandbox authority": {
+        en: "Revoke sandbox authority",
+        ar: "إلغاء التفويض التجريبي",
+    },
+    "Sandbox revoke confirmation": {
+        en: "Revoke authority for new requests? This does not stop active charging. Request a stop and check the source separately.",
+        ar: "إلغاء التفويض لطلبات جديدة؟ هذا لا يوقف جلسة شحن نشطة. استخدم طلب الإيقاف وتحقق من المصدر بصورة منفصلة.",
+    },
+    "Sandbox explicit consent": {
+        en: "I consent to this location, connector and tariff for this sandbox attempt only. There is no payment or invoice, and physical charging is unverified.",
+        ar: "أوافق على هذا الموقع والموصل والتعرفة لهذه التجربة فقط. لا توجد دفعة أو فاتورة، ولا يُستنتج شحن فعلي.",
+    },
+    "Start sandbox roaming": {
+        en: "Start sandbox roaming",
+        ar: "بدء التجوال التجريبي",
+    },
+    "No approved sandbox offers": {
+        en: "No fresh approved sandbox offers are available for this location.",
+        ar: "لا توجد عروض تجريبية حديثة ومعتمدة لهذا الموقع.",
+    },
+    "Sandbox offer limit reached": {
+        en: "The offer limit was reached. Other offers may be omitted.",
+        ar: "عُرض الحد الأقصى للعروض. قد توجد عروض أخرى غير معروضة.",
+    },
+    "No sandbox activity": {
+        en: "No sandbox activity",
+        ar: "لا يوجد نشاط تجوال تجريبي.",
+    },
+    "Sandbox activity unavailable": {
+        en: "Sandbox activity unavailable. No new charging request was sent.",
+        ar: "النشاط التجريبي غير متاح. لم يُرسل طلب شحن جديد.",
+    },
+    "View sandbox offers": {
+        en: "View sandbox offers",
+        ar: "عرض عروض التجوال التجريبي",
+    },
+    "per kWh": { en: "per kWh", ar: "لكل كيلوواط ساعة" },
+    "per charging hour": { en: "per charging hour", ar: "لكل ساعة شحن" },
+    "per parking hour": { en: "per parking hour", ar: "لكل ساعة وقوف" },
+    "per session": { en: "per session", ar: "لكل جلسة" },
+    "Unit unavailable": { en: "Unit unavailable", ar: "الوحدة غير متاحة" },
+    "Reported tariff": { en: "Reported tariff", ar: "التعرفة المبلّغ عنها" },
+    "Billing step": { en: "Billing step", ar: "خطوة احتساب التعرفة" },
+    "VAT percent": { en: "VAT percent", ar: "نسبة ضريبة القيمة المضافة" },
+    "Not reported": { en: "Not reported", ar: "غير مبلّغ عنه" },
+    session: { en: "session", ar: "جلسة" },
+    seconds: { en: "seconds", ar: "ثوانٍ" },
 };
