@@ -11,6 +11,7 @@ window.createRoamingWorkspace = ({
         privateRequest,
         generation = 0,
         details = 0;
+    let catalogFilters = {};
     const raw = (tag, value) => {
         const node = document.createElement(tag);
         node.textContent = value ?? "";
@@ -60,7 +61,7 @@ window.createRoamingWorkspace = ({
             } catch (e) {
                 if (e.name !== "AbortError" && b.isConnected) notice(e);
             } finally {
-                if (b.isConnected) b.disabled = false;
+                if (b.isConnected) b.disabled = b.dataset.uncertain === "true";
             }
         };
         parent.append(b);
@@ -117,7 +118,63 @@ window.createRoamingWorkspace = ({
         card.append(ui("p", "Roaming unknown availability"));
         parent.append(card);
     }
-    async function catalog(page = 1) {
+    function discoverySearch() {
+        const form = document.createElement("form");
+        const field = (title, input) => {
+            const label = ui("label", title);
+            label.append(input);
+            form.append(label);
+            return input;
+        };
+        const query = document.createElement("input");
+        query.name = "partner_q";
+        query.maxLength = 80;
+        query.value = catalogFilters.q || "";
+        field("Search partner locations", query);
+        const country = document.createElement("input");
+        country.name = "partner_country";
+        country.maxLength = 3;
+        country.pattern = "[a-zA-Z]{3}";
+        country.value = catalogFilters.country || "";
+        field("Country code (e.g. ARE)", country);
+        const connector = document.createElement("select");
+        connector.name = "partner_connector";
+        for (const [value, title] of [
+            ["", "All connectors"],
+            ["IEC_62196_T2_COMBO", "CCS2"],
+            ["IEC_62196_T1_COMBO", "CCS1"],
+            ["IEC_62196_T2", "Type 2"],
+            ["CHADEMO", "CHAdeMO"],
+        ]) {
+            const option = ui("option", title);
+            option.value = value;
+            connector.append(option);
+        }
+        connector.value = catalogFilters.connector_standard || "";
+        field("Connector", connector);
+        const submit = ui("button", "Search partner locations");
+        submit.type = "submit";
+        form.append(submit);
+        form.onsubmit = async (event) => {
+            event.preventDefault();
+            submit.disabled = true;
+            catalogFilters = {
+                ...(query.value.trim() ? { q: query.value.trim() } : {}),
+                ...(country.value.trim()
+                    ? { country: country.value.trim().toUpperCase() }
+                    : {}),
+                ...(connector.value
+                    ? { connector_standard: connector.value }
+                    : {}),
+            };
+            await catalog(1);
+        };
+        return form;
+    }
+    async function catalog(page = 1, savedOnly = false) {
+        const viewer = actor(),
+            epoch = generation;
+        if (savedOnly && viewer?.role !== "customer") return catalog(1, false);
         publicRequest?.abort();
         const request = new AbortController();
         publicRequest = request;
@@ -129,17 +186,59 @@ window.createRoamingWorkspace = ({
         );
         try {
             const result = await api(
-                `roaming/locations?page=${page}`,
+                `roaming/${savedOnly ? "favorites" : "locations"}?${new URLSearchParams({ ...(!savedOnly ? catalogFilters : {}), page: String(page) })}`,
                 "GET",
                 undefined,
                 request.signal,
             );
             if (request.signal.aborted) return;
+            if (
+                savedOnly &&
+                !result.data.length &&
+                result.last_page >= 1 &&
+                page > result.last_page
+            )
+                return catalog(result.last_page, true);
+            let favorites = new Set();
+            if (viewer?.role === "customer" && result.data.length) {
+                if (savedOnly)
+                    favorites = new Set(result.data.map((row) => row.id));
+                else {
+                    const status = await api(
+                        "roaming/favorites/status",
+                        "POST",
+                        { record_ids: result.data.map((row) => row.id) },
+                        request.signal,
+                    );
+                    favorites = new Set(status.favorite_record_ids);
+                }
+            }
+            if (
+                request.signal.aborted ||
+                (viewer?.role === "customer" &&
+                    (epoch !== generation ||
+                        actor()?.id !== viewer?.id ||
+                        actor()?.role !== "customer"))
+            )
+                return;
             publicRoot.replaceChildren(
                 ui("h2", "Roaming discovery"),
                 ui("p", "Roaming disclaimer"),
             );
-            button(publicRoot, "Refresh", () => catalog(page));
+            button(publicRoot, "Refresh", () => catalog(page, savedOnly));
+            if (viewer?.role === "customer") {
+                const toggle = button(
+                    publicRoot,
+                    savedOnly
+                        ? "All partner locations"
+                        : "Saved partner locations",
+                    () => catalog(1, !savedOnly),
+                );
+                toggle.dataset.privateRoaming = "";
+            }
+            if (!savedOnly) publicRoot.append(discoverySearch());
+            const content = document.createElement("div");
+            if (savedOnly) content.dataset.privateRoaming = "";
             const list = document.createElement("div");
             list.className = "station-grid";
             for (const row of result.data) {
@@ -151,24 +250,86 @@ window.createRoamingWorkspace = ({
                     row.reservable !== false
                 )
                     throw new Error("Unexpected roaming capability.");
-                location(list, row.location);
-                line(
-                    list.lastElementChild,
-                    "Roaming received",
-                    row.received_at,
-                );
+                if (row.location_available === false) {
+                    const card = document.createElement("article");
+                    card.append(
+                        ui("p", "Saved partner location is unavailable"),
+                    );
+                    list.append(card);
+                } else {
+                    location(list, row.location);
+                    line(
+                        list.lastElementChild,
+                        "Roaming received",
+                        row.received_at,
+                    );
+                }
+                if (viewer?.role === "customer") {
+                    const saved = favorites.has(row.id);
+                    const save = button(
+                        list.lastElementChild,
+                        saved
+                            ? "Remove saved partner location"
+                            : "Save partner location",
+                        async () => {
+                            if (
+                                epoch !== generation ||
+                                actor()?.id !== viewer.id ||
+                                actor()?.role !== "customer"
+                            )
+                                return;
+                            try {
+                                await api(
+                                    "roaming/favorites/" + row.id,
+                                    saved ? "DELETE" : "PUT",
+                                );
+                                if (
+                                    epoch === generation &&
+                                    actor()?.id === viewer.id
+                                )
+                                    await catalog(page, savedOnly);
+                            } catch (e) {
+                                if (
+                                    epoch === generation &&
+                                    actor()?.id === viewer.id &&
+                                    save.isConnected
+                                ) {
+                                    save.dataset.uncertain = "true";
+                                    const note = ui(
+                                        "p",
+                                        "Saved location update uncertain. Refresh to check.",
+                                    );
+                                    note.dataset.privateRoaming = "";
+                                    save.parentElement.append(note);
+                                }
+                                throw e;
+                            }
+                        },
+                    );
+                    save.dataset.privateRoaming = "";
+                }
             }
             if (!result.data.length)
-                list.append(ui("p", "No published roaming locations"));
-            publicRoot.append(list);
-            pager(publicRoot, result, catalog);
+                list.append(
+                    ui(
+                        "p",
+                        savedOnly
+                            ? "No saved partner locations"
+                            : Object.keys(catalogFilters).length
+                              ? "No matching partner locations"
+                              : "No published roaming locations",
+                    ),
+                );
+            content.append(list);
+            pager(content, result, (page) => catalog(page, savedOnly));
+            publicRoot.append(content);
         } catch (e) {
             if (!request.signal.aborted) {
                 publicRoot.replaceChildren(
                     ui("h2", "Roaming discovery"),
                     ui("p", "Roaming load failed"),
                 );
-                button(publicRoot, "Retry", () => catalog(page));
+                button(publicRoot, "Retry", () => catalog(page, savedOnly));
             }
         } finally {
             if (publicRequest === request)
@@ -181,6 +342,9 @@ window.createRoamingWorkspace = ({
         privateRequest?.abort();
         privateRoot.replaceChildren();
         privateRoot.hidden = true;
+        publicRoot
+            .querySelectorAll("[data-private-roaming]")
+            .forEach((node) => node.remove());
     }
     async function registration(parent, epoch, signal) {
         const box = document.createElement("section");
@@ -701,5 +865,12 @@ window.createRoamingWorkspace = ({
             records(provider, module, target, page),
         );
     }
-    return { catalog, setActor: () => providers(), clear };
+    return {
+        catalog,
+        setActor: async () => {
+            await providers();
+            await catalog(1);
+        },
+        clear,
+    };
 };

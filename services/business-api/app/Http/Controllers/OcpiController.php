@@ -117,8 +117,15 @@ class OcpiController extends Controller
         });
     }
 
-    public function locations()
+    public function locations(Request $request)
     {
-        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))->orderByDesc('id')->paginate(25)->through(fn ($r) => ['id' => $r->id, 'provider_id' => $r->ocpi_provider_id, 'location' => $r->normalized, 'received_at' => $r->received_at, 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'availability' => 'unknown', 'remote_control' => false, 'reservable' => false]);
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'country' => 'nullable|string|regex:/^[A-Z]{3}$/D', 'connector_standard' => 'nullable|string|max:64']);
+        $text = trim($v['q'] ?? '');
+
+        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
+            ->when($text !== '', fn ($q) => $q->where(fn ($q) => $q->whereLike('normalized->name', '%'.$text.'%')->orWhereLike('normalized->city', '%'.$text.'%')->orWhereLike('normalized->address', '%'.$text.'%')))
+            ->when(! empty($v['country']), fn ($q) => $q->where('normalized->country', $v['country']))
+            ->when(! empty($v['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $v['connector_standard']))
+            ->orderByDesc('id')->paginate(25)->withQueryString()->through(fn ($r) => ['id' => $r->id, 'provider_id' => $r->ocpi_provider_id, 'location' => $r->normalized, 'received_at' => $r->received_at, 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'availability' => 'unknown', 'remote_control' => false, 'reservable' => false]);
     }
 }

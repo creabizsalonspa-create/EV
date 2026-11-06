@@ -100,3 +100,10 @@ against explicitly linked, completed sessions and reports discrepancies. Records
 with missing references, duplicate claims, credits, unsupported precision or
 unlinked legacy history require review. Even matching records remain partner
 reported and do not create local charging sessions, invoices or payment authority.
+
+Customers can save published partner locations from web or Flutter roaming
+discovery and browse their own saved list. Preferences are private and separate
+from the public catalog. A revoked/unpublished location is redacted in the saved
+list and can still be removed. Lost write acknowledgements require an explicit
+preference refresh. Saving does not change partner availability, booking, charging
+or payment permissions.
