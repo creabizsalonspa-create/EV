@@ -181,7 +181,8 @@ async function main() {
       assert(ready, "Simulator has not reached online idle readiness.");
     } else if (mode === "stop" && running) {
       process.kill(pid, "SIGTERM");
-      for (let attempt = 0; attempt < 80 && owned(pid, manifest); attempt++)
+      // In-flight simulator RPCs have a 25s deadline, then a bounded socket close.
+      for (let attempt = 0; attempt < 160 && owned(pid, manifest); attempt++)
         await new Promise((resolve) => setTimeout(resolve, 250));
       running = owned(pid, manifest);
       assert(!running, "Simulator shutdown requires review.");
