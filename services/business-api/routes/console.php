@@ -15,6 +15,7 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -132,3 +133,5 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
 
     return $failed ? 1 : 0;
 })->purpose('Bounded durable simulator fault observation; no hardware or capacity commands');
+
+Schedule::command('csms:expire-diagnostic-files --limit=100')->everyTenMinutes()->withoutOverlapping();

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'charger_logs.dart';
 import 'strings.dart';
 
 class ChargerRepairsView extends StatefulWidget {
@@ -259,6 +260,22 @@ class _RepairsState extends State<ChargerRepairsView> {
                     TextButton(
                       onPressed: busy ? null : () => history(row['id'] as int),
                       child: Text(tr('Repair history', 'سجل الإصلاح')),
+                    ),
+                    TextButton(
+                      onPressed: busy
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ChargerLogsView(
+                                  api: widget.api,
+                                  companyId: widget.companyId,
+                                  chargerId: widget.chargerId,
+                                  repairOrderId: row['id'] as int,
+                                  onExpired: widget.onExpired,
+                                ),
+                              ),
+                            ),
+                      child: Text(tr('Diagnostic files', 'ملفات التشخيص')),
                     ),
                     if (manage)
                       for (final target in switch (row['state']) {

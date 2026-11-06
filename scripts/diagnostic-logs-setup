@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3 - <<'PY'
+from pathlib import Path
+p=Path('services/business-api/.env')
+v=dict(line.split('=',1) for line in p.read_text().splitlines() if '=' in line and not line.startswith('#'))
+clean=lambda x:x.strip('"\'')
+if clean(v.get('APP_ENV',''))!='local' or clean(v.get('CSMS_SESSION_BRIDGE_ENABLED',''))!='true':raise SystemExit('Requires the existing isolated local charging setup.')
+k='CSMS_DIAGNOSTIC_LOGS_ENABLED'
+if k in v and clean(v[k]) not in ('true','false'):raise SystemExit('Existing diagnostic log read flag has an unsupported value.')
+if k not in v:
+ with p.open('a') as f:f.write('\n'+k+'=true\n')
+elif clean(v[k])=='false':
+ p.write_text('\n'.join(k+'=true' if line.startswith(k+'=') else line for line in p.read_text().splitlines())+'\n')
+print('Local simulator diagnostic files enabled with expiring authenticated uploads; production dispatch remains disabled.')
+PY

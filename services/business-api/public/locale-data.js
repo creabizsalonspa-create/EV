@@ -2524,6 +2524,113 @@ window.EV_MESSAGES = {
         en: "Clear pending form after reviewing repair history",
         ar: "مسح النموذج المعلق بعد مراجعة سجل الإصلاح",
     },
+    "Diagnostic files": { en: "Diagnostic files", ar: "ملفات التشخيص" },
+    "Diagnostic files privacy notice": {
+        en: "Private simulator logs. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exported files remain under your device control.",
+        ar: "سجلات محاكي خاصة. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. الملفات المصدرة تحت تحكم جهازك.",
+    },
+    "Refresh diagnostic history": {
+        en: "Refresh diagnostic history",
+        ar: "تحديث سجل التشخيص",
+    },
+    "Diagnostic request outcome unknown. Review history or resolve the original identity. No automatic redispatch.":
+        {
+            en: "Diagnostic request outcome unknown. Review history or resolve the original identity. No automatic redispatch.",
+            ar: "نتيجة طلب التشخيص غير معلومة. راجع السجل أو تحقق من المعرّف الأصلي. لا إعادة إرسال تلقائية.",
+        },
+    "Resolve diagnostic request": {
+        en: "Resolve diagnostic request",
+        ar: "التحقق من طلب التشخيص",
+    },
+    "Clear pending form after reviewing history": {
+        en: "Clear pending form after reviewing history",
+        ar: "مسح النموذج المعلق بعد مراجعة السجل",
+    },
+    "Request diagnostic file": {
+        en: "Request diagnostic file",
+        ar: "طلب ملف تشخيص",
+    },
+    "Diagnostic reason": { en: "Diagnostic reason", ar: "سبب التشخيص" },
+    "Diagnostic request recorded": {
+        en: "Diagnostic request recorded",
+        ar: "تم تسجيل طلب التشخيص",
+    },
+    "Diagnostic delivery pending": {
+        en: "Diagnostic delivery pending",
+        ar: "بانتظار نتيجة إرسال التشخيص",
+    },
+    "Diagnostic source transport submitted": {
+        en: "Diagnostic source transport submitted",
+        ar: "تم إرسال طلب التشخيص للمصدر",
+    },
+    "Diagnostic delivery unknown": {
+        en: "Diagnostic delivery unknown",
+        ar: "نتيجة إرسال التشخيص غير معلومة",
+    },
+    "Diagnostic not dispatched": {
+        en: "Diagnostic not dispatched",
+        ar: "لم يُرسل طلب التشخيص",
+    },
+    "Diagnostic device rejected": {
+        en: "Diagnostic device rejected",
+        ar: "رفض الجهاز التشخيص",
+    },
+    "Diagnostic source review required": {
+        en: "Diagnostic source review required",
+        ar: "تلزم مراجعة مصدر التشخيص",
+    },
+    "Diagnostic upload expired": {
+        en: "Diagnostic upload expired",
+        ar: "انتهت صلاحية رفع التشخيص",
+    },
+    "Diagnostic upload revoked and content removed": {
+        en: "Diagnostic upload revoked and content removed",
+        ar: "أُلغيت صلاحية رفع التشخيص وحُذف المحتوى",
+    },
+    "Canonical diagnostic acceptance observed": {
+        en: "Canonical diagnostic acceptance observed",
+        ar: "تم رصد قبول التشخيص من المصدر",
+    },
+    "Diagnostic file received": {
+        en: "Diagnostic file received",
+        ar: "تم استلام ملف التشخيص",
+    },
+    "Download private diagnostic file": {
+        en: "Download private diagnostic file",
+        ar: "تنزيل ملف التشخيص الخاص",
+    },
+    "Inspect diagnostic source": {
+        en: "Inspect diagnostic source",
+        ar: "فحص مصدر التشخيص",
+    },
+    "Revoke diagnostic upload and remove file": {
+        en: "Revoke diagnostic upload and remove file",
+        ar: "إلغاء صلاحية رفع التشخيص وحذف الملف",
+    },
+    "Diagnostic device uploading": {
+        en: "Diagnostic device uploading",
+        ar: "الجهاز يرفع التشخيص",
+    },
+    "Diagnostic source uploaded": {
+        en: "Diagnostic source uploaded",
+        ar: "أبلغ المصدر عن رفع التشخيص",
+    },
+    "Diagnostic source upload failed": {
+        en: "Diagnostic source upload failed",
+        ar: "أبلغ المصدر عن فشل رفع التشخيص",
+    },
+    "Legacy diagnostic status is unattributed": {
+        en: "Legacy diagnostic status is unattributed",
+        ar: "حالة التشخيص القديمة غير منسوبة",
+    },
+    "Repair work order (optional)": {
+        en: "Repair work order (optional)",
+        ar: "أمر الإصلاح (اختياري)",
+    },
+    "Repair work order #{id}": {
+        en: "Repair work order #{id}",
+        ar: "أمر الإصلاح رقم {id}",
+    },
     "Charging operational analytics": {
         en: "Charging operational analytics",
         ar: "تحليلات تشغيل الشحن",
