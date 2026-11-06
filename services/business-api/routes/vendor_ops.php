@@ -8,6 +8,7 @@ use App\Http\Controllers\ChargerResetController;
 use App\Http\Controllers\ChargingRepairController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\MaintenanceWindowController;
+use App\Http\Controllers\OperationalAnalyticsController;
 use App\Http\Controllers\VendorOpsController as V;
 use Illuminate\Support\Facades\Route;
 
@@ -74,3 +75,7 @@ Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operat
 Route::get('/companies/{company}/chargers/{charger}/repair-orders', [ChargingRepairController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/repair-orders', [ChargingRepairController::class, 'save']);
 Route::get('/companies/{company}/chargers/{charger}/repair-orders/{order}/history', [ChargingRepairController::class, 'history'])->whereNumber('order');
+
+Route::get('/companies/{company}/operational-analytics', [OperationalAnalyticsController::class, 'show']);
+Route::get('/companies/{company}/operational-analytics/export', [OperationalAnalyticsController::class, 'export']);
+Route::get('/companies/{company}/operational-analytics/pdf', [OperationalAnalyticsController::class, 'pdf']);

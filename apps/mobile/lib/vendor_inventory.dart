@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'operational_analytics.dart';
 import 'strings.dart';
 import 'vendor_topology.dart';
 import 'charger_admission.dart';
@@ -227,6 +228,26 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
           padding: const EdgeInsets.all(16),
           children: [
             Text(tr('disclaimer')),
+            if (level == 1)
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => OperationalAnalyticsView(
+                            api: widget.api,
+                            companyId: widget.company!['id'] as int,
+                            onExpired: widget.onExpired,
+                          ),
+                        ),
+                      ),
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'ar'
+                      ? 'تحليلات تشغيل الشحن'
+                      : 'Charging operational analytics',
+                ),
+              ),
+
             if (level == 0) ...[
               FilledButton(
                 onPressed: busy ? null : createInventory,
