@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'diagnostic_logs_enabled' => env('CSMS_DIAGNOSTIC_LOGS_ENABLED', false),
+    'diagnostic_upload_origin' => env('CSMS_DIAGNOSTIC_UPLOAD_ORIGIN', 'http://127.0.0.1:8000'),
     'configuration_read_enabled' => env('CSMS_CONFIGURATION_READ_ENABLED', false),
     'fault_worker_enabled' => env('CSMS_FAULT_WORKER_ENABLED', false),
     'firmware_enabled' => env('CSMS_SIGNED_FIRMWARE_ENABLED', false),

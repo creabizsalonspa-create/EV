@@ -20,6 +20,7 @@ const groups = [
   ["sandbox-roaming"], // isolated synthetic CPO contract; own auth window
   ["partner-favorites"], // own customer/Admin authentication window
   ["charger-configuration"], // two explicit source-device read workflows; own authentication window
+  ["diagnostic-files"], // two scoped file-transfer proofs; dedicated unchanged authentication window
 ];
 if (require.main === module) {
   const { spawnSync } = require("node:child_process");

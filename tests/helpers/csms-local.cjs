@@ -81,6 +81,7 @@ class SimulatedCharger {
     this.acceptSafeReset = false;
     this.firmwareHandler = null;
     this.configurationHandler = null;
+    this.diagnosticHandler = null;
   }
   async connect() {
     this.socket = new WebSocket(
@@ -92,6 +93,24 @@ class SimulatedCharger {
       if (m[0] === 2) {
         this.commands.push({ action: m[2], payload: m[3] });
         if (
+          ["GetDiagnostics", "GetLog"].includes(m[2]) &&
+          this.diagnosticHandler
+        ) {
+          Promise.resolve()
+            .then(() => this.diagnosticHandler(m[3], m[2]))
+            .then((reply) => this.socket.send(JSON.stringify([3, m[1], reply])))
+            .catch(() =>
+              this.socket.send(
+                JSON.stringify([
+                  4,
+                  m[1],
+                  "GenericError",
+                  "Synthetic diagnostic request unavailable",
+                  {},
+                ]),
+              ),
+            );
+        } else if (
           ["GetConfiguration", "GetVariables"].includes(m[2]) &&
           this.configurationHandler
         ) {
