@@ -1668,6 +1668,19 @@ window.EV_MESSAGES = {
         en: "No saved partner locations",
         ar: "لا توجد مواقع شركاء محفوظة",
     },
+    "No matching partner locations": {
+        en: "No matching partner locations",
+        ar: "لا توجد مواقع شركاء مطابقة",
+    },
+    "All connectors": { en: "All connectors", ar: "كل الموصلات" },
+    "Country code (e.g. ARE)": {
+        en: "Country code (e.g. ARE)",
+        ar: "رمز الدولة (مثلاً ARE)",
+    },
+    "Search partner locations": {
+        en: "Search partner locations",
+        ar: "البحث في مواقع الشركاء",
+    },
     "All partner locations": {
         en: "All partner locations",
         ar: "كل مواقع الشركاء",

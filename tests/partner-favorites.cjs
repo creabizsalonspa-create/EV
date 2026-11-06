@@ -48,6 +48,23 @@ async function main() {
     const page = await context.newPage();
     await page.goto(customer.base);
     const pub = page.locator("#roaming-discovery");
+    await pub.locator("[name=partner_q]").fill(run);
+    await pub.locator("[name=partner_country]").fill("NLD");
+    await pub
+      .locator("[name=partner_connector]")
+      .selectOption("IEC_62196_T2_COMBO");
+    await pub
+      .getByRole("button", { name: "Search partner locations", exact: true })
+      .click();
+    await pub
+      .getByText("No matching partner locations", { exact: true })
+      .waitFor();
+    await pub.locator("[name=partner_country]").fill("ARE");
+    await pub
+      .getByRole("button", { name: "Search partner locations", exact: true })
+      .click();
+    await pub.getByText("Page 1 of 2 · 26 records", { exact: true }).waitFor();
+
     await pub
       .getByRole("button", { name: "Save partner location", exact: true })
       .first()

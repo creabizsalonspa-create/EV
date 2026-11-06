@@ -71,6 +71,57 @@ Widget app(SavedApi api, {int account = 1}) => MaterialApp(
   ),
 );
 void main() {
+  testWidgets(
+    'partner search applies country and connector filters only on explicit submission',
+    (tester) async {
+      final queries = <Map<String, String>>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RoamingView(
+            loader: (_) async => ApiPage<RoamingLocation>.fromJson(
+              page([row()]),
+              RoamingLocation.fromJson,
+            ),
+            queryLoader: (filters, _) async {
+              queries.add(Map.of(filters));
+              return ApiPage<RoamingLocation>.fromJson(
+                page([row()]),
+                RoamingLocation.fromJson,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Search partner locations'),
+        'Harbour',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Country code (e.g. ARE)'),
+        'are',
+      );
+      expect(queries.length, 1);
+      await tester.tap(find.text('All connectors'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('CCS2').last);
+      await tester.pumpAndSettle();
+      final search = find.widgetWithText(
+        TextButton,
+        'Search partner locations',
+      );
+      await tester.ensureVisible(search);
+      await tester.tap(search);
+      await tester.pumpAndSettle();
+      expect(queries.last, {
+        'q': 'Harbour',
+        'country': 'ARE',
+        'connector_standard': 'IEC_62196_T2_COMBO',
+      });
+      expect(find.text('Start charging'), findsNothing);
+    },
+  );
+
   test('redaction cannot weaken the public partner location contract', () {
     expect(
       () => RoamingLocation.fromJson({...row(), 'location': null}),

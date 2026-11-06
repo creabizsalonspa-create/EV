@@ -27,13 +27,27 @@ class RecordNormalizer
         }
         $identity = ['country_code' => $record['country_code'], 'party_id' => $record['party_id'], 'id' => $record['id'], 'last_updated' => $updated->toISOString()];
         $n = match ($module) {
-            'locations' => ['name' => $record['name'] ?? $record['id'], 'publish' => (bool) $record['publish'], 'address' => $record['address'], 'city' => $record['city'], 'country' => $record['country'], 'latitude' => (string) $record['coordinates']['latitude'], 'longitude' => (string) $record['coordinates']['longitude'], 'evses' => array_map(fn ($e) => ['uid' => $e['uid'], 'reported_status' => $e['status'], 'connectors' => array_map(fn ($c) => ['id' => $c['id'], 'standard' => $c['standard']], $e['connectors'])], $record['evses'] ?? []), 'availability' => 'unknown', 'remote_control' => false, 'reservable' => false],
+            'locations' => ['connector_standards' => $this->standards($record['evses'] ?? []), 'name' => $record['name'] ?? $record['id'], 'publish' => (bool) $record['publish'], 'address' => $record['address'], 'city' => $record['city'], 'country' => $record['country'], 'latitude' => (string) $record['coordinates']['latitude'], 'longitude' => (string) $record['coordinates']['longitude'], 'evses' => array_map(fn ($e) => ['uid' => $e['uid'], 'reported_status' => $e['status'], 'connectors' => array_map(fn ($c) => ['id' => $c['id'], 'standard' => $c['standard']], $e['connectors'])], $record['evses'] ?? []), 'availability' => 'unknown', 'remote_control' => false, 'reservable' => false],
             'tariffs' => ['currency' => $record['currency'], 'elements' => array_map(fn ($e) => ['price_components' => array_map(fn ($c) => ['type' => $c['type'], 'price' => (string) $c['price'], 'step_size' => (int) $c['step_size'], 'vat' => isset($c['vat']) ? (string) $c['vat'] : null], $e['price_components'])], $record['elements']), 'billing_eligible' => false],
             'sessions' => ['currency' => $record['currency'], 'status' => $record['status'], 'start_date_time' => CarbonImmutable::parse($record['start_date_time'])->utc()->toISOString(), 'end_date_time' => isset($record['end_date_time']) ? CarbonImmutable::parse($record['end_date_time'])->utc()->toISOString() : null, 'energy_kwh' => (string) $record['kwh'], 'location_id' => $record['location_id'], 'evse_uid' => $record['evse_uid'], 'connector_id' => $record['connector_id'], 'cost' => $this->cost($record['total_cost'] ?? []), 'billing_eligible' => false],
             'cdrs' => ['session_id' => $record['session_id'] ?? null, 'currency' => $record['currency'], 'start_date_time' => CarbonImmutable::parse($record['start_date_time'])->utc()->toISOString(), 'end_date_time' => CarbonImmutable::parse($record['end_date_time'])->utc()->toISOString(), 'energy_kwh' => (string) $record['total_energy'], 'time_hours' => (string) $record['total_time'], 'cost' => $this->cost($record['total_cost']), 'location_id' => $record['cdr_location']['id'], 'evse_uid' => $record['cdr_location']['evse_uid'], 'connector_id' => $record['cdr_location']['connector_id'], 'billing_eligible' => false],
         };
 
         return $identity + $n;
+    }
+
+    private function standards(array $evses): array
+    {
+        $standards = [];
+        foreach ($evses as $evse) {
+            foreach ($evse['connectors'] as $connector) {
+                $standards[] = $connector['standard'];
+            }
+        }
+        $standards = array_values(array_unique($standards));
+        sort($standards, SORT_STRING);
+
+        return $standards;
     }
 
     private function cost(array $cost): array

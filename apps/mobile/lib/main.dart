@@ -902,6 +902,13 @@ class _WorkspaceState extends State<Workspace> {
                       api: account?.role == 'customer' ? api : null,
                       accountId: account?.id,
                       onExpired: expiredSession,
+                      queryLoader: (filters, page) async {
+                        final data = await api!.request(
+                          'roaming/locations',
+                          query: {...filters, 'page': '$page'},
+                        );
+                        return ApiPage.fromJson(data, RoamingLocation.fromJson);
+                      },
                       loader: (page) async {
                         final data = await api!.request(
                           'roaming/locations',

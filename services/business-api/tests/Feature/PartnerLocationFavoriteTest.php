@@ -7,6 +7,7 @@ use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PartnerLocationFavoriteTest extends TestCase

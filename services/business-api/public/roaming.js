@@ -11,6 +11,7 @@ window.createRoamingWorkspace = ({
         privateRequest,
         generation = 0,
         details = 0;
+    let catalogFilters = {};
     const raw = (tag, value) => {
         const node = document.createElement(tag);
         node.textContent = value ?? "";
@@ -117,6 +118,59 @@ window.createRoamingWorkspace = ({
         card.append(ui("p", "Roaming unknown availability"));
         parent.append(card);
     }
+    function discoverySearch() {
+        const form = document.createElement("form");
+        const field = (title, input) => {
+            const label = ui("label", title);
+            label.append(input);
+            form.append(label);
+            return input;
+        };
+        const query = document.createElement("input");
+        query.name = "partner_q";
+        query.maxLength = 80;
+        query.value = catalogFilters.q || "";
+        field("Search partner locations", query);
+        const country = document.createElement("input");
+        country.name = "partner_country";
+        country.maxLength = 3;
+        country.pattern = "[a-zA-Z]{3}";
+        country.value = catalogFilters.country || "";
+        field("Country code (e.g. ARE)", country);
+        const connector = document.createElement("select");
+        connector.name = "partner_connector";
+        for (const [value, title] of [
+            ["", "All connectors"],
+            ["IEC_62196_T2_COMBO", "CCS2"],
+            ["IEC_62196_T1_COMBO", "CCS1"],
+            ["IEC_62196_T2", "Type 2"],
+            ["CHADEMO", "CHAdeMO"],
+        ]) {
+            const option = ui("option", title);
+            option.value = value;
+            connector.append(option);
+        }
+        connector.value = catalogFilters.connector_standard || "";
+        field("Connector", connector);
+        const submit = ui("button", "Search partner locations");
+        submit.type = "submit";
+        form.append(submit);
+        form.onsubmit = async (event) => {
+            event.preventDefault();
+            submit.disabled = true;
+            catalogFilters = {
+                ...(query.value.trim() ? { q: query.value.trim() } : {}),
+                ...(country.value.trim()
+                    ? { country: country.value.trim().toUpperCase() }
+                    : {}),
+                ...(connector.value
+                    ? { connector_standard: connector.value }
+                    : {}),
+            };
+            await catalog(1);
+        };
+        return form;
+    }
     async function catalog(page = 1, savedOnly = false) {
         const viewer = actor(),
             epoch = generation;
@@ -132,7 +186,7 @@ window.createRoamingWorkspace = ({
         );
         try {
             const result = await api(
-                `roaming/${savedOnly ? "favorites" : "locations"}?page=${page}`,
+                `roaming/${savedOnly ? "favorites" : "locations"}?${new URLSearchParams({ ...(!savedOnly ? catalogFilters : {}), page: String(page) })}`,
                 "GET",
                 undefined,
                 request.signal,
@@ -182,6 +236,7 @@ window.createRoamingWorkspace = ({
                 );
                 toggle.dataset.privateRoaming = "";
             }
+            if (!savedOnly) publicRoot.append(discoverySearch());
             const content = document.createElement("div");
             if (savedOnly) content.dataset.privateRoaming = "";
             const list = document.createElement("div");
@@ -260,7 +315,9 @@ window.createRoamingWorkspace = ({
                         "p",
                         savedOnly
                             ? "No saved partner locations"
-                            : "No published roaming locations",
+                            : Object.keys(catalogFilters).length
+                              ? "No matching partner locations"
+                              : "No published roaming locations",
                     ),
                 );
             content.append(list);

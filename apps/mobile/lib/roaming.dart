@@ -34,15 +34,22 @@ class RoamingLocation {
 }
 
 typedef RoamingLoader = Future<ApiPage<RoamingLocation>> Function(int page);
+typedef RoamingQueryLoader =
+    Future<ApiPage<RoamingLocation>> Function(
+      Map<String, String> filters,
+      int page,
+    );
 
 class RoamingView extends StatefulWidget {
   final RoamingLoader loader;
+  final RoamingQueryLoader? queryLoader;
   final EvApi? api;
   final int? accountId;
   final VoidCallback? onExpired;
   const RoamingView({
     super.key,
     required this.loader,
+    this.queryLoader,
     this.api,
     this.accountId,
     this.onExpired,
@@ -58,6 +65,11 @@ class _RoamingViewState extends State<RoamingView> {
   int generation = 0, target = 1;
   bool savedOnly = false, saving = false, uncertain = false;
   Set<int> saved = {};
+  final searchForm = GlobalKey<FormState>();
+  final searchText = TextEditingController(),
+      countryText = TextEditingController();
+  String connector = '';
+  Map<String, String> filters = {};
   String tr(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   @override
@@ -72,6 +84,10 @@ class _RoamingViewState extends State<RoamingView> {
     if (widget.api != oldWidget.api ||
         widget.accountId != oldWidget.accountId) {
       savedOnly = false;
+      filters = {};
+      searchText.clear();
+      countryText.clear();
+      connector = '';
       load(1);
     }
   }
@@ -94,6 +110,8 @@ class _RoamingViewState extends State<RoamingView> {
               ),
               RoamingLocation.fromJson,
             )
+          : widget.queryLoader != null
+          ? await widget.queryLoader!(Map.unmodifiable(filters), page)
           : await widget.loader(page);
       if (mounted &&
           epoch == generation &&
@@ -171,6 +189,8 @@ class _RoamingViewState extends State<RoamingView> {
   @override
   void dispose() {
     generation++;
+    searchText.dispose();
+    countryText.dispose();
     super.dispose();
   }
 
@@ -198,6 +218,104 @@ class _RoamingViewState extends State<RoamingView> {
                   savedOnly
                       ? tr('All partner locations', 'كل مواقع الشركاء')
                       : tr('Saved partner locations', 'مواقع الشركاء المحفوظة'),
+                ),
+              ),
+            if (widget.queryLoader != null && !savedOnly)
+              Form(
+                key: searchForm,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: searchText,
+                      maxLength: 80,
+                      decoration: InputDecoration(
+                        labelText: tr(
+                          'Search partner locations',
+                          'البحث في مواقع الشركاء',
+                        ),
+                      ),
+                    ),
+                    TextFormField(
+                      controller: countryText,
+                      maxLength: 3,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: InputDecoration(
+                        labelText: tr(
+                          'Country code (e.g. ARE)',
+                          'رمز الدولة (مثلاً ARE)',
+                        ),
+                      ),
+                      validator: (value) =>
+                          (value ?? '').trim().isEmpty ||
+                              RegExp(
+                                r'^[a-zA-Z]{3}$',
+                              ).hasMatch((value ?? '').trim())
+                          ? null
+                          : tr(
+                              'Use a three-letter country code.',
+                              'استخدم رمز دولة من ثلاثة أحرف.',
+                            ),
+                    ),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey('partner-connector-${widget.accountId}'),
+                      initialValue: connector,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: tr('Connector', 'الموصل'),
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: '',
+                          child: Text(tr('All connectors', 'كل الموصلات')),
+                        ),
+                        const DropdownMenuItem(
+                          value: 'IEC_62196_T2_COMBO',
+                          child: Text('CCS2'),
+                        ),
+                        const DropdownMenuItem(
+                          value: 'IEC_62196_T1_COMBO',
+                          child: Text('CCS1'),
+                        ),
+                        const DropdownMenuItem(
+                          value: 'IEC_62196_T2',
+                          child: Text('Type 2'),
+                        ),
+                        const DropdownMenuItem(
+                          value: 'CHADEMO',
+                          child: Text('CHAdeMO'),
+                        ),
+                      ],
+                      onChanged: loading || saving
+                          ? null
+                          : (value) => setState(() => connector = value ?? ''),
+                    ),
+                    TextButton(
+                      onPressed: loading || saving
+                          ? null
+                          : () {
+                              if (!(searchForm.currentState?.validate() ??
+                                  false))
+                                return;
+                              filters = {
+                                if (searchText.text.trim().isNotEmpty)
+                                  'q': searchText.text.trim(),
+                                if (countryText.text.trim().isNotEmpty)
+                                  'country': countryText.text
+                                      .trim()
+                                      .toUpperCase(),
+                                if (connector.isNotEmpty)
+                                  'connector_standard': connector,
+                              };
+                              load(1);
+                            },
+                      child: Text(
+                        tr(
+                          'Search partner locations',
+                          'البحث في مواقع الشركاء',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             if (loading) const LinearProgressIndicator(),
