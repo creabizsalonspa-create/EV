@@ -1431,6 +1431,220 @@ window.createVendorWorkspace = ({
             }
         }
     }
+    async function repairOrders(
+        company,
+        charger,
+        parent,
+        epoch,
+        page = 1,
+        pending = null,
+        selectedAlert = null,
+    ) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-repair-orders]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.repairOrders = "";
+        parent.append(pane);
+        const current = () => valid(epoch) && pane.isConnected;
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/repair-orders`;
+        pane.append(
+            ui("h3", "Repair work orders"),
+            ui(
+                "p",
+                "Repair documentation does not release charging capacity or verify physical repair.",
+            ),
+        );
+        button(pane, "Refresh", () =>
+            repairOrders(company, charger, parent, epoch, page, pending),
+        );
+        async function send(intent) {
+            if (!current()) return;
+            pending = intent;
+            pane.querySelectorAll("button").forEach(
+                (button) => (button.disabled = true),
+            );
+            try {
+                await api(path, "POST", intent);
+                if (current())
+                    await repairOrders(company, charger, parent, epoch, page);
+            } catch (error) {
+                if (current()) {
+                    notice(error);
+                    await repairOrders(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page,
+                        pending,
+                    );
+                }
+            }
+        }
+        function action(parent, label, alert, version, state) {
+            button(parent, label, async () => {
+                const note = window.prompt(
+                    document.documentElement.lang === "ar"
+                        ? "ملاحظة الإصلاح (10 أحرف على الأقل)"
+                        : "Repair note (at least 10 characters)",
+                );
+                if (!current() || !note || note.trim().length < 10) return;
+                await send({
+                    request_key: crypto.randomUUID(),
+                    alert_id: alert,
+                    expected_version: version,
+                    state,
+                    note: note.trim(),
+                });
+            });
+        }
+        try {
+            const data = await api(`${path}?page=${page}`);
+            if (!current()) return;
+            if (
+                data.commands_sent !== false ||
+                data.capacity_changed !== false ||
+                data.physical_repair_verified !== false ||
+                typeof data.can_manage !== "boolean"
+            )
+                throw Error("Unexpected repair capability.");
+            if (pending) {
+                pane.append(
+                    ui(
+                        "p",
+                        "Repair update uncertain. Resolve the original request before another update.",
+                    ),
+                );
+                if (data.can_manage)
+                    button(pane, "Resolve original repair update", () =>
+                        send(pending),
+                    );
+                button(
+                    pane,
+                    "Clear pending form after reviewing repair history",
+                    () => repairOrders(company, charger, parent, epoch, page),
+                );
+            } else if (data.can_manage) {
+                // The source alert id is selected from the scoped paginated fault list.
+                const form = document.createElement("form");
+                const label = ui("label", "Fault alert number");
+                const field = document.createElement("input");
+                field.type = "number";
+                field.min = "1";
+                field.step = "1";
+                field.required = true;
+                field.name = "repair_alert";
+                field.value = selectedAlert ? String(selectedAlert) : "";
+                label.append(field);
+                form.append(label);
+                const submit = ui("button", "Open repair work order");
+                submit.type = "submit";
+                form.append(submit);
+                form.onsubmit = async (event) => {
+                    event.preventDefault();
+                    submit.disabled = true;
+                    try {
+                        await actionCreate(Number(field.value));
+                    } finally {
+                        if (current()) submit.disabled = false;
+                    }
+                };
+                async function actionCreate(alert) {
+                    const note = window.prompt(
+                        document.documentElement.lang === "ar"
+                            ? "ملاحظة الإصلاح (10 أحرف على الأقل)"
+                            : "Repair note (at least 10 characters)",
+                    );
+                    if (
+                        !current() ||
+                        !Number.isSafeInteger(alert) ||
+                        alert < 1 ||
+                        !note ||
+                        note.trim().length < 10
+                    )
+                        return;
+                    await send({
+                        request_key: crypto.randomUUID(),
+                        alert_id: alert,
+                        expected_version: 0,
+                        state: "open",
+                        note: note.trim(),
+                    });
+                }
+                pane.append(form);
+            }
+            const states = {
+                open: "Repair open",
+                in_progress: "Repair in progress",
+                review: "Repair awaiting review",
+                closed: "Repair review closed",
+            };
+            for (const row of data.data) {
+                const card = document.createElement("article");
+                card.append(
+                    raw("h4", `#${row.id} · ${row.alert_id}`),
+                    ui("p", states[row.state] || "Repair state unavailable"),
+                    raw("p", row.updated_at),
+                );
+                card.append(
+                    ui(
+                        "p",
+                        row.recovery_observation_id
+                            ? "Source recovery observed"
+                            : "Source recovery not observed",
+                    ),
+                );
+                const history = document.createElement("section");
+                async function loadHistory(page = 1) {
+                    const events = await api(
+                        `${path}/${row.id}/history?page=${page}`,
+                    );
+                    if (!current()) return;
+                    history.replaceChildren();
+                    for (const item of events.data)
+                        history.append(
+                            ui(
+                                "p",
+                                states[item.state] ||
+                                    "Repair state unavailable",
+                            ),
+                            raw("p", item.note),
+                            raw("p", item.created_at),
+                        );
+                    pager(history, events, loadHistory);
+                }
+                button(card, "Repair history", () => loadHistory());
+                card.append(history);
+                if (data.can_manage && !pending) {
+                    const transitions = {
+                        open: [["Begin repair", "in_progress"]],
+                        in_progress: [
+                            ["Submit repair review", "review"],
+                            ["Reopen repair", "open"],
+                        ],
+                        review: [
+                            ["Continue repair", "in_progress"],
+                            ...(row.recovery_observation_id
+                                ? [["Close repair review", "closed"]]
+                                : []),
+                        ],
+                        closed: [["Reopen repair", "open"]],
+                    };
+                    for (const [title, state] of transitions[row.state] || [])
+                        action(card, title, row.alert_id, row.version, state);
+                }
+                pane.append(card);
+            }
+            pager(pane, data, (target) =>
+                repairOrders(company, charger, parent, epoch, target, pending),
+            );
+        } catch (error) {
+            if (current()) notice(error);
+        }
+    }
+
     async function diagnostics(company, charger, parent, epoch, before = null) {
         if (!valid(epoch)) return;
         parent.querySelector("[data-source-diagnostics]")?.remove();
@@ -1444,6 +1658,9 @@ window.createVendorWorkspace = ({
         );
         button(pane, "Refresh", () =>
             diagnostics(company, charger, parent, epoch),
+        );
+        button(pane, "Repair work orders", () =>
+            repairOrders(company, charger, pane, epoch),
         );
         const faults = document.createElement("section");
         pane.append(faults);
@@ -1580,6 +1797,18 @@ window.createVendorWorkspace = ({
         for (const alert of result.data) {
             const row = document.createElement("article");
             row.dataset.faultAlert = alert.id;
+            row.append(raw("p", `#${alert.id}`));
+            button(row, "Repair work orders", () =>
+                repairOrders(
+                    company,
+                    charger,
+                    pane.parentElement,
+                    epoch,
+                    1,
+                    null,
+                    alert.id,
+                ),
+            );
             row.append(
                 raw(
                     "p",

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'charger_configuration.dart';
+import 'charger_repairs.dart';
 
 String diagnosticsTitle(BuildContext context) =>
     Localizations.localeOf(context).languageCode == 'ar'
@@ -177,6 +178,21 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
                   ),
             child: Text(configurationTitle(context)),
           ),
+          TextButton(
+            onPressed: busy
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ChargerRepairsView(
+                        api: widget.api,
+                        companyId: widget.companyId,
+                        chargerId: widget.chargerId,
+                        onExpired: widget.onExpired,
+                      ),
+                    ),
+                  ),
+            child: Text(tr('Repair work orders', 'أوامر الإصلاح')),
+          ),
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),
           TextButton(
@@ -213,6 +229,23 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     children: [
+                      Text('#${alert['id']}'),
+                      TextButton(
+                        onPressed: busy
+                            ? null
+                            : () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => ChargerRepairsView(
+                                    api: widget.api,
+                                    companyId: widget.companyId,
+                                    chargerId: widget.chargerId,
+                                    initialAlertId: alert['id'] as int,
+                                    onExpired: widget.onExpired,
+                                  ),
+                                ),
+                              ),
+                        child: Text(tr('Repair work orders', 'أوامر الإصلاح')),
+                      ),
                       Text(
                         '${alert['evse_number']}/${alert['connector_number']} · ${alert['status']} · ${alert['error_code'] ?? '—'}',
                       ),

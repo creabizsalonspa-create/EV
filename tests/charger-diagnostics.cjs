@@ -1,8 +1,11 @@
 // Real loopback CSMS source + Laravel + browser. Synthetic chargers only.
 const assert = require("node:assert/strict");
 const { randomBytes } = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const { chromium } = require("playwright");
+const fs = require("node:fs"),
+  os = require("node:os"),
+  pathUtil = require("node:path");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
 (async () => {
@@ -127,6 +130,64 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
           .getByText("Fault acknowledged", { exact: true })
           .first()
           .waitFor();
+        await faultRow
+          .getByRole("button", { name: "Repair work orders", exact: true })
+          .click();
+        let repairs = panel.locator("[data-repair-orders]");
+        const repairAlert = alerts.data.find(
+          (a) => a.recovery_observed_at !== null,
+        );
+        assert.equal(
+          await repairs.locator("[name=repair_alert]").inputValue(),
+          String(repairAlert.id),
+        );
+        page.on("dialog", (dialog) =>
+          dialog.accept("Private synthetic repair investigation note"),
+        );
+        await repairs
+          .getByRole("button", { name: "Open repair work order", exact: true })
+          .click();
+        await repairs.getByText("Repair open", { exact: true }).waitFor();
+        for (const [button, state] of [
+          ["Begin repair", "Repair in progress"],
+          ["Submit repair review", "Repair awaiting review"],
+          ["Close repair review", "Repair review closed"],
+        ]) {
+          await repairs
+            .getByRole("button", { name: button, exact: true })
+            .click();
+          await repairs.getByText(state, { exact: true }).waitFor();
+        }
+        await repairs
+          .getByRole("button", { name: "Repair history", exact: true })
+          .click();
+        await repairs
+          .getByText("Private synthetic repair investigation note", {
+            exact: true,
+          })
+          .first()
+          .waitFor();
+        const repairPath = path.replace(
+          "/source-diagnostics",
+          "/repair-orders",
+        );
+        const repairList = await client.request(repairPath);
+        assert.equal(repairList.data[0].state, "closed");
+        assert.equal(repairList.capacity_changed, false);
+        assert.equal(repairList.commands_sent, false);
+        assert.equal(
+          charger.commands.some((command) =>
+            [
+              "Reset",
+              "ChangeAvailability",
+              "SetVariables",
+              "ChangeConfiguration",
+              "RemoteStartTransaction",
+              "RequestStartTransaction",
+            ].includes(command.action),
+          ),
+          false,
+        );
         await page.locator("#language").click();
         await panel
           .getByText("المصدر يبلغ عن الاتصال", { exact: true })
@@ -137,6 +198,62 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
           ),
           false,
         );
+        await repairs
+          .getByRole("heading", { name: "أوامر الإصلاح", exact: true })
+          .waitFor();
+        await charger.close();
+        const offline = await poll(async () => {
+          const r = await client.request(path);
+          return r.source_online === false ? r : null;
+        }, "source-backed disconnect");
+        assert.equal(offline.commands_sent, false);
+        await page.locator("#logout").click();
+        await page.locator("#account [name=email]").waitFor();
+        assert.equal(await ops.locator("[data-repair-orders]").count(), 0);
+        if (process.env.EV_REPAIR_NATIVE === "1") {
+          const dir = fs.mkdtempSync(
+            pathUtil.join(os.tmpdir(), "ev-native-repair-"),
+          );
+          const input = pathUtil.join(dir, "fixture.json");
+          fs.writeFileSync(
+            input,
+            JSON.stringify({
+              ...f,
+              owner: `canonical-owner-${run}@example.test`,
+              customer: `canonical-customer-${run}@example.test`,
+              password,
+              alert_id: repairAlert.id,
+              fixture_only: true,
+            }),
+            { mode: 0o600 },
+          );
+          try {
+            await new Promise((resolve, reject) => {
+              const child = spawn(
+                "flutter",
+                [
+                  "test",
+                  "test/live_charger_repairs_test.dart",
+                  "--reporter",
+                  "expanded",
+                ],
+                {
+                  cwd: "apps/mobile",
+                  stdio: "inherit",
+                  env: { ...process.env, EV_NATIVE_REPAIR_FIXTURE: input },
+                },
+              );
+              child.once("error", reject);
+              child.once("exit", (code) =>
+                code === 0
+                  ? resolve()
+                  : reject(Error("Native repair HTTP proof failed")),
+              );
+            });
+          } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+          }
+        }
         assert.deepEqual(errors, []);
       } finally {
         await browser.close();
@@ -144,11 +261,6 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
     } finally {
       await charger.close();
     }
-    const offline = await poll(async () => {
-      const r = await client.request(path);
-      return r.source_online === false ? r : null;
-    }, "source-backed disconnect");
-    assert.equal(offline.commands_sent, false);
     console.log(
       JSON.stringify({
         protocol: f.protocol,

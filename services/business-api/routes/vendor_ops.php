@@ -5,6 +5,7 @@ use App\Http\Controllers\ChargerConfigurationController;
 use App\Http\Controllers\ChargerDiagnosticsController;
 use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerResetController;
+use App\Http\Controllers\ChargingRepairController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\MaintenanceWindowController;
 use App\Http\Controllers\VendorOpsController as V;
@@ -69,3 +70,7 @@ Route::post('/companies/{company}/chargers/{charger}/firmware-operations', [Char
 Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/review', [ChargerFirmwareController::class, 'review'])->whereNumber('operation');
 
 Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/cancel', [ChargerFirmwareController::class, 'cancel'])->whereNumber('operation');
+
+Route::get('/companies/{company}/chargers/{charger}/repair-orders', [ChargingRepairController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/repair-orders', [ChargingRepairController::class, 'save']);
+Route::get('/companies/{company}/chargers/{charger}/repair-orders/{order}/history', [ChargingRepairController::class, 'history'])->whereNumber('order');
