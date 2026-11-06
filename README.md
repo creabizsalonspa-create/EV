@@ -107,3 +107,21 @@ from the public catalog. A revoked/unpublished location is redacted in the saved
 list and can still be removed. Lost write acknowledgements require an explicit
 preference refresh. Saving does not change partner availability, booking, charging
 or payment permissions.
+
+### Source-backed device operating settings
+
+Vendor/Admin charger inventory now exposes **Device operating settings**. After the
+existing local charging setup, `./scripts/configuration-read-setup` enables explicit
+OCPP 1.6 GetConfiguration / 2.0.1 GetVariables reads of a fixed non-secret profile.
+Web and Flutter show correlated device replies, safe values, unsupported/invalid
+fields and source timestamps. Requests retain their identity after lost responses;
+use **Check device reply** or resolve the original request without redispatching it.
+Historical replies remain inspectable after a device disconnects. This adapter
+keeps settings, charging state, admission and billing unchanged, and stays disabled
+in production. Physical model/conformance acceptance remains separate.
+
+The focused Linux source/browser check is `node tests/charger-configuration.cjs`.
+With the pinned Flutter SDK on PATH and the existing local simulator services
+running, `EV_CONFIGURATION_NATIVE=1` also exercises the actual native HTTP client
+while the same owned devices remain online. Private fixture credentials use a
+short-lived owner-only file and are never uploaded.

@@ -18,6 +18,7 @@ const groups = [
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
   ["client-demo-lifecycle"], // six private fixture logins; dedicated window
   ["partner-favorites"], // own customer/Admin authentication window
+  ["charger-configuration"], // two explicit source-device read workflows; own authentication window
 ];
 if (require.main === module) {
   const { spawnSync } = require("node:child_process");

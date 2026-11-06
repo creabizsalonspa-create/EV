@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'configuration_read_enabled' => env('CSMS_CONFIGURATION_READ_ENABLED', false),
     'fault_worker_enabled' => env('CSMS_FAULT_WORKER_ENABLED', false),
     'firmware_enabled' => env('CSMS_SIGNED_FIRMWARE_ENABLED', false),
     'firmware_catalog_root' => storage_path('app/private/firmware/catalog'),

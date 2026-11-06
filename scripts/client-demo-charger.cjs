@@ -7,6 +7,11 @@ const { randomUUID } = require("node:crypto");
 const root = path.resolve(__dirname, "..");
 process.chdir(root);
 const { SimulatedCharger, graph } = require("../tests/helpers/csms-local.cjs");
+const {
+  operatingSettings,
+  HEARTBEAT_SECONDS,
+  METER_SECONDS,
+} = require("../tests/helpers/operating-settings.cjs");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function store(file, value) {
   const tmp = file + "." + process.pid + ".tmp";
@@ -52,6 +57,7 @@ async function main() {
     active = null,
     charger = new SimulatedCharger(version, station.identity),
     lastBeat = 0;
+  charger.configurationHandler = operatingSettings(version);
   for (const signal of ["SIGINT", "SIGTERM"])
     process.once(signal, () => {
       stopping = true;
@@ -286,8 +292,9 @@ async function main() {
           await begin(swipe.token, swipe.type);
         else status(active ? "charging" : "idle", "swipe_expired_or_busy");
       }
-      if (active && Date.now() - active.lastSample >= 5000) await meter();
-      if (Date.now() - lastBeat >= 30000) {
+      if (active && Date.now() - active.lastSample >= METER_SECONDS * 1000)
+        await meter();
+      if (Date.now() - lastBeat >= HEARTBEAT_SECONDS * 1000) {
         await charger.call("Heartbeat", {});
         await charger.status(
           active ? (version === "1.6" ? "Charging" : "Occupied") : "Available",

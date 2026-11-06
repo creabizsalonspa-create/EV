@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'charger_configuration.dart';
 
 String diagnosticsTitle(BuildContext context) =>
     Localizations.localeOf(context).languageCode == 'ar'
@@ -160,6 +161,21 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
               'Authenticated simulator observations, not connector availability or physical acceptance. No commands are sent.',
               'ملاحظات محاكي موثقة وليست توفر الموصل أو قبول الأجهزة الفعلية. لا تُرسل أوامر.',
             ),
+          ),
+          TextButton(
+            onPressed: busy
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ChargerConfigurationView(
+                        api: widget.api,
+                        companyId: widget.companyId,
+                        chargerId: widget.chargerId,
+                        onExpired: widget.onExpired,
+                      ),
+                    ),
+                  ),
+            child: Text(configurationTitle(context)),
           ),
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),

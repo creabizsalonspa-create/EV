@@ -1705,6 +1705,80 @@ window.EV_MESSAGES = {
         en: "Saved location update uncertain. Refresh to check.",
         ar: "نتيجة تحديث الموقع المحفوظ غير مؤكدة. حدّث للتحقق.",
     },
+    "Transaction update interval (seconds)": {
+        en: "Transaction update interval (seconds)",
+        ar: "فاصل تحديث المعاملة (ثوانٍ)",
+    },
+    "Connector count": { en: "Connector count", ar: "عدد الموصلات" },
+    "Meter sample interval (seconds)": {
+        en: "Meter sample interval (seconds)",
+        ar: "فاصل عينات العداد (ثوانٍ)",
+    },
+    "Heartbeat interval (seconds)": {
+        en: "Heartbeat interval (seconds)",
+        ar: "فاصل النبضات (ثوانٍ)",
+    },
+    "Outcome uncertain": { en: "Outcome uncertain", ar: "النتيجة غير مؤكدة" },
+    "Invalid device value": {
+        en: "Invalid device value",
+        ar: "قيمة الشاحن غير صالحة",
+    },
+    "Not supported": { en: "Not supported", ar: "غير مدعوم" },
+    Observed: { en: "Observed", ar: "مرصود" },
+    "Invalid device reply": {
+        en: "Invalid device reply",
+        ar: "رد الشاحن غير صالح",
+    },
+    "Read was not sent": {
+        en: "Read was not sent",
+        ar: "لم يُرسل طلب القراءة",
+    },
+    "Device rejected the read": {
+        en: "Device rejected the read",
+        ar: "رفض الشاحن القراءة",
+    },
+    "Awaiting device reply": {
+        en: "Awaiting device reply",
+        ar: "بانتظار رد الشاحن",
+    },
+    "Device reply observed": {
+        en: "Device reply observed",
+        ar: "تم رصد رد الشاحن",
+    },
+    "Read unavailable. Refresh source history before another action.": {
+        en: "Read unavailable. Refresh source history before another action.",
+        ar: "القراءة غير متاحة. حدّث سجل المصدر قبل إجراء آخر.",
+    },
+    "Resolve previous settings read": {
+        en: "Resolve the previous request before a new read. No automatic retry.",
+        ar: "احسم الطلب السابق قبل قراءة جديدة. لا توجد إعادة تلقائية.",
+    },
+    "No settings reads yet.": {
+        en: "No settings reads yet.",
+        ar: "لا توجد قراءات إعدادات بعد.",
+    },
+    "Check device reply": { en: "Check device reply", ar: "فحص رد الشاحن" },
+    "Refresh source history": {
+        en: "Refresh source history",
+        ar: "تحديث سجل المصدر",
+    },
+    "Resolve read request": {
+        en: "Resolve read request",
+        ar: "حسم طلب القراءة",
+    },
+    "Read device settings": {
+        en: "Read device settings",
+        ar: "قراءة إعدادات الشاحن",
+    },
+    "Settings read disclaimer": {
+        en: "Explicit read requests only. Device settings and charging state are unchanged. Simulator evidence is not physical acceptance.",
+        ar: "طلبات قراءة صريحة فقط. لا تتغير إعدادات الشاحن أو حالة الشحن. دليل المحاكي ليس قبولاً للأجهزة الفعلية.",
+    },
+    "Device operating settings": {
+        en: "Device operating settings",
+        ar: "إعدادات تشغيل الشاحن",
+    },
+    "Settings reading": { en: "{field}: {value}", ar: "{field}: {value}" },
     "Roaming gross cost": {
         en: "Reported cost including VAT:",
         ar: "التكلفة الواردة مع الضريبة:",
