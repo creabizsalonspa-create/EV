@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'charger_configuration.dart';
+import 'charger_logs.dart';
 import 'charger_repairs.dart';
 
 String diagnosticsTitle(BuildContext context) =>
@@ -192,6 +193,21 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
                     ),
                   ),
             child: Text(tr('Repair work orders', 'أوامر الإصلاح')),
+          ),
+          TextButton(
+            onPressed: busy
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ChargerLogsView(
+                        api: widget.api,
+                        companyId: widget.companyId,
+                        chargerId: widget.chargerId,
+                        onExpired: widget.onExpired,
+                      ),
+                    ),
+                  ),
+            child: Text(tr('Diagnostic files', 'ملفات التشخيص')),
           ),
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),

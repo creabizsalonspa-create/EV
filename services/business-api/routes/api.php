@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController as A;
+use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerIngressController;
 use App\Http\Controllers\ConnectorTopologyController;
@@ -106,7 +107,7 @@ require __DIR__.'/corporate_hosted_webhook.php';
 
 Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationController::class)->middleware('throttle:charger-admission');
 
-Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->where('token', '[a-f0-9]{64}')->middleware('throttle:30,1');
+Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->whereNumber('operation')->middleware('throttle:30,1');
 
 Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
     Route::match(['GET', 'PUT', 'PATCH'], '2.2.1/sessions/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'session']);
@@ -116,3 +117,6 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
     Route::get('2.2.1', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'details');
     Route::match(['GET', 'POST', 'PUT', 'DELETE'], '2.2.1/credentials', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');
 });
+
+// Expiring source-only upload capability; never a browser account or configurable remote URL.
+Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->whereNumber('operation')->middleware('throttle:30,1');

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ChargerAdmissionController;
 use App\Http\Controllers\ChargerConfigurationController;
+use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerDiagnosticsController;
 use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerResetController;
@@ -74,3 +75,9 @@ Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operat
 Route::get('/companies/{company}/chargers/{charger}/repair-orders', [ChargingRepairController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/repair-orders', [ChargingRepairController::class, 'save']);
 Route::get('/companies/{company}/chargers/{charger}/repair-orders/{order}/history', [ChargingRepairController::class, 'history'])->whereNumber('order');
+
+Route::get('/companies/{company}/chargers/{charger}/diagnostic-logs', [ChargerDiagnosticLogController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/diagnostic-logs', [ChargerDiagnosticLogController::class, 'create']);
+Route::post('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}/observe', [ChargerDiagnosticLogController::class, 'observe'])->whereNumber('operation');
+Route::get('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}/download', [ChargerDiagnosticLogController::class, 'download'])->whereNumber('operation');
+Route::delete('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'cancel'])->whereNumber('operation');

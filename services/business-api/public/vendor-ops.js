@@ -1431,6 +1431,380 @@ window.createVendorWorkspace = ({
             }
         }
     }
+    async function diagnosticFiles(
+        company,
+        charger,
+        parent,
+        epoch,
+        page = 1,
+        pending = null,
+        repairOrder = null,
+    ) {
+        if (!valid(epoch)) return;
+        const sourceHost = parent.closest(
+            "[data-source-diagnostics]",
+        )?.parentElement;
+        if (sourceHost && sourceHost !== parent)
+            return diagnosticFiles(
+                company,
+                charger,
+                sourceHost,
+                epoch,
+                page,
+                pending,
+                repairOrder,
+            );
+        parent.querySelector("[data-diagnostic-files]")?.remove();
+        parent.querySelector("[data-source-diagnostics]")?.remove();
+        parent.querySelector("[data-configuration-reads]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.diagnosticFiles = "";
+        parent.append(pane);
+        const current = () => valid(epoch) && pane.isConnected;
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/diagnostic-logs`;
+        pane.append(
+            ui("h3", "Diagnostic files"),
+            ui("p", "Diagnostic files privacy notice"),
+        );
+        button(pane, "Refresh diagnostic history", () =>
+            diagnosticFiles(
+                company,
+                charger,
+                parent,
+                epoch,
+                page,
+                pending,
+                repairOrder,
+            ),
+        );
+        const history = document.createElement("section");
+        pane.append(history);
+        const hidden = () => {
+            if (document.hidden) history.replaceChildren();
+        };
+        document.addEventListener("visibilitychange", hidden);
+        const observer = new MutationObserver(() => {
+            if (!current()) {
+                document.removeEventListener("visibilitychange", hidden);
+                observer.disconnect();
+            }
+        });
+        observer.observe(parent, { childList: true });
+        async function send(intent) {
+            if (!current()) return;
+            pending = intent;
+            pane.querySelectorAll("button").forEach((b) => (b.disabled = true));
+            try {
+                await api(path, "POST", intent);
+                if (current())
+                    await diagnosticFiles(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page,
+                        null,
+                        repairOrder,
+                    );
+            } catch (error) {
+                if (current()) {
+                    notice(error);
+                    await diagnosticFiles(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page,
+                        pending,
+                        repairOrder,
+                    );
+                }
+            }
+        }
+        async function download(row) {
+            if (
+                !current() ||
+                row.can_download !== true ||
+                !Number.isSafeInteger(row.file_size) ||
+                row.file_size < 1 ||
+                row.file_size > 524288 ||
+                !/^[a-f0-9]{64}$/.test(row.file_sha256)
+            )
+                return;
+            const response = await fetch(
+                "/api/" + path + "/" + row.id + "/download",
+                {
+                    credentials: "same-origin",
+                    redirect: "error",
+                    signal: controller.signal,
+                },
+            );
+            if (!current()) return;
+            if ([401, 419].includes(response.status)) {
+                expired();
+                throw Error("Private diagnostic session expired.");
+            }
+            if (
+                !response.ok ||
+                response.headers.get("content-type")?.split(";")[0] !==
+                    "application/octet-stream"
+            )
+                throw Error("Private diagnostic download unavailable.");
+            const reader = response.body.getReader(),
+                parts = [];
+            let size = 0;
+            try {
+                while (true) {
+                    const item = await reader.read();
+                    if (item.done) break;
+                    size += item.value.length;
+                    if (size > 524288)
+                        throw Error("Diagnostic file exceeds limit.");
+                    parts.push(item.value);
+                }
+            } finally {
+                await reader.cancel();
+                reader.releaseLock();
+            }
+            if (!current() || document.hidden) return;
+            const bytes = new Uint8Array(size);
+            let offset = 0;
+            for (const part of parts) {
+                bytes.set(part, offset);
+                offset += part.length;
+            }
+            const hash = [
+                ...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+            ]
+                .map((x) => x.toString(16).padStart(2, "0"))
+                .join("");
+            if (!current() || document.hidden) return;
+            if (size !== row.file_size || hash !== row.file_sha256)
+                throw Error("Diagnostic integrity mismatch.");
+            const url = URL.createObjectURL(
+                new Blob([bytes], { type: "application/octet-stream" }),
+            );
+            downloads.add(url);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "charger-log-" + row.id + ".bin";
+            document.body.append(link);
+            link.click();
+            link.remove();
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                downloads.delete(url);
+            }, 1000);
+        }
+        try {
+            const result = await api(
+                path +
+                    "?" +
+                    new URLSearchParams({
+                        page: String(page),
+                        ...(repairOrder
+                            ? { repair_order_id: String(repairOrder) }
+                            : {}),
+                    }),
+                "GET",
+                undefined,
+                controller.signal,
+            );
+            if (!current() || document.hidden) return;
+            if (
+                typeof result.can_request !== "boolean" ||
+                typeof result.can_manage !== "boolean" ||
+                result.evidence !== "SIMULATED_SOURCE" ||
+                result.maximum_file_bytes !== 524288 ||
+                result.charging_capacity_changed !== false
+            )
+                throw Error("Unexpected diagnostic capability.");
+            if (pending) {
+                history.append(
+                    ui(
+                        "p",
+                        "Diagnostic request outcome unknown. Review history or resolve the original identity. No automatic redispatch.",
+                    ),
+                );
+                if (result.can_request)
+                    button(history, "Resolve diagnostic request", () =>
+                        send(pending),
+                    );
+                button(
+                    history,
+                    "Clear pending form after reviewing history",
+                    () =>
+                        diagnosticFiles(
+                            company,
+                            charger,
+                            parent,
+                            epoch,
+                            page,
+                            null,
+                            repairOrder,
+                        ),
+                );
+            } else if (result.can_request) {
+                form(
+                    history,
+                    "Request diagnostic file",
+                    [
+                        {
+                            name: "reason",
+                            label: "Diagnostic reason",
+                            max: 500,
+                        },
+                        {
+                            name: "repair_order_id",
+                            label: "Repair work order (optional)",
+                            type: "number",
+                            optional: true,
+                            value: repairOrder ? String(repairOrder) : "",
+                        },
+                    ],
+                    async (values) => {
+                        if (values.reason.trim().length < 10) return;
+                        await send({
+                            request_key: crypto.randomUUID(),
+                            reason: values.reason.trim(),
+                            ...(values.repair_order_id
+                                ? {
+                                      repair_order_id: Number(
+                                          values.repair_order_id,
+                                      ),
+                                  }
+                                : {}),
+                        });
+                    },
+                );
+            }
+            const states = {
+                requested: "Diagnostic request recorded",
+                dispatching: "Diagnostic delivery pending",
+                transport_submitted: "Diagnostic source transport submitted",
+                outcome_unknown: "Diagnostic delivery unknown",
+                not_dispatched: "Diagnostic not dispatched",
+                device_rejected: "Diagnostic device rejected",
+            };
+            const statusLabels = {
+                Uploading: "Diagnostic device uploading",
+                Uploaded: "Diagnostic source uploaded",
+                UploadFailed: "Diagnostic source upload failed",
+                UploadFailure: "Diagnostic source upload failed",
+                BadMessage: "Diagnostic source upload failed",
+                NotSupportedOperation: "Diagnostic source upload failed",
+                PermissionDenied: "Diagnostic source upload failed",
+                legacy_status_unattributed:
+                    "Legacy diagnostic status is unattributed",
+            };
+            for (const row of result.data) {
+                if (
+                    row.evidence !== "SIMULATED_SOURCE" ||
+                    row.physical_device_verified !== false ||
+                    typeof row.can_download !== "boolean"
+                )
+                    throw Error("Unexpected diagnostic receipt.");
+                const card = document.createElement("article");
+                card.append(
+                    raw("h4", "#" + row.id + " · OCPP " + row.protocol),
+                    ui(
+                        "p",
+                        states[row.dispatch_state] ||
+                            "Diagnostic source review required",
+                    ),
+                    raw("p", row.expires_at),
+                );
+                if (row.repair_order_id)
+                    card.append(
+                        ui("p", "Repair work order #{id}", {
+                            id: row.repair_order_id,
+                        }),
+                    );
+                if (row.expired)
+                    card.append(ui("p", "Diagnostic upload expired"));
+                if (row.cancelled_at)
+                    card.append(
+                        ui(
+                            "p",
+                            "Diagnostic upload revoked and content removed",
+                        ),
+                    );
+                if (row.accepted_at)
+                    card.append(
+                        ui("p", "Canonical diagnostic acceptance observed"),
+                    );
+                if (statusLabels[row.device_status])
+                    card.append(ui("p", statusLabels[row.device_status]));
+                if (row.file_received_at)
+                    card.append(
+                        ui("p", "Diagnostic file received"),
+                        raw("p", row.file_size + " B · " + row.file_expires_at),
+                        raw("p", row.file_sha256),
+                    );
+                if (row.can_download)
+                    button(card, "Download private diagnostic file", () =>
+                        download(row),
+                    );
+                if (!row.cancelled_at)
+                    button(card, "Inspect diagnostic source", async () => {
+                        await api(path + "/" + row.id + "/observe", "POST", {});
+                        if (current())
+                            await diagnosticFiles(
+                                company,
+                                charger,
+                                parent,
+                                epoch,
+                                page,
+                                pending,
+                                repairOrder,
+                            );
+                    });
+                if (result.can_manage && !row.cancelled_at)
+                    button(
+                        card,
+                        "Revoke diagnostic upload and remove file",
+                        async () => {
+                            if (
+                                !confirm(
+                                    document.documentElement.lang === "ar"
+                                        ? "إلغاء صلاحية الرفع وحذف الملف المخزن؟ قد يستكمل الجهاز طلبه الأصلي؛ لا يُرسل أمر إلغاء للجهاز."
+                                        : "Revoke upload and remove the stored file? The device may finish its original request; no device cancel is sent.",
+                                )
+                            )
+                                return;
+                            await api(path + "/" + row.id, "DELETE");
+                            if (current())
+                                await diagnosticFiles(
+                                    company,
+                                    charger,
+                                    parent,
+                                    epoch,
+                                    page,
+                                    pending,
+                                    repairOrder,
+                                );
+                        },
+                    );
+                history.append(card);
+            }
+            pager(history, result, (target) =>
+                diagnosticFiles(
+                    company,
+                    charger,
+                    parent,
+                    epoch,
+                    target,
+                    pending,
+                    repairOrder,
+                ),
+            );
+        } catch (error) {
+            if (current()) notice(error);
+        }
+    }
+
     async function repairOrders(
         company,
         charger,
@@ -1615,6 +1989,17 @@ window.createVendorWorkspace = ({
                         );
                     pager(history, events, loadHistory);
                 }
+                button(card, "Diagnostic files", () =>
+                    diagnosticFiles(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        1,
+                        null,
+                        row.id,
+                    ),
+                );
                 button(card, "Repair history", () => loadHistory());
                 card.append(history);
                 if (data.can_manage && !pending) {
@@ -1661,6 +2046,9 @@ window.createVendorWorkspace = ({
         );
         button(pane, "Repair work orders", () =>
             repairOrders(company, charger, pane, epoch),
+        );
+        button(pane, "Diagnostic files", () =>
+            diagnosticFiles(company, charger, parent, epoch),
         );
         const faults = document.createElement("section");
         pane.append(faults);

@@ -361,6 +361,24 @@ class EvApi {
     );
   }
 
+  Future<PrivateDocument> downloadDiagnosticLog(String path) async {
+    if (!RegExp(
+      r'^vendor-ops/companies/[1-9][0-9]*/chargers/[1-9][0-9]*/diagnostic-logs/[1-9][0-9]*/download$',
+    ).hasMatch(path))
+      throw ArgumentError('Invalid diagnostic path');
+    final doc =
+        await _request(
+              path,
+              binary: true,
+              binaryTypes: const ['application/octet-stream'],
+              binaryLimit: 524288,
+            )
+            as PrivateDocument;
+    if (doc.bytes.isEmpty || doc.bytes.length > 524288)
+      throw const ApiException(502, 'Invalid diagnostic file size');
+    return doc;
+  }
+
   Future<PrivateDocument> downloadFinancialAnalytics(
     Map<String, String> query,
   ) async =>
@@ -378,6 +396,12 @@ class EvApi {
     Uint8List? uploadBytes,
     String? uploadType,
     bool binary = false,
+    int binaryLimit = 5 * 1024 * 1024,
+    List<String> binaryTypes = const [
+      'application/pdf',
+      'image/png',
+      'image/jpeg',
+    ],
   }) async {
     if (!RegExp(r'^[a-z0-9/-]+$').hasMatch(path)) {
       throw ArgumentError('Invalid API path');
@@ -430,7 +454,7 @@ class EvApi {
       final chunks = BytesBuilder(copy: false);
       await for (final chunk in response.timeout(const Duration(seconds: 25))) {
         if (chunks.length + chunk.length >
-            (binary ? 5 * 1024 * 1024 : 8 * 1024 * 1024))
+            (binary ? binaryLimit : 8 * 1024 * 1024))
           throw const ApiException(502, 'Response exceeds the supported size.');
         chunks.add(chunk);
       }
@@ -460,7 +484,7 @@ class EvApi {
       if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
       if (binary && response.statusCode >= 200 && response.statusCode < 300) {
         final mime = response.headers.contentType?.mimeType;
-        if (!['application/pdf', 'image/png', 'image/jpeg'].contains(mime))
+        if (!binaryTypes.contains(mime))
           throw const ApiException(502, 'Unsupported private document type.');
         return PrivateDocument(bytes, mime!);
       }
