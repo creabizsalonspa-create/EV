@@ -2463,4 +2463,65 @@ window.EV_MESSAGES = {
         en: "Expired credential disabled by system",
         ar: "أعطّل النظام بيانات الدخول المنتهية",
     },
+    "Repair work orders": { en: "Repair work orders", ar: "أوامر الإصلاح" },
+    "Repair documentation does not release charging capacity or verify physical repair.":
+        {
+            en: "Repair documentation does not release charging capacity or verify physical repair.",
+            ar: "توثيق الإصلاح لا يحرر سعة الشحن ولا يثبت الإصلاح الفعلي.",
+        },
+    "Repair update uncertain. Resolve the original request before another update.":
+        {
+            en: "Repair update uncertain. Resolve the original request before another update.",
+            ar: "تحديث الإصلاح غير مؤكد. تحقّق من الطلب الأصلي قبل تحديث آخر.",
+        },
+    "Resolve original repair update": {
+        en: "Resolve original repair update",
+        ar: "تحقق من تحديث الإصلاح الأصلي",
+    },
+    "Fault alert number": { en: "Fault alert number", ar: "رقم تنبيه العطل" },
+    "Open repair work order": {
+        en: "Open repair work order",
+        ar: "فتح أمر إصلاح",
+    },
+    "Repair open": { en: "Repair open", ar: "الإصلاح مفتوح" },
+    "Repair in progress": {
+        en: "Repair in progress",
+        ar: "الإصلاح قيد التنفيذ",
+    },
+    "Repair awaiting review": {
+        en: "Repair awaiting review",
+        ar: "الإصلاح بانتظار المراجعة",
+    },
+    "Repair review closed": {
+        en: "Repair review closed",
+        ar: "أُغلقت مراجعة الإصلاح",
+    },
+    "Repair state unavailable": {
+        en: "Repair state unavailable",
+        ar: "حالة الإصلاح غير متاحة",
+    },
+    "Source recovery observed": {
+        en: "Source recovery observed",
+        ar: "تم رصد تعافي المصدر",
+    },
+    "Source recovery not observed": {
+        en: "Source recovery not observed",
+        ar: "لم يُرصد تعافي المصدر",
+    },
+    "Repair history": { en: "Repair history", ar: "سجل الإصلاح" },
+    "Begin repair": { en: "Begin repair", ar: "بدء الإصلاح" },
+    "Submit repair review": {
+        en: "Submit repair review",
+        ar: "إرسال الإصلاح للمراجعة",
+    },
+    "Reopen repair": { en: "Reopen repair", ar: "إعادة فتح الإصلاح" },
+    "Continue repair": { en: "Continue repair", ar: "متابعة الإصلاح" },
+    "Close repair review": {
+        en: "Close repair review",
+        ar: "إغلاق مراجعة الإصلاح",
+    },
+    "Clear pending form after reviewing repair history": {
+        en: "Clear pending form after reviewing repair history",
+        ar: "مسح النموذج المعلق بعد مراجعة سجل الإصلاح",
+    },
 };
