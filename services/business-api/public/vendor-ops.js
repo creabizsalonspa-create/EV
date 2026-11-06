@@ -839,6 +839,9 @@ window.createVendorWorkspace = ({
                 button(row, "Source diagnostics", () =>
                     diagnostics(company, charger, row, epoch),
                 );
+                button(row, "Device operating settings", () =>
+                    configurationReads(company, charger, row, epoch),
+                );
                 p.append(row);
             },
             1,
@@ -1189,9 +1192,249 @@ window.createVendorWorkspace = ({
                 resets(company, charger, parent, epoch, page + 1),
             );
     }
+    async function configurationReads(
+        company,
+        charger,
+        parent,
+        epoch,
+        page = 1,
+        pending = null,
+    ) {
+        if (!valid(epoch)) return;
+        parent.querySelector("[data-source-diagnostics]")?.remove();
+        parent.querySelector("[data-configuration-reads]")?.remove();
+        const pane = document.createElement("section");
+        pane.dataset.configurationReads = "";
+        parent.append(pane);
+        const path =
+            base +
+            `companies/${company.id}/chargers/${charger.id}/configuration-reads`;
+        const current = () => valid(epoch) && pane.isConnected;
+        const check = (row) => {
+            if (
+                row.evidence !== "SIMULATED_SOURCE" ||
+                row.settings_changed !== false ||
+                row.physical_charging_verified !== false
+            )
+                throw new Error("Unexpected settings capability.");
+        };
+        const state = (value) =>
+            ({
+                source_observed: "Device reply observed",
+                transport_submitted: "Awaiting device reply",
+                device_rejected: "Device rejected the read",
+                not_dispatched: "Read was not sent",
+                invalid_source_response: "Invalid device reply",
+                observed: "Observed",
+                unsupported: "Not supported",
+                invalid_value: "Invalid device value",
+            })[value] || "Outcome uncertain";
+        const labels = {
+            HeartbeatInterval: "Heartbeat interval (seconds)",
+            "OCPPCommCtrlr.HeartbeatInterval": "Heartbeat interval (seconds)",
+            MeterValueSampleInterval: "Meter sample interval (seconds)",
+            NumberOfConnectors: "Connector count",
+            "SampledDataCtrlr.TxUpdatedInterval":
+                "Transaction update interval (seconds)",
+            "ClockCtrlr.TimeZone": "Time zone",
+        };
+        const safeValue = (row) => {
+            if (row.status !== "observed" || typeof row.value !== "string")
+                return "—";
+            if (row.key === "ClockCtrlr.TimeZone")
+                return row.value === "UTC" ||
+                    (row.value.length <= 64 &&
+                        /^[A-Za-z_+-]+\/[A-Za-z_+/-]+$/.test(row.value))
+                    ? row.value
+                    : "—";
+            return /^[0-9]{1,5}$/.test(row.value) && Number(row.value) <= 86400
+                ? row.value
+                : "—";
+        };
+        const header = () =>
+            pane.replaceChildren(
+                ui("h3", "Device operating settings"),
+                ui("p", "Settings read disclaimer"),
+            );
+        const request = async (intent) => {
+            if (!current()) return;
+            header();
+            pane.append(ui("p", "Loading…"));
+            try {
+                const result = await api(
+                    path,
+                    "POST",
+                    intent,
+                    controller?.signal,
+                );
+                check(result);
+                if (current())
+                    await configurationReads(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page,
+                    );
+            } catch (error) {
+                if (!current()) return;
+                header();
+                pane.append(
+                    ui(
+                        "p",
+                        "Read unavailable. Refresh source history before another action.",
+                    ),
+                );
+                if (![401, 403, 404, 419].includes(error.status))
+                    button(pane, "Resolve read request", () => request(intent));
+                button(pane, "Refresh source history", () =>
+                    configurationReads(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page,
+                        intent,
+                    ),
+                );
+                notice(error);
+            }
+        };
+        header();
+        pane.append(ui("p", "Loading…"));
+        try {
+            const result = await api(
+                path + "?page=" + page,
+                "GET",
+                undefined,
+                controller?.signal,
+            );
+            if (!current()) return;
+            if (result.settings_writes_enabled !== false)
+                throw new Error("Unexpected settings capability.");
+            result.data.forEach(check);
+            header();
+            button(pane, "Refresh source history", () =>
+                configurationReads(
+                    company,
+                    charger,
+                    parent,
+                    epoch,
+                    page,
+                    pending,
+                ),
+            );
+            if (result.can_request)
+                button(
+                    pane,
+                    pending ? "Resolve read request" : "Read device settings",
+                    () =>
+                        request(
+                            pending || {
+                                idempotency_key: crypto.randomUUID(),
+                                reason: "Inspect device operating settings",
+                            },
+                        ),
+                );
+            if (pending) pane.append(ui("p", "Resolve previous settings read"));
+            if (!result.data.length)
+                pane.append(ui("p", "No settings reads yet."));
+            for (const row of result.data) {
+                const card = document.createElement("article");
+                card.className = "station-card";
+                card.append(
+                    raw("p", "OCPP " + row.protocol),
+                    ui("p", state(row.status)),
+                );
+                if (row.observed_at)
+                    card.append(raw("p", row.observed_at + " UTC"));
+                for (const setting of row.snapshot || [])
+                    if (labels[setting.key]) {
+                        card.append(
+                            ui("p", "Settings reading", {
+                                field: { translate: labels[setting.key] },
+                                value: safeValue(setting),
+                            }),
+                            ui("p", state(setting.status)),
+                        );
+                    }
+                if (
+                    [
+                        "transport_submitted",
+                        "outcome_unknown",
+                        "dispatching",
+                    ].includes(row.status)
+                )
+                    button(card, "Check device reply", async () => {
+                        if (!current()) return;
+                        const observed = await api(
+                            path + "/" + row.id + "/observe",
+                            "POST",
+                            {},
+                            controller?.signal,
+                        );
+                        check(observed);
+                        if (current())
+                            await configurationReads(
+                                company,
+                                charger,
+                                parent,
+                                epoch,
+                                page,
+                                pending,
+                            );
+                    });
+                pane.append(card);
+            }
+            if (result.current_page > 1)
+                button(pane, "Previous", () =>
+                    configurationReads(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page - 1,
+                        pending,
+                    ),
+                );
+            if (result.current_page < result.last_page)
+                button(pane, "Next", () =>
+                    configurationReads(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page + 1,
+                        pending,
+                    ),
+                );
+        } catch (error) {
+            if (current()) {
+                header();
+                pane.append(
+                    ui(
+                        "p",
+                        "Read unavailable. Refresh source history before another action.",
+                    ),
+                );
+                button(pane, "Refresh source history", () =>
+                    configurationReads(
+                        company,
+                        charger,
+                        parent,
+                        epoch,
+                        page,
+                        pending,
+                    ),
+                );
+                notice(error);
+            }
+        }
+    }
     async function diagnostics(company, charger, parent, epoch, before = null) {
         if (!valid(epoch)) return;
         parent.querySelector("[data-source-diagnostics]")?.remove();
+        parent.querySelector("[data-configuration-reads]")?.remove();
         const pane = document.createElement("section");
         pane.dataset.sourceDiagnostics = "";
         parent.append(pane);

@@ -80,6 +80,7 @@ class SimulatedCharger {
     this.commands = [];
     this.acceptSafeReset = false;
     this.firmwareHandler = null;
+    this.configurationHandler = null;
   }
   async connect() {
     this.socket = new WebSocket(
@@ -90,7 +91,25 @@ class SimulatedCharger {
       const m = JSON.parse(event.data);
       if (m[0] === 2) {
         this.commands.push({ action: m[2], payload: m[3] });
-        if (m[2] === "Reset" && this.acceptSafeReset) {
+        if (
+          ["GetConfiguration", "GetVariables"].includes(m[2]) &&
+          this.configurationHandler
+        ) {
+          Promise.resolve()
+            .then(() => this.configurationHandler(m[3], m[2]))
+            .then((reply) => this.socket.send(JSON.stringify([3, m[1], reply])))
+            .catch(() =>
+              this.socket.send(
+                JSON.stringify([
+                  4,
+                  m[1],
+                  "GenericError",
+                  "Synthetic settings read unavailable",
+                  {},
+                ]),
+              ),
+            );
+        } else if (m[2] === "Reset" && this.acceptSafeReset) {
           assert(["Soft", "OnIdle"].includes(m[3].type), "Unsafe reset mode");
           this.socket.send(JSON.stringify([3, m[1], { status: "Accepted" }]));
         } else if (
