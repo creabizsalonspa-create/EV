@@ -64,7 +64,25 @@ const assert = require("node:assert/strict");
       }
     }
 
+    let initialCatalogLoads = 0;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (
+        url.pathname === "/api/roaming/locations" &&
+        (url.searchParams.get("page") || "1") === "1"
+      )
+        initialCatalogLoads++;
+    });
+    const startupFinished = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/regions",
+    );
     await page.goto(base);
+    await startupFinished;
+    assert.equal(
+      initialCatalogLoads,
+      1,
+      "Startup must not replace an already rendered discovery page with a second load.",
+    );
     const pub = page.locator("#roaming-discovery"),
       ops = page.locator("#roaming-operations");
     await pub

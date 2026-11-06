@@ -1170,12 +1170,14 @@ const tariffWorkspace = createTariffWorkspace({
     actor: () => user,
 });
 (async () => {
-    const publicRoaming = roamingWorkspace.catalog();
-    if (pendingLogout()) await signOut();
-    else await identity();
+    // Resolve the initial account once before rendering its public/private catalog.
+    // A second late startup load otherwise replaces a page the visitor selected.
+    if (pendingLogout()) {
+        await signOut();
+        await roamingWorkspace.catalog();
+    } else await identity();
     await stations();
     await regions();
-    await publicRoaming;
 })().catch((e) => notice(e));
 
 el("forgot-password").onsubmit = async (e) => {
