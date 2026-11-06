@@ -17,7 +17,7 @@ use Throwable;
 /** OCPI protocol authority is exclusively the active opaque partner token, never browser cookies. */
 class OcpiProtocolCredentialsController extends Controller
 {
-    private function auth(Request $r, CredentialExchange $exchange, string $resource): array
+    public function authenticate(Request $r, CredentialExchange $exchange, string $resource): array
     {
         abort_unless($r->isSecure() || app()->environment(['local', 'testing']), 401);
         $header = $r->header('Authorization', '');
@@ -47,7 +47,7 @@ class OcpiProtocolCredentialsController extends Controller
     public function handle(Request $r, CredentialExchange $exchange, string $resource = 'versions')
     {
         try {
-            [$p, $link] = $this->auth($r, $exchange, $resource);
+            [$p, $link] = $this->authenticate($r, $exchange, $resource);
             $local = $exchange->localPayload($link->state === 'active' ? Crypt::decryptString($link->local_token_ciphertext) : '');
             if ($r->isMethod('POST') && $resource === 'credentials') {
                 if ($link->state !== 'awaiting_registration') {
@@ -61,7 +61,7 @@ class OcpiProtocolCredentialsController extends Controller
             if ($r->isMethod('GET')) {
                 $data = match ($resource) {
                     'versions' => [['version' => '2.2.1', 'url' => $base.'2.2.1']],
-                    'details' => ['version' => '2.2.1', 'endpoints' => [['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => $base.'2.2.1/credentials']]],
+                    'details' => ['version' => '2.2.1', 'endpoints' => array_merge([['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => $base.'2.2.1/credentials']], array_map(fn ($module) => ['identifier' => $module, 'role' => 'RECEIVER', 'url' => $base.'2.2.1/'.$module], $exchange->receiverModules($p)))],
                     'credentials' => $local,
                 };
 

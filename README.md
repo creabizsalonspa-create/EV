@@ -80,3 +80,23 @@ and `node tests/client-demo.cjs --rfid` exercises managed cards on a fresh fixtu
 This does not prove customer booking creation. CI runs the owned lifecycle wrapper
 after the existing charging regressions and retains only sanitized test output;
 private demo access files are excluded from uploaded artifacts.
+
+### Managed OCPI session/CDR reception
+
+For an explicitly approved CPO connection and local EMSP identity,
+`OCPI_CONNECTIONS_JSON` can opt in with `"incoming_modules":["sessions","cdrs"]`.
+The default is disabled. This permission is part of the credential scope:
+changing it invalidates existing credentials and requires a new approved exchange.
+After active credential exchange and OCPI 2.2.1 sender-module negotiation, local
+version details advertise the corresponding receiver endpoints. Session GET/PUT/
+PATCH and CDR POST/GET require the active opaque OCPI token; browser sessions,
+bootstrap/provisional tokens and other partner identities cannot write records.
+
+Accepted writes retain an authenticated generation/content receipt. Exact retries
+are safe; conflicting immutable CDRs, stale updates and completed-session rollback
+are rejected. Partial sessions preserve other source fields and require a new
+source timestamp. Vendor/Admin web and Flutter record inspection compares CDRs
+against explicitly linked, completed sessions and reports discrepancies. Records
+with missing references, duplicate claims, credits, unsupported precision or
+unlinked legacy history require review. Even matching records remain partner
+reported and do not create local charging sessions, invoices or payment authority.

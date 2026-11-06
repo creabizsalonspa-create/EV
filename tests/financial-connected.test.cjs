@@ -95,6 +95,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "signed-firmware",
       "ocpi-credentials",
       "ocpi-incoming",
+      "ocpi-receiver",
       "rider-access",
       "charger-resets",
       "charging-business",

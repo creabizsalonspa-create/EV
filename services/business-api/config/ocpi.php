@@ -29,6 +29,7 @@ foreach ($metadata as $key => $connection) {
         'registration_direction' => $direction,
         'inbound_authorization_token' => $inboundVariable === null ? null : env($inboundVariable),
         'managed_credentials' => ($connection['managed_credentials'] ?? false) === true,
+        'incoming_modules' => $connection['incoming_modules'] ?? [],
         'party_country' => $connection['party_country'] ?? null,
         'party_id' => $connection['party_id'] ?? null,
         'party_role' => $connection['party_role'] ?? null,

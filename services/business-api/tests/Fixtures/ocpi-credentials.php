@@ -22,6 +22,9 @@ $admin = User::create(['name' => 'Synthetic credentials reviewer', 'email' => "c
 $admin->forceFill(['role' => 'admin'])->save();
 $p = OcpiProvider::create(['owner_id' => $owner->id, 'name' => 'Synthetic credentials '.$run, 'connection_key' => 'managed_'.$run, 'authorized' => true]);
 $incoming = ($argv[3] ?? 'active') === 'incoming';
+if (($argv[3] ?? '') === 'receiver') {
+    $p->update(['version' => '2.2.1', 'endpoints' => ['sessions' => 'https://partner.example/sessions', 'cdrs' => 'https://partner.example/cdrs']]);
+}
 $token = $incoming ? base64_decode(config('ocpi.connections.'.$p->connection_key.'.inbound_authorization_token'), true) : bin2hex(random_bytes(32));
 if (! $incoming) {
     DB::table('ocpi_credential_links')->insert(['provider_id' => $p->id, 'owner_id' => $owner->id, 'generation' => 1, 'state' => 'active', 'configuration_hash' => app(CredentialExchange::class)->configurationHash($p), 'bootstrap_hash' => hash('sha256', config('ocpi.connections.'.$p->connection_key.'.authorization_token')), 'local_token_digest' => hash('sha256', $token), 'local_token_ciphertext' => Crypt::encryptString($token), 'remote_token_ciphertext' => Crypt::encryptString('SYNTHETIC-REMOTE-C'), 'exchanged_at' => now(), 'created_at' => now(), 'updated_at' => now()]);

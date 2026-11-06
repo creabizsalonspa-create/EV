@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
@@ -106,12 +107,14 @@ class OcpiController extends Controller
         return response()->json(['counts' => $counts, 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'remote_control' => false, 'billing_eligible' => false]);
     }
 
-    public function records(Request $r, OcpiProvider $provider, string $module)
+    public function records(Request $r, OcpiProvider $provider, string $module, CdrReconciler $reconciler)
     {
         $this->owner($r, $provider);
         abort_unless(in_array($module, PartnerClient::MODULES, true), 404);
 
-        return OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', $module)->orderByDesc('id')->paginate(25);
+        return OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', $module)->orderByDesc('id')->paginate(25)->through(function ($record) use ($provider, $module, $reconciler) {
+            return $record->toArray() + ($module === 'cdrs' ? ['reconciliation' => $reconciler->inspect($provider, $record)] : []);
+        });
     }
 
     public function locations()

@@ -1568,6 +1568,102 @@ window.EV_MESSAGES = {
         en: "Reported cost excluding VAT:",
         ar: "التكلفة الواردة دون ضريبة:",
     },
+    "Partner session and CDR agree": {
+        en: "Partner session and CDR agree",
+        ar: "تتطابق جلسة الشريك وسجل تفاصيل الشحن",
+    },
+    "Partner reconciliation requires review": {
+        en: "Partner reconciliation requires review",
+        ar: "تتطلب مطابقة سجلات الشريك المراجعة",
+    },
+    "Source comparison does not authorize billing": {
+        en: "Source comparison does not authorize billing",
+        ar: "لا تمنح مقارنة المصدر تصريحاً بالفوترة",
+    },
+    "Partner authorization or negotiation is required": {
+        en: "Partner authorization or negotiation is required",
+        ar: "يلزم تصريح الشريك والتفاوض معه",
+    },
+    "Credit record needs separate review": {
+        en: "Credit record needs separate review",
+        ar: "يتطلب سجل الرصيد مراجعة منفصلة",
+    },
+    "CDR has no session reference": {
+        en: "CDR has no session reference",
+        ar: "لا يتضمن سجل الشحن مرجع جلسة",
+    },
+    "Referenced partner session has not been received": {
+        en: "Referenced partner session has not been received",
+        ar: "لم تُستلم جلسة الشريك المشار إليها",
+    },
+    "Partner session is not completed": {
+        en: "Partner session is not completed",
+        ar: "جلسة الشريك غير مكتملة",
+    },
+    "Energy precision needs review": {
+        en: "Energy precision needs review",
+        ar: "تتطلب دقة الطاقة المراجعة",
+    },
+    "Session and CDR energy differ": {
+        en: "Session and CDR energy differ",
+        ar: "تختلف طاقة الجلسة وسجل الشحن",
+    },
+    "Partner history exceeds automatic comparison limit": {
+        en: "Partner history exceeds automatic comparison limit",
+        ar: "يتجاوز سجل الشريك حد المقارنة التلقائية",
+    },
+    "Partner history contains unlinked CDRs": {
+        en: "Partner history contains unlinked CDRs",
+        ar: "يتضمن سجل الشريك سجلات شحن غير مرتبطة",
+    },
+    "Multiple CDRs claim the same session": {
+        en: "Multiple CDRs claim the same session",
+        ar: "تشير سجلات شحن متعددة إلى الجلسة نفسها",
+    },
+    "Session and CDR currencies differ": {
+        en: "Session and CDR currencies differ",
+        ar: "تختلف عملة الجلسة وسجل الشحن",
+    },
+    "Session and CDR locations differ": {
+        en: "Session and CDR locations differ",
+        ar: "يختلف موقع الجلسة وسجل الشحن",
+    },
+    "Session and CDR EVSEs differ": {
+        en: "Session and CDR EVSEs differ",
+        ar: "تختلف وحدة شحن الجلسة وسجل الشحن",
+    },
+    "Session and CDR connectors differ": {
+        en: "Session and CDR connectors differ",
+        ar: "يختلف موصل الجلسة وسجل الشحن",
+    },
+    "Session and CDR start times differ": {
+        en: "Session and CDR start times differ",
+        ar: "يختلف وقت بدء الجلسة وسجل الشحن",
+    },
+    "Session and CDR end times differ": {
+        en: "Session and CDR end times differ",
+        ar: "يختلف وقت انتهاء الجلسة وسجل الشحن",
+    },
+    "Net cost is missing or needs precision review": {
+        en: "Net cost is missing or needs precision review",
+        ar: "التكلفة الصافية مفقودة أو تتطلب مراجعة الدقة",
+    },
+    "Gross cost is missing or needs precision review": {
+        en: "Gross cost is missing or needs precision review",
+        ar: "التكلفة الإجمالية مفقودة أو تتطلب مراجعة الدقة",
+    },
+    "Session and CDR net costs differ": {
+        en: "Session and CDR net costs differ",
+        ar: "تختلف التكلفة الصافية للجلسة وسجل الشحن",
+    },
+    "Session and CDR gross costs differ": {
+        en: "Session and CDR gross costs differ",
+        ar: "تختلف التكلفة الإجمالية للجلسة وسجل الشحن",
+    },
+    "Source fields require review": {
+        en: "Source fields require review",
+        ar: "تتطلب حقول المصدر المراجعة",
+    },
     "Roaming gross cost": {
         en: "Reported cost including VAT:",
         ar: "التكلفة الواردة مع الضريبة:",

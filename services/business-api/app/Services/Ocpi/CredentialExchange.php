@@ -42,9 +42,30 @@ class CredentialExchange
         if (($c['registration_direction'] ?? 'outbound') === 'incoming') {
             $identity[] = ['incoming', hash('sha256', (string) ($c['inbound_authorization_token'] ?? ''))];
         }
+        $receivers = $this->receiverModules($p);
+        if ($receivers !== []) {
+            $identity[] = ['receiver_modules', $receivers];
+        }
         $identity[] = $local;
 
         return hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR));
+    }
+
+    /** Explicit, server-approved CPO -> EMSP data reception; no command or billing authority. */
+    public function receiverModules(OcpiProvider $p): array
+    {
+        [$c, $local] = $this->configuration($p);
+        $modules = $c['incoming_modules'] ?? [];
+        abort_unless(is_array($modules) && array_is_list($modules) && count($modules) <= 2 && count(array_unique($modules, SORT_REGULAR)) === count($modules), 409);
+        foreach ($modules as $module) {
+            abort_unless(is_string($module) && in_array($module, ['sessions', 'cdrs'], true), 409);
+        }
+        if ($modules !== []) {
+            abort_unless($c['party_role'] === 'CPO' && $local['roles'][0]['role'] === 'EMSP', 409);
+        }
+        sort($modules, SORT_STRING);
+
+        return $modules;
     }
 
     public function localPayload(string $token): array

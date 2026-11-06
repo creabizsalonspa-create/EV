@@ -151,6 +151,30 @@ const assert = require("node:assert/strict");
     await detail
       .getByText("Page 2 of 2 · 26 records", { exact: true })
       .waitFor();
+    await ops
+      .getByRole("button", { name: "Charge detail records", exact: true })
+      .click();
+    await detail
+      .getByText("Partner session and CDR agree", { exact: true })
+      .waitFor();
+    await detail
+      .getByText("Partner reconciliation requires review", { exact: true })
+      .waitFor();
+    await detail
+      .getByText("Session and CDR energy differ", { exact: true })
+      .waitFor();
+    assert.equal(
+      await detail
+        .getByText("Source comparison does not authorize billing", {
+          exact: true,
+        })
+        .count(),
+      2,
+    );
+    assert.equal(
+      (await detail.textContent()).includes("PRIVATE-CDR-DRIVER-TOKEN"),
+      false,
+    );
     await page.locator("#language").click();
     await pub
       .getByRole("heading", { name: "مواقع شبكات التجوال", exact: true })

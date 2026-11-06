@@ -8,6 +8,7 @@ use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
 use App\Http\Controllers\OcpiProtocolCredentialsController;
+use App\Http\Controllers\OcpiProtocolRecordsController;
 use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\RecurringPaymentController;
@@ -108,6 +109,9 @@ Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationCont
 Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->where('token', '[a-f0-9]{64}')->middleware('throttle:30,1');
 
 Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
+    Route::match(['GET', 'PUT', 'PATCH'], '2.2.1/sessions/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'session']);
+    Route::post('2.2.1/cdrs', [OcpiProtocolRecordsController::class, 'cdr']);
+    Route::get('2.2.1/cdrs/{external}', [OcpiProtocolRecordsController::class, 'cdr']);
     Route::get('versions', [OcpiProtocolCredentialsController::class, 'handle']);
     Route::get('2.2.1', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'details');
     Route::match(['GET', 'POST', 'PUT', 'DELETE'], '2.2.1/credentials', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');
