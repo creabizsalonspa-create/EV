@@ -8,6 +8,7 @@ use App\Models\Charging\RiderAccessToken;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Services\Charging\RiderServiceAuth;
+use App\Services\Charging\RiderTokenRegistry;
 use App\Services\Charging\SessionBridge;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -53,6 +54,7 @@ class RiderSourceController extends Controller
         $auth->verify($r);
         $v = $r->validate(['idToken' => ['required', 'string', 'regex:/^[a-zA-Z0-9]{6,20}$/D'], 'idTokenType' => 'required|in:Central,ISO14443,ISO15693', 'ocppConnectionName' => ['required', 'regex:/^ev-test-[a-zA-Z0-9-]{1,80}$/D'], 'evseId' => 'nullable|integer|min:0', 'connectorId' => 'nullable|integer|min:0']);
         $decision = 'BLOCKED';
+        $receiptGrant = null;
         $token = RiderAccessToken::where('token_digest', hash('sha256', strtoupper($v['idToken'])))->where('token_type', $v['idTokenType'])->first();
         if ($token && $token->revoked_at === null && $token->expires_at->isPast()) {
             $decision = 'EXPIRED';
@@ -62,6 +64,7 @@ class RiderSourceController extends Controller
             if ($bindings->count() === 1) {
                 $binding = $bindings->first();
                 $grants = DB::table('rider_charging_grants')->where('token_id', $token->id)->where('station_id', $binding->station_id)->where('state', 'approved')->whereNull('revoked_at')->where('expires_at', '>', now())->limit(2)->get();
+                $receiptGrant = $grants->count() === 1 ? $grants->first()->id : null;
                 $slots = Reservation::where('user_id', $token->user_id)->where('station_id', $binding->station_id)->where('status', 'confirmed')->where('starts_at', '<=', now())->where('starts_at', '>', now()->subMinutes(30))->limit(2)->get();
                 if ($grants->count() === 1 && $slots->count() === 1 && $slots->first()->connector_mapping_id) {
                     // This first adapter admits only a uniquely mapped source target.
@@ -84,6 +87,13 @@ class RiderSourceController extends Controller
                     $decision = 'NOT_ALLOWED';
                 }
             }
+        }
+
+        if ($token) {
+            // An authenticated decision is an authorization attempt, not evidence
+            // of a physical tap, command dispatch or transaction start. Unknown
+            // identifiers and unauthenticated requests never create card records.
+            app(RiderTokenRegistry::class)->event($token->id, $receiptGrant, null, 'source.authorization.'.strtolower($decision));
         }
 
         return response()->json(['timestamp' => now()->toISOString(), 'data' => ['allowed' => $decision]])->header('Cache-Control', 'private, no-store');
