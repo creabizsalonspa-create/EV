@@ -232,6 +232,20 @@ class AdminSecondFactorTest extends TestCase
         $this->getJson('/api/admin/overview')->assertOk();
     }
 
+    public function test_admin_native_token_and_unverified_web_session_cannot_bypass_the_api_group_gate(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $token = $admin->createToken('legacy-mobile', ['platform'], now()->addDay())->plainTextToken;
+        $this->withToken($token)->getJson('/api/v1/me')->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
+
+        $this->app['auth']->forgetGuards();
+        $customer = User::factory()->create(['role' => 'customer']);
+        $mobileToken = $customer->createToken('mobile', ['platform'], now()->addDay())->plainTextToken;
+        $this->withToken($mobileToken)->getJson('/api/v1/me')->assertOk()
+            ->assertJsonPath('role', 'customer');
+    }
+
     public function test_customer_and_vendor_web_login_are_not_interrupted_by_admin_challenge(): void
     {
         foreach (['customer', 'vendor'] as $role) {
