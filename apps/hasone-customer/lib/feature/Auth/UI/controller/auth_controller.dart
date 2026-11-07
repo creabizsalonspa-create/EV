@@ -79,13 +79,17 @@ class AuthController extends GetxController {
       final clearedGeneration = SharedPrefs.credentialGeneration;
       await clearing;
       if (attempt != _credentialAttempt ||
-          clearedGeneration != SharedPrefs.credentialGeneration) return false;
+          clearedGeneration != SharedPrefs.credentialGeneration) {
+        return false;
+      }
       final res = await _net.postRequest(
         '/api/v1/VerifyOTP',
         body: {'email': email, 'otp': otp},
       );
       if (attempt != _credentialAttempt ||
-          clearedGeneration != SharedPrefs.credentialGeneration) return false;
+          clearedGeneration != SharedPrefs.credentialGeneration) {
+        return false;
+      }
       if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
         final token = res.responseData?['token']?.toString();
         if (token == null || token.trim().isEmpty) {
@@ -97,7 +101,9 @@ class AuthController extends GetxController {
         final savedGeneration = SharedPrefs.credentialGeneration;
         await saving;
         if (attempt != _credentialAttempt ||
-            savedGeneration != SharedPrefs.credentialGeneration) return false;
+            savedGeneration != SharedPrefs.credentialGeneration) {
+          return false;
+        }
         Get.snackbar(
           'Success',
           res.responseData?['message']?.toString() ?? 'OTP verified successfully',
@@ -136,13 +142,17 @@ class AuthController extends GetxController {
       final clearedGeneration = SharedPrefs.credentialGeneration;
       await clearing;
       if (attempt != _credentialAttempt ||
-          clearedGeneration != SharedPrefs.credentialGeneration) return false;
+          clearedGeneration != SharedPrefs.credentialGeneration) {
+        return false;
+      }
       final res = await _net.postRequest(
         '/api/v1/Login',
         body: {'email': email, 'password': password},
       );
       if (attempt != _credentialAttempt ||
-          clearedGeneration != SharedPrefs.credentialGeneration) return false;
+          clearedGeneration != SharedPrefs.credentialGeneration) {
+        return false;
+      }
       if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
         final token = res.responseData?['token']?.toString();
         if (token == null || token.trim().isEmpty) {
@@ -154,7 +164,9 @@ class AuthController extends GetxController {
         final savedGeneration = SharedPrefs.credentialGeneration;
         await saving;
         if (attempt != _credentialAttempt ||
-            savedGeneration != SharedPrefs.credentialGeneration) return false;
+            savedGeneration != SharedPrefs.credentialGeneration) {
+          return false;
+        }
         final userData = <String, dynamic>{
           'fullName': res.responseData?['name']?.toString(),
           'email': res.responseData?['email']?.toString(),
@@ -162,7 +174,9 @@ class AuthController extends GetxController {
         };
         await _prefs.saveUser(userData);
         if (attempt != _credentialAttempt ||
-            savedGeneration != SharedPrefs.credentialGeneration) return false;
+            savedGeneration != SharedPrefs.credentialGeneration) {
+          return false;
+        }
         user.value = UserModel.fromJson(userData);
         pendingEmail = email;
         Get.snackbar(
