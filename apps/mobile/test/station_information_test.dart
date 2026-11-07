@@ -132,10 +132,12 @@ void main() {
         'Roof deck');
       await tester.enterText(find.byKey(const Key('station-info-access_en')),
         'Gate A');
-      await tester.ensureVisible(find.text('Wi-Fi'));
+      // The vendor editor is intentionally a long scrollable form.
+      // Drag the actual viewport rather than tapping off-screen descendants.
+      await tester.drag(find.byType(ListView), const Offset(0, -1250));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Wi-Fi'));
-      await tester.ensureVisible(find.byKey(const Key('station-info-save')));
+      await tester.drag(find.byType(ListView), const Offset(0, -750));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('station-info-save')));
       await tester.pumpAndSettle();
