@@ -84,8 +84,12 @@ export const ExtendSessionService = async () => ({
       return { status:"fail", message:"No verified OCPP charging summary is available." };
     }
 '''
-    if source.count(marker)!=1:raise RuntimeError('Summary status check changed')
-    source=source.replace(marker,insert+marker)
+    begin=source.find('export const GetChargingSummaryService = async (user_id, sessionId) => {')
+    finish=source.find('// ─── POST /ChargingSession/:id/pay',begin)
+    if begin<0 or finish<0:raise RuntimeError('Summary function boundary not found')
+    part=source[begin:finish]
+    if part.count(marker)!=1:raise RuntimeError('Summary status check changed')
+    source=source[:begin]+part.replace(marker,insert+marker)+source[finish:]
     # Block extension settlement if no source-bound metering, including direct requests.
     start=source.find('export const PayChargingSessionService = async (user_id, sessionId, body = {}) => {')
     end=source.find('export const ',start+10)
