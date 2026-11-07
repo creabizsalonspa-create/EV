@@ -193,11 +193,14 @@
         if (!select.value || save.disabled) return;
         save.disabled = true;
         const ticket = generation, modelId = Number(select.value);
+        const vehicleId = selectedVehicle.id, expectedModelId = selectedLink?.model_id ?? null;
         try {
-          selectedLink = await api("vehicles/" + selectedVehicle.id + "/model","PUT",{
-            model_id:modelId, expected_model_id:selectedLink?.model_id ?? null,
+          const updated = await api("vehicles/" + vehicleId + "/model","PUT",{
+            model_id:modelId, expected_model_id:expectedModelId,
           });
-          if (!valid(ticket)) return;
+          // Never apply a former vehicle's response to a newly selected one.
+          if (!valid(ticket) || selectedVehicle?.id !== vehicleId) return;
+          selectedLink = updated;
           renderCustomerModels(list);
           message(customerRoot,isAr() ? "تم ربط الطراز." : "Model linked.");
         } catch (e) {
@@ -209,12 +212,14 @@
       save.disabled = !models.length;
       panel.append(save);
       panel.append(button("Remove model association", "إزالة ارتباط الطراز", async () => {
-        const ticket = generation;
+        const ticket = generation, vehicleId = selectedVehicle.id;
+        const expectedModelId = selectedLink?.model_id ?? null;
         try {
-          selectedLink = await api("vehicles/" + selectedVehicle.id + "/model","PUT",{
-            model_id:null,expected_model_id:selectedLink?.model_id ?? null,
+          const updated = await api("vehicles/" + vehicleId + "/model","PUT",{
+            model_id:null,expected_model_id:expectedModelId,
           });
-          if (!valid(ticket)) return;
+          if (!valid(ticket) || selectedVehicle?.id !== vehicleId) return;
+          selectedLink = updated;
           renderCustomerModels(list);
           message(customerRoot,isAr() ? "تمت إزالة ارتباط الطراز." : "Model link removed.");
         } catch (e) {
