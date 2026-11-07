@@ -199,8 +199,6 @@ class IntegrationReadinessTest(unittest.TestCase):
 
     def test_overlap_report_is_nonblocking_when_checks_are_truly_green(self):
         self.assertEqual("candidate_for_manual_review",
-                         gate.assess(pr(), checks(), ["apps/mobile/lib/main.dart"],
-                                     parents={})["status"] if False else
                          gate.assess(pr(), checks(gate.CORE | gate.NATIVE),
                                      ["apps/mobile/lib/main.dart"])["status"])
         # Shared paths do not establish an actual Git conflict by themselves.
