@@ -73,15 +73,28 @@ class IntegrationReadinessTest(unittest.TestCase):
         self.assertIn("wrong_merge_target:development/universal-integration",
                       result["blockers"])
 
-    def test_flutter_requires_both_hosted_native_platforms(self):
-        for surface in ["apps/mobile/lib/api.dart",
-                        "apps/hasone-customer/lib/main.dart"]:
+    def test_flutter_requires_its_own_two_hosted_platform_checks(self):
+        for surface, expected in [
+            ("apps/mobile/lib/api.dart", gate.NATIVE),
+            ("apps/hasone-customer/lib/main.dart", gate.HASONE_NATIVE),
+        ]:
             with self.subTest(surface=surface):
                 self.assertEqual("blocked",
                     gate.assess(pr(), checks(), [surface])["status"])
-                all_names = gate.CORE | gate.NATIVE
+                all_names = gate.CORE | expected
                 self.assertEqual("candidate_for_manual_review",
                     gate.assess(pr(), checks(all_names), [surface])["status"])
+
+    def test_mixed_flutter_changes_require_both_distinct_native_suites(self):
+        files = ["apps/mobile/lib/main.dart",
+                 "apps/hasone-customer/lib/main.dart"]
+        for incomplete in [gate.CORE | gate.NATIVE,
+                           gate.CORE | gate.HASONE_NATIVE]:
+            self.assertEqual("blocked",
+                gate.assess(pr(), checks(incomplete), files)["status"])
+        all_suites = gate.CORE | gate.NATIVE | gate.HASONE_NATIVE
+        self.assertEqual("candidate_for_manual_review",
+            gate.assess(pr(), checks(all_suites), files)["status"])
 
     def test_express_and_disaster_recovery_have_specific_gates(self):
         examples = [("integrations/hasone-express/ocppMultiCharger.mjs",
