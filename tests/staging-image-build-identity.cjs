@@ -44,3 +44,8 @@ test('image tag shell and injected flags are refused',()=>{
     const f=fixture();try {assert.equal(f.run(tag).status,2);assert.equal(fs.existsSync(f.log),false);}finally{f.done();}
   }
 });
+
+test('builder status request includes untracked source changes',()=>{
+  const file=fs.readFileSync(SRC,'utf8');
+  assert.match(file,/git status --porcelain --untracked-files=normal/);
+});
