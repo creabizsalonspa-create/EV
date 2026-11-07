@@ -19,7 +19,7 @@ export async function runActualAdminBrowser({
    executablePath:process.env.CHROME_PATH||undefined,headless:true,
    args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']
  });
- let passed=0,relayError=null,calls=0;
+ let passed=0,relayError=null,calls=0,mutations=0;
  const step=async(label,fn)=>{await fn();passed++;console.log('PASS real-api '+label);};
  const click=async(page,label)=>{
    await page.waitForFunction(text=>[...document.querySelectorAll('button')]
@@ -43,7 +43,8 @@ export async function runActualAdminBrowser({
          url:request.url(),method:request.method(),body:request.postData(),
          authorization:request.headers().authorization
        },{uiUrl:ui,apiUrl:api,adminToken});
-       calls++;await request.respond(response);return;
+       calls++;if(request.method()==='POST')mutations++;
+       await request.respond(response);return;
      }
      if(url.origin!==ui && !['data:','blob:'].includes(url.protocol)){
        await request.abort('blockedbyclient');return;
@@ -115,6 +116,7 @@ export async function runActualAdminBrowser({
      assert.ok(text.includes('Not collected'));
    });
    await step('history supports Arabic without changing records or issuing mutations',async()=>{
+     const beforeLanguage=mutations;
      await page.$eval('button[aria-label="Change history language"]',button=>
        button.scrollIntoView({block:'center',inline:'nearest'}));
      await new Promise(done=>setTimeout(done,100));
@@ -136,6 +138,7 @@ export async function runActualAdminBrowser({
        throw error;
      });
      assert.equal(relayError,null);
+     assert.equal(mutations,beforeLanguage);
    });
    console.log('ACTUAL_ISOLATED_ADMIN_BROWSER_TESTS_PASSED '+passed);
    return passed;

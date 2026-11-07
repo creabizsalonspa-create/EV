@@ -524,3 +524,30 @@ Wrapper exited 0; loopback port released. Log:
 
 Mobile history UI integration and the broader live/connector reservation scope
 remain outstanding. Agent 4 owns hosted-check integration and final merge.
+
+
+## One-time credential receipt and unknown-outcome UI recovery
+
+Admin dialog now invalidates pending token delivery when the tab is hidden,
+the dialog closes or the component unmounts. A later successful response cannot
+restore the receipt after visibility returns. Existing receipt state is cleared
+before any mutation. A write error clears actionable state and performs an
+authoritative GET; failed reload leaves actions unavailable rather than treating
+an unknown outcome as permission to issue again. No mutation is automatically
+replayed.
+
+The new Chrome regression fails against parent 2e8c152 because the Reveal
+control reappears after a hidden-tab delayed response. With the fix, the delayed
+receipt is discarded, no copy action/storage leak exists, and an uncertain
+HTTP503 response refreshes the persisted authorization state after exactly one
+issue request. Actual Arabic history interaction also asserts no extra writes.
+
+Final runtime: 104 Node guards; 13 callback HTTP checks; 109 backend/OCPP checks;
+Next TypeScript and Webpack build; 13 mocked Chrome scenarios; 9 actual-API
+Chrome checks. Fresh backend with browser reports 110 checks. Wrapper exited 0
+and port 3453 was released. Log /home/hasio/agent2-work/pr50-token-delivery-final.log
+SHA256 cb7b6ef02fb1ce2e3da104a85ea23f9af85a7ae91591f1696dbd8f79b40e34ad.
+
+Continue from docs/AGENT2_CONTINUATION.md. Scope is not complete; Agent 4 still
+owns integration under required hosted checks. No production or live acceptance
+is claimed.

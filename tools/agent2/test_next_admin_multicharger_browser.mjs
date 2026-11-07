@@ -30,6 +30,7 @@ const fakeToken='A1B2C3D4E5F60718293A';
 let stage=0,requestAuthorizationCount=0;
 let issuedTo=null;
 let auditPageFailure=true;
+let holdIssueResponse=false,issueResponseRelease=null,failIssueResponse=false,issueRequests=0;
 const auditCursor='507f1f77bcf86cd799439099';
 const qaToken='agent2-ui-test-token-not-production';
 function result(data,status=200){
@@ -149,11 +150,14 @@ try{
        }
      }else if(path==='/api/v1/admin/bookings/'+id+'/ocpp/issue-token'
          && request.method()==='POST'){
+       issueRequests++;
        const body=JSON.parse(request.postData()||'{}');
        assert.equal(body.chargerId,chargerB,'Booking must explicitly select second charger');
        issuedTo=body.chargerId;
        stage=1;
-       response=result({oneTimeToken:fakeToken,chargerId:chargerB,
+       response=failIssueResponse?{status:503,headers:{'content-type':'application/json'},
+         body:JSON.stringify({status:'fail',message:'Authorization outcome uncertain; reload booking before recovery'})}
+         :result({oneTimeToken:fakeToken,chargerId:chargerB,
          expiresAt:'2026-11-07T10:20:00.000Z'},201);
      }else if(path==='/api/v1/admin/bookings/'+id+'/ocpp/bind-source'
          && request.method()==='POST'){
@@ -169,6 +173,10 @@ try{
          calculatedUnpaidAed:7.56});
      }else{
        throw Error('Unexpected API call: '+request.method()+' '+path);
+     }
+     if(holdIssueResponse && path.endsWith('/ocpp/issue-token')){
+       issueResponseRelease=()=>request.respond(response);
+       return;
      }
      void request.respond(response);
    }catch(error){console.error('Unexpected staging browser API request',error);
@@ -264,6 +272,57 @@ try{
    const values=await page.evaluate(()=>Object.values(window.localStorage));
    assert.ok(!values.some(v=>v.includes(fakeToken)));
    assert.ok(requestAuthorizationCount>=6);
+ });
+ stage=0;issuedTo=null;holdIssueResponse=true;
+ await page.goto(base+'/bookings',{waitUntil:'networkidle2'});
+ await page.waitForSelector('button[aria-label^="OCPP operations"]');
+ await page.click('button[aria-label^="OCPP operations"]');
+ await page.waitForSelector('select[aria-label="Select booking charger"]');
+ await page.select('select[aria-label="Select booking charger"]',chargerB);
+ const beforeHidden=issueRequests;
+ await clickText(page,'Issue one-time authorization token');
+ for(let i=0;i<50&&!issueResponseRelease;i++)await new Promise(done=>setTimeout(done,50));
+ assert.equal(typeof issueResponseRelease,'function');
+ await page.evaluate(()=>{
+   Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});
+   document.dispatchEvent(new Event('visibilitychange'));
+ });
+ holdIssueResponse=false;
+ await issueResponseRelease();issueResponseRelease=null;
+ await step('credential delivered after tab hide is discarded without exposing a copy action',async()=>{
+   await page.waitForFunction(()=>document.body.innerText.includes('Token already issued.'),
+     {timeout:15000});
+   await page.evaluate(()=>{
+     delete document.visibilityState;
+     document.dispatchEvent(new Event('visibilitychange'));
+   });
+   assert.equal(await page.$('button[aria-label="Reveal token"]'),null);
+   assert.equal(await page.$('button[aria-label="Copy one-time token"]'),null);
+   assert.equal((await page.content()).includes(fakeToken),false);
+   const values=await page.evaluate(()=>[...Object.values(localStorage),...Object.values(sessionStorage)]);
+   assert.equal(values.some(x=>x.includes(fakeToken)),false);
+   assert.equal(issueRequests-beforeHidden,1);
+   assert.ok((await page.content()).includes('credential was discarded'));
+ });
+ await page.click('button[aria-label="Close OCPP operations"]');
+ stage=0;issuedTo=null;failIssueResponse=true;
+ await page.goto(base+'/bookings',{waitUntil:'networkidle2'});
+ await page.waitForSelector('button[aria-label^="OCPP operations"]');
+ await page.click('button[aria-label^="OCPP operations"]');
+ await page.waitForSelector('select[aria-label="Select booking charger"]');
+ await page.select('select[aria-label="Select booking charger"]',chargerB);
+ const beforeUncertain=issueRequests;
+ await clickText(page,'Issue one-time authorization token');
+ await step('uncertain mutation refreshes authority before allowing another issue action',async()=>{
+   await page.waitForFunction(()=>document.body.innerText.includes('Authorization outcome uncertain'),
+     {timeout:15000});
+   await page.waitForFunction(()=>document.body.innerText.includes('Token already issued.'),
+     {timeout:15000});
+   const enabled=await page.evaluate(()=>[...document.querySelectorAll('button')].some(x=>
+     x.textContent?.includes('Issue one-time authorization token')&&!x.disabled));
+   assert.equal(enabled,false);
+   assert.equal(await page.$('button[aria-label="Copy one-time token"]'),null);
+   assert.equal(issueRequests-beforeUncertain,1);
  });
  await page.close();
  console.log('STAGED_NEXT_ADMIN_BROWSER_TESTS_PASSED '+passed);

@@ -67,6 +67,7 @@ export default function OcppBookingWorkflow({
   const [startAudit,setStartAudit]=useState<StartExceptionReport|null>(null);
   const [auditLoading,setAuditLoading]=useState(false);
   const auditVersion=useRef(0);
+  const secretGeneration=useRef(0);
   const [secret,setSecret]=useState("");
   const [showSecret,setShowSecret]=useState(false);
 
@@ -109,6 +110,7 @@ export default function OcppBookingWorkflow({
   function close(){
     if(working)return;
     setOpen(false);
+    secretGeneration.current++;
     setSecret("");
     setShowSecret(false);
     setChosen("");
@@ -127,6 +129,7 @@ export default function OcppBookingWorkflow({
     if(!open)return;
     const visibility=()=>{
       if(document.visibilityState==="hidden"){
+        secretGeneration.current++;
         setSecret("");
         setShowSecret(false);
       }
@@ -146,7 +149,10 @@ export default function OcppBookingWorkflow({
     body:Record<string,string>={}
   ){
     if(working || !state)return;
+    const deliveryGeneration=secretGeneration.current;
     setWorking(true);
+    setSecret("");
+    setShowSecret(false);
     setError("");
     setMessage("");
     try{
@@ -160,11 +166,18 @@ export default function OcppBookingWorkflow({
           !/^[A-F0-9]{20}$/.test(result.data.oneTimeToken)){
           throw new Error("Authorization was accepted, but token delivery was incomplete. Contact your administrator.");
         }
-        setSecret(result.data.oneTimeToken);
-        setShowSecret(false);
-        setMessage(path==="reissue-token"
-          ?"Expired unused token replaced. Copy the new credential securely now."
-          :"A one-time token was issued. Copy it securely now; it will not be shown after closing.");
+        if(deliveryGeneration!==secretGeneration.current ||
+           document.visibilityState!=="visible"){
+          setSecret("");
+          setShowSecret(false);
+          setMessage("Authorization accepted while the page was hidden. The one-time credential was discarded. Refresh status before safe recovery.");
+        }else{
+          setSecret(result.data.oneTimeToken);
+          setShowSecret(false);
+          setMessage(path==="reissue-token"
+            ?"Expired unused token replaced. Copy the new credential securely now."
+            :"A one-time token was issued. Copy it securely now; it will not be shown after closing.");
+        }
       }else if(path==="bind-source"){
         setMessage("Verified OCPP transaction linked to this booking.");
       }else{
@@ -174,7 +187,13 @@ export default function OcppBookingWorkflow({
       // Reloading the bookings table here would unmount this dialog and
       // lose the one-time authorization token before Admin can copy it.
       if(path==="finalize-source")setRefreshOnClose(true);
-    }catch(e){setError(errorText(e));}
+    }catch(e){
+      setError(errorText(e));
+      // A failed response does not prove the mutation failed. Hide actions
+      // until an authoritative GET resolves the booking/source state.
+      setState(null);
+      await read().catch(()=>{setState(null);});
+    }
     finally{setWorking(false);}
   }
 
@@ -210,6 +229,8 @@ export default function OcppBookingWorkflow({
     }catch(error){if(version===auditVersion.current)setError(errorText(error));}
     finally{if(version===auditVersion.current)setAuditLoading(false);}
   }
+
+  useEffect(()=>()=>{secretGeneration.current++;},[]);
 
   async function copySecret(){
     if(!secret)return;
