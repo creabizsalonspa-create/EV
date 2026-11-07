@@ -1,0 +1,55 @@
+/**
+ * Fail-closed, read-only authorization and metering proof for an OCPP session.
+ * Never changes payments or starts/stops hardware.
+ *
+ * Caller MUST enforce the authenticated customer's booking ownership and
+ * approved station-to-charger binding before passing the expected values.
+ */
+const same = (left,right)=> String(left??'') !== '' && String(left)===String(right);
+const wh = v=> Number.isInteger(v) && v>=0 && v<=1e12;
+const fils = v=> Number.isInteger(v) && v>=0 && v<=1e12;
+
+export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash}={}) {
+  if(!source || typeof source!=='object' || !sourceId || !chargerId || !transactionId || !tokenHash)
+    return null;
+  if(!/^[a-f0-9]{64}$/i.test(tokenHash) || !same(source._id,sourceId)
+      || !same(source.chargerId,chargerId) || !same(source.transactionId,transactionId)
+      || !['ocpp1.6','ocpp2.0.1'].includes(source.protocol)
+      || !['active','ended'].includes(source.status)) return null;
+  const field=source.protocol==='ocpp1.6'?'idTagHash':'idTokenHash';
+  if(source[field]!==tokenHash) return null;
+  const start=new Date(source.startedAt);
+  if(!Number.isFinite(start.valueOf())) return null;
+  const ended=source.status==='ended';
+  if(ended && (!source.endedAt || !(new Date(source.endedAt)>=start)))return null;
+  if(source.paymentStatus!=='not_collected')return null;
+  const evidence={
+    sourceVerified:true,
+    meterVerified:false,
+    source:'ocpp',
+    protocol:source.protocol,
+    chargerId:source.chargerId,
+    transactionId:String(source.transactionId),
+    sessionEnded:ended,
+    energyWh:null,
+    energyKwh:null,
+    totalFils:null,
+    billingStatus:source.billingStatus??'unverified',
+    paymentStatus:'not_collected'
+  };
+  if(!wh(source.meterStartWh) || !wh(source.meterLastWh)
+      || source.meterLastWh<source.meterStartWh)return evidence;
+  const delta=source.meterLastWh-source.meterStartWh;
+  if(source.energyWh!==delta || source.energyKwh!==delta/1000)return null;
+  evidence.meterVerified=true;
+  evidence.energyWh=delta;
+  evidence.energyKwh=delta/1000;
+  if(ended && source.billingStatus==='calculated_unpaid'
+      && fils(source.subtotalFils) && fils(source.vatFils) && fils(source.totalFils)
+      && source.totalFils===source.subtotalFils+source.vatFils
+      && source.tariff?.currency==='AED') {
+    evidence.totalFils=source.totalFils;
+    evidence.billingStatus='calculated_unpaid';
+  }
+  return evidence;
+}
