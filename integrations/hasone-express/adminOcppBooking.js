@@ -112,3 +112,57 @@ export async function AdminBindBookingOcppSource(req,res){
   return fail(res,503,'Source binding temporarily unavailable');
  }
 }
+
+
+/**
+ * GET /admin/ocpp/booking-sessions
+ * Bounded, protected operational view; never calls an amount "collected"
+ * without a separate authorized PSP reconciliation.
+ */
+export async function AdminListLinkedBookingOcppSessions(req,res){
+ res.set('Cache-Control','no-store');
+ try{
+  const parsed=Number(req.query?.limit ?? 50);
+  const limit=Number.isInteger(parsed) && parsed>0 ? Math.min(parsed,100) : 50;
+  const links=await ChargingSessionModel.find({sourceType:'ocpp'})
+    .sort({createdAt:-1}).limit(limit).lean();
+  const entries=[];
+  let confirmed=0,calculatedUnpaidFils=0;
+  for(const item of links){
+   if(!mongoose.isValidObjectId(item.sourceSessionId))continue;
+   const booking=await BookingModel.findById(item.bookingId);
+   if(!booking || !booking.isPaid || !booking.hasArrived ||
+      !validHash(booking.ocppTokenHash))continue;
+   const charger=await chargerFor(booking);
+   if(!charger || charger.chargerId!==item.sourceChargerId)continue;
+   const src=await mongoose.connection.db.collection('ocpp_sessions').findOne({
+    _id:new mongoose.Types.ObjectId(item.sourceSessionId),
+    chargerId:charger.chargerId,
+   });
+   const proof=verifyOcppSource(src,{
+    sourceId:item.sourceSessionId,chargerId:charger.chargerId,
+    transactionId:item.sourceTransactionId,tokenHash:booking.ocppTokenHash,
+   });
+   if(!proof?.sourceVerified)continue;
+   if(proof.meterVerified)confirmed++;
+   if(proof.totalFils!==null)calculatedUnpaidFils+=proof.totalFils;
+   entries.push({
+    bookingId:String(booking._id),
+    sourceSessionId:item.sourceSessionId,
+    chargerId:charger.chargerId,protocol:proof.protocol,
+    meterVerified:proof.meterVerified,sessionEnded:proof.sessionEnded,
+    energyKwh:proof.energyKwh,
+    calculatedUnpaidAed:proof.totalFils===null?null:proof.totalFils/100,
+    billingStatus:proof.billingStatus,paymentStatus:'not_collected',
+   });
+  }
+  return res.status(200).json({status:'Success',data:{
+    currency:'AED',billingMode:'calculation_only_no_collection',
+    count:entries.length,meterVerifiedCount:confirmed,
+    totalCalculatedUnpaidAed:calculatedUnpaidFils/100,
+    totalCollectedAed:0,entries,
+  }});
+ }catch{
+  return fail(res,503,'Linked OCPP reporting unavailable');
+ }
+}
