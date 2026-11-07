@@ -156,6 +156,7 @@ const assert = require("node:assert/strict");
     await page.locator(".partner-map-pin").click();
     const partnerPopup = page.locator(".leaflet-popup-content");
     await partnerPopup.getByText(/Partner reported \(unverified\)/).waitFor();
+    await partnerPopup.getByText("Partner source age: 120 min; live status unverified.", { exact: true }).waitFor();
     assert.equal(await partnerPopup.locator("img").count(), 0);
     assert.equal(await partnerPopup.getByRole("button", { name: "Add charging stop" }).count(), 0);
     assert.match(await partnerPopup.locator("a").getAttribute("href"), /destination=25.21%2C55.31/);
