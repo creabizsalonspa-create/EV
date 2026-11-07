@@ -180,6 +180,19 @@ function probePostDeploy(plan,deps={}) {
       env:deps.env||process.env});
   return true;
 }
+function verifyCandidateTag(plan,deps={}) {
+  // OCI labels are self-declared but must remain identical to the reviewed
+  // immutable candidate at the last safe moment before and after Compose up.
+  const candidate=inspectImage(plan.candidate_ref,deps.run||execFileSync);
+  const labels=candidate.Config?.Labels||{};
+  if(candidate.Id!==plan.candidate_id ||
+    labels['org.opencontainers.image.revision']!==plan.source_sha ||
+    labels['org.opencontainers.image.source']!==SOURCE ||
+    labels['com.creabiz.ev.staging.review']!=='true') {
+    throw Error('Staging candidate tag was replaced since release plan');
+  }
+  return true;
+}
 function verifyProtectedServices(plan,deps={}) {
   const run=deps.run||execFileSync;
   const rows=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
@@ -228,12 +241,17 @@ function apply(config,deps={}) {
     const target=outputJournal(config.journal);
     const plan=inspectPlan(config,deps);
     const saved=createJournal(target,plan);
+    // If a local tag was re-pointed after plan inspection, refuse before
+    // touching application containers. Preserve PREPARED-only journal evidence.
+    verifyCandidateTag(plan,deps);
     journal(saved,'RELEASE_STARTED');
     try {
       composeUp(config.tag,deps);
       verifyRunning(plan.candidate_ref,plan.candidate_id,deps);
       verifyProtectedServices(plan,deps);
+      verifyCandidateTag(plan,deps);
       probePostDeploy(plan,deps);
+      verifyCandidateTag(plan,deps);
       journal(saved,'RELEASE_VERIFIED',{service_count:3,private_http_routes_checked:true,production_accepted:false});
       return {ok:true,rollback_verified:false,plan};
     } catch {
@@ -246,6 +264,9 @@ function apply(config,deps={}) {
         verifyRunning(plan.old_ref,plan.old_id,deps);
         verifyProtectedServices(plan,deps);
         probePostDeploy(plan,deps);
+        if(inspectImage(plan.old_ref,deps.run||execFileSync).Id!==plan.old_id) {
+          throw Error('Previous staging image tag changed during rollback');
+        }
         journal(saved,'ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
         return {ok:false,rollback_verified:true,plan};
       } catch {
@@ -278,4 +299,4 @@ function main(args=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)process.exitCode=main();
-module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,probePostDeploy,apply,main};
+module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,verifyCandidateTag,probePostDeploy,apply,main};
