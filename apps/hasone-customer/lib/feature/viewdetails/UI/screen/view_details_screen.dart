@@ -1,3 +1,4 @@
+import 'package:evcharg/core/utils/reservation_date.dart';
 import 'package:evcharg/app/assets.dart';
 import 'package:evcharg/app/resource.dart';
 import 'package:evcharg/app/widget_button.dart';
@@ -69,7 +70,7 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
       // Fetch fresh slots for the selected date
       final stationId = station?.sId ?? '';
       if (stationId.isNotEmpty) {
-        _mapController.fetchSlotsForDate(stationId, _formatDate(picked));
+        _mapController.fetchSlotsForDate(stationId, reservationDay(picked));
       }
     }
   }
@@ -447,7 +448,7 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                             return const Center(child: CircularProgressIndicator());
                           }
                           final slots = _mapController.dateSlots;
-                          if (slots.isNotEmpty)
+                          if (slots.isNotEmpty) {
                             return GridView.builder(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
@@ -514,13 +515,14 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                                 );
                               },
                             );
-                          else
+                          } else {
                             return WText(
                               text: 'No slots available for this date',
                               color: R.color.neutralGray,
                               fontSize: 12.sp,
                               fontWeight: FontWeight.w400,
                             );
+                          }
                         }),
                         SizedBox(height: 20.h),
                       ],
@@ -560,7 +562,7 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                         if (stationId == null || stationId.isEmpty) return;
 
                         final slot = slots[_selectedSlotIndex!];
-                        final dateStr = _formatDate(_selectedDate);
+                        final dateStr = reservationDay(_selectedDate);
 
                         final result = await bookingCtrl.createBooking(
                           stationId: stationId,
@@ -569,11 +571,12 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                           slotEnd: slot.endTime ?? '',
                         );
 
+                        if (!mounted) { return; }
                         if (result != null) {
                           Get.to(() => BookingDetails(bookingData: result));
                         } else {
                           Get.snackbar(
-                              'Error', 'Failed to create booking',
+                              'Booking update', bookingCtrl.bookingError.value,
                               snackPosition: SnackPosition.BOTTOM);
                         }
                       },

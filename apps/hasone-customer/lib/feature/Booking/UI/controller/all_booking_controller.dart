@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../../core/service/api_service/api_service.dart';
+import '../../../../core/service/network/network_client.dart';
 import '../../../../core/service/shared_preferance/shared_prefarance.dart';
 import '../../model/All_booking_model.dart';
 import '../../model/book_navigation_Model.dart' as nav_model;
@@ -18,7 +19,10 @@ import '../../../map/model/station_details_model.dart';
 import '../../../Home/UI/controller/home_controller.dart';
 
 class AllBookingController extends GetxController {
-  final _net = NetworkService().client;
+  final NetworkClient _net;
+  AllBookingController({NetworkClient? client})
+      : _net = client ?? NetworkService().client;
+  final RxString bookingMutationMessage = ''.obs;
   final _prefs = SharedPrefs();
 
   RxList<Data> bookings = <Data>[].obs;
@@ -177,18 +181,39 @@ class AllBookingController extends GetxController {
     }
   }
 
-  /// PUT /api/v1/Bookings/{id}/cancel
-  Future<bool> cancelBooking(String bookingId) async {
-    final res = await _net.putRequest('/api/v1/Bookings/$bookingId/cancel');
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      await fetchBookings();
-      return true;
+  // A write is sent once. Always refresh authority after success, denial or
+  // an uncertain transport outcome; never mark a local booking as cancelled.
+  Future<bool> _changeBooking(String path, {Map<String, dynamic>? body}) async {
+    bookingMutationMessage.value = '';
+    bool accepted = false;
+    try {
+      final response = await _net.putRequest(path, body: body);
+      final data = response.responseData;
+      accepted = response.isSuccess && data is Map && data['status'] == 'Success';
+      if (!accepted) {
+        final message = data is Map ? data['message'] : null;
+        bookingMutationMessage.value = response.statusCode == 400 &&
+                message is String && message.isNotEmpty && message.length <= 500
+            ? message
+            : 'Update outcome unconfirmed. Reload bookings before trying again.';
+      }
+    } catch (_) {
+      bookingMutationMessage.value =
+          'Update outcome unconfirmed. Reload bookings before trying again.';
     }
-    return false;
+    try {
+      await fetchBookings();
+    } catch (_) {
+      // A failed read cannot justify resending a write or changing its receipt.
+    }
+    return accepted;
   }
 
+  /// PUT /api/v1/Bookings/{id}/cancel
+  Future<bool> cancelBooking(String bookingId) =>
+      _changeBooking('/api/v1/Bookings/$bookingId/cancel');
+
   /// PUT /api/v1/Bookings/{id}/reschedule
-  /// body: { date, time, slotStart, slotEnd }
   Future<bool> rescheduleBooking({
     required String bookingId,
     required String date,
@@ -197,22 +222,14 @@ class AllBookingController extends GetxController {
     required String slotEnd,
   }) async {
     rescheduleLoading.value = true;
-    final res = await _net.putRequest(
-      '/api/v1/Bookings/$bookingId/reschedule',
-      body: {
-        'date': date,
-        'time': time,
-        'slotStart': slotStart,
-        'slotEnd': slotEnd,
-      },
-    );
-    rescheduleLoading.value = false;
-
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      await fetchBookings();
-      return true;
+    try {
+      return await _changeBooking(
+        '/api/v1/Bookings/$bookingId/reschedule',
+        body: {'date': date, 'time': time, 'slotStart': slotStart, 'slotEnd': slotEnd},
+      );
+    } finally {
+      rescheduleLoading.value = false;
     }
-    return false;
   }
 
   // ══════════════════════════════════════════════════════════════════════════════

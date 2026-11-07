@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:evcharg/app/assets.dart';
+import 'package:evcharg/core/service/session/session.dart';
 import 'package:evcharg/app/resource.dart';
 import 'package:evcharg/app/widget_button.dart';
 import 'package:evcharg/app/wtext.dart';
@@ -18,6 +19,8 @@ class ChargingScreen extends StatefulWidget {
   final int initialBatteryPercent;
   final int initialTimeRemainingMs;
   final String chargingDuration;
+  final Duration statusReadTimeout;
+  final String? Function()? accountIdentity;
 
   const ChargingScreen({
     super.key,
@@ -26,6 +29,8 @@ class ChargingScreen extends StatefulWidget {
     this.initialBatteryPercent = 0,
     this.initialTimeRemainingMs = 0,
     this.chargingDuration = '',
+    this.statusReadTimeout = const Duration(seconds: 15),
+    this.accountIdentity,
   });
 
   @override
@@ -40,17 +45,48 @@ class _ChargingScreenState extends State<ChargingScreen>
   int? _batteryPercent;
   String _timeRemaining = 'Unavailable';
   double? _kwhUsed;
+  String? _costText;
+  String _meterNote = 'Meter receipt time unavailable';
   String _chargingStatus = 'Source status unverified';
   bool _canStop = false;
   bool _canExtend = false;
   bool _fetching = false;
   bool _foreground = true;
-  int _generation = 0;
+  int _generation = 0, _request = 0;
+  late final String? _owner;
+  String _readState = 'loading';
+  String? get _identity =>
+      (widget.accountIdentity ?? (() => Session.accessToken))();
+  bool get _sameOwner => _owner == _identity;
+  String _t(String en, String ar) =>
+      Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
+
+  String get _recoveryNote => switch (_readState) {
+    'loading' => _t('Checking source status…', 'جارٍ التحقق من حالة المصدر…'),
+    'unavailable' => _t(
+      'Status could not be read. Charging may still be active. Retry only checks status.',
+      'تعذر قراءة الحالة. قد يستمر الشحن. إعادة المحاولة تتحقق من الحالة فقط.',
+    ),
+    'unverified' => _t(
+      'No verified source status is available. Ask the operator to review this session.',
+      'لا تتوفر حالة مصدر متحققة. اطلب من المشغل مراجعة الجلسة.',
+    ),
+    'account_changed' => _t(
+      'Sign-in changed. Reopen this session from your bookings.',
+      'تغير تسجيل الدخول. أعد فتح الجلسة من حجوزاتك.',
+    ),
+    _ => _t(
+      'Status at last check. Refresh does not send a charger command.',
+      'الحالة عند آخر تحقق. التحديث لا يرسل أمراً إلى الشاحن.',
+    ),
+  };
 
   void _clearTelemetry() {
     _batteryPercent = null;
     _timeRemaining = 'Unavailable';
     _kwhUsed = null;
+    _costText = null;
+    _meterNote = 'Meter receipt time unavailable';
     _chargingStatus = 'Source status unverified';
     _canStop = false;
     _canExtend = false;
@@ -59,6 +95,7 @@ class _ChargingScreenState extends State<ChargingScreen>
   @override
   void initState() {
     super.initState();
+    _owner = _identity;
     _controller = Get.isRegistered<AllBookingController>()
         ? Get.find<AllBookingController>()
         : Get.put(AllBookingController());
@@ -79,31 +116,106 @@ class _ChargingScreenState extends State<ChargingScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _generation++;
+    _request++;
+    _fetching = false;
     _foreground = state == AppLifecycleState.resumed;
     _pollTimer?.cancel();
-    if (mounted) setState(_clearTelemetry);
+    if (mounted) {
+      setState(() {
+        _clearTelemetry();
+        _readState = 'loading';
+      });
+    }
     if (_foreground) _startPolling();
   }
 
   Future<void> _fetchStatus() async {
-    if (_fetching || !_foreground || widget.sessionId.isEmpty) return;
-    _fetching = true;
-    final generation = _generation;
-    try {
-      final result = await _controller.fetchChargingStatus(widget.sessionId);
-      if (!mounted || !_foreground || generation != _generation) return;
+    if (_fetching || !_foreground || widget.sessionId.isEmpty) {
+      return;
+    }
+    if (!_sameOwner) {
+      _pollTimer?.cancel();
       setState(() {
         _clearTelemetry();
-        if (result?.hasSourceProof == true) {
-          _batteryPercent = result!.batteryPercent;
+        _readState = 'account_changed';
+      });
+      return;
+    }
+    _fetching = true;
+    final request = ++_request;
+    setState(() {
+      _readState = 'loading';
+    });
+    final generation = _generation;
+    try {
+      final result = await _controller
+          .fetchChargingStatus(widget.sessionId)
+          .timeout(widget.statusReadTimeout);
+      if (!mounted ||
+          !_foreground ||
+          generation != _generation ||
+          request != _request) {
+        return;
+      }
+      setState(() {
+        _clearTelemetry();
+        _readState = !_sameOwner
+            ? 'account_changed'
+            : result == null
+            ? 'unavailable'
+            : 'unverified';
+        if (_sameOwner &&
+            result?.hasSourceProof == true &&
+            result!.sessionId == widget.sessionId &&
+            result.bookingId == widget.bookingId) {
+          _readState = 'ready';
+          _batteryPercent = result.batteryPercent;
           _kwhUsed = result.hasVerifiedMeter ? result.kwhUsed : null;
           _chargingStatus = result.chargingStatus ?? 'Source status unverified';
+          final cost = result.provisionalCostFils ?? result.finalCostFils;
+          if (cost != null) {
+            final amount =
+                '${cost ~/ 100}.${(cost % 100).toString().padLeft(2, '0')}';
+            _costText =
+                '${result.provisionalCostFils == null ? 'Final calculated amount' : 'Calculated so far'}: AED $amount (not collected)';
+          }
+          if (result.meterReceiptAgeSeconds != null) {
+            _meterNote = result.meterFreshness == 'stale'
+                ? 'Meter reading stale at last check (${result.meterReceiptAgeSeconds}s)'
+                : 'At last check: meter received ${result.meterReceiptAgeSeconds}s ago';
+          }
         }
       });
     } catch (_) {
-      if (mounted && generation == _generation) setState(_clearTelemetry);
+      if (mounted &&
+          _foreground &&
+          generation == _generation &&
+          request == _request) {
+        setState(() {
+          _clearTelemetry();
+          _readState = _sameOwner ? 'unavailable' : 'account_changed';
+        });
+      }
     } finally {
+      if (mounted && generation == _generation && request == _request) {
+        setState(() {
+          _fetching = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ChargingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sessionId != widget.sessionId ||
+        oldWidget.bookingId != widget.bookingId) {
+      _generation++;
+      _request++;
       _fetching = false;
+      _clearTelemetry();
+      _readState = 'loading';
+      if (_foreground) _startPolling();
     }
   }
 
@@ -289,7 +401,7 @@ class _ChargingScreenState extends State<ChargingScreen>
                           selectedMins,
                         );
 
-                        if (!mounted) return;
+                        if (!mounted || !ctx.mounted) return;
                         setSheet(() => isLoading = false);
                         Navigator.pop(ctx);
 
@@ -422,7 +534,7 @@ class _ChargingScreenState extends State<ChargingScreen>
                             widget.sessionId,
                           );
 
-                          if (!mounted) return;
+                          if (!mounted || !ctx.mounted) return;
                           setSheet(() => isLoading = false);
                           Navigator.pop(ctx);
 
@@ -588,6 +700,14 @@ class _ChargingScreenState extends State<ChargingScreen>
                             ],
                           ),
                           SizedBox(height: 10.h),
+                          Text(_recoveryNote, textAlign: TextAlign.center),
+                          TextButton.icon(
+                            onPressed: _fetching || !_foreground || !_sameOwner
+                                ? null
+                                : _fetchStatus,
+                            icon: const Icon(Icons.refresh),
+                            label: Text(_t('Refresh status', 'تحديث الحالة')),
+                          ),
                           WText(
                             text: _batteryPercent == null
                                 ? 'Unavailable'
@@ -622,6 +742,20 @@ class _ChargingScreenState extends State<ChargingScreen>
                               text: 'Energy Used:  $_kwhUsed kWh',
                               color: R.color.neutralGray,
                               fontSize: 13.sp,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            SizedBox(height: 8.h),
+                            WText(
+                              text: _costText ?? 'Calculated cost unavailable',
+                              color: R.color.neutralGray,
+                              fontSize: 13.sp,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            SizedBox(height: 8.h),
+                            WText(
+                              text: _meterNote,
+                              color: R.color.neutralGray,
+                              fontSize: 12.sp,
                               fontWeight: FontWeight.w400,
                             ),
                           ],
