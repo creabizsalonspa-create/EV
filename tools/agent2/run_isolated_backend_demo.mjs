@@ -50,6 +50,7 @@ try{
  const app=(await import(pathToFileURL(join(source,'src/app.js')).href)).default;
  const {default:UserModel}=await import(pathToFileURL(join(source,'src/models/UserModel.js')).href);
  const {default:BookingModel}=await import(pathToFileURL(join(source,'src/models/BookingModel.js')).href);
+ await BookingModel.init(); // Explicitly wait for the atomic station-slot index.
  const {default:AppSettingsModel}=await import(pathToFileURL(join(source,'src/models/AppSettingsModel.js')).href);
  const {default:PaymentCardModel}=await import(pathToFileURL(join(source,'src/models/PaymentCardModel.js')).href);
  const {EncodeToken}=await import(pathToFileURL(join(source,'src/utils/tokenHelper.js')).href);
@@ -122,6 +123,24 @@ try{
   const x=await request('POST','/api/v1/Bookings',{stationId:String(station._id),
     date:'2026-11-08',slotStart:'12:00 PM',slotEnd:'01:00 PM',connectorType:'CCS'},true);
   assert.equal(x.code,400);
+ });
+ await check('simultaneous booking requests cannot double-book an occupied slot',async()=>{
+  const body={stationId:String(station._id),date:'2026-11-09',slotStart:'12:00 PM',
+    slotEnd:'01:00 PM',connectorType:'CCS'};
+  const tries=await Promise.all(Array.from({length:10},()=>request('POST','/api/v1/Bookings',body,true)));
+  assert.equal(tries.filter(x=>x.code===200).length,1);
+  assert.equal(tries.filter(x=>x.code===400).length,9);
+  assert.equal(await BookingModel.countDocuments({stationId:station._id,date:body.date,
+    slotStart:body.slotStart,slotEnd:body.slotEnd,status:'Upcoming'}),1);
+ });
+ await check('cancelled booking releases the date/slot atomically',async()=>{
+  const old=await BookingModel.findOne({stationId:station._id,date:'2026-11-09',status:'Upcoming'});
+  assert.ok(old);
+  const cancelled=await request('PUT','/api/v1/Bookings/'+old._id+'/cancel',{},true);
+  assert.equal(cancelled.code,200);
+  const res=await request('POST','/api/v1/Bookings',{stationId:String(station._id),date:'2026-11-09',
+    slotStart:'12:00 PM',slotEnd:'01:00 PM',connectorType:'CCS'},true);
+  assert.equal(res.code,200);
  });
  await check('authenticated booking payment options hide card vault',async()=>{
   const r=await request('GET','/api/v1/Bookings/'+booking._id+'/payment',undefined,true);
