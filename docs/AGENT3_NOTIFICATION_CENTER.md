@@ -227,3 +227,7 @@ The bounded local worker now reconciles previously escalated alerts with their o
 ### Escalation closure privacy after Admin revocation
 
 The account-scoped inbox visibility filter now excludes **both** the original on-call Admin escalation and its subsequent closure notification whenever the recipient no longer holds the authoritative `admin` role in the database. A cached authenticated session cannot fetch either notification, affect read/unread receipts, inflate summary counts or mark them through in bulk after demotion. Restoring the Admin role restores access to the same durable historical notices. This does not delete audit evidence or alter physical hardware/payment state.
+
+### Query-time Admin revocation under concurrent role changes
+
+The inbox scope now evaluates current Admin authorization via an `EXISTS` predicate **inside the same SQL read/update** for both the initial cross-company escalation and its closure. It no longer performs an earlier standalone role lookup that could become stale between query construction and execution. Tests prepare the query before revocation, demote the account in the authoritative database, then require both a read and a write to be denied before restoring the role. Normal account-scoped notifications remain available. This is an application-level privacy guard, not hardware or payment acceptance.

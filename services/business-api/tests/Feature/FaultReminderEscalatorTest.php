@@ -310,7 +310,13 @@ class FaultReminderEscalatorTest extends TestCase
             ->assertOk()->assertJsonPath('total', 2);
         // The authenticated actor is still the old cached Admin session;
         // account role revocation is only reflected in the authoritative DB.
+        $preparedRead = InboxNotification::visibleTo($admin)->whereKey($closedId);
+        $preparedWrite = InboxNotification::visibleTo($admin)->whereKey($closedId);
         DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        // Building an authorized query BEFORE revocation is not authority
+        // to execute it afterward, including a previously prepared mutation.
+        $this->assertFalse($preparedRead->exists());
+        $this->assertSame(0, $preparedWrite->update(['read_at' => now()]));
         foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
             $this->getJson($prefix.'?category=charging')
                 ->assertOk()->assertJsonPath('total', 0);
@@ -328,6 +334,7 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertNull(InboxNotification::findOrFail($openId)->read_at);
         $this->assertNull(InboxNotification::findOrFail($closedId)->read_at);
         DB::table('users')->where('id', $admin->id)->update(['role' => 'admin']);
+        $this->assertTrue($preparedRead->exists());
         $this->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 2);
         $this->postJson('/api/notifications/'.$closedId.'/read')->assertOk();

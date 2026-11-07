@@ -21,17 +21,20 @@ class InboxNotification extends Model
      */
     public function scopeVisibleTo(Builder $query, User $actor): Builder
     {
-        // Request guards can retain an authenticated User instance after an
-        // operator is demoted. Consult the authoritative role on each inbox
-        // operation rather than trusting a stale session object.
-        $currentlyAdmin = User::query()->whereKey($actor->id)
-            ->where('role', 'admin')->exists();
-
+        // A stale authenticated User can retain the former Admin role.
+        // Perform the authoritative role check in the SAME database
+        // statement as inbox reads/updates, not a separate preflight query:
+        // a role revoked after building this query must never grant access.
         return $query->where('user_id', $actor->id)
-            ->when(! $currentlyAdmin,
-                fn (Builder $q) => $q->whereNotIn('kind', [
+            ->where(function (Builder $visible): void {
+                $visible->whereNotIn('kind', [
                     'charging.fault.escalated.simulated',
                     'charging.fault.escalation_closed.simulated',
-                ]));
+                ])->orWhereExists(function ($active) {
+                    $active->selectRaw('1')->from('users as active_admin')
+                        ->whereColumn('active_admin.id', 'inbox_notifications.user_id')
+                        ->where('active_admin.role', 'admin');
+                });
+            });
     }
 }
