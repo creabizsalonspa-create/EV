@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorKycDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -79,6 +80,18 @@ class RoleTransitionSecurityTest extends TestCase
             'trade_license_number' => 'TEST-LICENSE',
             'license_expires_on' => now()->addYear()->toDateString(),
             'status' => 'submitted',
+        ]);
+
+        // The production approval path requires an uploaded trade-license
+        // record. Create synthetic metadata only; no private file is needed.
+        VendorKycDocument::create([
+            'company_id' => $company->id,
+            'uploaded_by' => $owner->id,
+            'kind' => 'trade_license',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => 1024,
+            'sha256' => str_repeat('a', 64),
+            'storage_path' => 'synthetic-kyc-evidence.enc',
         ]);
 
         $this->actingAs($admin)
