@@ -14,6 +14,11 @@ val releaseSigningComplete = listOf(
     releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
 ).all { !it.isNullOrBlank() }
 val mapsApiKey = providers.gradleProperty("MAPS_API_KEY").orNull
+// The current .dev identity is for demos only. An authorized release builder
+// must deliberately provide the approved, final store application ID.
+val approvedApplicationId =
+    providers.gradleProperty("HASONE_ANDROID_APPLICATION_ID").orNull?.trim()
+val defaultApplicationId = "com.creabiz.hasone.customer.dev"
 
 android {
 
@@ -42,7 +47,8 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.creabiz.hasone.customer.dev"
+        applicationId = approvedApplicationId?.takeIf { it.isNotBlank() }
+            ?: defaultApplicationId
         manifestPlaceholders["mapsApiKey"] = mapsApiKey ?: ""
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -84,6 +90,24 @@ val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
     }
 }
 
+val verifyReleaseApplicationId = tasks.register("verifyReleaseApplicationId") {
+    group = "verification"
+    description = "Require a deliberately approved production Android application ID."
+    doLast {
+        val identifier = approvedApplicationId
+        val validIdentifier = identifier != null &&
+            Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*){2,}$")
+                .matches(identifier) &&
+            !identifier.endsWith(".dev", ignoreCase = true)
+        if (!validIdentifier) {
+            throw GradleException(
+                "HASONE release requires an explicitly approved " +
+                    "HASONE_ANDROID_APPLICATION_ID distinct from the .dev demo ID."
+            )
+        }
+    }
+}
+
 val verifyReleaseMapsApiKey = tasks.register("verifyReleaseMapsApiKey") {
     group = "verification"
     description = "Require an approved Google Maps Android API key for distribution."
@@ -102,7 +126,7 @@ val verifyReleaseMapsApiKey = tasks.register("verifyReleaseMapsApiKey") {
 tasks.matching {
     it.name in setOf("assembleRelease", "bundleRelease", "packageRelease")
 }.configureEach {
-    dependsOn(verifyReleaseSigning, verifyReleaseMapsApiKey)
+    dependsOn(verifyReleaseSigning, verifyReleaseMapsApiKey, verifyReleaseApplicationId)
 }
 
 flutter {
