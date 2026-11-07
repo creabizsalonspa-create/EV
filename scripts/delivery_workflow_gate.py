@@ -100,6 +100,8 @@ def verify_workflow(run, artifact_listing, source_sha, run_id, android_file, ios
         'ios_digest': selected[ARTIFACTS['ios']]['digest'][7:],
         'run_id': run_id,
         'source_sha': source_sha,
+        'android_artifact_id': selected[ARTIFACTS['android']]['id'],
+        'ios_artifact_id': selected[ARTIFACTS['ios']]['id'],
     }
 
 
@@ -107,9 +109,22 @@ def package_from_workflow(output, source_sha, run_id, run_file, artifacts_file, 
     run = read_snapshot(run_file)
     listing = read_snapshot(artifacts_file)
     proven = verify_workflow(run, listing, source_sha, run_id, android_file, ios_file)
+    workflow_evidence = {
+        'provider': 'github_actions',
+        'repository': REPOSITORY,
+        'workflow_name': WORKFLOW,
+        'run_id': run_id,
+        'head_sha': source_sha,
+        'android': {'artifact_id': proven['android_artifact_id'],
+                    'wrapper_sha256': proven['android_digest']},
+        'ios': {'artifact_id': proven['ios_artifact_id'],
+                'wrapper_sha256': proven['ios_digest']},
+        # Offline metadata is not cryptographically authenticated by this importer.
+        'snapshot_authenticated': False,
+    }
     return import_actions(
         output, proven['source_sha'], android_file, proven['android_digest'],
-        ios_file, proven['ios_digest'],
+        ios_file, proven['ios_digest'], workflow_evidence=workflow_evidence,
     )
 
 
