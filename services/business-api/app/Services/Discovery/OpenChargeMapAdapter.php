@@ -19,12 +19,15 @@ final class OpenChargeMapAdapter
      */
     public function __construct(private readonly ?Closure $fixtureTransport = null) {}
 
-    public function search(float $latitude, float $longitude, float $radiusKm, string $key, ?string $country = null): array
+    public function search(float $latitude, float $longitude, float $radiusKm, string $key, ?string $country = null, ?float $minPowerKw = null, ?string $connector = null): array
     {
         if (! is_finite($latitude) || ! is_finite($longitude) || ! is_finite($radiusKm)
             || abs($latitude) > 90 || abs($longitude) > 180
             || $radiusKm < 1 || $radiusKm > 200 || trim($key) === ''
-            || ($country !== null && preg_match('/^[A-Z]{2}$/D', $country) !== 1)) {
+            || ($country !== null && preg_match('/^[A-Z]{2}$/D', $country) !== 1)
+            || ($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
+            || ($connector !== null && (strlen($connector) < 1 || strlen($connector) > 80
+                || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))) {
             throw new LookupFailure('invalid_request', 422);
         }
 
@@ -58,6 +61,23 @@ final class OpenChargeMapAdapter
             if ($item === null || isset($data[$item['id']])
                 || ($country !== null && $item['country'] !== $country)) {
                 continue;
+            }
+            // These filters apply to the bounded 25 returned provider records.
+            // All metadata is historic/partner-reported, never live capability.
+            // Both predicates must match the SAME reported connection.
+            if ($minPowerKw !== null || $connector !== null) {
+                $matched = false;
+                foreach ($item['connections'] as $connection) {
+                    $power = $connection['reported_power_kw'];
+                    if (($minPowerKw === null || ($power !== null && $power >= $minPowerKw))
+                        && ($connector === null || strcasecmp($connection['reported_connector_type'], $connector) === 0)) {
+                        $matched = true;
+                        break;
+                    }
+                }
+                if (! $matched) {
+                    continue;
+                }
             }
             $distance = self::distance($latitude, $longitude, $item['latitude'], $item['longitude']);
             if ($distance > $radiusKm + 0.0001) {

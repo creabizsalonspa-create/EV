@@ -21,6 +21,10 @@ $transport = function(array $params) use (&$captured,$poi) {
 };
 $result=(new OpenChargeMapAdapter($transport))->search(25.2,55.3,3,'synthetic-secret');
 verify($result['count']===2,'dedupe and radius filter');
+$powerMatch=(new OpenChargeMapAdapter(fn()=>[$poi]))->search(25.2,55.3,5,'synthetic-secret',null,20,'TYPE 2');
+verify($powerMatch['count']===1,'min power and connector same record');
+$powerMiss=(new OpenChargeMapAdapter(fn()=>[$poi]))->search(25.2,55.3,5,'synthetic-secret',null,50,'TYPE 2');
+verify($powerMiss['count']===0,'low-power connector excluded');
 verify($result['results'][0]['id']==='ocm:11','sort by distance');
 verify($result['results'][1]['id']==='ocm:12','second source');
 verify($captured['opendata']==='true' && $captured['distanceunit']==='km' && $captured['maxresults']===25,'bounded OCM request');

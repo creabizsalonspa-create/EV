@@ -41,6 +41,21 @@
     country.oninput = () => { country.value = country.value.toUpperCase().replace(/[^A-Z]/g, ''); };
     countryRow.append(text('span', 'Country ISO2 (optional)', 'رمز الدولة من حرفين (اختياري)'), country);
     form.append(countryRow);
+    const powerRow = document.createElement('label');
+    const minimumPower = document.createElement('input');
+    minimumPower.name = 'ocm_min_reported_power_kw';
+    minimumPower.type = 'number';
+    minimumPower.min = '1';
+    minimumPower.max = '1000';
+    minimumPower.step = 'any';
+    powerRow.append(text('span', 'Minimum reported connector power, kW (optional)', 'القدرة الدنيا المبلغ عنها للموصل، كيلوواط (اختياري)'), minimumPower);
+    const connectorRow = document.createElement('label');
+    const connector = document.createElement('input');
+    connector.name = 'ocm_reported_connector';
+    connector.type = 'text';
+    connector.maxLength = 80;
+    connectorRow.append(text('span', 'Reported connector type (optional, exact)', 'نوع الموصل المبلغ عنه (اختياري، تطابق تام)'), connector);
+    form.append(powerRow, connectorRow);
     const consent = document.createElement('input');
     consent.type = 'checkbox';
     consent.required = true;
@@ -150,8 +165,8 @@
                     'التوفر غير معروف. لا شحن أو حجز أو دفع عن بُعد.'), link);
             results.append(card);
         }
-        announce('Up to 25 licensed discovery-only results. Other sites may be missing; none is verified live.',
-            'حتى 25 نتيجة مرخصة للاكتشاف فقط؛ قد تكون مواقع أخرى مفقودة؛ لا يوجد توفر مباشر مؤكد.');
+        announce('Filtered from at most 25 licensed crowd reports; more matching sites may exist. No live status verified.',
+            'نتائج مرشحة من 25 تقريراً مجتمعياً مرخصاً كحد أقصى؛ قد توجد مواقع مطابقة أخرى. لم يتم التحقق من التوفر المباشر.');
         // Publish markers only after the entire vetted list renders.
         window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: data.results }));
     }
@@ -166,6 +181,8 @@
         consent.checked = false;
         lat.value = lng.value = '';
         country.value = '';
+        minimumPower.value = '';
+        connector.value = '';
         radius.value = '25';
         announce('', '');
     };
@@ -175,6 +192,8 @@
         const latitude = Number(lat.value), longitude = Number(lng.value), km = Number(radius.value);
         if (![latitude, longitude, km].every(Number.isFinite) ||
             Math.abs(latitude) > 90 || Math.abs(longitude) > 180 || km < 1 || km > 200) return;
+        const minPower = minimumPower.value.trim() ? Number(minimumPower.value) : null;
+        if (minPower !== null && (!Number.isFinite(minPower) || minPower < 1 || minPower > 1000)) return;
         const epoch = ++generation;
         current?.abort();
         current = new AbortController();
@@ -189,7 +208,9 @@
                 headers: { Accept: 'application/json', 'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '' },
                 body: JSON.stringify({consent:true,latitude,longitude,radius_km:km,
-                    ...(country.value.trim() ? {country:country.value.trim()} : {})}),
+                    ...(country.value.trim() ? {country:country.value.trim()} : {}),
+                    ...(minPower !== null ? {min_reported_power_kw:minPower} : {}),
+                    ...(connector.value.trim() ? {reported_connector:connector.value.trim()} : {})}),
                 signal: AbortSignal.any([current.signal, AbortSignal.timeout(15000)]),
             });
             if (epoch !== generation) return;

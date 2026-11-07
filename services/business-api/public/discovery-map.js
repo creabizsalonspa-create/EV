@@ -348,13 +348,22 @@
         typeof r.attribution === "string" && r.attribution.trim() &&
         r.source_url === "https://openchargemap.org/site/poi/details/" + r.id.slice(4) &&
         valid(r);
+    // Mercator cannot project polar coordinates accurately; preserve such
+    // records in the list without inventing a mapped location.
+    const ocmPlottable = r => ocmSafe(r) && Math.abs(+r.latitude) <= 85.05112878;
+    const ocmFreshness = group => group.some(row =>
+        row.source_clock_evidence !== "CROWD_REPORTED_TIME" ||
+        !Number.isSafeInteger(row.source_age_minutes) || row.source_age_minutes < 0)
+        ? "ocm-pin-uncertain"
+        : group.some(row => row.source_age_minutes >= 1440)
+            ? "ocm-pin-stale" : "ocm-pin-reported";
     function renderOcm() {
         if (!map || !ocmMarkers) return;
         ocmMarkers.clearLayers();
         ocmLayerLabel.hidden = ocmRows.length === 0;
         if (!showOcmLayer.checked) return;
         const buckets = new Map();
-        for (const row of ocmRows.filter(ocmSafe)) {
+        for (const row of ocmRows.filter(ocmPlottable)) {
             const p = map.latLngToContainerPoint([+row.latitude, +row.longitude]);
             const key = `${Math.floor(p.x / 48)}:${Math.floor(p.y / 48)}`;
             if (!buckets.has(key)) buckets.set(key, []);
@@ -362,6 +371,7 @@
         }
         for (const group of buckets.values()) {
             const first = group[0];
+            const freshness = ocmFreshness(group);
             const popup = document.createElement("div");
             for (const row of group) {
                 const name = document.createElement("strong");
@@ -370,6 +380,18 @@
                     "p",
                     "Open Charge Map crowd report (licensed source). Live availability unverified; no booking, charging or payment.",
                     "تقرير مجتمعي من خريطة الشحن المفتوحة (مصدر مرخص). التوفر المباشر غير مؤكد؛ لا حجز أو شحن أو دفع.",
+                );
+                const sourceAge = make("p",
+                    row.source_clock_evidence === "SOURCE_CLOCK_AHEAD"
+                        ? "Crowd source clock is in the future; freshness unknown."
+                        : Number.isSafeInteger(row.source_age_minutes) && row.source_age_minutes >= 0
+                            ? "Crowd source age: " + row.source_age_minutes + " min; not live."
+                            : "Crowd source update time unknown; not live.",
+                    row.source_clock_evidence === "SOURCE_CLOCK_AHEAD"
+                        ? "طابع وقت المصدر المجتمعي في المستقبل؛ حداثة البيانات غير معروفة."
+                        : Number.isSafeInteger(row.source_age_minutes) && row.source_age_minutes >= 0
+                            ? "عمر التقرير المجتمعي: " + row.source_age_minutes + " دقيقة؛ ليست مباشرة."
+                            : "وقت تحديث المصدر المجتمعي غير معروف؛ ليست حالة مباشرة.",
                 );
                 const reported = make(
                     "p",
@@ -411,16 +433,17 @@
                 source.href = row.source_url;
                 source.target = "_blank";
                 source.rel = "noopener noreferrer";
-                popup.append(name, evidence, reported, access, attribution, jump, source);
+                popup.append(name, evidence, sourceAge, reported, access, attribution, jump, source);
             }
             L.marker([+first.latitude, +first.longitude], {
-                title: text(
-                    "Open Charge Map — unverified discovery",
-                    "خريطة الشحن المفتوحة — اكتشاف غير مؤكد",
-                ),
+                title: freshness === "ocm-pin-uncertain"
+                    ? text("Open Charge Map — source time unknown", "خريطة الشحن المفتوحة — وقت المصدر غير معروف")
+                    : freshness === "ocm-pin-stale"
+                        ? text("Open Charge Map — old crowd report", "خريطة الشحن المفتوحة — تقرير مجتمعي قديم")
+                        : text("Open Charge Map — unverified discovery", "خريطة الشحن المفتوحة — اكتشاف غير مؤكد"),
                 zIndexOffset: -900,
                 icon: L.divIcon({
-                    className: "station-map-pin ocm-map-pin",
+                    className: "station-map-pin ocm-map-pin " + freshness,
                     html: `O${group.length}`,
                     iconSize: [36, 36],
                 }),
@@ -520,7 +543,7 @@
             ? partnerRows.filter(partnerSafe).map((r) => [+r.location.latitude, +r.location.longitude])
             : []),
         ...(showOcmLayer.checked
-            ? ocmRows.filter(ocmSafe).map((r) => [+r.latitude, +r.longitude])
+            ? ocmRows.filter(ocmPlottable).map((r) => [+r.latitude, +r.longitude])
             : []),
     ];
     showPartnerLayer.onchange = () => {

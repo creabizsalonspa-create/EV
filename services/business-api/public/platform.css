@@ -754,6 +754,8 @@ form label {
 .station-map-pin {background:#087f75;color:white;border:2px solid white;border-radius:50%;display:grid;place-items:center;font-weight:700;box-shadow:0 2px 8px #0006}
 .partner-map-pin {background:#653b97;border-style:dashed;} /* Unverified partner source, visually distinct from canonical stations */
 .ocm-map-pin {background:#896621;border-style:double;color:#fff;} /* Licensed Open Charge Map data is discovery-only, not an actionable station */
+.ocm-map-pin.ocm-pin-stale {background:#5b5960;border-style:dotted;} /* Crowd report >=24h old, not live */
+.ocm-map-pin.ocm-pin-uncertain {background:#76542d;border-style:dashed;} /* Missing/future-dated source time */
 .partner-map-pin.partner-pin-stale {background:#62636a;border-style:dotted;} /* Partner update >=24h old; still unverified */
 .partner-map-pin.partner-pin-uncertain {background:#785422;border-style:double;} /* Missing/future source time; never implies available */
 #station-map .leaflet-popup-content {color:#17242b;max-height:260px;overflow:auto}

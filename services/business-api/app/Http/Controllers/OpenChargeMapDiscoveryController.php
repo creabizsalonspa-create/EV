@@ -37,6 +37,8 @@ final class OpenChargeMapDiscoveryController extends Controller
             'longitude' => 'required|numeric|between:-180,180',
             'radius_km' => 'required|numeric|between:1,200',
             'country' => 'nullable|string|regex:/^[A-Z]{2}$/',
+            'min_reported_power_kw' => 'nullable|numeric|between:1,1000',
+            'reported_connector' => 'nullable|string|min:1|max:80',
         ]);
 
         if (! self::configured()) {
@@ -52,7 +54,9 @@ final class OpenChargeMapDiscoveryController extends Controller
         // provider requests under its published fair-usage requirements.
         $cacheIdentity = hash('sha256', json_encode([
             (float) $input['latitude'], (float) $input['longitude'],
-            (float) $input['radius_km'], $input['country'] ?? null, hash('sha256', $key),
+            (float) $input['radius_km'], $input['country'] ?? null,
+            isset($input['min_reported_power_kw']) ? (float) $input['min_reported_power_kw'] : null,
+            $input['reported_connector'] ?? null, hash('sha256', $key),
         ], JSON_THROW_ON_ERROR));
 
         try {
@@ -62,6 +66,8 @@ final class OpenChargeMapDiscoveryController extends Controller
                 (float) $input['radius_km'],
                 $key,
                 $input['country'] ?? null,
+                isset($input['min_reported_power_kw']) ? (float) $input['min_reported_power_kw'] : null,
+                $input['reported_connector'] ?? null,
             ));
 
             return self::privateResponse($result);

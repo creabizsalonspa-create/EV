@@ -125,6 +125,8 @@ const reply = {
       await root.locator('[name="ocm_latitude"]').fill("25.2");
       await root.locator('[name="ocm_longitude"]').fill("55.3");
       await root.locator('[name="ocm_radius_km"]').fill("10");
+      await root.locator('[name="ocm_min_reported_power_kw"]').fill("20");
+      await root.locator('[name="ocm_reported_connector"]').fill("Type 2");
       await root.locator('[name="ocm_country"]').fill("ae");
       assert.equal(await root.locator('[name="ocm_country"]').inputValue(), "AE");
       assert.equal(searchRequests.length, 0, "Filling coordinates must not start a partner request");
@@ -156,6 +158,8 @@ const reply = {
         longitude: 55.3,
         radius_km: 10,
         country: "AE",
+        min_reported_power_kw: 20,
+        reported_connector: "Type 2",
       });
       assert.equal(await root.locator('input[type="checkbox"]').isChecked(), false);
       if (mode === "enabled") {
@@ -198,6 +202,30 @@ const reply = {
         assert.equal(await page.locator(".ocm-map-pin").count(), 1);
         assert.equal(searchRequests.length, noSearchOnToggle,
           "OCM source layer toggle must not request new coordinates or external data");
+        const beforeEvidence = searchRequests.length;
+        await page.evaluate(record => window.dispatchEvent(new CustomEvent("open-charge-map-data", {
+          detail: [{ ...record, source_age_minutes: 2000, source_clock_evidence: "CROWD_REPORTED_TIME" }],
+        })), point);
+        await page.locator(".ocm-map-pin.ocm-pin-stale").waitFor();
+        assert.equal(await page.locator(".ocm-map-pin").getAttribute("title"), "Open Charge Map — old crowd report");
+        await page.locator(".ocm-map-pin").click();
+        await page.locator(".leaflet-popup-content")
+          .getByText("Crowd source age: 2000 min; not live.", { exact: true }).waitFor();
+        await page.evaluate(record => window.dispatchEvent(new CustomEvent("open-charge-map-data", {
+          detail: [{ ...record, source_age_minutes: null, source_clock_evidence: "SOURCE_CLOCK_AHEAD" }],
+        })), point);
+        await page.locator(".ocm-map-pin.ocm-pin-uncertain").waitFor();
+        assert.equal(await page.locator(".ocm-map-pin").getAttribute("title"), "Open Charge Map — source time unknown");
+        await page.evaluate(record => window.dispatchEvent(new CustomEvent("open-charge-map-data", {
+          detail: [{ ...record, latitude: 89.99 }],
+        })), point);
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0,
+          "Polar crowd sources must remain list-only outside Mercator projection");
+        await page.evaluate(record => window.dispatchEvent(new CustomEvent("open-charge-map-data", {
+          detail: [record],
+        })), point);
+        await page.locator(".ocm-map-pin.ocm-pin-reported").waitFor();
+        assert.equal(searchRequests.length, beforeEvidence, "Map rendering must not transmit coordinates");
         const requestCountBeforeLocale = searchRequests.length;
         await page.locator("#language").click();
         assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
@@ -212,6 +240,8 @@ const reply = {
           "Identity clear must remove all stale OCM map markers");
         assert.equal(await layer.isHidden(), true);
         assert.equal(await root.locator('[name="ocm_latitude"]').inputValue(), "");
+        assert.equal(await root.locator('[name="ocm_min_reported_power_kw"]').inputValue(), "");
+        assert.equal(await root.locator('[name="ocm_reported_connector"]').inputValue(), "");
       } else {
         assert.equal(await root.locator("article").count(), 0);
         assert.equal(await page.locator(".ocm-map-pin").count(), 0,

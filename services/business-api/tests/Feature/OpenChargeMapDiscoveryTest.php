@@ -124,6 +124,38 @@ class OpenChargeMapDiscoveryTest extends TestCase
             ->assertOk()->assertJsonPath('count', 0)->assertJsonCount(0, 'results');
     }
 
+    public function test_optional_connection_filters_are_bounded_and_match_the_same_unverified_connector(): void
+    {
+        $both = $this->point();
+        $different = $this->point();
+        $different['ID'] = 12400;
+        $different['Connections'] = [
+            ['ConnectionType' => ['Title' => 'Type 2'], 'PowerKW' => 7],
+            ['ConnectionType' => ['Title' => 'CCS'], 'PowerKW' => 150],
+        ];
+        Http::fake(fn () => Http::response([$both, $different], 200, ['Content-Type' => 'application/json']));
+        $filters = $this->input() + ['reported_connector' => 'type 2', 'min_reported_power_kw' => 20];
+        $response = $this->postJson('/api/discovery/open-charge-map/search', $filters);
+        $response->assertOk()->assertJsonPath('count', 1)
+            ->assertJsonPath('results.0.id', 'ocm:12345')
+            ->assertJsonPath('results.0.availability', 'unknown')
+            ->assertJsonPath('results.0.billing_eligible', false);
+        // Different bound query must not receive previous cached matches.
+        $this->postJson('/api/discovery/open-charge-map/search',
+            $this->input() + ['reported_connector' => 'CCS', 'min_reported_power_kw' => 100])
+            ->assertOk()->assertJsonPath('count', 1)->assertJsonPath('results.0.id', 'ocm:12400');
+        Http::assertSentCount(2);
+        foreach ([
+            ['min_reported_power_kw' => 0],
+            ['min_reported_power_kw' => 1001],
+            ['reported_connector' => str_repeat('X', 81)],
+        ] as $bad) {
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input() + $bad)
+                ->assertUnprocessable();
+        }
+        Http::assertSentCount(2);
+    }
+
     public function test_optional_iso_country_filter_is_bounded_and_verified_after_provider_response(): void
     {
         $us = $this->point();
