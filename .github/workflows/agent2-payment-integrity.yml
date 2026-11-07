@@ -40,3 +40,6 @@ jobs:
           python3 -m py_compile tools/agent2/stage_ocpp_customer_status.py
           python3 -m py_compile tools/agent2/stage_admin_ocpp_binding.py
           python3 -m py_compile tools/agent2/stage_google_maps_config.py
+          python3 -m py_compile tools/agent2/stage_ocpp_customer_summary.py
+          python3 -m py_compile tools/agent2/stage_ocpp_charging_station_screen.py
+          python3 -m py_compile tools/agent2/stage_ocpp_qr_safety.py
