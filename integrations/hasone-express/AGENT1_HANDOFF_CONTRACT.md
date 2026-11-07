@@ -303,3 +303,30 @@ because Desktop Commander was offline. Earlier 73/73 backend and
 8/8 mocked-browser checkpoints remain the last verified full runs.
 40/40 additional pure policy logic checks were executed independently.
 This is not a live merchant payment or Teltonika charger acceptance.
+
+
+## Operator recovery from interrupted OCPP starts (new)
+
+The authorized start credential is consumed atomically by an accepted source
+start; `Authorize` itself must never consume the credential. If an OCPP
+worker crashes after credential consumption but before source transaction
+persistence, **do not automatically reactivate the token**. Instead:
+- Query the protected, read-only
+  `GET /admin/stations/:id/ocpp/start-exceptions` endpoint.
+- Check charger-specific protocol messages, logs and source transaction IDs.
+- Respect the two-minute OCPP 1.6 lost-response retry window and
+  identify any transaction that was accepted before treating it as orphaned.
+- Escalate a consumed credential with no confirmed source to the operator;
+  separate authorized recovery/reissue must verify that no live session
+  exists and must not create duplicate invoices or a second charge.
+- Keep calculated OCPP metering and actual payment capture in different
+  states until reconciled by one canonical financial authority.
+
+The new redacted Admin report is intentionally informational and does
+not include a button to reset or reissue consumed credentials.
+Source `integrations/hasone-express/ocppStartAudit.mjs`;
+stager `tools/agent2/stage_admin_ocpp_binding.py`;
+UI `integrations/hasone-next-admin/OcppBookingWorkflow.tsx`.
+
+These latest changes await staging rerun because the authorized host
+is offline; they must not be merged or deployed on earlier test results.
