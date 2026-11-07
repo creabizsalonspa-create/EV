@@ -50,7 +50,7 @@ def patch(root):
       ? (!proof?.sourceVerified ? "Unverified" :
          proof.sessionEnded ? "Completed" : "Charging")
       : session.status;
-    const scanningAllowed = !sourceBound && !booking.ocppTokenHash &&
+    const scanningAllowed = !sourceBound && booking.status === "Upcoming" &&
       session.status === "NotStarted";
 
     return {
