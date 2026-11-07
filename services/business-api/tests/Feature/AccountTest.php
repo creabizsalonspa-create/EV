@@ -30,9 +30,18 @@ class AccountTest extends TestCase
         $v = ['email' => $u->email, 'token' => $token, 'password' => 'new-long-test-password', 'password_confirmation' => 'new-long-test-password'];
         DB::table('sessions')->insert(['id' => 'old-session', 'user_id' => $u->id, 'payload' => '', 'last_activity' => time()]);
         $this->postJson('/api/reset-password', $v)->assertOk();
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $u->id,
+            'action' => 'account.password_reset_completed',
+            'subject' => (string) $u->id,
+        ]);
+        $audit = DB::table('audit_events')->get()->toJson();
+        $this->assertStringNotContainsString($token, $audit);
+        $this->assertStringNotContainsString($v['password'], $audit);
         $this->assertDatabaseMissing('sessions', ['id' => 'old-session']);
         $this->assertTrue(Hash::check($v['password'], $u->fresh()->password));
         $this->postJson('/api/reset-password', $v)->assertUnprocessable();
+        $this->assertDatabaseCount('audit_events', 1);
         $this->postJson('/api/login', ['email' => $u->email, 'password' => $v['password']])->assertOk();
     }
 
@@ -97,6 +106,7 @@ class AccountTest extends TestCase
         $v['email'] = $u->email;
         $this->travel(61)->minutes();
         $this->postJson('/api/reset-password', $v)->assertUnprocessable();
+        $this->assertDatabaseCount('audit_events', 0);
     }
 
     public function test_profile_cannot_update_role_or_another_account(): void

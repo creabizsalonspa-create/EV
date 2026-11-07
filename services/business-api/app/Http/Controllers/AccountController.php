@@ -73,6 +73,15 @@ class AccountController extends Controller
                 ])->save();
                 DB::table('sessions')->where('user_id', $account->id)->delete();
                 $account->tokens()->delete();
+                // Record only the fact that a valid reset token was consumed.
+                // Never log the token, new password, browser session ID or
+                // private email address in the audit ledger.
+                DB::table('audit_events')->insert([
+                    'actor_id' => $account->id,
+                    'action' => 'account.password_reset_completed',
+                    'subject' => (string) $account->id,
+                    'created_at' => now(),
+                ]);
             });
             if (Auth::guard('web')->id() === $user->id) {
                 Auth::guard('web')->logout();
