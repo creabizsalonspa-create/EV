@@ -59,6 +59,9 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
             "probe_fingerprint",
             "php artisan migrate:status",
             "restored_http_catalog",
+            "private-probe.tar.gz",
+            "synthetic_private_archive_sha256",
+            "fileperms($p) & 0777",
             "classification': 'disposable staging software only'",
         ):
             self.assertIn(required, code)
@@ -69,6 +72,7 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertNotRegex(artifact, re.compile(r"password|secret|app_key|token", re.I))
         self.assertIn("dump_sha256", artifact)
         self.assertIn("laravel_migration_rows", artifact)
+        self.assertIn("synthetic_private_archive_sha256", artifact)
 
 
 if __name__ == "__main__":
