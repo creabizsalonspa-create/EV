@@ -121,6 +121,25 @@ test("anonymous customer, vendor and Admin endpoints all deny private reads", as
   assert.ok(origin !== "*" || credentials !== "true", "wildcard CORS must not expose credentials");
   }
 });
+test("hostile Origin cannot turn public or private API CORS into credential sharing", async () => {
+  for (const [path, expectedStatus] of [["/api/me", 401], ["/api/csrf", 200]]) {
+    const response = await fetch(new URL(path, base), {
+      method: "GET",
+      headers: { accept: "application/json", origin: "https://attacker.invalid" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(response.status, expectedStatus, path);
+    security(response);
+    assert.match(response.headers.get("cache-control") || "", /no-store/);
+    const allowOrigin = response.headers.get("access-control-allow-origin");
+    const allowCredentials = response.headers.get("access-control-allow-credentials");
+    assert.ok(allowOrigin === null || allowOrigin === "*", "do not reflect untrusted Origin");
+    assert.ok(allowOrigin !== "*" || allowCredentials !== "true",
+      "credentialed wildcard CORS is forbidden");
+    assert.ok(allowOrigin !== "https://attacker.invalid");
+  }
+});
 test("anonymous simulated payment routes never expose simulator controls", async () => {
   for (const path of [
     "/payments/hosted-simulation/1",
