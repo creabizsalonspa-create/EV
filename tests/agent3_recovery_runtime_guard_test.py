@@ -1,4 +1,5 @@
 """No-Docker synthetic runtime negative tests for recovery container isolation."""
+import base64
 import copy
 from contextlib import redirect_stdout, redirect_stderr
 import importlib.util
@@ -28,13 +29,50 @@ def network(identifier):
             'Attachable': False, 'Scope': 'local', 'Containers': {}}
 
 
+def synthetic_password(name):
+    return ('f' if name.startswith('source') or name.endswith('source') else 'e') * 64
+
+
+def safe_db_env(name):
+    return ['POSTGRES_DB=ev_recovery_review',
+            'POSTGRES_USER=ev_recovery_review',
+            'POSTGRES_PASSWORD=' + synthetic_password(name)]
+
+
+def safe_app_env(name):
+    db_host = name.replace('-app-', '-db-') if '-app-' in name else name[:-4] + '-db'
+    fields = {
+        'APP_ENV': 'staging', 'APP_DEBUG': 'false',
+        'APP_URL': 'https://recovery.example.invalid',
+        'APP_KEY': 'base64:' + base64.b64encode(b'k' * 32).decode(),
+        'DB_CONNECTION': 'pgsql', 'DB_HOST': db_host, 'DB_PORT': '5432',
+        'DB_DATABASE': 'ev_recovery_review', 'DB_USERNAME': 'ev_recovery_review',
+        'DB_PASSWORD': synthetic_password(name), 'DB_URL': '',
+        'SESSION_DRIVER': 'database', 'SESSION_ENCRYPT': 'true',
+        'SESSION_SECURE_COOKIE': 'true', 'CACHE_STORE': 'database',
+        'QUEUE_CONNECTION': 'database', 'MAIL_MAILER': 'log',
+        'CSMS_SIMULATOR_ENABLED': 'false', 'CSMS_SESSION_BRIDGE_ENABLED': 'false',
+        'CSMS_FAULT_WORKER_ENABLED': 'false',
+        'CSMS_COMMAND_WORKER_ENABLED': 'false',
+        'CSMS_REMOTE_AUTHORIZATION_ENABLED': 'false',
+        'CSMS_INGRESS_AUTH_ENABLED': 'false',
+        'OCPI_TEST_COMMANDS_ENABLED': 'false',
+        'SUBSCRIPTION_COLLECTION_ENABLED': 'false',
+        'PAYOUT_TEST_ENABLED': 'false', 'EV_BATTERY_SIMULATOR_ENABLED': 'false',
+    }
+    return [key + '=' + value for key, value in fields.items()]
+
+
 def container(name, network_id, volume):
     return {
         'Name': '/' + name,
-        'Config': {'Image': APP_IMAGE if '-app' in name else DB_IMAGE},
+        'Config': {'Image': APP_IMAGE if '-app' in name else DB_IMAGE,
+                   'Env': safe_app_env(name) if '-app' in name else safe_db_env(name)},
         'Image': APP_ID if '-app' in name else DB_ID,
+        'State': {'Running': True},
         'HostConfig': {
             'NetworkMode': network_id, 'Privileged': False,
+            'RestartPolicy': {'Name': 'no', 'MaximumRetryCount': 0},
             'PortBindings': {}, 'CapAdd': None, 'Devices': [], 'Binds': None,
             'ExtraHosts': None, 'Links': None, 'PidMode': '', 'IpcMode': 'private',
             'UsernsMode': '',
@@ -181,6 +219,153 @@ class RecoveryIsolationTests(unittest.TestCase):
                                          ['target-db', 'target-app'],
                                          DB_IMAGE, APP_IMAGE)
 
+    def test_effective_app_environment_rejects_unsafe_feature_switches(self):
+        rows = [container('source-db', S, 'db-source'),
+                container('source-app', S, 'app-source'),
+                container('target-db', T, 'db-target'),
+                container('target-app', T, 'app-target')]
+        for index in (1, 3):
+            rows[index]['Mounts'][0]['Destination'] = '/var/www/html/storage/app/private'
+        args = (S, T, ['source-db', 'source-app'],
+                ['target-db', 'target-app'], DB_IMAGE, APP_IMAGE)
+        g.validate_containers(rows, *args)
+        for name, value in (
+            ('APP_ENV', 'production'), ('APP_DEBUG', 'true'),
+            ('APP_URL', 'https://real.example.test'),
+            ('DB_CONNECTION', 'mysql'), ('DB_HOST', 'target-db'),
+            ('DB_DATABASE', 'customer_db'), ('DB_USERNAME', 'postgres'),
+            ('DB_URL', 'postgresql://external.invalid/real'),
+            ('SESSION_DRIVER', 'redis'), ('SESSION_ENCRYPT', 'false'),
+            ('SESSION_SECURE_COOKIE', 'false'), ('CACHE_STORE', 'redis'),
+            ('QUEUE_CONNECTION', 'redis'), ('MAIL_MAILER', 'smtp'),
+            ('CSMS_SIMULATOR_ENABLED', 'true'),
+            ('CSMS_SESSION_BRIDGE_ENABLED', 'true'),
+            ('CSMS_FAULT_WORKER_ENABLED', 'true'),
+            ('CSMS_COMMAND_WORKER_ENABLED', 'true'),
+            ('CSMS_REMOTE_AUTHORIZATION_ENABLED', 'true'),
+            ('CSMS_INGRESS_AUTH_ENABLED', 'true'),
+            ('OCPI_TEST_COMMANDS_ENABLED', 'true'),
+            ('SUBSCRIPTION_COLLECTION_ENABLED', 'true'),
+            ('PAYOUT_TEST_ENABLED', 'true'),
+            ('EV_BATTERY_SIMULATOR_ENABLED', 'true'),
+            ('APP_KEY', 'base64:bad'),
+            ('DB_PASSWORD', 'weak'),
+        ):
+            with self.subTest(setting=name):
+                altered = copy.deepcopy(rows)
+                prefix = name + '='
+                altered[1]['Config']['Env'] = [
+                    prefix + value if field.startswith(prefix) else field
+                    for field in altered[1]['Config']['Env']
+                ]
+                with self.assertRaises(g.IsolationError):
+                    g.validate_containers(altered, *args)
+        for mutation in ('missing', 'duplicate', 'invalid-type',
+                         'unexpected-host', 'wrong-role'):
+            with self.subTest(mutation=mutation):
+                altered = copy.deepcopy(rows)
+                values = altered[1]['Config']['Env']
+                if mutation == 'missing':
+                    altered[1]['Config'].pop('Env')
+                elif mutation == 'duplicate':
+                    values.append('APP_ENV=production')
+                elif mutation == 'invalid-type':
+                    values.append({'not': 'a string'})
+                elif mutation == 'unexpected-host':
+                    altered[1]['Config']['Env'] = [
+                        'DB_HOST=production.example' if item.startswith('DB_HOST=') else item
+                        for item in values
+                    ]
+                else:
+                    altered[3]['Config']['Env'] = safe_app_env('source-app')
+                with self.assertRaises(g.IsolationError):
+                    g.validate_containers(altered, *args)
+
+    def test_postgresql_credentials_are_isolated_and_match_their_own_apps(self):
+        rows = [container('source-db', S, 'db-source'),
+                container('source-app', S, 'app-source'),
+                container('target-db', T, 'db-target'),
+                container('target-app', T, 'app-target')]
+        for index in (1, 3):
+            rows[index]['Mounts'][0]['Destination'] = '/var/www/html/storage/app/private'
+        args = (S, T, ['source-db', 'source-app'],
+                ['target-db', 'target-app'], DB_IMAGE, APP_IMAGE)
+        g.validate_containers(rows, *args)
+        for container_index, old_value, new_value in (
+            (0, 'POSTGRES_DB=ev_recovery_review', 'POSTGRES_DB=customer_db'),
+            (2, 'POSTGRES_USER=ev_recovery_review', 'POSTGRES_USER=postgres'),
+            (0, 'POSTGRES_PASSWORD=' + 'f'*64, 'POSTGRES_PASSWORD=' + 'e'*64),
+            (0, 'POSTGRES_PASSWORD=' + 'f'*64, 'POSTGRES_PASSWORD=weak'),
+            (1, 'DB_PASSWORD=' + 'f'*64, 'DB_PASSWORD=' + 'e'*64),
+            (3, 'APP_KEY=' + 'base64:' + base64.b64encode(b'k'*32).decode(),
+                  'APP_KEY=' + 'base64:' + base64.b64encode(b'z'*32).decode()),
+        ):
+            with self.subTest(container=container_index, changed=old_value.split('=')[0]):
+                modified = copy.deepcopy(rows)
+                env = modified[container_index]['Config']['Env']
+                env[env.index(old_value)] = new_value
+                with self.assertRaises(g.IsolationError):
+                    g.validate_containers(modified, *args)
+
+        # CSMS/PostGIS has a separate synthetic DB identity and no Laravel app.
+        csms_image = 'postgis/postgis:16-3.5@sha256:' + 'a' * 64
+        postgis = [container('source-db', S, 'csms-source'),
+                   container('target-db', T, 'csms-target')]
+        for row in postgis:
+            row['Config']['Image'] = csms_image
+            row['Config']['Env'] = [
+                value.replace('ev_recovery_review', 'ev_csms_recovery')
+                for value in row['Config']['Env']
+            ]
+        g.validate_containers(postgis, S, T, ['source-db'], ['target-db'], csms_image)
+        postgis[1]['Config']['Env'][0] = 'POSTGRES_DB=ev_recovery_review'
+        with self.assertRaises(g.IsolationError):
+            g.validate_containers(postgis, S, T,
+                                  ['source-db'], ['target-db'], csms_image)
+
+    def test_effective_runtime_must_be_running_and_never_restart(self):
+        rows = [container('source-db', S, 'source'),
+                container('target-db', T, 'target')]
+        g.validate_containers(rows, S, T, ['source-db'], ['target-db'], DB_IMAGE)
+        for path, invalid in (
+            (('State', 'Running'), False),
+            (('State', 'Running'), 'true'),
+            (('HostConfig', 'RestartPolicy'), {'Name': 'always', 'MaximumRetryCount': 0}),
+            (('HostConfig', 'RestartPolicy'), {'Name': 'on-failure', 'MaximumRetryCount': 3}),
+            (('HostConfig', 'RestartPolicy'), {}),
+            (('HostConfig', 'RestartPolicy'), None),
+        ):
+            with self.subTest(path=path, value=invalid):
+                altered = copy.deepcopy(rows)
+                altered[0][path[0]][path[1]] = invalid
+                with self.assertRaises(g.IsolationError):
+                    g.validate_containers(altered, S, T, ['source-db'],
+                                          ['target-db'], DB_IMAGE)
+
+    def test_effective_inspect_errors_do_not_expose_secret_values(self):
+        rows = [container('source-db', S, 'db-source'),
+                container('source-app', S, 'app-source'),
+                container('target-db', T, 'db-target'),
+                container('target-app', T, 'app-target')]
+        for index in (1, 3):
+            rows[index]['Mounts'][0]['Destination'] = '/var/www/html/storage/app/private'
+        rows[1]['Config']['Env'].extend([
+            'PRIVATE_TEST_SECRET=NEVER_PRINT_THIS_VALUE',
+            'CSMS_COMMAND_WORKER_ENABLED=true',
+        ])
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            code = g.main(['containers', '--source-network', S,
+                           '--target-network', T,
+                           '--source-name', 'source-db', '--source-name', 'source-app',
+                           '--target-name', 'target-db', '--target-name', 'target-app',
+                           '--reviewed-db-image', DB_IMAGE,
+                           '--reviewed-app-image', APP_IMAGE],
+                          io.BytesIO(json.dumps(rows).encode()))
+        self.assertEqual(code, 1)
+        self.assertNotIn('NEVER_PRINT_THIS_VALUE', output.getvalue() + errors.getvalue())
+
+
     def test_inspector_rejects_ambiguous_nested_json_and_never_logs_secrets(self):
         payloads = (
             b'[{"Id":"a","Id":"b"},{}]',
@@ -207,7 +392,7 @@ class RecoveryIsolationTests(unittest.TestCase):
 
     def test_cli_never_prints_inspect_environment_fields(self):
         rows = [container('source-db', S, 'one'), container('target-db', T, 'two')]
-        rows[0]['Config']['Env'] = ['DB_PASSWORD=SUPER_SECRET_DO_NOT_PRINT']
+        rows[0]['Config']['Env'].append('PRIVATE_TEST_TOKEN=SUPER_SECRET_DO_NOT_PRINT')
         good = io.BytesIO(json.dumps(rows).encode())
         self.assertEqual(g.main(['containers', '--source-network', S,
                                  '--target-network', T, '--source-name', 'source-db',

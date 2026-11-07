@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Fail-closed check of disposable Docker recovery runtime; no production acceptance."""
 import argparse
+import base64
+import binascii
 import json
+import re
 import sys
 
 
@@ -79,6 +82,84 @@ def validate_networks(rows, source, target, source_members=None, target_members=
     require(ids == {source, target}, 'Missing isolated recovery network')
 
 
+def parse_environment(config):
+    """Read bounded Docker env without printing values or embedded secrets."""
+    raw = config.get('Env')
+    require(isinstance(raw, list) and len(raw) <= 256,
+            'Effective recovery application environment unavailable')
+    entries = {}
+    for item in raw:
+        require(type(item) is str and 0 < len(item) <= 4096 and '=' in item,
+                'Malformed effective recovery application environment')
+        name, value = item.split('=', 1)
+        require(re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*', name) is not None
+                and name not in entries,
+                'Duplicate or invalid effective recovery application setting')
+        entries[name] = value
+    return entries
+
+
+def validate_app_environment(config, container_name):
+    """Require effective isolated app settings, not merely requested input."""
+    entries = parse_environment(config)
+    expected = {
+        'APP_ENV': 'staging',
+        'APP_DEBUG': 'false',
+        'APP_URL': 'https://recovery.example.invalid',
+        'DB_CONNECTION': 'pgsql',
+        'DB_HOST': (container_name.replace('-app-', '-db-')
+                    if '-app-' in container_name else container_name[:-4] + '-db'),
+        'DB_PORT': '5432',
+        'DB_DATABASE': 'ev_recovery_review',
+        'DB_USERNAME': 'ev_recovery_review',
+        'DB_URL': '',
+        'SESSION_DRIVER': 'database',
+        'SESSION_ENCRYPT': 'true',
+        'SESSION_SECURE_COOKIE': 'true',
+        'CACHE_STORE': 'database',
+        'QUEUE_CONNECTION': 'database',
+        'CSMS_SIMULATOR_ENABLED': 'false',
+        'CSMS_SESSION_BRIDGE_ENABLED': 'false',
+        'CSMS_FAULT_WORKER_ENABLED': 'false',
+        'CSMS_COMMAND_WORKER_ENABLED': 'false',
+        'CSMS_REMOTE_AUTHORIZATION_ENABLED': 'false',
+        'CSMS_INGRESS_AUTH_ENABLED': 'false',
+        'OCPI_TEST_COMMANDS_ENABLED': 'false',
+        'SUBSCRIPTION_COLLECTION_ENABLED': 'false',
+        'PAYOUT_TEST_ENABLED': 'false',
+        'EV_BATTERY_SIMULATOR_ENABLED': 'false',
+        'MAIL_MAILER': 'log',
+    }
+    for key, value in expected.items():
+        require(entries.get(key) == value,
+                'Unsafe effective recovery application setting: ' + key)
+    secret = entries.get('APP_KEY', '')
+    try:
+        key_bytes = base64.b64decode(
+            secret[7:], validate=True) if secret.startswith('base64:') else b''
+    except (ValueError, binascii.Error):
+        key_bytes = b''
+    require(len(key_bytes) == 32,
+            'Recovery synthetic encryption key is missing or invalid')
+    require(re.fullmatch(r'[a-f0-9]{64}', entries.get('DB_PASSWORD', '')) is not None,
+            'Recovery synthetic database credential is missing or invalid')
+    return entries
+
+
+def validate_db_environment(config, reviewed_image):
+    """Require a synthetic database role with strong, verifiable credentials."""
+    entries = parse_environment(config)
+    expected_name = ('ev_csms_recovery' if
+                     reviewed_image.startswith('postgis/postgis:') else
+                     'ev_recovery_review')
+    require(entries.get('POSTGRES_DB') == expected_name and
+            entries.get('POSTGRES_USER') == expected_name,
+            'Recovery database identity differs from synthetic source')
+    require(re.fullmatch(r'[a-f0-9]{64}', entries.get('POSTGRES_PASSWORD', '')) is not None,
+            'Recovery database credential missing or invalid')
+    return entries
+
+
 def validate_containers(rows, source, target, source_names, target_names,
                         reviewed_db_image=None, reviewed_app_image=None):
     require(source != target and source_names and target_names,
@@ -90,6 +171,8 @@ def validate_containers(rows, source, target, source_names, target_names,
     seen = set()
     volumes = set()
     image_ids = {}
+    database_env = {}
+    application_env = {}
     for row in rows:
         require(isinstance(row, dict), 'Malformed Docker container inspection')
         name = row.get('Name')
@@ -115,6 +198,21 @@ def validate_containers(rows, source, target, source_names, target_names,
         require(isinstance(config, dict) and
                 isinstance(config.get('Image'), str),
                 'Unverifiable container image reference')
+        require(isinstance(row.get('State'), dict) and
+                row['State'].get('Running') is True,
+                'Recovery container is not running')
+        restart = host.get('RestartPolicy')
+        require(isinstance(restart, dict) and restart.get('Name') == 'no' and
+                restart.get('MaximumRetryCount', 0) == 0,
+                'Recovery container has an unsafe restart policy')
+        if role == 'app':
+            require(netid not in application_env,
+                    'Duplicate application role on recovery network')
+            application_env[netid] = validate_app_environment(config, container_name)
+        else:
+            require(netid not in database_env and isinstance(reviewed_db_image, str),
+                    'Unexpected database role on recovery network')
+            database_env[netid] = validate_db_environment(config, reviewed_db_image)
         if reviewed_db_image is not None:
             require(isinstance(reviewed, str) and config['Image'] == reviewed,
                     'Recovery container image deviates from reviewed input')
@@ -180,6 +278,18 @@ def validate_containers(rows, source, target, source_names, target_names,
                 volume_name not in volumes,
                 'Recovery source and target must not share a volume')
         volumes.add(volume_name)
+    require(set(database_env) == {source, target},
+            'Both isolated recovery databases must be present')
+    require(database_env[source]['POSTGRES_PASSWORD'] !=
+            database_env[target]['POSTGRES_PASSWORD'],
+            'Source and target recovery database credentials must differ')
+    for netid, app in application_env.items():
+        require(app['DB_PASSWORD'] == database_env[netid]['POSTGRES_PASSWORD'],
+                'Recovery application database credential does not match its isolated DB')
+    if application_env:
+        require(set(application_env) == {source, target} and
+                application_env[source]['APP_KEY'] == application_env[target]['APP_KEY'],
+                'Both isolated recovery apps must preserve the same synthetic key')
     require(seen == {'/' + n for n in mapping},
             'Recovery runtime inspection was incomplete')
 
