@@ -235,3 +235,21 @@ Admin UI checks with mocked API responses; TypeScript and full Next
 production build pass on a source copy. All changes remain in draft
 PR #50 and must be reconciled with Agent 1's Laravel/CitrineOS ledger
 and Flutter/vendor applications.
+
+
+## Important: single-use charger authorization hardening — awaiting staging retest
+
+The source gateway staging patch now marks an authorized booking charger token
+as consumed **atomically on actual start**, rather than merely accepting the
+same token until its expiry. The read-only `Authorize` handshake still checks
+eligibility without consuming the token; the same consumed credential cannot
+start a separate OCPP 1.6 or 2.0.1 transaction. Safe OCPP 1.6 lost-response
+retries may reuse the existing active transaction only for the exact same
+charger/connector/token hash/meter start.
+
+`tools/agent2/stage_ocpp201_token_binding.py` is the source patcher;
+`tools/agent2/run_isolated_backend_demo.mjs` contains replay cases.
+The gateway is not production-deployed. Tests of this latest change are
+**pending** because the remote test host timed out during file synchronization.
+Do not mark it accepted before staged tests pass and charger-specific protocol
+retry handling is approved.
