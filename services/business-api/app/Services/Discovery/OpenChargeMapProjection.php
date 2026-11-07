@@ -27,8 +27,10 @@ final class OpenChargeMapProjection
         if (($provider['DataProviderStatusType']['IsProviderEnabled'] ?? true) === false) {
             return null;
         }
+        // Data-provider licensing text is an attribution obligation. Never
+        // display a truncated or missing license as if it were complete.
         $license = self::label($provider['License'] ?? null, 240);
-        if ($license === '') {
+        if ($license === '' || $license !== self::label($provider['License'] ?? null, 241)) {
             return null;
         }
         // Refuse unpublished entries if the upstream describes their state.
@@ -49,10 +51,10 @@ final class OpenChargeMapProjection
         }
         $operator = self::label($poi['OperatorInfo']['Title'] ?? null, 120);
         $providerLabel = self::label($provider['Title'] ?? null, 120);
-        if ($providerLabel === '') {
-            // A license is mandatory, but an unlabelled provider is not
-            // promoted to an officially certified operator.
-            $providerLabel = 'Open Charge Map contributor (name unverified)';
+        if ($providerLabel === '' || $providerLabel !== self::label($provider['Title'] ?? null, 121)) {
+            // A generic replacement would hide the actual licensor and fail
+            // per-record attribution. Discard ambiguous source entries.
+            return null;
         }
         $now = $asOf ?? new DateTimeImmutable('now', new DateTimeZone('UTC'));
         $sourceTime = self::date($poi['DateLastStatusUpdate'] ?? $poi['DateLastConfirmed'] ?? null);

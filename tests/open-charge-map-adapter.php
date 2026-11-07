@@ -25,6 +25,13 @@ $powerMatch=(new OpenChargeMapAdapter(fn()=>[$poi]))->search(25.2,55.3,5,'synthe
 verify($powerMatch['count']===1,'min power and connector same record');
 $powerMiss=(new OpenChargeMapAdapter(fn()=>[$poi]))->search(25.2,55.3,5,'synthetic-secret',null,50,'TYPE 2');
 verify($powerMiss['count']===0,'low-power connector excluded');
+$unicode=$poi;$unicode['OperatorInfo']=['Title'=>'Énergie Express'];
+$unicode['Connections'][0]['ConnectionType']['Title']='Type É';
+$unicodeResult=(new OpenChargeMapAdapter(fn()=>[$unicode]))->search(25.2,55.3,5,'synthetic-secret');
+$unicodeFilter=(new OpenChargeMapAdapter())->filterReported($unicodeResult,20,'type é','éNERGIE');
+verify($unicodeFilter['count']===1,'Unicode literal casefold across connector and operator');
+$regexLiteral=(new OpenChargeMapAdapter())->filterReported($unicodeResult,null,null,'.*');
+verify($regexLiteral['count']===0,'escaped regex-like operator remains literal');
 $source=(new OpenChargeMapAdapter(fn()=>[$poi]))->search(25.2,55.3,5,'synthetic-secret');
 $cachedFiltered=(new OpenChargeMapAdapter())->filterReported($source,20,'Type 2');
 verify($cachedFiltered['count']===1 && $source['count']===1,'pure cache filter does not mutate base discovery');

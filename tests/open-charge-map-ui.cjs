@@ -56,7 +56,7 @@ const reply = {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   try {
-    for (const mode of ["disabled", "enabled", "copy", "unsafe", "late", "late-filter"]) {
+    for (const mode of ["disabled", "enabled", "copy", "unicode", "overlong", "unsafe", "late", "late-filter"]) {
       const context = await browser.newContext({ permissions: [] });
       const page = await context.newPage();
       if (mode === "late" || mode === "late-filter") await page.addInitScript(() => {
@@ -98,6 +98,12 @@ const reply = {
           json: mode === "unsafe" ? {
             ...reply,
             results: [{ ...point, remote_control: true }],
+          } : mode === "unicode" ? {
+            ...reply,
+            results: [{ ...point, reported_cost_note: "🔌".repeat(240) }],
+          } : mode === "overlong" ? {
+            ...reply,
+            results: [{ ...point, reported_cost_note: "🔌".repeat(241) }],
           } : reply,
         });
       });
@@ -164,6 +170,23 @@ const reply = {
         const el = document.querySelector("#open-charge-map-discovery");
         return el && (el.querySelector("article") || el.textContent.includes("Licensed source unavailable"));
       });
+      if (mode === "unicode") {
+        await page.locator(".ocm-map-pin").waitFor();
+        assert.equal(await root.locator("article").count(), 1,
+          "A valid 240-codepoint non-BMP cost note must render without rejection");
+        assert.match(await root.locator("article").textContent(), /🔌🔌🔌/);
+        assert.deepEqual(pageErrors, []);
+        await context.close();
+        continue;
+      }
+      if (mode === "overlong") {
+        assert.equal(await root.locator("article").count(), 0);
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0,
+          "More than 240 reported cost codepoints must fail closed");
+        assert.deepEqual(pageErrors, []);
+        await context.close();
+        continue;
+      }
       if (mode === "copy") {
         await page.locator(".ocm-map-pin").waitFor();
         await page.evaluate(() => {

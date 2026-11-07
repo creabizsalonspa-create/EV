@@ -27,8 +27,7 @@ final class OpenChargeMapAdapter
             || $radiusKm < 1 || $radiusKm > 200 || trim($key) === ''
             || ($country !== null && preg_match('/^[A-Z]{2}$/D', $country) !== 1)
             || ($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
-            || ($connector !== null && (strlen($connector) < 1 || strlen($connector) > 80
-                || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))) {
+            || ! self::validOptionalFilter($connector, 80)) {
             throw new LookupFailure('invalid_request', 422);
         }
 
@@ -98,10 +97,8 @@ final class OpenChargeMapAdapter
     public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null, ?string $operator = null, ?bool $membership = null, ?bool $operational = null, ?int $maxSourceAgeHours = null): array
     {
         if (($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
-            || ($connector !== null && (strlen($connector) < 1 || strlen($connector) > 80
-                || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))
-            || ($operator !== null && (strlen($operator) < 1 || strlen($operator) > 120
-                || trim($operator) !== $operator || preg_match('/[\x00-\x1F\x7F]/', $operator)))
+            || ! self::validOptionalFilter($connector, 80)
+            || ! self::validOptionalFilter($operator, 120)
             || ($maxSourceAgeHours !== null && ($maxSourceAgeHours < 1 || $maxSourceAgeHours > 168))) {
             throw new LookupFailure('invalid_request', 422);
         }
@@ -136,16 +133,20 @@ final class OpenChargeMapAdapter
                     // Unknown/malformed source time never implies freshness.
                 }
             }
-            $item['source_age_minutes'] = $seconds !== null && $seconds <= $currentTime
-                ? intdiv($currentTime - $seconds, 60) : null;
+            $sourceAgeSeconds = $seconds !== null && $seconds <= $currentTime
+                ? $currentTime - $seconds : null;
+            $item['source_age_minutes'] = $sourceAgeSeconds !== null
+                ? intdiv($sourceAgeSeconds, 60) : null;
             $item['source_clock_evidence'] = $seconds === null
                 ? 'SOURCE_TIME_UNKNOWN'
                 : ($seconds > $currentTime ? 'SOURCE_CLOCK_AHEAD' : 'CROWD_REPORTED_TIME');
-            if ($maxSourceAgeHours !== null && ($item['source_age_minutes'] === null
-                || $item['source_age_minutes'] > 60 * $maxSourceAgeHours)) {
+            // Filter at exact-second precision. Rounded-down display
+            // minutes must never make a 60m59s report satisfy a 1h limit.
+            if ($maxSourceAgeHours !== null && ($sourceAgeSeconds === null
+                || $sourceAgeSeconds > 3600 * $maxSourceAgeHours)) {
                 continue;
             }
-            if (($operator !== null && stripos((string) ($item['operator_label'] ?? ''), $operator) === false)
+            if (($operator !== null && ! self::labelContains((string) ($item['operator_label'] ?? ''), $operator))
                 || ($membership !== null && ($item['reported_membership_required'] ?? null) !== $membership)
                 || ($operational !== null && ($item['reported_operational'] ?? null) !== $operational)) {
                 continue;
@@ -163,7 +164,7 @@ final class OpenChargeMapAdapter
                 }
                 $power = $connection['reported_power_kw'] ?? null;
                 if (($minPowerKw === null || (is_numeric($power) && (float) $power >= $minPowerKw))
-                    && ($connector === null || strcasecmp($connection['reported_connector_type'], $connector) === 0)) {
+                    && ($connector === null || self::labelEquals($connection['reported_connector_type'], $connector))) {
                     $values[] = $item;
                     break;
                 }
@@ -222,6 +223,32 @@ final class OpenChargeMapAdapter
                 // Connection cleanup must not expose upstream details.
             }
         }
+    }
+
+    private static function validOptionalFilter(?string $value, int $maximum): bool
+    {
+        if ($value === null) {
+            return true;
+        }
+        if ($value === '' || trim($value) !== $value
+            || preg_match('/[\x00-\x1F\x7F]/u', $value) !== 0) {
+            return false;
+        }
+        $characters = preg_split('//u', $value, -1, PREG_SPLIT_NO_EMPTY);
+
+        return is_array($characters) && count($characters) <= $maximum;
+    }
+
+    private static function labelContains(string $label, string $literal): bool
+    {
+        // The user term is always escaped: never interpret supplier names or
+        // search input as a regex. Unicode case-folding works without mbstring.
+        return preg_match('/'.preg_quote($literal, '/').'/iu', $label) === 1;
+    }
+
+    private static function labelEquals(string $label, string $literal): bool
+    {
+        return preg_match('/\A'.preg_quote($literal, '/').'\z/iu', $label) === 1;
     }
 
     private static function distance(float $lat1, float $lon1, float $lat2, float $lon2): float

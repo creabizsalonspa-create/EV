@@ -39,6 +39,10 @@ $bad=$poi;$bad['StatusType']['IsOperational']=false;check(OpenChargeMapProjectio
 $bad=$poi;$bad['StatusType']['IsOperational']='true';check(OpenChargeMapProjection::item($bad,$now)['reported_operational']===null,'malformed status unknown');
 $bad=$poi;$bad['DataProvider']['IsOpenDataLicensed']=false;check(OpenChargeMapProjection::item($bad,$now)===null,'not open licensed');
 $bad=$poi;$bad['DataProvider']['License']='';check(OpenChargeMapProjection::item($bad,$now)===null,'unattributed license');
+$bad=$poi;$bad['DataProvider']['License']=str_repeat('©',241);check(OpenChargeMapProjection::item($bad,$now)===null,'truncated legal license must not be shown');
+$bad=$poi;$bad['DataProvider']['Title']='';check(OpenChargeMapProjection::item($bad,$now)===null,'unnamed licensor denied');
+$bad=$poi;$bad['DataProvider']['Title']=str_repeat('A',121);check(OpenChargeMapProjection::item($bad,$now)===null,'truncated licensor denied');
+$good=$poi;$good['DataProvider']['License']=str_repeat('©',240);check(OpenChargeMapProjection::item($good,$now)!==null,'full 240 Unicode characters allowed');
 $bad=$poi;$bad['AddressInfo']['Longitude']=181;check(OpenChargeMapProjection::item($bad,$now)===null,'invalid coords');
 $bad=$poi;$bad['SubmissionStatusTypeID']=100;check(OpenChargeMapProjection::item($bad,$now)===null,'unpublished data');
 $bad=$poi;$bad['DateLastStatusUpdate']='2026-11-09T10:00:00Z';$future=OpenChargeMapProjection::item($bad,$now);check($future['source_age_minutes']===null && $future['source_clock_evidence']==='SOURCE_CLOCK_AHEAD','future clock');

@@ -118,13 +118,19 @@ class OpenChargeMapDiscoveryTest extends TestCase
     {
         $unlicensed = $this->point();
         $unlicensed['DataProvider']['IsOpenDataLicensed'] = false;
+        $unnamed = $this->point();
+        $unnamed['ID'] = 1001;
+        $unnamed['DataProvider']['Title'] = '';
+        $longLicense = $this->point();
+        $longLicense['ID'] = 1002;
+        $longLicense['DataProvider']['License'] = str_repeat('©', 241);
         $unpublished = $this->point();
         $unpublished['ID'] = 999;
         $unpublished['SubmissionStatusTypeID'] = 100;
         $invalid = $this->point();
         $invalid['ID'] = 1000;
         $invalid['AddressInfo']['Longitude'] = 181;
-        Http::fake(fn () => Http::response([$unlicensed, $unpublished, $invalid], 200, ['Content-Type' => 'application/json']));
+        Http::fake(fn () => Http::response([$unlicensed, $unpublished, $invalid, $unnamed, $longLicense], 200, ['Content-Type' => 'application/json']));
         $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())
             ->assertOk()->assertJsonPath('count', 0)->assertJsonCount(0, 'results');
     }
@@ -154,6 +160,31 @@ class OpenChargeMapDiscoveryTest extends TestCase
                     $this->input() + ['max_source_age_hours' => $age])
                     ->assertUnprocessable();
             }
+            Http::assertSentCount(1);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_report_freshness_uses_exact_seconds_not_rounded_display_minutes(): void
+    {
+        $clock = now()->startOfMinute();
+        Carbon::setTestNow($clock);
+        try {
+            $exact = $this->point();
+            $exact['DateLastStatusUpdate'] = $clock->copy()->subHour()->format('Y-m-d\TH:i:s\Z');
+            $older = $this->point();
+            $older['ID'] = 23456;
+            $older['DateLastStatusUpdate'] = $clock->copy()->subHour()->subSeconds(5)->format('Y-m-d\TH:i:s\Z');
+            Http::fake(fn () => Http::response([$older, $exact], 200, ['Content-Type' => 'application/json']));
+            $this->postJson('/api/discovery/open-charge-map/search',
+                $this->input() + ['max_source_age_hours' => 1])
+                ->assertOk()->assertJsonPath('count', 1)
+                ->assertJsonPath('results.0.id', 'ocm:12345')
+                ->assertJsonPath('results.0.source_age_minutes', 60);
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+                ->assertOk()->assertJsonPath('count', 2)
+                ->assertJsonPath('results.1.source_age_minutes', 60);
             Http::assertSentCount(1);
         } finally {
             Carbon::setTestNow();
@@ -229,6 +260,30 @@ class OpenChargeMapDiscoveryTest extends TestCase
             $this->postJson('/api/discovery/open-charge-map/search', $this->input() + $bad)
                 ->assertUnprocessable();
         }
+        Http::assertSentCount(1);
+    }
+
+    public function test_unicode_operator_and_connector_filters_use_literal_casefolding_and_codepoint_lengths(): void
+    {
+        $poi = $this->point();
+        $poi['OperatorInfo']['Title'] = 'Énergie Express';
+        $poi['Connections'][0]['ConnectionType']['Title'] = 'Type É';
+        Http::fake(fn () => Http::response([$poi], 200, ['Content-Type' => 'application/json']));
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input() + [
+            'operator_contains' => 'éNERGIE',
+            'reported_connector' => 'type é',
+            'min_reported_power_kw' => 20,
+        ])->assertOk()->assertJsonPath('count', 1)->assertJsonPath('results.0.id', 'ocm:12345');
+        // User text remains literal, never a supplied regular expression.
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input() + [
+            'operator_contains' => '.*',
+        ])->assertOk()->assertJsonPath('count', 0);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input() + [
+            'operator_contains' => str_repeat('é', 100),
+        ])->assertOk()->assertJsonPath('count', 0);
+        $this->postJson('/api/discovery/open-charge-map/search', $this->input() + [
+            'operator_contains' => str_repeat('é', 121),
+        ])->assertUnprocessable();
         Http::assertSentCount(1);
     }
 
