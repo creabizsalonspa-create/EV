@@ -1,3 +1,4 @@
+import 'station_information.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'operational_analytics.dart';
@@ -249,6 +250,18 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
               ),
 
             if (level == 0) ...[
+              OutlinedButton.icon(
+                key: const Key('vendor-station-information-open'),
+                icon: const Icon(Icons.info_outline),
+                label: Text(Localizations.localeOf(context).languageCode == 'ar'
+                    ? 'ساعات العمل ومرافق المحطة'
+                    : 'Station hours & facilities'),
+                onPressed: busy ? null : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => VendorStationInformationView(
+                    api: widget.api, onExpired: widget.onExpired,
+                  )),
+                ),
+              ),
               FilledButton(
                 onPressed: busy ? null : createInventory,
                 child: Text(vendorOpsText(context, 'newCompany')),
