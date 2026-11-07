@@ -21,6 +21,7 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertIn('review_id="ev-recovery-$RANDOM-$$"', code)
         self.assertIn('scratch=$(mktemp -d /tmp/ev-recovery.XXXXXXXX)', code)
         self.assertIn("trap cleanup EXIT", code)
+        self.assertIn('rm -f -- "$root/artifacts/agent3-recovery/validation.json"', code)
         self.assertIn('docker rm -fv "$id"', code)
         self.assertIn('docker network rm "$id"', code)
         self.assertNotRegex(code, r"docker\s+(?:system|volume|image)\s+prune")
