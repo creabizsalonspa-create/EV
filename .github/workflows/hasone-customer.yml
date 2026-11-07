@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['apps/hasone-customer/**', '.github/workflows/hasone-customer.yml']
   push:
-    branches: [development/hasone-connected-delivery]
+    branches: [development/fullstack-continuation]
   workflow_dispatch:
 permissions:
   contents: read
