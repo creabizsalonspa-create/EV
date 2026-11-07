@@ -53,10 +53,11 @@ class MobileReleaseSigningTest(unittest.TestCase):
                         'providers.gradleProperty("HASONE_ANDROID_APPLICATION_ID")',
                         config,
                     )
-                    self.assertIn(
-                        '!identifier.endsWith(".dev", ignoreCase = true)',
-                        config,
-                    )
+                    for disallowed in ("dev", "test", "debug"):
+                        self.assertIn(
+                            f'!identifier.endsWith(".{disallowed}", ignoreCase = true)',
+                            config,
+                        )
                     self.assertIn(
                         'dependsOn(verifyReleaseSigning, verifyReleaseMapsApiKey, verifyReleaseApplicationId)',
                         config,
