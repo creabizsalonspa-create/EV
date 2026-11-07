@@ -58,6 +58,7 @@ Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'inde
 Route::get('/api/admin/kyc-queue', [AdminKycQueueController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/permission-grants', [AdminStaffPermissionController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/admin/permission-grants/{membership}/revoke', [AdminStaffPermissionController::class, 'revoke'])->middleware(['auth', 'throttle:authentication']);
+Route::post('/api/admin/permission-grants/{membership}/release', [AdminStaffPermissionController::class, 'release'])->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/admin/permission-grants/{membership}/revocations', [AdminStaffPermissionController::class, 'revocations'])->middleware(['auth', 'throttle:platform-api']);
 Route::patch('/api/admin/accounts/{target}/moderate', [AdminAccountDirectoryController::class, 'moderate'])->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/admin/accounts/{target}/moderations', [AdminAccountDirectoryController::class, 'moderationHistory'])->middleware(['auth', 'throttle:platform-api']);

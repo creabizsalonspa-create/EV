@@ -36,7 +36,7 @@ class AdminStaffPermissionController extends Controller
 
         $query = VendorCompanyStaff::query()->select([
             'id', 'company_id', 'user_id', 'status', 'permissions',
-            'invitation_version', 'accepted_at',
+            'invitation_version', 'accepted_at', 'admin_revoked_at',
         ]);
         if (isset($input['company_id'])) {
             $query->where('company_id', $input['company_id']);
@@ -67,6 +67,7 @@ class AdminStaffPermissionController extends Controller
                 'permissions' => array_values($staff->permissions ?? []),
                 'invitation_version' => $staff->invitation_version,
                 'accepted_at' => $staff->accepted_at,
+                'admin_emergency_hold' => $staff->admin_revoked_at !== null,
                 'company' => $company ? [
                     'id' => $company->id,
                     'name' => $company->legal_name,
@@ -104,6 +105,7 @@ class AdminStaffPermissionController extends Controller
 
             $previousVersion = $locked->invitation_version;
             $locked->status = 'revoked';
+            $locked->admin_revoked_at = now();
             $locked->invitation_version = $previousVersion + 1;
             $locked->save();
 
@@ -111,6 +113,7 @@ class AdminStaffPermissionController extends Controller
                 'membership_id' => $locked->id,
                 'actor_user_id' => $actor->id,
                 'replaced_version' => $previousVersion,
+                'action' => 'revoked',
                 'reason_encrypted' => Crypt::encryptString(trim($input['reason'])),
                 'created_at' => now(),
             ]);
@@ -125,6 +128,58 @@ class AdminStaffPermissionController extends Controller
                 'id' => $locked->id,
                 'status' => 'revoked',
                 'invitation_version' => $locked->invitation_version,
+                'admin_emergency_hold' => true,
+            ])->header('Cache-Control', 'no-store, private');
+        });
+    }
+
+
+    /**
+     * Release an administrative hold but do NOT regrant access. The company
+     * owner must send a new invite, and the staff user must accept it afresh.
+     */
+    public function release(Request $request, VendorCompanyStaff $membership)
+    {
+        $actor = $this->activeAdmin($request);
+        $input = $request->validate([
+            'expected_version' => 'required|integer|min:1',
+            'reason' => 'required|string|min:10|max:2000',
+        ]);
+
+        return DB::transaction(function () use ($actor, $membership, $input) {
+            $locked = VendorCompanyStaff::whereKey($membership->id)
+                ->lockForUpdate()->firstOrFail();
+            abort_unless($locked->status === 'revoked'
+                && $locked->admin_revoked_at !== null, 409, 'No emergency hold to release.');
+            abort_unless($locked->invitation_version === (int) $input['expected_version'],
+                409, 'Staff permissions changed. Refresh before releasing.');
+
+            $previousVersion = $locked->invitation_version;
+            $locked->admin_revoked_at = null;
+            $locked->invitation_version = $previousVersion + 1;
+            $locked->save();
+
+            DB::table('admin_permission_revocations')->insert([
+                'membership_id' => $locked->id,
+                'actor_user_id' => $actor->id,
+                'replaced_version' => $previousVersion,
+                'action' => 'released',
+                'reason_encrypted' => Crypt::encryptString(trim($input['reason'])),
+                'created_at' => now(),
+            ]);
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.permission.hold_released',
+                'subject' => (string) $locked->id,
+                'created_at' => now(),
+            ]);
+
+            return response()->json([
+                'id' => $locked->id,
+                'status' => 'revoked',
+                'invitation_version' => $locked->invitation_version,
+                'admin_emergency_hold' => false,
+                'requires_fresh_invitation' => true,
             ])->header('Cache-Control', 'no-store, private');
         });
     }
@@ -141,6 +196,7 @@ class AdminStaffPermissionController extends Controller
                 'id' => $entry->id,
                 'actor_user_id' => $entry->actor_user_id,
                 'replaced_version' => $entry->replaced_version,
+                'action' => $entry->action,
                 'reason' => Crypt::decryptString($entry->reason_encrypted),
                 'created_at' => $entry->created_at,
             ]))->header('Cache-Control', 'no-store, private');

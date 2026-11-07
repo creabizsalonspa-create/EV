@@ -79,6 +79,7 @@ class AdminStaffPermissionTest extends TestCase
 
         $this->assertDatabaseHas('vendor_company_staff', [
             'id' => $member->id, 'status' => 'revoked', 'invitation_version' => 2,
+            'admin_revoked_at' => $member->fresh()->admin_revoked_at,
         ]);
         $this->assertDatabaseHas('personal_access_tokens', ['id' => $staffTokenId]);
         $this->assertDatabaseHas('audit_events', [
@@ -93,7 +94,8 @@ class AdminStaffPermissionTest extends TestCase
 
         $history = $this->getJson('/api/admin/permission-grants/'.$member->id.'/revocations')
             ->assertOk()->assertJsonPath('total', 1)
-            ->assertJsonPath('data.0.reason', 'Verified emergency staff access investigation');
+            ->assertJsonPath('data.0.reason', 'Verified emergency staff access investigation')
+            ->assertJsonPath('data.0.action', 'revoked');
         $this->assertStringContainsString('no-store', $history->headers->get('Cache-Control'));
 
         $this->actingAs($staff)->getJson($companyUrl)->assertNotFound();
@@ -146,6 +148,80 @@ class AdminStaffPermissionTest extends TestCase
         $this->getJson('/api/admin/permission-grants?status=bad')->assertUnprocessable();
         $this->getJson('/api/admin/permission-grants?company_id=-1')->assertUnprocessable();
         $this->getJson('/api/admin/permission-grants?page=100001')->assertUnprocessable();
+    }
+
+
+    public function test_owner_cannot_reinvite_during_admin_hold_and_release_requires_fresh_consent(): void
+    {
+        [$admin, $owner, $staff, $company, $member] = $this->fixture();
+        $revoke = '/api/admin/permission-grants/'.$member->id.'/revoke';
+        $release = '/api/admin/permission-grants/'.$member->id.'/release';
+        $invite = '/api/vendor-ops/companies/'.$company->id.'/staff';
+        $this->actingAs($admin)->postJson($revoke, $this->payload())->assertOk()
+            ->assertJsonPath('admin_emergency_hold', true);
+
+        // Existing owner/invite API cannot sidestep an Admin emergency hold.
+        $invitePayload = ['email' => $staff->email, 'permissions' => ['company.read']];
+        $this->actingAs($owner)->postJson($invite, $invitePayload)->assertStatus(409);
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $member->id, 'status' => 'revoked', 'invitation_version' => 2,
+        ]);
+        $this->actingAs($staff)->postJson(
+            '/api/vendor-ops/staff-invitations/'.$member->id.'/accept',
+            ['expected_version' => 2]
+        )->assertStatus(409);
+
+        $this->postJson($release, $this->payload(2))->assertForbidden();
+        $this->actingAs($admin)->postJson($release, $this->payload(1))
+            ->assertStatus(409);
+        $this->postJson($release, $this->payload(2, 'Admin completed independent evidence review'))
+            ->assertOk()
+            ->assertJsonPath('status', 'revoked')
+            ->assertJsonPath('admin_emergency_hold', false)
+            ->assertJsonPath('requires_fresh_invitation', true)
+            ->assertJsonPath('invitation_version', 3);
+        $this->getJson('/api/admin/permission-grants?status=revoked')
+            ->assertOk()->assertJsonPath('data.0.admin_emergency_hold', false);
+
+        // Release does not silently restore prior privileges or token scopes.
+        $this->actingAs($staff)->getJson('/api/vendor-ops/companies/'.$company->id)
+            ->assertNotFound();
+        $this->actingAs($owner)->postJson($invite, $invitePayload)->assertAccepted();
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $member->id, 'status' => 'invited', 'invitation_version' => 4,
+        ]);
+        $this->actingAs($staff)->postJson(
+            '/api/vendor-ops/staff-invitations/'.$member->id.'/accept',
+            ['expected_version' => 3]
+        )->assertStatus(409);
+        $this->postJson(
+            '/api/vendor-ops/staff-invitations/'.$member->id.'/accept',
+            ['expected_version' => 4]
+        )->assertOk();
+        $this->getJson('/api/vendor-ops/companies/'.$company->id)->assertOk();
+        $this->actingAs($admin)->getJson(
+            '/api/admin/permission-grants/'.$member->id.'/revocations'
+        )->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.action', 'released')
+            ->assertJsonPath('data.1.action', 'revoked');
+    }
+
+    public function test_release_is_version_bound_and_non_admin_cannot_erase_security_hold(): void
+    {
+        [$admin, $owner, , , $member] = $this->fixture('invited');
+        $release = '/api/admin/permission-grants/'.$member->id.'/release';
+        $this->actingAs($admin)->postJson($release, $this->payload())->assertStatus(409);
+        $this->postJson('/api/admin/permission-grants/'.$member->id.'/revoke',
+            $this->payload())->assertOk();
+        $this->postJson($release, $this->payload(2, 'short'))->assertUnprocessable();
+        $this->actingAs($owner)->postJson($release, $this->payload(2))->assertForbidden();
+        $this->actingAs($admin)->postJson($release, $this->payload(2))->assertOk();
+        $this->postJson($release, $this->payload(3))->assertStatus(409);
+        $this->assertDatabaseCount('admin_permission_revocations', 2);
+        $this->assertDatabaseHas('audit_events', [
+            'action' => 'admin.permission.hold_released',
+            'subject' => (string) $member->id,
+        ]);
     }
 
     public function test_revocation_history_is_private_to_admin(): void

@@ -223,6 +223,8 @@ class VendorOpsController extends Controller
                 if (! $existing) {
                     VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $u->id, 'permissions' => array_values(array_unique($v['permissions']))]);
                 } elseif ($existing->status === 'revoked') {
+                    abort_if($existing->admin_revoked_at !== null, 409,
+                        'Staff access is under an administrator security hold.');
                     $existing->update(['status' => 'invited', 'permissions' => array_values(array_unique($v['permissions'])), 'invitation_version' => $existing->invitation_version + 1, 'accepted_at' => null]);
                 }$this->access->audit($r->user(), 'staff.invited', $company->id);
             });
@@ -247,6 +249,7 @@ class VendorOpsController extends Controller
         return DB::transaction(function () use ($r, $membership, $v) {
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             abort_unless(in_array($m->status, ['invited', 'active']), 409);
+            abort_if($m->admin_revoked_at !== null, 409, 'Staff access is under an administrator security hold.');
             abort_unless($m->invitation_version === (int) $v['expected_version'], 409, 'Invitation scopes changed; refresh and consent again.');
             if ($m->status === 'active') {
                 return $m;
