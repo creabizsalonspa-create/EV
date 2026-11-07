@@ -59,9 +59,9 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
     # Unassociated push runs must not conceal absent PR validation or block
     # a clean PR because a separate push run was superseded/cancelled.
     relevant = [r for r in check_runs
-                if not isinstance(r.get("pull_requests"), list)
-                or any(link.get("number") == number
-                       for link in r["pull_requests"])]
+                if isinstance(r.get("pull_requests"), list)
+                and any(isinstance(link, dict) and link.get("number") == number
+                        for link in r["pull_requests"])]
     if not relevant:
         reasons.append("no_pr_associated_exact_head_checks")
     if len(check_runs) >= CHECK_LIMIT:
@@ -76,7 +76,8 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
     wrong_source = []
     for r in relevant:
         name = str(r.get("name") or "unnamed")
-        if r.get("head_sha") not in (None, head):
+        if r.get("head_sha") != head:
+            # A missing commit SHA is not source evidence. Fail closed.
             wrong_source.append(name)
         elif r.get("status") != "completed":
             waiting.append(name)
