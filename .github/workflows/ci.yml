@@ -14,6 +14,7 @@ concurrency:
 jobs:
   business-platform:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -105,6 +106,7 @@ jobs:
 
   finance-postgres:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/setup
@@ -118,6 +120,7 @@ jobs:
 
   connector-postgres:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - run: ./scripts/setup
