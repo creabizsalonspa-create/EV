@@ -23,7 +23,7 @@ function mock(envFile) {
     return roles.map((service,i)=>({
       Project:'ev-staging',Service:service,State:'running',
       Health:['application','database'].includes(service)?(state.stopped && service==='application'?'unhealthy':'healthy'):'',
-      Image:i<=2?'creabiz-ev-business:'+state.tag:i===3?'postgres:17-alpine':'caddy:2-alpine',
+      Image:i<=2?'creabiz-ev-business:'+state.tag:i===3?'postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b':'caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9',
       ID:i===3&&state.replaceDatabase&&state.mutations>0?'9'.repeat(64):
          i===4&&state.replaceGateway&&state.mutations>0?'8'.repeat(64):String(i+1).repeat(64),
       Publishers:i===4?[{URL:'127.0.0.1',TargetPort:443,PublishedPort:8443,Protocol:'tcp'}]:

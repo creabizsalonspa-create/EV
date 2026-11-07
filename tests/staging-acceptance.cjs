@@ -13,7 +13,7 @@ function snapshot() {
   return services.map(service => ({Project:'ev-staging',Service:service,State:'running',
     Health: ['application','database'].includes(service) ? 'healthy' : '',
     Image: ['application','worker','scheduler'].includes(service) ? 'creabiz-ev-business:review' :
-      service === 'database' ? 'postgres:17-alpine' : 'caddy:2-alpine',
+      service === 'database' ? 'postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b' : 'caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9',
     Publishers: service === 'gateway' ? [{URL:'127.0.0.1',TargetPort:443,PublishedPort:8443,Protocol:'tcp'}] : []}));
 }
 function args(output) {return ['--runtime-snapshot','/unused/snapshot','--url','http://127.0.0.1:8765/',

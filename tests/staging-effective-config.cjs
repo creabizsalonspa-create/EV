@@ -23,7 +23,7 @@ function sample(){
    scheduler:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount],
      command:['php','artisan','schedule:work']},
    database:{image:'postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b',volumes:[{type:'volume',source:'ev-staging_database',target:'/var/lib/postgresql/data'}]},
-   gateway:{image:'caddy:2-alpine',environment:{STAGING_HOST:'staging.ev-example.org',ACME_EMAIL:'ops@ev-example.org'},
+   gateway:{image:'caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9',environment:{STAGING_HOST:'staging.ev-example.org',ACME_EMAIL:'ops@ev-example.org'},
      ports:[{host_ip:'127.0.0.1',published:'8443',target:443,protocol:'tcp'}],
      volumes:[{type:'volume',source:'ev-staging_certificates',target:'/data'},
        {type:'volume',source:'ev-staging_gateway-config',target:'/config'},
@@ -101,6 +101,11 @@ test('volume and network isolation cannot inherit production data or foreign net
   fail(x=>x.networks.production={name:'production_default',external:true},'project-default');
   fail(x=>x.services.application.networks=['default','production'],'unreviewed network');
   fail(x=>x.services.gateway.networks={production:null},'unreviewed network');
+});
+test('gateway must retain exact reviewed TLS reverse-proxy digest',()=>{
+  fail(x=>x.services.gateway.image='caddy:2-alpine','pinned Caddy digest');
+  fail(x=>x.services.gateway.image='caddy:2-alpine@sha256:'+'f'.repeat(64),'pinned Caddy digest');
+  fail(x=>x.services.gateway.image='caddy:3-alpine@sha256:'+'f'.repeat(64),'pinned Caddy digest');
 });
 test('database must retain the exact reviewed pinned image digest, not a mutable tag',()=>{
   fail(x=>x.services.database.image='postgres:17-alpine','pinned PostgreSQL digest');

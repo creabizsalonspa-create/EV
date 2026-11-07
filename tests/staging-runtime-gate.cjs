@@ -12,7 +12,7 @@ function sample() {
     Project: 'ev-staging', Service: service, State: 'running',
     Health: ['application', 'database'].includes(service) ? 'healthy' : '',
     Image: ['application', 'worker', 'scheduler'].includes(service) ? 'creabiz-ev-business:review' :
-      service === 'database' ? 'postgres:17-alpine@sha256:' + 'a'.repeat(64) : 'caddy:2-alpine',
+      service === 'database' ? 'postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b' : 'caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9',
     Publishers: service === 'gateway' ? [{ URL: '127.0.0.1', TargetPort: 443, PublishedPort: 8443, Protocol: 'tcp' }] : []
   }));
 }
@@ -53,9 +53,13 @@ test('service application images must match exactly', () => {
   checkChange(x => x[1].Image='creabiz-ev-business:old', 'image differs');
   checkChange(x => x[2].Image='creabiz-ev-business:old', 'image differs');
 });
-test('unknown database or gateway images reject', () => {
-  checkChange(x => x[3].Image='postgres:latest', 'PostgreSQL image');
-  checkChange(x => x[4].Image='nginx:latest', 'reverse-proxy image');
+test('unreviewed database or gateway tags and digests reject', () => {
+  checkChange(x => x[3].Image='postgres:latest', 'reviewed PostgreSQL digest');
+  checkChange(x => x[3].Image='postgres:17-alpine', 'reviewed PostgreSQL digest');
+  checkChange(x => x[3].Image='postgres:17-alpine@sha256:'+'f'.repeat(64), 'reviewed PostgreSQL digest');
+  checkChange(x => x[4].Image='nginx:latest', 'reviewed Caddy digest');
+  checkChange(x => x[4].Image='caddy:2-alpine', 'reviewed Caddy digest');
+  checkChange(x => x[4].Image='caddy:2-alpine@sha256:'+'f'.repeat(64), 'reviewed Caddy digest');
 });
 test('missing service rejected', () => checkChange(x => x.pop(), 'missing'));
 test('invalid JSON and excessive snapshots reject', () => {

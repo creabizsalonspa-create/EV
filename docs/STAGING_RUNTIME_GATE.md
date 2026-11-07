@@ -44,3 +44,7 @@ node --test tests/staging-runtime-gate.cjs
 Agent 10's local Node 22.16.0 focused run: **19 passed / 0 failed**, including fake Docker command capture (proving no mutating Docker commands), malformed snapshot inputs, wrong image/port/project, missing/unhealthy services, and remote Docker environment rejection. Source blobs correspond exactly to GitHub committed copies.
 
 **Limits:** This confirms only the sampled runtime process/health and port state. It does **not** prove that migrations, background jobs, notifications, customer/vendor/Admin journeys, remote commands, finances, physical chargers, OCPI partners, backup restore, delivery artifacts, legal approvals, public TLS, or mobile signing work. Any external deployment or physical charging still requires explicit customer authorization. Agent 4 owns final merge and source-complete integration.
+
+## Dependency image pin enforcement
+
+The runtime checker requires the running database and gateway Compose image references to exactly match the PostgreSQL 17 Alpine and Caddy 2 Alpine reviewed index digests from PR #62, rather than merely matching an image family. An existing staging installation running older mutable tags will fail acceptance until **separately authorized, backed-up, operator-controlled infrastructure maintenance** is performed. Agent 10's application-only rollout and rollback must not restart or recreate PostgreSQL or Caddy.

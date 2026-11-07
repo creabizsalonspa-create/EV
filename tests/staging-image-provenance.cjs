@@ -28,8 +28,8 @@ function composeRows(containers) {
   const rows=containers.map(c=>({ID:c.Id,Service:c.Config.Labels['com.docker.compose.service'],
     Project:'ev-staging',State:'running',Health:'',Image:c.Config.Image,Publishers:[]}));
   rows[0].Health='healthy';
-  rows.push({ID:'5'.repeat(64),Service:'database',Project:'ev-staging',State:'running',Health:'healthy',Image:'postgres:17-alpine',Publishers:[]});
-  rows.push({ID:'6'.repeat(64),Service:'gateway',Project:'ev-staging',State:'running',Health:'',Image:'caddy:2-alpine',Publishers:[{URL:'127.0.0.1',TargetPort:443,PublishedPort:8443,Protocol:'tcp'}]});
+  rows.push({ID:'5'.repeat(64),Service:'database',Project:'ev-staging',State:'running',Health:'healthy',Image:'postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b',Publishers:[]});
+  rows.push({ID:'6'.repeat(64),Service:'gateway',Project:'ev-staging',State:'running',Health:'',Image:'caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9',Publishers:[{URL:'127.0.0.1',TargetPort:443,PublishedPort:8443,Protocol:'tcp'}]});
   return rows;
 }
 test('valid triple application container IDs and labeled image pass',()=>{

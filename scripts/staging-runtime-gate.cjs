@@ -8,6 +8,8 @@ const { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..', '..', '..');
 const expected = ['application', 'worker', 'scheduler', 'database', 'gateway'];
 const PROJECT = 'ev-staging';
+const PINNED_DATABASE_IMAGE = 'postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b';
+const PINNED_GATEWAY_IMAGE = 'caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9';
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
 
 function parseSnapshot(text) {
@@ -87,12 +89,12 @@ function checkSnapshot(records) {
     }
   }
   if (services.has('database') &&
-      !/^postgres:17-alpine(?:@sha256:[0-9a-f]{64})?$/.test(String(services.get('database').Image || ''))) {
-    problems.push('database: unexpected PostgreSQL image family');
+      services.get('database').Image !== PINNED_DATABASE_IMAGE) {
+    problems.push('database: running image differs from reviewed PostgreSQL digest');
   }
   if (services.has('gateway') &&
-      !/^caddy:2-alpine(?:@sha256:[0-9a-f]{64})?$/.test(String(services.get('gateway').Image || ''))) {
-    problems.push('gateway: unexpected reverse-proxy image family');
+      services.get('gateway').Image !== PINNED_GATEWAY_IMAGE) {
+    problems.push('gateway: running image differs from reviewed Caddy digest');
   }
   return { ok: !problems.length, problems, inspected_services: services.size };
 }

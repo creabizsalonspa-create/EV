@@ -8,6 +8,7 @@ const {execFileSync}=require('node:child_process');
 
 const project='ev-staging',expected=['application','worker','scheduler','database','gateway'];
 const PINNED_DATABASE_IMAGE='postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b';
+const PINNED_GATEWAY_IMAGE='caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9';
 const scriptRoot=path.resolve(__dirname,'..');
 const compose=path.join(scriptRoot,'infra/staging/compose.yaml');
 const envFile=path.join(scriptRoot,'infra/staging/.env');
@@ -44,7 +45,7 @@ function assertResolved(input,configCheck) {
   if(database.image!==PINNED_DATABASE_IMAGE) {
     problems.push('Database image must match reviewed pinned PostgreSQL digest');
   }
-  if(!/^caddy:2-alpine(?:@sha256:[a-f0-9]{64})?$/.test(gateway.image||''))problems.push('Gateway must be Caddy 2 Alpine');
+  if(gateway.image!==PINNED_GATEWAY_IMAGE)problems.push('Gateway must match reviewed pinned Caddy digest');
   const envs={};
   for(const name of ['application','worker','scheduler']) {
     try{envs[name]=normalizedEnvironment(services[name]);}
