@@ -109,9 +109,19 @@ function inspectPlan(config, deps = {}) {
       labels['com.creabiz.ev.staging.review']!=='true') {
     throw Error('Candidate image does not carry expected staging Git revision and review labels');
   }
+  const protectedServices={};
+  for(const service of ['database','gateway']) {
+    const id=before.find(row=>row.Service===service)?.ID;
+    if(typeof id!=='string'||!/^[a-f0-9]{12,64}$/.test(id)) {
+      throw Error('Protected staging service identity unavailable');
+    }
+    protectedServices[service]=id;
+  }
+  if(protectedServices.database===protectedServices.gateway)throw Error('Protected service identity collision');
   return { project:PROJECT, source_sha:config.sha, old_ref:oldRef,
     old_id:currentImage.Id, candidate_ref:candidateRef, candidate_id:candidateImage.Id,
-    roles:ROLES, database_and_gateway_unchanged:true, automatic_migrations:false,
+    roles:ROLES, protected_services:protectedServices,
+    database_and_gateway_unchanged:true, automatic_migrations:false,
     external_services_or_payments_invoked:false };
 }
 
@@ -149,6 +159,17 @@ function composeUp(tag, deps={}) {
     });
 }
 
+function verifyProtectedServices(plan,deps={}) {
+  const run=deps.run||execFileSync;
+  const rows=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
+  if(!checkSnapshot(rows).ok)throw Error('Private staging health or gateway exposure changed');
+  for(const name of ['database','gateway']){
+    if(rows.find(row=>row.Service===name)?.ID!==plan.protected_services?.[name]) {
+      throw Error('Protected staging database or gateway container was replaced');
+    }
+  }
+  return true;
+}
 function verifyRunning(expectedRef,expectedId,deps={}) {
   const run=deps.run||execFileSync;
   const rows=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
@@ -190,6 +211,7 @@ function apply(config,deps={}) {
     try {
       composeUp(config.tag,deps);
       verifyRunning(plan.candidate_ref,plan.candidate_id,deps);
+      verifyProtectedServices(plan,deps);
       journal(saved,'RELEASE_VERIFIED',{service_count:3,production_accepted:false});
       return {ok:true,rollback_verified:false,plan};
     } catch {
@@ -200,6 +222,7 @@ function apply(config,deps={}) {
         if(old.Id!==plan.old_id) throw Error('Former image identity changed');
         composeUp(plan.old_ref.split(':').slice(1).join(':'),deps);
         verifyRunning(plan.old_ref,plan.old_id,deps);
+        verifyProtectedServices(plan,deps);
         journal(saved,'ROLLBACK_VERIFIED',{production_accepted:false});
         return {ok:false,rollback_verified:true,plan};
       } catch {
@@ -232,4 +255,4 @@ function main(args=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)process.exitCode=main();
-module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,apply,main};
+module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,apply,main};
