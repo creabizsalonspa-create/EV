@@ -60,6 +60,9 @@
             message("Your session expired. Sign in again.");
             throw new Error("Session expired");
         }
+        // Laravel logout returns 204 with no body. Treat an empty successful
+        // response as success; never imply that a completed sign-out failed.
+        if (response.ok && response.status === 204) return null;
         let result;
         try {
             result = await response.json();
