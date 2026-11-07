@@ -58,6 +58,15 @@ try{
                                  isVerified:true,password:'disabled'});
  const booking=await BookingModel.create({userId:user._id,stationId:new mongoose.Types.ObjectId(),
               date:'2026-11-08',time:'11:00',totalAmount:60,status:'Upcoming'});
+ const {default:NearestStationModel}=await import(pathToFileURL(join(source,'src/models/NearestStationModel.js')).href);
+ const {default:VehicleBrandModel}=await import(pathToFileURL(join(source,'src/models/VehicleBrandModel.js')).href);
+ const {default:VehicleModelItemModel}=await import(pathToFileURL(join(source,'src/models/VehicleModelItemModel.js')).href);
+ const station=await NearestStationModel.create({name:'Agent 2 Disposable UAE Test Station',
+   address:'Test-only Ras Al Khaimah',status:'Available',latitude:25.741,longitude:55.922,
+   pricePerHourValue:60,taxPercent:5,
+   slots:[{startTime:'12:00 PM',endTime:'01:00 PM'}]});
+ const brand=await VehicleBrandModel.create({name:'Test Vehicle Brand'});
+ const model=await VehicleModelItemModel.create({brandId:brand._id,name:'Test EV Model'});
  const bearer='Bearer '+EncodeToken(user.email,String(user._id));
  server=await new Promise(done=>{const s=app.listen(0,'127.0.0.1',()=>done(s));});
  const base='http://127.0.0.1:'+server.address().port;
@@ -86,6 +95,33 @@ try{
  await check('authenticated booking list works on isolated DB',async()=>{
   const r=await request('GET','/api/v1/Bookings',undefined,true);
   assert.equal(r.code,200);
+ });
+ await check('authenticated station discovery includes seeded location',async()=>{
+  const x=await request('GET','/api/v1/NearestStations',undefined,true);
+  assert.equal(x.code,200);assert.equal(x.body.status,'Success');
+  assert.equal(x.body.data.some(s=>String(s._id)===String(station._id)),true);
+ });
+ await check('authenticated station details resolve seeded charger site',async()=>{
+  const x=await request('GET','/api/v1/StationDetails/'+station._id,undefined,true);
+  assert.equal(x.code,200);assert.equal(x.body.status,'Success');
+ });
+ await check('customer can add an EV to the isolated garage',async()=>{
+  const x=await request('POST','/api/v1/MyVehicles',{modelId:String(model._id),connectorType:'CCS',
+                         batteryCapacityKwh:75},true);
+  assert.equal(x.code,200);assert.equal(x.body.status,'Success');
+ });
+ await check('customer can create a real persisted booking from an available slot',async()=>{
+  const x=await request('POST','/api/v1/Bookings',{stationId:String(station._id),
+    date:'2026-11-08',slotStart:'12:00 PM',slotEnd:'01:00 PM',connectorType:'CCS'},true);
+  assert.equal(x.code,200);assert.equal(x.body.status,'Success');
+  assert.equal(x.body.data.totalAmount,63);
+  const saved=await BookingModel.findById(x.body.data.bookingId);
+  assert.equal(saved.isPaid,false);assert.equal(saved.totalAmount,63);
+ });
+ await check('duplicate booking for identical date and slot is rejected',async()=>{
+  const x=await request('POST','/api/v1/Bookings',{stationId:String(station._id),
+    date:'2026-11-08',slotStart:'12:00 PM',slotEnd:'01:00 PM',connectorType:'CCS'},true);
+  assert.equal(x.code,400);
  });
  await check('authenticated booking payment options hide card vault',async()=>{
   const r=await request('GET','/api/v1/Bookings/'+booking._id+'/payment',undefined,true);
