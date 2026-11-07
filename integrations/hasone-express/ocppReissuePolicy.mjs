@@ -15,6 +15,8 @@ export function canReissueOcppToken({
       || booking.status!=='Upcoming')return false;
   if(typeof booking.ocppTokenHash!=='string'
       || !/^[a-f0-9]{64}$/i.test(booking.ocppTokenHash))return false;
+  if(booking.ocppTokenIssuedAt===null || booking.ocppTokenIssuedAt===undefined
+      || booking.ocppTokenIssuedAt==='')return false;
   const issued=new Date(booking.ocppTokenIssuedAt);
   if(!Number.isFinite(issued.valueOf())
       || !(now instanceof Date) || !Number.isFinite(now.valueOf()))return false;
