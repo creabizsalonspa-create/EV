@@ -46,7 +46,11 @@ final class PartnerCatalogGeo
         $bounds = self::bounds($latitude, $longitude, $radiusKm);
         // OCPI normalization restricts these JSON values to finite lat/lon.
         // The expressions below are static and never include user-provided SQL.
-        $driver = DB::connection()->getDriverName();
+        $connection = DB::connection();
+        $driver = $connection->getDriverName();
+        if ($driver === 'sqlite') {
+            SqliteGeoMath::register($connection->getPdo());
+        }
         [$lat, $lng] = match ($driver) {
             'sqlite' => [
                 "CAST(json_extract(ocpi_records.normalized, '$.latitude') AS REAL)",
