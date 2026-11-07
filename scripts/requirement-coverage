@@ -17,6 +17,7 @@ assert inventory['method']['subfeature_weight'] == 'equal within each category'
 expected = {f'{section}.{i}' for section, count in [(2,10),(3,8),(4,6),(5,4),(6,5),(7,4),(8,1),(9,4)] for i in range(1,count+1)}
 categories = inventory['categories']
 assert len(categories) == 42 and {c['prd'] for c in categories} == expected, 'All42 original categories are required'
+assert sum(len(c['atoms']) for c in categories) == 312, 'Original 312 requirement atoms are mandatory'
 # Lock the original inventory's per-category denominators. Equal category weights
 # make moving a single atom change percentages even if the total remains 312.
 original_atom_counts = {
