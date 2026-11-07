@@ -1069,7 +1069,11 @@ el("account").onsubmit = async (e) => {
     setIdentityBusy(true);
     try {
         csrf = (await api("csrf")).token;
-        await api(mode, "POST", values);
+        const signedIn = await api(mode, "POST", values);
+        if (signedIn?.admin_second_factor_required === true) {
+            window.location.assign("/admin/second-factor");
+            return;
+        }
         pendingLogout(false);
         el("logout-retry").hidden = true;
         e.target.reset();
