@@ -108,5 +108,4 @@ class AuthenticationThrottleSecurityTest extends TestCase
             'X-Real-IP' => '203.0.113.120',
         ])->postJson('/api/login', $body)->assertStatus(429);
     }
-
 }
