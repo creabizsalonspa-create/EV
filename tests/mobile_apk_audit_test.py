@@ -23,6 +23,26 @@ MANIFEST = """E: application
     A: android:value(0x01010024)="" (Raw: "")
 """
 EXPECTED = "com.creabiz.hasone.customer.dev"
+DEBUG_CONFIG_REF = "  A: android:networkSecurityConfig(0x01010527)=@0x7f140002\\n"
+DEBUG_RESOURCES = (
+    "spec resource 0x7f140002 "
+    "com.creabiz.hasone.customer.dev:xml/ev_debug_network_security: flags=0x0"
+)
+DEBUG_RULES = """E: network-security-config
+  E: base-config
+    A: cleartextTrafficPermitted=(type 0x12)0x0
+    E: trust-anchors
+      E: certificates
+        A: src="system" (Raw: "system")
+  E: domain-config
+    A: cleartextTrafficPermitted=(type 0x12)0xffffffff
+    E: domain
+      A: includeSubdomains=(type 0x12)0x0
+      C: "localhost"
+    E: domain
+      A: includeSubdomains=(type 0x12)0x0
+      C: "127.0.0.1"
+"""
 DOMAINS = sorted(audit.BACKUP_DOMAINS)
 
 
@@ -104,6 +124,55 @@ class MobileApkAuditTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(audit.AuditError, "usesCleartextTraffic"):
             self.audit(manifest=unsafe)
+
+    def test_debug_policy_permits_only_exact_loopback_origins(self):
+        manifest = MANIFEST + DEBUG_CONFIG_REF
+        result = self.audit(
+            manifest=manifest,
+            network_resources=DEBUG_RESOURCES,
+            network_rules=DEBUG_RULES,
+        )
+        self.assertTrue(result["remote_cleartext_disabled"])
+        for altered_rules in (
+            DEBUG_RULES.replace('"localhost"', '"example.com"'),
+            DEBUG_RULES.replace(
+                "A: includeSubdomains=(type 0x12)0x0",
+                "A: includeSubdomains=(type 0x12)0xffffffff",
+                1,
+            ),
+            DEBUG_RULES.replace('A: src="system"', 'A: src="user"'),
+        ):
+            with self.subTest(altered=altered_rules[:50]):
+                with self.assertRaisesRegex(audit.AuditError, "unapproved"):
+                    self.audit(
+                        manifest=manifest,
+                        network_resources=DEBUG_RESOURCES,
+                        network_rules=altered_rules,
+                    )
+
+    def test_debug_policy_requires_exact_compiled_resource_reference(self):
+        manifest = MANIFEST + DEBUG_CONFIG_REF
+        with self.assertRaisesRegex(audit.AuditError, "resource"):
+            self.audit(
+                manifest=manifest,
+                network_resources=DEBUG_RESOURCES.replace(
+                    "ev_debug_network_security", "unknown_policy"
+                ),
+                network_rules=DEBUG_RULES,
+            )
+
+    def test_distribution_cannot_load_debug_network_security_config(self):
+        manifest = MANIFEST + DEBUG_CONFIG_REF
+        prod = BADGING.replace(EXPECTED, "com.creabiz.approved.production")
+        with self.assertRaisesRegex(audit.AuditError, "network security override"):
+            self.audit(
+                badging=prod,
+                package="com.creabiz.approved.production",
+                manifest=manifest,
+                mode="release",
+                expected_signer_sha256="a" * 64,
+                signer_output="Signer #1 certificate SHA-256 digest: " + "a" * 64,
+            )
 
     def test_missing_maps_key_is_rejected_when_explicitly_required(self):
         with self.assertRaisesRegex(audit.AuditError, "Google Maps"):
