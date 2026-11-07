@@ -1214,25 +1214,79 @@ el("forgot-password").onsubmit = async (e) => {
     }
 };
 
+async function discoverBatteryVehicle(id) {
+    const preference = await api(`vehicles/${id}/battery-preferences`);
+    if (!["CCS2", "Type2", "CHAdeMO"].includes(preference.connector_type)) return;
+    el("filters").reset();
+    el("filters").elements.namedItem("connector_type").value = preference.connector_type;
+    favoriteMode = false;
+    renderCatalogMode();
+    await stations("?connector_type=" + encodeURIComponent(preference.connector_type));
+    location.hash = "#discover";
+}
+async function batteryEditor(id, row) {
+    const epoch = client.sessionEpoch;
+    const data = await api(`vehicles/${id}/battery-preferences`);
+    if (!row.isConnected || epoch !== client.sessionEpoch) return;
+    row.querySelector("[data-battery-editor]")?.remove();
+    const box = node("section", ""); box.dataset.batteryEditor = "";
+    const text = (en, ar) => user?.locale === "ar" ? ar : en;
+    box.append(node("p", text("Simulator-only alerts. Choose location explicitly in discovery for nearby results.", "تنبيهات محاكاة فقط. اختر الموقع صراحةً في الدليل للنتائج القريبة.")));
+    let version = data.version, pending = null;
+    const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = data.alerts_enabled;
+    const threshold = document.createElement("input"); threshold.type = "number"; threshold.min = "1"; threshold.max = "50"; threshold.value = data.threshold_percent;
+    const label = (en, ar, input) => {const l = node("label", text(en, ar)); l.append(input); box.append(l);};
+    label("Enable low-battery notifications", "تفعيل تنبيهات البطارية المنخفضة", enabled);
+    label("Threshold % (1–50)", "عتبة التنبيه ٪ (1–50)", threshold);
+    const save = node("button", text("Save battery preferences", "حفظ تفضيلات البطارية"));
+    save.onclick = async () => {
+        save.disabled = true;
+        try {
+            const value = await api(`vehicles/${id}/battery-preferences`, "PUT", {
+                alerts_enabled: enabled.checked, threshold_percent: Number(threshold.value), expected_version: version,
+            });
+            if (epoch === client.sessionEpoch) version = value.version;
+        } catch (e) { notice(e); }
+        finally { save.disabled = pending !== null; }
+    };
+    box.append(save);
+    if (data.can_simulate) {
+        const percent = document.createElement("input"); percent.type = "number"; percent.min = "0"; percent.max = "100"; percent.value = "15";
+        label("Simulated battery % (0–100)", "بطارية محاكاة ٪ (0–100)", percent);
+        const simulate = node("button", text("Record simulator observation", "تسجيل قراءة محاكاة"));
+        const result = node("p", "");
+        simulate.onclick = async () => {
+            pending ??= {operation_key: crypto.randomUUID(), battery_percent: Number(percent.value)};
+            simulate.disabled = true; save.disabled = enabled.disabled = threshold.disabled = percent.disabled = true;
+            try {
+                const value = await api(`vehicles/${id}/battery-simulation`, "POST", pending);
+                if (epoch !== client.sessionEpoch) return;
+                result.textContent = value.alerted ? text("Simulated alert saved in Notifications.", "تم حفظ تنبيه المحاكاة في الإشعارات.") : text("Simulator observation saved; preferences did not trigger an alert.", "تم حفظ قراءة المحاكاة؛ لم تؤد التفضيلات إلى تنبيه.");
+                pending = null;
+            } catch (e) { notice(e); }
+            finally {
+                simulate.disabled = false;
+                save.disabled = enabled.disabled = threshold.disabled = percent.disabled = pending !== null;
+                simulate.textContent = pending ? text("Retry same simulator observation", "إعادة محاولة قراءة المحاكاة نفسها") : text("Record simulator observation", "تسجيل قراءة محاكاة");
+            }
+        };
+        box.append(simulate, result);
+    }
+    const discover = node("button", text("Find compatible chargers", "البحث عن شواحن متوافقة"));
+    discover.onclick = () => discoverBatteryVehicle(id).catch(notice);
+    box.append(discover);
+    row.append(box);
+}
+
 async function garage() {
     const j = await api("vehicles");
     el("vehicle-list").replaceChildren();
     for (const v of j.data) {
         const row = node("div", "#" + v.id + " · " + v.name + " · " + v.connector_type);
-        if (v.can_simulate_battery === true) {
-            const action = node("button", user.locale === "ar" ? "محاكاة تنبيه بطارية منخفضة 15٪" : "Simulate low battery alert: 15%");
-            // Keep the same identity for retry after an unknown response.
-            const operationKey = crypto.randomUUID();
-            action.onclick = async () => {
-                action.disabled = true;
-                try {
-                    await api("vehicles/" + v.id + "/battery-simulation", "POST", {
-                        operation_key: operationKey, battery_percent: 15,
-                    });
-                    notice(user.locale === "ar" ? "تم حفظ تنبيه المحاكاة في الإشعارات" : "Simulated alert saved in Notifications");
-                } catch (e) { notice(e); action.disabled = false; }
-            };
-            row.append(action);
+        if (user.role === "customer") {
+            const preferences = node("button", user.locale === "ar" ? "تفضيلات البطارية" : "Battery preferences");
+            preferences.onclick = () => batteryEditor(v.id, row).catch(notice);
+            row.append(preferences);
         }
         el("vehicle-list").append(row);
     }
@@ -1288,6 +1342,11 @@ async function support() {
             kind: { translate: m.kind },
             id: m.support_ticket_id,
         });
+        if (m.kind === "vehicle.battery.simulated") {
+            const discover = node("button", user.locale === "ar" ? "البحث عن شواحن متوافقة" : "Find compatible chargers");
+            discover.onclick = () => discoverBatteryVehicle(m.metadata.vehicle_id).catch(notice);
+            row.append(discover);
+        }
         if (!m.read_at) {
             const b = ui("button", "Mark read");
             b.onclick = async () => {

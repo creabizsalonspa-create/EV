@@ -52,6 +52,7 @@ jobs:
           node tests/recurring-payments.cjs
           ./scripts/payout-test-setup
           ./scripts/loyalty-test-setup
+          ./scripts/battery-test-setup
           docker restart ev-business-api
           ./scripts/start > /tmp/finance-v3-start.txt
           node --test tests/financial-connected.test.cjs
