@@ -28,10 +28,14 @@ Artisan::command('platform:role {email} {role}', function () {
 
         return 1;
     }
-    $u = User::where('email', $this->argument('email'))->firstOrFail();
-    $u->role = $role;
-    $u->save();
-    $this->info('Role updated for existing user.');
+    DB::transaction(function () use ($role) {
+        $account = User::where('email', $this->argument('email'))->lockForUpdate()->firstOrFail();
+        if ($account->role !== $role) {
+            $account->role = $role;
+            $account->save();
+        }
+    });
+    $this->info('Role assignment processed; any changed account must sign in again.');
 })->purpose('Operator-only role provisioning; no public role elevation endpoint');
 
 Artisan::command('csms:dispatch {id}', function () {
