@@ -75,11 +75,21 @@ function reviewIsolatedConfig(envFile, deps={}) {
   const report=gate(envFile);
   if(!report || report.ok!==true) throw Error('Staging environment failed isolated preflight');
 }
+function reviewEffectiveCompose(deps={}) {
+  if (typeof deps.effectiveConfig==='function') {
+    if (deps.effectiveConfig()!==true) throw Error('Effective staging Compose security rejected');
+    return;
+  }
+  const {liveConfig,runReview}=require('./staging-effective-config.cjs');
+  const checker=require('./staging-preflight.cjs').checkValues;
+  runReview(liveConfig(deps.run||execFileSync,deps.env||process.env),checker);
+}
 function inspectPlan(config, deps = {}) {
   const run = deps.run || execFileSync, env = deps.env || process.env;
   const dotenv = deps.envFile || envPath;
   assertLocalSafety(dotenv,env);
   reviewIsolatedConfig(dotenv,deps);
+  reviewEffectiveCompose(deps);
   const before = parseSnapshot(localDockerSnapshot(env,run));
   const current = checkSnapshot(before);
   if (!current.ok) throw Error('Staging health or private port gate failed');
@@ -222,4 +232,4 @@ function main(args=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)process.exitCode=main();
-module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,composeUp,verifyRunning,apply,main};
+module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,apply,main};
