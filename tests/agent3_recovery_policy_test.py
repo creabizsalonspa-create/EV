@@ -62,6 +62,11 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
             "restored_http_catalog",
             "private-probe.tar.gz",
             "synthetic_private_archive_sha256",
+            "PHP_ENCRYPT",
+            "PHP_DECRYPT",
+            "Crypt::encryptString",
+            "Crypt::decryptString",
+            "Recovered APP_KEY could not decrypt source data.",
             "fileperms($p) & 0777",
             "classification': 'disposable staging software only'",
         ):
