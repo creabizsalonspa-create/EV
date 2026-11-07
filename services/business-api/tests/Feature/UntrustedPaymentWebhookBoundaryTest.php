@@ -119,4 +119,45 @@ class UntrustedPaymentWebhookBoundaryTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
         Http::assertNothingSent();
     }
+
+    public function test_valid_stripe_test_signature_never_processes_in_production(): void
+    {
+        Http::preventStrayRequests();
+        $secret = 'whsec_'.str_repeat('s', 48);
+        config([
+            'payments.provider' => 'stripe_test',
+            'payments.stripe_test_webhook_secret' => $secret,
+            'payments.stripe_test_secret' => 'sk_test_agent9_no_money',
+        ]);
+        $raw = json_encode([
+            'id' => 'evt_agent9_inert_production_gate',
+            'livemode' => false,
+            'type' => 'payment_intent.succeeded',
+            'data' => ['object' => [
+                'id' => 'pi_agent9_no_real_money',
+                'amount' => 1200,
+                'currency' => 'aed',
+            ]],
+        ], JSON_THROW_ON_ERROR);
+        $timestamp = time();
+        $signature = 't='.$timestamp.',v1='.hash_hmac('sha256', $timestamp.'.'.$raw, $secret);
+
+        // The test adapter is categorically disabled in production, even if
+        // an attacker knows its development-only signing key.
+        app()->detectEnvironment(fn () => 'production');
+        try {
+            $this->call('POST', '/api/payments/stripe-test/webhook', [], [], [], [
+                'CONTENT_TYPE' => 'application/json',
+                'HTTP_ACCEPT' => 'application/json',
+                'HTTP_STRIPE_SIGNATURE' => $signature,
+            ], $raw)->assertStatus(503);
+
+            $this->assertDatabaseCount('gateway_webhook_events', 0);
+            $this->assertDatabaseCount('finance_payments', 0);
+            $this->assertDatabaseCount('finance_refunds', 0);
+            Http::assertNothingSent();
+        } finally {
+            app()->detectEnvironment(fn () => 'testing');
+        }
+    }
 }
