@@ -40,6 +40,8 @@ class _ChargingScreenState extends State<ChargingScreen>
   int? _batteryPercent;
   String _timeRemaining = 'Unavailable';
   double? _kwhUsed;
+  String? _costText;
+  String _meterNote = 'Meter receipt time unavailable';
   String _chargingStatus = 'Source status unverified';
   bool _canStop = false;
   bool _canExtend = false;
@@ -51,6 +53,8 @@ class _ChargingScreenState extends State<ChargingScreen>
     _batteryPercent = null;
     _timeRemaining = 'Unavailable';
     _kwhUsed = null;
+    _costText = null;
+    _meterNote = 'Meter receipt time unavailable';
     _chargingStatus = 'Source status unverified';
     _canStop = false;
     _canExtend = false;
@@ -98,6 +102,18 @@ class _ChargingScreenState extends State<ChargingScreen>
           _batteryPercent = result!.batteryPercent;
           _kwhUsed = result.hasVerifiedMeter ? result.kwhUsed : null;
           _chargingStatus = result.chargingStatus ?? 'Source status unverified';
+          final cost = result.provisionalCostFils ?? result.finalCostFils;
+          if (cost != null) {
+            final amount =
+                '${cost ~/ 100}.${(cost % 100).toString().padLeft(2, '0')}';
+            _costText =
+                '${result.provisionalCostFils == null ? 'Final calculated amount' : 'Calculated so far'}: AED $amount (not collected)';
+          }
+          if (result.meterReceiptAgeSeconds != null) {
+            _meterNote = result.meterFreshness == 'stale'
+                ? 'Meter reading stale at last check (${result.meterReceiptAgeSeconds}s)'
+                : 'At last check: meter received ${result.meterReceiptAgeSeconds}s ago';
+          }
         }
       });
     } catch (_) {
@@ -289,7 +305,7 @@ class _ChargingScreenState extends State<ChargingScreen>
                           selectedMins,
                         );
 
-                        if (!mounted) return;
+                        if (!mounted || !ctx.mounted) return;
                         setSheet(() => isLoading = false);
                         Navigator.pop(ctx);
 
@@ -422,7 +438,7 @@ class _ChargingScreenState extends State<ChargingScreen>
                             widget.sessionId,
                           );
 
-                          if (!mounted) return;
+                          if (!mounted || !ctx.mounted) return;
                           setSheet(() => isLoading = false);
                           Navigator.pop(ctx);
 
@@ -622,6 +638,20 @@ class _ChargingScreenState extends State<ChargingScreen>
                               text: 'Energy Used:  $_kwhUsed kWh',
                               color: R.color.neutralGray,
                               fontSize: 13.sp,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            SizedBox(height: 8.h),
+                            WText(
+                              text: _costText ?? 'Calculated cost unavailable',
+                              color: R.color.neutralGray,
+                              fontSize: 13.sp,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            SizedBox(height: 8.h),
+                            WText(
+                              text: _meterNote,
+                              color: R.color.neutralGray,
+                              fontSize: 12.sp,
                               fontWeight: FontWeight.w400,
                             ),
                           ],

@@ -8,13 +8,13 @@ class ChargingStartingModel {
   ChargingStartingModel.fromJson(Map<String, dynamic> json) {
     status = json['status'];
     message = json['message'];
-    data = json['data'] != null ? new Data.fromJson(json['data']) : null;
+    data = json['data'] != null ? Data.fromJson(json['data']) : null;
   }
 
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> data = new Map<String, dynamic>();
-    data['status'] = this.status;
-    data['message'] = this.message;
+    final data = <String, dynamic>{};
+    data['status'] = status;
+    data['message'] = message;
     if (this.data != null) {
       data['data'] = this.data!.toJson();
     }
@@ -37,6 +37,9 @@ class Data {
   String? protocol;
   String? paymentStatus;
   int? energyWh;
+  int? provisionalCostFils, finalCostFils, meterReceiptAgeSeconds;
+  DateTime? meterReceivedAt;
+  String meterFreshness = 'unknown';
   bool get hasSourceProof =>
       sourceVerified &&
       source == 'ocpp' &&
@@ -81,6 +84,65 @@ class Data {
       energyWh = wh;
       kwhUsed = kwh.toDouble();
     }
+    final readOnlyCost =
+        hasVerifiedMeter &&
+        json['readOnly'] == true &&
+        json['billingMode'] == 'calculation_only_no_collection' &&
+        json['currency'] == 'AED' &&
+        paymentStatus == 'not_collected';
+    int? checkedAmount(String subtotalKey, String vatKey, String totalKey) {
+      final subtotal = json[subtotalKey],
+          vat = json[vatKey],
+          total = json[totalKey];
+      bool minor(Object? value) =>
+          value is int && value >= 0 && value <= 1000000000000;
+      return minor(subtotal) &&
+              minor(vat) &&
+              minor(total) &&
+              subtotal + vat == total
+          ? total as int
+          : null;
+    }
+
+    if (readOnlyCost &&
+        chargingStatus == 'Charging' &&
+        json['billingStatus'] == 'provisional_unpaid' &&
+        json['provisionalCostVerified'] == true) {
+      provisionalCostFils = checkedAmount(
+        'provisionalSubtotalFils',
+        'provisionalVatFils',
+        'provisionalTotalFils',
+      );
+    }
+    if (readOnlyCost &&
+        chargingStatus == 'Completed' &&
+        json['billingStatus'] == 'calculated_unpaid') {
+      finalCostFils = checkedAmount('subtotalFils', 'vatFils', 'totalFils');
+    }
+    final received = json['meterReceivedAt'],
+        age = json['meterReceiptAgeSeconds'];
+    if (hasVerifiedMeter &&
+        received is String &&
+        RegExp(
+          r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$',
+        ).hasMatch(received) &&
+        age is int &&
+        age >= 0 &&
+        age <= 3153600000) {
+      final time = DateTime.tryParse(received);
+      final freshness = age <= 120 ? 'recent' : 'stale';
+      if (time != null &&
+          time.toUtc().toIso8601String().substring(0, 19) ==
+              received.substring(0, 19) &&
+          !time.isAfter(
+            DateTime.now().toUtc().add(const Duration(seconds: 5)),
+          ) &&
+          json['meterFreshness'] == freshness) {
+        meterReceivedAt = time.toUtc();
+        meterReceiptAgeSeconds = age;
+        meterFreshness = freshness;
+      }
+    }
     // OCPP transaction/meter proof does not establish the EV battery's SOC.
     // The staged status contract has no independent authenticated SOC source.
     // Ignore even plausible numeric batteryPercent values until such a
@@ -94,15 +156,15 @@ class Data {
   }
 
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> data = new Map<String, dynamic>();
-    data['sessionId'] = this.sessionId;
-    data['bookingId'] = this.bookingId;
-    data['chargingStatus'] = this.chargingStatus;
-    data['batteryPercent'] = this.batteryPercent;
-    data['timeRemaining'] = this.timeRemaining;
-    data['kwhUsed'] = this.kwhUsed;
-    data['canStop'] = this.canStop;
-    data['canExtend'] = this.canExtend;
+    final data = <String, dynamic>{};
+    data['sessionId'] = sessionId;
+    data['bookingId'] = bookingId;
+    data['chargingStatus'] = chargingStatus;
+    data['batteryPercent'] = batteryPercent;
+    data['timeRemaining'] = timeRemaining;
+    data['kwhUsed'] = kwhUsed;
+    data['canStop'] = canStop;
+    data['canExtend'] = canExtend;
     return data;
   }
 }

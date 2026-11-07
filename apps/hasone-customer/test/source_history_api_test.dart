@@ -1,3 +1,5 @@
+import 'package:evcharg/feature/Booking/model/charging_starting_model.dart'
+    as progress;
 import 'package:evcharg/feature/Booking/UI/controller/booking_controller.dart';
 import 'package:evcharg/core/utils/reservation_date.dart';
 import 'dart:io';
@@ -11,6 +13,46 @@ import 'package:flutter_test/flutter_test.dart';
 /// JWTs in the child process environment; none are logged or persisted here.
 void main() {
   final url = Platform.environment['AGENT2_HISTORY_API_URL'];
+  final progressUrl = Platform.environment['AGENT2_PROGRESS_API_URL'];
+  test(
+    'actual native active-source progress separates provisional unpaid cost and receipt age',
+    () async {
+      final uri = Uri.parse(progressUrl!);
+      if (uri.scheme != 'http' || uri.host != '127.0.0.1') {
+        throw StateError('Disposable loopback API required');
+      }
+      final dio = Dio(
+        BaseOptions(baseUrl: progressUrl, validateStatus: (_) => true),
+      );
+      final client = NetworkClient(
+        dio: dio,
+        onUnAuthorize: () {},
+        commonHeaders: () => {
+          'Authorization': Platform.environment['AGENT2_PROGRESS_TOKEN']!,
+        },
+      );
+      try {
+        final id = Platform.environment['AGENT2_ACTIVE_SESSION']!;
+        final response = await client.getRequest(
+          '/api/v1/ChargingSession/$id/status',
+        );
+        expect(response.isSuccess, true);
+        final value = progress.Data.fromJson(response.responseData['data']);
+        expect(value.hasVerifiedMeter, true);
+        expect(value.energyWh, 3000);
+        expect(value.provisionalCostFils, 315);
+        expect(value.finalCostFils, isNull);
+        expect(value.paymentStatus, 'not_collected');
+        expect(value.meterReceivedAt, isNotNull);
+        expect(value.meterReceiptAgeSeconds, isNotNull);
+      } finally {
+        dio.close(force: true);
+      }
+    },
+    skip: progressUrl == null
+        ? 'Requires the isolated active-source fixture'
+        : false,
+  );
   test(
     'actual native booking preserves complete calendar identity and duplicate denial',
     () async {
