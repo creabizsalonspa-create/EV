@@ -270,28 +270,37 @@ def cancel_candidates(github, report, max_cancel):
     cancelled, skipped, errors = [], [], []
     for candidate in report["candidates"][:max_cancel]:
         try:
-            # Never apply a stale dry-run decision after another agent pushes.
+            # Current-head duplicate pushes are informational only: they
+            # need an independently revalidated PR-event run. Never cancel
+            # them merely because a matching job existed in a past snapshot.
+            if candidate["reason"] == "duplicate_feature_push_with_pr_event":
+                skipped.append(candidate["id"])
+                continue
+            if candidate["reason"] not in ("superseded_pr_head",
+                                           "superseded_feature_push"):
+                skipped.append(candidate["id"])
+                continue
+            # Recheck the selected run and CURRENT open-PR head list, rather
+            # than downloading >1,000 queued runs again for every candidate.
+            # The initial complete scan is mandatory and checked above.
+            path = "/actions/runs/" + str(candidate["id"])
+            current = github.request(path)
             prs, truncated = github.pages("/pulls?state=open", "pull_requests")
             if truncated:
                 raise ValueError("PR inventory truncated before cancellation")
-            queued, queue_truncated = github.queued_pages()
-            if queue_truncated:
-                raise ValueError("Queued runs exceeded safe scan limit")
-            heads, by_number, paired = build_context(prs, queued, github.repo)
-            current = next((r for r in queued if r.get("id") == candidate["id"]),
-                           None)
-            if (current is None or
-                    classify(current, heads, by_number, paired, github.repo)
-                    != candidate["reason"]):
+            heads, by_number, _ = build_context(prs, [], github.repo)
+            if classify(current, heads, by_number, set(), github.repo) != candidate["reason"]:
                 skipped.append(candidate["id"])
                 continue
             # Last status/refetch guard before POST; never intentionally
             # cancel in-progress jobs. GitHub state can still race between
             # GET and POST; operators must inspect the returned outcome.
-            latest = github.request("/actions/runs/" + str(candidate["id"]))
+            latest = github.request(path)
             if (latest.get("status") != "queued"
                     or latest.get("head_sha") != candidate["sha"]
-                    or latest.get("event") != candidate["event"]):
+                    or latest.get("event") != candidate["event"]
+                    or latest.get("head_branch") != candidate["branch"]
+                    or latest.get("repository", {}).get("full_name") != github.repo):
                 skipped.append(candidate["id"])
                 continue
             github.request("/actions/runs/" + str(candidate["id"]) + "/cancel",
