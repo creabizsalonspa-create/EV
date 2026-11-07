@@ -20,8 +20,14 @@ class InboxNotification extends Model
      */
     public function scopeVisibleTo(Builder $query, User $actor): Builder
     {
+        // Request guards can retain an authenticated User instance after an
+        // operator is demoted. Consult the authoritative role on each inbox
+        // operation rather than trusting a stale session object.
+        $currentlyAdmin = User::query()->whereKey($actor->id)
+            ->where('role', 'admin')->exists();
+
         return $query->where('user_id', $actor->id)
-            ->when($actor->role !== 'admin',
+            ->when(! $currentlyAdmin,
                 fn (Builder $q) => $q->where('kind', '!=',
                     'charging.fault.escalated.simulated'));
     }
