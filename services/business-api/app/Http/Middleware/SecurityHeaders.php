@@ -14,7 +14,8 @@ class SecurityHeaders
         // A route may deliberately return a more restrictive policy (for example,
         // payment-return pages). Do not silently replace its policy with the
         // platform's broader default after the controller has responded.
-        if (! $r->headers->has('Content-Security-Policy')) {
+        $csp = $r->headers->get('Content-Security-Policy');
+        if (! is_string($csp) || trim($csp) === '') {
             $r->headers->set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
         }
         $r->headers->set('X-Content-Type-Options', 'nosniff');
