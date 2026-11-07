@@ -34,19 +34,25 @@ class NetworkService {
   }
 
   void _handleUnauthorized() async {
-    // Don't handle if no token was set (prevents startup race condition)
-    if (Session.accessToken == null || Session.accessToken!.isEmpty) {
+    // NetworkClient already discards responses for a superseded bearer token.
+    // A new login can still occur while Keychain/Keystore deletion is pending.
+    final rejectedToken = Session.accessToken;
+    if (rejectedToken == null || rejectedToken.isEmpty) return;
+
+    final sharedPrefs = SharedPrefs();
+    final deletion = sharedPrefs.clear();
+    final rejectedGeneration = SharedPrefs.credentialGeneration;
+    try {
+      await deletion;
+    } catch (_) {
+      // Secure storage may retain the rejected token. Do not navigate or
+      // claim the credential was removed after a failed platform deletion.
       return;
     }
+    if (SharedPrefs.credentialGeneration != rejectedGeneration ||
+        Session.accessToken != null) return;
 
-    // Clear local storage and session
-    final sharedPrefs = SharedPrefs();
-    Session.clear();
-    await sharedPrefs.clear();
-
-    // Navigate to login screen
     Get.offAll(() => const LoginScreen());
-
     Get.snackbar(
       'Session Expired',
       'Please login again',
