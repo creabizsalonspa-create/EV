@@ -29,6 +29,8 @@ jobs:
           node --check integrations/hasone-express/paymentIntegrity.mjs
           node --check integrations/hasone-express/ocppSourceEvidence.mjs
           node --check integrations/hasone-express/adminOcppBooking.js
+          node --check integrations/hasone-express/ocppHistory.mjs
+          node --check integrations/hasone-express/ocppHistoryController.js
           node --check integrations/hasone-express/adminMultiCharger.js
           node --check integrations/hasone-express/ocppStartAudit.mjs
           node --check integrations/hasone-express/ocppStartAuthorization.mjs
@@ -63,4 +65,6 @@ jobs:
           python3 -m py_compile tools/agent2/stage_ocpp_qr_safety.py
           python3 -m py_compile tools/agent2/stage_next_ocpp_report_page.py
           python3 -m py_compile tools/agent2/stage_next_ocpp_booking_workflow.py
+          python3 -m py_compile tools/agent2/stage_ocpp_history.py
+          python3 -m py_compile tools/agent2/stage_next_ocpp_history.py
 

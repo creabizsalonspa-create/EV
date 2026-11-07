@@ -487,3 +487,40 @@ Restricted host log /home/hasio/agent2-work/pr50-runtime-v3.log, SHA-256
 Agent 4: review the exact pushed revision and required hosted checks before
 integration; hosted checks remain separately queued/pending. Do not infer
 production deployment, canonical-ledger migration or physical commissioning.
+
+
+## Verified source history workflow — 7 November 2026
+
+Added private GET /api/v1/ChargingSession/history and /history/:id for customers,
+plus AdminAuth GET /api/v1/admin/ocpp/charging-history and /:id.
+Both use bounded immutable-ID seek pages; customer queries are scoped from the
+authenticated identity and foreign details return 404. No owner override or
+unsupported query is accepted. The row projection revalidates the existing
+OCPP proof every read; it never stores a second invoice/charging ledger.
+
+An ended source remains inspectable after its charger is disabled. Broken
+mapping, token or meter evidence removes energy, transaction and cost proof
+and exposes an explicit review state. Booking prepayment is separately labeled
+from calculated-unpaid metered charges. Hashes, raw tokens and charger secrets
+are absent. Source details include verified Wh/kWh, start/stop, elapsed seconds
+and reconciled unpaid fils. Additive owner/source cursor indexes are staged
+only in disposable Mongo; existing unique source/booking indexes remain intact.
+
+New /ocpp-history Admin page supports cursor navigation, retry, inspection and
+English/Arabic RTL. Mobile controls stay below the fixed shell header after
+scrolling; actual Chrome pointer/Arabic checks cover this discovered defect.
+Existing canonical Laravel/native histories are preserved; this is compatibility
+work for the purchased Express client. Related tracker atoms: 2.7.5 and 4.2.1;
+no new whole-product coverage credit or completion of 2.7.9 is claimed.
+
+Verified: 104 Node guards, 13 callback HTTP checks, 109 backend/OCPP checks,
+Next TypeScript/Webpack production build, 11 mocked browser checks and
+9 actual-API Chrome checks. The second fresh backend reports 110 checks including
+the real browser journey. Source/customer ownership, seek pages, disabled
+history, corrupted meter proof, roles and invalid requests are exercised.
+Wrapper exited 0; loopback port released. Log:
+ /home/hasio/agent2-work/pr50-history-v4.log
+ SHA256 32206b7d71342f2d439502cadcb4938384aa83ef6f3c16716ef041fc704935ed.
+
+Mobile history UI integration and the broader live/connector reservation scope
+remain outstanding. Agent 4 owns hosted-check integration and final merge.

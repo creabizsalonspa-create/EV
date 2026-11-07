@@ -17,6 +17,7 @@ export async function relayAdminRequest(request,{apiUrl,uiUrl,adminToken}){
    throw Error('Unapproved isolated Admin request');
  const get=request.method==='GET' && (
    url.pathname==='/api/v1/admin/bookings' ||
+   /^\/api\/v1\/admin\/ocpp\/charging-history(?:\/[a-f0-9]{24})?$/i.test(url.pathname) ||
    /^\/api\/v1\/admin\/bookings\/[a-f0-9]{24}\/ocpp\/operations$/i.test(url.pathname) ||
    /^\/api\/v1\/admin\/stations\/[a-f0-9]{24}\/ocpp\/(booking-sources|start-exceptions)$/i.test(url.pathname));
  const post=request.method==='POST' &&

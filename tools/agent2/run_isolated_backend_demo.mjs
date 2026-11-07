@@ -99,6 +99,16 @@ try{
   return {code:res.status,body:json,text:bodyText};
  }
  async function check(label,fn){await fn();passed++;console.log('PASS '+label);}
+ await check('history cursor indexes preserve existing source-binding uniqueness',async()=>{
+   const indexes=await ChargingSessionModel.collection.indexes();
+   const owner=indexes.find(x=>x.name==='history_owner_source_cursor');
+   const all=indexes.find(x=>x.name==='history_source_cursor');
+   assert.deepEqual(owner?.key,{userId:1,sourceType:1,_id:-1});
+   assert.deepEqual(all?.key,{sourceType:1,_id:-1});
+   assert.equal(owner.unique===true,false);assert.equal(all.unique===true,false);
+   assert.ok(indexes.some(x=>x.name==='uniq_linked_ocpp_source_session'&&x.unique===true));
+   assert.ok(indexes.some(x=>x.name==='uniq_source_bound_ocpp_booking'&&x.unique===true));
+ });
  await check('OCPP source-bound booking indexes are unique and audit clean',async()=>{
    const audit=await auditOcppSourceBindingIndexes(
      mongoose.connection.db.collection(ChargingSessionModel.collection.name));
@@ -1226,6 +1236,95 @@ try{
       await db.collection('ocpp_chargers').updateOne({chargerId:multiPrimary},
         {$set:{enabled:true}});
     }
+  });
+  const historyLink=await ChargingSessionModel.findOne({bookingId:multiBooking._id}).lean();
+  const historyPath='/api/v1/ChargingSession/history';
+  const historyDetail=historyPath+'/'+historyLink._id;
+  await check('source history routes require their customer and Admin roles',async()=>{
+    assert.equal((await request('GET',historyPath,undefined,false)).code,401);
+    assert.equal((await request('GET','/api/v1/admin/ocpp/charging-history',undefined,true)).code,401);
+    const allowed=await request('GET','/api/v1/admin/ocpp/charging-history',undefined,false,
+      {authorization:adminBearer});
+    assert.equal(allowed.code,200);
+  });
+  const historyForeign=await UserModel.create({fullName:'History Foreign Test',
+    email:'history-foreign@example.invalid',isVerified:true,password:'disabled'});
+  const foreignBearer='Bearer '+EncodeToken(historyForeign.email,String(historyForeign._id));
+  await check('customer source detail enforces ownership and returns redacted unpaid proof',async()=>{
+    const denied=await request('GET',historyDetail,undefined,false,{authorization:foreignBearer});
+    assert.equal(denied.code,404);
+    const allowed=await request('GET',historyDetail,undefined,true);
+    assert.equal(allowed.code,200);
+    const row=allowed.body.data;
+    assert.equal(row.state,'ended');assert.equal(row.energyKwh,7);
+    assert.equal(row.paymentStatus,'not_collected');assert.equal(row.readOnly,true);
+    assert.ok(allowed.body.data.durationSeconds>=0);
+    assert.equal(/ocppTokenHash|idTagHash|idTokenHash|oneTimeToken|secretHash/.test(
+      JSON.stringify(allowed.body)),false);
+  });
+  await check('history seek pages contain only owned links and never repeat rows',async()=>{
+    const foreignBooking=await BookingModel.create({
+      userId:historyForeign._id,stationId:multiStation._id,date:'2027-03-01',
+      time:'03:00 PM',status:'Upcoming',isPaid:true,hasArrived:true,
+      ocppChargerId:multiSecond,ocppTokenHash:'f'.repeat(64)
+    });
+    const foreignLink=await ChargingSessionModel.create({
+      userId:historyForeign._id,bookingId:foreignBooking._id,stationId:multiStation._id,
+      sourceType:'ocpp',sourceSessionId:String(new mongoose.Types.ObjectId()),
+      sourceChargerId:multiSecond,sourceTransactionId:'foreign-unverified'
+    });
+    let cursor=null,pages=0;const ids=[];
+    do{
+      const result=await request('GET',historyPath+'?limit=2'+(cursor?'&cursor='+cursor:''),
+        undefined,true);
+      assert.equal(result.code,200);
+      const page=result.body.data;
+      assert.ok(page.scanned<=2);assert.equal(page.readOnly,true);
+      for(const row of page.entries){
+        assert.notEqual(row.sessionId,String(foreignLink._id));
+        assert.equal(String((await ChargingSessionModel.findById(row.sessionId)).userId),String(user._id));
+        ids.push(row.sessionId);
+      }
+      pages++;
+      if(!page.hasMore)break;
+      assert.match(page.nextCursor,/^[a-f0-9]{24}$/);
+      assert.notEqual(page.nextCursor,cursor);cursor=page.nextCursor;
+      assert.ok(pages<50);
+    }while(true);
+    assert.ok(ids.includes(String(historyLink._id)));
+    assert.equal(new Set(ids).size,ids.length);
+  });
+  await check('disabled charger preserves historical source evidence without re-enabling it',async()=>{
+    await db.collection('ocpp_chargers').updateOne({chargerId:multiSecond},{$set:{enabled:false}});
+    try{
+      const response=await request('GET',historyDetail,undefined,true);
+      assert.equal(response.code,200);assert.equal(response.body.data.state,'ended');
+      assert.equal(response.body.data.energyKwh,7);
+      assert.equal(response.body.data.chargerEnabled,false);
+      assert.equal((await db.collection('ocpp_chargers').findOne({chargerId:multiSecond})).enabled,false);
+    }finally{
+      await db.collection('ocpp_chargers').updateOne({chargerId:multiSecond},{$set:{enabled:true}});
+    }
+  });
+  await check('history recomputes proof and removes telemetry after source tampering',async()=>{
+    const sourceId=new mongoose.Types.ObjectId(historyLink.sourceSessionId);
+    const original=await db.collection('ocpp_sessions').findOne({_id:sourceId});
+    await db.collection('ocpp_sessions').updateOne({_id:sourceId},{$set:{energyWh:999999}});
+    try{
+      const response=await request('GET',historyDetail,undefined,true);
+      assert.equal(response.code,200);assert.equal(response.body.data.state,'unverified');
+      assert.equal(response.body.data.energyKwh,null);
+      assert.equal(response.body.data.totalFils,null);
+      assert.equal(response.body.data.transactionId,null);
+    }finally{
+      await db.collection('ocpp_sessions').updateOne({_id:sourceId},{$set:{energyWh:original.energyWh}});
+    }
+  });
+  await check('history rejects malformed cursor, oversized pages and owner override queries',async()=>{
+    for(const suffix of ['?cursor=bad','?limit=101','?limit=0','?userId='+historyForeign._id]){
+      assert.equal((await request('GET',historyPath+suffix,undefined,true)).code,400);
+    }
+    assert.equal((await request('GET',historyPath+'/bad',undefined,true)).code,400);
   });
   const charger16='agent2-ocpp16-test',token16='0123456789ABCDEF0123';
   const hash16=createHash('sha256').update(token16).digest('hex');

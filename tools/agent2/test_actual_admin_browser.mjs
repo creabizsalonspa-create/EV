@@ -103,6 +103,40 @@ export async function runActualAdminBrowser({
      assert.equal(relayError,null);
      assert.ok(calls>=7);
    });
+   await page.goto(ui+'/ocpp-history',{waitUntil:'networkidle2'});
+   await step('actual history list and evidence inspector agree with completed booking',async()=>{
+     const selector='tr[data-booking-id="'+bookingId+'"] button';
+     await page.waitForSelector(selector,{timeout:15000});
+     await page.click(selector);
+     await page.waitForSelector('[aria-label="Source evidence details"]',{timeout:15000});
+     const text=await page.$eval('[aria-label="Source evidence details"]',x=>x.innerText);
+     assert.ok(text.includes('5 kWh'));
+     assert.ok(text.includes('5.25 AED'));
+     assert.ok(text.includes('Not collected'));
+   });
+   await step('history supports Arabic without changing records or issuing mutations',async()=>{
+     await page.$eval('button[aria-label="Change history language"]',button=>
+       button.scrollIntoView({block:'center',inline:'nearest'}));
+     await new Promise(done=>setTimeout(done,100));
+     const clickable=await page.$eval('button[aria-label="Change history language"]',button=>{
+       const r=button.getBoundingClientRect();
+       const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+       return hit===button || button.contains(hit);
+     });
+     assert.equal(clickable,true,'History language control must be pointer accessible');
+     await page.click('button[aria-label="Change history language"]');
+     await page.waitForFunction(()=>document.querySelector('[dir="rtl"]') &&
+       document.body.innerText.includes('سجل مصادر الشحن'),{timeout:15000}).catch(async error=>{
+       console.error('History language diagnostic',JSON.stringify(await page.evaluate(()=>({
+         dirs:[...document.querySelectorAll('[dir]')].map(x=>x.getAttribute('dir')),
+         headings:[...document.querySelectorAll('h1')].map(x=>x.textContent),
+         languageButtons:[...document.querySelectorAll('[aria-label="Change history language"]')]
+           .map(x=>x.textContent)
+       }))));
+       throw error;
+     });
+     assert.equal(relayError,null);
+   });
    console.log('ACTUAL_ISOLATED_ADMIN_BROWSER_TESTS_PASSED '+passed);
    return passed;
  }finally{await browser.close();}

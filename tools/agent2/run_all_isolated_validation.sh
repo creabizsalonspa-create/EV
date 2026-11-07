@@ -46,7 +46,7 @@ for patch in \
   stage_charging_source_safety.py stage_ocpp_customer_status.py \
   stage_ocpp_customer_summary.py stage_ocpp_charging_station_screen.py \
   stage_ocpp_qr_safety.py stage_admin_ocpp_binding.py \
-  stage_google_maps_config.py
+  stage_google_maps_config.py stage_ocpp_history.py
 do
   python3 "$root/tools/agent2/$patch" "$work/express"
 done
@@ -58,7 +58,8 @@ for target in \
   src/services/userService.js src/models/BookingModel.js \
   src/models/ChargingSessionModel.js src/controllers/adminOcppBooking.js \
   src/controllers/adminMultiCharger.js src/utils/ocppSourceEvidence.mjs \
-  src/utils/ocppReissuePolicy.mjs src/utils/ocppSourceBindingIndexAudit.mjs
+  src/utils/ocppReissuePolicy.mjs src/utils/ocppSourceBindingIndexAudit.mjs \
+  src/controllers/ocppHistory.js src/utils/ocppHistory.mjs
 do
   node --check "$work/express/$target"
 done
@@ -84,6 +85,7 @@ done
 ln -s "$admin/node_modules" "$work/next/node_modules"
 python3 "$root/tools/agent2/stage_next_ocpp_report_page.py" "$work/next"
 python3 "$root/tools/agent2/stage_next_ocpp_booking_workflow.py" "$work/next"
+python3 "$root/tools/agent2/stage_next_ocpp_history.py" "$work/next"
 (
   cd "$work/next"
   node ./node_modules/typescript/bin/tsc --noEmit --pretty false
