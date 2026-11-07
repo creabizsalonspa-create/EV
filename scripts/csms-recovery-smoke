@@ -126,7 +126,7 @@ fi
 # earlier pre-restore snapshot validation.
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
 docker exec -i "$target_db" pg_restore -U ev_csms_recovery -d ev_csms_recovery \
-  --clean --if-exists --no-owner --no-privileges --exit-on-error < "$archive"
+  --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
 
 restored_count=$(query "$target_db" 'SELECT count(*) FROM ev_agent3_recovery.synthetic_locations')
@@ -167,6 +167,7 @@ record = {
     'srid': 4326,
     'post_snapshot_write_excluded': True,
     'archive_tamper_rejected': True,
+    'single_transaction_restore': True,
     'real_citrineos_schema_restored': False,
     'rabbitmq_broker_restored': False,
     'physical_charger_or_money': False,

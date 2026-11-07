@@ -55,7 +55,7 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
             "pg_dump -U ev_recovery_review",
             "--format=custom --no-owner --no-privileges",
             "pg_restore -U ev_recovery_review",
-            "--clean --if-exists --no-owner --no-privileges --exit-on-error",
+            "--clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction",
             "migration_fingerprint",
             "probe_fingerprint",
             "php artisan migrate:status",

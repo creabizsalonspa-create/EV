@@ -202,7 +202,7 @@ SQL_AFTER_SNAPSHOT
 # database restore; the recovery proof must describe the consumed archive.
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
 docker exec -i "$target_db" pg_restore -U ev_recovery_review -d ev_recovery_review \
-  --clean --if-exists --no-owner --no-privileges --exit-on-error < "$archive"
+  --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
 [[ "$(query "$target_db" 'SELECT count(*) FROM migrations')" == "$migration_count" ]] || {
   echo 'Migration count changed after restore.' >&2; exit 1;
@@ -305,6 +305,7 @@ record = {
     'synthetic_private_file_restored': True,
     'post_snapshot_write_excluded': True,
     'archive_tamper_rejected': True,
+    'single_transaction_restore': True,
     'private_archive_tamper_rejected': True,
     'queue_worker_started': True,
     'scheduler_bootstrapped': True,

@@ -71,6 +71,7 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business.get('synthetic_private_file_restored') is True and
             business.get('post_snapshot_write_excluded') is True and
             business.get('archive_tamper_rejected') is True and
+            business.get('single_transaction_restore') is True and
             business.get('private_archive_tamper_rejected') is True and
             business.get('queue_worker_started') is True and
             business.get('scheduler_bootstrapped') is True,
@@ -87,7 +88,8 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             csms.get('real_citrineos_schema_restored') is False and
             csms.get('rabbitmq_broker_restored') is False and
             csms.get('physical_charger_or_money') is False and
-            csms.get('archive_tamper_rejected') is True,
+            csms.get('archive_tamper_rejected') is True and
+            csms.get('single_transaction_restore') is True,
             'PostGIS recovery or external acceptance boundary invalid')
     return {
         'status': 'PASS',

@@ -48,7 +48,7 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
             "ST_SetSRID",
             "ST_SRID",
             "--format=custom --no-owner --no-privileges",
-            "--clean --if-exists --no-owner --no-privileges --exit-on-error",
+            "--clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction",
             "post-snapshot",
             "source_fingerprint",
             "restored_fingerprint",
