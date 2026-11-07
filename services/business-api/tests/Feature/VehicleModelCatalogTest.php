@@ -137,6 +137,34 @@ class VehicleModelCatalogTest extends TestCase
         $this->assertNull($vehicle->fresh()->vehicle_model_id);
     }
 
+    public function test_connector_filter_is_applied_before_catalog_pagination(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $driver = User::factory()->create(['role' => 'customer']);
+        for ($i = 0; $i < 30; $i++) {
+            $input = $this->input();
+            $input['make'] = 'Alpha '.$i;
+            $input['connector_type'] = 'Type2';
+            $this->actingAs($admin)->postJson('/api/vehicle-models', $input)->assertCreated();
+        }
+        $compatible = $this->input();
+        $compatible['make'] = 'Zeta Compatible';
+        $model = $this->actingAs($admin)->postJson('/api/vehicle-models', $compatible)
+            ->assertCreated()->json();
+
+        $this->actingAs($driver)->getJson('/api/vehicle-models?connector_type=CCS2')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $model['id'])
+            ->assertJsonPath('data.0.connector_type', 'CCS2')
+            ->assertJsonPath('last_page', 1);
+        $this->actingAs($driver)->getJson('/api/vehicle-models?connector_type=Type2')
+            ->assertOk()->assertJsonPath('total', 30)
+            ->assertJsonCount(25, 'data');
+        $this->actingAs($driver)->getJson('/api/vehicle-models?connector_type=Type2&page=2')
+            ->assertOk()->assertJsonCount(5, 'data');
+    }
+
     public function test_sanctum_mobile_get_and_update_share_model_validation(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

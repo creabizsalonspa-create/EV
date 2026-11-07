@@ -55,8 +55,11 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
     try {
       final current = await widget.api.request('vehicles/' +
           widget.vehicleId.toString() + '/model');
+      // Filter at the API before pagination. Client-side filtering alone can
+      // hide all compatible models behind pages of other connector types.
       final raw = await widget.api.request('vehicle-models', query: {
         'page': target.toString(),
+        'connector_type': widget.vehicleConnector,
         if (search.text.trim().isNotEmpty) 'q': search.text.trim(),
       });
       if (!mounted || ticket != generation || !fence()) return;
@@ -68,7 +71,14 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
         linked = Map<String, dynamic>.from(current as Map);
         page = listing.current;lastPage=listing.last;
         choices = models;
-        selectedId = models.isEmpty ? null : models.first['id'] as int;
+        // Keep the currently linked compatible choice selected on refresh.
+        // An existing link can be on a different filtered page (or archived).
+        final linkedId = (current as Map)['model_id'];
+        selectedId = models.isEmpty
+            ? null
+            : models.any((m) => m['id'] == linkedId)
+                ? linkedId as int
+                : models.first['id'] as int;
       });
     } catch (e) {
       if (mounted && ticket == generation) failed(e);
@@ -138,7 +148,7 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
                    'لا توجد طرازات منشورة متوافقة في هذه الصفحة.')),
           if (choices.isNotEmpty)
             DropdownButtonFormField<int>(
-              key:ValueKey('model-options-'+page.toString()),
+              key:ValueKey('model-options-$page-$selectedId'),
               initialValue:selectedId,
               decoration:InputDecoration(labelText:t('Select model', 'اختر الطراز')),
               items:choices.map((m)=>DropdownMenuItem<int>(

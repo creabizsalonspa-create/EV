@@ -10,6 +10,7 @@ class _ModelsApi extends EvApi {
   final bool forAdmin;
   final writes = <Map<String, dynamic>>[];
   int? selectedModel;
+  final catalogQueries = <Map<String, String>>[];
 
   final model = <String, dynamic>{
     'id': 4, 'make': 'Test brand', 'model': 'Demo E', 'variant': null,
@@ -17,6 +18,12 @@ class _ModelsApi extends EvApi {
     'source_url': 'https://example.com/catalog/demo-e',
     'published': true, 'revision': 1,
     'provenance': 'ADMIN_CURATED_UNVERIFIED',
+  };
+  Map<String,dynamic> get secondModel => {
+    ...model,
+    'id':5,
+    'model':'Second compatible',
+    'source_url':'https://example.com/catalog/second',
   };
 
   @override
@@ -28,15 +35,23 @@ class _ModelsApi extends EvApi {
     if (path == 'vehicles/12/model' && method == 'GET') {
       return {
         'vehicle_id': 12, 'vehicle_connector_type': 'CCS2',
-        'model_id': selectedModel, 'model': selectedModel == null ? null : model,
+        'model_id': selectedModel, 'model': selectedModel == null
+          ? null : (selectedModel == 5 ? secondModel : model),
         'published': selectedModel != null,
         'does_not_override_connector': true,
       };
     }
     if (path == 'vehicle-models' && method == 'GET') {
+      catalogQueries.add(Map<String, String>.from(query));
+      // Simulate a server catalog with many unrelated connector types.
+      // Without server-side connector filtering the first page is empty.
+      final visible = forAdmin ? <Map<String,dynamic>>[]
+          : query['connector_type'] == 'CCS2'
+              ? <Map<String,dynamic>>[model, secondModel]
+              : <Map<String,dynamic>>[];
       return {
-        'current_page': 1, 'last_page': 1, 'total': forAdmin ? 0 : 1,
-        'data': forAdmin ? <Map<String, dynamic>>[] : [model],
+        'current_page': 1, 'last_page': 1, 'total': visible.length,
+        'data': visible,
       };
     }
     if (path == 'vehicles/12/model' && method == 'PUT') {
@@ -75,6 +90,7 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('model-link-save')));
       await tester.tap(find.byKey(const Key('model-link-save')));
       await tester.pumpAndSettle();
+      expect(api.catalogQueries.single['connector_type'], 'CCS2');
       expect(api.writes, hasLength(1));
       expect(api.writes.single['model_id'], 4);
       expect(api.writes.single['expected_model_id'], null);
@@ -82,6 +98,27 @@ void main() {
     } finally {
       api.close();
     }
+  });
+
+
+  testWidgets('saved compatible link is preselected when filtered models reload',
+      (tester) async {
+    final api = _ModelsApi()..selectedModel = 5;
+    try {
+      await tester.pumpWidget(MaterialApp(
+        home: VehicleModelAssociationView(
+          api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.catalogQueries.single['connector_type'], 'CCS2');
+      final picker = tester.widget<DropdownButtonFormField<int>>(
+        find.byKey(const ValueKey('model-options-1-5')),
+      );
+      expect(picker.initialValue, 5);
+      expect(find.textContaining('Linked: Test brand Second compatible'), findsOneWidget);
+      expect(api.writes, isEmpty);
+    } finally {api.close();}
   });
 
   testWidgets('Admin can create a source-backed unpublished catalog record',
