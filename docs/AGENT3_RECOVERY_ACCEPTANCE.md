@@ -141,3 +141,7 @@ The archive, local HMAC-key, backup-manifest, and combined synthetic recovery-ev
 ### Atomic local backup manifests and key-link rejection
 
 The run-local HMAC backup manifest now uses the same strict-JSON, 0600 temporary-file and atomic replacement writer as the combined synthetic recovery evidence. If serialization or replacement fails, the previous manifest is removed rather than leaving an apparently valid stale record; interrupted temporary files are cleaned up. In addition to no-follow/regular-file/size/mode checks, the HMAC key must be owned by the current effective user and have exactly one hard link. Local negative fixtures test a linked key and simulated failed atomic replacement, followed by successful retry. This does **not** make the ephemeral key an independent production backup signature.
+
+### Staging secret-read and proof-publishing consistency
+
+The staging release preflight now opens the private environment through a nonblocking no-follow descriptor, preventing a FIFO input from hanging before its regular-file check. Its `validation.json` is published through the same strict, bounded, private (0600), fsynced atomic writer used by the rest of Agent 3's synthetic recovery evidence. A failed atomic replacement returns a controlled failure and removes any previous PASS. Synthetic tests exercise a named pipe with no writer, a normal result, private permissions, simulated interrupted replacement, and successful retry. This remains staging-only configuration validation, never production authorization.

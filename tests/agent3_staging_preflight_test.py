@@ -71,6 +71,34 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaises(p.PreflightError):
                 p.read_env(link)
 
+    def test_fifo_staging_env_cannot_block_preflight(self):
+        if not hasattr(os, 'mkfifo'):
+            self.skipTest('Requires POSIX named pipes')
+        with tempfile.TemporaryDirectory() as d:
+            pipe = Path(d)/'unexpected.env'
+            os.mkfifo(pipe, 0o600)
+            with self.assertRaises(p.PreflightError):
+                p.read_env(pipe)
+
+    def test_synthetic_preflight_proof_is_atomic_and_private(self):
+        import json
+        import stat
+        with tempfile.TemporaryDirectory() as d:
+            result = Path(d)/'staging-preflight.json'
+            self.assertEqual(p.main(['--root', str(ROOT),
+                                     '--output', str(result)]), 0)
+            self.assertEqual(json.loads(result.read_text())['status'], 'PASS')
+            self.assertFalse(json.loads(result.read_text())['external_provider_or_production_accepted'])
+            self.assertEqual(stat.S_IMODE(result.stat().st_mode), 0o600)
+            with patch.object(p._atomic_writer.os, 'replace',
+                              side_effect=OSError('synthetic failed atomic move')):
+                self.assertEqual(p.main(['--root', str(ROOT),
+                                         '--output', str(result)]), 1)
+            self.assertFalse(result.exists())
+            self.assertEqual(list(Path(d).glob('.*.pending')), [])
+            self.assertEqual(p.main(['--root', str(ROOT),
+                                     '--output', str(result)]), 0)
+
     def test_symlink_swap_before_open_is_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

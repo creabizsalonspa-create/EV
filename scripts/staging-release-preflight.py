@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Staging-only, no-deployment EV release preflight. Never print secrets."""
 import argparse
+import importlib.util
 import base64
 import binascii
 import json
@@ -9,6 +10,15 @@ from pathlib import Path
 import re
 import stat
 import sys
+
+# Import the sibling atomic proof publisher from its reviewed path, including
+# when unit tests load this standalone preflight by file location.
+_atomic_spec = importlib.util.spec_from_file_location(
+    'agent3_staging_preflight_publisher',
+    Path(__file__).with_name('recovery_proof_writer.py'))
+_atomic_writer = importlib.util.module_from_spec(_atomic_spec)
+_atomic_spec.loader.exec_module(_atomic_writer)
+publish = _atomic_writer.publish
 
 class PreflightError(Exception):
     pass
@@ -31,8 +41,11 @@ def require(ok, reason):
 def read_env(path):
     # A path-based is_symlink()/stat()/read_text() sequence permits a
     # replacement between checks. Inspect and consume one no-follow fd.
-    require(hasattr(os, 'O_NOFOLLOW'), 'Secure staging env reads unavailable')
-    flags = os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) | os.O_NOFOLLOW
+    require(hasattr(os, 'O_NOFOLLOW') and hasattr(os, 'O_NONBLOCK'),
+            'Secure nonblocking staging env reads unavailable')
+    # FIFO paths must never block while waiting for a writer before fstat.
+    flags = (os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) |
+             os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         descriptor = os.open(path, flags)
     except OSError:
@@ -270,14 +283,14 @@ def main(argv=None):
         print(f'FAIL: {exc}', file=sys.stderr)
         return 1
     if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        temporary = args.output.with_suffix('.preflight-tmp')
-        temporary.unlink(missing_ok=True)
-        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        with os.fdopen(fd, 'w') as f:
-            json.dump(result, f, sort_keys=True, indent=2)
-            f.write('\n')
-        os.replace(temporary, args.output)
+        try:
+            publish(args.output, result)
+        except (OSError, ValueError):
+            # An interrupted write must neither retain a former PASS nor
+            # reveal environment variables through an exception traceback.
+            print('FAIL: staging preflight evidence could not be published safely',
+                  file=sys.stderr)
+            return 1
     print('PASS: staging configuration only; NOT production acceptance')
     return 0
 
