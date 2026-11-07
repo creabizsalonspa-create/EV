@@ -5,7 +5,7 @@
 const {load,jsonRequest}=require('./staging-synthetic-role-smoke.cjs');
 const {checkOutputDestination,writeEvidence}=require('./staging-acceptance.cjs');
 
-const SCHEMA='ev-local-csms-demo-completion-v1';
+const SCHEMA='ev-local-csms-demo-completion-v2';
 const PROTOCOLS=['1.6','2.0.1'];
 function parseArgs(argv) {
   if(!Array.isArray(argv)||argv.length!==4||argv[0]!=='--manifest'||
@@ -41,7 +41,8 @@ function validateCompleted(fixture,userId,reservations,sessions) {
       throw Error('A single transaction cannot prove both OCPP protocols');
     }
     usedSessions.add(selected.id);usedReservations.add(selected.reservation_id);
-    found.push({protocol:station.protocol,stopped:true,positive_simulated_energy:true,
+    found.push({protocol:station.protocol,session_id:selected.id,
+      simulated_energy_wh:selected.energy_wh,stopped:true,positive_simulated_energy:true,
       evidence:'SIMULATED_CSMS',no_real_payment:true});
   }
   if(found.length!==2 || PROTOCOLS.some((protocol,i)=>found[i].protocol!==protocol)){
@@ -49,9 +50,27 @@ function validateCompleted(fixture,userId,reservations,sessions) {
   }
   return found;
 }
+function validateMockInvoices(sessions,userId,invoices) {
+  if(!Number.isSafeInteger(userId)||userId<=0 || sessions.length!==2) {
+    throw Error('Synthetic invoice identities invalid');
+  }
+  const references=[],used=new Set();
+  for(const session of sessions) {
+    const match=invoices.find(inv=>inv?.charging_session_id===session.session_id &&
+      inv.user_id===userId && inv.evidence==='SIMULATED' &&
+      inv.currency==='AED' && inv.energy_wh===session.simulated_energy_wh &&
+      Number.isSafeInteger(inv.id)&&inv.id>0 && inv.id<=9999999999 &&
+      Number.isSafeInteger(inv.total_minor)&&inv.total_minor>=0);
+    if(!match || used.has(match.id))throw Error('Missing unique simulated invoice for charging session');
+    used.add(match.id);
+    references.push({protocol:session.protocol,invoice_id:match.id,session_id:session.session_id});
+  }
+  return references;
+}
 async function inspect(manifest,send=jsonRequest,now=()=>new Date().toISOString()) {
   const result={schema:SCHEMA,status:'INCOMPLETE',observed_from_utc:now(),
     source:'LOCAL_SYNTHETIC_ONLY',protocols:[],completion_count:0,
+    simulated_invoices_verified:false,
     physical_charging_verified:false,real_money_moved:false,
     production_accepted:false,customer_contract_accepted:false};
   const fixture=load(manifest); // canonical strict local-only demo manifest
@@ -71,11 +90,32 @@ async function inspect(manifest,send=jsonRequest,now=()=>new Date().toISOString(
     const sessions=await send('/api/simulations','GET',undefined,jar);
     if(reservations.status!==200||sessions.status!==200)throw Error('Local session read failed');
     const verified=validateCompleted(fixture,login.body.id,page(reservations.body),page(sessions.body));
-    result.protocols=verified;
+    const listing=await send('/api/finance/invoices','GET',undefined,jar);
+    if(listing.status!==200)throw Error('Synthetic invoice list unavailable');
+    const references=validateMockInvoices(verified,login.body.id,page(listing.body));
+    for(const item of references) {
+      const details=await send('/api/finance/invoices/'+item.invoice_id,'GET',undefined,jar);
+      const body=details.body,invoice=body?.invoice;
+      if(details.status!==200 || invoice?.id!==item.invoice_id ||
+        invoice.charging_session_id!==item.session_id ||
+        body.payment_provider!=='SIMULATOR_ONLY' ||
+        body.real_payment_processed!==false ||
+        body.ledger_balanced!==true ||
+        body.net_collected_minor!==0 || body.paid_minor!==0 ||
+        body.refunded_minor!==0 ||
+        !Array.isArray(body.payments) || body.payments.length ||
+        !Array.isArray(body.refunds) || body.refunds.length) {
+        throw Error('Synthetic invoice or zero-real-payment audit failed');
+      }
+    }
+    result.protocols=verified.map(item=>({protocol:item.protocol,stopped:true,
+      positive_simulated_energy:true,evidence:'SIMULATED_CSMS',
+      mock_invoice_verified:true,no_real_payment:true}));
     result.completion_count=verified.length;
+    result.simulated_invoices_verified=true;
   } catch {
     result.status='INCOMPLETE';
-    result.protocols=[];result.completion_count=0;
+    result.protocols=[];result.completion_count=0;result.simulated_invoices_verified=false;
   } finally {
     if(loggedIn){
       try {
@@ -85,7 +125,9 @@ async function inspect(manifest,send=jsonRequest,now=()=>new Date().toISOString(
       } catch {logoutOk=false;}
     }
   }
-  if(result.completion_count===2 && logoutOk)result.status='LOCAL_SIMULATOR_COMPLETION_VERIFIED';
+  if(result.completion_count===2 && result.simulated_invoices_verified && logoutOk) {
+    result.status='LOCAL_SIMULATOR_COMPLETION_VERIFIED';
+  }
   else {result.status='INCOMPLETE';result.protocols=[];result.completion_count=0;}
   result.checked_until_utc=now();
   return result;
@@ -108,4 +150,4 @@ async function main(argv=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)main().then(code=>{process.exitCode=code;});
-module.exports={SCHEMA,PROTOCOLS,parseArgs,page,validateCompleted,inspect,main};
+module.exports={SCHEMA,PROTOCOLS,parseArgs,page,validateCompleted,validateMockInvoices,inspect,main};
