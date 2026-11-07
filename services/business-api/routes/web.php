@@ -9,6 +9,7 @@ use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\SupportController;
+use App\Http\Controllers\VehicleBatteryController;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -30,6 +31,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/stations', [P::class, 'createStation']);
     Route::get('/api/vehicles', [P::class, 'vehicles']);
     Route::post('/api/vehicles', [P::class, 'createVehicle']);
+    Route::post('/api/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
     Route::get('/api/reservations', [P::class, 'reservations']);
     Route::post('/api/reservations', [P::class, 'reserve']);
     Route::delete('/api/reservations/{reservation}', [P::class, 'cancel']);
