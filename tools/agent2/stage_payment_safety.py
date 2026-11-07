@@ -144,6 +144,21 @@ import { verifiedSslSettlement, verifiedStripeSettlement, belongsToAuthenticated
         """        if (verifiedStripeSettlement({intent:pi,record:session,
                                       kind:'session',currency:settings.currencyCode})) {
           session.status""", 'direct session intent verification')
+    # The purchased backend advertises "card" even though no tokenized vault exists.
+    # Suppress it consistently in the public app settings and payment screen.
+    s = one(s, '    if (ps.savedCardEnabled) {',
+        '    if (false /* tokenized saved cards unavailable */) {',
+        'booking gateway saved-card disclosure')
+    s = one(s, '    if (s.savedCardEnabled) {',
+        '    if (false /* tokenized saved cards unavailable */) {',
+        'application gateway saved-card disclosure')
+    s = one(s, '        savedCardEnabled:  s.savedCardEnabled,',
+        '        savedCardEnabled:  false,',
+        'app settings saved-card flag')
+    s = one(s, '    const cards = await PaymentCardModel.find({ userId: user_id }).sort({ isDefault: -1, createdAt: -1 });',
+        '    const cards = []; // Legacy PAN vault disabled; avoid loading stored card data.',
+        'booking saved-card lookup')
+
     def replace_block(source, start_marker, end_marker, replacement, label):
         start = source.find(start_marker)
         if start < 0 or source.find(start_marker, start+1) >= 0:
