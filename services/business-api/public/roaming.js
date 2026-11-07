@@ -91,6 +91,9 @@ window.createRoamingWorkspace = ({
         if (Number.isSafeInteger(metadata?.id))
             card.dataset.partnerLocationId = String(metadata.id);
         card.append(raw("h3", item.name || item.id));
+        if (metadata?.provider_label_evidence === "PROVIDER_CONFIGURED_UNVERIFIED" &&
+            typeof metadata.provider_label === "string" && metadata.provider_label.trim())
+            line(card, "Roaming configured provider", metadata.provider_label);
         card.append(
             raw(
                 "p",
@@ -158,6 +161,11 @@ window.createRoamingWorkspace = ({
         }
         connector.value = catalogFilters.connector_standard || "";
         field("Connector", connector);
+        const provider = document.createElement("input");
+        provider.name = "partner_provider";
+        provider.maxLength = 80;
+        provider.value = catalogFilters.provider || "";
+        field("Partner network label (unverified)", provider);
         // Optional coordinates are a single grouped filter. They never request device location.
         const latitude = document.createElement("input");
         const longitude = document.createElement("input");
@@ -196,6 +204,7 @@ window.createRoamingWorkspace = ({
                 ...(connector.value
                     ? { connector_standard: connector.value }
                     : {}),
+                ...(provider.value.trim() ? { provider: provider.value.trim() } : {}),
                 ...(nearby.every(input => input.value.trim() !== "") ? {
                     latitude: latitude.value,
                     longitude: longitude.value,
