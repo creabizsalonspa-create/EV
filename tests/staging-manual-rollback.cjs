@@ -88,7 +88,7 @@ test('manual rollback of interrupted release restores only three app services',(
   assert.ok(deps.state.seen.every(args=>!args.includes('migrate')&&!args.includes('down')&&!args.includes('rm')));
 }));
 test('successful earlier rollback is read-only confirmed without another up',()=>temp(dir=>{
-  const file=setup(dir,['ROLLBACK_VERIFIED']),deps=mock(dir);
+  const file=setup(dir,['RELEASE_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir);
   deps.state.tag='old';deps.state.appUnhealthy=false;
   assert.equal(recovery.main(cli(file),deps),0);
   assert.equal(deps.state.up,0);
