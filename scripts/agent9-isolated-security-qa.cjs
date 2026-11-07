@@ -141,7 +141,10 @@ async function main() {
     MAIL_MAILER: "array",
     LOG_CHANNEL: "stderr",
   };
-  const server = spawn(php, ["-S", "127.0.0.1:" + port, "-t", serveFrom, router], {
+  const server = spawn(php, [
+    "-d", "log_errors=1", "-d", "error_log=/dev/stderr",
+    "-S", "127.0.0.1:" + port, "-t", serveFrom, router,
+  ], {
     // Laravel's built-in-server router resolves public/index.php from cwd.
     cwd: serveFrom, env, stdio: ["ignore", "pipe", "pipe"],
   });
