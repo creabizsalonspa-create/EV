@@ -63,6 +63,17 @@ class CITriggerTest(unittest.TestCase):
                     self.assertRegex(workflow, rf"(?m)^  {re.escape(job)}:")
                 self.assertIn("concurrency:", workflow)
 
+    def test_hasone_client_build_pushes_match_relevant_pr_paths(self):
+        workflow = (ROOT / ".github/workflows/hasone-customer.yml").read_text()
+        trigger = top_level_section(workflow, "on")
+        expected_paths = (
+            "    paths: ['apps/hasone-customer/**', "
+            "'.github/workflows/hasone-customer.yml']"
+        )
+        self.assertIn(expected_paths, event_subsection(trigger, "pull_request"))
+        self.assertIn(expected_paths, event_subsection(trigger, "push"))
+        self.assertIn("  workflow_dispatch:", trigger)
+
     def test_superseded_work_cannot_cancel_a_distinct_pr_event(self):
         for filename in WORKFLOWS:
             with self.subTest(workflow=filename):
