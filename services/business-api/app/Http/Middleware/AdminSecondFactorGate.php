@@ -21,7 +21,7 @@ class AdminSecondFactorGate
         }
 
         $at = (int) $request->session()->get('admin_second_factor_verified_at', 0);
-        if ($at <= 0 || $at > time() || time() - $at > 12 * 60 * 60) {
+        if ($at <= 0 || $at > now()->timestamp || now()->timestamp - $at > 12 * 60 * 60) {
             return false;
         }
 
