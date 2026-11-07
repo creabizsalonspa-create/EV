@@ -1,4 +1,17 @@
 window.EV_MESSAGES = {
+    "Notification preferences": { en: "Notification preferences", ar: "تفضيلات الإشعارات" },
+    "Default inbox category": { en: "Default inbox category", ar: "الفئة الافتراضية لصندوق الوارد" },
+    "Start with unread only": { en: "Start with unread only", ar: "عرض غير المقروءة أولاً" },
+    "Repeat unresolved simulator fault reminders": {
+        en: "Repeat unresolved simulator fault reminders",
+        ar: "تكرار تذكيرات أعطال المحاكاة غير المحلولة",
+    },
+    "Critical in-app notifications always remain visible. External notification delivery is not active.": {
+        en: "Critical in-app notifications always remain visible. External notification delivery is not active.",
+        ar: "تبقى الإشعارات الداخلية الحرجة ظاهرة دائماً. إرسال الإشعارات خارج التطبيق غير مفعل.",
+    },
+    "Save notification preferences": { en: "Save notification preferences", ar: "حفظ تفضيلات الإشعارات" },
+
     "Source-based operator review closed · station #{id}": {
         en: "Source-based operator review closed · station #{id}",
         ar: "أُغلقت مراجعة المشغل المستندة إلى المصدر · المحطة #{id}",

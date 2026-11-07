@@ -1,5 +1,7 @@
 let inboxUnreadOnly = false;
 let inboxCategory = "all";
+let inboxPreferences = null;
+let inboxPreferencesFor = null;
 let inboxPage = 1;
 let inboxGeneration = 0;
 let unconfirmedFavorite = null;
@@ -81,6 +83,8 @@ function clearIdentity() {
 function clearPrivateViews() {
     inboxUnreadOnly = false;
     inboxCategory = "all";
+    inboxPreferences = null;
+    inboxPreferencesFor = null;
     inboxPage = 1;
     inboxGeneration++;
     riderWorkspace.clear();
@@ -1290,6 +1294,28 @@ async function support() {
         b.onclick = () => ticketDetail(t.id).catch((e) => notice(e));
         el("ticket-list").append(b);
     }
+    if (inboxPreferencesFor !== account) {
+        try {
+            const prefs = await api("notifications/preferences");
+            if (session !== client.sessionEpoch || account !== user?.id) return;
+            if (prefs && ["all", "support", "vehicle", "charging", "fleet"].includes(
+                prefs.default_category
+            ) && typeof prefs.default_unread_only === "boolean" &&
+                typeof prefs.remind_unresolved_simulator_faults === "boolean" &&
+                prefs.in_app_only === true &&
+                prefs.external_delivery_available === false) {
+                inboxPreferences = prefs;
+                inboxPreferencesFor = account;
+                inboxCategory = prefs.default_category;
+                inboxUnreadOnly = prefs.default_unread_only;
+                inboxPage = 1;
+            }
+        } catch (error) {
+            if (session !== client.sessionEpoch || account !== user?.id) return;
+            notice(error);
+            // Inbox remains usable even if preferences fail to load.
+        }
+    }
     await refreshInbox();
 }
 
@@ -1371,6 +1397,83 @@ async function refreshInbox() {
         }
     };
     view.append(categorySelect);
+    if (inboxPreferencesFor === account && inboxPreferences) {
+        const prefs = inboxPreferences;
+        const settings = document.createElement("form");
+        settings.id = "notification-preferences";
+        settings.append(ui("h3", "Notification preferences"));
+        const defaultLabel = document.createElement("label");
+        defaultLabel.append(ui("span", "Default inbox category"));
+        const defaultCategory = document.createElement("select");
+        defaultCategory.id = "notification-default-category";
+        for (const [value, label] of [
+            ["all", "All notification categories"],
+            ["support", "Support notifications"],
+            ["vehicle", "Vehicle notifications"],
+            ["charging", "Charging notifications"],
+            ["fleet", "Fleet notifications"],
+        ]) {
+            const option = ui("option", label);
+            option.value = value;
+            defaultCategory.append(option);
+        }
+        defaultCategory.value = prefs.default_category;
+        defaultLabel.append(defaultCategory);
+        settings.append(defaultLabel);
+        const checkLabel = (id, title, enabled) => {
+            const label = document.createElement("label");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.id = id;
+            checkbox.checked = enabled;
+            label.append(checkbox, ui("span", title));
+            settings.append(label);
+            return checkbox;
+        };
+        const unreadDefault = checkLabel(
+            "notification-default-unread", "Start with unread only",
+            prefs.default_unread_only,
+        );
+        const reminders = checkLabel(
+            "notification-repeat-reminders",
+            "Repeat unresolved simulator fault reminders",
+            prefs.remind_unresolved_simulator_faults,
+        );
+        settings.append(ui("p", "Critical in-app notifications always remain visible. External notification delivery is not active."));
+        const save = ui("button", "Save notification preferences");
+        save.id = "notification-preference-save";
+        save.type = "submit";
+        settings.append(save);
+        settings.onsubmit = async (event) => {
+            event.preventDefault();
+            if (session !== client.sessionEpoch || account !== user?.id) return;
+            save.disabled = true;
+            const desired = {
+                default_category: defaultCategory.value,
+                default_unread_only: unreadDefault.checked,
+                remind_unresolved_simulator_faults: reminders.checked,
+            };
+            try {
+                const accepted = await api("notifications/preferences", "PUT", desired);
+                if (session !== client.sessionEpoch || account !== user?.id) return;
+                if (!accepted || accepted.default_category !== desired.default_category ||
+                    accepted.default_unread_only !== desired.default_unread_only ||
+                    accepted.remind_unresolved_simulator_faults !== desired.remind_unresolved_simulator_faults) {
+                    throw new Error("Notification preference update could not be confirmed.");
+                }
+                inboxPreferences = accepted;
+                inboxCategory = accepted.default_category;
+                inboxUnreadOnly = accepted.default_unread_only;
+                inboxPage = 1;
+                await refreshInbox();
+            } catch (error) {
+                if (session === client.sessionEpoch && account === user?.id) notice(error);
+            } finally {
+                save.disabled = false;
+            }
+        };
+        view.append(settings);
+    }
     if (Number.isSafeInteger(inbox.unread_count) && Number.isSafeInteger(inbox.latest_id)) {
         view.append(ui("p", "{count} unread notifications", { count: inbox.unread_count }));
         const byCategory = inbox.unread_by_category;

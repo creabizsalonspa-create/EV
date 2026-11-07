@@ -415,6 +415,40 @@ const { randomUUID } = require("node:crypto");
         document.documentElement.lang === "ar" ? "جميع" : "all",
       ),
     );
+    // Saved notification defaults round-trip via the actual authenticated
+    // API, are applied after a fresh browser session and cannot mute critical
+    // in-app events or falsely claim an external delivery provider.
+    await customer.page.locator("#notification-default-category").selectOption("charging");
+    await customer.page.locator("#notification-default-unread").check();
+    await customer.page.locator("#notification-repeat-reminders").uncheck();
+    const savedPreferences = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/preferences") &&
+        response.request().method() === "PUT",
+    );
+    await customer.page.locator("#notification-preference-save").click();
+    assert.equal((await savedPreferences).status(), 200);
+    const configured = await customer.page.evaluate(
+      () => api("notifications/preferences"),
+    );
+    assert.equal(configured.default_category, "charging");
+    assert.equal(configured.default_unread_only, true);
+    assert.equal(configured.remind_unresolved_simulator_faults, false);
+    assert.equal(configured.external_delivery_available, false);
+    const stillRecorded = await customer.page.evaluate(
+      () => api("notifications/summary"),
+    );
+    assert(stillRecorded.unread_by_category.support >= 0);
+    await customer.page.reload();
+    await customer.page.locator("#notification-preferences").waitFor();
+    assert.equal(
+      await customer.page.locator("#notification-category").inputValue(), "charging",
+    );
+    assert.equal(
+      await customer.page.locator("#notification-default-unread").isChecked(), true,
+    );
+    assert.equal(
+      await customer.page.locator("#notification-repeat-reminders").isChecked(), false,
+    );
     await vendor.page.setViewportSize({ width: 390, height: 844 });
     assert(
       await vendor.page.evaluate(
