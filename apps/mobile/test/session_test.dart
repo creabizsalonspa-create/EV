@@ -496,7 +496,7 @@ void main() {
       final first = EvApi(base, http: trusted(), vault: vault);
       final second = EvApi(base, http: trusted(), vault: vault);
       final untrusted = EvApi(base);
-      final late = EvApi(
+      final delayedClient = EvApi(
         base,
         http: ObservedClient(trusted(), bodyListening),
         vault: vault,
@@ -515,12 +515,12 @@ void main() {
         expect((await second.restoreSession())!.name, 'Fresh server account');
         expect(meCalls, 1);
         expect(second.remembered, isTrue);
-        await late.restoreSession();
-        final delayed = late.request('delayed');
+        await delayedClient.restoreSession();
+        final delayed = delayedClient.request('delayed');
         await bodyListening.future;
         final deletion = Completer<void>();
         vault.deleteWait = deletion.future;
-        final forgetting = late.forgetSession();
+        final forgetting = delayedClient.forgetSession();
         bodyRelease.complete();
         await expectLater(
           delayed.timeout(const Duration(seconds: 3)),
@@ -580,7 +580,7 @@ void main() {
         first.close();
         second.close();
         untrusted.close();
-        late.close();
+        delayedClient.close();
         if (!bodyRelease.isCompleted) bodyRelease.complete();
         await subscription.cancel();
         await server.close(force: true);
