@@ -57,6 +57,9 @@ class PlatformController extends Controller
             'admin_second_factor_verified_at',
             'admin_second_factor_enrollment_proof',
             'admin_second_factor_pending',
+            'admin_second_factor_recovery_user_id',
+            'admin_second_factor_recovery_at',
+            'admin_second_factor_recovery_enrollment_proof',
         ]);
 
         return response()->json($r->user()->toArray() + [
