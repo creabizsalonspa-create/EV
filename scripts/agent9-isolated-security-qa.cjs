@@ -52,6 +52,13 @@ for (const file of [
     console.error("Isolated QA dependency missing:", path.relative(root, file));
     process.exit(2);
   }
+  // A temporary checkout may contain symlinks. Never execute a router or
+  // test source whose resolved contents escape the temporary source tree.
+  const actual = fs.realpathSync(file);
+  if (!actual.startsWith(root + path.sep)) {
+    console.error("Refusing dependency outside disposable source tree.");
+    process.exit(2);
+  }
 }
 try {
   require.resolve("playwright", { paths: [root] });
