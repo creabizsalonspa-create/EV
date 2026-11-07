@@ -29,3 +29,17 @@ The hosted staging-image job runs the static safety test and the real dump/resto
 - **Integration boundary:** this rehearsal does **not** copy/restore the separate CitrineOS PostgreSQL or Mongo/Express stores and cannot prove multi-service financial reconciliation. Do not use it as a production procedure.
 
 For this project, no task may be marked PRODUCTION_READY or HARDWARE_TESTED based on this drill.
+
+## Second milestone — separate CSMS PostGIS data recovery check
+
+New files: `scripts/csms-recovery-smoke` and `tests/agent3_csms_recovery_policy_test.py`. A dedicated `csms-recovery` CI job executes them independently of the Laravel staging image.
+
+```bash
+bash -n scripts/csms-recovery-smoke
+python3 -m unittest discover -s tests -p agent3_csms_recovery_policy_test.py
+bash scripts/csms-recovery-smoke
+```
+
+The script uses the **exact PostGIS 16-3.5 image digest** from `services/csms/compose.yaml`, launches two isolated run-owned PostgreSQL/PostGIS containers on two internal Docker networks (without published ports), creates two clearly synthetic locations with a geometry(Point,4326) column and JSON data, snapshots the source with pg_dump custom format, inserts a third **post-snapshot** record into the source and restores into the distinct target with pg_restore. The final checks enforce the PostGIS extension, SRID 4326, record count, geometric/data fingerprint, and exclusion of the post-snapshot record. The source must still contain the third record. On success it writes only non-secret hashes and scope declarations to `artifacts/agent3-csms-recovery/validation.json`; CI uploads that JSON.
+
+**Important:** This demonstrates the CSMS PostGIS **database format and isolated snapshot/restore mechanics**, not recovery of real CitrineOS schemas, immutable event journals, pending commands, charger identity/PKI, broker acknowledgments, in-flight RabbitMQ queues, temporal consistency across Laravel and CitrineOS, or Express/Mongo. The separate broker, device protocols and physical chargers are never started. Only a running, exact-source hosted test establishes the synthetic acceptance result; the presence of the script or draft PR alone does not. A production runbook must coordinate application-worker quiescence, PostgreSQL/WAL retention, backup encryption, verified restore/roll-forward, private object storage, and separately assessed RabbitMQ/Mongo consistency before actual cutover.
