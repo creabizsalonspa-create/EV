@@ -531,6 +531,49 @@ try{
       {},false,{authorization:adminBearer});
     assert.equal(response.code,409);
   });
+  const existingSourceHash=createHash('sha256').update('agent2-source-observed-expired-token').digest('hex');
+  const observedBooking=await BookingModel.create({
+    userId:user._id,stationId:adminStation._id,
+    date:'2026-11-17',time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+    status:'Upcoming',isPaid:true,hasArrived:true,totalAmount:63,
+    ocppChargerId:adminCharger,ocppTokenHash:existingSourceHash,
+    ocppTokenIssuedAt:new Date(Date.now()-40*60000)
+  });
+  await db.collection('ocpp_sessions').insertOne({
+    chargerId:adminCharger,protocol:'ocpp1.6',transactionId:99999,
+    idTagHash:existingSourceHash,status:'active',startedAt:new Date()
+  });
+  await check('source observation blocks reissue even without linked customer session',async()=>{
+    const op=await request('GET','/api/v1/admin/bookings/'+observedBooking._id+'/ocpp/operations',
+      undefined,false,{authorization:adminBearer});
+    assert.equal(op.code,200);assert.equal(op.body.data.canReissueToken,false);
+    const z=await request('POST',
+      '/api/v1/admin/bookings/'+observedBooking._id+'/ocpp/reissue-token',
+      {},false,{authorization:adminBearer});
+    assert.equal(z.code,409);
+  });
+  const liveHash=createHash('sha256').update('agent2-unexpired-db-token').digest('hex');
+  const liveBooking=await BookingModel.create({
+    userId:user._id,stationId:adminStation._id,
+    date:'2026-11-18',time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+    status:'Upcoming',isPaid:true,hasArrived:true,totalAmount:63,
+    ocppChargerId:adminCharger,ocppTokenHash:liveHash,
+    ocppTokenIssuedAt:new Date(Date.now()-40*60000)
+  });
+  await db.collection('ocpp_access_tokens').insertOne({
+    chargerId:adminCharger,tokenHash:liveHash,enabled:true,
+    expiresAt:new Date(Date.now()+120000),
+    bookingId:String(liveBooking._id)
+  });
+  await check('database-valid token blocks reissue even with an old booking timestamp',async()=>{
+    const op=await request('GET','/api/v1/admin/bookings/'+liveBooking._id+'/ocpp/operations',
+      undefined,false,{authorization:adminBearer});
+    assert.equal(op.code,200);assert.equal(op.body.data.canReissueToken,false);
+    const z=await request('POST',
+      '/api/v1/admin/bookings/'+liveBooking._id+'/ocpp/reissue-token',
+      {},false,{authorization:adminBearer});
+    assert.equal(z.code,409);
+  });
   let adminOcppSession;
   await check('real OCPP 1.6 handler accepts Admin booking token and persists source meter events',async()=>{
     const starting=await handle({chargerId:adminCharger},'ocpp1.6','StartTransaction',{
