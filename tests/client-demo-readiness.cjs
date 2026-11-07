@@ -14,7 +14,7 @@ function synthetics(){
        evidence:'SIMULATED_CITRINEOS'}))}),
    roles:async()=>({ok:true,physical_charging_verified:false,real_money_moved:false,
      production_accepted:false,
-     results:ROLES.map(role=>({role,authenticated:true,admin_authorized:role==='admin',post_logout_denied:true}))}),
+     results:ROLES.map(role=>({role,authenticated:true,read_only_features_verified:true,admin_authorized:role==='admin',post_logout_denied:true}))}),
    now:()=> '2026-11-07T13:00:00.000Z',
  };
 }
@@ -52,7 +52,7 @@ test('after browser checks, newly active simulator fails demonstration readiness
 test('wrong customer account mapping or elevated vendor role fails closed',async()=>{
  const deps=synthetics();
  deps.roles=async()=>({...await synthetics().roles(),results:ROLES.map(role=>({
-   role,authenticated:true,admin_authorized:role==='vendor',post_logout_denied:true
+   role,authenticated:true,read_only_features_verified:true,admin_authorized:role==='vendor',post_logout_denied:true
  }))});
  const proof=await demo.inspect({manifest:'private'},deps);
  assert.equal(proof.status,'INCOMPLETE');
@@ -119,5 +119,13 @@ test('incorrect simulator provenance marker and second-stage monetary claim cann
    if(seen===2)v.real_money_moved=true;
    return v;
  };
+ assert.equal((await demo.inspect({manifest:'private'},deps)).status,'INCOMPLETE');
+});
+
+test('aggregated report rejects missing EV vehicle/reservation journey readiness',async()=>{
+ const deps=synthetics();
+ const good=await synthetics().roles();
+ good.results[1].read_only_features_verified=false;
+ deps.roles=async()=>good;
  assert.equal((await demo.inspect({manifest:'private'},deps)).status,'INCOMPLETE');
 });
