@@ -59,9 +59,14 @@ class OcpiProtocolCredentialsController extends Controller
             }
             $base = substr($local['url'], 0, -strlen('versions'));
             if ($r->isMethod('GET')) {
+                $sandbox = [];
+                $configured = config('ocpi.connections.'.$p->connection_key);
+                if (app()->environment(['local', 'testing']) && config('ocpi.test_commands_enabled') && ($configured['test_commands'] ?? false) === true) {
+                    $sandbox[] = ['identifier' => 'tokens', 'role' => 'SENDER', 'url' => $base.'2.2.1/tokens'];
+                }
                 $data = match ($resource) {
                     'versions' => [['version' => '2.2.1', 'url' => $base.'2.2.1']],
-                    'details' => ['version' => '2.2.1', 'endpoints' => array_merge([['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => $base.'2.2.1/credentials']], array_map(fn ($module) => ['identifier' => $module, 'role' => 'RECEIVER', 'url' => $base.'2.2.1/'.$module], $exchange->receiverModules($p)))],
+                    'details' => ['version' => '2.2.1', 'endpoints' => array_merge([['identifier' => 'credentials', 'role' => 'RECEIVER', 'url' => $base.'2.2.1/credentials']], array_map(fn ($module) => ['identifier' => $module, 'role' => 'RECEIVER', 'url' => $base.'2.2.1/'.$module], $exchange->receiverModules($p)), $sandbox)],
                     'credentials' => $local,
                 };
 

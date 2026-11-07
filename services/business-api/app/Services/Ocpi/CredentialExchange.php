@@ -46,6 +46,10 @@ class CredentialExchange
         if ($receivers !== []) {
             $identity[] = ['receiver_modules', $receivers];
         }
+        if (($c['test_commands'] ?? false) === true) {
+            abort_unless(is_string($c['test_command_contract'] ?? null) && preg_match('/^[A-Za-z0-9_-]{1,80}$/D', $c['test_command_contract']), 409);
+            $identity[] = ['sandbox_commands', $c['test_command_contract']];
+        }
         $identity[] = $local;
 
         return hash('sha256', json_encode($identity, JSON_THROW_ON_ERROR));

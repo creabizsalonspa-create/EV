@@ -151,6 +151,13 @@ class PartnerClient
                 throw new OcpiException('Malformed module endpoint.');
             }
             $url = $this->guardedUrl($provider, $endpoint['url']);
+            if (($c['test_commands'] ?? false) === true && in_array($endpoint['identifier'], ['tokens', 'commands'], true) && $endpoint['role'] === 'RECEIVER') {
+                $name = $endpoint['identifier'].'_receiver';
+                if (isset($endpoints[$name])) {
+                    throw new OcpiException('Ambiguous sandbox command module endpoint.');
+                }
+                $endpoints[$name] = $url;
+            }
             if (in_array($endpoint['identifier'], self::MODULES, true) && $endpoint['role'] === 'SENDER') {
                 if (isset($endpoints[$endpoint['identifier']])) {
                     throw new OcpiException('Ambiguous duplicate operator module endpoint.');
@@ -203,5 +210,54 @@ class PartnerClient
             }$url = $result['next'];
         }
         throw new OcpiException('Operator pagination exceeded the configured page limit.');
+    }
+
+    /** Fixed protocol writes only; the caller durably claims an identity before network I/O. */
+    public function write(OcpiProvider $provider, string $module, string $method, array $segments, array $body): array
+    {
+        if (! in_array([$module, $method], [['tokens_receiver', 'PUT'], ['commands_receiver', 'POST']], true)) {
+            throw new OcpiException('Unsupported sandbox protocol write.');
+        }
+        $this->assertCurrent($provider);
+        $c = $this->connection($provider);
+        if (! app()->environment(['local', 'testing']) || ! config('ocpi.test_commands_enabled') || ($c['test_commands'] ?? false) !== true || ($c['environment'] ?? null) !== 'sandbox' || ! is_string($provider->endpoints[$module] ?? null)) {
+            throw new OcpiException('Approved sandbox command adapter is unavailable.');
+        }
+        foreach ($segments as $segment) {
+            if (! is_string($segment) || ! preg_match('/^[A-Za-z0-9_*.-]{1,64}$/D', $segment) || in_array($segment, ['.', '..'], true)) {
+                throw new OcpiException('Invalid protocol target.');
+            }
+        }
+        if (parse_url($provider->endpoints[$module], PHP_URL_QUERY) !== null) {
+            throw new OcpiException('Protocol receiver must not contain a query.');
+        }
+        $url = $this->guardedUrl($provider, rtrim($provider->endpoints[$module], '/').'/'.implode('/', array_map('rawurlencode', $segments)));
+        try {
+            $r = Http::connectTimeout(5)->timeout(20)->withoutRedirecting()->withOptions(['stream' => true])->withHeaders(['Accept' => 'application/json', 'Authorization' => 'Token '.$c['authorization_token'], 'X-Request-ID' => (string) Str::uuid(), 'X-Correlation-ID' => (string) Str::uuid()])->send($method, $url, ['json' => $body]);
+            $stream = $r->toPsrResponse()->getBody();
+            $text = '';
+            try {
+                while (! $stream->eof() && strlen($text) <= 65536) {
+                    $text .= $stream->read(min(8192, 65537 - strlen($text)));
+                }
+            } finally {
+                $stream->close();
+            }
+            if (! $r->successful() || strlen($text) > 65536) {
+                throw new OcpiException('Partner transport outcome requires reconciliation.');
+            }
+            $response = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
+            if (! is_array($response) || ($response['status_code'] ?? null) !== 1000 || ! is_string($response['timestamp'] ?? null) || strtotime($response['timestamp']) === false) {
+                throw new OcpiException('Partner protocol outcome requires reconciliation.');
+            }
+            $this->assertCurrent($provider);
+            $this->connection($provider);
+
+            return $response;
+        } catch (OcpiException $e) {
+            throw $e;
+        } catch (\Throwable) {
+            throw new OcpiException('Partner outcome unknown; private request and credentials withheld.');
+        }
     }
 }

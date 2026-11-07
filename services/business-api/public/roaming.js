@@ -236,6 +236,14 @@ window.createRoamingWorkspace = ({
                 );
                 toggle.dataset.privateRoaming = "";
             }
+            if (viewer?.role === "customer") {
+                const history = button(
+                    publicRoot,
+                    "Review sandbox history",
+                    () => sandboxWorkspace(),
+                );
+                history.dataset.privateRoaming = "";
+            }
             if (!savedOnly) publicRoot.append(discoverySearch());
             const content = document.createElement("div");
             if (savedOnly) content.dataset.privateRoaming = "";
@@ -307,6 +315,14 @@ window.createRoamingWorkspace = ({
                         },
                     );
                     save.dataset.privateRoaming = "";
+                    if (row.location_available !== false) {
+                        const offers = button(
+                            list.lastElementChild,
+                            "View sandbox offers",
+                            () => sandboxWorkspace(row.id),
+                        );
+                        offers.dataset.privateRoaming = "";
+                    }
                 }
             }
             if (!result.data.length)
@@ -336,8 +352,296 @@ window.createRoamingWorkspace = ({
                 publicRoot.removeAttribute("aria-busy");
         }
     }
+    // This private workspace never changes the public discovery capability contract.
+    let roamingPending = null,
+        roamingVersion = 0;
+    function sandboxContract(row) {
+        if (
+            row.evidence !== "SANDBOX_PARTNER_UNVERIFIED" ||
+            row.billing_eligible !== false ||
+            row.live_commands_enabled !== false ||
+            row.local_invoice_created !== false ||
+            row.physical_charging_verified !== false
+        )
+            throw new Error("Unexpected sandbox capability.");
+        return row;
+    }
+    async function sandboxWorkspace(
+        locationId = null,
+        providerId = null,
+        page = 1,
+    ) {
+        const viewer = actor(),
+            epoch = generation,
+            version = ++roamingVersion;
+        if (!viewer || (!providerId && viewer.role !== "customer")) return;
+        publicRoot
+            .querySelectorAll("[data-roaming-sandbox]")
+            .forEach((n) => n.remove());
+        const panel = document.createElement("section");
+        panel.dataset.privateRoaming = "";
+        panel.dataset.roamingSandbox = "";
+        const target = providerId ? privateRoot : publicRoot;
+        target
+            .querySelectorAll("[data-roaming-sandbox]")
+            .forEach((n) => n.remove());
+        target.append(panel);
+        const current = () =>
+            epoch === generation &&
+            version === roamingVersion &&
+            actor()?.id === viewer.id &&
+            panel.isConnected;
+        const title = () => {
+            panel.replaceChildren(
+                ui("h3", "Sandbox roaming activity"),
+                ui("p", "Sandbox roaming warning"),
+            );
+        };
+        title();
+        panel.append(ui("p", "Loading…"));
+        const request = async (path, method = "GET", body) => {
+            if (!current()) return null;
+            const data = await api(path, method, body);
+            return current() ? data : null;
+        };
+        const mutate = async (path, method, body) => {
+            if (!current() || roamingPending) return;
+            // Frozen identity is retained until an authoritative response. Never create
+            // a replacement START or STOP after a lost HTTP response.
+            roamingPending = {
+                path,
+                method,
+                body: Object.freeze({ ...body }),
+                actorId: viewer.id,
+            };
+            await retryPending();
+        };
+        const pendingControls = () => {
+            if (!roamingPending || roamingPending.actorId !== viewer.id) return;
+            panel.append(ui("p", "Sandbox response uncertain"));
+            button(panel, "Retry same sandbox request", retryPending);
+        };
+        const retryPending = async () => {
+            const frozen = roamingPending;
+            if (!current() || !frozen || frozen.actorId !== viewer.id) return;
+            panel
+                .querySelectorAll("button")
+                .forEach((n) => (n.disabled = true));
+            try {
+                const row = await request(
+                    frozen.path,
+                    frozen.method,
+                    frozen.body,
+                );
+                if (!row) return;
+                sandboxContract(row);
+                if (roamingPending === frozen) roamingPending = null;
+                await sandboxWorkspace(null, providerId);
+            } catch (e) {
+                if (!current()) return;
+                // The server enforces one unresolved order per driver and EVSE even
+                // after navigation or app restart. Resolution never resends source work.
+                title();
+                pendingControls();
+                button(panel, "Review sandbox history", () =>
+                    sandboxWorkspace(null, providerId),
+                );
+                notice(e);
+            }
+        };
+        const display = (row) => {
+            sandboxContract(row);
+            const card = document.createElement("article");
+            card.dataset.sandboxOrder = row.id;
+            card.className = "station-card";
+            card.append(
+                raw(
+                    "h4",
+                    `${row.location_name} · ${row.evse_uid} / ${row.connector_id}`,
+                ),
+            );
+            for (const [label, value] of [
+                ["Sandbox order state", row.state],
+                ["Sandbox token state", row.token_state],
+                ["Roaming reported status", row.source_status],
+                ["Sandbox reported energy Wh", row.energy_wh],
+                ["Sandbox source observed", row.source_observed_at],
+                ["Sandbox reconciliation", row.reconciliation_state],
+            ])
+                line(card, label, value);
+            if (row.reported_cost)
+                line(
+                    card,
+                    "Sandbox reported cost",
+                    JSON.stringify(row.reported_cost),
+                );
+            for (const cmd of row.commands || [])
+                card.append(
+                    raw(
+                        "p",
+                        `${cmd.action} · ${cmd.state} · ${cmd.transport_result ?? "—"} · ${cmd.callback_result ?? "—"}`,
+                    ),
+                );
+            if (!providerId) {
+                button(card, "Refresh sandbox source", async () => {
+                    const updated = await request(
+                        `roaming/sandbox-orders/${row.id}/reconcile`,
+                        "POST",
+                        {},
+                    );
+                    if (updated) await sandboxWorkspace();
+                });
+                if (row.can_stop === true)
+                    button(card, "Request sandbox stop", async () => {
+                        if (
+                            !confirm(EvLocale.text("Sandbox stop confirmation"))
+                        )
+                            return;
+                        await mutate(
+                            `roaming/sandbox-orders/${row.id}/stop`,
+                            "POST",
+                            { request_key: crypto.randomUUID() },
+                        );
+                    }).disabled = !!roamingPending;
+                if (row.can_revoke === true)
+                    button(card, "Revoke sandbox authority", async () => {
+                        if (
+                            !confirm(
+                                EvLocale.text("Sandbox revoke confirmation"),
+                            )
+                        )
+                            return;
+                        await mutate(
+                            `roaming/sandbox-orders/${row.id}/authority`,
+                            "DELETE",
+                            {},
+                        );
+                    }).disabled = !!roamingPending;
+            }
+            panel.append(card);
+        };
+        try {
+            if (locationId && !roamingPending) {
+                const result = await request(
+                    `roaming/locations/${locationId}/sandbox-offers`,
+                );
+                if (!result) return;
+                if (
+                    result.evidence !== "SANDBOX_PARTNER_UNVERIFIED" ||
+                    result.live_commands_enabled !== false ||
+                    result.billing_eligible !== false
+                )
+                    throw new Error("Unexpected sandbox offer.");
+                title();
+                line(panel, "Roaming provider", result.provider_name);
+                for (const offer of result.offers) {
+                    const form = document.createElement("form");
+                    form.dataset.sandboxOffer = "";
+                    form.append(
+                        raw(
+                            "p",
+                            `${offer.evse_uid} / ${offer.connector_id} · ${offer.tariff_id}`,
+                        ),
+                    );
+                    // Exact server tariff strings are displayed; no client billing math.
+                    line(form, "Currency", offer.tariff.currency);
+                    for (const element of offer.tariff.elements || []) {
+                        for (const price of element.price_components || []) {
+                            const unit = {
+                                ENERGY: "per kWh",
+                                TIME: "per charging hour",
+                                PARKING_TIME: "per parking hour",
+                                FLAT: "per session",
+                            }[price.type];
+                            line(
+                                form,
+                                "Reported tariff",
+                                `${price.price} ${offer.tariff.currency} · ${EvLocale.text(unit || "Unit unavailable")}`,
+                            );
+                            line(
+                                form,
+                                "Billing step",
+                                `${price.step_size} · ${price.type === "ENERGY" ? "Wh" : price.type === "FLAT" ? EvLocale.text("session") : EvLocale.text("seconds")}`,
+                            );
+                            line(
+                                form,
+                                "VAT percent",
+                                price.vat ?? EvLocale.text("Not reported"),
+                            );
+                        }
+                    }
+                    const label = ui("label", "Sandbox explicit consent");
+                    const consent = document.createElement("input");
+                    consent.type = "checkbox";
+                    consent.required = true;
+                    label.prepend(consent);
+                    form.append(label);
+                    const submit = ui("button", "Start sandbox roaming");
+                    submit.type = "submit";
+                    form.append(submit);
+                    form.onsubmit = async (e) => {
+                        e.preventDefault();
+                        if (!current() || !consent.checked || roamingPending)
+                            return;
+                        submit.disabled = true;
+                        await mutate(
+                            `roaming/locations/${locationId}/sandbox-orders`,
+                            "POST",
+                            {
+                                request_key: crypto.randomUUID(),
+                                evse_uid: offer.evse_uid,
+                                connector_id: offer.connector_id,
+                                tariff_id: offer.tariff_id,
+                                offer_hash: offer.offer_hash,
+                                terms_version: offer.terms_version,
+                                consent: true,
+                            },
+                        );
+                    };
+                    panel.append(form);
+                }
+                if (!result.offers.length)
+                    panel.append(ui("p", "No approved sandbox offers"));
+                if (result.truncated)
+                    panel.append(ui("p", "Sandbox offer limit reached"));
+                button(panel, "Review sandbox history", () =>
+                    sandboxWorkspace(),
+                );
+            } else {
+                const result = await request(
+                    providerId
+                        ? `ocpi/providers/${providerId}/sandbox-orders?page=${page}`
+                        : `roaming/sandbox-orders?page=${page}`,
+                );
+                if (!result) return;
+                title();
+                pendingControls();
+                button(panel, "Refresh", () =>
+                    sandboxWorkspace(null, providerId, page),
+                );
+                for (const row of result.data) display(row);
+                if (!result.data.length)
+                    panel.append(ui("p", "No sandbox activity"));
+                pager(panel, result, (p) =>
+                    sandboxWorkspace(null, providerId, p),
+                );
+            }
+        } catch (e) {
+            if (current()) {
+                title();
+                pendingControls();
+                panel.append(ui("p", "Sandbox activity unavailable"));
+                button(panel, "Review sandbox history", () =>
+                    sandboxWorkspace(null, providerId),
+                );
+                notice(e);
+            }
+        }
+    }
     function clear() {
         generation++;
+        roamingVersion++;
+        roamingPending = null;
         details++;
         privateRequest?.abort();
         privateRoot.replaceChildren();
@@ -571,6 +875,9 @@ window.createRoamingWorkspace = ({
                     );
                 button(card, "Roaming credentials", () =>
                     credentialWorkspace(provider, detail),
+                );
+                button(card, "Sandbox roaming activity", () =>
+                    sandboxWorkspace(null, provider.id),
                 );
                 if (provider.authorized) {
                     button(card, "Roaming negotiate", async () => {

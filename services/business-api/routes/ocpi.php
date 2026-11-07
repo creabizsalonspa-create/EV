@@ -4,10 +4,12 @@ use App\Http\Controllers\OcpiController;
 use App\Http\Controllers\OcpiCredentialsController;
 use App\Http\Controllers\OcpiProvisioningController;
 use App\Http\Controllers\PartnerLocationFavoriteController;
+use App\Http\Controllers\RoamingOrderController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/api/roaming/locations', [OcpiController::class, 'locations'])->middleware('throttle:catalog');
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api/ocpi')->group(function () {
+    Route::get('/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations']);
     Route::get('/connection-options', [OcpiProvisioningController::class, 'connections']);
     Route::get('/owner-options', [OcpiProvisioningController::class, 'owners']);
     Route::get('/providers/{provider}/credentials', [OcpiCredentialsController::class, 'status']);
@@ -26,3 +28,5 @@ Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api/roaming/favor
     Route::put('/{location}', [PartnerLocationFavoriteController::class, 'save']);
     Route::delete('/{location}', [PartnerLocationFavoriteController::class, 'remove']);
 });
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api/roaming')->group(__DIR__.'/roaming_orders.php');

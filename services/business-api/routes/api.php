@@ -10,12 +10,14 @@ use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
 use App\Http\Controllers\OcpiProtocolCredentialsController;
 use App\Http\Controllers\OcpiProtocolRecordsController;
+use App\Http\Controllers\OcpiRoamingProtocolController;
 use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\RemoteSessionAuthorizationController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RiderSourceController;
+use App\Http\Controllers\RoamingOrderController;
 use App\Http\Controllers\SimulationController as S;
 use App\Http\Controllers\SupportController as T;
 use App\Models\Station;
@@ -110,6 +112,10 @@ Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationCont
 Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->whereNumber('operation')->middleware('throttle:30,1');
 
 Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
+    Route::post('2.2.1/commands/{key}', [OcpiRoamingProtocolController::class, 'callback'])->whereUuid('key');
+    Route::get('2.2.1/tokens', [OcpiRoamingProtocolController::class, 'tokens']);
+    Route::get('2.2.1/tokens/{country}/{party}/{uid}', [OcpiRoamingProtocolController::class, 'token']);
+    Route::post('2.2.1/tokens/{uid}/authorize', [OcpiRoamingProtocolController::class, 'authorize']);
     Route::match(['GET', 'PUT', 'PATCH'], '2.2.1/sessions/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'session']);
     Route::post('2.2.1/cdrs', [OcpiProtocolRecordsController::class, 'cdr']);
     Route::get('2.2.1/cdrs/{external}', [OcpiProtocolRecordsController::class, 'cdr']);
@@ -118,5 +124,7 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
     Route::match(['GET', 'POST', 'PUT', 'DELETE'], '2.2.1/credentials', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');
 });
 
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1/roaming')->group(__DIR__.'/roaming_orders.php');
+Route::get('v1/ocpi/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations'])->middleware(['auth:sanctum', 'throttle:platform-api']);
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
 Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->whereNumber('operation')->middleware('throttle:30,1');

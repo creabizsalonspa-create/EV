@@ -138,9 +138,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Inspect Charge detail records'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Inspect Charge detail records'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Session and CDR energy differ'));
+      await tester.pumpAndSettle();
       expect(
         find.text('Partner reconciliation requires review'),
         findsOneWidget,
@@ -177,11 +179,13 @@ void main() {
       await tester.tap(find.text('approved').last);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.byType(DropdownButtonFormField<int>));
+      await tester.pumpAndSettle();
       await tester.tap(find.byType(DropdownButtonFormField<int>));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Synthetic vendor · #9').last);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Create unauthorized partner'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Create unauthorized partner'));
       await tester.pumpAndSettle();
       expect(api.created, {
@@ -210,6 +214,7 @@ void main() {
       expect(find.text('Revoke partner'), findsNothing);
       final sync = find.text('Synchronize Locations');
       await tester.ensureVisible(sync);
+      await tester.pumpAndSettle();
       await tester.tap(sync);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Confirm'));
@@ -224,7 +229,7 @@ void main() {
         ),
       );
       expect(disabled.onPressed, isNull);
-      await tester.ensureVisible(find.text('Refresh partners'));
+      await tester.scrollUntilVisible(find.text('Refresh partners'), -250);
       await tester.tap(find.text('Refresh partners'));
       await tester.pumpAndSettle();
       expect(find.text('Operator authorization revoked'), findsOneWidget);
@@ -244,9 +249,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Inspect Locations'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Inspect Locations'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Partner station'));
+      await tester.pumpAndSettle();
       expect(find.text('Partner station'), findsOneWidget);
       expect(find.textContaining('PRIVATE PARTNER TOKEN'), findsNothing);
       expect(find.text('Start charging'), findsNothing);
