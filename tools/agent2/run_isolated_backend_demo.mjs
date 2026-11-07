@@ -22,6 +22,11 @@ if(!existsSync(join(source,'src/app.js')) || !existsSync(join(source,'src/utils/
 if(source.startsWith('/home/hasio/ev-deployment/') || source==='/home/hasio/ev-deployment'){
  throw new Error('Refusing to run against deployed source.');
 }
+if(process.env.AGENT2_REAL_ADMIN_UI_URL){
+ if(!ocppHandler)throw Error('Actual browser mode requires a staged OCPP handler');
+ const {loopbackBase}=await import('./isolatedAdminApiRelay.mjs');
+ loopbackBase(process.env.AGENT2_REAL_ADMIN_UI_URL);
+}
 async function freePort(){
  const s=createServer();await new Promise(resolveListen=>s.listen(0,'127.0.0.1',resolveListen));
  const port=s.address().port;await new Promise(done=>s.close(done));return port;
@@ -1259,6 +1264,78 @@ try{
     assert.equal(reused.idTagInfo.status,'Invalid');
     assert.equal(await db.collection('ocpp_sessions').countDocuments({chargerId:charger16}),1);
   });
+  if(process.env.AGENT2_REAL_ADMIN_UI_URL){
+    const {runActualAdminBrowser}=await import('./test_actual_admin_browser.mjs');
+    const uiStation=await NearestStationModel.create({
+      name:'Actual Browser Disposable Station',address:'Loopback only',
+      status:'Available',latitude:25.741,longitude:55.922,pricePerHourValue:60,
+      taxPercent:5,slots:[{startTime:'03:00 PM',endTime:'04:00 PM'}]
+    });
+    const uiCharger='agent2-actual-browser-only';
+    await db.collection('ocpp_chargers').insertOne({
+      stationId:String(uiStation._id),chargerId:uiCharger,enabled:true,
+      protocol:'ocpp1.6',controlApproved:false
+    });
+    await db.collection('ocpp_tariffs').insertOne({
+      chargerId:uiCharger,enabled:true,rateFilsPerKwh:100,vatPercent:5
+    });
+    // Synthetic prepayment/arrival fixture: never represents a PSP capture.
+    const uiBooking=await BookingModel.create({
+      userId:user._id,stationId:uiStation._id,date:'2027-02-01',
+      time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+      status:'Upcoming',isPaid:true,hasArrived:true,totalAmount:63
+    });
+    await check('real browser completes disposable Express/Mongo/OCPP booking journey',async()=>{
+      await runActualAdminBrowser({
+        uiUrl:process.env.AGENT2_REAL_ADMIN_UI_URL,apiUrl:base,adminToken:adminBearer.slice(7),
+        bookingId:String(uiBooking._id),chargerId:uiCharger,
+        createSource:async rawToken=>{
+          const auth=await handle({chargerId:uiCharger},'ocpp1.6','Authorize',{idTag:rawToken});
+          assert.equal(auth.idTagInfo.status,'Accepted');
+          const start=await handle({chargerId:uiCharger},'ocpp1.6','StartTransaction',{
+            connectorId:1,meterStart:1000,idTag:rawToken,timestamp:new Date().toISOString()
+          });
+          assert.equal(start.idTagInfo.status,'Accepted');
+          await handle({chargerId:uiCharger},'ocpp1.6','MeterValues',{
+            transactionId:start.transactionId,meterValue:meter(4000)
+          });
+          await handle({chargerId:uiCharger},'ocpp1.6','StopTransaction',{
+            transactionId:start.transactionId,meterStop:6000,
+            timestamp:new Date().toISOString(),reason:'EVDisconnected'
+          });
+          const stored=await db.collection('ocpp_sessions').findOne({
+            chargerId:uiCharger,transactionId:start.transactionId
+          });
+          assert.equal(stored.energyWh,5000);
+          assert.equal(stored.paymentStatus,'not_collected');
+          return String(stored._id);
+        },
+        verifyResult:async sourceId=>{
+          const saved=await BookingModel.findById(uiBooking._id);
+          assert.equal(saved.status,'Completed');
+          const linked=await ChargingSessionModel.findOne({bookingId:uiBooking._id});
+          assert.equal(linked.sourceSessionId,sourceId);
+          assert.equal(await ChargingSessionModel.countDocuments({bookingId:uiBooking._id}),1);
+          assert.equal(await db.collection('ocpp_sessions').countDocuments({chargerId:uiCharger}),1);
+          const customer=await request('GET','/api/v1/ChargingSession/'+linked._id+'/status',
+            undefined,true);
+          assert.equal(customer.code,200);
+          assert.equal(customer.body.data.sourceVerified,true);
+          assert.equal(customer.body.data.kwhUsed,5);
+          assert.equal(customer.body.data.paymentStatus,'not_collected');
+          const summary=await request('GET','/api/v1/ChargingSession/'+linked._id+'/summary',
+            undefined,true);
+          assert.equal(summary.code,200);
+          // Verify canonical source fils separately; never infer collected cash.
+          const stored=await db.collection('ocpp_sessions').findOne({
+            _id:new mongoose.Types.ObjectId(sourceId)
+          });
+          assert.equal(stored.totalFils,525);
+          assert.equal(stored.billingStatus,'calculated_unpaid');
+        }
+      });
+    });
+  }
  }
  console.log('ISOLATED_EXPRESS_DEMO_TESTS_PASSED '+passed);
 }finally{
@@ -1269,3 +1346,4 @@ try{
    new Promise(done=>setTimeout(done,2000))]);
  rmSync(data,{recursive:true,force:true});
 }
+

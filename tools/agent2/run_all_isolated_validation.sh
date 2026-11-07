@@ -18,6 +18,12 @@ logdir="$stage_root/validation-logs"
 mkdir -p "$logdir"
 log="$logdir/agent2-$(date -u +%Y%m%dT%H%M%SZ).log"
 server_pid=""
+browser_flag="${RUN_AGENT2_BROWSER:-0}"
+real_browser_flag="${RUN_AGENT2_REAL_BROWSER:-0}"
+if [[ "$real_browser_flag" == "1" && "$browser_flag" != "1" ]]; then
+  echo "Actual browser mode requires RUN_AGENT2_BROWSER=1" >&2
+  exit 3
+fi
 cleanup(){
   if [[ -n "$server_pid" ]]; then
     kill "$server_pid" 2>/dev/null || true
@@ -63,7 +69,7 @@ echo "Source patch and syntax checks passed."
 
 node --test "$root"/integrations/hasone-express/tests/*.test.mjs
 node "$root/tools/agent2/test_staged_payment_routes.mjs" "$work/express" "$backend"
-node "$root/tools/agent2/run_isolated_backend_demo.mjs" \
+AGENT2_REAL_ADMIN_UI_URL= node "$root/tools/agent2/run_isolated_backend_demo.mjs" \
   "$work/express" "$backend" "$work/ocpp/ocpp-handlers.mjs"
 echo "Source-backed isolated backend tests passed."
 
@@ -113,5 +119,12 @@ if [[ "$browser_flag" == "1" ]]; then
   node "$root/tools/agent2/test_next_admin_multicharger_browser.mjs" \
     "http://127.0.0.1:$port"
   echo "Mocked-API Chrome acceptance passed."
+  if [[ "$real_browser_flag" == "1" ]]; then
+    AGENT2_REAL_ADMIN_UI_URL="http://127.0.0.1:$port" \
+      node "$root/tools/agent2/run_isolated_backend_demo.mjs" \
+      "$work/express" "$backend" "$work/ocpp/ocpp-handlers.mjs"
+    echo "Actual loopback Express/Mongo/OCPP Chrome journey passed."
+  fi
 fi
 echo "ISOLATED_AGENT2_VALIDATION_PASS; production and hardware unchanged."
+

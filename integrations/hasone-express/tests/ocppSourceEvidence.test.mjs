@@ -65,3 +65,29 @@ test('verified AED rate, VAT and subtotal are available for the read-only summar
   assert.equal(p.rateAedPerKwh,.75);
   assert.equal(p.vatPercent,5);
 });
+
+test('missing, coerced or impossible source timestamps never verify charging',()=>{
+ for(const value of [null,false,true,0,1,{},[], '0','2026-02-31T00:00:00Z',
+   '2026-11-07T24:00:00Z','2026-11-07 00:00:00','2026-11-07T00:00:00']){
+   assert.equal(verifyOcppSource({...doc(),startedAt:value},binding()),null);
+   assert.equal(verifyOcppSource({...doc(),endedAt:value},binding()),null);
+ }
+});
+test('Mongo Date and explicitly zoned ISO timestamps remain supported',()=>{
+ assert.equal(verifyOcppSource({...doc(),
+   startedAt:new Date('2026-11-07T00:00:00Z'),
+   endedAt:new Date('2026-11-07T00:10:00Z')},binding()).sourceVerified,true);
+ assert.equal(verifyOcppSource({...doc(),
+   startedAt:'2026-11-07T04:00:00+04:00',
+   endedAt:'2026-11-07T04:10:00+04:00'},binding()).totalFils,551);
+});
+test('source billing labels are not trusted until their meter and invoice proof pass',()=>{
+ const missingMeter=verifyOcppSource({...doc(),meterLastWh:null},binding());
+ assert.equal(missingMeter.billingStatus,'unverified');
+ const badInvoice=verifyOcppSource({...doc(),totalFils:999},binding());
+ assert.equal(badInvoice.billingStatus,'unverified');
+ const active=verifyOcppSource({...doc(),status:'active',billingStatus:'calculated_unpaid'},binding());
+ assert.equal(active.billingStatus,'unverified');
+ assert.equal(active.totalFils,null);
+});
+

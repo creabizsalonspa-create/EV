@@ -1,0 +1,46 @@
+{
+  "date": "2026-11-07",
+  "parent_commit": "8e6f2e13c43964bfa2e5eef81db2dcb40f2d8b86",
+  "scope": "Source evidence validation; opt-in actual-API Admin browser journey",
+  "executed": {
+    "node_tests": {
+      "total": 94,
+      "passed": 94,
+      "failed": 0
+    },
+    "parent_source_regression": {
+      "total": 14,
+      "passed": 12,
+      "failed": 2,
+      "expected_failure": true
+    },
+    "node_syntax": "passed",
+    "shell_syntax": "passed",
+    "relay_transport": "four tests including real disposable HTTP servers; no mocked fetch transport"
+  },
+  "not_executed": [
+    "Full Express/Mongo/OCPP integration on candidate",
+    "Next Admin build on candidate",
+    "Mocked API Chrome suite on candidate",
+    "New actual-API Chrome/Express/Mongo/OCPP journey",
+    "Hosted CI"
+  ],
+  "blocker": "Authorized Desktop Commander host offline; no production source or credentials accessed.",
+  "prior_evidence": "Parent 8e6f2e1 had 101 backend / 13 callback / 11 mocked browser / Next build passes; these are not candidate runtime results.",
+  "source_sha256": {
+    "integrations/hasone-express/ocppSourceEvidence.mjs": "2ed93adf261f38745cb74113aeccd257045000d9fe05008801323f8a6d1db3e3",
+    "integrations/hasone-express/tests/ocppSourceEvidence.test.mjs": "0cbfc00bc06db4c95672f7e03186b9b11d5e3968c952bbbf4784da4a1dd37119",
+    "integrations/hasone-express/tests/isolatedAdminApiRelay.test.mjs": "b1d1ae93863e0da232f3a86373243bbc89b31c649c46ba7e2c83efb779e14404",
+    "tools/agent2/isolatedAdminApiRelay.mjs": "ad04845c14e92b405dfb1bfe98bad24f78ffdf7b63a3fe969ead125d8f64dd6a",
+    "tools/agent2/test_actual_admin_browser.mjs": "88555406ed8340343e7ac209032751b26fa67524592f71463de386ff0e90855a",
+    "tools/agent2/run_isolated_backend_demo.mjs": "b5d2e11e4faea8044ff5c3f1586d3d8237e017f74f764c65e06d18041181d714",
+    "tools/agent2/run_all_isolated_validation.sh": "4e9ee024ce58a1bafd8f58ee5f46f39c46243a9ffd07f457d807c5b7ab146925"
+  },
+  "local_logs_sha256": {
+    "local-guard-tests.log": "f8ac5d64e8570ba4e9ee8907eb9812ed950c219204ff07d57fe0b099d7643c53",
+    "regression-parent.log": "9190928ef80e0398cde3861ed38161b06585fc379abb10ce9c1dcc5a6b93c79b"
+  },
+  "production_changed": false,
+  "actual_payment_accepted": false,
+  "physical_charger_commands": false
+}

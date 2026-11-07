@@ -40,6 +40,8 @@ jobs:
           node --check tools/agent2/test_next_admin_multicharger_browser.mjs
           node --check tools/agent2/test_staged_payment_routes.mjs
           node --check tools/agent2/run_isolated_backend_demo.mjs
+          node --check tools/agent2/isolatedAdminApiRelay.mjs
+          node --check tools/agent2/test_actual_admin_browser.mjs
           node --check tools/agent2/secure_live_mongo_snapshot.mjs
           node --check tools/agent2/live-demo-readiness.mjs
       - name: Run pure payment and OCPP source evidence regression tests

@@ -8,6 +8,18 @@
 const same = (left,right)=> String(left??'') !== '' && String(left)===String(right);
 const wh = v=> Number.isInteger(v) && v>=0 && v<=1e12;
 const fils = v=> Number.isInteger(v) && v>=0 && v<=1e12;
+const sourceDate=value=>{
+  if(value instanceof Date)return Number.isFinite(value.valueOf())?value:null;
+  if(typeof value!=='string' ||
+     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value))
+    return null;
+  const [year,month,day]=value.slice(0,10).split('-').map(Number);
+  if(month<1 || month>12 || day<1 ||
+     day>new Date(Date.UTC(year,month,0)).getUTCDate() ||
+     Number(value.slice(11,13))>23)return null;
+  const parsed=new Date(value);
+  return Number.isFinite(parsed.valueOf())?parsed:null;
+};
 
 export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash}={}) {
   if(!source || typeof source!=='object' || !sourceId || !chargerId || !transactionId || !tokenHash)
@@ -18,10 +30,10 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
       || !['active','ended'].includes(source.status)) return null;
   const field=source.protocol==='ocpp1.6'?'idTagHash':'idTokenHash';
   if(source[field]!==tokenHash) return null;
-  const start=new Date(source.startedAt);
-  if(!Number.isFinite(start.valueOf())) return null;
+  const start=sourceDate(source.startedAt);
+  if(!start)return null;
   const ended=source.status==='ended';
-  if(ended && (!source.endedAt || !(new Date(source.endedAt)>=start)))return null;
+  if(ended && (!sourceDate(source.endedAt) || !(sourceDate(source.endedAt)>=start)))return null;
   if(source.paymentStatus!=='not_collected')return null;
   const evidence={
     sourceVerified:true,
@@ -38,7 +50,7 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
     vatFils:null,
     rateAedPerKwh:null,
     vatPercent:null,
-    billingStatus:source.billingStatus??'unverified',
+    billingStatus:'unverified',
     paymentStatus:'not_collected'
   };
   if(!wh(source.meterStartWh) || !wh(source.meterLastWh)
@@ -48,6 +60,8 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
   evidence.meterVerified=true;
   evidence.energyWh=delta;
   evidence.energyKwh=delta/1000;
+  if(!ended && source.billingStatus==='provisional_unpaid')
+    evidence.billingStatus='provisional_unpaid';
   if(ended && source.billingStatus==='calculated_unpaid'
       && fils(source.subtotalFils) && fils(source.vatFils) && fils(source.totalFils)
       && source.totalFils===source.subtotalFils+source.vatFils
@@ -67,3 +81,4 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
   }
   return evidence;
 }
+

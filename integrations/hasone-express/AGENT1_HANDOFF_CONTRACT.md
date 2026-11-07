@@ -388,3 +388,48 @@ pages, matched-only pages, invalid query inputs, disabled-charger incidents,
 foreign-station exclusion, credential redaction and browser retry/append/end
 states. No production migration, credential mutation or hardware command is
 part of this history view.
+
+
+## Source evidence validation and actual-API browser runner — 7 November 2026
+
+Source verification now rejects missing/coerced timestamps, timezone-less or
+impossible ISO string dates, and reversed stops. Mongo Date objects and explicit
+ISO timezone offsets remain supported. The billing state starts as
+`unverified`; only consistent metering permits provisional state, and only
+reconciled ended-source tariff/subtotal/VAT/total proof permits
+`calculated_unpaid`. An invoice's own label is not its verification.
+
+**Locally executed:** 94/94 Node tests, including three new source-evidence
+regressions and four relay tests against actual disposable Node HTTP servers.
+The source-evidence suite applied to parent `8e6f2e1` reports two regression
+failures; the candidate passes. Node syntax checks and shell syntax pass.
+
+**New opt-in actual backend browser journey (not executed yet):**
+```sh
+RUN_AGENT2_BROWSER=1 RUN_AGENT2_REAL_BROWSER=1 \
+PUPPETEER_PATH=/authorized/path/to/puppeteer.js \
+CHROME_PATH=/authorized/path/to/chrome \
+bash tools/agent2/run_all_isolated_validation.sh
+```
+In addition to the existing mock-response browser suite, this mode starts a
+fresh disposable Mongo/Express/OCPP harness while the copied Next Admin runs.
+Chrome issues a booking token through the real protected HTTP controller;
+the real staged OCPP handler records synthetic start/meter/stop; Chrome binds
+and finalizes that source; persisted booking/session records and the customer's
+read-only API must agree on 5 kWh, 525 calculated-unpaid fils and one session.
+
+`isolatedAdminApiRelay.mjs` forwards actual HTTP responses rather than fixture
+bodies. It accepts explicit loopback origins only, an exact test Admin identity,
+and allowlisted GET/POST routes. It rejects API redirects and unrelated
+financial/hardware mutations; it forwards neither browser cookies nor
+provider response cookies. The browser blocks nonlocal network destinations.
+The one-time charger token is not printed, passed on CLI or stored by the UI.
+Admin auth uses the application's normal storage in a disposable browser.
+
+**Runtime limitation:** the authorized Desktop Commander host is offline.
+The complete new Chrome/Express/Mongo/OCPP journey and the full existing backend
+and Next build suites have NOT been rerun for this revision. Earlier counts
+101 backend / 13 callback / 11 mocked browser belong to parent `8e6f2e1`.
+Only the 94 local tests and syntax checks above are current evidence.
+Keep draft pending hosted checks and an authorized host rerun. No live source,
+credentials, customer data, financial settlement or physical charger was changed.
