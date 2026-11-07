@@ -54,11 +54,19 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
         reasons.append("conflict_or_mergeability_unknown")
     if not paths:
         reasons.append("missing_changed_file_inventory")
-    if not check_runs:
-        reasons.append("no_exact_head_checks")
+    # GitHub may return both push and PR check suites for the same commit.
+    # Only checks associated with THIS open PR can satisfy its merge gate.
+    # Unassociated push runs must not conceal absent PR validation or block
+    # a clean PR because a separate push run was superseded/cancelled.
+    relevant = [r for r in check_runs
+                if not isinstance(r.get("pull_requests"), list)
+                or any(link.get("number") == number
+                       for link in r["pull_requests"])]
+    if not relevant:
+        reasons.append("no_pr_associated_exact_head_checks")
     if len(check_runs) >= CHECK_LIMIT:
         reasons.append("check_run_limit_requires_review")
-    names = {r.get("name") for r in check_runs}
+    names = {r.get("name") for r in relevant}
     missing = sorted(required_checks(paths) - names)
     if missing:
         reasons.append("missing_required_checks:" + ",".join(missing))
@@ -66,7 +74,7 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
     failed = []
     waiting = []
     wrong_source = []
-    for r in check_runs:
+    for r in relevant:
         name = str(r.get("name") or "unnamed")
         if r.get("head_sha") not in (None, head):
             wrong_source.append(name)
@@ -85,7 +93,8 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
         "pr": number, "title": pr.get("title"), "head_sha": head,
         "base": base, "dependency_pr": dependency, "draft": bool(pr.get("draft")),
         "mergeable": pr.get("mergeable"), "changed_file_count": len(paths),
-        "check_count": len(check_runs), "missing_required": missing,
+        "check_count": len(relevant), "ignored_unassociated_checks":
+            len(check_runs) - len(relevant), "missing_required": missing,
         "status": "candidate_for_manual_review" if not reasons else "blocked",
         "blockers": reasons,
         "merge_executed": False,
