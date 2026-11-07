@@ -65,3 +65,7 @@ Evidence fields and negative acceptance tests now require tamper rejection, rest
 ### Complete private archive payload validation
 
 The private gzip-tar guard now reads **every member's decompressed bytes**, validates the actual byte count against the declared tar header, and calculates a deterministic expanded-content SHA-256 before the restore command runs. Header-only inspection could miss compressed payload truncation; the new test suite verifies that a gzip stream truncated after valid-looking headers is rejected, while unmodified synthetic archives produce stable data digests. This is still a local synthetic integrity drill, not third-party signed/offsite backup acceptance.
+
+### Corrected gzip footer validation (confirmed locally)
+
+The first full-member-reading implementation was not sufficient to reject a gzip stream missing its last eight bytes, because Python's tar iterator can stop at tar end-of-archive markers without consuming the gzip CRC/ISIZE trailer. The guard now independently consumes the entire gzip stream under a bounded expanded-wire limit and requires complete checksum/trailer verification. Local synthetic tests have confirmed that normal archives verify while both truncated and deliberately corrupted gzip trailers are rejected. The tests were performed without production backups or hardware; hosted exact-commit Docker restore still requires CI.

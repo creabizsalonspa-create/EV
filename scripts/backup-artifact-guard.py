@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Synthetic dump integrity guard: not a signature, encryption or production backup."""
-import argparse, hashlib, json, os, stat, sys, tarfile
+import argparse, gzip, hashlib, json, os, stat, sys, tarfile
 from pathlib import Path
 
 class ArchiveError(Exception):
@@ -61,7 +61,19 @@ def safe_tar(path):
     except (tarfile.TarError, OSError, EOFError, UnicodeError):
         raise ArchiveError('Invalid private gzip/tar archive') from None
     require(count > 0, 'Private archive empty')
+    # tarfile can stop at tar end markers before reading the gzip trailer.
+    # Consume the entire stream and validate CRC32/ISIZE before restoration.
+    decompressed = 0
+    try:
+        with gzip.open(path, 'rb') as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b''):
+                decompressed += len(block)
+                require(decompressed <= 2 * 1024**3 + 10000 * 512 + 1024 * 1024,
+                        'Compressed tar expands beyond maximum wire size')
+    except (OSError, EOFError):
+        raise ArchiveError('Private gzip stream failed complete checksum verification') from None
     return {
+        'gzip_trailer_verified': True,
         'entries': count,
         'expanded_bytes': expanded,
         'expanded_sha256': content_hash.hexdigest(),

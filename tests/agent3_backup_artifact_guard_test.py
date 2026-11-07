@@ -56,6 +56,7 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(len(first['private']['expanded_sha256']), 64)
             self.assertTrue(first['private']['full_member_read_verified'])
+            self.assertTrue(first['private']['gzip_trailer_verified'])
             self.assertGreater(first['private']['expanded_bytes'], 0)
 
     def test_truncated_compressed_archive_is_rejected_not_just_its_headers(self):
@@ -67,6 +68,13 @@ class ArchiveTests(unittest.TestCase):
             sample_tar(archive)
             original = archive.read_bytes()
             archive.write_bytes(original[:-8])
+            with self.assertRaises(guard.ArchiveError):
+                guard.inspect(database, archive)
+            # A valid tar payload with a corrupted gzip checksum/size trailer
+            # must also fail, even when every member was readable.
+            broken = bytearray(original)
+            broken[-1] ^= 0xFF
+            archive.write_bytes(broken)
             with self.assertRaises(guard.ArchiveError):
                 guard.inspect(database, archive)
 
