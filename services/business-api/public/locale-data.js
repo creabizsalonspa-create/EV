@@ -2718,8 +2718,8 @@ window.EV_MESSAGES = {
         ar: "نشاط التجوال التجريبي",
     },
     "Sandbox roaming warning": {
-        en: "Sandbox partner evidence is unverified. Command acceptance does not prove charging started or stopped. Commands do not create invoices or collect money. A separate approved test-billing consent is required for a simulated invoice. Live charging requires an approved partner agreement.",
-        ar: "تجربة مع شريك غير متحقق منه. قبول الأمر لا يثبت بدء الشحن أو إيقافه. الأوامر لا تُنشئ فواتير ولا تُحصّل مالاً. تتطلب الفاتورة التجريبية موافقة فوترة تجريبية معتمدة ومنفصلة. يتطلب الشحن الحقيقي اتفاق شريك معتمدًا.",
+        en: "Sandbox partner evidence is unverified. Command acceptance does not prove charging started or stopped. No invoice or payment is created. Live charging requires an approved partner agreement.",
+        ar: "تجربة مع شريك غير متحقق منه. قبول الأمر لا يثبت بدء الشحن أو إيقافه. لا تُنشأ فاتورة ولا تُحصّل دفعة. يتطلب الشحن الحقيقي اتفاق شريك معتمدًا.",
     },
     "Sandbox response uncertain": {
         en: "Response uncertain. Review history or retry the same request only. Do not create a replacement attempt.",
@@ -2816,12 +2816,30 @@ window.EV_MESSAGES = {
     "Not reported": { en: "Not reported", ar: "غير مبلّغ عنه" },
     session: { en: "session", ar: "جلسة" },
     seconds: { en: "seconds", ar: "ثوانٍ" },
-    "View simulated roaming invoice": {
-        en: "View simulated roaming invoice",
-        ar: "عرض فاتورة التجوال التجريبية",
+    "Moderated charging feedback": {
+        en: "Moderated charging feedback",
+        ar: "ملاحظات الشحن المعتمدة",
     },
-    "Review simulated roaming invoice": {
-        en: "Review simulated roaming invoice",
-        ar: "مراجعة فاتورة التجوال التجريبية",
+    "Feedback report window": {
+        en: "Currently published feedback only, by creation date of its current revision within the UTC window. Physical charging is unverified. No identities or private comments are included.",
+        ar: "الملاحظات المنشورة حالياً فقط، حسب تاريخ إنشاء النسخة الحالية ضمن الفترة بالتوقيت العالمي. لا يُستنتج تحقق من الشحن الفعلي. لا تتضمن هوية أو نصوصاً خاصة.",
     },
+    "Observed simulator feedback": {
+        en: "Observed simulator feedback",
+        ar: "ملاحظات محاكاة مرصودة من المصدر",
+    },
+    "App-only simulator feedback": {
+        en: "App-only simulator feedback",
+        ar: "ملاحظات محاكاة التطبيق فقط",
+    },
+    "Feedback totals: {count} ratings \u00b7 {sum} points \u00b7 site {site}": {
+        en: "Feedback totals: {count} ratings · {sum} points · site {site}",
+        ar: "إجمالي الملاحظات: {count} تقييمات · {sum} نقاط · الموقع {site}",
+    },
+    "No approved feedback in report window": {
+        en: "No approved feedback in report window",
+        ar: "لا توجد ملاحظات معتمدة ضمن فترة التقرير",
+    },
+    "View simulated roaming invoice": {en: "View simulated roaming invoice", ar: "عرض فاتورة التجوال التجريبية"},
+    "Review simulated roaming invoice": {en: "Review simulated roaming invoice", ar: "مراجعة فاتورة التجوال التجريبية"},
 };

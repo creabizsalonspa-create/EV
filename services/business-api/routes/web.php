@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ChargerCommandController;
+use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\SupportController;
+use App\Http\Controllers\VehicleBatteryController;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -30,6 +32,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/stations', [P::class, 'createStation']);
     Route::get('/api/vehicles', [P::class, 'vehicles']);
     Route::post('/api/vehicles', [P::class, 'createVehicle']);
+    Route::post('/api/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
     Route::get('/api/reservations', [P::class, 'reservations']);
     Route::post('/api/reservations', [P::class, 'reserve']);
     Route::delete('/api/reservations/{reservation}', [P::class, 'cancel']);
@@ -129,3 +132,6 @@ Route::get('/payments/corporate-hosted-simulation/{checkout}', function (string 
 
     return response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate', 'simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer');
 })->whereNumber('checkout')->middleware('auth');
+
+Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
+Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');

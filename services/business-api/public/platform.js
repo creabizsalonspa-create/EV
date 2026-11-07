@@ -78,6 +78,7 @@ function clearPrivateViews() {
     riderWorkspace.clear();
     vendorWorkspace.clear();
     roamingWorkspace.clear();
+    chargingReviews.clear();
     invoiceHistory.clear();
     commercialWorkspace.clear();
     tariffWorkspace.clear();
@@ -242,6 +243,7 @@ async function identity() {
     await vendorWorkspace.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
+    await chargingReviews.setActor(user);
     await invoiceHistory.setActor(user);
     await tariffWorkspace.setActor(user);
     await commercialWorkspace.setActor(user);
@@ -528,6 +530,16 @@ async function stations(query = "") {
             ),
         );
         a.append(details);
+        const feedback = document.createElement("button");
+        feedback.type = "button";
+        feedback.dataset.en = "Charging feedback";
+        feedback.dataset.ar = "ملاحظات الشحن";
+        feedback.textContent =
+            document.documentElement.lang === "ar"
+                ? feedback.dataset.ar
+                : feedback.dataset.en;
+        feedback.onclick = () => chargingReviews.station(s.id);
+        a.append(feedback);
         if (user?.role === "customer") {
             const button = ui(
                 "button",
@@ -1144,6 +1156,11 @@ const riderWorkspace = createRiderAccessWorkspace({
     notice,
     expired: clearIdentity,
 });
+const chargingReviews = createChargingReviews({
+    root: el("charging-reviews"),
+    api,
+    actor: () => user,
+});
 const roamingWorkspace = createRoamingWorkspace({
     publicRoot: el("roaming-discovery"),
     privateRoot: el("roaming-operations"),
@@ -1201,10 +1218,25 @@ el("forgot-password").onsubmit = async (e) => {
 async function garage() {
     const j = await api("vehicles");
     el("vehicle-list").replaceChildren();
-    for (const v of j.data)
-        el("vehicle-list").append(
-            node("p", "#" + v.id + " · " + v.name + " · " + v.connector_type),
-        );
+    for (const v of j.data) {
+        const row = node("div", "#" + v.id + " · " + v.name + " · " + v.connector_type);
+        if (v.can_simulate_battery === true) {
+            const action = node("button", user.locale === "ar" ? "محاكاة تنبيه بطارية منخفضة 15٪" : "Simulate low battery alert: 15%");
+            // Keep the same identity for retry after an unknown response.
+            const operationKey = crypto.randomUUID();
+            action.onclick = async () => {
+                action.disabled = true;
+                try {
+                    await api("vehicles/" + v.id + "/battery-simulation", "POST", {
+                        operation_key: operationKey, battery_percent: 15,
+                    });
+                    notice(user.locale === "ar" ? "تم حفظ تنبيه المحاكاة في الإشعارات" : "Simulated alert saved in Notifications");
+                } catch (e) { notice(e); action.disabled = false; }
+            };
+            row.append(action);
+        }
+        el("vehicle-list").append(row);
+    }
     el("profile-form").elements.name.value = user.name;
     el("profile-form").elements.locale.value = user.locale;
 }
@@ -1251,7 +1283,9 @@ async function support() {
     const n = await api("notifications");
     el("notifications").replaceChildren();
     for (const m of n.data) {
-        const row = ui("p", "{kind} · ticket #{id}", {
+        const row = m.kind === "vehicle.battery.simulated"
+            ? node("p", (user.locale === "ar" ? "محاكاة بطارية منخفضة · المركبة " : "Simulated low battery · Vehicle ") + m.metadata.vehicle_id + " · " + m.metadata.battery_percent + "%")
+            : ui("p", "{kind} · ticket #{id}", {
             kind: { translate: m.kind },
             id: m.support_ticket_id,
         });

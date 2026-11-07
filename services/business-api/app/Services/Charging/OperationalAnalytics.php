@@ -29,6 +29,7 @@ class OperationalAnalytics
         $from = CarbonImmutable::parse($filters['from'] ?? $asOf->subDays(6)->toDateString(), 'UTC')->startOfDay();
         $until = CarbonImmutable::parse($filters['to'] ?? $asOf->toDateString(), 'UTC')->startOfDay()->addDay();
         abort_unless($from->lt($until) && $until->lte($asOf->addDay()->startOfDay()) && $from->diffInDays($until) <= 31, 422, 'Select one to31UTC days ending today or earlier.');
+        $exclusiveEnd = $until;
         $until = $until->min($asOf);
         $a = $from->getTimestamp();
         $z = $until->getTimestamp();
@@ -193,7 +194,23 @@ class OperationalAnalytics
             $money[$key]['vendor_allocated_minor'] = $this->add($money[$key]['vendor_allocated_minor'], (int) $i->vendor_minor);
         }
 
-        return ['company_id' => $company->id, 'from' => $from->toDateString(), 'to' => CarbonImmutable::parse($filters['to'] ?? $asOf->toDateString(), 'UTC')->toDateString(), 'as_of' => $asOf->toISOString(), 'until' => $until->toISOString(), 'window_seconds' => $z - $a, 'status_freshness_seconds' => 300, 'sites' => array_values($rows), 'invoice_facts' => array_values($money), 'evidence' => 'SIMULATED_SOURCE', 'physical_uptime_verified' => false, 'billing_authority' => false];
+        // Current public feedback only. The window applies to the current content
+        // revision, not historical approval state or the charging-session date.
+        $feedback = DB::table('charging_reviews as r')
+            ->join('charging_review_events as e', fn ($j) => $j->on('e.review_id', '=', 'r.id')->on('e.revision', '=', 'r.revision'))
+            ->where('r.vendor_id', $company->owner_id)->whereIn('r.station_id', $sites->where('station_source', 'simulator')->pluck('station_id'))
+            ->where('r.state', 'published')->whereIn('r.evidence', ['SIMULATED_SOURCE_OBSERVED', 'SIMULATED_APP_ONLY'])
+            ->whereIn('e.action', ['create', 'revise'])->where('e.created_at', '>=', $from)->where('e.created_at', '<', $exclusiveEnd)->where('e.created_at', '<=', $asOf)
+            ->select('r.station_id', 'r.evidence')->selectRaw('COUNT(*) as ratings, SUM(e.rating) as rating_sum')->groupBy('r.station_id', 'r.evidence')->get()
+            ->map(function ($g) use ($siteByStation) {
+                $ratings = $this->add(0, (int) $g->ratings);
+                $sum = $this->add(0, (int) $g->rating_sum);
+                abort_unless($sum >= $ratings && $sum <= $ratings * 5, 409, 'Invalid feedback aggregate.');
+
+                return ['site_id' => $siteByStation[$g->station_id]->id, 'evidence' => $g->evidence, 'ratings' => $ratings, 'rating_sum' => $sum];
+            })->all();
+
+        return ['company_id' => $company->id, 'from' => $from->toDateString(), 'to' => CarbonImmutable::parse($filters['to'] ?? $asOf->toDateString(), 'UTC')->toDateString(), 'as_of' => $asOf->toISOString(), 'until' => $until->toISOString(), 'window_seconds' => $z - $a, 'status_freshness_seconds' => 300, 'sites' => array_values($rows), 'invoice_facts' => array_values($money), 'feedback_groups' => $feedback, 'feedback_scope' => 'currently_published_revisions_created_in_window', 'feedback_physical_charging_verified' => false, 'evidence' => 'SIMULATED_SOURCE', 'physical_uptime_verified' => false, 'billing_authority' => false];
     }
 
     public function csv(array $report): string
@@ -205,6 +222,13 @@ class OperationalAnalytics
             fputcsv($f, array_keys($report['sites'][0]), ',', '"', '');
             foreach ($report['sites'] as $row) {
                 fputcsv($f, array_map($safe, array_values($row)), ',', '"', '');
+            }
+        }
+        fputcsv($f, ['CURRENT_PUBLIC_SIMULATOR_FEEDBACK_NOT_PHYSICAL_VERIFICATION'], ',', '"', '');
+        if ($report['feedback_groups']) {
+            fputcsv($f, array_keys($report['feedback_groups'][0]), ',', '"', '');
+            foreach ($report['feedback_groups'] as $row) {
+                fputcsv($f, array_values($row), ',', '"', '');
             }
         }
         fputcsv($f, ['INVOICES_NOT_CASH_OR_SETTLEMENT'], ',', '"', '');

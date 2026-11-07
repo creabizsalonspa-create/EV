@@ -526,6 +526,27 @@ class _WorkspaceState extends State<Workspace> {
                   'currency': row['currency'],
                 }),
               ),
+            if (tab == 3 && row['can_simulate_battery'] == true)
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () => perform(() async {
+                        await api!.request(
+                          'vehicles/$id/battery-simulation',
+                          method: 'POST',
+                          body: {
+                            'operation_key': operationKey(),
+                            'battery_percent': 15,
+                          },
+                        );
+                        if (mounted) setState(() => message = 'saved');
+                      }),
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'ar'
+                      ? 'محاكاة تنبيه بطارية منخفضة 15٪'
+                      : 'Simulate low battery alert: 15%',
+                ),
+              ),
             if (tab == 3)
               Text(
                 '${row['connector_type']}',
