@@ -51,7 +51,7 @@ class AdminSecondFactorTest extends TestCase
         $this->assertStringContainsString('otpauth://totp/', $response->json('provisioning_uri'));
         $this->assertDatabaseCount('admin_second_factors', 0);
 
-        $code = AdminTotp::codeAtStep($secret, intdiv(time(), 30));
+        $code = AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30));
         $this->postJson('/api/admin/second-factor/confirm', ['code' => $code])
             ->assertOk()->assertJsonPath('verified', true)->assertJsonMissingPath('secret');
         $this->getJson('/api/admin/second-factor/status')->assertOk()
@@ -70,7 +70,7 @@ class AdminSecondFactorTest extends TestCase
         $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
         $secret = $this->postJson('/api/admin/second-factor/begin', ['password' => 'password'])
             ->assertOk()->json('secret');
-        $code = AdminTotp::codeAtStep($secret, intdiv(time(), 30));
+        $code = AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30));
         $this->postJson('/api/admin/second-factor/confirm', ['code' => $code])->assertOk();
         $this->postJson('/api/logout')->assertNoContent();
         $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
@@ -78,7 +78,7 @@ class AdminSecondFactorTest extends TestCase
         $this->postJson('/api/admin/second-factor/verify', ['code' => $code])->assertUnprocessable();
 
         $this->travel(35)->seconds();
-        $newCode = AdminTotp::codeAtStep($secret, intdiv(time(), 30));
+        $newCode = AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30));
         $this->postJson('/api/admin/second-factor/verify', ['code' => $newCode])->assertOk();
         $this->getJson('/api/admin/overview')->assertOk();
         $this->assertSame(1, DB::table('audit_events')->where('action', 'admin.second_factor.verified')->count());
@@ -97,7 +97,7 @@ class AdminSecondFactorTest extends TestCase
         $secret = $this->postJson('/api/admin/second-factor/begin', ['password' => 'password'])
             ->assertOk()->json('secret');
         $this->travel(11)->minutes();
-        $code = AdminTotp::codeAtStep($secret, intdiv(time(), 30));
+        $code = AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30));
         $this->postJson('/api/admin/second-factor/confirm', ['code' => $code])->assertConflict();
         $this->assertDatabaseCount('admin_second_factors', 0);
     }
