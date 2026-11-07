@@ -594,7 +594,10 @@ class EvApi {
         throw const ApiException(409, 'Session changed.');
       return Account.fromJson(Map<String, dynamic>.from(data as Map));
     } finally {
-      if (signInEpoch == _epoch) {
+      // A server rejection may have advanced the epoch during cleanup.
+      // Release only this transition, never a newer concurrent transition.
+      if (_authTransitionEpoch == signInEpoch &&
+          _authTransitionOperation == 'login') {
         _authTransitionEpoch = null;
         _authTransitionOperation = null;
       }
@@ -616,6 +619,9 @@ class EvApi {
       if (logoutEpoch == _epoch) {
         _cookies.clear();
         _csrf = null;
+      }
+      if (_authTransitionEpoch == logoutEpoch &&
+          _authTransitionOperation == 'logout') {
         _authTransitionEpoch = null;
         _authTransitionOperation = null;
       }
