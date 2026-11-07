@@ -66,7 +66,7 @@ def classify(run, heads, by_number, paired, repo=REPO):
     """Return a narrowly justified obsolete-work reason, or None to protect."""
     if run.get("status") != "queued" or not _int(run.get("id")):
         return None
-    if (run.get("repository") or {}).get("full_name", repo) != repo:
+    if (run.get("repository") or {}).get("full_name") != repo:
         return None
     branch, sha, event = (
         run.get("head_branch"), run.get("head_sha"), run.get("event"))
@@ -81,7 +81,9 @@ def classify(run, heads, by_number, paired, repo=REPO):
         if not isinstance(links, list) or not links:
             return None
         numbers = {p.get("number") for p in links if isinstance(p, dict)}
-        if not numbers or any(n not in by_number for n in numbers):
+        if (not numbers or any(n not in by_number for n in numbers)
+                or any(not _same_repository(by_number[n], repo)
+                       for n in numbers)):
             return None
         if all(by_number[n].get("head", {}).get("sha") != sha for n in numbers):
             return "superseded_pr_head"

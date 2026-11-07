@@ -286,5 +286,16 @@ class QueueTriageTest(unittest.TestCase):
         self.assertIn("needs: dry-run", workflow)
 
 
+    def test_obsolete_fork_pr_run_is_never_cancelled(self):
+        pending = run(event="pull_request", prs=[70], sha=SHA_A)
+        external = pr(repo="untrusted-fork/EV", sha=SHA_B)
+        self.assertIsNone(classify([pending], active=[external]))
+
+    def test_missing_run_repository_provenance_fails_closed(self):
+        pending = run()
+        del pending["repository"]
+        self.assertIsNone(classify([pending]))
+
+
 if __name__ == "__main__":
     unittest.main()
