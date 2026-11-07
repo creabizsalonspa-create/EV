@@ -119,6 +119,16 @@ function reviewFile(filePath) {
   catch { return { ok: false, errors: ['Staging .env: cannot read private configuration'] }; }
   const parsed = parseEnv(source);
   errors.push(...parsed.errors, ...checkValues(parsed.values));
+  // Compose gives exported shell variables precedence over .env; fail closed.
+  const protectedKeys = ['APP_KEY', 'DB_PASSWORD', 'STAGING_HOST', 'ACME_EMAIL',
+    'STAGING_BIND_IP', 'EV_IMAGE_TAG', 'APP_ENV', 'APP_DEBUG',
+    'CSMS_SIMULATOR_ENABLED', 'EV_BUILD_CA_BUNDLE', 'MAIL_MAILER'];
+  for (const name of protectedKeys) {
+    if (Object.hasOwn(parsed.values, name) && Object.hasOwn(process.env, name) &&
+        process.env[name] !== parsed.values[name]) {
+      errors.push(name + ': inherited shell setting overrides reviewed .env; clear it before Compose');
+    }
+  }
   return { ok: errors.length === 0, errors };
 }
 
