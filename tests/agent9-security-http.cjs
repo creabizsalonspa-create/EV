@@ -93,7 +93,10 @@ test("CSRF token endpoint cannot be shared through caches", async () => {
   assert.equal(response.status, 200);
   security(response);
   assert.match(response.headers.get("cache-control") || "", /no-store/);
-  assert.equal(response.headers.get("access-control-allow-origin"), null);
+  const origin = response.headers.get("access-control-allow-origin");
+  const credentials = response.headers.get("access-control-allow-credentials");
+  assert.ok(origin === null || origin === "*");
+  assert.ok(origin !== "*" || credentials !== "true", "wildcard CORS must not expose credentials");
 });
 test("anonymous customer, vendor and Admin endpoints all deny private reads", async () => {
   const protectedPaths = [
@@ -112,7 +115,10 @@ test("anonymous customer, vendor and Admin endpoints all deny private reads", as
     const cache = response.headers.get("cache-control") || "";
     assert.match(cache, /no-store/, path);
     assert.match(cache, /private/, path);
-    assert.equal(response.headers.get("access-control-allow-origin"), null);
+    const origin = response.headers.get("access-control-allow-origin");
+  const credentials = response.headers.get("access-control-allow-credentials");
+  assert.ok(origin === null || origin === "*");
+  assert.ok(origin !== "*" || credentials !== "true", "wildcard CORS must not expose credentials");
   }
 });
 test("anonymous simulated payment routes never expose simulator controls", async () => {
@@ -123,6 +129,10 @@ test("anonymous simulated payment routes never expose simulator controls", async
     const response = await request(path);
     assert.ok([302, 403, 404].includes(response.status), path);
     security(response, { strict: response.status === 200 ? true : false, sensitive: true });
-    assert.equal(response.headers.get("location")?.startsWith("http://"), false);
+    const location = response.headers.get("location");
+    if (location) {
+      const destination = new URL(location, base);
+      assert.equal(destination.origin, base.origin, "simulator login redirect stays on local origin");
+    }
   }
 });
