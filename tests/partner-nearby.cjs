@@ -108,9 +108,23 @@ const assert = require("node:assert/strict");
         assert.equal(providerUri.searchParams.get("provider"), "Network_50%!");
         assert.equal(providerUri.searchParams.get("radius_km"), "10");
 
+        await root.getByRole("button", { name: "Clear partner filters", exact: true }).click();
+        await root.locator("[name=max_source_age_hours]").waitFor();
+        const clearedUri = urls.at(-1);
+        for (const key of ["latitude", "longitude", "radius_km", "provider", "max_source_age_hours", "reported_evse_status"])
+            assert.equal(clearedUri.searchParams.has(key), false, "Cleared filter leaked " + key);
+        assert.equal(await root.locator("[name=max_source_age_hours]").inputValue(), "");
+        assert.equal(await root.locator("[name=reported_evse_status]").inputValue(), "");
         futureClock = true;
         await root.getByRole("button", { name: "Refresh", exact: true }).click();
         await root.getByText("Warning: partner's reported timestamp is in the future; freshness cannot be confirmed.", { exact: true }).waitFor();
+        // Clearing all filters removes distance intentionally. Search nearby
+        // again explicitly before verifying the Arabic distance label.
+        await root.locator("[name=latitude]").fill("25.2");
+        await root.locator("[name=longitude]").fill("55.3");
+        await root.locator("[name=radius_km]").fill("10");
+        await root.getByRole("button", { name: "Search partner locations", exact: true }).click();
+        await root.getByText("1.23 km", { exact: true }).waitFor();
         await page.locator("#language").click();
         await root.getByText("المسافة بخط مستقيم (ليست مسافة قيادة):", { exact: true }).waitFor();
         await root.getByText("مقدم الخدمة المُسجل (دون اعتماد من المشغل):", { exact: true }).waitFor();

@@ -16,6 +16,7 @@ const assert = require("node:assert/strict");
     let showPartner = true;
     let unsafePartner = false;
     let partnerAgeMinutes = 120;
+    let partnerClockAhead = false;
     const partnerQueries = [];
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -70,7 +71,8 @@ const assert = require("node:assert/strict");
                 evidence: "PARTNER_REPORTED_UNVERIFIED",
                 availability: unsafePartner ? "available" : "unknown", remote_control: false, reservable: false,
                 source_timestamp_evidence: "PARTNER_REPORTED_ONLY",
-                reported_source_age_minutes: partnerAgeMinutes,
+                reported_source_age_minutes: partnerClockAhead ? null : partnerAgeMinutes,
+                source_clock_evidence: partnerClockAhead ? "PARTNER_CLOCK_AHEAD" : "PARTNER_REPORTED_TIME",
                 received_at: "2026-11-07T12:00:00Z",
                 location: {
                   id: "partner-mock",
@@ -187,9 +189,20 @@ const assert = require("node:assert/strict");
     // non-live stale-record warning, without creating charging authority.
     partnerAgeMinutes = 2000;
     await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator(".partner-map-pin.partner-pin-stale").waitFor();
+    assert.equal(await page.locator(".partner-map-pin").getAttribute("title"), "Unverified partner — old reported data");
+    await page.locator("#roaming-discovery").getByText("Warning: partner record is more than 24 hours old; it may be outdated.", { exact: true }).waitFor();
     await page.locator(".partner-map-pin").click();
     await page.locator(".leaflet-popup-content")
       .getByText("Partner source age: 2000 min (older than 24 hours); live status unverified.", { exact: true }).waitFor();
+    partnerClockAhead = true;
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator(".partner-map-pin.partner-pin-uncertain").waitFor();
+    assert.equal(await page.locator(".partner-map-pin").getAttribute("title"), "Unverified partner — source time uncertain");
+    await page.locator("#roaming-discovery").getByText("Warning: partner's reported timestamp is in the future; freshness cannot be confirmed.", { exact: true }).waitFor();
+    await page.locator(".partner-map-pin").click();
+    await page.locator(".leaflet-popup-content").getByText("Partner's reported timestamp is in the future; freshness unknown.", { exact: true }).waitFor();
+    partnerClockAhead = false;
     // Identity/session reset removes every old map marker immediately.
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
     assert.equal(await page.locator(".partner-map-pin").count(), 0);

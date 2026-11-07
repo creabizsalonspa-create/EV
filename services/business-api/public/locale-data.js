@@ -1499,6 +1499,18 @@ window.EV_MESSAGES = {
         en: "All reported states (not live)",
         ar: "جميع الحالات المبلغ عنها (ليست مباشرة)",
     },
+    "Clear partner filters": {
+        en: "Clear partner filters",
+        ar: "مسح مرشحات مواقع الشركاء",
+    },
+    "Roaming stale partner source warning": {
+        en: "Warning: partner record is more than 24 hours old; it may be outdated.",
+        ar: "تحذير: سجل الشريك أقدم من 24 ساعة وقد لا يكون محدثاً.",
+    },
+    "Roaming partner time unknown warning": {
+        en: "Warning: partner source update time is unavailable.",
+        ar: "تحذير: وقت تحديث بيانات الشريك غير متاح.",
+    },
     "Roaming coordinates": { en: "Coordinates:", ar: "الإحداثيات:" },
     "Roaming straight-line distance": {
         en: "Straight-line distance (not driving distance):",

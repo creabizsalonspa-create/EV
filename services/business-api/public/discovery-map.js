@@ -170,6 +170,15 @@
         }
         for (const group of buckets.values()) {
             const first = group[0].location;
+            // This class describes source evidence, never actual occupancy.
+            // Mixed clusters are marked uncertain whenever a source clock is
+            // missing or ahead, and stale whenever any report exceeds 24h.
+            const freshnessClass = group.some(row =>
+                row.source_clock_evidence === "PARTNER_CLOCK_AHEAD" ||
+                !Number.isSafeInteger(row.reported_source_age_minutes))
+                ? "partner-pin-uncertain"
+                : group.some(row => row.reported_source_age_minutes >= 1440)
+                    ? "partner-pin-stale" : "partner-pin-reported";
             const popup = document.createElement("div");
             for (const row of group) {
                 const place = row.location;
@@ -239,11 +248,15 @@
                 popup.append(jump, navigation);
             }
             L.marker([+first.latitude, +first.longitude], {
-                title: text("Unverified partner locations", "مواقع الشركاء غير المؤكدة"),
+                title: freshnessClass === "partner-pin-uncertain"
+                    ? text("Unverified partner — source time uncertain", "الشريك غير مؤكد — وقت المصدر غير معروف")
+                    : freshnessClass === "partner-pin-stale"
+                        ? text("Unverified partner — old reported data", "الشريك غير مؤكد — بيانات قديمة")
+                        : text("Unverified partner locations", "مواقع الشركاء غير المؤكدة"),
                 // Canonical station pins must remain reachable at shared coordinates.
                 zIndexOffset: -500,
                 icon: L.divIcon({
-                    className: "station-map-pin partner-map-pin",
+                    className: "station-map-pin partner-map-pin " + freshnessClass,
                     html: `P${group.length}`,
                     iconSize: [36, 36],
                 }),

@@ -114,6 +114,10 @@ window.createRoamingWorkspace = ({
             line(card, "Roaming partner source age", `${metadata.reported_source_age_minutes} min · not live availability`);
         if (metadata?.source_clock_evidence === "PARTNER_CLOCK_AHEAD")
             card.append(ui("p", "Roaming partner clock ahead warning"));
+        else if (metadata?.source_clock_evidence === "SOURCE_TIMESTAMP_UNKNOWN")
+            card.append(ui("p", "Roaming partner time unknown warning"));
+        else if (Number.isSafeInteger(metadata?.reported_source_age_minutes) && metadata.reported_source_age_minutes >= 1440)
+            card.append(ui("p", "Roaming stale partner source warning"));
         if (Number.isSafeInteger(metadata?.received_age_minutes) && metadata.received_age_minutes >= 0)
             line(card, "Roaming receipt age", String(metadata.received_age_minutes) + " min · not live availability");
         for (const evse of item.evses || []) {
@@ -213,7 +217,13 @@ window.createRoamingWorkspace = ({
         requireGroup();
         const submit = ui("button", "Search partner locations");
         submit.type = "submit";
-        form.append(submit);
+        const clear = ui("button", "Clear partner filters");
+        clear.type = "button";
+        clear.onclick = () => {
+            catalogFilters = {};
+            void catalog(1, false);
+        };
+        form.append(submit, clear);
         form.onsubmit = async (event) => {
             event.preventDefault();
             submit.disabled = true;
