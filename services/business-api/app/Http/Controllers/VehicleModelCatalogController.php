@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Vehicle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 final class VehicleModelCatalogController extends Controller
@@ -107,7 +106,7 @@ final class VehicleModelCatalogController extends Controller
             );
             $this->audit($request->user()->id, 'vehicle_model.created', $id);
             return $this->privateReply(
-                $this->record(DB::table('vehicle_model_catalog')->findOrFail($id)), 201);
+                $this->record(DB::table('vehicle_model_catalog')->where('id', $id)->firstOrFail()), 201);
         }, 3);
     }
 
@@ -134,7 +133,7 @@ final class VehicleModelCatalogController extends Controller
             ]);
             $this->audit($request->user()->id, 'vehicle_model.updated', $model);
             return $this->privateReply(
-                $this->record(DB::table('vehicle_model_catalog')->findOrFail($model)));
+                $this->record(DB::table('vehicle_model_catalog')->where('id', $model)->firstOrFail()));
         }, 3);
     }
 
