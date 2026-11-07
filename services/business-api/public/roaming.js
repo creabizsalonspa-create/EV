@@ -392,6 +392,25 @@ window.createRoamingWorkspace = ({
                 publicRoot.removeAttribute("aria-busy");
         }
     }
+    window.addEventListener("partner-nearby-search", (event) => {
+        if (!publicRoot.isConnected) return;
+        const candidate = event.detail;
+        if (!candidate || typeof candidate !== "object") return;
+        const latitude = Number(candidate.latitude);
+        const longitude = Number(candidate.longitude);
+        const radius = Number(candidate.radius_km);
+        if (![latitude, longitude, radius].every(Number.isFinite) ||
+            Math.abs(latitude) > 90 || Math.abs(longitude) > 180 ||
+            radius < 1 || radius > 200) return;
+        // Explicit map-to-partner search is independent of stale text/country
+        // filters, but never bypasses server-side partner authorization.
+        catalogFilters = {
+            latitude: latitude.toFixed(6),
+            longitude: longitude.toFixed(6),
+            radius_km: String(radius),
+        };
+        void catalog(1, false);
+    });
     // This private workspace never changes the public discovery capability contract.
     let roamingPending = null,
         roamingVersion = 0;
