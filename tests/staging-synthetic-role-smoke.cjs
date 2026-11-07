@@ -158,7 +158,7 @@ test('real loopback HTTP stack sends explicit CSRF header but never sends token 
    assert.ok(observed[1].headers.cookie.includes('laravel_session=synthetic'));
    assert.ok(!observed[1].headers.cookie.includes('__csrf_token'));
    assert.equal(observed[1].method,'POST');
-   assert.equal(observed[1].headers.host,'127.0.0.1:8000');
+   assert.equal(observed[1].headers.host,'127.0.0.1:'+server.address().port);
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
 test('real loopback HTTP stack refuses redirect instead of following remote Location',async()=>{
