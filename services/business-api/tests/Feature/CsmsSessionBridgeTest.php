@@ -90,6 +90,10 @@ class CsmsSessionBridgeTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($proofPath)->assertOk();
         $this->actingAs(User::factory()->create())->getJson($proofPath)->assertNotFound();
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($proofPath)->assertNotFound();
+        $endReceipt = DB::table('csms_inbox_events')->where('type', 'ended')->first();
+        DB::table('csms_inbox_events')->where('id', $endReceipt->id)->update(['fingerprint' => 'malformed-receipt']);
+        $this->actingAs($u)->getJson($proofPath)->assertOk()->assertJsonPath('source_verified', false)->assertJsonPath('status', 'requires_review')->assertJsonCount(0, 'proofs');
+        DB::table('csms_inbox_events')->where('id', $endReceipt->id)->update(['fingerprint' => $endReceipt->fingerprint]);
         DB::table('csms_inbox_events')->where('type', 'ended')->update(['outcome' => 'stale']);
         $this->actingAs($u)->getJson($proofPath)->assertOk()->assertJsonPath('source_verified', false)->assertJsonPath('status', 'requires_review')->assertJsonCount(0, 'proofs');
         $this->assertDatabaseCount('finance_invoices', 1);

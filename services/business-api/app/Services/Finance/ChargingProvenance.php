@@ -24,6 +24,9 @@ class ChargingProvenance
                 $cdr = OcpiRecord::find($receipt->source_cdr_record_id);
                 $valid = $session && $session->reservation_id === null && $session->roaming_order_id === $receipt->order_id && $session->status === 'stopped' && $session->id === $receipt->charging_session_id && $session->energy_wh === $invoice->energy_wh
                     && $source && $cdr && $source->module === 'sessions' && $cdr->module === 'cdrs' && $source->ocpi_provider_id === $cdr->ocpi_provider_id
+                    && $receipt->actor_id === $invoice->user_id && ($facts['vendor_id'] ?? null) === $invoice->vendor_id && ($facts['order_id'] ?? null) === $receipt->order_id
+                    && ($facts['provider_id'] ?? null) === $source->ocpi_provider_id && ($facts['source_session_record_id'] ?? null) === $source->id && ($facts['source_cdr_record_id'] ?? null) === $cdr->id
+                    && $this->digest($receipt->source_session_hash) && $this->digest($receipt->source_cdr_hash)
                     && hash_equals($receipt->source_session_hash, $source->content_hash) && hash_equals($receipt->source_cdr_hash, $cdr->content_hash)
                     && ($facts['energy_wh'] ?? null) === $invoice->energy_wh && ($facts['total_minor'] ?? null) === $invoice->total_minor && ($facts['currency'] ?? null) === $invoice->currency && ($facts['minor_units'] ?? null) === $invoice->minor_units
                     && ($facts['source_session_hash'] ?? null) === $receipt->source_session_hash && ($facts['source_cdr_hash'] ?? null) === $receipt->source_cdr_hash;
@@ -40,11 +43,17 @@ class ChargingProvenance
             $valid = $session && $session->roaming_order_id === null && $session->status === 'stopped' && $session->energy_wh === $invoice->energy_wh
                 && in_array($link->protocol, ['1.6', '2.0.1'], true) && $link->transaction_id !== null && $link->started_at !== null && $link->ended_at !== null
                 && $started && $ended && $started->meter_wh === $link->meter_start_wh && $ended->meter_wh === $link->last_meter_wh
+                && $this->digest($started->fingerprint) && $this->digest($ended->fingerprint)
                 && $ended->sequence > $started->sequence && $ended->meter_wh >= $started->meter_wh && $ended->meter_wh - $started->meter_wh === $invoice->energy_wh;
 
             return $base + ['kind' => 'OCPP_SIMULATOR', 'status' => $valid ? 'verified_simulated' : 'requires_review', 'source_verified' => $valid, 'protocol' => $valid ? 'OCPP '.$link->protocol : null, 'proofs' => $valid ? ['start_sha256' => $started->fingerprint, 'end_sha256' => $ended->fingerprint] : (object) []];
         }
 
         return $base + ['kind' => 'APP_SIMULATION', 'status' => $session && $session->roaming_order_id === null ? 'not_source_verified' : 'requires_review', 'source_verified' => false, 'protocol' => null, 'proofs' => (object) []];
+    }
+
+    private function digest(mixed $value): bool
+    {
+        return is_string($value) && preg_match('/^[a-f0-9]{64}$/D', $value) === 1;
     }
 }
