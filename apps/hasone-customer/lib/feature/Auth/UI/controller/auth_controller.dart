@@ -108,7 +108,7 @@ class AuthController extends GetxController {
     }
   }
 
-    // ── LOGIN ────────────────────────────────────────────────────────────────────
+  // ── LOGIN ────────────────────────────────────────────────────────────────────
   /// POST /api/v1/Login
   /// body: { email, password }
   /// response: { status, message, token, userId, name, email }
@@ -167,7 +167,7 @@ class AuthController extends GetxController {
     }
   }
 
-    // ── RESEND OTP ───────────────────────────────────────────────────────────────
+  // ── RESEND OTP ───────────────────────────────────────────────────────────────
   /// POST /api/v1/ResendOTP
   /// body: { email }
   /// response: { status: "Success", message: "New OTP has been sent to your email!" }
