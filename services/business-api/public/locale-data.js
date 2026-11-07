@@ -1,4 +1,9 @@
 window.EV_MESSAGES = {
+    "Unacknowledged simulated charger fault reminder · station #{id}": {
+        en: "Unacknowledged simulated charger fault reminder · station #{id}",
+        ar: "تذكير بعطل شاحن تجريبي لم يتم الإقرار به · المحطة #{id}",
+    },
+
     "Notification preferences": { en: "Notification preferences", ar: "تفضيلات الإشعارات" },
     "Default inbox category": { en: "Default inbox category", ar: "الفئة الافتراضية لصندوق الوارد" },
     "Start with unread only": { en: "Start with unread only", ar: "عرض غير المقروءة أولاً" },

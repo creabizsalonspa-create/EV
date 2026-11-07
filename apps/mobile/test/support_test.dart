@@ -893,6 +893,36 @@ void main() {
     expect(fixture.writes, 0);
   });
 
+  test('optional simulator reminder is visibly distinct but uses the same read-only fault review', () {
+    final en = EvStrings(const Locale('en'));
+    final ar = EvStrings(const Locale('ar'));
+    final notice = {
+      'kind': 'charging.fault.reminder.simulated',
+      'metadata': {
+        'source': 'simulator',
+        'physical_verification': false,
+        'station_id': 17,
+        'company_id': 5,
+        'charger_id': 7,
+        'alert_id': 9,
+        'reminder_only': true,
+      },
+    };
+    expect(inboxNotificationTitle(notice, en),
+        'Unacknowledged simulated charger fault reminder · station #17');
+    expect(inboxNotificationTitle(notice, ar), contains('المحطة #17'));
+    expect(simulatedFaultTarget(notice), {
+      'company_id': 5, 'charger_id': 7, 'alert_id': 9,
+    });
+    expect(simulatedFaultTarget({
+      ...notice,
+      'metadata': {
+        ...notice['metadata'] as Map<String, dynamic>,
+        'physical_verification': true,
+      },
+    }), isNull);
+  });
+
   test('only verified simulator source metadata can link operational review', () {
     final complete = {
       'kind': 'charging.fault.simulated',

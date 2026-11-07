@@ -1514,6 +1514,10 @@ async function refreshInbox() {
                     ? ui("p", "Simulator source reported recovery · station #{id}", {
                         id: m.metadata?.station_id ?? "?",
                     })
+                    : m.kind === "charging.fault.reminder.simulated"
+                        ? ui("p", "Unacknowledged simulated charger fault reminder · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
                     : m.kind === "charging.operational_case.opened"
                         ? ui("p", "Charging command requires operator recovery · station #{id}", {
                             id: m.metadata?.station_id ?? "?",
@@ -1565,7 +1569,8 @@ async function refreshInbox() {
         if (Number.isSafeInteger(m.id) && m.id > 0) {
             row.dataset.notificationId = String(m.id);
         }
-        if (["charging.fault.simulated", "charging.fault.recovered.simulated"].includes(m.kind)) {
+        if (["charging.fault.simulated", "charging.fault.recovered.simulated",
+             "charging.fault.reminder.simulated"].includes(m.kind)) {
             const meta = m.metadata;
             if (meta?.source === "simulator" && meta?.physical_verification === false &&
                 ["company_id", "charger_id", "alert_id"].every(

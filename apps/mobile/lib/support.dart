@@ -24,6 +24,10 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
       return strings.t('simulatedRecoveryAlert', {
         'station': id('station_id'),
       });
+    case 'charging.fault.reminder.simulated':
+      return strings.t('simulatedFaultReminder', {
+        'station': id('station_id'),
+      });
     case 'charging.monitor.requires_review.simulated':
       return strings.t('simulatedMonitorReview', {'station': id('station_id')});
     case 'charging.monitor.resumed.simulated':
@@ -66,7 +70,8 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
 /// VendorAccess still re-authorizes the selected charger on every request.
 Map<String, int>? simulatedFaultTarget(Map<String, dynamic> row) {
   if (row['kind'] != 'charging.fault.simulated' &&
-      row['kind'] != 'charging.fault.recovered.simulated') {
+      row['kind'] != 'charging.fault.recovered.simulated' &&
+      row['kind'] != 'charging.fault.reminder.simulated') {
     return null;
   }
   final details = row['metadata'];
