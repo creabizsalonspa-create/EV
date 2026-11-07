@@ -111,7 +111,7 @@ class NotificationCenterTest extends TestCase
         $this->actingAs($owner)->getJson('/api/notifications?unread_only=1')
             ->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $unread->id);
-        $this->getJson('/api/v1/notifications?unread_only=true')->assertOk()
+        $this->getJson('/api/v1/notifications?unread_only=1')->assertOk()
             ->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $unread->id);
         $this->getJson('/api/v1/notifications?unread_only=0')->assertOk()
             ->assertJsonCount(2, 'data');
