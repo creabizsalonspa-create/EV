@@ -4,6 +4,7 @@ This runs with Python stdlib on Linux before Android tooling is installed.
 It is source/config regression evidence, NOT proof of a signed APK or AAB.
 """
 from pathlib import Path
+import plistlib
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -87,6 +88,27 @@ class MobileReleaseSigningTest(unittest.TestCase):
                          for entry in section.findall("exclude")
                          if entry.get("path") == "."},
                     )
+
+    def test_ios_photo_picker_has_user_visible_privacy_description(self):
+        app = ROOT / "apps/hasone-customer"
+        # Profile screen invokes ImagePicker with both camera and gallery.
+        profile_source = (
+            app / "lib/feature/profile/UI/screen/edit_profile_screen.dart"
+        ).read_text()
+        self.assertIn("ImageSource.camera", profile_source)
+        self.assertIn("ImageSource.gallery", profile_source)
+        with (app / "ios/Runner/Info.plist").open("rb") as handle:
+            permissions = plistlib.load(handle)
+        for key in (
+            "NSCameraUsageDescription",
+            "NSPhotoLibraryUsageDescription",
+            "NSLocationWhenInUseUsageDescription",
+        ):
+            with self.subTest(key=key):
+                value = permissions.get(key)
+                self.assertIsInstance(value, str)
+                self.assertGreater(len(value.strip()), 20)
+                self.assertNotIn("TODO", value.upper())
 
     def test_app_identity_is_not_silently_rebranded(self):
         self.assertIn(
