@@ -27,7 +27,7 @@ class AdminStaffPermissionController extends Controller
      */
     public function index(Request $request)
     {
-        $this->activeAdmin($request);
+        $actor = $this->activeAdmin($request);
         $input = $request->validate([
             'company_id' => 'sometimes|integer|min:1',
             'status' => 'sometimes|in:active,invited,revoked',
@@ -56,7 +56,7 @@ class AdminStaffPermissionController extends Controller
             ->get(['id', 'name', 'email', 'account_status'])
             ->keyBy('id');
 
-        return response()->json($page->through(function (VendorCompanyStaff $staff) use ($companies, $users) {
+        $view = $page->through(function (VendorCompanyStaff $staff) use ($companies, $users) {
             $company = $companies->get($staff->company_id);
             $user = $users->get($staff->user_id);
             return [
@@ -80,7 +80,17 @@ class AdminStaffPermissionController extends Controller
                     'account_status' => $user->account_status,
                 ] : null,
             ];
-        }))->header('Cache-Control', 'no-store, private');
+        });
+
+        DB::table('audit_events')->insert([
+            'actor_id' => $actor->id,
+            'action' => 'admin.private_list.staff_viewed',
+            'subject' => isset($input['company_id'])
+                ? 'company:'.$input['company_id'] : 'all',
+            'created_at' => now(),
+        ]);
+
+        return response()->json($view)->header('Cache-Control', 'no-store, private');
     }
 
     /**

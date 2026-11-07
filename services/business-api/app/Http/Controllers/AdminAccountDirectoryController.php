@@ -19,7 +19,7 @@ class AdminAccountDirectoryController extends Controller
      */
     public function index(Request $request)
     {
-        $this->requireActiveAdmin($request);
+        $actor = $this->requireActiveAdmin($request);
 
         $filters = $request->validate([
             'q' => 'sometimes|required|string|max:100',
@@ -64,7 +64,7 @@ class AdminAccountDirectoryController extends Controller
             ->get(['id', 'owner_id', 'legal_name', 'country', 'status', 'reviewed_at'])
             ->groupBy('owner_id');
 
-        return $page->through(function (User $user) use ($companies) {
+        $view = $page->through(function (User $user) use ($companies) {
             return [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -83,6 +83,16 @@ class AdminAccountDirectoryController extends Controller
                 ])->values(),
             ];
         });
+
+        DB::table('audit_events')->insert([
+            'actor_id' => $actor->id,
+            'action' => 'admin.private_list.accounts_viewed',
+            'subject' => isset($filters['role'])
+                ? 'role:'.$filters['role'] : 'all',
+            'created_at' => now(),
+        ]);
+
+        return response()->json($view)->header('Cache-Control', 'no-store, private');
     }
 
     private function requireActiveAdmin(Request $request): User

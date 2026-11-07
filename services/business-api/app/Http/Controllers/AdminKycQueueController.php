@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AdminKycQueueController extends Controller
 {
@@ -52,7 +53,7 @@ class AdminKycQueueController extends Controller
             ->get(['company_id', 'kind'])
             ->groupBy('company_id');
 
-        return response()->json($page->through(function (VendorCompany $company) use ($owners, $evidence) {
+        $view = $page->through(function (VendorCompany $company) use ($owners, $evidence) {
             $owner = $owners->get($company->owner_id);
             $docs = $evidence->get($company->id) ?? collect();
 
@@ -78,6 +79,15 @@ class AdminKycQueueController extends Controller
                 'manual_review_required' => true,
                 'physical_control_enabled' => false,
             ];
-        }))->header('Cache-Control', 'no-store, private');
+        });
+
+        DB::table('audit_events')->insert([
+            'actor_id' => $actor->id,
+            'action' => 'admin.private_list.kyc_viewed',
+            'subject' => 'status:'.$status,
+            'created_at' => now(),
+        ]);
+
+        return response()->json($view)->header('Cache-Control', 'no-store, private');
     }
 }
