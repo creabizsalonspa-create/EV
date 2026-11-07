@@ -349,6 +349,17 @@ const { randomUUID } = require("node:crypto");
     assert(oldRow && oldRow.read_at !== null);
     const newest = afterBulk.page.data.find((row) => row.id === afterBulk.summary.latest_id);
     assert(newest && newest.read_at === null);
+    const filtered = await customer.page.evaluate(
+      () => api("notifications?unread_only=1"),
+    );
+    assert.equal(filtered.total, 1);
+    assert.equal(filtered.data[0].id, afterBulk.summary.latest_id);
+    await customer.page.locator("#notification-unread-filter").click();
+    await customer.page.waitForFunction(
+      () => document.querySelector("#notification-unread-filter")?.textContent.includes(
+        document.documentElement.lang === "ar" ? "جميع" : "all",
+      ),
+    );
     await vendor.page.setViewportSize({ width: 390, height: 844 });
     assert(
       await vendor.page.evaluate(

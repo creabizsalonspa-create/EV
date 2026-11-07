@@ -9,6 +9,7 @@ class SupportFixture extends FixtureApi {
   String status = 'open';
   bool read = false;
   int? lastBulkThroughId;
+  bool unreadFilterRequested = false;
   final publicMessages = ['Original public message'];
   @override
   Future<dynamic> request(
@@ -38,6 +39,17 @@ class SupportFixture extends FixtureApi {
           'total': publicMessages.length,
         },
       };
+    if (path == 'notifications' && query['unread_only'] == '1') {
+      unreadFilterRequested = true;
+      if (read) {
+        return {
+          'data': <Map<String, dynamic>>[],
+          'current_page': 1,
+          'last_page': 1,
+          'total': 0,
+        };
+      }
+    }
     if (path == 'notifications/summary') {
       return {
         'unread_count': read ? 0 : 1,
@@ -227,6 +239,25 @@ void main() {
       expect(find.byKey(const Key('mark-current-notifications-read')), findsNothing);
     },
   );
+  testWidgets('unread-only native filter requests scoped API rows', (tester) async {
+    final fixture = SupportFixture();
+    addTearDown(fixture.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: fixture, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-unread-only')));
+    await tester.pumpAndSettle();
+    expect(fixture.unreadFilterRequested, isTrue);
+    expect(find.text('Unread only'), findsOneWidget);
+    expect(find.text('Unread'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mark-current-notifications-read')));
+    await tester.pumpAndSettle();
+    expect(fixture.read, isTrue);
+    expect(find.text('0 unread notifications'), findsOneWidget);
+  });
   testWidgets(
     'battery notification labels simulation without a support ticket link',
     (tester) async {
