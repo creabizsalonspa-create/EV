@@ -2718,8 +2718,8 @@ window.EV_MESSAGES = {
         ar: "نشاط التجوال التجريبي",
     },
     "Sandbox roaming warning": {
-        en: "Sandbox partner evidence is unverified. Command acceptance does not prove charging started or stopped. No invoice or payment is created. Live charging requires an approved partner agreement.",
-        ar: "تجربة مع شريك غير متحقق منه. قبول الأمر لا يثبت بدء الشحن أو إيقافه. لا تُنشأ فاتورة ولا تُحصّل دفعة. يتطلب الشحن الحقيقي اتفاق شريك معتمدًا.",
+        en: "Sandbox partner evidence is unverified. Command acceptance does not prove charging started or stopped. Commands do not create invoices or collect money. A separate approved test-billing consent is required for a simulated invoice. Live charging requires an approved partner agreement.",
+        ar: "تجربة مع شريك غير متحقق منه. قبول الأمر لا يثبت بدء الشحن أو إيقافه. الأوامر لا تُنشئ فواتير ولا تُحصّل مالاً. تتطلب الفاتورة التجريبية موافقة فوترة تجريبية معتمدة ومنفصلة. يتطلب الشحن الحقيقي اتفاق شريك معتمدًا.",
     },
     "Sandbox response uncertain": {
         en: "Response uncertain. Review history or retry the same request only. Do not create a replacement attempt.",
@@ -2816,4 +2816,12 @@ window.EV_MESSAGES = {
     "Not reported": { en: "Not reported", ar: "غير مبلّغ عنه" },
     session: { en: "session", ar: "جلسة" },
     seconds: { en: "seconds", ar: "ثوانٍ" },
+    "View simulated roaming invoice": {
+        en: "View simulated roaming invoice",
+        ar: "عرض فاتورة التجوال التجريبية",
+    },
+    "Review simulated roaming invoice": {
+        en: "Review simulated roaming invoice",
+        ar: "مراجعة فاتورة التجوال التجريبية",
+    },
 };

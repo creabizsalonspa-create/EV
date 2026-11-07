@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'ocpi_test_invoice.dart';
+import 'invoice.dart';
 
 /// Private opt-in sandbox authority, separate from public partner discovery.
 /// A command acknowledgment cannot prove a charging transaction or invoice.
@@ -89,7 +91,15 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
         row['billing_eligible'] != false ||
         row['live_commands_enabled'] != false ||
         (order &&
-            (row['local_invoice_created'] != false ||
+            ((row['local_invoice_created'] != false &&
+                    !(row['local_invoice_created'] == true &&
+                        row['test_invoice_id'] is int &&
+                        row['test_invoice_id'] > 0 &&
+                        row['test_invoice_evidence'] ==
+                            'SIMULATED_CANONICAL_LEDGER' &&
+                        row['real_payment_processed'] == false)) ||
+                (row['local_invoice_created'] == false &&
+                    row['test_invoice_id'] != null) ||
                 row['physical_charging_verified'] != false ||
                 row['can_stop'] is! bool ||
                 row['can_revoke'] is! bool))) {
@@ -244,8 +254,8 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
         children: [
           Text(
             tr(
-              'Sandbox partner evidence is unverified. Acceptance does not prove charging started or stopped. No invoice or payment is created.',
-              'بيانات الشريك التجريبي غير متحقق منها. قبول الأمر لا يثبت بدء الشحن أو إيقافه. لا تُنشأ فاتورة ولا تُحصّل دفعة.',
+              'Sandbox partner evidence is unverified. Acceptance does not prove charging started or stopped. Commands do not create invoices or collect money. A separate approved test-billing consent is required for a simulated invoice.',
+              'بيانات الشريك التجريبي غير متحقق منها. قبول الأمر لا يثبت بدء الشحن أو إيقافه. الأوامر لا تُنشئ فواتير ولا تُحصّل مالاً. تتطلب الفاتورة التجريبية موافقة فوترة تجريبية معتمدة ومنفصلة.',
             ),
           ),
           if (background)
@@ -452,6 +462,34 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
           for (final command in row['commands'] as List)
             Text(
               '${command['action']} · ${command['state']} · ${command['transport_result'] ?? '—'} · ${command['callback_result'] ?? '—'}',
+            ),
+
+          if ((!operator && row['can_preview_test_invoice'] == true) ||
+              row['test_invoice_id'] != null)
+            TextButton(
+              onPressed: busy || background
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => operator
+                            ? InvoicePage(
+                                api: widget.api,
+                                invoiceId: row['test_invoice_id'] as int,
+                                onExpired: widget.onExpired,
+                              )
+                            : OcpiTestInvoiceView(
+                                api: widget.api,
+                                orderId: row['id'] as int,
+                                onExpired: widget.onExpired,
+                              ),
+                      ),
+                    ),
+              child: Text(
+                tr(
+                  'Review simulated roaming invoice',
+                  'مراجعة فاتورة التجوال التجريبية',
+                ),
+              ),
             ),
           if (!operator) ...[
             TextButton(

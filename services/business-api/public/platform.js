@@ -1151,6 +1151,7 @@ const roamingWorkspace = createRoamingWorkspace({
     ui,
     actor: () => user,
     notice,
+    openInvoice: (id) => invoiceHistory.open(id),
 });
 const invoiceHistory = createInvoiceHistory({
     root: el("invoice-history"),
