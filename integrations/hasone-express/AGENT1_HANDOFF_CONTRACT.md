@@ -185,3 +185,53 @@ The purchased Next.js 16.1.6 Admin passed TypeScript and a full production
 Webpack build containing the new Bookings workflow and OCPP report page.
 
 All the changes remain in draft PR #50; not deployed to the live Admin URL.
+
+
+## Multi-charger contract (Agent 1 integration)
+
+The existing source backend originally assumes one charger per station.
+The parallel staged workstream now supports a station with multiple
+registered OCPP chargers while retaining the existing single-charger
+contract for old records.
+
+All routes require `AdminAuth`:
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/admin/stations/:id/ocpp/chargers` | List approved/disabled station chargers without secrets |
+| POST | `/admin/stations/:id/ocpp/chargers` | Add a charger with unique global ID and one-time credentials; remote control stays disabled |
+| GET | `/admin/stations/:id/ocpp/booking-sources` | List up to 100 station transactions with charger ID, source session ID and protocol; no authorization hashes |
+
+The existing protected `GET /admin/bookings/:id/ocpp/operations`
+also returns `approvedChargers` (ID, protocol, online),
+`requiresChargerSelection` and `selectedChargerId`.
+For more than one approved charger, Admin **must** send
+`{ "chargerId": "<exact selected approved charger>" }` to
+`POST /admin/bookings/:id/ocpp/issue-token`.
+
+After token issuance, `BookingModel.ocppChargerId` is pinned. The same
+booking cannot receive a new token for another charger. The OCPP access
+token is scoped to that charger; the customer status API, Admin bind
+and finalize, and source reports must all enforce this exact pin.
+The Next Admin source dropdown displays only source transactions from
+the selected/pinned charger even when a station has several.
+
+The source-to-finance authority remains unchanged: verified energy
+and calculated unpaid AED are not PSP receipts or vendor revenue.
+
+**Production index migration is NOT performed:** The real MongoDB
+`ocpp_chargers` collection currently has `stationId_1` uniquely
+indexed and only one charger record. Before supporting more stations in
+production, use the explicit reviewed migration module
+`integrations/hasone-express/migrateChargerStationIndex.mjs` in
+a controlled backup/rollback window, replacing unique station index
+with a nonunique lookup and retaining globally unique charger IDs.
+Do not silently drop indexes inside HTTP handlers or deploy two
+charging/payment authorities.
+
+**New validation:** 73/73 integrated isolated backend checks,
+36/36 pure guards and 13/13 callback checks; 8/8 headless Chrome
+Admin UI checks with mocked API responses; TypeScript and full Next
+production build pass on a source copy. All changes remain in draft
+PR #50 and must be reconciled with Agent 1's Laravel/CitrineOS ledger
+and Flutter/vendor applications.
