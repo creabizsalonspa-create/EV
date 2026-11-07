@@ -26,6 +26,23 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
 
   @override
   void initState(){super.initState();load();}
+
+  @override
+  void didUpdateWidget(covariant VehicleManualSocView oldWidget){
+    super.didUpdateWidget(oldWidget);
+    if(oldWidget.vehicleId==widget.vehicleId&&identical(oldWidget.api,widget.api))return;
+    // Reused Flutter State must never retain a previous vehicle's battery
+    // history, pending idempotency key or editable percentage.
+    generation++;
+    percent.clear();
+    latest=pending=null;
+    reports=[];
+    page=lastPage=1;
+    loading=saving=false;
+    error=success=null;
+    load();
+  }
+
   @override
   void dispose(){generation++;percent.dispose();super.dispose();}
 
@@ -75,17 +92,32 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
       };
     }
     final body=Map<String,dynamic>.unmodifiable(pending!);
-    final token=generation,fence=widget.api.sessionFence();
+    final token=generation,fence=widget.api.sessionFence(),requestPath=path;
     setState((){saving=true;error=success=null;});
     try{
-      await widget.api.request(path,method:'POST',body:body);
+      await widget.api.request(requestPath,method:'POST',body:body);
       if(!mounted||token!=generation||!fence())return;
-      pending=null;
-      percent.clear();
-      setState(()=>saving=false);
-      await load(1);
-      if(mounted)setState(()=>success=t('Manual battery report recorded.',
-        'تم تسجيل التقرير اليدوي للبطارية.'));
+      // POST may commit even if read-back fails. Retain the original operation
+      // key until BOTH current state and history have been verified.
+      final current=await widget.api.request(requestPath);
+      if(!mounted||token!=generation||!fence())return;
+      final raw=await widget.api.request(requestPath+'/history',
+        query:{'page':'1'});
+      if(!mounted||token!=generation||!fence())return;
+      final currentMap=Map<String,dynamic>.from(current as Map);
+      if(currentMap['source']!='CUSTOMER_MANUAL_SELF_REPORT'||
+         currentMap['measured_by_phone']!=false||
+         currentMap['measured_by_vehicle_api']!=false||
+         currentMap['charging_capability_verified']!=false){
+        throw const FormatException('Unexpected battery report provenance');
+      }
+      final history=ApiPage<Map<String,dynamic>>.fromJson(raw,(v)=>v);
+      setState((){
+        latest=currentMap;reports=history.items;
+        page=history.current;lastPage=history.last;
+        pending=null;percent.clear();
+        success=t('Manual battery report recorded.','تم تسجيل التقرير اليدوي للبطارية.');
+      });
     }catch(e){
       if(mounted&&token==generation){
         failed(e);
