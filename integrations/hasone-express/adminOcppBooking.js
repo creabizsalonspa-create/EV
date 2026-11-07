@@ -181,18 +181,27 @@ export async function AdminBindBookingOcppSource(req,res){
    return fail(res,409,'Source transaction lacks authorized OCPP meter evidence');
   const query={bookingId:booking._id,userId:booking.userId};
   let session=await ChargingSessionModel.findOne(query);
-  if(session && session.sourceSessionId && session.sourceSessionId!==sourceId)
-   return fail(res,409,'Booking is already linked to another transaction');
+  const sourceFields={
+    sourceType:'ocpp',sourceSessionId:sourceId,
+    sourceChargerId:charger.chargerId,
+    sourceTransactionId:String(source.transactionId)
+  };
   if(session){
-   session.sourceType='ocpp';
-   session.sourceSessionId=sourceId;
-   session.sourceChargerId=charger.chargerId;
-   session.sourceTransactionId=String(source.transactionId);
-   await session.save();
+   if(session.sourceSessionId && session.sourceSessionId!==sourceId)
+     return fail(res,409,'Booking is already linked to another transaction');
+   // Compare-and-swap: concurrent Admin requests must not overwrite each
+   // other's source binding or attach a second charger to this booking.
+   const changed=await ChargingSessionModel.findOneAndUpdate({
+     _id:session._id,...query,
+     $or:[{sourceSessionId:{$in:['',null]}},{sourceSessionId:sourceId}]
+   },{$set:sourceFields},{returnDocument:'after'});
+   if(!changed)return fail(res,409,'Booking source binding changed during confirmation');
+   session=changed;
   }else{
+   // A partial Mongo unique index on bookingId/userId for sourceType=ocpp
+   // prevents two competing creates from linking distinct physical sessions.
    session=await ChargingSessionModel.create({...query,stationId:booking.stationId,
-     status:'NotStarted',sourceType:'ocpp',sourceSessionId:sourceId,
-     sourceChargerId:charger.chargerId,sourceTransactionId:String(source.transactionId)});
+     status:'NotStarted',...sourceFields});
   }
   return res.status(200).json({status:'Success',message:'Verified OCPP source linked to booking.',
     data:{bookingId:String(booking._id),sessionId:String(session._id),
