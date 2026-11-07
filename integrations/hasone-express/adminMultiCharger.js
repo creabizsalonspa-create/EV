@@ -1,0 +1,107 @@
+/**
+ * Additional OCPP chargers at one station, independent of the legacy
+ * single-charger settings route. AdminAuth wraps every route at registration.
+ * No remote start/stop is enabled by registration.
+ */
+import crypto from 'node:crypto';
+import mongoose from 'mongoose';
+import Station from '../models/NearestStationModel.js';
+
+const chargerTable=()=>mongoose.connection.db.collection('ocpp_chargers');
+const validId=x=>typeof x==='string' && /^[A-Za-z0-9_-]{1,64}$/.test(x);
+const fail=(res,code,message)=>res.status(code).json({status:'fail',message});
+async function stationFrom(req,res) {
+  if(!mongoose.isValidObjectId(req.params.id)){
+    fail(res,400,'Invalid station identifier');return null;
+  }
+  const station=await Station.findById(req.params.id).select('_id name').lean();
+  if(!station){fail(res,404,'Station not found');return null;}
+  return station;
+}
+function publicCharger(c){
+  const online=!!c.online && !!c.lastSeenAt &&
+    Date.now()-new Date(c.lastSeenAt).getTime()<120000;
+  return {chargerId:c.chargerId,protocol:c.protocol||'ocpp1.6',
+    enabled:c.enabled===true,online,controlApproved:c.controlApproved===true,
+    lastSeenAt:c.lastSeenAt??null,connectorStatuses:c.connectors??{},
+    monitoringOnly:c.controlApproved!==true};
+}
+export async function AdminListStationOcppChargers(req,res){
+  res.set('Cache-Control','no-store');
+  try{
+    const station=await stationFrom(req,res);if(!station)return;
+    const chargers=await chargerTable().find({stationId:String(station._id)})
+      .sort({chargerId:1}).limit(128).toArray();
+    return res.status(200).json({status:'Success',data:{
+      stationId:String(station._id),chargers:chargers.map(publicCharger),
+      count:chargers.length,readOnly:true
+    }});
+  }catch{
+    return fail(res,503,'Station OCPP charger listing unavailable');
+  }
+}
+/** POST /admin/stations/:id/ocpp/chargers */
+export async function AdminProvisionStationOcppCharger(req,res){
+  res.set('Cache-Control','no-store');
+  try{
+    const station=await stationFrom(req,res);if(!station)return;
+    const protocol=req.body?.protocol||'ocpp1.6';
+    const chargerId=req.body?.chargerId;
+    if(!['ocpp1.6','ocpp2.0.1'].includes(protocol) || !validId(chargerId))
+      return fail(res,400,'Specify a valid chargerId and OCPP protocol.');
+    const collection=chargerTable();
+    // Old production schema contains a unique stationId index. This must
+    // be removed with an audited migration, NEVER silently during a request.
+    const indexes=await collection.indexes();
+    if(indexes.some(i=>i.unique===true && i.key?.stationId===1
+      && Object.keys(i.key).length===1))
+      return fail(res,409,'Multi-charger database migration is required before registration.');
+    const count=await collection.countDocuments({stationId:String(station._id)});
+    if(count>=128)return fail(res,409,'Station charger limit reached');
+    await collection.createIndex({chargerId:1},{unique:true,name:'chargerId_1'});
+    const password=crypto.randomBytes(20).toString('hex');
+    const salt=crypto.randomBytes(16);
+    await collection.insertOne({
+      stationId:String(station._id),chargerId,protocol,enabled:true,
+      online:false,controlApproved:false,secretSalt:salt.toString('hex'),
+      secretHash:crypto.scryptSync(password,salt,32).toString('hex'),
+      createdAt:new Date()
+    });
+    return res.status(201).json({status:'Success',message:'Charger added. Copy credentials once.',
+      data:{...publicCharger({chargerId,protocol,enabled:true,online:false,controlApproved:false}),
+        stationId:String(station._id),
+        url:'wss://api.hasone.io/ocpp/'+chargerId,
+        username:chargerId,password}});
+  }catch(error){
+    if(error?.code===11000)return fail(res,409,'Charger ID is already registered');
+    return fail(res,503,'OCPP charger registration unavailable');
+  }
+}
+/** GET /admin/stations/:id/ocpp/booking-sources */
+export async function AdminListStationOcppBookingSources(req,res){
+  res.set('Cache-Control','no-store');
+  try{
+    const station=await stationFrom(req,res);if(!station)return;
+    const chargers=await chargerTable().find({stationId:String(station._id),enabled:true})
+      .project({chargerId:1}).limit(128).toArray();
+    const ids=[...new Set(chargers.map(c=>c.chargerId).filter(validId))];
+    if(!ids.length)return res.status(200).json({status:'Success',data:{sessions:[],count:0}});
+    const sessions=await mongoose.connection.db.collection('ocpp_sessions')
+      .find({chargerId:{$in:ids}})
+      .sort({startedAt:-1}).limit(100)
+      .project({_id:1,chargerId:1,protocol:1,transactionId:1,status:1,energyKwh:1,
+        startedAt:1,endedAt:1,paymentStatus:1}).toArray();
+    return res.status(200).json({status:'Success',data:{
+      count:sessions.length,
+      sessions:sessions.map(s=>({
+        id:String(s._id),chargerId:s.chargerId,protocol:s.protocol,
+        transactionId:String(s.transactionId),status:s.status,
+        energyKwh:Number.isFinite(s.energyKwh)?s.energyKwh:null,
+        startedAt:s.startedAt??null,endedAt:s.endedAt??null,
+        paymentStatus:s.paymentStatus||'not_collected'
+      }))
+    }});
+  }catch{
+    return fail(res,503,'OCPP station source listing unavailable');
+  }
+}
