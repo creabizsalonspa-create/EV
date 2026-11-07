@@ -172,5 +172,36 @@ class CITriggerTest(unittest.TestCase):
         self.assertRegex(workflow, r"(?m)^  cancel-in-progress: false$")
 
 
+    def test_all_future_workflows_preserve_feature_push_and_pr_isolation(self):
+        # Evaluate the entire workflow directory, including newly introduced
+        # Agent 1..10 workflows. A subsequent cherry-pick must not silently
+        # restore full duplicate builds for every feature branch push.
+        workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        self.assertGreaterEqual(len(workflows), 5)
+        for path in workflows:
+            with self.subTest(workflow=path.name):
+                content = path.read_text()
+                self.assertNotRegex(
+                    content, r"(?m)^on:\\s*\\[.*\\bpush\\b.*\\]\\s*$",
+                    "Inline, unrestricted push/PR triggers cause a CI queue storm",
+                )
+                trigger = top_level_section(content, "on")
+                has_pr = "  pull_request:" in trigger.splitlines()
+                has_push = "  push:" in trigger.splitlines()
+                if not has_push or not has_pr:
+                    continue
+                push = event_subsection(trigger, "push")
+                self.assertEqual(
+                    re.findall(r"(?m)^    branches: \\[(.+)\\]$", push),
+                    [f"{INTEGRATION_BRANCH}, {DEFAULT_BRANCH}"],
+                    "Feature pushes should be validated by PR event, not a duplicate push workflow",
+                )
+                concurrence = top_level_section(content, "concurrency")
+                self.assertIn("github.event_name", concurrence)
+                self.assertIn("github.workflow", concurrence)
+                self.assertIn("github.event.pull_request.number || github.ref",
+                              concurrence)
+
+
 if __name__ == "__main__":
     unittest.main()
