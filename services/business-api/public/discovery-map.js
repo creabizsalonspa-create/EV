@@ -12,8 +12,8 @@
     };
     const intro = make(
         "p",
-        "Map tiles are provided by OpenStreetMap. Enabling the map sends your IP and viewed area to its tile service. Only this page of results is shown; availability is unverified.",
-        "توفر OpenStreetMap خرائط الخلفية. عند تفعيل الخريطة يُرسل عنوان الإنترنت والمنطقة المعروضة إلى مزود الخرائط. تظهر نتائج هذه الصفحة فقط؛ التوفر غير مؤكد.",
+        "Map tiles are provided by OpenStreetMap. Enabling the map sends your IP and viewed area to its tile service. Only the loaded station and partner pages are shown, not every site in view. Partner locations are unverified and cannot be booked or controlled.",
+        "توفر OpenStreetMap خرائط الخلفية. عند تفعيل الخريطة يُرسل عنوان الإنترنت والمنطقة المعروضة إلى مزود الخرائط. تظهر صفحات المحطات والشركاء المحملة فقط، وليس كل المواقع. مواقع الشركاء غير متحقق منها ولا يمكن حجزها أو التحكم بها.",
     );
     const enable = make(
         "button",
@@ -157,6 +157,7 @@
                 popup.append(jump, navigation);
             }
             L.marker([+first.latitude, +first.longitude], {
+                title: text("Unverified partner locations", "مواقع الشركاء غير المؤكدة"),
                 icon: L.divIcon({
                     className: "station-map-pin partner-map-pin",
                     html: `P${group.length}`,
