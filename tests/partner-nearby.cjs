@@ -99,6 +99,7 @@ const assert = require("node:assert/strict");
 
         await page.locator("#language").click();
         await root.getByText("المسافة بخط مستقيم (ليست مسافة قيادة):", { exact: true }).waitFor();
+        await root.getByText("مقدم الخدمة المُسجل (دون اعتماد من المشغل):", { exact: true }).waitFor();
         assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
         assert.deepEqual(errors, []);
         console.log("PASS synthetic partner nearby: grouped coordinates, kilometer-only distance, explicit source age, Arabic RTL and no charger-control path.");
