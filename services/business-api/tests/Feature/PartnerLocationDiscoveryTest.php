@@ -164,6 +164,23 @@ class PartnerLocationDiscoveryTest extends TestCase
         }
     }
 
+    public function test_text_search_treats_wildcards_and_escape_signs_as_literal_characters(): void
+    {
+        $provider = $this->provider();
+        $percent = $this->location($provider, 'discount-10%', 25.2, 55.3);
+        $this->location($provider, 'discount-10X', 25.2, 55.3);
+        $underscore = $this->location($provider, 'under_score', 25.2, 55.3);
+        $this->location($provider, 'underXscore', 25.2, 55.3);
+        $bang = $this->location($provider, 'value!proof', 25.2, 55.3);
+
+        $this->getJson('/api/roaming/locations?q='.rawurlencode('discount-10%'))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $percent->id);
+        $this->getJson('/api/roaming/locations?q='.rawurlencode('under_score'))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $underscore->id);
+        $this->getJson('/api/roaming/locations?q='.rawurlencode('value!proof'))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $bang->id);
+    }
+
     public function test_no_unverified_partner_is_published_by_nearby_search(): void
     {
         $revoked = $this->provider(false);
