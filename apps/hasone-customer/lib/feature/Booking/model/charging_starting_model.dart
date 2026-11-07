@@ -81,15 +81,11 @@ class Data {
       energyWh = wh;
       kwhUsed = kwh.toDouble();
     }
-    final battery = json['batteryPercent'];
-    batteryPercent =
-        hasSourceProof &&
-            battery is num &&
-            battery.isFinite &&
-            battery >= 0 &&
-            battery <= 100
-        ? battery.toInt()
-        : null;
+    // OCPP transaction/meter proof does not establish the EV battery's SOC.
+    // The staged status contract has no independent authenticated SOC source.
+    // Ignore even plausible numeric batteryPercent values until such a
+    // provenance-verified contract is implemented; do not display an estimate.
+    batteryPercent = null;
     // No source-backed ETA contract exists. Never invent a countdown.
     timeRemaining = null;
     // This development client has no commissioned control adapter.
