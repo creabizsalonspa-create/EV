@@ -182,7 +182,7 @@ class CITriggerTest(unittest.TestCase):
             with self.subTest(workflow=path.name):
                 content = path.read_text()
                 self.assertNotRegex(
-                    content, r"(?m)^on:\\s*\\[.*\\bpush\\b.*\\]\\s*$",
+                    content, r"(?m)^on:\s*\[.*\bpush\b.*\]\s*$",
                     "Inline, unrestricted push/PR triggers cause a CI queue storm",
                 )
                 trigger = top_level_section(content, "on")
@@ -192,7 +192,7 @@ class CITriggerTest(unittest.TestCase):
                     continue
                 push = event_subsection(trigger, "push")
                 self.assertEqual(
-                    re.findall(r"(?m)^    branches: \\[(.+)\\]$", push),
+                    re.findall(r"(?m)^    branches: \[(.+)\]$", push),
                     [f"{INTEGRATION_BRANCH}, {DEFAULT_BRANCH}"],
                     "Feature pushes should be validated by PR event, not a duplicate push workflow",
                 )
