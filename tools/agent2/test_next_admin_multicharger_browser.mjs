@@ -118,6 +118,15 @@ try{
          {id:sourceB,chargerId:chargerB,protocol:'ocpp2.0.1',
           transactionId:'tx-second',status:'ended',energyKwh:8,paymentStatus:'not_collected'}
        ]});
+     }else if(path==='/api/v1/admin/stations/'+station+'/ocpp/start-exceptions'
+         && request.method()==='GET'){
+       response=result({orphanCount:1,matchedSourceCount:2,
+         withinGracePeriodCount:1,readOnly:true,
+         exceptions:[{chargerId:chargerB,bookingId:id,
+           consumedAt:'2026-11-07T09:00:00Z',
+           issue:'consumed_without_source_transaction',
+           action:'Review charger logs before issuing another credential.',
+           credentialRestored:false}]});
      }else if(path==='/api/v1/admin/bookings/'+id+'/ocpp/issue-token'
          && request.method()==='POST'){
        const body=JSON.parse(request.postData()||'{}');
@@ -159,6 +168,15 @@ try{
    assert.equal(await page.$eval('select[aria-label="Select booking charger"]',x=>x.value),'');
  });
  await page.select('select[aria-label="Select booking charger"]',chargerB);
+ await clickText(page,'Check interrupted starts');
+ await step('operator sees redacted interrupted-start report without resetting token',async()=>{
+   await page.waitForFunction(()=>document.body.innerText.includes('Review charger logs'),
+      {timeout:15000});
+   const body=await page.content();
+   assert.ok(body.includes('Investigation required'));
+   assert.ok(body.includes('credential')||body.includes('Review charger logs'));
+   assert.ok(!body.includes('a'.repeat(64)));
+ });
  await clickText(page,'Issue one-time authorization token');
  await step('token issued only for chosen second charger',async()=>{
    await page.waitForFunction(()=>document.body.innerText.includes('Token already issued.'),{timeout:9000}).catch(async error=>{
