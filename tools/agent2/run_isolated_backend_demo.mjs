@@ -424,6 +424,26 @@ try{
     assert.equal(r.body.data.calculatedUnpaidAed,5.25);
     assert.equal((await BookingModel.findById(adminBooking._id)).status,'Completed');
   });
+  await check('customer receives real source-backed OCPP1.6 charging summary',async()=>{
+    const response=await request('GET','/api/v1/ChargingSession/'+adminLinkedSession._id+'/summary',
+      undefined,true);
+    assert.equal(response.code,200);
+    assert.equal(response.body.status,'Success');
+    assert.equal(response.body.data.energyDelivered,5);
+    assert.equal(response.body.data.subtotalAed,5);
+    assert.equal(response.body.data.vatAed,.25);
+    assert.equal(response.body.data.totalAmount,5.25);
+    assert.equal(response.body.data.currencyCode,'AED');
+    assert.equal(response.body.data.billingStatus,'calculated_unpaid');
+    assert.equal(response.body.data.paymentStatus,'not_collected');
+    assert.equal(response.body.data.canPay,false);
+    assert.equal(response.body.data.showReviewPrompt,false);
+  });
+  await check('blocked extension payment cannot charge an unverified source again',async()=>{
+    const result=await request('POST','/api/v1/ChargingSession/'+adminLinkedSession._id+'/pay',
+      {paymentMethod:'stripe'},true);
+    assert.equal(result.code,400);
+  });
   await check('repeated verified finalization cannot create duplicate billing',async()=>{
     const r=await request('POST',
       '/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/finalize-source',
@@ -499,6 +519,9 @@ try{
     assert.equal(zeroMeter.code,200);
     assert.equal(zeroMeter.body.data.chargingStatus,'Charging');
     assert.equal(zeroMeter.body.data.kwhUsed,0);
+    const summaryActive=await request('GET',
+      '/api/v1/ChargingSession/'+bound20SessionId+'/summary',undefined,true);
+    assert.equal(summaryActive.code,400);
     const premature=await request('POST',
       '/api/v1/admin/bookings/'+booking20._id+'/ocpp/finalize-source',
       {},false,{authorization:adminBearer});
@@ -544,6 +567,14 @@ try{
     assert.equal(completed.body.data.bookingStatus,'Completed');
     assert.equal(completed.body.data.calculatedUnpaidAed,7.56);
     assert.equal((await BookingModel.findById(booking20._id)).status,'Completed');
+    const summary=await request('GET',
+      '/api/v1/ChargingSession/'+bound20SessionId+'/summary',undefined,true);
+    assert.equal(summary.code,200);
+    assert.equal(summary.body.data.energyDelivered,8);
+    assert.equal(summary.body.data.costPerKwh,.90);
+    assert.equal(summary.body.data.totalAmount,7.56);
+    assert.equal(summary.body.data.paymentStatus,'not_collected');
+    assert.equal(summary.body.data.needsPayment,false);
   });
   const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
   const hash16=createHash('sha256').update(token16).digest('hex');
