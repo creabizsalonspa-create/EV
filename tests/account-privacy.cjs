@@ -158,3 +158,53 @@ test('stale Admin review response cannot leak private data after logout',async()
     assert.equal(ui.admin.children.length,0);
     assert.equal(ui.admin.textContent,'');
 });
+
+
+test('Admin private decision history renders only after request and remains text-only', async()=>{
+    const ui=fixture(),calls=[];
+    const markup='<img src=x onerror=alert(1)>';
+    ui.setAdminActor({role:'admin',id:4},async p=>{
+        calls.push(p);
+        if(p.endsWith('/reviews'))return {
+            data:[{id:5,from_status:'pending',to_status:'reviewing',
+                note:markup,created_at:'2026-11-07T12:00:00Z'}],
+        };
+        return page([{...record,
+            owner:{id:3,name:'Private Customer',email:'private@example.test'},
+            details:'Request details retained for authorized review.'}]);
+    });
+    await tick();
+    assert.equal(calls.length,1,'history must not fetch without Admin interaction');
+    assert.equal(nodes(ui.admin,'img').length,0);
+    const history=nodes(ui.admin,'button')
+        .find(x=>x.textContent.includes('Private review history'));
+    assert.ok(history);
+    await history.onclick();
+    assert.equal(calls.length,2);
+    assert.equal(calls[1],'admin/privacy-requests/22/reviews');
+    assert.match(ui.admin.textContent,/pending → reviewing/);
+    assert.match(ui.admin.textContent,/<img src=x onerror=alert\(1\)>/);
+    assert.equal(nodes(ui.admin,'img').length,0);
+});
+
+test('delayed private privacy review history cannot reappear after logout',async()=>{
+    const ui=fixture();
+    let release;
+    ui.setAdminActor({role:'admin',id:4},p=>{
+        if(p.endsWith('/reviews'))return new Promise(resolve=>{release=resolve;});
+        return Promise.resolve(page([{...record,details:'Private detail',
+            owner:{id:3,name:'Private Owner',email:'owner@example.test'}}]));
+    });
+    await tick();
+    const history=nodes(ui.admin,'button')
+        .find(x=>x.textContent.includes('Private review history'));
+    const pending=history.onclick();
+    assert.equal(typeof release,'function');
+    ui.setAdminActor(null,async()=>{throw Error('no request');});
+    release({data:[{id:5,from_status:'pending',to_status:'reviewing',
+        note:'PRIVATE DECISION',created_at:'2026-11-07'}]});
+    await pending;
+    await tick();
+    assert.equal(ui.admin.children.length,0);
+    assert.equal(ui.admin.textContent,'');
+});
