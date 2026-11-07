@@ -36,7 +36,7 @@ class _PreferencesApi extends EvApi {
     if (method == 'PUT') {
       writes.add(Map<String, dynamic>.from(body!));
       final expected = id == 12 ? revision : 4;
-      if (body!['revision'] != expected) throw const ApiException(409, 'stale');
+      if (body['revision'] != expected) throw const ApiException(409, 'stale');
       if (id == 12) revision++;
       return {...body, 'revision': expected + 1, 'vehicle_id': id,
         'applied_to_charging': false};
