@@ -322,7 +322,9 @@ const { randomUUID } = require("node:crypto");
     };
     const beforePublic = await customer.page.evaluate(() => api("notifications/summary"));
     await publicReply("Synthetic public update 1 " + run);
-    await customer.page.reload();
+    // No page reload: the user can refresh only the account inbox, without
+    // refetching an unrelated ticket list or acknowledging the new event.
+    await customer.page.locator("#notification-refresh").click();
     await customer.page.locator("#notification-read-through").waitFor();
     const observed = await customer.page.evaluate(() => api("notifications/summary"));
     assert.equal(observed.unread_count, beforePublic.unread_count + 1);

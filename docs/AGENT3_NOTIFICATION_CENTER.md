@@ -81,3 +81,7 @@ New account-scoped `POST /api[/v1]/notifications/{notification}/unread` reverses
 ### Category-level unread totals
 
 The single-query tenant-scoped summary now returns `unread_by_category` for `support`, `vehicle`, `charging`, `fleet`, and `other` using fixed SQL prefix parameters. `other` counts unrecognized event classes rather than hiding them. Category counts add up to the global unread count and cannot include foreign users. Web and Flutter show EN/AR category totals only if all category fields are valid nonnegative integers, while older clients can continue consuming the existing `unread_count`, `latest_id`, and `in_app_only` fields. Backend and native widget tests cover known categories, unknown types, another account's records, and summary presentation.
+
+## Visibility-aware notification refresh
+
+The web account inbox now has an explicit **Refresh notifications** control and a single 60-second read-only refresh loop. The loop is registered once per page load, runs only for an authenticated user while the tab is visible and the support pane is available, and is silent when the tab is hidden or logout is pending. Returning to a visible tab triggers a fresh read. Refreshes reuse the per-account generation and session-epoch guards and do not acknowledge, reopen, create or delete notifications. All background calls use the separate notification-read allowance, not the support ticket quota. The browser test exercises refreshing a newly received support notification without reloading the entire application.

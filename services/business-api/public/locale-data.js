@@ -1,4 +1,6 @@
 window.EV_MESSAGES = {
+    "Refresh notifications": { en: "Refresh notifications", ar: "تحديث الإشعارات" },
+
     "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}": {
         en: "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}",
         ar: "غير مقروءة: دعم {support} · مركبة {vehicle} · شحن {charging} · أسطول {fleet} · أخرى {other}",

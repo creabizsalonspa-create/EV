@@ -1310,6 +1310,21 @@ async function refreshInbox() {
         requestGeneration !== inboxGeneration) return;
     const view = el("notifications");
     view.replaceChildren();
+    const refreshButton = ui("button", "Refresh notifications");
+    refreshButton.id = "notification-refresh";
+    refreshButton.type = "button";
+    refreshButton.onclick = async () => {
+        if (session !== client.sessionEpoch || account !== user?.id) return;
+        refreshButton.disabled = true;
+        try {
+            await refreshInbox();
+        } catch (error) {
+            if (session === client.sessionEpoch && account === user?.id) notice(error);
+        } finally {
+            refreshButton.disabled = false;
+        }
+    };
+    view.append(refreshButton);
     const filterButton = ui("button", inboxUnreadOnly ? "Show all notifications" : "Show unread only");
     filterButton.type = "button";
     filterButton.id = "notification-unread-filter";
@@ -1993,3 +2008,24 @@ el("sessions-refresh").onclick = async function () {
         this.disabled = false;
     }
 };
+
+
+// One bounded inbox refresh loop, registered once for the page lifetime.
+// Never acknowledge messages and never poll a hidden tab or signed-out user.
+const NOTIFICATION_REFRESH_INTERVAL_MS = 60000;
+function eligibleForInboxRefresh() {
+    return !!user && !identityBusy && !pendingLogout() &&
+        document.visibilityState === "visible" &&
+        !el("support").hidden;
+}
+function refreshVisibleInbox() {
+    if (!eligibleForInboxRefresh()) return;
+    refreshInbox().catch((error) => {
+        // Existing EvApi prevents late requests from crossing account sessions.
+        // Poll failures should not overwrite errors from an explicit action.
+        if (user && error?.name !== "SessionChangedError" &&
+            error?.status === 401) clearIdentity();
+    });
+}
+setInterval(refreshVisibleInbox, NOTIFICATION_REFRESH_INTERVAL_MS);
+document.addEventListener("visibilitychange", refreshVisibleInbox);
