@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { parseSnapshot, localDockerSnapshot } = require('./staging-runtime-gate.cjs');
-const { inspectImage, acquireLock, reviewIsolatedConfig, reviewEffectiveCompose, composeUp, verifyRunning, probePostDeploy, journal } = require('./staging-release.cjs');
+const { verifyFormerTag, acquireLock, reviewIsolatedConfig, reviewEffectiveCompose, composeUp, verifyRunning, probePostDeploy, journal } = require('./staging-release.cjs');
 
 const SHA=/^[a-f0-9]{40}$/;
 const ID=/^sha256:[a-f0-9]{64}$/;
@@ -107,8 +107,7 @@ function rollback(config,deps={}) {
     const run=deps.run||execFileSync;
     const rows=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
     recoverySnapshot(rows,p);
-    const old=inspectImage(p.old_ref,run);
-    if(old.Id!==p.old_id)throw Error('Former staging image tag was retargeted');
+    verifyFormerTag(p,deps);
     // A previously verified rollback still needs read-only confirmation of current state.
     if(['ROLLBACK_VERIFIED','MANUAL_ROLLBACK_VERIFIED'].includes(record.events.at(-1).event)) {
       verifyRunning(p.old_ref,p.old_id,deps);
@@ -116,8 +115,12 @@ function rollback(config,deps={}) {
       const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
       recoverySnapshot(current,p);
       probePostDeploy(p,deps);
+      verifyFormerTag(p,deps);
       return {ok:true,changed:false};
     }
+    // Preserve a fail-closed journal even if a concurrent operator retargeted the
+    // former app tag. Never run an unreviewed image during recovery.
+    verifyFormerTag(p,deps);
     journal(record.file,'MANUAL_ROLLBACK_STARTED');
     try {
       composeUp(p.old_ref.slice('creabiz-ev-business:'.length),deps);
@@ -125,6 +128,7 @@ function rollback(config,deps={}) {
       const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
       recoverySnapshot(current,p);
       probePostDeploy(p,deps);
+      verifyFormerTag(p,deps);
       journal(record.file,'MANUAL_ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
       return {ok:true,changed:true};
     } catch {
