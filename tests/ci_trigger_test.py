@@ -120,5 +120,29 @@ class CITriggerTest(unittest.TestCase):
                     self.assertGreaterEqual(budget, 20)
 
 
+    def test_hasone_dependency_caches_preserve_exact_lockfile_and_flutter_pin(self):
+        workflow = (ROOT / ".github/workflows/hasone-customer.yml").read_text()
+        self.assertEqual(1, workflow.count("name: Cache lockfile-pinned Dart packages"))
+        self.assertIn("uses: actions/cache@v4", workflow)
+        self.assertIn("path: ~/.pub-cache", workflow)
+        self.assertIn(
+            "key: ${{ runner.os }}-hasone-3.35.7-pub-"
+            "${{ hashFiles('apps/hasone-customer/pubspec.lock') }}",
+            workflow,
+        )
+        self.assertNotIn("restore-keys:", workflow,
+                         "Old lockfile dependency caches must not be accepted")
+        self.assertIn("cache: gradle", workflow)
+        self.assertIn(
+            "apps/hasone-customer/android/gradle/wrapper/gradle-wrapper.properties",
+            workflow,
+        )
+        self.assertIn("flutter pub get --enforce-lockfile", workflow)
+        self.assertIn("flutter test --no-pub", workflow)
+        self.assertIn("adc901062556672b4138e18a4dc62a4be8f4b3c2", workflow)
+        self.assertIn("flutter build apk --debug", workflow)
+        self.assertIn("flutter build ios --simulator --no-codesign", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
