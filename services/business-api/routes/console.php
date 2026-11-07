@@ -21,22 +21,47 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('platform:role {email} {role}', function () {
+Artisan::command('platform:role {email} {role} {--ticket=}', function () {
     $role = $this->argument('role');
-    if (! in_array($role, ['customer', 'vendor', 'admin'])) {
+    if (! in_array($role, ['customer', 'vendor', 'admin'], true)) {
         $this->error('Invalid role');
 
         return 1;
     }
-    DB::transaction(function () use ($role) {
-        $account = User::where('email', $this->argument('email'))->lockForUpdate()->firstOrFail();
-        if ($account->role !== $role) {
-            $account->role = $role;
-            $account->save();
+    // Optional operator ticket is a correlation reference, not verified
+    // operator identity. Privileged shell logs remain the actor evidence.
+    $ticket = $this->option('ticket');
+    if ($ticket !== null && ($ticket === '' || strlen($ticket) > 100
+        || ! preg_match('/^[A-Za-z0-9._:-]+$/D', $ticket))) {
+        $this->error('Ticket reference must be 1-100 letters, numbers, dot, underscore, colon or dash.');
+
+        return 1;
+    }
+    $changed = DB::transaction(function () use ($role, $ticket) {
+        $account = User::where('email', $this->argument('email'))
+            ->lockForUpdate()->firstOrFail();
+        if ($account->role === $role) {
+            return false;
         }
+
+        $before = $account->role;
+        $account->role = $role;
+        $account->save(); // Preserve browser epoch + bearer revocation events.
+        DB::table('operator_role_changes')->insert([
+            'target_user_id' => $account->id,
+            'previous_role' => $before,
+            'assigned_role' => $role,
+            'source' => 'platform:role',
+            'ticket_reference' => $ticket,
+            'created_at' => now(),
+        ]);
+
+        return true;
     });
-    $this->info('Role assignment processed; any changed account must sign in again.');
-})->purpose('Operator-only role provisioning; no public role elevation endpoint');
+    $this->info($changed
+        ? 'Role changed and recorded; existing sessions require sign-in.'
+        : 'Role unchanged; no new privilege change recorded.');
+})->purpose('Operator-only audited role provisioning; no public elevation endpoint');
 
 Artisan::command('csms:dispatch {id}', function () {
     $c = app(CsmsDispatcher::class)->dispatch((int) $this->argument('id'));
