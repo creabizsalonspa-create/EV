@@ -94,6 +94,10 @@ void main() {
     expect(vault.value, isNull,
         reason: 'Secure vault must not retain a partial login');
     expect(auth.user.value, isNull);
+    // GetX's failure snackbar schedules a 3-second overlay timer and a
+    // closing ticker. Drain both before disposing this widget test.
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
   });
 
   test('late successful login after explicit logout never republishes token',
