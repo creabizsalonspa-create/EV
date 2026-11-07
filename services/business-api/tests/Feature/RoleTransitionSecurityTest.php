@@ -29,6 +29,7 @@ class RoleTransitionSecurityTest extends TestCase
     {
         $user = User::factory()->create(['role' => 'customer']);
         $tokenId = $this->activeCredentials($user, 'role-old-session');
+        $oldRememberToken = $user->getRememberToken();
 
         $user->role = 'admin';
         $user->save();
@@ -36,12 +37,14 @@ class RoleTransitionSecurityTest extends TestCase
         $this->assertSame('admin', $user->fresh()->role);
         $this->assertDatabaseMissing('personal_access_tokens', ['id' => $tokenId]);
         $this->assertDatabaseMissing('sessions', ['id' => 'role-old-session']);
+        $this->assertNotSame($oldRememberToken, $user->fresh()->getRememberToken());
     }
 
     public function test_unrelated_profile_update_and_noop_role_assignment_do_not_revoke_credentials(): void
     {
         $user = User::factory()->create(['role' => 'vendor']);
         $tokenId = $this->activeCredentials($user, 'unchanged-role-session');
+        $oldRememberToken = $user->getRememberToken();
 
         $user->name = 'Updated name';
         $user->save();
@@ -49,6 +52,7 @@ class RoleTransitionSecurityTest extends TestCase
 
         $this->assertDatabaseHas('personal_access_tokens', ['id' => $tokenId]);
         $this->assertDatabaseHas('sessions', ['id' => 'unchanged-role-session']);
+        $this->assertSame($oldRememberToken, $user->fresh()->getRememberToken());
     }
 
     public function test_cli_operator_role_promotion_revokes_prior_sessions_and_tokens(): void
