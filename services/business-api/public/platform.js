@@ -77,6 +77,7 @@ function clearIdentity() {
 function clearPrivateViews() {
     riderWorkspace.clear();
     vendorWorkspace.clear();
+    vehicleModelCatalog.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
     invoiceHistory.clear();
@@ -231,6 +232,7 @@ async function identity() {
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    await vehicleModelCatalog.setActor(user);
     if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
     if (user) {
@@ -1140,6 +1142,13 @@ el("station-form").onsubmit = async (e) => {
         notice(e);
     }
 };
+const vehicleModelCatalog = VehicleModelCatalog.create({
+    adminRoot: el("vehicle-model-admin"),
+    customerRoot: el("vehicle-model-customer"),
+    api,
+    actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),
     api,
@@ -1236,6 +1245,7 @@ async function garage() {
         }
         el("vehicle-list").append(row);
     }
+    vehicleModelCatalog.renderGarage(j.data);
     el("profile-form").elements.name.value = user.name;
     el("profile-form").elements.locale.value = user.locale;
 }

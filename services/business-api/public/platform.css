@@ -792,3 +792,13 @@ form label {
     margin-inline: 0;
     accent-color: var(--accent);
 }
+
+/* Catalog curation and per-vehicle association; never charger-source evidence. */
+#vehicle-model-admin,#vehicle-model-customer{max-width:66rem;margin-block:1.5rem;padding-block:1rem;border-block-start:1px solid var(--border,#888);overflow-wrap:anywhere;}
+.vehicle-model-admin-form {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:.8rem;margin-block:1rem;}
+.vehicle-model-admin-form input,.vehicle-model-admin-form select{width:100%;}
+.vehicle-model-admin-form label:has(input[type=checkbox]){display:flex;gap:.6rem;align-items:center;}
+.vehicle-model-admin-form input[type=checkbox]{width:auto;}
+#vehicle-model-admin li,#vehicle-model-customer li{padding-block:.5rem;overflow-wrap:anywhere;}
+#vehicle-model-admin button,#vehicle-model-customer button{margin-inline:.4rem;white-space:normal;}
+#vehicle-model-customer [data-vehicle-model-picker]{padding:1rem;border:1px solid var(--border,#888);border-radius:.7rem;max-width:38rem;}
