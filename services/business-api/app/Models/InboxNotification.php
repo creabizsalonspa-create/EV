@@ -14,7 +14,8 @@ class InboxNotification extends Model
     protected $attributes = ['read_at' => null];
 
     /**
-     * Escalation notices contain cross-company operator identifiers; access
+     * Both opening and closure escalation notices contain cross-company
+     * operator identifiers; access
      * depends on the recipient's CURRENT role, not just who received them.
      * This single scope also constrains counters and read/unread mutations.
      */
@@ -28,7 +29,9 @@ class InboxNotification extends Model
 
         return $query->where('user_id', $actor->id)
             ->when(! $currentlyAdmin,
-                fn (Builder $q) => $q->where('kind', '!=',
-                    'charging.fault.escalated.simulated'));
+                fn (Builder $q) => $q->whereNotIn('kind', [
+                    'charging.fault.escalated.simulated',
+                    'charging.fault.escalation_closed.simulated',
+                ]));
     }
 }

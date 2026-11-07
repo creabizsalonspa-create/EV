@@ -289,6 +289,53 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_demoted_admin_cannot_read_closure_escalation_or_mutate_its_receipt(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $openId = InboxNotification::where('kind', 'charging.fault.escalated.simulated')
+            ->firstOrFail()->id;
+        $closedId = InboxNotification::where('kind', 'charging.fault.escalation_closed.simulated')
+            ->firstOrFail()->id;
+
+        $this->actingAs($admin)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 2);
+        // The authenticated actor is still the old cached Admin session;
+        // account role revocation is only reflected in the authoritative DB.
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
+            $this->getJson($prefix.'?category=charging')
+                ->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($prefix.'/summary')
+                ->assertOk()->assertJsonPath('unread_count', 0);
+            foreach ([$openId, $closedId] as $id) {
+                $this->postJson($prefix.'/'.$id.'/read')->assertNotFound();
+                $this->postJson($prefix.'/'.$id.'/unread')->assertNotFound();
+            }
+            $this->postJson($prefix.'/read-through', [
+                'through_id' => $closedId,
+            ])->assertOk()->assertJsonPath('marked_read', 0)
+                ->assertJsonPath('remaining_unread', 0);
+        }
+        $this->assertNull(InboxNotification::findOrFail($openId)->read_at);
+        $this->assertNull(InboxNotification::findOrFail($closedId)->read_at);
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'admin']);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 2);
+        $this->postJson('/api/notifications/'.$closedId.'/read')->assertOk();
+        $this->assertNotNull(InboxNotification::findOrFail($closedId)->read_at);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_former_admin_cannot_view_or_mutate_historical_escalation(): void
     {
         $fixture = $this->fixture();
