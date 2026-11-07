@@ -18,7 +18,7 @@ command -v python3 >/dev/null
 docker image inspect "$image" >/dev/null
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-review_id="ev-recovery-$RANDOM-$"
+review_id="ev-recovery-$RANDOM-$$"
 scratch=$(mktemp -d /tmp/ev-recovery.XXXXXXXX)
 source_net= target_net= source_db= target_db= source_app= target_app=
 cleanup() {
