@@ -75,20 +75,30 @@ test('live mode refuses remote Docker endpoint environment variables', () => {
   assert.throws(()=>localDockerSnapshot({DOCKER_HOST:'tcp://server:2375'},()=>{ throw Error('MUST NOT CALL'); }));
   assert.throws(()=>localDockerSnapshot({DOCKER_CONTEXT:'production'},()=>{ throw Error('MUST NOT CALL'); }));
 });
-test('live mode refuses remote default context, permits only read-only command', () => {
-  let calls=[];
+test('live mode rejects remotely selected active context, even if default socket is local', () => {
+  const calls=[];
   assert.throws(()=>localDockerSnapshot({},(_cmd,args)=>{
-    calls.push(args); return 'tcp://other.host:2375\n';
+    calls.push(args); return 'production-remote\n';
   }));
   assert.equal(calls.length,1);
+  assert.deepEqual(calls[0],['context','show']);
+});
+test('live mode refuses remote default host and uses read-only commands on local socket', () => {
+  let calls=[];
+  assert.throws(()=>localDockerSnapshot({},(_cmd,args)=>{
+    calls.push(args);
+    return calls.length===1 ? 'default\n' : 'tcp://other.host:2375\n';
+  }));
+  assert.equal(calls.length,2);
   calls=[];
   const text = localDockerSnapshot({},(_cmd,args)=>{
     calls.push(args);
-    return calls.length===1 ? 'unix:///var/run/docker.sock\n' : sample().map(x=>JSON.stringify(x)).join('\n');
+    return calls.length===1 ? 'default\n' : calls.length===2 ?
+      'unix:///var/run/docker.sock\n' : sample().map(x=>JSON.stringify(x)).join('\n');
   });
   assert.equal(parseSnapshot(text).length,5);
-  assert.equal(calls.length,2);
-  assert.deepEqual(calls[1].slice(-4), ['ps','--all','--format','json']);
+  assert.equal(calls.length,3);
+  assert.deepEqual(calls[2].slice(-4), ['ps','--all','--format','json']);
 });
 test('CLI accepts only explicit live or snapshot', () => {
   assert.deepEqual(parseArgs(['--live']),{mode:'live'});
