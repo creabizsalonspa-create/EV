@@ -20,6 +20,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
   Map<String, dynamic>? pendingBody;
   bool confirmed = false, loading = false, sending = false;
   int generation = 0, page = 1, lastPage = 1;
+  late bool Function() accountFence;
 
   bool get arabic => Localizations.localeOf(context).languageCode == 'ar';
   String t(String en, String ar) => arabic ? ar : en;
@@ -39,7 +40,31 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
   };
 
   @override
-  void initState() {super.initState(); refresh();}
+  void initState() {
+    super.initState();
+    accountFence = widget.api.sessionFence();
+    refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant PrivacyRequestsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.api, widget.api) && accountFence()) return;
+    // A reused view must not expose another account's private reasons or
+    // hold an operation key from a prior authentication context.
+    generation++;
+    reason.clear();
+    items.clear();
+    kind = 'data_access';
+    confirmed = loading = sending = false;
+    pendingId = null;
+    pendingBody = null;
+    error = success = null;
+    page = lastPage = 1;
+    accountFence = widget.api.sessionFence();
+    refresh();
+  }
+
   @override
   void dispose() {generation++;reason.dispose();super.dispose();}
   void failure(Object e) {
@@ -60,9 +85,9 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
         items..clear()..addAll(data.items);
       });
     } catch (e) {
-      if (mounted && ticket == generation) failure(e);
+      if (mounted && ticket == generation && fence()) failure(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => loading = false);
+      if (mounted && ticket == generation && fence()) setState(() => loading = false);
     }
   }
   String createIdentity() {
@@ -87,16 +112,31 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
     final ticket = generation, fence = widget.api.sessionFence();
     setState(() {sending = true;error = success = null;});
     try {
-      await widget.api.request('privacy-requests', method: 'POST', body: {...pendingBody!, 'idempotency_key':pendingId});
+      final posted = await widget.api.request('privacy-requests',
+        method: 'POST', body: {...pendingBody!, 'idempotency_key':pendingId});
       if (!mounted || ticket != generation || !fence()) return;
-      newRequest();
-      if (mounted) setState(() => sending = false);
-      await refresh(1);
-      if (mounted) setState(() => success = t('Request recorded for review.', 'تم تسجيل الطلب للمراجعة.'));
+      // A successful POST followed by a failed GET has an uncertain UI
+      // outcome. Keep the SAME idempotency key until the submitted request
+      // is visible in the authenticated list, so retry cannot duplicate it.
+      final response = await widget.api.request('privacy-requests',
+        query: {'page': '1'});
+      if (!mounted || ticket != generation || !fence()) return;
+      final data = ApiPage<Map<String, dynamic>>.fromJson(response, (v) => v);
+      final savedId = (posted as Map)['id'];
+      if (savedId == null || !data.items.any((item) => item['id'] == savedId)) {
+        throw const FormatException('Submitted privacy request not yet visible in history');
+      }
+      setState(() {
+        page = data.current;lastPage = data.last;
+        items..clear()..addAll(data.items);
+        pendingId = null;pendingBody = null;
+        kind = 'data_access';reason.clear();confirmed = false;
+        success = t('Request recorded for review.', 'تم تسجيل الطلب للمراجعة.');
+      });
     } catch (e) {
       if (mounted && ticket == generation) failure(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => sending = false);
+      if (mounted && ticket == generation && fence()) setState(() => sending = false);
     }
   }
   Future<void> withdraw(int id) async {
