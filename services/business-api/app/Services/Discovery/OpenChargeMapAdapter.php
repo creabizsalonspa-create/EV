@@ -62,23 +62,6 @@ final class OpenChargeMapAdapter
                 || ($country !== null && $item['country'] !== $country)) {
                 continue;
             }
-            // These filters apply to the bounded 25 returned provider records.
-            // All metadata is historic/partner-reported, never live capability.
-            // Both predicates must match the SAME reported connection.
-            if ($minPowerKw !== null || $connector !== null) {
-                $matched = false;
-                foreach ($item['connections'] as $connection) {
-                    $power = $connection['reported_power_kw'];
-                    if (($minPowerKw === null || ($power !== null && $power >= $minPowerKw))
-                        && ($connector === null || strcasecmp($connection['reported_connector_type'], $connector) === 0)) {
-                        $matched = true;
-                        break;
-                    }
-                }
-                if (! $matched) {
-                    continue;
-                }
-            }
             $distance = self::distance($latitude, $longitude, $item['latitude'], $item['longitude']);
             if ($distance > $radiusKm + 0.0001) {
                 continue;
@@ -90,7 +73,7 @@ final class OpenChargeMapAdapter
         $values = array_values($data);
         usort($values, static fn (array $a, array $b) => ($a['distance_km'] <=> $b['distance_km']) ?: strcmp($a['id'], $b['id']));
 
-        return [
+        $source = [
             'provider' => 'open_charge_map',
             'evidence' => 'OPEN_LICENSED_DISCOVERY_ONLY',
             'availability' => 'unknown',
@@ -102,6 +85,56 @@ final class OpenChargeMapAdapter
             'count' => count($values),
             'results' => $values,
         ];
+
+        return $this->filterReported($source, $minPowerKw, $connector);
+    }
+
+    /**
+     * Pure, connection-level source filters over a capped and preauthorized
+     * list. Can be run repeatedly on one short-lived cached discovery source.
+     * This never upgrades historical reports to live charging privileges.
+     */
+    public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null): array
+    {
+        if (($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
+            || ($connector !== null && (strlen($connector) < 1 || strlen($connector) > 80
+                || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))) {
+            throw new LookupFailure('invalid_request', 422);
+        }
+        if (($source['provider'] ?? null) !== 'open_charge_map'
+            || ($source['evidence'] ?? null) !== 'OPEN_LICENSED_DISCOVERY_ONLY'
+            || ($source['availability'] ?? null) !== 'unknown'
+            || ($source['remote_control'] ?? null) !== false
+            || ($source['reservable'] ?? null) !== false
+            || ($source['billing_eligible'] ?? null) !== false
+            || ! is_array($source['results'] ?? null)
+            || ! array_is_list($source['results'])
+            || count($source['results']) > 25) {
+            throw new LookupFailure('invalid_response');
+        }
+        if ($minPowerKw === null && $connector === null) {
+            return $source;
+        }
+        $values = [];
+        foreach ($source['results'] as $item) {
+            if (! is_array($item) || ! is_array($item['connections'] ?? null)) {
+                throw new LookupFailure('invalid_response');
+            }
+            foreach ($item['connections'] as $connection) {
+                if (! is_array($connection)
+                    || ! is_string($connection['reported_connector_type'] ?? null)) {
+                    throw new LookupFailure('invalid_response');
+                }
+                $power = $connection['reported_power_kw'] ?? null;
+                if (($minPowerKw === null || (is_numeric($power) && (float) $power >= $minPowerKw))
+                    && ($connector === null || strcasecmp($connection['reported_connector_type'], $connector) === 0)) {
+                    $values[] = $item;
+                    break;
+                }
+            }
+        }
+
+        return [...$source, 'count' => count($values), 'results' => $values];
     }
 
     private function fetch(array $parameters, string $key): array

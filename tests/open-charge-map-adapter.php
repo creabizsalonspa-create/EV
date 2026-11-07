@@ -25,6 +25,12 @@ $powerMatch=(new OpenChargeMapAdapter(fn()=>[$poi]))->search(25.2,55.3,5,'synthe
 verify($powerMatch['count']===1,'min power and connector same record');
 $powerMiss=(new OpenChargeMapAdapter(fn()=>[$poi]))->search(25.2,55.3,5,'synthetic-secret',null,50,'TYPE 2');
 verify($powerMiss['count']===0,'low-power connector excluded');
+$source=(new OpenChargeMapAdapter(fn()=>[$poi]))->search(25.2,55.3,5,'synthetic-secret');
+$cachedFiltered=(new OpenChargeMapAdapter())->filterReported($source,20,'Type 2');
+verify($cachedFiltered['count']===1 && $source['count']===1,'pure cache filter does not mutate base discovery');
+$badCache=$source;$badCache['remote_control']=true;
+try { (new OpenChargeMapAdapter())->filterReported($badCache,20,'Type 2'); throw new RuntimeException('unsafe cache was accepted'); }
+catch(LookupFailure $e) { verify($e->reason==='invalid_response','unsafe cached capability rejected'); }
 verify($result['results'][0]['id']==='ocm:11','sort by distance');
 verify($result['results'][1]['id']==='ocm:12','second source');
 verify($captured['opendata']==='true' && $captured['distanceunit']==='km' && $captured['maxresults']===25,'bounded OCM request');

@@ -144,7 +144,9 @@ class OpenChargeMapDiscoveryTest extends TestCase
         $this->postJson('/api/discovery/open-charge-map/search',
             $this->input() + ['reported_connector' => 'CCS', 'min_reported_power_kw' => 100])
             ->assertOk()->assertJsonPath('count', 1)->assertJsonPath('results.0.id', 'ocm:12400');
-        Http::assertSentCount(2);
+        // Source query is identical: switch local type and power filters
+        // without a second billed/rate-limited call to the provider.
+        Http::assertSentCount(1);
         foreach ([
             ['min_reported_power_kw' => 0],
             ['min_reported_power_kw' => 1001],
@@ -153,7 +155,7 @@ class OpenChargeMapDiscoveryTest extends TestCase
             $this->postJson('/api/discovery/open-charge-map/search', $this->input() + $bad)
                 ->assertUnprocessable();
         }
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_optional_iso_country_filter_is_bounded_and_verified_after_provider_response(): void

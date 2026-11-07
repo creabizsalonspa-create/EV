@@ -160,9 +160,20 @@
             link.href = r.source_url;
             link.target = '_blank';
             link.rel = 'noopener noreferrer';
+            const directions = text('a', 'Open source location in Google Maps', 'فتح موقع المصدر في خرائط Google');
+            directions.href = 'https://www.google.com/maps/dir/?api=1&destination=' +
+                encodeURIComponent(String(Number(r.latitude)) + ',' + String(Number(r.longitude)));
+            directions.target = '_blank';
+            directions.rel = 'noopener noreferrer';
+            directions.onclick = event => {
+                if (!window.confirm(ar()
+                    ? 'هل تريد إرسال موقع المصدر إلى خرائط Google؟ تطبق سياسة الخصوصية للمزود، ولم يتم التحقق من الطريق أو زمنه أو توفر الشاحن.'
+                    : 'Send this crowd-reported location to Google Maps? Its privacy policy applies. No route, ETA or live charger availability is verified.'))
+                    event.preventDefault();
+            };
             card.append(heading, place, distance, age, reportedStatus, access, license, connectors,
                 text('p', 'Availability unknown. No remote charging, booking or payment.',
-                    'التوفر غير معروف. لا شحن أو حجز أو دفع عن بُعد.'), link);
+                    'التوفر غير معروف. لا شحن أو حجز أو دفع عن بُعد.'), link, directions);
             results.append(card);
         }
         announce('Filtered from at most 25 licensed crowd reports; more matching sites may exist. No live status verified.',

@@ -173,6 +173,19 @@ const reply = {
         const source = root.getByRole("link", { name: "View source and license" });
         assert.equal(await source.getAttribute("href"), "https://openchargemap.org/site/poi/details/12345");
         assert.equal(await source.getAttribute("rel"), "noopener noreferrer");
+        const directions = root.getByRole("link", { name: "Open source location in Google Maps" });
+        assert.equal(await directions.getAttribute("href"),
+          "https://www.google.com/maps/dir/?api=1&destination=25.2%2C55.3");
+        assert.equal(await directions.getAttribute("rel"), "noopener noreferrer");
+        const consentMessages = [];
+        page.on("dialog", async dialog => {
+          consentMessages.push(dialog.message());
+          await dialog.dismiss();
+        });
+        await directions.click();
+        assert.equal(consentMessages.length, 1);
+        assert.match(consentMessages[0], /No route, ETA or live charger availability is verified/);
+        assert.equal(searchRequests.length, 1, "Denied directions consent must not query OCM");
         await page.locator(".ocm-map-pin").waitFor();
         assert.equal(await page.locator(".ocm-map-pin").count(), 1);
         assert.equal(await page.locator(".ocm-map-pin").getAttribute("title"),
@@ -195,6 +208,12 @@ const reply = {
         assert.equal(await popup.getByRole("button", { name: "Request charge" }).count(), 0);
         assert.equal(await popup.getByRole("link", { name: "View Open Charge Map source" }).getAttribute("href"),
           "https://openchargemap.org/site/poi/details/12345");
+        const mapDirections = popup.getByRole("link", { name: "Open crowd location in Google Maps" });
+        assert.equal(await mapDirections.getAttribute("href"),
+          "https://www.google.com/maps/dir/?api=1&destination=25.2%2C55.3");
+        await mapDirections.click();
+        assert.equal(consentMessages.length, 2);
+        assert.match(consentMessages[1], /No route, ETA or live charger status verified/);
         const noSearchOnToggle = searchRequests.length;
         await layer.uncheck();
         assert.equal(await page.locator(".ocm-map-pin").count(), 0);

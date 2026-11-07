@@ -433,7 +433,22 @@
                 source.href = row.source_url;
                 source.target = "_blank";
                 source.rel = "noopener noreferrer";
-                popup.append(name, evidence, sourceAge, reported, access, attribution, jump, source);
+                const directions = make(
+                    "a",
+                    "Open crowd location in Google Maps",
+                    "فتح موقع المصدر المجتمعي في خرائط Google",
+                );
+                directions.href = "https://www.google.com/maps/dir/?api=1&destination=" +
+                    encodeURIComponent(String(Number(row.latitude)) + "," + String(Number(row.longitude)));
+                directions.target = "_blank";
+                directions.rel = "noopener noreferrer";
+                directions.onclick = event => {
+                    if (!window.confirm(text(
+                        "Send this crowd-reported location to Google Maps? Its privacy policy applies. No route, ETA or live charger status verified.",
+                        "إرسال موقع المصدر المجتمعي إلى خرائط Google؟ تطبق سياسة خصوصية المزود، ولم يتم التحقق من المسار أو الوقت أو توفر الشاحن.",
+                    ))) event.preventDefault();
+                };
+                popup.append(name, evidence, sourceAge, reported, access, attribution, jump, source, directions);
             }
             L.marker([+first.latitude, +first.longitude], {
                 title: freshness === "ocm-pin-uncertain"
