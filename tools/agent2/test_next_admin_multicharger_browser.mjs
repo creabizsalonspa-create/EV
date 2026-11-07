@@ -185,7 +185,9 @@ try{
  await page.select('select[aria-label="Select source transaction"]',sourceB);
  await clickText(page,'Bind verified source');
  await step('binding updates verified metering and unpaid status',async()=>{
-   await page.waitForFunction(()=>document.body.innerText.includes('8 kWh'),{timeout:15000});
+   await page.waitForFunction(()=>[...document.querySelectorAll('button')]
+     .some(x=>x.textContent?.includes('Finalize verified booking') && !x.disabled),
+     {timeout:15000});
    assert.equal(stage,2);
    assert.ok((await page.content()).includes('7.56'));
    assert.ok((await page.content()).toLowerCase().includes('unpaid'));
