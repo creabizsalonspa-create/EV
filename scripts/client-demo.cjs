@@ -3,11 +3,17 @@ const fs = require("node:fs"),
   path = require("node:path"),
   assert = require("node:assert/strict");
 const { randomBytes } = require("node:crypto");
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn, spawnSync, execFileSync } = require("node:child_process");
 const root = path.resolve(__dirname, ".."),
   base = path.join(root, "artifacts/client-demo");
 process.chdir(root);
 const mode = process.argv[2] || "status";
+if (mode === "business") {
+  const result = spawnSync(process.execPath,
+    [path.join(__dirname, "client-demo-business.cjs"), ...process.argv.slice(3)],
+    {stdio:"inherit"});
+  process.exit(result.status ?? 1);
+}
 function write(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n", {
     mode: 0o600,
