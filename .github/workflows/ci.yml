@@ -14,6 +14,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - name: Validate isolated demo command syntax and explicit consent guard
+        run: |
+          node --check scripts/client-demo-business.cjs
+          node -e 'const r=require("node:child_process").spawnSync(process.execPath,["scripts/client-demo-business.cjs"],{encoding:"utf8"}); if(r.status!==1 || !r.stderr.includes("Usage:")) process.exit(1);'
       - run: ./scripts/setup
       - run: ./scripts/php /usr/bin/composer validate --strict
       - run: ./scripts/php vendor/bin/pint --test

@@ -125,3 +125,9 @@ With the pinned Flutter SDK on PATH and the existing local simulator services
 running, `EV_CONFIGURATION_NATIVE=1` also exercises the actual native HTTP client
 while the same owned devices remain online. Private fixture credentials use a
 short-lived owner-only file and are never uploaded.
+
+### Connect a completed local source session to the business demo
+
+Use `scripts/client-demo business --invoice ID --confirm-mock-payment` with the private `EV_CLIENT_DEMO_MANIFEST` for an isolated owned fixture. The command requires local/mock configuration, enabled test loyalty, a policy effective when the invoice was created, completed OCPP simulator source evidence and an explicit single invoice. It reuses canonical hosted checkout, payment, loyalty and vendor/Admin records and saves private proof next to the manifest. Unknown states stop for inspection. No hardware commands or real payments are sent.
+
+`--publish-test-policy` is an explicit Admin API setup option for future test invoices only; it stops before payment when the selected historical invoice was ineligible. Complete a new eligible source session afterwards. Seeded QA reservations and mock hosted payments do not establish customer booking UI or external PSP acceptance.
