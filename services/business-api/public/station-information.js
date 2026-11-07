@@ -111,8 +111,13 @@
         };
         async function selectStation(station) {
             const ticket = ++generation, owner = currentActor;
-            selected = station;
+            // Remove the previous station's form before starting a new GET.
+            // Otherwise its old submit closure could write stale content into
+            // the newly selected station during a slow network response.
+            root.querySelector("form")?.remove();
+            selected = station || null;
             information = null;
+            if (!station) { status(isArabic() ? "المحطة غير متاحة" : "Station no longer available.", true); return; }
             status(isArabic() ? "جارٍ تحميل التفاصيل..." : "Loading station information…");
             try {
                 const data = await api("stations/" + station.id + "/information");
@@ -128,6 +133,7 @@
             root.querySelector("form")?.remove();
             if (!selected || !information || !state()) return;
             const info = information;
+            const formStationId = selected.id, formTicket = generation;
             const form = document.createElement("form");
             form.className = "station-information-form";
             form.append(label("Edit information for " + selected.name, "تعديل معلومات " + selected.name, "h3"));
@@ -186,7 +192,8 @@
             form.append(submit);
             form.onsubmit = async e => {
                 e.preventDefault();
-                if (!state() || loading) return;
+                if (!state() || loading || generation !== formTicket ||
+                    selected?.id !== formStationId || information !== info) return;
                 const weekly = {};
                 for (const day of days) {
                     const w = inputs[day];
@@ -209,7 +216,7 @@
                     amenities: Object.keys(sets.amenities).filter(k => sets.amenities[k].checked),
                     accessibility: Object.keys(sets.accessibility).filter(k => sets.accessibility[k].checked),
                 };
-                const ticket = generation, owner = currentActor, stationId = selected.id;
+                const ticket = generation, owner = currentActor, stationId = formStationId;
                 loading = true; submit.disabled = true;
                 status(isArabic() ? "جارٍ الحفظ..." : "Saving…");
                 try {
