@@ -2,18 +2,21 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\SecurityHeaders;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 class SecurityHeadersTest extends TestCase
 {
     public function test_blank_route_content_security_policy_cannot_disable_the_platform_default(): void
     {
-        $middleware = new \App\Http\Middleware\SecurityHeaders;
+        $middleware = new SecurityHeaders;
 
         foreach (['', '   '] as $blankPolicy) {
-            $request = \Illuminate\Http\Request::create('/stations', 'GET');
+            $request = Request::create('/stations', 'GET');
             $result = $middleware->handle($request, function () use ($blankPolicy) {
-                $response = new \Symfony\Component\HttpFoundation\Response('safe');
+                $response = new Response('safe');
                 $response->headers->set('Content-Security-Policy', $blankPolicy);
 
                 return $response;
