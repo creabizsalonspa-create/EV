@@ -304,6 +304,11 @@ function apply(config,deps={}) {
       verifyFormerTag(plan,deps);
       verifyCandidateTag(plan,deps);
       probePostDeploy(plan,deps);
+      // A slow HTTPS smoke is an independent race window. Recheck the
+      // immutable app image and protected DB/gateway immediately before
+      // recording release acceptance.
+      verifyRunning(plan.candidate_ref,plan.candidate_id,deps);
+      verifyProtectedServices(plan,deps);
       verifyFormerTag(plan,deps);
       verifyCandidateTag(plan,deps);
       journal(saved,'RELEASE_VERIFIED',{service_count:3,private_http_routes_checked:true,production_accepted:false});
@@ -317,6 +322,8 @@ function apply(config,deps={}) {
         verifyRunning(plan.old_ref,plan.old_id,deps);
         verifyProtectedServices(plan,deps);
         probePostDeploy(plan,deps);
+        verifyRunning(plan.old_ref,plan.old_id,deps);
+        verifyProtectedServices(plan,deps);
         verifyFormerTag(plan,deps);
         journal(saved,'ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
         return {ok:false,rollback_verified:true,plan};

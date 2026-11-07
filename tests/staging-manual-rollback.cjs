@@ -247,6 +247,23 @@ test('manual rollback requires healthy private HTTP routes after restoring prior
   assert.ok(events.includes('OPERATOR_RECONCILIATION_REQUIRED'));
   assert.ok(!events.includes('"event":"MANUAL_ROLLBACK_VERIFIED"'));
 }));
+test('gateway exposure changes during manual HTTPS probe: rollback remains uncertain',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.checkHttp=()=>{deps.state.badGateway=true;return true;};
+  assert.equal(recovery.main(cli(file),deps),3);
+  assert.equal(deps.state.up,1);
+  const history=fs.readFileSync(file,'utf8');
+  assert.ok(history.includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.ok(!history.includes('"event":"MANUAL_ROLLBACK_VERIFIED"'));
+}));
+test('previously verified rollback refuses new gateway exposure during HTTP recheck',()=>temp(dir=>{
+  const file=setup(dir,['RELEASE_STARTED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','ROLLBACK_VERIFIED']);
+  const deps=mock(dir);
+  deps.state.tag='old';deps.state.appUnhealthy=false;
+  deps.checkHttp=()=>{deps.state.badGateway=true;return true;};
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+}));
 test('previous verified rollback is not reaccepted with broken HTTP readiness',()=>temp(dir=>{
   const file=setup(dir,['RELEASE_STARTED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir);
   deps.state.tag='old';deps.state.appUnhealthy=false;

@@ -127,6 +127,8 @@ function rollback(config,deps={}) {
       const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
       recoverySnapshot(current,p);
       probePostDeploy(p,deps);
+      verifyRunning(p.old_ref,p.old_id,deps);
+      recoverySnapshot(parseSnapshot(localDockerSnapshot(deps.env||process.env,run)),p);
       verifyFormerTag(p,deps);
       return {ok:true,changed:false};
     }
@@ -140,6 +142,8 @@ function rollback(config,deps={}) {
       const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
       recoverySnapshot(current,p);
       probePostDeploy(p,deps);
+      verifyRunning(p.old_ref,p.old_id,deps);
+      recoverySnapshot(parseSnapshot(localDockerSnapshot(deps.env||process.env,run)),p);
       verifyFormerTag(p,deps);
       journal(record.file,'MANUAL_ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
       return {ok:true,changed:true};

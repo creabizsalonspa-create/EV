@@ -359,6 +359,37 @@ test('candidate staging application requires private HTTP route readiness before
   assert.ok(events.includes('ROLLBACK_VERIFIED'));
   assert.ok(!events.includes('"event":"RELEASE_VERIFIED"'));
 }));
+test('gateway replaced during successful HTTPS smoke blocks release acceptance',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'gateway-during-http.jsonl');
+  let probes=0;
+  deps.checkHttp=()=>{
+    probes++;
+    if(probes===1)deps.state.replaceGateway=true;
+    return true;
+  };
+  assert.equal(release.main(argv('apply',file),deps),3);
+  // Gateway drift is detected before a second, now unsafe HTTPS probe.
+  assert.equal(probes,1);
+  assert.equal(deps.state.mutations,2);
+  const history=fs.readFileSync(file,'utf8');
+  assert.ok(history.includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.ok(!history.includes('"event":"RELEASE_VERIFIED"'));
+  assert.ok(!history.includes('"event":"ROLLBACK_VERIFIED"'));
+}));
+test('database changed during rollback HTTPS smoke blocks false recovery',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'database-during-rollback-http.jsonl');
+  let probes=0;
+  deps.checkHttp=()=>{
+    if(++probes===1)return false;
+    deps.state.replaceDatabase=true;
+    return true;
+  };
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.equal(probes,2);
+  const history=fs.readFileSync(file,'utf8');
+  assert.ok(history.includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.ok(!history.includes('"event":"ROLLBACK_VERIFIED"'));
+}));
 test('failed candidate and old-release HTTP smoke leave operator reconciliation',()=>sandbox((dir,envFile)=>{
   const deps=mock(envFile);
   deps.checkHttp=()=>false;
