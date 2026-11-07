@@ -93,7 +93,7 @@ class SharedPrefs {
     if (_blocked) return null;
     final saved = await _ordered(() async {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_kBlocked) == true) return null;
+      if (prefs.containsKey(_kBlocked)) return null;
       return _vault.read(key: _kAccess);
     });
     if (generation != _generation || _blocked) return null;
@@ -109,7 +109,7 @@ class SharedPrefs {
       if (generation != _generation || _blocked) return;
       final prefs = await SharedPreferences.getInstance();
       if (generation != _generation || _blocked ||
-          prefs.getBool(_kBlocked) == true) return;
+          prefs.containsKey(_kBlocked)) return;
       await prefs.setString(_kUser, jsonEncode(user));
     });
   }
@@ -119,7 +119,7 @@ class SharedPrefs {
     if (_blocked) return null;
     final saved = await _ordered(() async {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_kBlocked) == true) return null;
+      if (prefs.containsKey(_kBlocked)) return null;
       return prefs.getString(_kUser);
     });
     if (generation != _generation || _blocked || saved == null) return null;
