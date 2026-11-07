@@ -229,6 +229,40 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaises(guard.ArchiveError):
                 guard.inspect(database, archive)
 
+    def test_manifest_symlink_swap_at_open_is_denied(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump, private = root/'db.dump', root/'private.tar.gz'
+            manifest, original = root/'manifest.json', root/'original.json'
+            sample_db(dump)
+            sample_tar(private)
+            args = ['--pg-dump', str(dump), '--private-tar', str(private),
+                    '--manifest', str(manifest)]
+            self.assertEqual(guard.main(['record'] + args), 0)
+            real_open = guard.os.open
+            swapped = False
+
+            def replace_before_open(path, flags, *a, **kw):
+                nonlocal swapped
+                if str(path) == str(manifest) and not swapped:
+                    manifest.rename(original)
+                    manifest.symlink_to(original)
+                    swapped = True
+                return real_open(path, flags, *a, **kw)
+
+            with patch.object(guard.os, 'open', side_effect=replace_before_open):
+                self.assertEqual(guard.main(['check'] + args), 1)
+            self.assertTrue(swapped)
+
+    def test_oversized_manifest_does_not_get_parsed(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump, manifest = root/'db.dump', root/'manifest.json'
+            sample_db(dump)
+            manifest.write_bytes(b'{' + b' ' * 65536 + b'}')
+            self.assertEqual(guard.main(['check', '--pg-dump', str(dump),
+                                         '--manifest', str(manifest)]), 1)
+
     def test_stale_record_removed_on_failure(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);m=root/'manifest.json';m.write_text('{"status":"PASS"}')
