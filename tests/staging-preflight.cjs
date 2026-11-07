@@ -178,3 +178,70 @@ test('isolated payment and log-mail settings are required rather than inherited 
   x.PAYMENT_PROVIDER='mock';delete x.MAIL_MAILER;
   assert.ok(checkValues(x).some(e=>e.startsWith('MAIL_MAILER: required')));
 });
+
+test('private staging hostname cannot be a numeric IP literal', () => {
+  for (const host of ['127.0.0.1', '8.8.8.8', '192.0.2.10', '::1']) {
+    assert.ok(checkValues({ ...defaults, STAGING_HOST: host })
+      .some(e => e.startsWith('STAGING_HOST:')), host);
+  }
+});
+
+test('absent optional staging bind cannot be overridden by public inherited shell setting', () => {
+  const withoutBind = source().replace(/^STAGING_BIND_IP=.*\n/m, '');
+  withEnv(withoutBind, file => {
+    const old = process.env.STAGING_BIND_IP;
+    process.env.STAGING_BIND_IP = '0.0.0.0';
+    try {
+      const result = reviewFile(file);
+      assert.equal(result.ok, false);
+      assert.ok(result.errors.some(e => e.startsWith('STAGING_BIND_IP: inherited shell')));
+    } finally {
+      if (old === undefined) delete process.env.STAGING_BIND_IP;
+      else process.env.STAGING_BIND_IP = old;
+    }
+  });
+});
+
+test('inherited unreviewed image tag or external DB URL must fail even if absent in .env', () => {
+  const withoutTag = source().replace(/^EV_IMAGE_TAG=.*\n/m, '');
+  withEnv(withoutTag, file => {
+    for (const [name, value] of [['EV_IMAGE_TAG', 'foreign-release'], ['DB_URL', 'postgres://external.invalid/prod']]) {
+      const old = process.env[name];
+      process.env[name] = value;
+      try {
+        const result = reviewFile(file);
+        assert.equal(result.ok, false);
+        assert.ok(result.errors.some(e => e.startsWith(name + ': inherited shell')), name);
+        assert.equal(JSON.stringify(result.errors).includes('external.invalid'), false);
+      } finally {
+        if (old === undefined) delete process.env[name];
+        else process.env[name] = old;
+      }
+    }
+  });
+});
+
+test('Compose project and config selectors cannot redirect isolated stage', () => {
+  for (const name of ['COMPOSE_PROJECT_NAME', 'COMPOSE_FILE', 'COMPOSE_PROFILES',
+    'COMPOSE_ENV_FILES', 'COMPOSE_DISABLE_ENV_FILE']) {
+    assert.ok(checkValues({ ...defaults, [name]: '/tmp/unreviewed-compose' })
+      .some(e => e.startsWith(name + ':')), name);
+  }
+  withEnv(source(), file => {
+    const old = process.env.COMPOSE_FILE;
+    process.env.COMPOSE_FILE = '/tmp/unreviewed-compose';
+    try {
+      assert.ok(reviewFile(file).errors.some(e => e.startsWith('COMPOSE_FILE: inherited shell')));
+    } finally {
+      if (old === undefined) delete process.env.COMPOSE_FILE;
+      else process.env.COMPOSE_FILE = old;
+    }
+  });
+});
+
+test('remote Docker daemon selectors cannot enter reviewed private staging', () => {
+  for (const name of ['DOCKER_HOST', 'DOCKER_CONTEXT']) {
+    assert.ok(checkValues({ ...defaults, [name]: 'tcp://remote.invalid:2376' })
+      .some(e => e.startsWith(name + ':')), name);
+  }
+});

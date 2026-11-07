@@ -4,6 +4,7 @@
 // Safe, offline review of staging configuration. Does not invoke Docker or contact any host.
 const fs = require('node:fs');
 const path = require('node:path');
+const net = require('node:net');
 
 const required = ['APP_KEY', 'STAGING_HOST', 'ACME_EMAIL', 'DB_PASSWORD', 'PAYMENT_PROVIDER', 'MAIL_MAILER'];
 const reservedSuffixes = ['.example', '.invalid', '.test', '.localhost', '.local'];
@@ -42,7 +43,7 @@ function parseEnv(text) {
 }
 
 function validDomain(host) {
-  if (!host || host.length > 253 || !host.includes('.') || /[:/?#@\s]/.test(host)) return false;
+  if (!host || host.length > 253 || !host.includes('.') || /[:/?#@\s]/.test(host) || net.isIP(host)) return false;
   if (host !== host.toLowerCase() || reservedSuffixes.some(s => host.endsWith(s))) return false;
   return host.split('.').every(label => label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
 }
@@ -120,6 +121,21 @@ function checkValues(values) {
       errors.push(name + ': external partner connections are not authorized in isolated staging');
     }
   }
+  // Compose project, file and profile selectors must not be supplied by private
+  // app configuration: they can retarget an operator's subsequent Compose command.
+  for (const name of ['COMPOSE_PROJECT_NAME', 'COMPOSE_FILE', 'COMPOSE_PROFILES',
+    'COMPOSE_ENV_FILES', 'COMPOSE_DISABLE_ENV_FILE']) {
+    if (Object.hasOwn(values, name)) {
+      errors.push(name + ': Compose control belongs to the reviewed operator command, not private .env');
+    }
+  }
+  // A reviewed staging file cannot select a remote Docker host or context.
+  // The release tools separately verify the active local daemon at runtime.
+  for (const name of ['DOCKER_HOST', 'DOCKER_CONTEXT']) {
+    if (Object.hasOwn(values, name)) {
+      errors.push(name + ': Docker daemon selection must remain outside private staging configuration');
+    }
+  }
   // A stray real PSP credential should never enter a synthetic staging container.
   for (const name of ['STRIPE_SECRET','STRIPE_LIVE_SECRET','STRIPE_SECRET_KEY',
     'PAYPAL_CLIENT_SECRET','AWS_SECRET_ACCESS_KEY']) {
@@ -160,14 +176,21 @@ function reviewFile(filePath) {
   catch { return { ok: false, errors: ['Staging .env: cannot read private configuration'] }; }
   const parsed = parseEnv(source);
   errors.push(...parsed.errors, ...checkValues(parsed.values));
-  // Compose gives exported shell variables precedence over .env; fail closed.
+  // Compose interpolation gives exported shell variables precedence over .env.
+  // Missing OPTIONAL keys are just as dangerous as mismatched keys: for example,
+  // STAGING_BIND_IP is safely loopback-defaulted by Compose, but an inherited
+  // STAGING_BIND_IP=0.0.0.0 would otherwise publish the gateway publicly.
   const protectedKeys = ['APP_KEY', 'DB_PASSWORD', 'STAGING_HOST', 'ACME_EMAIL',
     'STAGING_BIND_IP', 'EV_IMAGE_TAG', 'APP_ENV', 'APP_DEBUG',
-    'CSMS_SIMULATOR_ENABLED', 'EV_BUILD_CA_BUNDLE', 'MAIL_MAILER'];
+    'CSMS_SIMULATOR_ENABLED', 'EV_BUILD_CA_BUNDLE', 'MAIL_MAILER',
+    'PAYMENT_PROVIDER', 'DB_CONNECTION', 'DB_HOST', 'DB_DATABASE',
+    'DB_URL', 'DATABASE_URL', 'OCPI_CONNECTIONS_JSON', 'OCPI_LOCAL_CREDENTIALS_JSON',
+    'COMPOSE_FILE', 'COMPOSE_PROJECT_NAME', 'COMPOSE_PROFILES',
+    'COMPOSE_ENV_FILES', 'COMPOSE_DISABLE_ENV_FILE', 'DOCKER_HOST', 'DOCKER_CONTEXT'];
   for (const name of protectedKeys) {
-    if (Object.hasOwn(parsed.values, name) && Object.hasOwn(process.env, name) &&
-        process.env[name] !== parsed.values[name]) {
-      errors.push(name + ': inherited shell setting overrides reviewed .env; clear it before Compose');
+    if (Object.hasOwn(process.env, name) &&
+        (!Object.hasOwn(parsed.values, name) || process.env[name] !== parsed.values[name])) {
+      errors.push(name + ': inherited shell setting overrides or bypasses reviewed .env; clear it before Compose');
     }
   }
   return { ok: errors.length === 0, errors };
