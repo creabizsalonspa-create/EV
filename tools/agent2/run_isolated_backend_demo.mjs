@@ -395,6 +395,25 @@ try{
     assert.equal(z.body.data.kwhUsed,5);
     assert.equal(z.body.data.paymentStatus,'not_collected');
   });
+  await check('unauthorized user cannot access Admin source billing report',async()=>{
+    const z=await request('GET','/api/v1/admin/ocpp/booking-sessions',undefined,true);
+    assert.equal(z.code,401);
+  });
+  await check('Admin reports linked meter and unpaid AED amounts without fake receipts',async()=>{
+    const z=await request('GET','/api/v1/admin/ocpp/booking-sessions',undefined,false,
+      {authorization:adminBearer});
+    assert.equal(z.code,200);
+    assert.equal(z.body.status,'Success');
+    assert.equal(z.body.data.currency,'AED');
+    assert.equal(z.body.data.billingMode,'calculation_only_no_collection');
+    assert.equal(z.body.data.totalCollectedAed,0);
+    const found=z.body.data.entries.find(x=>x.bookingId===String(adminBooking._id));
+    assert.ok(found);
+    assert.equal(found.energyKwh,5);
+    assert.equal(found.calculatedUnpaidAed,5.25);
+    assert.equal(found.paymentStatus,'not_collected');
+    assert.equal(JSON.stringify(z.body).includes(issuedToken),false);
+  });
   await check('same OCPP source session cannot be linked into a different booking',async()=>{
     const second=await BookingModel.create({userId:user._id,stationId:adminStation._id,
       date:'2026-11-12',time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
