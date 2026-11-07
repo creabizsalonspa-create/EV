@@ -12,13 +12,21 @@ Only `locations` records from currently **authorized** OCPI providers with norma
 
 The web form exposes manual grouped coordinates and a radius, English/Arabic labels, straight-line distance and partner record age. It does not request device location permission or store user coordinates as a preference. Mobile partner-nearby UI parity remains an outstanding integration with Agent 6.
 
+## Shared interactive map overlay
+
+The existing self-hosted Leaflet station map also presents **only the loaded, authorized, published partner result page** as visually distinct, accessible unverified partner markers. It reuses the existing opt-in tile consent. No tile request occurs merely by loading the catalog. It does **not** claim a complete viewport catalog, online charger status, a partner booking endpoint or permission to send remote commands.
+
+A partner marker popup uses literal text (never HTML insertion) and explicitly states partner-reported/unverified availability. A directions link opens Google Maps only after the user's separate confirmation. There is no "Add charging stop", charge control or booking action on partner markers. Both the roaming catalog and the station-map clear on refresh, provider revocation and identity/session reset; in-flight previous-context public requests are aborted. Unsafe future response capability flags are rejected instead of displayed.
+
+The map and original first-party catalog remain separate authoritative sources: server-side OCPI authorization and `publish` flags govern partner presence; Leaflet is presentation only. Colors and accessible marker titles distinguish unverified partners from managed/simulator stations.
+
 ## Implementation and verification
 
 - `PartnerCatalogGeo` uses parameter-bound SQL against normalized JSON coordinates on supported SQLite and PostgreSQL connections, with date-line wrap and polar cap prefilters.
 - `SqliteGeoMath` registers deterministic mathematical functions on SQLite PDO connections when the host lacks built-in SQLite math functions, covering both partner and existing canonical station proximity search.
 - Laravel, isolated synthetic test database and no operator credentials: `php artisan test --filter='PartnerLocationDiscoveryTest|CatalogGeoTest' --compact` **12 passed / 72 assertions**.
 - Laravel Pint targeted affected PHP files: **6 files passed**. PHP and JS syntax checks: passed.
-- Playwright synthetic browser test against an isolated loopback Laravel server: **passed**, including grouped validation, exact query parameters, translated Arabic RTL source/distance labels and no charger-control actions.
+- Playwright synthetic browser tests against isolated loopback Laravel: **passed** for partner-nearby filters and station + partner map overlay, including grouped validation, exact query parameters, Arabic RTL, map/tile consent, accessible separate source pins, safe literal popups, external navigation consent, malicious capability fail-closed, provider removal, identity-clear map reset and no charging controls. Existing nearby-catalog, map assets, localization, discovery-routing, frontend and web-session browser suites also **passed** after scoping legacy radius test selectors to the station form.
 - Full Laravel suite on the same local PHP 8.4 environment: **557 passed, 1 failed** (10,426 assertions). Failure is reproducible with the unchanged `SettlementTest` finance migration: SQLite `DROP TRIGGER commercial_adjustments_no_update` has no matching trigger; focused SettlementTest: 9 passed, 1 failed (93 assertions). This PR does not modify the settlement migration or finance code. **Agent 1/4 must resolve or establish baseline before merge**.
 - Final exact-head hosted CI, actual PostgreSQL runtime, licensed partner network data, mobile parity, deployment and production acceptance are **not verified**.
 
