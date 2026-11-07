@@ -62,6 +62,8 @@ class ArchiveTests(unittest.TestCase):
             ('nested/./secret.txt', 0o600),
             ('private.txt', 0o4755),
             ('private.txt', 0o666),
+            ('private.txt', 0o644),
+            ('private.txt', 0o640),
         ]:
             with self.subTest(name=name, mode=mode), tempfile.TemporaryDirectory() as d:
                 root = Path(d); db = root / 'db.dump'; archive = root / 'test.tar.gz'
@@ -73,6 +75,23 @@ class ArchiveTests(unittest.TestCase):
                     output.addfile(entry, io.BytesIO(b'test'))
                 with self.assertRaises(guard.ArchiveError):
                     guard.inspect(db, archive)
+
+    def test_world_readable_directory_is_denied_in_private_archive(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); db = root / 'db.dump'; archive = root / 'private.tar.gz'
+            sample_db(db)
+            with tarfile.open(archive, 'w:gz') as output:
+                directory = tarfile.TarInfo('folder')
+                directory.type = tarfile.DIRTYPE
+                directory.mode = 0o755
+                output.addfile(directory)
+                payload = b'synthetic-only'
+                item = tarfile.TarInfo('folder/private.bin')
+                item.size = len(payload)
+                item.mode = 0o600
+                output.addfile(item, io.BytesIO(payload))
+            with self.assertRaises(guard.ArchiveError):
+                guard.inspect(db, archive)
 
     def test_directory_only_archive_is_not_a_private_file_backup(self):
         with tempfile.TemporaryDirectory() as d:

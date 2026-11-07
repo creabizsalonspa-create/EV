@@ -77,3 +77,7 @@ The isolated restored Laravel application now proves that preserved source `APP_
 ### Strict private-archive extraction policy
 
 The synthetic archive guard now rejects duplicate tar member names, ambiguous `.` or backslash path segments, path traversal, links and devices, setuid/setgid/sticky or group/world-writable permission bits, and archives containing only directories. At least one regular private file must be present. It still bounds total decompression, reads every member and validates the gzip trailer. New isolated negative tests cover repeated filenames, unsafe modes, ambiguous paths and directory-only backups. This hardened drill remains unsigned synthetic recovery evidence, not production backup acceptance.
+
+### Owner-only private backup file permissions
+
+The synthetic private-file archive checker now rejects **all group and other permission bits**, in addition to setuid/setgid/sticky permissions and links/devices. Private files archived as `0644` or `0640`, and directories archived as `0755`, are rejected even if they would not be writable to outsiders. The isolated staging drill's own payload is deliberately archived mode `0600`. New negative unit fixtures cover both file and directory permission leakage. This is a private-data safety prerequisite, not an independent signature or proof of actual production backup restoration.

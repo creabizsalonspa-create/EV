@@ -43,8 +43,8 @@ def safe_tar(path):
                 require(member.name not in names, 'Duplicate private archive member')
                 names.add(member.name)
                 require(member.isfile() or member.isdir(), 'Private links/devices denied')
-                require(member.mode & 0o7022 == 0,
-                        'Privileged or writable private archive permissions denied')
+                require(member.mode & 0o7077 == 0,
+                        'Private archive members must have owner-only permissions')
                 require(member.size >= 0, 'Invalid private archive member size')
                 expanded += member.size
                 require(expanded <= 2 * 1024**3, 'Expanded private data exceeds limit')
