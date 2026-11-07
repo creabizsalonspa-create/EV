@@ -55,7 +55,7 @@ function mock(envFile) {
     if(args[0]==='container') {
       const ids=args.slice(2);
       assert.equal(ids.length,3);
-      return JSON.stringify(ids.map(id=>({Id:id,Image:getId(),State:{Running:true,Status:'running'}})));
+      return JSON.stringify(ids.map((id,i)=>({Id:id,Image:getId(),State:{Running:true,Status:'running'},Config:{Labels:{'com.docker.compose.project':'ev-staging','com.docker.compose.service':['application','worker','scheduler'][i]}}})));
     }
     assert.equal(args[0],'compose');
     if(args.includes('ps'))return JSON.stringify(snapshot());
@@ -167,6 +167,69 @@ test('candidate has to differ from current source image ID',()=>sandbox((dir,env
     return run(cmd,args,options);
   };
   assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),deps));
+}));
+test('stale old image tag fails when actual running container uses a different immutable image',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  deps.run=(cmd,args,opts)=>{
+    const raw=original(cmd,args,opts);
+    if(args[0]==='container'){
+      const ctrs=JSON.parse(raw);
+      ctrs[1].Image=NEW_ID;
+      return JSON.stringify(ctrs);
+    }
+    return raw;
+  };
+  assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),deps),/immutable image|identity/);
+  assert.equal(deps.state.mutations,0);
+}));
+test('release plan rejects forged role mapping and mismatched inspected container identity',()=>sandbox((dir,envFile)=>{
+  for(const poison of [
+    ctrs=>ctrs[1].Config.Labels['com.docker.compose.service']='application',
+    ctrs=>ctrs[2].Config.Labels['com.docker.compose.project']='production',
+    ctrs=>ctrs[0].Id='f'.repeat(64),
+    ctrs=>ctrs[1].State.Status='exited'
+  ]){
+    const deps=mock(envFile),original=deps.run;
+    deps.run=(cmd,args,opts)=>{
+      const raw=original(cmd,args,opts);
+      if(args[0]==='container'){
+        const ctrs=JSON.parse(raw);poison(ctrs);return JSON.stringify(ctrs);
+      }
+      return raw;
+    };
+    assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),deps));
+    assert.equal(deps.state.mutations,0);
+  }
+}));
+test('different running container appears during plan image inspection: no release is planned',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  let psCalls=0;
+  deps.run=(cmd,args,opts)=>{
+    const raw=original(cmd,args,opts);
+    if(args[0]==='compose'&&args.includes('ps')&&++psCalls===3){
+      const rows=JSON.parse(raw);
+      rows.find(row=>row.Service==='scheduler').ID='f'.repeat(64);
+      return JSON.stringify(rows);
+    }
+    return raw;
+  };
+  assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),deps),/changed during/);
+  assert.equal(deps.state.mutations,0);
+}));
+test('running application changes after plan but before release start: preserve PREPARED only',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  let psCalls=0;
+  deps.run=(cmd,args,opts)=>{
+    if(args[0]==='compose'&&args.includes('ps')&&++psCalls===4){
+      // Simulate another operator advancing the app between snapshots.
+      deps.state.tag='new';
+    }
+    return original(cmd,args,opts);
+  };
+  const file=path.join(dir,'concurrent-before-start.jsonl');
+  assert.equal(release.main(argv('apply',file),deps),2);
+  assert.equal(deps.state.mutations,0);
+  assert.deepEqual(fs.readFileSync(file,'utf8').trim().split('\\n').map(JSON.parse).map(x=>x.event),['PREPARED']);
 }));
 test('old release without reviewed source labels cannot be planned as a rollback target',()=>sandbox((dir,envFile)=>{
   for(const change of [

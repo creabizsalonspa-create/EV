@@ -52,7 +52,7 @@ function mock(dir){
       }}}]);
     }
     if(args[0]==='container'){
-      return JSON.stringify(args.slice(2).map(id=>({Id:id,Image:state.tag==='old'?OLD:NEW,State:{Running:true,Status:'running'}})));
+      return JSON.stringify(args.slice(2).map((id,i)=>({Id:id,Image:state.tag==='old'?OLD:NEW,State:{Running:true,Status:'running'},Config:{Labels:{'com.docker.compose.project':'ev-staging','com.docker.compose.service':['application','worker','scheduler'][i]}}})));
     }
     assert.equal(args[0],'compose');
     if(args.includes('ps'))return JSON.stringify(rows());

@@ -127,6 +127,11 @@ function inspectPlan(config, deps = {}) {
     protectedServices[service]=id;
   }
   if(protectedServices.database===protectedServices.gateway)throw Error('Protected service identity collision');
+  // A local tag may already have moved while the three old containers still
+  // run the original immutable image. Such a tag cannot safely be rollback.
+  const originalRoleIds=Object.fromEntries(ROLES.map(role=>
+    [role,before.find(row=>row.Service===role)?.ID]));
+  verifyRunning(oldRef,currentImage.Id,{...deps,expectedRoleIds:originalRoleIds});
   return { project:PROJECT, source_sha:config.sha, old_ref:oldRef,
     old_id:currentImage.Id, old_source_sha:oldSourceSha,
     candidate_ref:candidateRef, candidate_id:candidateImage.Id,
@@ -234,14 +239,33 @@ function verifyRunning(expectedRef,expectedId,deps={}) {
     throw Error('Running service health/port/image tag failed after staging change');
   }
   const images=ROLES.map(role=>rows.find(x=>x.Service===role)?.ID);
-  if(images.some(id=>!id || !/^[a-f0-9]{12,64}$/.test(id))) throw Error('Container ID missing');
+  if(images.some(id=>!id || !/^[a-f0-9]{12,64}$/.test(id)) ||
+     new Set(images).size!==ROLES.length) throw Error('Missing or duplicate staging container ID');
+  if(deps.expectedRoleIds && ROLES.some((role,i)=>deps.expectedRoleIds[role]!==images[i])) {
+    throw Error('Running staging service changed since initial release plan');
+  }
   const inspected=JSON.parse(String(run('docker',['container','inspect',...images],{
     encoding:'utf8',timeout:10000,maxBuffer:1024*1024,
   })));
   if(!Array.isArray(inspected) || inspected.length!==ROLES.length ||
-     inspected.some(ctr=>ctr.Image!==expectedId || ctr.State?.Running!==true)) {
-    throw Error('Actual running image ID differs from reviewed image');
+     inspected.some((ctr,i)=>{
+       const id=images[i];
+       return !ctr || typeof ctr.Id!=='string' ||
+         !/^[a-f0-9]{64}$/.test(ctr.Id) || !ctr.Id.startsWith(id) ||
+         ctr.Image!==expectedId ||
+         ctr.State?.Running!==true || ctr.State?.Status!=='running' ||
+         ctr.Config?.Labels?.['com.docker.compose.project']!==PROJECT ||
+         ctr.Config?.Labels?.['com.docker.compose.service']!==ROLES[i];
+     })) {
+    throw Error('Actual running container identity, role or image differs from reviewed release');
   }
+  // The image/container inspect itself must not race with a concurrent stage
+  // update; validate that Compose still sees the same three role IDs and tags.
+  const after=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
+  if(!checkSnapshot(after).ok || ROLES.some((role,i)=>{
+    const row=after.find(x=>x.Service===role);
+    return row?.ID!==images[i] || row?.Image!==expectedRef;
+  })) throw Error('Staging app containers changed during immutable image review');
   return true;
 }
 
@@ -268,6 +292,10 @@ function apply(config,deps={}) {
     // touching application containers. Preserve PREPARED-only journal evidence.
     verifyFormerTag(plan,deps);
     verifyCandidateTag(plan,deps);
+    // Any concurrent change since inspection invalidates the saved rollback
+    // baseline. Fail before the first Compose mutation, keeping PREPARED only.
+    verifyRunning(plan.old_ref,plan.old_id,deps);
+    verifyProtectedServices(plan,deps);
     journal(saved,'RELEASE_STARTED');
     try {
       composeUp(config.tag,deps);
