@@ -220,6 +220,79 @@ class AdminSecondFactorController extends Controller
             ->header('Cache-Control', 'no-store, private');
     }
 
+    /**
+     * Generate a fresh set of backup codes without changing the authenticator
+     * secret or granting a new Admin session. Both a current verified MFA
+     * session and fresh password+single-use TOTP are required.
+     */
+    public function rotateRecoveryCodes(Request $request)
+    {
+        $actor = $this->account($request);
+        abort_unless(AdminSecondFactorGate::verified($request), 403,
+            'Verify your authenticator before replacing recovery codes.');
+
+        $input = $request->validate([
+            'password' => 'required|string|max:128',
+            'code' => ['required', 'string', 'regex:/^\d{6}$/D'],
+        ]);
+
+        $result = DB::transaction(function () use ($actor, $request, $input) {
+            $account = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            abort_unless($account->role === 'admin', 403);
+
+            $factor = DB::table('admin_second_factors')
+                ->where('user_id', $account->id)->lockForUpdate()->first();
+            $proof = $request->session()->get('admin_second_factor_enrollment_proof');
+            // If an authenticator was replaced in another session since the
+            // MFA grant, an old challenge must not modify its new code set.
+            abort_unless($factor && is_string($proof)
+                && hash_equals(hash('sha256', $factor->encrypted_secret), $proof),
+                409, 'Authenticator changed. Verify it again.');
+
+            if (! Hash::check($input['password'], $account->password)) {
+                return ['denied' => 'password'];
+            }
+            $secret = Crypt::decryptString($factor->encrypted_secret);
+            $step = AdminTotp::matchingStep(
+                $secret, $input['code'], now()->timestamp,
+                (int) $factor->last_accepted_step
+            );
+            if ($step === null) {
+                return ['denied' => 'code'];
+            }
+
+            $codes = array_map(fn () => bin2hex(random_bytes(10)), range(1, 8));
+            DB::table('admin_second_factor_recovery_codes')
+                ->where('user_id', $account->id)->delete();
+            foreach ($codes as $code) {
+                DB::table('admin_second_factor_recovery_codes')->insert([
+                    'user_id' => $account->id,
+                    'code_digest' => hash('sha256', $code),
+                    'created_at' => now(),
+                ]);
+            }
+            DB::table('admin_second_factors')
+                ->where('user_id', $account->id)
+                ->update(['last_accepted_step' => $step, 'updated_at' => now()]);
+            $this->audit($account, 'admin.second_factor.recovery_codes_rotated');
+
+            return ['recovery_codes' => $codes];
+        });
+
+        if (isset($result['denied'])) {
+            $this->audit($actor, 'admin.second_factor.recovery_rotation_denied');
+            throw ValidationException::withMessages([
+                $result['denied'] => 'Unable to verify account credentials.',
+            ]);
+        }
+
+        return response()->json([
+            'recovery_codes' => $result['recovery_codes'],
+            'old_codes_invalidated' => true,
+            'authenticator_changed' => false,
+        ])->header('Cache-Control', 'no-store, private');
+    }
+
     public function resetAfterRecovery(Request $request)
     {
         $account = $this->account($request);

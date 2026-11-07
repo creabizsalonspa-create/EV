@@ -34,6 +34,7 @@ Route::middleware(['auth', 'throttle:authentication'])->group(function () {
     Route::post('/api/admin/second-factor/verify', [AdminSecondFactorController::class, 'verify']);
     Route::post('/api/admin/second-factor/recover', [AdminSecondFactorController::class, 'recover']);
     Route::post('/api/admin/second-factor/reset-after-recovery', [AdminSecondFactorController::class, 'resetAfterRecovery']);
+    Route::post('/api/admin/second-factor/rotate-recovery-codes', [AdminSecondFactorController::class, 'rotateRecoveryCodes']);
 });
 
 Route::get('/api/csrf', fn () => response()->json(['token' => csrf_token()]));
