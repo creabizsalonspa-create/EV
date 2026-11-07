@@ -22,7 +22,7 @@ const sourceDate=value=>{
   return Number.isFinite(parsed.valueOf())?parsed:null;
 };
 
-export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash,resourceScope=null}={}) {
+export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash,resourceScope=null,now=new Date()}={}) {
   if(!source || typeof source!=='object' || !sourceId || !chargerId || !transactionId || !tokenHash)
     return null;
   if(!/^[a-f0-9]{64}$/i.test(tokenHash) || !same(source._id,sourceId)
@@ -57,8 +57,18 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
     rateAedPerKwh:null,
     vatPercent:null,
     billingStatus:'unverified',
-    paymentStatus:'not_collected'
+    paymentStatus:'not_collected',
+    provisionalCostVerified:false,provisionalSubtotalFils:null,
+    provisionalVatFils:null,provisionalTotalFils:null,
+    meterReceivedAt:null,meterReceiptAgeSeconds:null,meterFreshness:'unknown'
   };
+  const receipt=sourceDate(source.lastMeterReceivedAt);
+  if(receipt && receipt>=start && now instanceof Date &&
+      Number.isFinite(now.valueOf()) && receipt<=now){
+    evidence.meterReceivedAt=receipt.toISOString();
+    evidence.meterReceiptAgeSeconds=Math.floor((now-receipt)/1000);
+    evidence.meterFreshness=evidence.meterReceiptAgeSeconds<=120?'recent':'stale';
+  }
   if(!wh(source.meterStartWh) || !wh(source.meterLastWh)
       || source.meterLastWh<source.meterStartWh)return evidence;
   const delta=source.meterLastWh-source.meterStartWh;
@@ -66,18 +76,23 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
   evidence.meterVerified=true;
   evidence.energyWh=delta;
   evidence.energyKwh=delta/1000;
-  if(!ended && source.billingStatus==='provisional_unpaid')
-    evidence.billingStatus='provisional_unpaid';
-  if(ended && source.billingStatus==='calculated_unpaid'
-      && fils(source.subtotalFils) && fils(source.vatFils) && fils(source.totalFils)
+  const invoiceMatches=fils(source.subtotalFils) && fils(source.vatFils) && fils(source.totalFils)
       && source.totalFils===source.subtotalFils+source.vatFils
       && source.tariff?.currency==='AED'
-      && Number.isInteger(source.tariff.rateFilsPerKwh)
+      && Number.isSafeInteger(source.tariff.rateFilsPerKwh)
       && source.tariff.rateFilsPerKwh>=0
       && Number.isFinite(source.tariff.vatPercent)
       && source.tariff.vatPercent>=0 && source.tariff.vatPercent<=100
       && source.subtotalFils===Math.round(delta*source.tariff.rateFilsPerKwh/1000)
-      && source.vatFils===Math.round(source.subtotalFils*source.tariff.vatPercent/100)) {
+      && source.vatFils===Math.round(source.subtotalFils*source.tariff.vatPercent/100);
+  if(!ended && source.billingStatus==='provisional_unpaid' && invoiceMatches){
+    evidence.provisionalCostVerified=true;
+    evidence.provisionalSubtotalFils=source.subtotalFils;
+    evidence.provisionalVatFils=source.vatFils;
+    evidence.provisionalTotalFils=source.totalFils;
+    evidence.billingStatus='provisional_unpaid';
+  }
+  if(ended && source.billingStatus==='calculated_unpaid' && invoiceMatches){
     evidence.totalFils=source.totalFils;
     evidence.subtotalFils=source.subtotalFils;
     evidence.vatFils=source.vatFils;

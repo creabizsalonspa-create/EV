@@ -116,6 +116,13 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
         sourceVerified:true,meterVerified:true,source:"ocpp",protocol:proof.protocol,
         resourceVerified:proof.resourceVerified,resourceScope:proof.resourceScope,
         billingStatus:proof.billingStatus,paymentStatus:"not_collected",
+        provisionalCostVerified:proof.provisionalCostVerified,
+        provisionalSubtotalFils:proof.provisionalSubtotalFils,
+        provisionalVatFils:proof.provisionalVatFils,provisionalTotalFils:proof.provisionalTotalFils,
+        subtotalFils:proof.subtotalFils,vatFils:proof.vatFils,totalFils:proof.totalFils,
+        meterReceivedAt:proof.meterReceivedAt,meterReceiptAgeSeconds:proof.meterReceiptAgeSeconds,
+        meterFreshness:proof.meterFreshness,currency:"AED",
+        readOnly:true,billingMode:"calculation_only_no_collection",
         canStop:false,canExtend:false}};
   } catch {
     return {status:"fail",message:"Charging source evidence unavailable."};

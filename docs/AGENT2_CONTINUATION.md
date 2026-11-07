@@ -16,6 +16,29 @@ disaster recovery belong to Agent 3; unrelated product features belong to Agent 
 Use current PRs before changing shared files. Never force-push or merge unverified
 source.
 
+## Accepted-meter active-progress checkpoint
+
+OCPP1.6 and2.0.1 accepted-meter receipts now record server receive time.
+Missing, coerced, regressing or oversized values cannot refresh that receipt.
+Customer private status exposes verified provisional unpaid amounts separately
+from final calculated amounts. Old records without accepted-meter metadata remain
+unknown; generic source updates never stand in for meter receipt freshness.
+The purchased mobile charging screen formats exact minor-unit AED amounts and
+labels collection status and meter age at last check, clears on background/error
+and retains disabled uncommissioned controls and unavailable SOC/ETA.
+
+Exact-source validation:125 Node guards,13 callback checks,135 backend/OCPP,
+13 mocked Chrome,11 actual-API Chrome, Next TypeScript/production build passed.
+Backend plus actual browser or actual native reports136 checks. Flutter43 pass
+with3 default opt-in skips; the actual API harness separately passes all4 native
+checks (active progress for each protocol, private history and booking duplicate
+denial). Four changed native files analyze cleanly. Test source blobs and log
+hashes are recorded in the companion active-progress evidence.
+
+Next: continue full real-source incident/recovery UX and canonical-compatible
+resource reservations/expiry. Complete original2.7.9 credit is not claimed.
+PR50/52/70 required hosted/native gates and Agent4 integration remain outstanding.
+
 ## Current calendar and capacity preflight continuation
 
 The staged CreateBooking and reschedule paths require complete ISO calendar days

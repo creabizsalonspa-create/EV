@@ -1513,11 +1513,11 @@ try{
     });
     const start=scope=>protocol==='ocpp1.6'
       ?handle({chargerId:scopedCharger},protocol,'StartTransaction',{
-        idTag:credential,connectorId:scope.connectorId,meterStart:1000,timestamp:new Date().toISOString()})
+        idTag:credential,connectorId:scope.connectorId,meterStart:0,timestamp:new Date().toISOString()})
       :handle({chargerId:scopedCharger},protocol,'TransactionEvent',{
         eventType:'Started',seqNo:0,transactionInfo:{transactionId:'scope-transaction'},
         idToken:{idToken:credential,type:'Central'},timestamp:new Date().toISOString(),
-        evse:{id:scope.evseId,connectorId:scope.connectorId},meterValue:meter(1000)});
+        evse:{id:scope.evseId,connectorId:scope.connectorId},meterValue:meter(0)});
     await check(protocol+' wrong connector or EVSE cannot consume the scoped credential',async()=>{
       const denied=await start({...selectedScope,connectorId:3});
       assert.equal((denied.idTagInfo||denied.idTokenInfo).status,'Invalid');
@@ -1530,6 +1530,11 @@ try{
       assert.equal(stored.enabled,true);assert.equal(stored.consumedAt,undefined);
       assert.equal(await db.collection('ocpp_sessions').countDocuments({chargerId:scopedCharger}),0);
     });
+    let progressSeq=0;
+    const feed=async samples=>protocol==='ocpp1.6'
+      ?handle({chargerId:scopedCharger},protocol,'MeterValues',{transactionId,connectorId:2,meterValue:samples})
+      :handle({chargerId:scopedCharger},protocol,'TransactionEvent',{eventType:'Updated',seqNo:++progressSeq,
+        transactionInfo:{transactionId},evse:{id:3,connectorId:2},meterValue:samples});
     await check(protocol+' exact scoped resource starts and rejects conflicting meter identity',async()=>{
       const accepted=await start(selectedScope);
       assert.equal((accepted.idTagInfo||accepted.idTokenInfo).status,'Accepted');
@@ -1538,22 +1543,62 @@ try{
       if(protocol==='ocpp1.6'){
         await assert.rejects(()=>handle({chargerId:scopedCharger},protocol,'MeterValues',{
           transactionId,connectorId:3,meterValue:meter(9000)}),/Connector/);
-        await handle({chargerId:scopedCharger},protocol,'MeterValues',{
-          transactionId,connectorId:2,meterValue:meter(4000)});
-        await handle({chargerId:scopedCharger},protocol,'StopTransaction',{
-          transactionId,meterStop:6000,timestamp:new Date().toISOString()});
       }else{
         await assert.rejects(()=>handle({chargerId:scopedCharger},protocol,'TransactionEvent',{
           eventType:'Updated',seqNo:1,transactionInfo:{transactionId},
           evse:{id:4,connectorId:2},meterValue:meter(9000)}),/EVSE/);
+      }
+    });
+    await check(protocol+' accepted receipts reject coerced meters and expose provisional unpaid progress',async()=>{
+      const olderReceipt=new Date(Date.now()-30000);
+      await db.collection('ocpp_sessions').updateOne({_id:scopedSource._id},{$set:{
+        startedAt:new Date(Date.now()-60000),lastMeterReceivedAt:olderReceipt}});
+      for(const value of [null,false,true,' ',{},[],'0x100']){
+        await feed([{sampledValue:[{value,unit:'Wh',unitOfMeasure:{unit:'Wh'}}]}]);
+        const unchanged=await db.collection('ocpp_sessions').findOne({_id:scopedSource._id});
+        assert.equal(unchanged.energyWh,0);assert.equal(unchanged.lastMeterReceivedAt.valueOf(),olderReceipt.valueOf());
+      }
+      await feed([{sampledValue:[{value:'1000000000000',unit:'kWh',unitOfMeasure:{unit:'kWh'}}]}]);
+      assert.equal((await db.collection('ocpp_sessions').findOne({_id:scopedSource._id})).energyWh,0);
+      await feed(meter(3000));
+      const linked=await request('POST',scopedPath+'bind-source',{
+        sourceSessionId:String(scopedSource._id)},false,{authorization:adminBearer});
+      assert.equal(linked.code,200);scopedSession=linked.body.data.sessionId;
+      const status=await request('GET','/api/v1/ChargingSession/'+scopedSession+'/status',undefined,true);
+      assert.equal(status.code,200);assert.equal(status.body.data.provisionalCostVerified,true);
+      assert.equal(status.body.data.provisionalTotalFils,315);assert.equal(status.body.data.totalFils,null);
+      assert.equal(status.body.data.paymentStatus,'not_collected');assert.equal(status.body.data.readOnly,true);
+      assert.equal(status.body.data.meterFreshness,'recent');assert.ok(status.body.data.meterReceivedAt);
+      const stable=await db.collection('ocpp_sessions').findOne({_id:scopedSource._id});
+      await feed([]);
+      const noMeter=await db.collection('ocpp_sessions').findOne({_id:scopedSource._id});
+      assert.equal(noMeter.lastMeterReceivedAt.valueOf(),stable.lastMeterReceivedAt.valueOf());
+      if(process.env.AGENT2_HISTORY_FLUTTER){
+        const env={...process.env,AGENT2_PROGRESS_API_URL:base,
+          AGENT2_PROGRESS_TOKEN:bearer,AGENT2_ACTIVE_SESSION:scopedSession};
+        delete env.AGENT2_HISTORY_API_URL;delete env.AGENT2_NEW_BOOKING_STATION;
+        const child=spawn(process.env.AGENT2_HISTORY_FLUTTER,
+          ['test','--no-pub','test/source_history_api_test.dart','--reporter','expanded'],{
+            cwd:process.env.AGENT2_HISTORY_APP,stdio:'inherit',env,timeout:180000});
+        const code=await new Promise((done,reject)=>{child.once('error',reject);child.once('exit',done);});
+        assert.equal(code,0,'Actual native active-source progress failed');
+      }
+    });
+    await check(protocol+' source binding and customer history qualify the selected connector',async()=>{
+      if(protocol==='ocpp1.6'){
+        await handle({chargerId:scopedCharger},protocol,'StopTransaction',{
+          transactionId,meterStop:1000000000001,timestamp:new Date().toISOString()});
+        assert.equal((await db.collection('ocpp_sessions').findOne({_id:scopedSource._id})).status,'active');
+        await handle({chargerId:scopedCharger},protocol,'StopTransaction',{
+          transactionId,meterStop:5000,timestamp:new Date().toISOString()});
+      }else{
         await handle({chargerId:scopedCharger},protocol,'TransactionEvent',{
-          eventType:'Ended',seqNo:1,transactionInfo:{transactionId},
-          evse:{id:3,connectorId:2},timestamp:new Date().toISOString(),meterValue:meter(6000)});
+          eventType:'Ended',seqNo:++progressSeq,transactionInfo:{transactionId},
+          evse:{id:3,connectorId:2},timestamp:new Date().toISOString(),meterValue:meter(5000)});
       }
       scopedSource=await db.collection('ocpp_sessions').findOne({_id:scopedSource._id});
       assert.equal(scopedSource.energyWh,5000);assert.equal(scopedSource.totalFils,525);
-    });
-    await check(protocol+' source binding and customer history qualify the selected connector',async()=>{
+
       const linked=await request('POST',scopedPath+'bind-source',{
         sourceSessionId:String(scopedSource._id)},false,{authorization:adminBearer});
       assert.equal(linked.code,200);scopedSession=linked.body.data.sessionId;

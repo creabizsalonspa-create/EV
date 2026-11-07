@@ -52,6 +52,7 @@ do
 done
 python3 "$root/tools/agent2/stage_ocpp201_token_binding.py" \
   "$work/ocpp/ocpp-handlers.mjs"
+python3 "$root/tools/agent2/stage_ocpp_meter_receipts.py" "$work/ocpp/ocpp-handlers.mjs"
 
 for target in \
   src/app.js src/routes/paymentRoutes.js src/routes/adminRoutes.js \

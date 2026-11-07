@@ -91,3 +91,36 @@ test('source billing labels are not trusted until their meter and invoice proof 
  assert.equal(active.totalFils,null);
 });
 
+
+test('active calculated amounts are separately verified and never a final invoice',()=>{
+ const active={...doc(),status:'active',endedAt:undefined,billingStatus:'provisional_unpaid'};
+ const proof=verifyOcppSource(active,binding());
+ assert.equal(proof.provisionalCostVerified,true);assert.equal(proof.provisionalTotalFils,551);
+ assert.equal(proof.provisionalSubtotalFils,525);assert.equal(proof.provisionalVatFils,26);
+ assert.equal(proof.totalFils,null);assert.equal(proof.billingStatus,'provisional_unpaid');
+ assert.equal(verifyOcppSource(doc(),binding()).provisionalCostVerified,false);
+});
+test('tampered active cost/currency/tariff cannot be exposed as a verified estimate',()=>{
+ const active={...doc(),status:'active',endedAt:undefined,billingStatus:'provisional_unpaid'};
+ for(const update of [{totalFils:999},{subtotalFils:-1},{vatFils:0},
+   {tariff:{currency:'USD',rateFilsPerKwh:75,vatPercent:5}},
+   {tariff:{currency:'AED',rateFilsPerKwh:1e20,vatPercent:5}},
+   {billingStatus:'calculated_unpaid'},{paymentStatus:'paid'}]){
+  const proof=verifyOcppSource({...active,...update},binding());
+  assert.equal(proof?.provisionalCostVerified??false,false);
+  assert.equal(proof?.provisionalTotalFils??null,null);
+ }
+});
+test('accepted meter receipt ages from recent to stale without inventing a timestamp',()=>{
+ const received=new Date('2026-11-07T00:01:00Z');
+ const source={...doc(),lastMeterReceivedAt:received};
+ const recent=verifyOcppSource(source,{...binding(),now:new Date('2026-11-07T00:03:00Z')});
+ assert.equal(recent.meterReceiptAgeSeconds,120);assert.equal(recent.meterFreshness,'recent');
+ const stale=verifyOcppSource(source,{...binding(),now:new Date('2026-11-07T00:03:01Z')});
+ assert.equal(stale.meterFreshness,'stale');assert.equal(stale.meterReceiptAgeSeconds,121);
+ for(const value of [null,false,'2026-02-31T00:00:00Z','2026-11-07T00:10:01Z']){
+  const p=verifyOcppSource({...source,lastMeterReceivedAt:value},
+    {...binding(),now:new Date('2026-11-07T00:10:00Z')});
+  assert.equal(p.meterReceivedAt,null);assert.equal(p.meterFreshness,'unknown');
+ }
+});
