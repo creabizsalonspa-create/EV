@@ -78,6 +78,4 @@ class AnonymousChargingMutationSecurityTest extends TestCase
         }
 
         Http::assertNothingSent();
-    }
-
-}
+   
