@@ -114,9 +114,9 @@ test('only fixed synthetic loopback manifest can be used',async()=>{
  });
 });
 test('unsupported URLs, methods and redirects rejected before any external transport',async()=>{
- await assert.rejects(()=>roleSmoke.jsonRequest('https://example.org','GET'));
- await assert.rejects(()=>roleSmoke.jsonRequest('/api/me','DELETE'));
- await assert.rejects(()=>roleSmoke.jsonRequest('/api/..','GET'));
+ assert.throws(()=>roleSmoke.jsonRequest('https://example.org','GET'));
+ assert.throws(()=>roleSmoke.jsonRequest('/api/me','DELETE'));
+ assert.throws(()=>roleSmoke.jsonRequest('/api/..','GET'));
 });
 test('cookie parsing excludes malformed cookie, preserves session cookie',()=>{
  const jar=new Map();
