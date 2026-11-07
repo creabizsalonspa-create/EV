@@ -166,3 +166,53 @@ export async function AdminListLinkedBookingOcppSessions(req,res){
   return fail(res,503,'Linked OCPP reporting unavailable');
  }
 }
+
+
+/**
+ * POST /admin/bookings/:id/ocpp/finalize-source
+ * Syncs the booking's operational state after an authorized OCPP stop.
+ * This is NOT a payment capture. Source invoices remain calculated/unpaid.
+ */
+export async function AdminFinalizeBookingOcppSource(req,res){
+ res.set('Cache-Control','no-store');
+ if(!mongoose.isValidObjectId(req.params.id))
+  return fail(res,400,'Invalid booking identifier');
+ try{
+  const booking=await BookingModel.findById(req.params.id);
+  if(!booking)return fail(res,404,'Booking not found');
+  if(!booking.isPaid || !booking.hasArrived || !validHash(booking.ocppTokenHash)
+      || !['Upcoming','Completed'].includes(booking.status))
+   return fail(res,409,'Verified arrived booking authorization is required');
+  const charger=await chargerFor(booking);
+  if(!charger)return fail(res,409,'No approved charger mapped to booking station');
+  const session=await ChargingSessionModel.findOne({
+    bookingId:booking._id,userId:booking.userId,sourceType:'ocpp',
+  });
+  if(!session || !mongoose.isValidObjectId(session.sourceSessionId)
+      || session.sourceChargerId!==charger.chargerId)
+   return fail(res,409,'No uniquely verified OCPP transaction bound to this booking');
+  const source=await mongoose.connection.db.collection('ocpp_sessions').findOne({
+    _id:new mongoose.Types.ObjectId(session.sourceSessionId),chargerId:charger.chargerId
+  });
+  const proof=verifyOcppSource(source,{
+    sourceId:session.sourceSessionId,chargerId:charger.chargerId,
+    transactionId:session.sourceTransactionId,tokenHash:booking.ocppTokenHash,
+  });
+  if(!proof?.sourceVerified || !proof.meterVerified || !proof.sessionEnded ||
+      proof.totalFils===null || proof.billingStatus!=='calculated_unpaid')
+   return fail(res,409,'Source stop and reconciled metered invoice are required');
+  const updated=booking.status==='Completed'?booking:await BookingModel.findOneAndUpdate({
+    _id:booking._id,status:'Upcoming',isPaid:true,hasArrived:true,
+  },{$set:{status:'Completed'}},{returnDocument:'after'});
+  if(!updated)return fail(res,409,'Booking state changed; reload and retry');
+  return res.status(200).json({status:'Success',data:{
+    bookingId:String(booking._id),bookingStatus:'Completed',
+    sourceSessionId:session.sourceSessionId,source:'ocpp',
+    sourceEnded:true,meterVerified:true,energyKwh:proof.energyKwh,
+    calculatedUnpaidAed:proof.totalFils/100,
+    paymentStatus:'not_collected',reused:booking.status==='Completed',
+  }});
+ }catch{
+  return fail(res,503,'Source-backed booking completion unavailable');
+ }
+}
