@@ -33,6 +33,32 @@ test('valid start consumes credential and stores hash, never the raw token',asyn
  assert.equal(c.rows[0].expiresAt,undefined);
  assert.equal(JSON.stringify(c.rows).includes(raw),false);
 });
+test('legacy Mongo metadata wrapper refuses no-match and replay',async()=>{
+ class LegacyMongoTokens extends AtomicTokenCollection {
+  async findOneAndUpdate(query,update){
+   const value=await super.findOneAndUpdate(query,update);
+   return {ok:1,lastErrorObject:{n:value?1:0},value};
+  }
+ }
+ const c=new LegacyMongoTokens(fresh().rows);
+ const mismatch=await claimOcppStartToken(c,'OCPP-OTHER',raw,now);
+ assert.equal(mismatch.accepted,false);
+ assert.equal(mismatch.tokenHash,null);
+ const first=await claimOcppStartToken(c,charger,raw,now);
+ assert.equal(first.accepted,true);
+ const replay=await claimOcppStartToken(c,charger,raw,now);
+ assert.equal(replay.accepted,false);
+ assert.equal(replay.tokenHash,null);
+ assert.equal(c.rows[0].enabled,false);
+});
+test('unexpected truthy Mongo response cannot authorize an OCPP start',async()=>{
+ const bogus={
+  async findOneAndUpdate(){return {ok:1,lastErrorObject:{n:0}};}
+ };
+ const denied=await claimOcppStartToken(bogus,charger,raw,now);
+ assert.deepEqual(denied,{accepted:false,tokenHash:null});
+});
+
 test('32 concurrent physical starts consume a credential exactly once',async()=>{
  const c=fresh();
  const responses=await Promise.all(Array.from({length:32},
