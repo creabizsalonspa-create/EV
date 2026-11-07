@@ -152,7 +152,9 @@ class ContinuousFaultObserver
                         'kind' => 'charging.monitor.requires_review.simulated',
                         'metadata' => [
                             'source' => 'simulator',
-                            'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                            // The page failed validation or was unavailable:
+                            // no event-source observation is established here.
+                            'evidence' => 'SIMULATED_SOURCE_UNVERIFIED',
                             'station_id' => $current->station_id,
                             'company_id' => $companyId,
                             'charger_id' => $current->vendor_charger_id,

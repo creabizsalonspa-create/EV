@@ -125,6 +125,11 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertSame(1, InboxNotification::where(
             'kind', 'charging.monitor.requires_review.simulated'
         )->count());
+        $review = InboxNotification::where(
+            'kind', 'charging.monitor.requires_review.simulated'
+        )->firstOrFail();
+        $this->assertSame('SIMULATED_SOURCE_UNVERIFIED', $review->metadata['evidence']);
+        $this->assertFalse($review->metadata['physical_verification']);
 
         // New source data is not silently skipped. Catch-up starts at zero
         // and independently records both the fault and its source recovery.
@@ -140,6 +145,11 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertSame(1, InboxNotification::where(
             'kind', 'charging.monitor.resumed.simulated'
         )->count());
+        $resumed = InboxNotification::where(
+            'kind', 'charging.monitor.resumed.simulated'
+        )->firstOrFail();
+        $this->assertSame('SIMULATED_SOURCE_OBSERVED', $resumed->metadata['evidence']);
+        $this->assertFalse($resumed->metadata['physical_verification']);
         $this->assertSame(1, InboxNotification::where(
             'kind', 'charging.fault.simulated'
         )->count());

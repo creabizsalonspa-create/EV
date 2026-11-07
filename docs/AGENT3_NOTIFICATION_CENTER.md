@@ -169,3 +169,7 @@ The read-only simulator fault observer now rejects a source event page whose hig
 ### Empty-page/newer-source inconsistency
 
 A simulator source page with zero returned status events but a reported newest ID higher than the stored cursor is now rejected as an inconsistent source read rather than falsely declared `caught_up`. The observer records a deduplicated monitor-review notice without advancing the checkpoint, and a later consistent page replays all missing events. A regression test covers five subsequently recovered records, vendor monitor-resumption/fault messages, and the absence of charging commands or invoices.
+
+### Honest monitor-failure provenance
+
+A monitor review notice raised on a failed, missing or inconsistent simulator source page now carries `evidence=SIMULATED_SOURCE_UNVERIFIED`, not the earlier inaccurate `SIMULATED_SOURCE_OBSERVED`. Only committed valid fault events and the corresponding successful monitor catch-up carry the observed label. All remain `physical_verification=false`; no real charger/device claim is made. Backend feature assertions distinguish failed review evidence from successful source catch-up, preventing regressions that could present a network failure as an authenticated observation.
