@@ -128,6 +128,17 @@ class NotificationCenterTest extends TestCase
         ])->assertCreated();
     }
 
+    public function test_native_inbox_reads_do_not_consume_general_platform_budget(): void
+    {
+        $this->actingAs(User::factory()->create());
+        // Notification reads use 120/min, while ordinary platform actions
+        // retain their independent 60/min budget.
+        for ($i = 0; $i < 65; $i++) {
+            $this->getJson('/api/v1/notifications/summary')->assertOk();
+        }
+        $this->getJson('/api/v1/me')->assertOk();
+    }
+
     public function test_notification_writes_have_independent_bounded_rate_limit(): void
     {
         $this->actingAs(User::factory()->create());

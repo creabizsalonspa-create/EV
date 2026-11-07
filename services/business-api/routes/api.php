@@ -61,13 +61,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/fleets/{fleet}', [E::class, 'show']);
         Route::get('/fleet-invitations', [E::class, 'invitations']);
         Route::post('/fleet-invitations/{invitation}/accept', [E::class, 'accept']);
-        Route::get('/notifications', [T::class, 'notifications']);
-        Route::post('/notifications/{notification}/read', [T::class, 'read']);
-        Route::post('/notifications/{notification}/unread', [NotificationCenterController::class, 'markUnread']);
-        Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
-        Route::get('/notifications/preferences', [NotificationCenterController::class, 'preferences']);
-        Route::put('/notifications/preferences', [NotificationCenterController::class, 'updatePreferences']);
-        Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
     });
     Route::middleware(['auth:sanctum', 'throttle:support'])->group(function () {
         Route::get('/support', [T::class, 'index']);
