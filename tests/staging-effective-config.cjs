@@ -12,7 +12,11 @@ function sample(){
   QUEUE_CONNECTION:'database',CSMS_SIMULATOR_ENABLED:'false',
   PAYMENT_PROVIDER:'mock',MAIL_MAILER:'log'};
  const privateMount={type:'volume',source:'ev-staging_private-storage',target:'/var/www/html/storage/app/private'};
- return {name:'ev-staging',services:{
+ return {name:'ev-staging',
+  volumes:Object.fromEntries(['certificates','database','gateway-config','private-storage']
+    .map(name=>[name,{name:'ev-staging_'+name}])),
+  networks:{default:{name:'ev-staging_default'}},
+  services:{
    application:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount]},
    worker:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount],
      command:['php','artisan','queue:work','--sleep=3','--tries=3','--timeout=90']},
@@ -83,6 +87,20 @@ test('runtime image identity and protected volumes required',()=>{
  fail(x=>x.services.application.volumes=[],'private volume');
  fail(x=>x.services.database.volumes=[],'private volume');
  fail(x=>x.services.gateway.volumes=[],'private volume');
+});
+test('volume and network isolation cannot inherit production data or foreign networks',()=>{
+  fail(x=>x.services.database.volumes[0].source='production_database','exact project-owned');
+  fail(x=>x.services.application.volumes[0].source='ev-live_private-storage','exact project-owned');
+  fail(x=>x.volumes.database.name='production_database','external or remapped');
+  fail(x=>x.volumes.database.external=true,'external or remapped');
+  fail(x=>x.volumes.database.driver='local-zfs','external or remapped');
+  fail(x=>x.volumes.database.driver_opts={device:'/var/lib/production'},'external or remapped');
+  fail(x=>delete x.volumes.database,'exactly four');
+  fail(x=>x.networks.default.name='production_default','project-default');
+  fail(x=>x.networks.default.external=true,'project-default');
+  fail(x=>x.networks.production={name:'production_default',external:true},'project-default');
+  fail(x=>x.services.application.networks=['default','production'],'unreviewed network');
+  fail(x=>x.services.gateway.networks={production:null},'unreviewed network');
 });
 test('privileged or host-network container refused',()=>{
  fail(x=>x.services.application.privileged=true,'privileged');

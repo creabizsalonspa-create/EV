@@ -99,11 +99,49 @@ function assertResolved(input,configCheck) {
       problems.push(name+': privileged or host networking forbidden');
     }
   }
+  // Reject a project-external named volume even if it ends with _database or
+  // _private-storage: accidentally mounting a live dataset into a demo must fail.
   function privateVolume(service,name,target,suffix) {
     const volumes=service?.volumes || [];
-    if(!Array.isArray(volumes)||!volumes.some(v=>v&&v.type==='volume'&&v.target===target&&
-      typeof v.source==='string'&&(v.source===suffix||v.source.endsWith('_'+suffix)))) {
-      problems.push(name+': expected named persistent private volume missing');
+    if(!Array.isArray(volumes)||!volumes.some(v=>v&&v.type==='volume'&&
+      v.target===target&&v.source===project+'_'+suffix)) {
+      problems.push(name+': expected exact project-owned persistent private volume missing');
+    }
+  }
+  const expectedVolumes=['certificates','database','gateway-config','private-storage'];
+  const declaredVolumes=input.volumes;
+  if(!declaredVolumes || typeof declaredVolumes!=='object' ||
+    Array.isArray(declaredVolumes) ||
+    Object.keys(declaredVolumes).sort().join(',')!==expectedVolumes.join(',')) {
+    problems.push('Staging Compose must declare exactly four project-owned persistent volumes');
+  } else {
+    for(const name of expectedVolumes) {
+      const entry=declaredVolumes[name];
+      if(!entry || typeof entry!=='object' || Array.isArray(entry) ||
+        entry.external===true || entry.name!==project+'_'+name ||
+        (entry.driver && entry.driver!=='local') ||
+        (entry.driver_opts && Object.keys(entry.driver_opts).length)) {
+        problems.push('Staging volume '+name+' may not reference an external or remapped dataset');
+      }
+    }
+  }
+  const networks=input.networks;
+  if(!networks || typeof networks!=='object' || Array.isArray(networks) ||
+    Object.keys(networks).join(',')!=='default' ||
+    !networks.default || networks.default.external===true ||
+    networks.default.name!==project+'_default' ||
+    (networks.default.driver && networks.default.driver!=='bridge')) {
+    problems.push('Only the isolated project-default network is permitted');
+  }
+  for(const [name,service] of Object.entries(services)) {
+    const attached=service.networks;
+    if(attached!==undefined && attached!==null) {
+      const names=Array.isArray(attached)?attached:Object.keys(attached);
+      if(names.length!==1 || names[0]!=='default' ||
+        (!Array.isArray(attached) && attached.default &&
+         Object.keys(attached.default).length)) {
+        problems.push(name+': attached to an unreviewed network');
+      }
     }
   }
   for(const role of ['application','worker','scheduler'])
