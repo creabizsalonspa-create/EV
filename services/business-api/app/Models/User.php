@@ -13,7 +13,7 @@ class User extends Authenticatable implements MustVerifyEmail
     /** @use HasFactory<UserFactory> */
     use HasFactory, \Laravel\Sanctum\HasApiTokens, Notifiable;
 
-    protected $attributes = ['role' => 'customer', 'locale' => 'en'];
+    protected $attributes = ['role' => 'customer', 'locale' => 'en', 'account_status' => 'active'];
 
     /**
      * The attributes that are mass assignable.
