@@ -73,7 +73,7 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
         choices = models;
         // Keep the currently linked compatible choice selected on refresh.
         // An existing link can be on a different filtered page (or archived).
-        final linkedId = (current as Map)['model_id'];
+        final linkedId = current['model_id'];
         selectedId = models.isEmpty
             ? null
             : models.any((m) => m['id'] == linkedId)
