@@ -4,7 +4,28 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Release keys are supplied by the authorized builder as Gradle properties
+// (e.g. ORG_GRADLE_PROJECT_HASONE_ANDROID_STORE_FILE). Never commit secrets.
+val releaseStoreFile = providers.gradleProperty("HASONE_ANDROID_STORE_FILE").orNull
+val releaseStorePassword = providers.gradleProperty("HASONE_ANDROID_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.gradleProperty("HASONE_ANDROID_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.gradleProperty("HASONE_ANDROID_KEY_PASSWORD").orNull
+val releaseSigningComplete = listOf(
+    releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
+
+    signingConfigs {
+        if (releaseSigningComplete) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword!!
+                keyAlias = releaseKeyAlias!!
+                keyPassword = releaseKeyPassword!!
+            }
+        }
+    }
     namespace = "com.example.evcharg"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
@@ -32,15 +53,42 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Never ship a release APK/AAB signed with Android debug keys.
+            if (releaseSigningComplete) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
     }
+}
+
+
+val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
+    group = "verification"
+    description = "Require a private keystore and complete release credentials."
+    doLast {
+        if (!releaseSigningComplete) {
+            throw GradleException(
+                "HASONE release signing requires HASONE_ANDROID_STORE_FILE, " +
+                    "HASONE_ANDROID_STORE_PASSWORD, HASONE_ANDROID_KEY_ALIAS, " +
+                    "and HASONE_ANDROID_KEY_PASSWORD as secure Gradle properties."
+            )
+        }
+        if (!file(releaseStoreFile!!).isFile) {
+            throw GradleException("HASONE release signing keystore file is missing.")
+        }
+    }
+}
+
+// Fail closed for release distribution while keeping unsigned debug/simulator
+// development usable. Gradle's release tasks can be created lazily by AGP.
+tasks.matching {
+    it.name in setOf("assembleRelease", "bundleRelease", "packageRelease")
+}.configureEach {
+    dependsOn(verifyReleaseSigning)
 }
 
 flutter {
