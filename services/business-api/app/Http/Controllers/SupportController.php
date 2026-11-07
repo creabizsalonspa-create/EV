@@ -22,6 +22,8 @@ class SupportController extends Controller
 
     public function index(Request $r)
     {
+        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
         return SupportTicket::when($r->user()->role !== 'admin', fn ($q) => $q->where('user_id', $r->user()->id))->orderByDesc('id')->paginate(25);
     }
 
@@ -41,6 +43,7 @@ class SupportController extends Controller
     public function show(Request $r, SupportTicket $ticket)
     {
         $this->access($r, $ticket);
+        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
         return response()->json(['ticket' => $ticket, 'messages' => TicketMessage::where('support_ticket_id', $ticket->id)->when($r->user()->role !== 'admin', fn ($q) => $q->where('internal', false))->orderBy('id')->paginate(50)]);
     }

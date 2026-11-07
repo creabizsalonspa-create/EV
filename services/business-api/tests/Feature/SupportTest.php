@@ -30,6 +30,27 @@ class SupportTest extends TestCase
         $this->getJson('/api/support')->assertStatus(429);
     }
 
+    public function test_support_pagination_is_bounded_without_disclosing_foreign_tickets(): void
+    {
+        $owner = User::factory()->create();
+        $outsider = User::factory()->create();
+        $ticket = SupportTicket::create(['user_id' => $owner->id, 'subject' => 'Support page check']);
+
+        $this->actingAs($owner);
+        foreach (['0', '-10', 'not-a-page', '1000001', '1.7'] as $invalid) {
+            foreach (['/api/support', '/api/v1/support'] as $base) {
+                $this->getJson($base.'?page='.$invalid)->assertUnprocessable();
+                $this->getJson($base.'/'.$ticket->id.'?page='.$invalid)->assertUnprocessable();
+            }
+        }
+        $this->getJson('/api/support?page=1')->assertOk()->assertJsonPath('total', 1);
+        $this->getJson('/api/support/'.$ticket->id.'?page=1')->assertOk()
+            ->assertJsonPath('ticket.id', $ticket->id);
+        // A foreign ticket still returns 404, even with malformed pagination.
+        $this->actingAs($outsider)->getJson('/api/support/'.$ticket->id.'?page=nope')
+            ->assertNotFound();
+    }
+
     public function test_ticket_and_internal_notes_are_private_and_notifications_are_scoped(): void
     {
         $u = User::factory()->create();
