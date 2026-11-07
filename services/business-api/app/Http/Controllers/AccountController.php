@@ -60,15 +60,26 @@ class AccountController extends Controller
     {
         $v = $r->validate(['email' => 'required|email', 'token' => 'required|string', 'password' => 'required|string|min:12|max:128|confirmed']);
         $status = Password::reset($v, function (User $user, string $password) use ($r) {
-            $user->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
-            DB::table('sessions')->where('user_id', $user->id)->delete();
-            $user->tokens()->delete();
+            DB::transaction(function () use ($user, $password) {
+                // Password change is an authorization-epoch boundary. Deleting
+                // SQL sessions alone does not invalidate file/Redis sessions.
+                // Lock the current identity so concurrent changes cannot
+                // overwrite a newer role/moderation version.
+                $account = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $account->forceFill([
+                    'password' => Hash::make($password),
+                    'remember_token' => Str::random(60),
+                    'auth_epoch' => (int) $account->auth_epoch + 1,
+                ])->save();
+                DB::table('sessions')->where('user_id', $account->id)->delete();
+                $account->tokens()->delete();
+            });
             if ($r->user()?->id === $user->id) {
                 Auth::logout();
                 $r->session()->invalidate();
                 $r->session()->regenerateToken();
             }
-            event(new PasswordReset($user));
+            event(new PasswordReset($user->fresh()));
         });
         if ($status !== Password::PASSWORD_RESET) {
             throw ValidationException::withMessages(['token' => 'Invalid or expired reset link.']);

@@ -36,6 +36,40 @@ class AccountTest extends TestCase
         $this->postJson('/api/login', ['email' => $u->email, 'password' => $v['password']])->assertOk();
     }
 
+    public function test_password_reset_invalidates_old_browser_session_even_with_file_storage(): void
+    {
+        $user = User::factory()->create(['role' => 'customer']);
+        $oldToken = $user->createToken('mobile', ['platform'], now()->addDay())->plainTextToken;
+        $this->assertSame(0, $user->auth_epoch);
+
+        $reset = Password::createToken($user);
+        $password = 'fresh-long-reset-password';
+        $this->postJson('/api/reset-password', [
+            'email' => $user->email,
+            'token' => $reset,
+            'password' => $password,
+            'password_confirmation' => $password,
+        ])->assertOk();
+
+        $this->assertSame(1, $user->fresh()->auth_epoch);
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+        $this->withToken($oldToken)->getJson('/api/v1/me')->assertUnauthorized();
+
+        // A stale file/Redis-backed session may still contain the old user
+        // identifier. The updated authorization version must deny it even
+        // when there is no SQL session row to delete.
+        $this->withHeaders(['Authorization' => ''])
+            ->actingAs($user->fresh(), 'web')
+            ->withSession(['account_auth_epoch' => 0])
+            ->getJson('/api/vehicles')->assertUnauthorized();
+
+        $this->postJson('/api/login', [
+            'email' => $user->email,
+            'password' => $password,
+        ])->assertOk();
+        $this->getJson('/api/vehicles')->assertOk();
+    }
+
     public function test_reset_rejects_wrong_user_and_weak_or_expired_token(): void
     {
         $u = User::factory()->create();
