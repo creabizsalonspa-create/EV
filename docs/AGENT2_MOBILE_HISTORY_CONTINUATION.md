@@ -1,6 +1,18 @@
 # Agent 2 mobile source-history checkpoint
 
-Current resource-scope follow-up consumes PR50 at d4165dd. Customer history shows
+Current calendar follow-up preserves full year/month/day in booking creation,
+slot queries and rescheduling, while keeping display labels separate. Invalid
+calendar days are rejected locally; pending/uncertain creation never auto-replays
+or invents a receipt, and backend calendar denials are explained to the customer.
+Native39 tests pass with2 opt-in API skips; both actual API tests pass separately,
+covering scoped history plus persisted booking creation/duplicate denial. Changed
+files analyze cleanly. Evidence:
+`docs/evidence/agent2-mobile-reservation-calendar/validation.json`.
+Paired backend/mobile release and ambiguous legacy-date review are required.
+Independent resource capacity, calendar-time-zone expiry and paid rescheduling
+remain incomplete. Do not deploy the new date client against the old backend.
+
+Previous resource-scope follow-up consumes PR50 at d4165dd. Customer history shows
 verified OCPP1.6 connector identity or OCPP2.0.1 EVSE/connector identity in EN/AR.
 Malformed verified scope claims fail closed; legacy unscoped rows never invent a
 connector from raw metadata. Native35 tests pass; the separately executed real

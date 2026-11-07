@@ -1,3 +1,5 @@
+import '../../../../core/utils/reservation_date.dart';
+import '../../../../core/service/network/network_client.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -8,7 +10,10 @@ import '../../model/get_payment_method_model.dart' as gpm;
 import '../../model/payment_model.dart';
 
 class BookingController extends GetxController {
-  final _net = NetworkService().client;
+  final NetworkClient _net;
+  BookingController({NetworkClient? client})
+    : _net = client ?? NetworkService().client;
+  final RxString bookingError = ''.obs;
 
   /// Booking response data
   Rxn<Data> bookingData = Rxn<Data>();
@@ -24,7 +29,7 @@ class BookingController extends GetxController {
   /// Request body:
   /// {
   ///   "stationId": "...",
-  ///   "date": "06 Jan, Tue",
+  ///   "date": "2026-01-06",
   ///   "slotStart": "10:30 AM",
   ///   "slotEnd": "11:30 AM",
   ///   "connectorType": "Type A",
@@ -42,8 +47,19 @@ class BookingController extends GetxController {
     String chargingSlot = 'Slot A',
     String chargerType = 'CCS - 150 kW',
   }) async {
-    loading.value = true;
+    if (loading.value) {
+      bookingError.value =
+          'A booking request is already pending. Wait for its result.';
+      return null;
+    }
+    bookingError.value = '';
     bookingData.value = null;
+    if (!isReservationDay(date)) {
+      bookingError.value =
+          'Choose a complete reservation date including the year.';
+      return null;
+    }
+    loading.value = true;
 
     final body = {
       'stationId': stationId,
@@ -56,16 +72,34 @@ class BookingController extends GetxController {
       'chargerType': chargerType,
     };
 
-    final res = await _net.postRequest('/api/v1/Bookings', body: body);
-
-    loading.value = false;
-
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      final model = BookingDetailsModel.fromJson(res.responseData ?? {});
-      bookingData.value = model.data;
-      return model.data;
+    try {
+      final res = await _net.postRequest('/api/v1/Bookings', body: body);
+      final response = res.responseData;
+      if (res.isSuccess &&
+          response is Map<String, dynamic> &&
+          response['status'] == 'Success') {
+        final model = BookingDetailsModel.fromJson(response);
+        if (model.data != null) {
+          bookingData.value = model.data;
+          return model.data;
+        }
+      }
+      final message = response is Map ? response['message'] : null;
+      bookingError.value =
+          res.statusCode == 400 &&
+              message is String &&
+              message.isNotEmpty &&
+              message.length <= 500
+          ? message
+          : 'Booking outcome unconfirmed. Refresh bookings before trying again.';
+      return null;
+    } catch (_) {
+      bookingError.value =
+          'Booking outcome unconfirmed. Refresh bookings before trying again.';
+      return null;
+    } finally {
+      loading.value = false;
     }
-    return null;
   }
 
   /// POST /api/v1/PaymentCards
@@ -121,10 +155,7 @@ class BookingController extends GetxController {
   }) async {
     paymentLoading.value = true;
 
-    final body = <String, dynamic>{
-      'bookingId': bookingId,
-      'amount': amount,
-    };
+    final body = <String, dynamic>{'bookingId': bookingId, 'amount': amount};
     if (savedCardId != null && savedCardId.isNotEmpty) {
       body['savedCardId'] = savedCardId;
     }
@@ -136,7 +167,9 @@ class BookingController extends GetxController {
     paymentLoading.value = false;
 
     if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      final model = payment.BookingPaymentMOdel.fromJson(res.responseData ?? {});
+      final model = payment.BookingPaymentMOdel.fromJson(
+        res.responseData ?? {},
+      );
       return model.data;
     }
 
@@ -164,7 +197,9 @@ class BookingController extends GetxController {
     paymentLoading.value = false;
 
     if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      final model = payment.BookingPaymentMOdel.fromJson(res.responseData ?? {});
+      final model = payment.BookingPaymentMOdel.fromJson(
+        res.responseData ?? {},
+      );
       return model.data;
     }
 
@@ -180,10 +215,7 @@ class BookingController extends GetxController {
   }) async {
     paymentLoading.value = true;
 
-    final body = <String, dynamic>{
-      'bookingId': bookingId,
-      'amount': amount,
-    };
+    final body = <String, dynamic>{'bookingId': bookingId, 'amount': amount};
 
     final res = await _net.postRequest(
       '/api/v1/payment/sslcommerz/initiate',
@@ -192,7 +224,9 @@ class BookingController extends GetxController {
     paymentLoading.value = false;
 
     if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      final model = payment.BookingPaymentMOdel.fromJson(res.responseData ?? {});
+      final model = payment.BookingPaymentMOdel.fromJson(
+        res.responseData ?? {},
+      );
       return model.data;
     }
 
@@ -202,7 +236,10 @@ class BookingController extends GetxController {
 
   /// POST /api/v1/payment/stripe/save-card
   Future<gpm.SavedCard?> saveStripeCard() async {
-    final res = await _net.postRequest('/api/v1/payment/stripe/save-card', body: {});
+    final res = await _net.postRequest(
+      '/api/v1/payment/stripe/save-card',
+      body: {},
+    );
 
     if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
       final data = res.responseData ?? {};
@@ -222,9 +259,7 @@ class BookingController extends GetxController {
   }) async {
     paymentLoading.value = true;
 
-    final body = <String, dynamic>{
-      'paymentMethod': paymentMethod,
-    };
+    final body = <String, dynamic>{'paymentMethod': paymentMethod};
     if (cardId != null && cardId.isNotEmpty) {
       body['cardId'] = cardId;
     }
@@ -240,7 +275,9 @@ class BookingController extends GetxController {
     paymentLoading.value = false;
 
     if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      final model = payment.BookingPaymentMOdel.fromJson(res.responseData ?? {});
+      final model = payment.BookingPaymentMOdel.fromJson(
+        res.responseData ?? {},
+      );
       return model.data;
     }
 
@@ -252,11 +289,13 @@ class BookingController extends GetxController {
     final errorMsg = res.responseData is Map
         ? (res.responseData['message'] ?? 'Payment failed. Please try again.')
         : 'Payment failed. Please try again.';
-    Get.snackbar('Payment Error', errorMsg.toString(),
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFFFFCDD2),
-        colorText: const Color(0xFFB71C1C),
-        margin: const EdgeInsets.all(16));
+    Get.snackbar(
+      'Payment Error',
+      errorMsg.toString(),
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: const Color(0xFFFFCDD2),
+      colorText: const Color(0xFFB71C1C),
+      margin: const EdgeInsets.all(16),
+    );
   }
 }
-

@@ -32,7 +32,8 @@ def main(args):
         cwd:process.env.AGENT2_HISTORY_APP,stdio:'inherit',
         env:{...process.env,AGENT2_HISTORY_API_URL:base,
           AGENT2_HISTORY_TOKEN:bearer,AGENT2_HISTORY_FOREIGN_TOKEN:foreignBearer,
-          AGENT2_HISTORY_EXPECTED_SESSION:String(historyLink._id)}
+          AGENT2_HISTORY_EXPECTED_SESSION:String(historyLink._id),
+          AGENT2_NEW_BOOKING_STATION:String(station._id)}
       });
     const result=await new Promise((done,reject)=>{
       child.once('error',reject);child.once('exit',(code,signal)=>done({code,signal}));
