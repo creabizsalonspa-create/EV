@@ -50,3 +50,7 @@ test('invalid or backward clock cannot reactivate a credential',()=>{
  assert.equal(canReissueOcppToken({...params(),now:new Date('invalid')}),false);
  assert.equal(canReissueOcppToken({...params(),now:new Date('2026-11-01T00:00:00Z')}),false);
 });
+
+test('database still-valid token cannot be reissued even after stale booking timestamp',()=>{
+ assert.equal(canReissueOcppToken({...params(),tokenStillValid:true}),false);
+});
