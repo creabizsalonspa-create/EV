@@ -103,5 +103,32 @@ class IntegrationReadinessTest(unittest.TestCase):
         self.assertIn("check_run_limit_requires_review", result["blockers"])
 
 
+    def test_push_only_checks_cannot_replace_pr_event_validation(self):
+        push_checks = checks()
+        for run in push_checks:
+            run["pull_requests"] = []
+        result = gate.assess(pr(), push_checks, ["README.md"])
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("no_pr_associated_exact_head_checks", result["blockers"])
+        self.assertEqual(len(push_checks), result["ignored_unassociated_checks"])
+
+    def test_unrelated_cancelled_push_does_not_poison_valid_pr_checks(self):
+        pr_checks = checks()
+        for run in pr_checks:
+            run["pull_requests"] = [{"number": 57}]
+        cancelled = dict(pr_checks[0], status="completed",
+                         conclusion="cancelled", pull_requests=[])
+        result = gate.assess(pr(), pr_checks + [cancelled], ["README.md"])
+        self.assertEqual("candidate_for_manual_review", result["status"])
+        self.assertEqual(1, result["ignored_unassociated_checks"])
+
+    def test_different_pr_checks_cannot_validate_this_candidate(self):
+        other_checks = checks()
+        for run in other_checks:
+            run["pull_requests"] = [{"number": 52}]
+        result = gate.assess(pr(number=57), other_checks, ["README.md"])
+        self.assertEqual("blocked", result["status"])
+
+
 if __name__ == "__main__":
     unittest.main()
