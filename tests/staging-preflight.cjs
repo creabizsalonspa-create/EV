@@ -8,7 +8,7 @@ const { parseEnv, reviewFile, checkValues, validAppKey } = require('../scripts/s
 
 const key = 'base64:' + Buffer.alloc(32, 17).toString('base64');
 const password = 'correct_horse_' + 'safe_random_database_credential_41';
-const defaults = { APP_KEY: key, STAGING_HOST: 'staging.ev-example.org', ACME_EMAIL: 'ops@ev-example.org', DB_PASSWORD: password, STAGING_BIND_IP: '127.0.0.1', EV_IMAGE_TAG: 'review' };
+const defaults = { APP_KEY: key, STAGING_HOST: 'staging.ev-example.org', ACME_EMAIL: 'ops@ev-example.org', DB_PASSWORD: password, STAGING_BIND_IP: '127.0.0.1', EV_IMAGE_TAG: 'review', PAYMENT_PROVIDER: 'mock', MAIL_MAILER: 'log' };
 function source(overrides = {}) {
   return Object.entries({ ...defaults, ...overrides }).map(([name, value]) => `${name}=${value}`).join('\n') + '\n';
 }
@@ -170,4 +170,11 @@ test('staging Compose continues to publish only the private gateway', () => {
   assert.match(yaml,/8443:443/);
   assert.match(yaml,/certificates:\/data/);
   assert.doesNotMatch(yaml,/\b443:443['"]?\s*$/m);
+});
+
+test('isolated payment and log-mail settings are required rather than inherited from unknown app defaults',()=>{
+  const x={...defaults};delete x.PAYMENT_PROVIDER;
+  assert.ok(checkValues(x).some(e=>e.startsWith('PAYMENT_PROVIDER: required')));
+  x.PAYMENT_PROVIDER='mock';delete x.MAIL_MAILER;
+  assert.ok(checkValues(x).some(e=>e.startsWith('MAIL_MAILER: required')));
 });
