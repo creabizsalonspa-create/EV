@@ -101,14 +101,20 @@ class CITriggerTest(unittest.TestCase):
             section = top_level_section(content, "jobs")
             for name, budget in jobs.items():
                 with self.subTest(workflow=filename, job=name):
-                    match = re.search(
-                        rf"(?ms)^  {re.escape(name)}:\\n(.*?)(?=^  [A-Za-z0-9_-]+:|\\Z)",
-                        section,
+                    lines = section.splitlines()
+                    header = f"  {name}:"
+                    self.assertEqual(1, lines.count(header), f"Missing job {name}")
+                    start = lines.index(header) + 1
+                    end = next(
+                        (idx for idx in range(start, len(lines))
+                         if re.match(r"^  [A-Za-z0-9_-]+:", lines[idx])),
+                        len(lines),
                     )
-                    self.assertIsNotNone(match, f"Missing job {name}")
-                    configured = re.findall(
-                        r"(?m)^    timeout-minutes: ([0-9]+)$", match.group(1)
-                    )
+                    configured = [
+                        line.strip().removeprefix("timeout-minutes: ")
+                        for line in lines[start:end]
+                        if line.startswith("    timeout-minutes: ")
+                    ]
                     self.assertEqual([str(budget)], configured)
                     self.assertLessEqual(budget, 180)
                     self.assertGreaterEqual(budget, 20)
