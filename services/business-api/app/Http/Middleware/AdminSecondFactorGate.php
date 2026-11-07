@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
 class AdminSecondFactorGate
@@ -86,6 +87,21 @@ class AdminSecondFactorGate
     public function handle(Request $request, Closure $next): Response
     {
         if (! self::required()) {
+            return $next($request);
+        }
+
+        if ($request->is('api/v1/*')) {
+            // The API middleware runs before each route's auth:sanctum.
+            // Resolve the actual Sanctum actor now so a session-backed Admin
+            // cannot slip around the browser-only MFA middleware.
+            $nativeAccount = Auth::guard('sanctum')->user();
+            if ($nativeAccount?->role === 'admin' && ! self::verified($request)) {
+                return response()->json([
+                    'message' => 'Administrator authenticator verification is required.',
+                    'admin_second_factor_required' => true,
+                ], 403)->header('Cache-Control', 'no-store, private');
+            }
+
             return $next($request);
         }
 
