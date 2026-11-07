@@ -52,6 +52,46 @@ class SupportTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_support_ticket_create_replays_once_across_api_versions(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $payload = [
+            'subject' => 'Cannot charge at the verified station',
+            'body' => 'Please review this synthetic station event',
+            'idempotency_key' => str_repeat('d', 32),
+        ];
+        $first = $this->postJson('/api/support', $payload)
+            ->assertCreated()->assertJsonMissingPath('idempotency_key');
+        $this->postJson('/api/v1/support', $payload)
+            ->assertOk()->assertJsonPath('id', $first->json('id'))
+            ->assertJsonMissingPath('idempotency_key');
+        $this->assertDatabaseCount('support_tickets', 1);
+        $this->assertDatabaseCount('ticket_messages', 1);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'support.created')->where('actor_id', $user->id)->count());
+
+        $this->postJson('/api/support', [...$payload, 'subject' => 'Other issue'])
+            ->assertConflict();
+        $this->postJson('/api/v1/support', [...$payload, 'body' => 'Other details'])
+            ->assertConflict();
+        foreach (['short', str_repeat('g', 32), str_repeat('a', 33)] as $bad) {
+            $this->postJson('/api/support', [...$payload, 'idempotency_key' => $bad])
+                ->assertUnprocessable();
+        }
+        $this->assertDatabaseCount('support_tickets', 1);
+
+        $other = User::factory()->create();
+        $this->actingAs($other)->postJson('/api/support', $payload)
+            ->assertCreated();
+        $this->assertDatabaseCount('support_tickets', 2);
+        // Older clients without a replay key retain their original behavior.
+        $this->postJson('/api/support', [
+            'subject' => 'Legacy no replay key', 'body' => 'New ticket',
+        ])->assertCreated();
+        $this->assertDatabaseCount('support_tickets', 3);
+    }
+
     public function test_ticket_and_internal_notes_are_private_and_notifications_are_scoped(): void
     {
         $u = User::factory()->create();

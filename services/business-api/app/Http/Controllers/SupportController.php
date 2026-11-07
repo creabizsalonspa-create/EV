@@ -29,15 +29,46 @@ class SupportController extends Controller
 
     public function create(Request $r)
     {
-        $v = $r->validate(['subject' => 'required|string|max:150', 'body' => 'required|string|max:5000']);
+        $v = $r->validate([
+            'subject' => 'required|string|max:150',
+            'body' => 'required|string|max:5000',
+            'idempotency_key' => ['sometimes', 'string', 'regex:/^[a-f0-9]{32}$/'],
+        ]);
 
         return DB::transaction(function () use ($r, $v) {
-            $t = SupportTicket::create(['user_id' => $r->user()->id, 'subject' => $v['subject']]);
-            TicketMessage::create(['support_ticket_id' => $t->id, 'author_id' => $r->user()->id, 'body' => $v['body'], 'internal' => false]);
+            $ownerId = $r->user()->id;
+            if (isset($v['idempotency_key'])) {
+                // A user-row lock serializes same-account ticket creations.
+                // Unique (user, request key) is enforced in PostgreSQL/SQLite.
+                abort_unless(DB::table('users')->where('id', $ownerId)
+                    ->lockForUpdate()->first(), 409);
+                $previous = SupportTicket::where('user_id', $ownerId)
+                    ->where('idempotency_key', $v['idempotency_key'])->first();
+                if ($previous) {
+                    $initial = TicketMessage::where('support_ticket_id', $previous->id)
+                        ->orderBy('id')->first();
+                    abort_unless(
+                        hash_equals((string) $previous->subject, $v['subject'])
+                            && $initial
+                            && (int) $initial->author_id === $ownerId
+                            && hash_equals((string) $initial->body, $v['body']),
+                        409,
+                        'Request key was already used for a different support ticket.'
+                    );
+                    return response()->json($previous);
+                }
+            }
+            $t = SupportTicket::create([
+                'user_id' => $ownerId,
+                'subject' => $v['subject'],
+                'idempotency_key' => $v['idempotency_key'] ?? null,
+            ]);
+            TicketMessage::create(['support_ticket_id' => $t->id, 'author_id' => $ownerId,
+                'body' => $v['body'], 'internal' => false]);
             $this->audit($r, 'support.created', $t->id);
 
             return response()->json($t, 201);
-        });
+        }, 3);
     }
 
     public function show(Request $r, SupportTicket $ticket)

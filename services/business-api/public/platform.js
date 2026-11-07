@@ -1842,14 +1842,23 @@ async function ticketDetail(id) {
         d.append(f);
     }
 }
+let pendingTicketCreate = null;
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target));
+    const signature = JSON.stringify(payload);
+    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature) {
+        pendingTicketCreate = {
+            signature,
+            key: crypto.randomUUID().replace(/-/g, ""),
+        };
+    }
     try {
-        const t = await api(
-            "support",
-            "POST",
-            Object.fromEntries(new FormData(e.target)),
-        );
+        const t = await api("support", "POST", {
+            ...payload,
+            idempotency_key: pendingTicketCreate.key,
+        });
+        pendingTicketCreate = null;
         await support();
         await ticketDetail(t.id);
     } catch (e) {
