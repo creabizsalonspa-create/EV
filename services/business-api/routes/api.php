@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController as A;
+use App\Http\Controllers\AccountPrivacyController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerIngressController;
@@ -25,6 +26,13 @@ use App\Http\Controllers\VehicleBatteryController;
 use App\Models\Station;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
+// Personal privacy requests are available to mobile customers and vendors
+// through the same canonical encrypted identity ledger as the web portal.
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(function () {
+    Route::get('/privacy-requests', [AccountPrivacyController::class, 'mine']);
+    Route::post('/privacy-requests', [AccountPrivacyController::class, 'submit']);
+});
 
 Route::prefix('v1')->group(function () {
     Route::middleware('throttle:authentication')->group(function () {

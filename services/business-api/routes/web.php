@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AccountPrivacyController;
 use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\AdminAuditTrailController;
 use App\Http\Controllers\AdminKycQueueController;
@@ -56,6 +57,10 @@ Route::get('/api/admin/overview', function (Request $r) {
 })->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/account/privacy-requests', [AccountPrivacyController::class, 'mine'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/account/privacy-requests', [AccountPrivacyController::class, 'submit'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/privacy-requests', [AccountPrivacyController::class, 'adminIndex'])->middleware(['auth', 'throttle:platform-api']);
+Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacyController::class, 'review'])->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/kyc-queue', [AdminKycQueueController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/permission-grants', [AdminStaffPermissionController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);

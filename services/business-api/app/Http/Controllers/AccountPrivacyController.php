@@ -38,8 +38,8 @@ class AccountPrivacyController extends Controller
                 ->where('user_id', $actor->id)
                 ->where('kind', $input['kind'])
                 ->whereIn('status', ['pending', 'reviewing', 'blocked_external'])
-                ->lockForUpdate()->exists();
-            abort_if($already, 409, 'An open request of this kind already exists.');
+                ->lockForUpdate()->first(['id']);
+            abort_if($already !== null, 409, 'An open request of this kind already exists.');
 
             $record = AccountPrivacyRequest::create([
                 'user_id' => $actor->id,
