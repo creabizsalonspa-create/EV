@@ -353,6 +353,8 @@
     });
     window.addEventListener("catalog-map-clear", () => {
         records = [];
+        partnerRows = [];
+        if (partnerMarkers) partnerMarkers.clearLayers();
         locationGeneration++;
         locate.disabled = false;
         checkbox.checked = false;
