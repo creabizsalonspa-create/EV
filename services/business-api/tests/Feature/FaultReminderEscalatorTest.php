@@ -118,9 +118,12 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame($second['alert'], (int) DB::table(
             'charging_fault_reminder_scan_progress')->where('id', 1)->value('after_alert_id'));
 
+        // Wrapping must consume an eligible bounded page immediately,
+        // not spend a whole scheduler interval resetting the cursor.
         $wrapped = $service->scan(1);
-        $this->assertSame(0, $wrapped['examined']);
-        $this->assertSame(0, (int) DB::table('charging_fault_reminder_scan_progress')
+        $this->assertSame(1, $wrapped['examined']);
+        $this->assertSame(0, $wrapped['reminded']);
+        $this->assertSame($first['alert'], (int) DB::table('charging_fault_reminder_scan_progress')
             ->where('id', 1)->value('after_alert_id'));
         $this->assertSame(0, $service->scan(1)['reminded']);
         $this->assertDatabaseCount('charging_fault_reminders', 1);
