@@ -26,7 +26,7 @@ function setup(dir,events=['RELEASE_STARTED']) {
 function mock(dir){
   const state={tag:'new',up:0,badGateway:false,badDatabase:false,foreign:false,
     staleOld:false,failOld:false,appUnhealthy:true,seen:[]};
-  const options={lockPath:path.join(dir,'operation.lock'),env:{},envFile:path.join(dir,'private.env')};
+  const options={lockPath:path.join(dir,'operation.lock'),env:{},envFile:path.join(dir,'private.env'),preflight:()=>({ok:true,errors:[]})};
   fs.writeFileSync(options.envFile,'DB_PASSWORD=SYNTHETIC\nAPP_KEY=local_fake_not_real\n',{mode:0o600});
   const rows=()=> ['application','worker','scheduler','database','gateway'].map((service,i)=>({
     Project:'ev-staging',Service:service,State:'running',
@@ -144,4 +144,12 @@ test('already restored tag with different actual image is never accepted',()=>te
   deps.state.tag='new';
   assert.equal(recovery.main(cli(file),deps),2);
   assert.equal(deps.state.up,0);
+}));
+
+test('unsafe preflight rejects manual recovery before any Compose command',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.preflight=()=>({ok:false,errors:['DB_URL external production']});
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+  assert.equal(deps.state.seen.length,0);
 }));
