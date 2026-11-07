@@ -307,6 +307,49 @@ const { randomUUID } = require("node:crypto");
         "Internal secret QA note",
       ),
     );
+    // A replay after an uncertain HTTP acknowledgement must not create
+    // duplicate public replies or duplicate vendor/customer inbox alerts.
+    const browserSupportTickets = await admin.page.evaluate(
+      () => api("support"),
+    );
+    const targetSupport = browserSupportTickets.data.find(
+      (row) => row.subject === "Browser support " + run,
+    );
+    assert(targetSupport && Number.isSafeInteger(targetSupport.id));
+    const replayKey = randomUUID().replace(/-/g, "");
+    const replayBody = "Replay-safe browser support update " + run;
+    const unreadBeforeReplay = await customer.page.evaluate(
+      () => api("notifications/summary"),
+    );
+    const initialReply = await admin.page.evaluate(
+      ({ ticketId, body, key }) => api(
+        "support/" + ticketId + "/messages", "POST",
+        { body, internal: false, idempotency_key: key },
+      ),
+      { ticketId: targetSupport.id, body: replayBody, key: replayKey },
+    );
+    const replayedReply = await admin.page.evaluate(
+      ({ ticketId, body, key }) => api(
+        "support/" + ticketId + "/messages", "POST",
+        { body, internal: false, idempotency_key: key },
+      ),
+      { ticketId: targetSupport.id, body: replayBody, key: replayKey },
+    );
+    assert.equal(replayedReply.id, initialReply.id);
+    assert.equal(replayedReply.idempotency_key, undefined);
+    const unreadAfterReplay = await customer.page.evaluate(
+      () => api("notifications/summary"),
+    );
+    assert.equal(unreadAfterReplay.unread_count,
+      unreadBeforeReplay.unread_count + 1);
+    const savedThread = await admin.page.evaluate(
+      (id) => api("support/" + id), targetSupport.id,
+    );
+    assert.equal(
+      savedThread.messages.data.filter((m) => m.body === replayBody).length,
+      1,
+    );
+
     // New browser + Laravel notification-cutoff acceptance. The second reply is
     // created AFTER the customer's first visible high-water mark, and must stay
     // unread when the customer marks only the previously observed messages.
