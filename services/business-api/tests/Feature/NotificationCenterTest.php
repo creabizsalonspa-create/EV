@@ -155,6 +155,28 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonPath('total', 1);
     }
 
+    public function test_inbox_pages_are_bounded_sorted_and_never_expose_another_account(): void
+    {
+        $owner = User::factory()->create();
+        $foreign = User::factory()->create();
+        for ($i = 0; $i < 27; $i++) {
+            $this->makeNotification($owner, 'support.reply');
+        }
+        $this->makeNotification($foreign, 'support.reply');
+
+        $this->actingAs($owner)->getJson('/api/v1/notifications?category=support&page=1')
+            ->assertOk()->assertJsonPath('total', 27)
+            ->assertJsonPath('current_page', 1)
+            ->assertJsonPath('last_page', 2)->assertJsonCount(25, 'data');
+        $page = $this->getJson('/api/v1/notifications?category=support&page=2')
+            ->assertOk()->assertJsonPath('total', 27)
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonCount(2, 'data');
+        $this->assertTrue($page->json('data.0.id') > $page->json('data.1.id'));
+        $this->actingAs($foreign)->getJson('/api/notifications?page=2')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
+    }
+
     public function test_single_read_acknowledgement_is_audited_once_and_owner_scoped(): void
     {
         $owner = User::factory()->create();

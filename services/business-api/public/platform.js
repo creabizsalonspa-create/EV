@@ -1,5 +1,6 @@
 let inboxUnreadOnly = false;
 let inboxCategory = "all";
+let inboxPage = 1;
 let unconfirmedFavorite = null;
 let favoriteMode = false,
     previousCatalogQuery = "";
@@ -79,6 +80,7 @@ function clearIdentity() {
 function clearPrivateViews() {
     inboxUnreadOnly = false;
     inboxCategory = "all";
+    inboxPage = 1;
     riderWorkspace.clear();
     vendorWorkspace.clear();
     roamingWorkspace.clear();
@@ -1287,6 +1289,7 @@ async function support() {
         el("ticket-list").append(b);
     }
     const notificationFilters = [
+        "page=" + inboxPage,
         inboxUnreadOnly ? "unread_only=1" : null,
         inboxCategory !== "all" ? "category=" + encodeURIComponent(inboxCategory) : null,
     ].filter(Boolean).join("&");
@@ -1301,6 +1304,7 @@ async function support() {
     filterButton.onclick = async () => {
         if (session !== client.sessionEpoch || account !== user?.id) return;
         inboxUnreadOnly = !inboxUnreadOnly;
+        inboxPage = 1;
         filterButton.disabled = true;
         try {
             await support();
@@ -1329,6 +1333,7 @@ async function support() {
     categorySelect.onchange = async () => {
         if (session !== client.sessionEpoch || account !== user?.id) return;
         inboxCategory = categorySelect.value;
+        inboxPage = 1;
         categorySelect.disabled = true;
         try {
             await support();
@@ -1351,6 +1356,7 @@ async function support() {
                 try {
                     await api("notifications/read-through", "POST", { through_id: throughId });
                     if (session !== client.sessionEpoch || account !== user?.id) return;
+                    inboxPage = 1;
                     await support();
                 } catch (error) {
                     if (session === client.sessionEpoch && account === user?.id) notice(error);
@@ -1400,7 +1406,44 @@ async function support() {
             };
             row.append(b);
         }
-        el("notifications").append(row);
+        view.append(row);
+    }
+    const pageNumber = Number(n.current_page);
+    const lastPage = Number(n.last_page);
+    if (Number.isSafeInteger(pageNumber) && pageNumber > 0 &&
+        Number.isSafeInteger(lastPage) && lastPage > 0) {
+        const pages = document.createElement("nav");
+        pages.id = "notification-pagination";
+        EvLocale.attribute(pages, "aria-label", "Notification pages");
+        const move = async (target, button) => {
+            if (session !== client.sessionEpoch || account !== user?.id) return;
+            inboxPage = target;
+            button.disabled = true;
+            try {
+                await support();
+            } catch (error) {
+                if (session === client.sessionEpoch && account === user?.id) notice(error);
+            } finally {
+                button.disabled = false;
+            }
+        };
+        if (pageNumber > 1) {
+            const previous = ui("button", "Previous notifications");
+            previous.type = "button";
+            previous.onclick = () => move(pageNumber - 1, previous);
+            pages.append(previous);
+        }
+        pages.append(ui("span", "Notifications page {page} of {last}", {
+            page: pageNumber,
+            last: lastPage,
+        }));
+        if (pageNumber < lastPage) {
+            const next = ui("button", "Next notifications");
+            next.type = "button";
+            next.onclick = () => move(pageNumber + 1, next);
+            pages.append(next);
+        }
+        view.append(pages);
     }
 }
 async function ticketDetail(id) {

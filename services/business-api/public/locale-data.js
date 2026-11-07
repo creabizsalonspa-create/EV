@@ -1,4 +1,11 @@
 window.EV_MESSAGES = {
+    "Notification pages": { en: "Notification pages", ar: "صفحات الإشعارات" },
+    "Previous notifications": { en: "Previous notifications", ar: "الإشعارات السابقة" },
+    "Next notifications": { en: "Next notifications", ar: "الإشعارات التالية" },
+    "Notifications page {page} of {last}": {
+        en: "Notifications page {page} of {last}",
+        ar: "صفحة الإشعارات {page} من {last}",
+    },
     "Fleet notifications": { en: "Fleet notifications", ar: "إشعارات الأسطول" },
     "Fleet invitation · fleet #{id}": {
         en: "Fleet invitation · fleet #{id}", ar: "دعوة للأسطول · الأسطول #{id}",

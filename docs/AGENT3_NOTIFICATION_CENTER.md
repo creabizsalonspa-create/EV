@@ -49,3 +49,7 @@ Fleet invitations now produce an inbox notification only when a registered, diff
 ### Lock ordering and resilient client labels
 
 The fleet membership revocation path now acquires the fleet row before the membership row (matching invitation creation) and retries transient transaction failures up to three times. This reduces deadlock risk on concurrent owner re-invitations/revocations. The Flutter inbox uses a single typed title formatter with a validated positive numeric station/vehicle/fleet identifier. Malformed/missing metadata produces a harmless placeholder instead of raising a widget build exception; localized English/Arabic wording remains explicitly simulator-scoped.
+
+### Web inbox pagination
+
+The browser now reads backend page metadata and renders bounded previous/next controls with EN/AR labels. The page state is identity-scoped, and changing unread/category filters or completing a bulk-read resets to the first page. The existing Laravel pagination limit stays at 25; backend regression tests verify 27 own records across two pages, descending order, and non-disclosure of an unrelated account's rows. No API returns an unbounded inbox dump.
