@@ -11,6 +11,69 @@ class AdminSessionMfaIntegrationTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_password_only_admin_cannot_read_private_surfaces_or_moderate_accounts(): void
+    {
+        if (! is_file(app_path('Security/AdminTotp.php'))) {
+            $this->markTestSkipped('PR80 Admin MFA has not yet been integrated.');
+        }
+        config()->set('admin_security.enforce_in_local_tests', true);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $secretEmail = $customer->email;
+        $readOnly = [
+            '/api/admin/overview',
+            '/api/admin/accounts',
+            '/api/admin/kyc-queue',
+            '/api/admin/permission-grants',
+            '/api/admin/privacy-requests',
+            '/api/admin/audit-events',
+            '/api/admin/operator-role-changes',
+            '/api/vendor-ops/companies',
+            '/api/v1/me',
+        ];
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk()->assertJsonPath('admin_second_factor_required', true);
+
+        foreach ($readOnly as $uri) {
+            $this->getJson($uri)->assertForbidden()
+                ->assertJsonPath('admin_second_factor_required', true)
+                ->assertDontSee($secretEmail);
+        }
+        $moderation = "/api/admin/accounts/{$customer->id}/moderate";
+        $this->patchJson($moderation, [
+            'expected_status' => 'active',
+            'account_status' => 'suspended',
+            'reason' => 'Synthetic MFA security regression confirmation.',
+        ])->assertForbidden()->assertJsonPath('admin_second_factor_required', true);
+        $this->assertDatabaseHas('users', [
+            'id' => $customer->id, 'account_status' => 'active',
+        ]);
+        $this->assertDatabaseCount('audit_events', 0);
+
+        $secret = $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'password',
+        ])->assertOk()->json('secret');
+        $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk()->assertJsonPath('verified', true);
+
+        foreach ($readOnly as $uri) {
+            $this->getJson($uri)->assertOk();
+        }
+        $this->patchJson($moderation, [
+            'expected_status' => 'active',
+            'account_status' => 'suspended',
+            'reason' => 'Synthetic MFA security regression confirmation.',
+        ])->assertOk()->assertJsonPath('account_status', 'suspended');
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.account.suspended',
+            'subject' => (string) $customer->id,
+        ]);
+    }
+
     public function test_password_revoke_all_requires_a_fresh_admin_factor_when_mfa_is_installed(): void
     {
         // PR72 is independently testable before Agent4 integrates PR80. This
