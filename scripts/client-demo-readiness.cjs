@@ -28,12 +28,18 @@ async function inspect(options,deps={}){
     physical_charging_verified:false,real_money_moved:false,
     live_ocpi_verified:false,production_accepted:false,
   };
+  function requireSimulators(snap) {
+    if(snap?.ok!==true || snap.physical_charging_verified!==false ||
+      snap.real_money_moved!==false || snap.stations?.length!==2 ||
+      snap.stations.some((x,i)=>x?.protocol!==OCPP[i] || x.idle!==true ||
+        x.physical_charging_verified!==false ||
+        x.evidence!=='SIMULATED_CITRINEOS')) {
+      throw Error('Simulator readiness invalid');
+    }
+  }
   try{
     const first=readiness(options.manifest);
-    if(first?.ok!==true || first.physical_charging_verified!==false ||
-      first.real_money_moved!==false ||
-      first.stations?.length!==2 ||
-      first.stations.some((x,i)=>x.protocol!==OCPP[i] || x.idle!==true))throw Error('Simulator readiness invalid');
+    requireSimulators(first);
     const roles=await roleCheck(options.manifest);
     if(roles?.ok!==true || roles.physical_charging_verified!==false ||
       roles.real_money_moved!==false || roles.production_accepted!==false ||
@@ -44,10 +50,7 @@ async function inspect(options,deps={}){
     }
     // Detect a charger transition/command while browser testing was in progress.
     const second=readiness(options.manifest);
-    if(second?.ok!==true || second.stations?.length!==2 ||
-      second.stations.some((x,i)=>x.protocol!==OCPP[i] || x.idle!==true)) {
-      throw Error('Simulator readiness changed during browser tests');
-    }
+    requireSimulators(second);
     result.status='PRIVATE_LAB_DEMO_READY';
     result.simulated_protocols=OCPP;
     result.browser_roles=ROLES;
