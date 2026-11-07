@@ -134,16 +134,27 @@ class Github:
             return json.load(response) if method == "GET" else response.status
 
     def pages(self, suffix, key, limit=MAX_PAGE_COUNT):
+        """Never treat GitHub's 1,000-run result ceiling as a complete queue.
+
+        Some Actions responses report >1,000 queued runs on page one but
+        return an empty page eleven. Compare the reported total with every
+        row actually retrieved, including when a later page reports zero.
+        """
         out = []
+        expected_total = None
         for index in range(1, limit + 1):
             sep = "&" if "?" in suffix else "?"
             payload = self.request(suffix + sep + "per_page=100&page=" + str(index))
+            if isinstance(payload, dict):
+                reported = payload.get("total_count")
+                if type(reported) is int and reported >= 0:
+                    expected_total = max(expected_total or 0, reported)
             rows = payload if isinstance(payload, list) else payload.get(key)
             if not isinstance(rows, list):
                 raise ValueError("Unexpected GitHub pagination response")
             out.extend(rows)
             if len(rows) < 100:
-                return out, False
+                return out, expected_total is not None and len(out) < expected_total
         return out, True
 
 
@@ -237,7 +248,7 @@ def main(argv=None):
     p.add_argument("--page-limit", type=int, default=MAX_PAGE_COUNT)
     args = p.parse_args(argv)
     if args.page_limit < 1 or args.page_limit > MAX_PAGE_COUNT:
-        p.error("--page-limit must be within 1..12")
+        p.error(f"--page-limit must be within 1..{MAX_PAGE_COUNT}")
     try:
         token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
         if args.apply and not token:
