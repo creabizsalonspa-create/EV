@@ -246,6 +246,61 @@ class VendorOpsController extends Controller
         return response()->json(['message' => 'Invitation recorded if the account is eligible.'], 202);
     }
 
+    /**
+     * A scope update never silently grants a new capability. Revoking the
+     * active grant into 'invited' denies all staff access until the staff
+     * member consents to the new version of the permission set.
+     */
+    public function updateStaffPermissions(Request $r, VendorCompany $company, VendorCompanyStaff $membership)
+    {
+        $this->access->owner($r->user(), $company);
+        abort_unless($membership->company_id === $company->id, 404);
+        $v = $r->validate([
+            'expected_version' => 'required|integer|min:1',
+            'permissions' => 'required|array|min:1|max:3',
+            'permissions.*' => ['required', 'distinct', Rule::in(VendorAccess::PERMISSIONS)],
+        ]);
+        $desired = array_values($v['permissions']);
+
+        return DB::transaction(function () use ($r, $company, $membership, $v, $desired) {
+            VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $grant = VendorCompanyStaff::whereKey($membership->id)
+                ->where('company_id', $company->id)
+                ->lockForUpdate()->firstOrFail();
+            abort_if($grant->admin_revoked_at !== null, 409,
+                'Staff access is under an administrator security hold.');
+            abort_unless(in_array($grant->status, ['active', 'invited'], true), 409,
+                'A revoked membership must be re-invited.');
+            abort_unless($grant->invitation_version === (int) $v['expected_version'], 409,
+                'Staff permissions changed. Refresh before editing.');
+
+            $oldScopes = array_values($grant->permissions ?? []);
+            sort($oldScopes);
+            $newScopes = $desired;
+            sort($newScopes);
+            abort_if($oldScopes === $newScopes, 422,
+                'Choose a different permission set.');
+
+            // A former active grant is immediately denied by VendorAccess;
+            // a new invitation_version prevents stale acceptance replay.
+            $grant->update([
+                'permissions' => $desired,
+                'status' => 'invited',
+                'accepted_at' => null,
+                'invitation_version' => $grant->invitation_version + 1,
+            ]);
+            $this->access->audit($r->user(), 'staff.permissions_changed', $grant->id);
+
+            return response()->json([
+                'id' => $grant->id,
+                'status' => 'invited',
+                'permissions' => $grant->permissions,
+                'invitation_version' => $grant->invitation_version,
+                'requires_acceptance' => true,
+            ])->header('Cache-Control', 'no-store, private');
+        });
+    }
+
     public function invitations(Request $r)
     {
         $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->whereNull('admin_revoked_at')->paginate(25);

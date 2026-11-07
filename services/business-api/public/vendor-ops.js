@@ -554,6 +554,66 @@ window.createVendorWorkspace = ({
                         }),
                         permissions(m.permissions),
                     );
+                    if (
+                        (m.status === "active" || m.status === "invited") &&
+                        !m.admin_revoked_at
+                    ) {
+                        const scopeEditor = form(
+                            row,
+                            "Change company staff permissions",
+                            [
+                                {
+                                    name: "permissions",
+                                    label: "New staff permissions",
+                                    checks: {
+                                        "company.read": "Read company",
+                                        "inventory.read": "Read inventory",
+                                        "inventory.write": "Manage inventory",
+                                    },
+                                },
+                            ],
+                            async (v, f, eventEpoch) => {
+                                if (!v.permissions.length)
+                                    throw new Error(
+                                        "Choose at least one staff permission.",
+                                    );
+                                if (
+                                    !confirm(
+                                        EvLocale.text(
+                                            "Replace the existing grant? The staff member loses access until accepting the new permissions.",
+                                        ),
+                                    )
+                                )
+                                    return;
+                                await api(
+                                    base +
+                                        "companies/" +
+                                        company.id +
+                                        "/staff/" +
+                                        m.id +
+                                        "/permissions",
+                                    "PATCH",
+                                    {
+                                        expected_version: m.invitation_version,
+                                        permissions: v.permissions,
+                                    },
+                                );
+                                if (valid(eventEpoch) && current()) {
+                                    notice(
+                                        "Permissions updated. Staff access is suspended until the new invitation is accepted.",
+                                    );
+                                    await detail(company);
+                                }
+                            },
+                        );
+                        for (const checkbox of scopeEditor.querySelectorAll(
+                            'input[name="permissions"]',
+                        )) {
+                            checkbox.checked = m.permissions.includes(
+                                checkbox.value,
+                            );
+                        }
+                    }
                     if (m.status !== "revoked")
                         button(row, "Revoke access", async () => {
                             if (
