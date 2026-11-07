@@ -52,12 +52,13 @@ Staging-only code now includes:
 - **OCPP 1.6 and 2.0.1:** customer tokens are bound to authenticated bookings and existing charger registrations; raw authorization credentials are not stored in transaction records; 2.0.1 token hash is preserved in the staged gateway.
 - **Admin-scoped source binding:** protected `issue-token` and `bind-source` API routes ensure a paid, arrived booking and exact charger/transaction/meter evidence. Simultaneous token issuance yields one credential; a source session cannot bind to multiple bookings.
 - **Customer sourced status:** authenticated customer API reads only the matching OCPP session's confirmed kWh, and cannot show imaginary battery percentage or a collected payment.
+- **Source-backed booking completion:** Admin-authenticated finalize route moves bookings to `Completed` only after an OCPP Ended event, verified meters and a calculated-but-unpaid invoice. Repeated calls are idempotent.
 - **Admin sourced reporting:** AdminAuth-only report shows metered kWh and `calculated_unpaid` AED estimates, never fake received revenue.
 - **Server Maps key:** inherited source hardcoded key replaced in staging with `GOOGLE_MAPS_API_KEY` from environment, and distance lookup disabled gracefully if absent. Restrict/rotate the exposed original key before future deployment.
 - **Encrypted database backup:** live Mongo ciphertext snapshot retained exclusively on owner's server; archive decrypt + `mongorestore --dryRun` succeeded. Offsite restore remains unverified.
 
 **Validation on authorized host**: 26/26 payment+OCPP pure guard tests,
-13/13 isolated route-level payment callback tests, and **45/45**
+13/13 isolated route-level payment callback tests, and **48/48**
 integrated Express/JWT/Mongo/OCPP scenario checks across authenticated
 customer/admin, bookings, payments, OCPP1.6/2.0.1 and source reporting.
 These tests use a local ephemeral MongoDB and staged source and do **not**
