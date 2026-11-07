@@ -295,6 +295,14 @@ try{
   const linked=await ChargingSessionModel.create({userId:user._id,bookingId:approvedBooking._id,
     stationId:station._id,sourceType:'ocpp',sourceSessionId:String(sourceDoc._id),
     sourceChargerId:chargerId,sourceTransactionId:id,status:'NotStarted'});
+  await check('linked completed source disables repeated QR scan on charging station screen',async()=>{
+    const z=await request('GET','/api/v1/ChargingStation/'+approvedBooking._id,undefined,true);
+    assert.equal(z.code,200);
+    assert.equal(z.body.data.status,'Completed');
+    assert.equal(z.body.data.canScan,false);
+    assert.equal(z.body.data.sourceVerified,true);
+    assert.equal(z.body.data.energyKwh,7);
+  });
   await check('customer charging screen reads exact OCPP metering, not a generated estimate',async()=>{
     const r=await request('GET','/api/v1/ChargingSession/'+linked._id+'/status',undefined,true);
     assert.equal(r.code,200);assert.equal(r.body.data.sourceVerified,true);
@@ -398,6 +406,13 @@ try{
     assert.equal(z.body.data.financialSettlement,'not_collected');
     adminLinkedSession=await ChargingSessionModel.findById(z.body.data.sessionId);
     assert.equal(adminLinkedSession.sourceSessionId,String(adminOcppSession._id));
+  });
+  await check('Admin-linked OCPP session blocks QR rescan on station details',async()=>{
+    const z=await request('GET','/api/v1/ChargingStation/'+adminBooking._id,undefined,true);
+    assert.equal(z.code,200);
+    assert.equal(z.body.data.status,'Completed');
+    assert.equal(z.body.data.canScan,false);
+    assert.equal(z.body.data.sourceVerified,true);
   });
   await check('customer sees meter-backed charging history from Admin-bound transaction',async()=>{
     const z=await request('GET','/api/v1/ChargingSession/'+adminLinkedSession._id+'/status',
@@ -519,6 +534,13 @@ try{
     assert.equal(zeroMeter.code,200);
     assert.equal(zeroMeter.body.data.chargingStatus,'Charging');
     assert.equal(zeroMeter.body.data.kwhUsed,0);
+    const stationScreen=await request('GET',
+      '/api/v1/ChargingStation/'+booking20._id,undefined,true);
+    assert.equal(stationScreen.code,200);
+    assert.equal(stationScreen.body.data.status,'Charging');
+    assert.equal(stationScreen.body.data.canScan,false);
+    assert.equal(stationScreen.body.data.energyKwh,0);
+
     const summaryActive=await request('GET',
       '/api/v1/ChargingSession/'+bound20SessionId+'/summary',undefined,true);
     assert.equal(summaryActive.code,400);
