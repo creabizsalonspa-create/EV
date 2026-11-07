@@ -5,6 +5,7 @@ It is source/config regression evidence, NOT proof of a signed APK or AAB.
 """
 from pathlib import Path
 import plistlib
+import re
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -187,6 +188,26 @@ class MobileReleaseSigningTest(unittest.TestCase):
                     'INFOPLIST_FILE = Runner/Info.plist;',
                     release_target,
                 )
+
+    def test_flutter_ios_minimum_version_matches_runner_and_pods(self):
+        for app in ("mobile", "hasone-customer"):
+            with self.subTest(app=app):
+                root = ROOT / "apps" / app / "ios"
+                with (root / "Flutter/AppFrameworkInfo.plist").open("rb") as handle:
+                    version = plistlib.load(handle)["MinimumOSVersion"]
+                podfile = (root / "Podfile").read_text()
+                match = re.search(r"platform :ios, '([0-9.]+)'", podfile)
+                self.assertIsNotNone(match)
+                self.assertEqual(match.group(1), version)
+                project = (
+                    root / "Runner.xcodeproj/project.pbxproj"
+                ).read_text()
+                versions = re.findall(
+                    r"IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);",
+                    project,
+                )
+                self.assertTrue(versions)
+                self.assertEqual({version}, set(versions))
 
     def test_ios_google_maps_is_initialized_with_untracked_build_setting(self):
         root = ROOT / "apps/hasone-customer/ios"
