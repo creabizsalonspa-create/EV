@@ -16,6 +16,12 @@ class AdminSecondFactorGate
             return false;
         }
 
+        // A password-reset-only recovery session can never authorize ordinary
+        // Admin operations, even if a stale challenge grant is still present.
+        if ($request->session()->has('admin_second_factor_recovery_user_id')) {
+            return false;
+        }
+
         if ((int) $request->session()->get('admin_second_factor_user_id', 0) !== (int) $account->id) {
             return false;
         }
@@ -33,6 +39,38 @@ class AdminSecondFactorGate
         $encrypted = DB::table('admin_second_factors')
             ->where('user_id', $account->id)
             ->value('encrypted_secret');
+
+        return is_string($encrypted) && hash_equals(hash('sha256', $encrypted), $proof);
+    }
+
+    /**
+     * Recovery is deliberately NOT an Admin MFA grant. A consumed code can
+     * authorize only password-confirmed authenticator replacement for ten
+     * minutes, bound to the same account and current factor enrollment.
+     */
+    public static function recoveryResetAvailable(Request $request): bool
+    {
+        $account = $request->user();
+        if (! $account || $account->role !== 'admin' || ! $request->hasSession()) {
+            return false;
+        }
+
+        if ((int) $request->session()->get('admin_second_factor_recovery_user_id', 0) !== (int) $account->id) {
+            return false;
+        }
+
+        $at = (int) $request->session()->get('admin_second_factor_recovery_at', 0);
+        if ($at <= 0 || $at > now()->timestamp || now()->timestamp - $at > 10 * 60) {
+            return false;
+        }
+
+        $proof = $request->session()->get('admin_second_factor_recovery_enrollment_proof');
+        if (! is_string($proof) || strlen($proof) !== 64) {
+            return false;
+        }
+
+        $encrypted = DB::table('admin_second_factors')
+            ->where('user_id', $account->id)->value('encrypted_secret');
 
         return is_string($encrypted) && hash_equals(hash('sha256', $encrypted), $proof);
     }
