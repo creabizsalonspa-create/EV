@@ -121,6 +121,39 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data');
     }
 
+    public function test_notification_categories_are_fixed_validated_scoped_and_paginated(): void
+    {
+        $owner = User::factory()->create();
+        $outsider = User::factory()->create();
+        $support = $this->makeNotification($owner, 'support.reply');
+        $vehicle = $this->makeNotification($owner, 'vehicle.battery.simulated');
+        $fault = $this->makeNotification($owner, 'charging.fault.simulated');
+        $this->makeNotification($outsider, 'charging.fault.simulated');
+
+        $this->actingAs($owner)
+            ->getJson('/api/v1/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $fault->id);
+        $this->getJson('/api/notifications?category=vehicle')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $vehicle->id);
+        $this->getJson('/api/notifications?category=support')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $support->id);
+
+        $this->postJson('/api/notifications/read-through', ['through_id' => $support->id])
+            ->assertOk()->assertJsonPath('remaining_unread', 2);
+        $this->getJson('/api/v1/notifications?category=support&unread_only=1')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/v1/notifications?category=charger')
+            ->assertUnprocessable();
+        $this->getJson('/api/notifications?category=charging%25')
+            ->assertUnprocessable();
+
+        $this->actingAs($outsider)->getJson('/api/v1/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+    }
+
     public function test_legacy_notification_routes_remain_available_and_scoped(): void
     {
         $owner = User::factory()->create();

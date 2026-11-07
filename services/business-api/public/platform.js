@@ -1,4 +1,5 @@
 let inboxUnreadOnly = false;
+let inboxCategory = "all";
 let unconfirmedFavorite = null;
 let favoriteMode = false,
     previousCatalogQuery = "";
@@ -77,6 +78,7 @@ function clearIdentity() {
 }
 function clearPrivateViews() {
     inboxUnreadOnly = false;
+    inboxCategory = "all";
     riderWorkspace.clear();
     vendorWorkspace.clear();
     roamingWorkspace.clear();
@@ -1284,7 +1286,11 @@ async function support() {
         b.onclick = () => ticketDetail(t.id).catch((e) => notice(e));
         el("ticket-list").append(b);
     }
-    const n = await api("notifications" + (inboxUnreadOnly ? "?unread_only=1" : ""));
+    const notificationFilters = [
+        inboxUnreadOnly ? "unread_only=1" : null,
+        inboxCategory !== "all" ? "category=" + encodeURIComponent(inboxCategory) : null,
+    ].filter(Boolean).join("&");
+    const n = await api("notifications" + (notificationFilters ? "?" + notificationFilters : ""));
     const inbox = await api("notifications/summary");
     if (session !== client.sessionEpoch || account !== user?.id) return;
     const view = el("notifications");
@@ -1305,6 +1311,33 @@ async function support() {
         }
     };
     view.append(filterButton);
+    const categorySelect = document.createElement("select");
+    categorySelect.id = "notification-category";
+    EvLocale.attribute(categorySelect, "aria-label", "Notification category");
+    for (const [value, label] of [
+        ["all", "All notification categories"],
+        ["support", "Support notifications"],
+        ["vehicle", "Vehicle notifications"],
+        ["charging", "Charging notifications"],
+    ]) {
+        const option = ui("option", label);
+        option.value = value;
+        categorySelect.append(option);
+    }
+    categorySelect.value = inboxCategory;
+    categorySelect.onchange = async () => {
+        if (session !== client.sessionEpoch || account !== user?.id) return;
+        inboxCategory = categorySelect.value;
+        categorySelect.disabled = true;
+        try {
+            await support();
+        } catch (error) {
+            if (session === client.sessionEpoch && account === user?.id) notice(error);
+        } finally {
+            categorySelect.disabled = false;
+        }
+    };
+    view.append(categorySelect);
     if (Number.isSafeInteger(inbox.unread_count) && Number.isSafeInteger(inbox.latest_id)) {
         view.append(ui("p", "{count} unread notifications", { count: inbox.unread_count }));
         if (inbox.unread_count > 0 && inbox.latest_id > 0) {

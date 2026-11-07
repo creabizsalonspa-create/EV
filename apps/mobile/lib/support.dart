@@ -16,6 +16,7 @@ class SupportView extends StatefulWidget {
 
 class SupportViewState extends State<SupportView> {
   bool notifications = false, unreadOnly = false, loading = false;
+  String category = 'all';
   int? unreadCount, latestNotificationId;
   Object? error;
   ApiPage<Map<String, dynamic>>? data;
@@ -40,6 +41,7 @@ class SupportViewState extends State<SupportView> {
         query: {
           'page': '$page',
           if (showingNotifications && unreadOnly) 'unread_only': '1',
+          if (showingNotifications && category != 'all') 'category': category,
         },
       );
       final result = ApiPage.fromJson(response, (row) => row);
@@ -140,6 +142,29 @@ class SupportViewState extends State<SupportView> {
                         load();
                       },
               ),
+              if (notifications)
+                DropdownButton<String>(
+                  key: const Key('support-category'),
+                  value: category,
+                  items: const ['all', 'support', 'vehicle', 'charging']
+                      .map(
+                        (value) => DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(value),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: loading
+                      ? null
+                      : (value) {
+                          if (value == null) return;
+                          setState(() {
+                            category = value;
+                            data = null;
+                          });
+                          load();
+                        },
+                ),
               if (notifications)
                 FilterChip(
                   key: const Key('support-unread-only'),

@@ -1,4 +1,9 @@
 window.EV_MESSAGES = {
+    "Notification category": { en: "Notification category", ar: "فئة الإشعارات" },
+    "All notification categories": { en: "All notification categories", ar: "جميع فئات الإشعارات" },
+    "Support notifications": { en: "Support notifications", ar: "إشعارات الدعم" },
+    "Vehicle notifications": { en: "Vehicle notifications", ar: "إشعارات المركبة" },
+    "Charging notifications": { en: "Charging notifications", ar: "إشعارات الشحن" },
     "Observed simulated charger fault · station #{id}": {
         en: "Observed simulated charger fault · station #{id}",
         ar: "رُصد عطل شاحن تجريبي · المحطة #{id}",

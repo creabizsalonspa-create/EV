@@ -87,10 +87,14 @@ class SupportController extends Controller
 
     public function notifications(Request $r)
     {
-        $r->validate(['unread_only' => 'sometimes|boolean']);
+        $filters = $r->validate([
+            'unread_only' => 'sometimes|boolean',
+            'category' => 'sometimes|in:support,vehicle,charging',
+        ]);
 
         return InboxNotification::where('user_id', $r->user()->id)
             ->when($r->boolean('unread_only'), fn ($q) => $q->whereNull('read_at'))
+            ->when(isset($filters['category']), fn ($q) => $q->where('kind', 'like', $filters['category'].'.%'))
             ->orderByDesc('id')->paginate(25);
     }
 
