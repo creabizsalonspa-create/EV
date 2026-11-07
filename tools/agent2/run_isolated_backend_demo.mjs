@@ -456,15 +456,32 @@ try{
     assert.equal(r.body.data.chargerId,adminCharger20);
   });
   const tx20='agent2-admin-ocpp201-source';
+  let bound20SessionId;
   await check('OCPP 2.0.1 accepts authorized Admin booking token and metered stop',async()=>{
     const start=await handle({chargerId:adminCharger20},'ocpp2.0.1','TransactionEvent',{
       eventType:'Started',seqNo:0,transactionInfo:{transactionId:tx20},
       timestamp:new Date().toISOString(),idToken:{idToken:token20},
       evse:{id:1,connectorId:1},meterValue:meter(1000)});
     assert.equal(start.idTokenInfo.status,'Accepted');
+    const liveSource=await db.collection('ocpp_sessions').findOne({
+      chargerId:adminCharger20,transactionId:tx20});
+    const bound=await request('POST','/api/v1/admin/bookings/'+booking20._id+'/ocpp/bind-source',
+      {sourceSessionId:String(liveSource._id)},false,{authorization:adminBearer});
+    assert.equal(bound.code,200);
+    bound20SessionId=bound.body.data.sessionId;
+    const zeroMeter=await request('GET','/api/v1/ChargingSession/'+bound20SessionId+'/status',
+      undefined,true);
+    assert.equal(zeroMeter.code,200);
+    assert.equal(zeroMeter.body.data.chargingStatus,'Charging');
+    assert.equal(zeroMeter.body.data.kwhUsed,0);
     await handle({chargerId:adminCharger20},'ocpp2.0.1','TransactionEvent',{
       eventType:'Updated',seqNo:1,transactionInfo:{transactionId:tx20},
       timestamp:new Date().toISOString(),meterValue:meter(6500)});
+    const during=await request('GET','/api/v1/ChargingSession/'+bound20SessionId+'/status',
+      undefined,true);
+    assert.equal(during.code,200);
+    assert.equal(during.body.data.chargingStatus,'Charging');
+    assert.equal(during.body.data.kwhUsed,5.5);
     await handle({chargerId:adminCharger20},'ocpp2.0.1','TransactionEvent',{
       eventType:'Ended',seqNo:2,transactionInfo:{transactionId:tx20,stoppedReason:'EVDisconnected'},
       timestamp:new Date().toISOString(),meterValue:meter(9000)});
@@ -481,6 +498,8 @@ try{
       {sourceSessionId:String(source._id)},false,{authorization:adminBearer});
     assert.equal(binding.code,200);
     assert.equal(binding.body.data.meterVerified,true);
+    assert.equal(binding.body.data.sessionId,bound20SessionId);
+    assert.equal(await ChargingSessionModel.countDocuments({sourceSessionId:String(source._id)}),1);
     const status=await request('GET','/api/v1/ChargingSession/'+binding.body.data.sessionId+'/status',
       undefined,true);
     assert.equal(status.code,200);
