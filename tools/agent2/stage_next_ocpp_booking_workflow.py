@@ -44,7 +44,7 @@ def patch(root):
     src=once(src,mark,replacement,'OCPP row action')
     # Original purchased UI renders the wrong USD symbol for an AED-only
     # deployment. Update the single booking amount cell, not global settings.
-    usd='>'+'
+    usd='>'+chr(36)+'{(b.totalAmount || 0).toFixed(2)}</td>'
     src=once(src,usd,'>AED {(b.totalAmount || 0).toFixed(2)}</td>',
              'Admin booking AED label')
     component.write_text(reference.read_text(encoding='utf8'),encoding='utf8')
