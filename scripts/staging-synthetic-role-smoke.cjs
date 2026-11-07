@@ -45,6 +45,7 @@ function readCookies(jar, headers) {
 function jsonRequest(route, method='GET', payload=undefined,jar=new Map(),client=http) {
   const allowed={
     '/api/csrf':'GET','/api/login':'POST','/api/me':'GET',
+    '/api/vehicles':'GET','/api/reservations':'GET',
     '/api/admin/overview':'GET','/api/logout':'POST',
   };
   if(allowed[route]!==method || !jar || !(jar instanceof Map))throw Error('Unsupported synthetic route');
@@ -96,6 +97,17 @@ async function checkRole(role,account,send=jsonRequest) {
   const me=await send('/api/me','GET',undefined,jar);
   if(me.status!==200 || me.body?.id!==login.body.id || me.body?.role!==role ||
     me.body?.email!==account.email)throw Error('Synthetic authenticated identity leaked or changed');
+  // Use only authenticated, read-only feature routes. Never start a reservation/charger/payment.
+  for(const route of ['/api/vehicles','/api/reservations']) {
+    const data=await send(route,'GET',undefined,jar);
+    if(data.status!==200 || !Array.isArray(data.body?.data) ||
+      !Number.isSafeInteger(data.body?.total) || data.body.total<0 ||
+      data.body.data.length>25)throw Error('Synthetic vehicle/reservation catalog unavailable');
+    if(role==='customer' && route==='/api/reservations' &&
+      data.body.data.some(item=>item?.user_id!==login.body.id)) {
+      throw Error('Customer synthetic reservation scope leak');
+    }
+  }
   const overview=await send('/api/admin/overview','GET',undefined,jar);
   if(role==='admin') {
     if(overview.status!==200 || !Number.isInteger(overview.body?.users))throw Error('Synthetic Admin overview unavailable');
@@ -106,7 +118,8 @@ async function checkRole(role,account,send=jsonRequest) {
   if(logout.status!==204)throw Error('Synthetic logout failed');
   const after=await send('/api/me','GET',undefined,jar);
   if(![401,403].includes(after.status))throw Error('Synthetic session remained active after logout');
-  return {role,authenticated:true,admin_authorized:role==='admin',post_logout_denied:true};
+  return {role,authenticated:true,read_only_features_verified:true,
+    admin_authorized:role==='admin',post_logout_denied:true};
 }
 async function run(file,send=jsonRequest) {
   const fixture=load(file);
