@@ -17,6 +17,11 @@ class EvStrings {
 
   static const en = <String, String>{
     'notificationCategoryCounts': 'Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}',
+    'notificationPreferencesTitle': 'Notification preferences',
+    'notificationDefaultCategory': 'Default inbox category',
+    'notificationDefaultUnread': 'Start with unread only',
+    'notificationRepeatSimulatorReminders': 'Repeat unresolved simulator fault reminders',
+    'notificationDeliveryUnavailable': 'Critical in-app notifications remain visible. External email, SMS and push delivery are not active.',
     'notificationCategoryAll': 'All',
     'notificationCategorySupport': 'Support',
     'notificationCategoryVehicle': 'Vehicle',
@@ -368,6 +373,11 @@ class EvStrings {
   };
   static const ar = <String, String>{
     'notificationCategoryCounts': 'دعم {support} · مركبة {vehicle} · شحن {charging} · أسطول {fleet} · أخرى {other}',
+    'notificationPreferencesTitle': 'تفضيلات الإشعارات',
+    'notificationDefaultCategory': 'الفئة الافتراضية لصندوق الوارد',
+    'notificationDefaultUnread': 'عرض غير المقروءة أولاً',
+    'notificationRepeatSimulatorReminders': 'تكرار تذكيرات أعطال المحاكاة غير المحلولة',
+    'notificationDeliveryUnavailable': 'تبقى الإشعارات الحرجة داخل التطبيق ظاهرة. البريد الإلكتروني والرسائل النصية والإشعارات الفورية الخارجية غير مفعلة.',
     'notificationCategoryAll': 'الكل',
     'notificationCategorySupport': 'الدعم',
     'notificationCategoryVehicle': 'المركبة',

@@ -140,7 +140,9 @@ class SupportView extends StatefulWidget {
 
 class SupportViewState extends State<SupportView> {
   bool notifications = false, unreadOnly = false, loading = false;
+  bool preferencesLoaded = false;
   String category = 'all';
+  Map<String, dynamic>? savedPreferences;
   int? unreadCount, latestNotificationId;
   Map<String, int>? unreadByCategory;
   Object? error;
@@ -161,6 +163,24 @@ class SupportViewState extends State<SupportView> {
       error = null;
     });
     try {
+      if (showingNotifications && !preferencesLoaded) {
+        final prefs = await widget.api.request('notifications/preferences');
+        if (!mounted || request != generation) return;
+        if (prefs is! Map ||
+            !['all', 'support', 'vehicle', 'charging', 'fleet']
+                .contains(prefs['default_category']) ||
+            prefs['default_unread_only'] is! bool ||
+            prefs['remind_unresolved_simulator_faults'] is! bool ||
+            prefs['in_app_only'] != true ||
+            prefs['external_delivery_available'] != false ||
+            prefs['critical_events_always_visible'] != true) {
+          throw const FormatException('Invalid notification preferences');
+        }
+        category = prefs['default_category'] as String;
+        unreadOnly = prefs['default_unread_only'] as bool;
+        savedPreferences = Map<String, dynamic>.from(prefs);
+        preferencesLoaded = true;
+      }
       final response = await widget.api.request(
         notifications ? 'notifications' : 'support',
         query: {
@@ -202,6 +222,124 @@ class SupportViewState extends State<SupportView> {
       if (mounted && request == generation) setState(() => error = e);
     } finally {
       if (mounted && request == generation) setState(() => loading = false);
+    }
+  }
+
+  Future<void> editNotificationPreferences() async {
+    final current = savedPreferences;
+    if (!notifications || loading || current == null) return;
+    var selected = current['default_category'] as String;
+    var unread = current['default_unread_only'] as bool;
+    var repeat = current['remind_unresolved_simulator_faults'] as bool;
+    final s = EvStrings.of(context);
+
+    final desired = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, updateDialog) => AlertDialog(
+          title: Text(s.t('notificationPreferencesTitle')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(s.t('notificationDefaultCategory')),
+                DropdownButton<String>(
+                  key: const Key('notification-preference-category'),
+                  value: selected,
+                  isExpanded: true,
+                  items: const ['all', 'support', 'vehicle', 'charging', 'fleet']
+                      .map((choice) => DropdownMenuItem<String>(
+                            value: choice,
+                            child: Text(s.t(
+                              choice == 'all'
+                                  ? 'notificationCategoryAll'
+                                  : choice == 'support'
+                                      ? 'notificationCategorySupport'
+                                      : choice == 'vehicle'
+                                          ? 'notificationCategoryVehicle'
+                                          : choice == 'charging'
+                                              ? 'notificationCategoryCharging'
+                                              : 'notificationCategoryFleet',
+                            )),
+                          ))
+                      .toList(),
+                  onChanged: (choice) {
+                    if (choice != null) updateDialog(() => selected = choice);
+                  },
+                ),
+                CheckboxListTile(
+                  key: const Key('notification-preference-unread'),
+                  value: unread,
+                  onChanged: (value) => updateDialog(() => unread = value ?? false),
+                  title: Text(s.t('notificationDefaultUnread')),
+                ),
+                CheckboxListTile(
+                  key: const Key('notification-preference-repeat'),
+                  value: repeat,
+                  onChanged: (value) => updateDialog(() => repeat = value ?? false),
+                  title: Text(s.t('notificationRepeatSimulatorReminders')),
+                ),
+                Text(s.t('notificationDeliveryUnavailable')),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(s.t('cancel')),
+            ),
+            FilledButton(
+              key: const Key('notification-preferences-confirm'),
+              onPressed: () => Navigator.of(dialogContext).pop({
+                'default_category': selected,
+                'default_unread_only': unread,
+                'remind_unresolved_simulator_faults': repeat,
+              }),
+              child: Text(s.t('save')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || desired == null) return;
+    final request = ++generation;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      // Absolute desired-state PUT is idempotent on a lost acknowledgement;
+      // never assume persistence until the authoritative response arrives.
+      final accepted = await widget.api.request(
+        'notifications/preferences',
+        method: 'PUT',
+        body: desired,
+      );
+      if (!mounted || request != generation) return;
+      if (accepted is! Map ||
+          accepted['default_category'] != desired['default_category'] ||
+          accepted['default_unread_only'] != desired['default_unread_only'] ||
+          accepted['remind_unresolved_simulator_faults'] !=
+              desired['remind_unresolved_simulator_faults'] ||
+          accepted['external_delivery_available'] != false) {
+        throw const FormatException('Preference update not confirmed');
+      }
+      setState(() {
+        savedPreferences = Map<String, dynamic>.from(accepted);
+        category = accepted['default_category'] as String;
+        unreadOnly = accepted['default_unread_only'] as bool;
+        preferencesLoaded = true;
+      });
+      await load(page: 1);
+    } catch (e) {
+      if (!mounted || request != generation) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        widget.onSessionExpired();
+      }
+      setState(() {
+        error = e;
+        loading = false;
+      });
     }
   }
 
@@ -368,6 +506,15 @@ class SupportViewState extends State<SupportView> {
               ),
             ],
           ),
+          if (notifications && preferencesLoaded)
+            TextButton.icon(
+              key: const Key('notification-preferences-open'),
+              onPressed: loading ? null : editNotificationPreferences,
+              icon: const Icon(Icons.tune),
+              label: Text(s.t('notificationPreferencesTitle')),
+            ),
+          if (notifications && preferencesLoaded)
+            Text(s.t('notificationDeliveryUnavailable')),
           if (notifications && unreadCount != null)
             Text(
               s.t('unreadNotificationCount', {'count': unreadCount!}),

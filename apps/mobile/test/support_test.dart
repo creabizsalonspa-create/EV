@@ -12,6 +12,15 @@ class SupportFixture extends FixtureApi {
   int? lastBulkThroughId;
   bool unreadFilterRequested = false;
   String? selectedCategory;
+  Map<String, dynamic> preferences = {
+    'default_category': 'all',
+    'default_unread_only': false,
+    'remind_unresolved_simulator_faults': true,
+    'in_app_only': true,
+    'external_delivery_available': false,
+    'critical_events_always_visible': true,
+  };
+  int preferenceWrites = 0;
   final publicMessages = ['Original public message'];
   @override
   Future<dynamic> request(
@@ -20,6 +29,13 @@ class SupportFixture extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'notifications/preferences') {
+      if (method == 'PUT') {
+        preferenceWrites++;
+        preferences = {...preferences, ...?body};
+      }
+      return preferences;
+    }
     if (path == 'support/1/messages') {
       publicMessages.add(body!['body'] as String);
       return {'id': 3};
@@ -113,7 +129,16 @@ class BatteryFixture extends FixtureApi {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
-  }) async => path == 'notifications/summary'
+  }) async => path == 'notifications/preferences'
+      ? {
+        'default_category': 'all',
+        'default_unread_only': false,
+        'remind_unresolved_simulator_faults': true,
+        'in_app_only': true,
+        'external_delivery_available': false,
+        'critical_events_always_visible': true,
+      }
+      : path == 'notifications/summary'
       ? {'unread_count': 1, 'latest_id': 9, 'in_app_only': true}
       : {
     'data': path == 'notifications'
@@ -147,6 +172,14 @@ class FaultFixture extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'notifications/preferences') return {
+        'default_category': 'all',
+        'default_unread_only': false,
+        'remind_unresolved_simulator_faults': true,
+        'in_app_only': true,
+        'external_delivery_available': false,
+        'critical_events_always_visible': true,
+      };
     if (method != 'GET') writes++;
     if (path == 'vendor-ops/companies/5/chargers/7/source-diagnostics') {
       reviewReads.add(path);
@@ -238,6 +271,14 @@ class OperationalNoticeFixture extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'notifications/preferences') return {
+        'default_category': 'all',
+        'default_unread_only': false,
+        'remind_unresolved_simulator_faults': true,
+        'in_app_only': true,
+        'external_delivery_available': false,
+        'critical_events_always_visible': true,
+      };
     calls.add(path);
     if (method != 'GET') writes++;
     if (path == 'notifications/summary') {
@@ -302,6 +343,14 @@ class OperationalInboxFixture extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'notifications/preferences') return {
+        'default_category': 'all',
+        'default_unread_only': false,
+        'remind_unresolved_simulator_faults': true,
+        'in_app_only': true,
+        'external_delivery_available': false,
+        'critical_events_always_visible': true,
+      };
     if (method != 'GET') {
       writes++;
       throw const ApiException(405, 'Unexpected write from notification review');
@@ -371,6 +420,14 @@ class FleetFixture extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'notifications/preferences') return {
+        'default_category': 'all',
+        'default_unread_only': false,
+        'remind_unresolved_simulator_faults': true,
+        'in_app_only': true,
+        'external_delivery_available': false,
+        'critical_events_always_visible': true,
+      };
     if (path.startsWith('fleet-invitations/') && method == 'POST') {
       acceptRequests++;
       return {'status': 'active'};
@@ -425,6 +482,47 @@ class PendingSupport extends FixtureApi {
 }
 
 void main() {
+  testWidgets('persistent notification defaults load across native inbox instances', (
+    tester,
+  ) async {
+    final fixture = SupportFixture();
+    addTearDown(fixture.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: fixture, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('notification-preferences-open')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('notification-preference-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Charging').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('notification-preference-unread')));
+    await tester.tap(find.byKey(const Key('notification-preference-repeat')));
+    await tester.tap(find.byKey(const Key('notification-preferences-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(fixture.preferenceWrites, 1);
+    expect(fixture.preferences['default_category'], 'charging');
+    expect(fixture.preferences['default_unread_only'], true);
+    expect(fixture.preferences['remind_unresolved_simulator_faults'], false);
+    expect(fixture.selectedCategory, 'charging');
+
+    // Simulate a fresh screen instance using the same backend fixture.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: fixture, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notification-preferences-open')), findsOneWidget);
+    expect(fixture.selectedCategory, 'charging');
+    expect(fixture.preferences['external_delivery_available'], false);
+  });
+
   test('source-based operator closure never presents itself as physical repair', () {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));
