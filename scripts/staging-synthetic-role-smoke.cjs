@@ -48,7 +48,10 @@ function jsonRequest(route, method='GET', payload=undefined,jar=new Map(),client
     '/api/vehicles':'GET','/api/reservations':'GET',
     '/api/admin/overview':'GET','/api/logout':'POST',
   };
-  if(allowed[route]!==method || !jar || !(jar instanceof Map))throw Error('Unsupported synthetic route');
+  const discovery=/^\/api\/stations\?q=[a-f0-9]{8}$/.test(route) && method==='GET';
+  if((allowed[route]!==method && !discovery) || !jar || !(jar instanceof Map)){
+    throw Error('Unsupported synthetic route');
+  }
   if((method==='GET' && payload!==undefined) || (method==='POST' && route!=='/api/login' && payload!==undefined)){
     throw Error('Unexpected synthetic HTTP payload');
   }
@@ -123,10 +126,25 @@ async function checkRole(role,account,send=jsonRequest) {
 }
 async function run(file,send=jsonRequest) {
   const fixture=load(file);
+  // Public discovery must show both exact local simulator stations without claiming
+  // physical availability or remote-control authority.
+  const catalog=await send('/api/stations?q='+fixture.run,'GET',undefined,new Map());
+  if(catalog.status!==200 || !Array.isArray(catalog.body?.data) ||
+    catalog.body.data.length>25 || !Number.isSafeInteger(catalog.body?.total)){
+    throw Error('Synthetic discovery catalog missing');
+  }
+  for(const station of fixture.stations) {
+    const record=catalog.body.data.find(row=>row?.id===station.station_id);
+    if(!record || record.source!=='simulator' || record.evidence!=='SIMULATED' ||
+      record.remote_control!==false || record.availability!=='unknown' ||
+      typeof record.name!=='string' || !record.name.includes(fixture.run)){
+      throw Error('Synthetic discovery source or physical availability claim invalid');
+    }
+  }
   const results=[];
   for(const role of ROLES)results.push(await checkRole(role,fixture.accounts[role],send));
-  return {ok:true,source:'LOCAL_SYNTHETIC_ONLY',results,physical_charging_verified:false,
-    real_money_moved:false,production_accepted:false};
+  return {ok:true,source:'LOCAL_SYNTHETIC_ONLY',results,discovery_verified:true,
+    physical_charging_verified:false,real_money_moved:false,production_accepted:false};
 }
 async function main(argv=process.argv.slice(2),send=jsonRequest) {
   try{
