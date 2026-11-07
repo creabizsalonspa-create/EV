@@ -90,6 +90,17 @@ class FinancialApi extends FixtureApi {
                 'invoice_id': 3,
                 'amount_minor': 125,
                 'reason': 'Literal <script> reason',
+                'ocpi_credit_record_id': 7,
+                'source_credit_evidence': {
+                  'schema_version': 1,
+                  'invoice_id': 3,
+                  'credit_record_id': 7,
+                  'financial_authority': false,
+                  'automatic_refund': false,
+                  'status': 'source_reference_matched',
+                  'currency': 'AED',
+                  'reported_cost': {'excl_vat': '0.25'},
+                },
                 'status': 'pending',
               },
             ],
@@ -524,4 +535,21 @@ void main() {
     await t.pumpAndSettle();
     expect(expired, 0);
   });
+  testWidgets(
+    'refund review shows source amounts as evidence without payment authority',
+    (t) async {
+      final api = FinancialApi();
+      await t.pumpWidget(
+        wrap(RefundRequestsView(api: api, onExpired: () {}, role: 'customer')),
+      );
+      await t.pumpAndSettle();
+      expect(
+        find.text('Source reference matched; this does not approve a refund.'),
+        findsOneWidget,
+      );
+      expect(find.text('Reported amount (net): 0.25 AED'), findsOneWidget);
+      expect(api.posts, 0);
+      expect(find.textContaining('secret-provider-field'), findsNothing);
+    },
+  );
 }

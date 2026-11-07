@@ -692,6 +692,45 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         `مرجع مصدر الإشعار الدائن: ${request.ocpi_credit_record_id}`,
                     ),
                 );
+            const evidence = request.source_credit_evidence;
+            if (
+                evidence &&
+                evidence.schema_version === 1 &&
+                evidence.invoice_id === request.invoice_id &&
+                evidence.credit_record_id === request.ocpi_credit_record_id &&
+                evidence.financial_authority === false &&
+                evidence.automatic_refund === false
+            ) {
+                row.append(
+                    translated(
+                        "p",
+                        evidence.status === "source_reference_matched"
+                            ? "Source reference matched; reported credit amounts do not approve a refund."
+                            : "Source credit evidence requires review.",
+                        evidence.status === "source_reference_matched"
+                            ? "تطابق مرجع المصدر؛ مبالغ الإشعار المبلّغ عنها لا تعني الموافقة على استرداد."
+                            : "تتطلب أدلة مصدر الإشعار الدائن المراجعة.",
+                    ),
+                );
+                if (evidence.status === "source_reference_matched")
+                    for (const [kind, amount] of Object.entries(
+                        evidence.reported_cost || {},
+                    )) {
+                        if (
+                            ["excl_vat", "incl_vat"].includes(kind) &&
+                            typeof amount === "string" &&
+                            /^(0|[1-9][0-9]{0,9})(?:\.[0-9]{1,6})?$/.test(
+                                amount,
+                            )
+                        )
+                            row.append(
+                                text(
+                                    "p",
+                                    `${kind === "incl_vat" ? "Gross / شامل الضريبة" : "Net / قبل الضريبة"}: ${amount} ${evidence.currency}`,
+                                ),
+                            );
+                    }
+            }
             if (operations && request.status === "pending")
                 form(
                     row,

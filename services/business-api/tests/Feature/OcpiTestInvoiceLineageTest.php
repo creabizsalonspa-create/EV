@@ -220,6 +220,11 @@ class OcpiTestInvoiceLineageTest extends TestCase
         $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $request['id']);
         $this->postJson($path, array_replace($body, ['ocpi_credit_record_id' => $original->id]))->assertConflict();
         $this->postJson($path, array_replace($body, ['idempotency_key' => 'second-credit-request']))->assertConflict();
+        $evidence = $this->actingAs($owner)->getJson('/api/finance/refund-requests')->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('data.0.source_credit_evidence.status', 'source_reference_matched')->assertJsonPath('data.0.source_credit_evidence.reported_cost.excl_vat', '0.25')->assertJsonPath('data.0.source_credit_evidence.financial_authority', false)->json('data.0.source_credit_evidence');
+        $this->assertStringNotContainsString('token', json_encode($evidence));
+        $this->assertStringNotContainsString('payload', json_encode($evidence));
+        $this->actingAs(User::factory()->create())->getJson('/api/finance/refund-requests')->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($owner);
         $review = '/api/finance/refund-requests/'.$request['id'].'/review';
         $this->actingAs($owner)->postJson($review, ['decision' => 'approve', 'note' => 'Reviewed captured TEST funds'])->assertOk();
         $this->postJson($review, ['decision' => 'approve', 'note' => 'Reviewed captured TEST funds'])->assertOk();

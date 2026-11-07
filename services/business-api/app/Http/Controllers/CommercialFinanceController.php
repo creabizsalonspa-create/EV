@@ -62,7 +62,13 @@ class CommercialFinanceController extends Controller
 
     public function requests(Request $r)
     {
-        return DB::table('finance_refund_requests')->whereIn('invoice_id', $this->invoices($r)->select('id'))->orderByDesc('id')->paginate(25);
+        return response()->json(DB::table('finance_refund_requests')->whereIn('invoice_id', $this->invoices($r)->select('id'))->orderByDesc('id')->paginate(25)->through(function ($row) {
+            if ($row->ocpi_credit_record_id !== null) {
+                $row->source_credit_evidence = app(CreditRefundEvidence::class)->present(Invoice::findOrFail($row->invoice_id), (int) $row->ocpi_credit_record_id);
+            }
+
+            return $row;
+        }))->header('Cache-Control', 'private, no-store');
     }
 
     public function requestRefund(Request $r, Invoice $invoice)
