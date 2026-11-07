@@ -232,6 +232,7 @@ async function identity() {
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    await vehicleModelCatalog.setActor(user);
     if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
     if (user) {
@@ -242,7 +243,6 @@ async function identity() {
         await support();
     }
     await vendorWorkspace.setActor(user);
-    await vehicleModelCatalog.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
     await chargingReviews.setActor(user);

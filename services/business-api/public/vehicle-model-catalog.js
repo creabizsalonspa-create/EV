@@ -20,7 +20,7 @@
     ["model","Model","الطراز","text",100],
     ["variant","Variant (optional)","الفئة (اختياري)","text",100],
     ["model_year","Model year (optional)","سنة الطراز (اختياري)","number",4],
-    ["source_url","Official reference URL (https://)","رابط المرجع الرسمي (https://)","url",500],
+    ["source_url","Administrator-provided reference URL (https://)","رابط المرجع الرسمي (https://)","url",500],
   ];
   function create({adminRoot, customerRoot, api, actor, epoch}) {
     let current = null, session = 0, generation = 0;
@@ -107,6 +107,7 @@
       try {
         const query = new URLSearchParams({page:String(page)});
         if (modelQuery) query.set("q", modelQuery);
+        query.set("connector_type", selectedVehicle.connector_type);
         const list = await api("vehicle-models?" + query.toString());
         if (!valid(ticket)) return;
         models = list.data.filter(m=>m.published === true &&

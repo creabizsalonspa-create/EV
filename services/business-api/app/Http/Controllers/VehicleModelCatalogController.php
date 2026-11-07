@@ -63,8 +63,9 @@ final class VehicleModelCatalogController extends Controller
         // cannot be created by capitalization or whitespace differences.
         $parts = [$validated['make'], $validated['model'], $validated['variant'] ?? '',
             (string) ($validated['model_year'] ?? '')];
-        $validated['identity_hash'] = hash('sha256', implode('|',
-            array_map(fn ($v) => mb_strtolower(preg_replace('/\s+/u', ' ', $v)), $parts)));
+        $validated['identity_hash'] = hash('sha256', json_encode(
+            array_map(fn ($v) => mb_strtolower(preg_replace('/\s+/u', ' ', $v)), $parts),
+            JSON_THROW_ON_ERROR));
         return $validated;
     }
 
@@ -74,12 +75,16 @@ final class VehicleModelCatalogController extends Controller
             'q' => 'sometimes|string|max:100',
             'page' => 'sometimes|integer|min:1|max:100000',
             'include_archived' => 'sometimes|boolean',
+            'connector_type' => 'sometimes|in:CCS2,Type2,CHAdeMO',
         ]);
         $isAdmin = $request->user()->role === 'admin';
         abort_if(($v['include_archived'] ?? false) && ! $isAdmin, 403);
         $q = DB::table('vehicle_model_catalog');
         if (! $isAdmin || ! ($v['include_archived'] ?? false)) {
             $q->where('published', true);
+        }
+        if (isset($v['connector_type'])) {
+            $q->where('connector_type', $v['connector_type']);
         }
         if (! empty($v['q'])) {
             $term = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($v['q']));
@@ -100,10 +105,13 @@ final class VehicleModelCatalogController extends Controller
         return DB::transaction(function () use ($request, $v) {
             $prior = DB::table('vehicle_model_catalog')->where('identity_hash', $v['identity_hash'])->first();
             abort_if($prior !== null, 409, 'Vehicle model already exists.');
-            $id = DB::table('vehicle_model_catalog')->insertGetId(
+            $inserted = DB::table('vehicle_model_catalog')->insertOrIgnore(
                 $v + ['revision' => 1, 'curator_id' => $request->user()->id,
                     'created_at' => now(), 'updated_at' => now()]
             );
+            abort_unless($inserted === 1, 409, 'Vehicle model already exists.');
+            $id = (int) DB::table('vehicle_model_catalog')
+                ->where('identity_hash', $v['identity_hash'])->value('id');
             $this->audit($request->user()->id, 'vehicle_model.created', $id);
             return $this->privateReply(
                 $this->record(DB::table('vehicle_model_catalog')->where('id', $id)->firstOrFail()), 201);
