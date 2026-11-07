@@ -29,6 +29,8 @@ const chargerB='AGENT2-STATION-CHARGER-B';
 const fakeToken='abcdef123456'.repeat(4);
 let stage=0,requestAuthorizationCount=0;
 let issuedTo=null;
+let auditPageFailure=true;
+const auditCursor='507f1f77bcf86cd799439099';
 const qaToken='agent2-ui-test-token-not-production';
 function result(data,status=200){
  return {status,headers:{'content-type':'application/json','cache-control':'no-store'},
@@ -120,13 +122,31 @@ try{
        ]});
      }else if(path==='/api/v1/admin/stations/'+station+'/ocpp/start-exceptions'
          && request.method()==='GET'){
-       response=result({orphanCount:1,matchedSourceCount:2,
-         withinGracePeriodCount:1,readOnly:true,
-         exceptions:[{chargerId:chargerB,bookingId:id,
-           consumedAt:'2026-11-07T09:00:00Z',
-           issue:'consumed_without_source_transaction',
-           action:'Review charger logs before issuing another credential.',
-           credentialRestored:false}]});
+       const cursor=url.searchParams.get('cursor');
+       if(cursor){
+         assert.equal(cursor,auditCursor);
+         if(auditPageFailure){
+           auditPageFailure=false;
+           response={status:503,headers:{'content-type':'application/json'},
+             body:JSON.stringify({status:'fail',message:'Audit page temporarily unavailable'})};
+         }else{
+           response=result({scanned:1,hasMore:false,nextCursor:null,
+             orphanCount:1,matchedSourceCount:0,withinGracePeriodCount:0,readOnly:true,
+             exceptions:[{chargerId:chargerB,bookingId:id,
+               consumedAt:'2026-11-06T09:00:00Z',
+               issue:'consumed_without_source_transaction',
+               action:'Older interrupted start requires review.',credentialRestored:false}]});
+         }
+       }else{
+         response=result({scanned:4,hasMore:true,nextCursor:auditCursor,
+           orphanCount:1,matchedSourceCount:2,
+           withinGracePeriodCount:1,readOnly:true,
+           exceptions:[{chargerId:chargerB,bookingId:id,
+             consumedAt:'2026-11-07T09:00:00Z',
+             issue:'consumed_without_source_transaction',
+             action:'Review charger logs before issuing another credential.',
+             credentialRestored:false}]});
+       }
      }else if(path==='/api/v1/admin/bookings/'+id+'/ocpp/issue-token'
          && request.method()==='POST'){
        const body=JSON.parse(request.postData()||'{}');
@@ -176,6 +196,26 @@ try{
    assert.ok(body.includes('Investigation required'));
    assert.ok(body.includes('credential')||body.includes('Review charger logs'));
    assert.ok(!body.includes('a'.repeat(64)));
+ });
+ await clickText(page,'Load earlier records');
+ await step('failed audit page keeps existing incidents and offers retry',async()=>{
+   await page.waitForFunction(()=>document.body.innerText.includes('Audit page temporarily unavailable'),
+     {timeout:15000});
+   assert.ok((await page.content()).includes('Review charger logs'));
+   await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(x=>
+     x.textContent?.includes('Load earlier records')&&!x.disabled));
+ });
+ await clickText(page,'Load earlier records');
+ await step('audit cursor appends earlier incidents once and shows end of records',async()=>{
+   await page.waitForFunction(()=>document.body.innerText.includes('Older interrupted start requires review.'),
+     {timeout:15000});
+   const text=await page.evaluate(()=>document.body.innerText);
+   assert.ok(text.includes('Review charger logs'));
+   assert.match(text,/Records checked:\s*5/);
+   assert.match(text,/Investigation required:\s*2/);
+   assert.ok(text.includes('End of available records.'));
+   assert.equal(text.includes('Load earlier records'),false);
+   assert.equal(text.includes('Audit page temporarily unavailable'),false);
  });
  await clickText(page,'Issue one-time authorization token');
  await step('token issued only for chosen second charger',async()=>{

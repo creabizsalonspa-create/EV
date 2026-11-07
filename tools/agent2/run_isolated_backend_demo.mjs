@@ -1166,6 +1166,59 @@ try{
     const record=await db.collection('ocpp_access_tokens').findOne({tokenHash:orphanHash});
     assert.equal(record.enabled,false);
   });
+  await check('start audit rejects malformed pagination without broadening scope',async()=>{
+    const path='/api/v1/admin/stations/'+multiStation._id+'/ocpp/start-exceptions';
+    for(const query of ['?cursor=bad','?cursor[$ne]=x','?limit=0','?limit=101','?limit=2.5']){
+      const r=await request('GET',path+query,undefined,false,{authorization:adminBearer});
+      assert.equal(r.code,400);
+    }
+  });
+  await check('paginated station audit preserves disabled-charger incidents and redacts credentials',async()=>{
+    const table=db.collection('ocpp_access_tokens');
+    const consumedAt=new Date(Date.now()-600000);
+    const hashes=[];
+    for(let i=0;i<5;i++){
+      const tokenHash=createHash('sha256').update('audit-history-'+i).digest('hex');
+      hashes.push(tokenHash);
+      await table.insertOne({chargerId:multiPrimary,tokenHash,enabled:false,
+        consumedAt,bookingId:'audit-history-'+i});
+    }
+    // Disabled does not mean the previous consumed credential is resolved.
+    await db.collection('ocpp_chargers').updateOne({chargerId:multiPrimary},
+      {$set:{enabled:false}});
+    const foreignHash=createHash('sha256').update('foreign-audit-incident').digest('hex');
+    await table.insertOne({chargerId:'not-in-this-station',tokenHash:foreignHash,
+      enabled:false,consumedAt,bookingId:'foreign-audit-incident'});
+    const path='/api/v1/admin/stations/'+multiStation._id+'/ocpp/start-exceptions';
+    const incidents=[];let cursor=null,pages=0;
+    try{
+      do{
+        const r=await request('GET',path+'?limit=2'+(cursor?'&cursor='+cursor:''),
+          undefined,false,{authorization:adminBearer});
+        assert.equal(r.code,200);assert.equal(r.body.data.readOnly,true);
+        const page=r.body.data;
+        assert.ok(page.scanned<=2);
+        assert.equal(typeof page.hasMore,'boolean');
+        for(const hash of [...hashes,foreignHash])assert.equal(JSON.stringify(r.body).includes(hash),false);
+        assert.ok(page.exceptions.every(x=>x.chargerId!=='not-in-this-station'));
+        incidents.push(...page.exceptions.filter(x=>x.bookingId?.startsWith('audit-history-')));
+        pages++;
+        if(!page.hasMore){assert.equal(page.nextCursor,null);break;}
+        assert.match(page.nextCursor,/^[a-f0-9]{24}$/);
+        assert.notEqual(page.nextCursor,cursor);
+        cursor=page.nextCursor;
+        assert.ok(pages<20,'pagination must terminate');
+      }while(true);
+      assert.equal(incidents.length,5);
+      assert.equal(new Set(incidents.map(x=>x.bookingId)).size,5);
+      assert.ok(pages>=3);
+      assert.equal(await table.countDocuments({tokenHash:{$in:hashes},enabled:false}),5);
+      assert.equal((await db.collection('ocpp_chargers').findOne({chargerId:multiPrimary})).enabled,false);
+    }finally{
+      await db.collection('ocpp_chargers').updateOne({chargerId:multiPrimary},
+        {$set:{enabled:true}});
+    }
+  });
   const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
   const hash16=createHash('sha256').update(token16).digest('hex');
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,

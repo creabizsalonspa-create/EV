@@ -358,3 +358,33 @@ and passes with this fix. Production source and physical chargers are unchanged.
 The isolated validation wrapper now uses `exec` when starting its loopback Next
 server so cleanup targets the server PID instead of leaving an orphaned child.
 The final acceptance run verifies the selected test port is released afterward.
+
+
+## Complete interrupted-start history review — 7 November 2026
+
+The read-only station endpoint now accepts `?limit=1..100&cursor=OBJECT_ID`.
+Default page size is 50. It returns `scanned`, page counts, redacted
+`exceptions`, `hasMore` and `nextCursor`. Cursor values are immutable Mongo
+record IDs, never credential hashes or raw tokens. Unsupported query fields,
+malformed cursors and invalid limits are rejected with HTTP 400.
+
+Pages seek by descending immutable record ID, rather than offset or the
+non-unique consumption timestamp. New insertions do not shift subsequent
+pages. Refresh restarts review to include new activity; this is not a
+transactional snapshot or a total incident count. A page containing only
+matched/grace-period records still supplies continuation to older incidents.
+
+All registered station chargers are included, even disabled ones. Disabling a
+charger does not resolve its consumed credential or authorize automatic reissue.
+Station scoping remains enforced on every page.
+
+The Admin modal accumulates scanned/matched/grace/incident counts and exposes
+**Load earlier records** until the end. Failed page loads retain the loaded
+incidents and cursor for retry. Closing the dialog invalidates pending audit
+responses so stale results cannot refill a reopened report.
+
+Coverage includes equal timestamps across page boundaries, insertions between
+pages, matched-only pages, invalid query inputs, disabled-charger incidents,
+foreign-station exclusion, credential redaction and browser retry/append/end
+states. No production migration, credential mutation or hardware command is
+part of this history view.

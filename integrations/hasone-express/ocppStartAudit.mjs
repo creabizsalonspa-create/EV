@@ -10,18 +10,26 @@ const dateMs=value=>{
  return Number.isFinite(n)?n:null;
 };
 export async function auditConsumedStarts(db,{
-  chargerIds,limit=50,now=new Date(),minAgeMs=120000
+  chargerIds,limit=50,now=new Date(),minAgeMs=120000,beforeId=null
 }={}){
  if(!Array.isArray(chargerIds) || chargerIds.length===0 ||
    chargerIds.length>128 || !chargerIds.every(validId) ||
    !(now instanceof Date) || !Number.isFinite(now.getTime()) ||
    !Number.isInteger(limit)||limit<1||limit>100 ||
-   !Number.isInteger(minAgeMs)||minAgeMs<120000)
+   !Number.isInteger(minAgeMs)||minAgeMs<120000 ||
+   (beforeId!==null && (typeof beforeId?.toHexString!=='function' ||
+     !/^[a-f0-9]{24}$/i.test(beforeId.toHexString()))))
    throw new Error('Invalid scoped charger audit request');
  const ids=[...new Set(chargerIds)];
- const consumed=await db.collection('ocpp_access_tokens').find({
-   chargerId:{$in:ids},consumedAt:{$exists:true},enabled:false
- }).sort({consumedAt:-1}).limit(limit).toArray();
+ // Seek by immutable Mongo identity rather than an offset or non-unique
+ // timestamp. New insertions cannot shift or duplicate later pages.
+ const rows=await db.collection('ocpp_access_tokens').find({
+   chargerId:{$in:ids},consumedAt:{$exists:true},enabled:false,
+   ...(beforeId===null?{}:{_id:{$lt:beforeId}})
+ }).sort({_id:-1}).limit(limit+1).toArray();
+ const consumed=rows.slice(0,limit);
+ const hasMore=rows.length>limit;
+ const nextCursor=hasMore?String(consumed.at(-1)._id):null;
  const exceptions=[];
  let verifiedSources=0,pending=0;
  for(const token of consumed){
@@ -51,5 +59,5 @@ export async function auditConsumedStarts(db,{
  }
  return {scanned:consumed.length,matchedSourceCount:verifiedSources,
    withinGracePeriodCount:pending,orphanCount:exceptions.length,
-   exceptions,readOnly:true};
+   exceptions,readOnly:true,hasMore,nextCursor};
 }

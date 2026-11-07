@@ -126,15 +126,28 @@ export async function AdminListStationOcppStartExceptions(req,res){
   try{
     const station=await stationFrom(req,res);
     if(!station)return;
+    const cursor=req.query?.cursor;
+    const rawLimit=req.query?.limit;
+    if(Object.keys(req.query||{}).some(key=>!['cursor','limit'].includes(key)) ||
+       (cursor!==undefined && (typeof cursor!=='string' ||
+         !/^[a-f0-9]{24}$/i.test(cursor))) ||
+       (rawLimit!==undefined && (typeof rawLimit!=='string' ||
+         !/^[1-9][0-9]{0,2}$/.test(rawLimit) || Number(rawLimit)>100)))
+      return fail(res,400,'Specify a valid audit cursor and limit from 1 to 100.');
+    // Disabled chargers can still have unresolved consumed credentials.
+    // This read-only audit never restores charger or token enablement.
     const chargers=await chargerTable().find({
-      stationId:String(station._id),enabled:true
+      stationId:String(station._id)
     }).project({chargerId:1}).limit(128).toArray();
     if(!chargers.length)return res.status(200).json({
       status:'Success',data:{scanned:0,matchedSourceCount:0,
-        withinGracePeriodCount:0,orphanCount:0,exceptions:[],readOnly:true}
+        withinGracePeriodCount:0,orphanCount:0,exceptions:[],readOnly:true,
+        hasMore:false,nextCursor:null}
     });
     const report=await auditConsumedStarts(mongoose.connection.db,{
-      chargerIds:chargers.map(c=>c.chargerId),limit:50
+      chargerIds:chargers.map(c=>c.chargerId),
+      limit:rawLimit===undefined?50:Number(rawLimit),
+      beforeId:cursor===undefined?null:new mongoose.Types.ObjectId(cursor)
     });
     return res.status(200).json({status:'Success',data:report});
   }catch{

@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback,useEffect,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import api from "@/lib/api";
 import {useTheme} from "@/lib/ThemeContext";
 import {CheckCircle2,ClipboardCopy,Eye,EyeOff,Link2,LockKeyhole,RefreshCw,X,Zap} from "lucide-react";
@@ -25,6 +25,7 @@ type OpState={
   needsPaymentReconciliation:boolean;
 };
 type StartExceptionReport={
+  scanned:number;hasMore:boolean;nextCursor:string|null;
   orphanCount:number;matchedSourceCount:number;withinGracePeriodCount:number;
   readOnly:boolean;exceptions:Array<{
     chargerId:string;bookingId:string|null;consumedAt:string;
@@ -65,6 +66,7 @@ export default function OcppBookingWorkflow({
   const [refreshOnClose,setRefreshOnClose]=useState(false);
   const [startAudit,setStartAudit]=useState<StartExceptionReport|null>(null);
   const [auditLoading,setAuditLoading]=useState(false);
+  const auditVersion=useRef(0);
   const [secret,setSecret]=useState("");
   const [showSecret,setShowSecret]=useState(false);
 
@@ -115,6 +117,8 @@ export default function OcppBookingWorkflow({
     setError("");
     setState(null);
     setStartAudit(null);
+    auditVersion.current++;
+    setAuditLoading(false);
     if(refreshOnClose)void onUpdated();
     setRefreshOnClose(false);
   }
@@ -174,21 +178,37 @@ export default function OcppBookingWorkflow({
     finally{setWorking(false);}
   }
 
-  async function auditStartExceptions(){
+  async function auditStartExceptions(append=false){
     if(!state || !isHex24(state.stationId) || auditLoading || working)return;
+    const cursor=append?startAudit?.nextCursor:null;
+    if(append && (!cursor || !isHex24(cursor)))return;
+    const version=++auditVersion.current;
     setAuditLoading(true);
     setError("");
     try{
       const response=await api.get(
-        "/admin/stations/"+state.stationId+"/ocpp/start-exceptions");
+        "/admin/stations/"+state.stationId+"/ocpp/start-exceptions"+
+        (cursor?"?cursor="+encodeURIComponent(cursor):""));
       const report=response.data?.data as StartExceptionReport|undefined;
       if(response.data?.status!=="Success" || !report ||
-         report.readOnly!==true || !Array.isArray(report.exceptions)){
+         report.readOnly!==true || !Array.isArray(report.exceptions) ||
+         !Number.isInteger(report.scanned) || report.scanned<0 ||
+         typeof report.hasMore!=="boolean" ||
+         (report.hasMore && (!report.nextCursor || !isHex24(report.nextCursor) ||
+           report.nextCursor===cursor))){
         throw new Error("Invalid OCPP start exception response");
       }
-      setStartAudit(report);
-    }catch(error){setError(errorText(error));}
-    finally{setAuditLoading(false);}
+      if(version!==auditVersion.current)return;
+      setStartAudit(previous=>append && previous?{
+        ...report,
+        scanned:previous.scanned+report.scanned,
+        orphanCount:previous.orphanCount+report.orphanCount,
+        matchedSourceCount:previous.matchedSourceCount+report.matchedSourceCount,
+        withinGracePeriodCount:previous.withinGracePeriodCount+report.withinGracePeriodCount,
+        exceptions:[...previous.exceptions,...report.exceptions]
+      }:report);
+    }catch(error){if(version===auditVersion.current)setError(errorText(error));}
+    finally{if(version===auditVersion.current)setAuditLoading(false);}
   }
 
   async function copySecret(){
@@ -361,10 +381,18 @@ export default function OcppBookingWorkflow({
                     {startAudit&&(
                       <div className="space-y-2" role="status">
                         <p className="text-xs">
+                          Records checked: <strong>{startAudit.scanned}</strong>.
                           Transactions matched: <strong>{startAudit.matchedSourceCount}</strong>.
                           Grace period: <strong>{startAudit.withinGracePeriodCount}</strong>.
                           Investigation required: <strong>{startAudit.orphanCount}</strong>.
                         </p>
+                        {startAudit.hasMore?(
+                          <button type="button" disabled={working||auditLoading}
+                            onClick={()=>void auditStartExceptions(true)}
+                            className="rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40">
+                            {auditLoading?"Loading…":"Load earlier records"}
+                          </button>
+                        ):<p className={"text-xs "+muted}>End of available records. Refresh to check for new activity.</p>}
                         {startAudit.exceptions
                           .filter(x=>x.chargerId===state.selectedChargerId||!state.selectedChargerId)
                           .map((x,i)=>(
