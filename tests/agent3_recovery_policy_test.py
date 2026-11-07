@@ -151,6 +151,13 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertIn('--source-container "$source_db"', code)
         self.assertIn('--target-container "$target_db"', code)
 
+    def test_disposable_restore_checks_exact_image_reference_and_id(self):
+        code = self.source
+        self.assertEqual(code.count('--reviewed-db-image "$postgres_image"'), 3)
+        self.assertEqual(code.count('--reviewed-app-image "$image"'), 3)
+        source = (ROOT / 'scripts/recovery-runtime-guard.py').read_text()
+        self.assertIn('Source and target of same recovery role use different image IDs', source)
+
     def test_timed_recovery_proof_covers_private_snapshot_and_laravel_boot(self):
         code = self.source
         self.assertIn('drill_started_epoch=$(date -u +%s)', code)

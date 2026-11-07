@@ -121,3 +121,7 @@ Both disposable restore entrypoints now remove only their own previous `validati
 ### Atomic private recovery proof publication
 
 The Laravel, PostGIS and combined same-run evidence publishers now use one shared bounded JSON writer. It removes prior PASS output before publishing, serializes strict standard JSON, writes to an owner-private (0600) temporary file, flushes and fsyncs its contents, and atomically replaces the destination. A failed write or replacement leaves no success artifact or partial temporary file. Failure-injection unit tests cover interrupted replacement, oversized evidence, non-finite JSON fields and repeated publication. This improves synthetic proof integrity only; a successful artifact is not a production restore acceptance.
+
+### Runtime source-and-target image evidence
+
+The disposable inspector now checks the actual Docker `Config.Image` against the exact reviewed PostgreSQL or PHP image reference supplied to the drill and validates the `sha256:` container image IDs. Source and target containers within each role must have matching immutable image IDs; mixed Laravel/PostgreSQL roles are compared separately while the four-container volume separation and network identity checks remain intact. Synthetic unit tests reject unexpected image references, source/target byte mismatches, and incomplete image hashes. This does not authenticate upstream registries or establish production deployment acceptance.

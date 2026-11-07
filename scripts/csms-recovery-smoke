@@ -69,6 +69,7 @@ docker network inspect "$source_net" "$target_net" |
     --source-container "$source_db" --target-container "$target_db"
 docker inspect "$source_db" "$target_db" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --reviewed-db-image "$image" \
     --source-network "$source_net" --target-network "$target_net" \
     --source-name "$review_id-source-db" --target-name "$review_id-target-db"
 
@@ -159,6 +160,7 @@ docker network inspect "$source_net" "$target_net" |
     --source-container "$source_db" --target-container "$target_db"
 docker inspect "$source_db" "$target_db" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --reviewed-db-image "$image" \
     --source-network "$source_net" --target-network "$target_net" \
     --source-name "$review_id-source-db" --target-name "$review_id-target-db"
 

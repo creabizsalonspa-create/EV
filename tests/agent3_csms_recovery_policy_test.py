@@ -106,6 +106,9 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
         self.assertIn('--source-container "$source_db"', code)
         self.assertIn('--target-container "$target_db"', code)
 
+    def test_exact_reviewed_postgis_image_reference_checked(self):
+        self.assertEqual(self.source.count('--reviewed-db-image "$image"'), 2)
+
     def test_timing_span_covers_dump_restore_and_geospatial_checks(self):
         code = self.source
         self.assertLess(code.index('snapshot_started_epoch=$(date -u +%s)'),

@@ -13,6 +13,10 @@ g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
 S = 'a' * 64
 T = 'b' * 64
+DB_IMAGE = 'postgres:17-alpine@sha256:' + 'f' * 64
+APP_IMAGE = 'creabiz-ev-business:review'
+DB_ID = 'sha256:' + '9' * 64
+APP_ID = 'sha256:' + '8' * 64
 C1 = 'c' * 64
 C2 = 'd' * 64
 C3 = 'e' * 64
@@ -27,6 +31,8 @@ def network(identifier):
 def container(name, network_id, volume):
     return {
         'Name': '/' + name,
+        'Config': {'Image': APP_IMAGE if '-app' in name else DB_IMAGE},
+        'Image': APP_ID if '-app' in name else DB_ID,
         'HostConfig': {
             'NetworkMode': network_id, 'Privileged': False,
             'PortBindings': {}, 'CapAdd': None, 'Devices': [], 'Binds': None,
@@ -74,10 +80,11 @@ class RecoveryIsolationTests(unittest.TestCase):
     def test_disposable_containers_do_not_share_network_or_volume(self):
         rows = [container('source-db', S, 'private-source'),
                 container('target-db', T, 'private-target')]
-        g.validate_containers(rows, S, T, ['source-db'], ['target-db'])
+        g.validate_containers(rows, S, T, ['source-db'], ['target-db'], DB_IMAGE)
         resolved_name = copy.deepcopy(rows)
         resolved_name[0]['HostConfig']['NetworkMode'] = 'recovery-net'
-        g.validate_containers(resolved_name, S, T, ['source-db'], ['target-db'])
+        g.validate_containers(resolved_name, S, T, ['source-db'], ['target-db'],
+                              DB_IMAGE)
         tests = [
             ('Name', '/unexpected'),
             ('HostConfig.NetworkMode', 'host'),
@@ -90,6 +97,9 @@ class RecoveryIsolationTests(unittest.TestCase):
             ('HostConfig.Links', ['production']),
             ('HostConfig.PidMode', 'host'),
             ('HostConfig.IpcMode', 'host'),
+            ('Config.Image', 'unexpected:image'),
+            ('Image', 'sha256:' + 'a' * 64),
+            ('Image', 'not-a-valid-sha'),
             ('HostConfig.UsernsMode', 'host'),
             ('HostConfig.CgroupnsMode', 'host'),
             ('HostConfig.UTSMode', 'host'),
@@ -119,7 +129,8 @@ class RecoveryIsolationTests(unittest.TestCase):
                     altered[0][a][b] = bad
                 else:
                     altered[0][key] = bad
-                g.validate_containers(altered, S, T, ['source-db'], ['target-db'])
+                g.validate_containers(altered, S, T, ['source-db'], ['target-db'],
+                                      DB_IMAGE)
 
     def test_four_container_app_restore_with_unique_volumes(self):
         rows = [container('source-db', S, 'source-db-storage'),
@@ -129,15 +140,46 @@ class RecoveryIsolationTests(unittest.TestCase):
         for index in (1, 3):
             rows[index]['Mounts'][0]['Destination'] = '/var/www/html/storage/app/private'
         g.validate_containers(rows, S, T,
-                              ['source-db', 'source-app'], ['target-db', 'target-app'])
+                              ['source-db', 'source-app'], ['target-db', 'target-app'],
+                              DB_IMAGE, APP_IMAGE)
         with self.assertRaises(g.IsolationError):
             g.validate_containers(rows[:2], S, T,
-                                  ['source-db', 'source-app'], ['target-db', 'target-app'])
+                                  ['source-db', 'source-app'], ['target-db', 'target-app'],
+                                  DB_IMAGE, APP_IMAGE)
         wrong = copy.deepcopy(rows)
         wrong[1]['Mounts'][0]['Destination'] = '/var/lib/postgresql/data'
         with self.assertRaises(g.IsolationError):
             g.validate_containers(wrong, S, T, ['source-db', 'source-app'],
-                                  ['target-db', 'target-app'])
+                                  ['target-db', 'target-app'], DB_IMAGE, APP_IMAGE)
+
+    def test_mixed_runtime_rejects_app_image_or_digest_mismatch(self):
+        rows = [container('source-db', S, 'source-db-storage'),
+                container('source-app', S, 'source-app-private'),
+                container('target-db', T, 'target-db-storage'),
+                container('target-app', T, 'target-app-private')]
+        for i in (1, 3):
+            rows[i]['Mounts'][0]['Destination'] = '/var/www/html/storage/app/private'
+        g.validate_containers(rows, S, T,
+                              ['source-db', 'source-app'], ['target-db', 'target-app'],
+                              DB_IMAGE, APP_IMAGE)
+        for position, field, value in (
+            (3, 'Image', 'sha256:' + '1'*64),
+            (3, 'Config.Image', 'creabiz-ev-business:unreviewed'),
+            (0, 'Config.Image', 'postgres:latest'),
+            (1, 'Image', 'sha256:bad'),
+        ):
+            with self.subTest(position=position, field=field):
+                modified = copy.deepcopy(rows)
+                if '.' in field:
+                    key, member = field.split('.')
+                    modified[position][key][member] = value
+                else:
+                    modified[position][field] = value
+                with self.assertRaises(g.IsolationError):
+                    g.validate_containers(modified, S, T,
+                                         ['source-db', 'source-app'],
+                                         ['target-db', 'target-app'],
+                                         DB_IMAGE, APP_IMAGE)
 
     def test_cli_never_prints_inspect_environment_fields(self):
         rows = [container('source-db', S, 'one'), container('target-db', T, 'two')]
@@ -145,14 +187,16 @@ class RecoveryIsolationTests(unittest.TestCase):
         good = io.BytesIO(json.dumps(rows).encode())
         self.assertEqual(g.main(['containers', '--source-network', S,
                                  '--target-network', T, '--source-name', 'source-db',
-                                 '--target-name', 'target-db'], good), 0)
+                                 '--target-name', 'target-db',
+                                 '--reviewed-db-image', DB_IMAGE], good), 0)
         bad = copy.deepcopy(rows)
         bad[0]['HostConfig']['Privileged'] = True
         output, errors = io.StringIO(), io.StringIO()
         with redirect_stdout(output), redirect_stderr(errors):
             self.assertEqual(g.main(['containers', '--source-network', S,
                                      '--target-network', T, '--source-name', 'source-db',
-                                     '--target-name', 'target-db'],
+                                     '--target-name', 'target-db',
+                                     '--reviewed-db-image', DB_IMAGE],
                                     io.BytesIO(json.dumps(bad).encode())), 1)
         self.assertNotIn('SUPER_SECRET_DO_NOT_PRINT', output.getvalue() + errors.getvalue())
         for invalid in (b'null', b'{}', b'not-json', b'[' + b'a'*1048576):

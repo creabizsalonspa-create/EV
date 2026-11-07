@@ -65,7 +65,8 @@ def validate_networks(rows, source, target, source_members=None, target_members=
     require(ids == {source, target}, 'Missing isolated recovery network')
 
 
-def validate_containers(rows, source, target, source_names, target_names):
+def validate_containers(rows, source, target, source_names, target_names,
+                        reviewed_db_image=None, reviewed_app_image=None):
     require(source != target and source_names and target_names,
             'Separate source and target required')
     mapping = {name: source for name in source_names}
@@ -74,6 +75,7 @@ def validate_containers(rows, source, target, source_names, target_names):
             'Duplicate or unexpected recovery container names')
     seen = set()
     volumes = set()
+    image_ids = {}
     for row in rows:
         require(isinstance(row, dict), 'Malformed Docker container inspection')
         name = row.get('Name')
@@ -86,6 +88,32 @@ def validate_containers(rows, source, target, source_names, target_names):
         state = row.get('NetworkSettings')
         require(isinstance(host, dict) and isinstance(state, dict),
                 'Incomplete Docker isolation configuration')
+        container_name = name[1:]
+        if '-app-' in container_name or container_name.endswith('-app'):
+            role = 'app'
+            reviewed = reviewed_app_image
+        elif '-db-' in container_name or container_name.endswith('-db'):
+            role = 'db'
+            reviewed = reviewed_db_image
+        else:
+            raise IsolationError('Unexpected recovery container role')
+        config = row.get('Config')
+        require(isinstance(config, dict) and
+                isinstance(config.get('Image'), str),
+                'Unverifiable container image reference')
+        if reviewed_db_image is not None:
+            require(isinstance(reviewed, str) and config['Image'] == reviewed,
+                    'Recovery container image deviates from reviewed input')
+        image_id = row.get('Image')
+        require(isinstance(image_id, str) and len(image_id) == 71 and
+                image_id.startswith('sha256:') and
+                all(c in '0123456789abcdef' for c in image_id[7:]),
+                'Recovery container image ID is not a complete immutable digest')
+        if role in image_ids:
+            require(image_id == image_ids[role],
+                    'Source and target of same recovery role use different image IDs')
+        else:
+            image_ids[role] = image_id
         attachments = state.get('Networks')
         require(isinstance(attachments, dict) and len(attachments) == 1,
                 'Unexpected additional network attachment')
@@ -119,16 +147,10 @@ def validate_containers(rows, source, target, source_names, target_names):
                 host.get('DeviceRequests') in (None, []) and
                 host.get('DeviceCgroupRules') in (None, []),
                 'Recovery container has non-reviewed security or device privileges')
-        # The script owns each container name: database and application
-        # mounts have distinct, reviewed destinations. A changed image with
-        # additional VOLUME directives must fail before data restoration.
-        container_name = name[1:]
-        if '-app-' in container_name or container_name.endswith('-app'):
-            destination = '/var/www/html/storage/app/private'
-        elif '-db-' in container_name or container_name.endswith('-db'):
-            destination = '/var/lib/postgresql/data'
-        else:
-            raise IsolationError('Unexpected recovery container role')
+        # The same reviewed role determines both the image and mount target;
+        # source and restored target must use byte-identical image IDs.
+        destination = ('/var/www/html/storage/app/private' if role == 'app'
+                       else '/var/lib/postgresql/data')
         mounts = row.get('Mounts')
         require(isinstance(mounts, list) and len(mounts) == 1,
                 'Exactly one recovery volume required for each container')
@@ -155,6 +177,8 @@ def main(argv=None, input_stream=None):
     parser.add_argument('--target-name', action='append', default=[])
     parser.add_argument('--source-container', action='append')
     parser.add_argument('--target-container', action='append')
+    parser.add_argument('--reviewed-db-image')
+    parser.add_argument('--reviewed-app-image')
     args = parser.parse_args(argv)
     try:
         inspected = read_inspect(input_stream or sys.stdin.buffer)
@@ -162,8 +186,15 @@ def main(argv=None, input_stream=None):
             validate_networks(inspected, args.source_network, args.target_network,
                               args.source_container, args.target_container)
         else:
+            require(isinstance(args.reviewed_db_image, str) and
+                    bool(args.reviewed_db_image) and
+                    (not any('-app-' in n for n in
+                             args.source_name + args.target_name) or
+                     bool(args.reviewed_app_image)),
+                    'Both reviewed runtime image references must be supplied')
             validate_containers(inspected, args.source_network,
-                                args.target_network, args.source_name, args.target_name)
+                                args.target_network, args.source_name, args.target_name,
+                                args.reviewed_db_image, args.reviewed_app_image)
     except IsolationError as error:
         # Never echo Docker inspect JSON, credentials or environment fields.
         print('FAIL: ' + str(error), file=sys.stderr)
