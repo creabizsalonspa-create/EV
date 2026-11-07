@@ -127,7 +127,7 @@ def audit_manifest(
         for unsafe_attribute in ("debuggable", "testOnly"):
             if re.search(
                 r"android:" + unsafe_attribute +
-                r"[^\\n]*\\(type 0x12\\)0x(?:ffffffff|1)\\b",
+                r"[^\n]*\(type 0x12\)0x(?:ffffffff|1)\b",
                 manifest,
                 flags=re.IGNORECASE,
             ):
