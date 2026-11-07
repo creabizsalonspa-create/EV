@@ -3,11 +3,18 @@ import 'package:get/get.dart' hide FormData, MultipartFile;
 
 import '../../../../core/service/api_service/api_service.dart';
 import '../../../../core/service/shared_preferance/shared_prefarance.dart';
+import '../../../../core/service/network/network_client.dart';
 
 // ── AuthController ────────────────────────────────────────────────────────────
 class AuthController extends GetxController {
-  final _net = NetworkService().client;
-  final _prefs = SharedPrefs();
+  final NetworkClient _net;
+  final SharedPrefs _prefs;
+
+  /// The same secure storage + credential fencing is used in production and
+  /// in isolated race tests, which can inject a synthetic network and vault.
+  AuthController({NetworkClient? client, SharedPrefs? prefs})
+      : _net = client ?? NetworkService().client,
+        _prefs = prefs ?? SharedPrefs();
   // Shared across controller instances: whichever sign-in or OTP verification
   // starts most recently is the only attempt permitted to publish credentials.
   static int _credentialAttempt = 0;
