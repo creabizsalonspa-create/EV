@@ -44,6 +44,22 @@ class _OwnedStationApi extends EvApi {
   }
 }
 
+
+/// Scroll the actual vendor form into the visible 800x600 widget viewport.
+/// Long forms can initially have descendants built far below the hit-test area.
+Future<void> revealStationEditorControl(WidgetTester tester, Finder control) async {
+  for (var attempts = 0; attempts < 30; attempts++) {
+    final y = tester.getCenter(control).dy;
+    if (y >= 110 && y <= 500) return;
+    await tester.drag(
+      find.byType(ListView).first,
+      Offset(0, y > 500 ? -230 : 230),
+    );
+    await tester.pumpAndSettle();
+  }
+  expect(tester.getCenter(control).dy, inInclusiveRange(110, 500));
+}
+
 void main() {
   Map<String, dynamic> station() => {
     'id': 14, 'name': 'Central Plaza', 'connector_type': 'CCS2',
@@ -132,14 +148,12 @@ void main() {
         'Roof deck');
       await tester.enterText(find.byKey(const Key('station-info-access_en')),
         'Gate A');
-      // The vendor editor is intentionally a long scrollable form.
-      // Drag the actual viewport rather than tapping off-screen descendants.
-      await tester.drag(find.byType(ListView), const Offset(0, -1250));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Wi-Fi'));
-      await tester.drag(find.byType(ListView), const Offset(0, -750));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('station-info-save')));
+      final wifi = find.text('Wi-Fi');
+      await revealStationEditorControl(tester, wifi);
+      await tester.tap(wifi);
+      final save = find.byKey(const Key('station-info-save'));
+      await revealStationEditorControl(tester, save);
+      await tester.tap(save);
       await tester.pumpAndSettle();
       expect(api.writes, hasLength(1));
       expect(api.writes.single['revision'], 1);
