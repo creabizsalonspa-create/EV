@@ -1564,10 +1564,13 @@ async function refreshInbox() {
                                         ? ui("p", "Fleet vehicle cost center changed · fleet #{id}", {
                                             id: m.metadata?.fleet_id ?? "?",
                                         })
-                                        : ui("p", "{kind} · ticket #{id}", {
-                    kind: { translate: m.kind },
-                    id: m.support_ticket_id,
-                });
+                                        : (typeof m.kind === "string" &&
+                                            m.kind.startsWith("support."))
+                                            ? ui("p", "{kind} · ticket #{id}", {
+                                                kind: { translate: m.kind },
+                                                id: m.support_ticket_id,
+                                            })
+                                            : ui("p", "Other operational notification");
         if (Number.isSafeInteger(m.id) && m.id > 0) {
             row.dataset.notificationId = String(m.id);
         }

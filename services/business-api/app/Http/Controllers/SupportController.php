@@ -89,6 +89,7 @@ class SupportController extends Controller
     {
         $filters = $r->validate([
             'unread_only' => 'sometimes|boolean',
+            'page' => 'sometimes|integer|min:1|max:100000',
             'category' => 'sometimes|in:support,vehicle,charging,fleet,other',
         ]);
 

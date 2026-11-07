@@ -60,8 +60,14 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
       });
     case 'support.reply':
       return strings.t('supportReply');
-    default:
+    case 'support.status.open':
+    case 'support.status.in_progress':
+    case 'support.status.resolved':
+    case 'support.status.closed':
       return strings.t('supportStatus');
+    default:
+      // Unknown operational event kinds must not masquerade as support tickets.
+      return strings.t('notificationOtherTitle');
   }
 }
 

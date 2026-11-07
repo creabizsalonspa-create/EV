@@ -361,6 +361,19 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonPath('total', 1);
     }
 
+    public function test_notification_pagination_rejects_unbounded_or_non_numeric_pages(): void
+    {
+        $owner = User::factory()->create();
+        $this->makeNotification($owner);
+        $this->actingAs($owner);
+        foreach (['/api/notifications', '/api/v1/notifications'] as $base) {
+            foreach (['0', '-4', 'nope', '999999999', '1.5'] as $page) {
+                $this->getJson($base.'?page='.$page)->assertUnprocessable();
+            }
+            $this->getJson($base.'?page=1')->assertOk()->assertJsonPath('total', 1);
+        }
+    }
+
     public function test_other_category_exposes_only_unclassified_notifications_and_can_be_saved(): void
     {
         $owner = User::factory()->create();

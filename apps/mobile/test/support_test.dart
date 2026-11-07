@@ -523,6 +523,17 @@ void main() {
     expect(fixture.preferences['external_delivery_available'], false);
   });
 
+  test('unknown operational notices do not impersonate support status', () {
+    final en = EvStrings(const Locale('en'));
+    final ar = EvStrings(const Locale('ar'));
+    final other = {'kind': 'operations.dispatch.review'};
+    expect(inboxNotificationTitle(other, en), 'Other operational notification');
+    expect(inboxNotificationTitle(other, ar), 'إشعار تشغيلي آخر');
+    expect(inboxNotificationTitle({'kind': 314}, en), en.t('notificationOtherTitle'));
+    expect(inboxNotificationTitle({'kind': 'support.status.closed'}, en),
+        en.t('supportStatus'));
+  });
+
   test('source-based operator closure never presents itself as physical repair', () {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));
