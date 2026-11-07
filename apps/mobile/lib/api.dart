@@ -579,12 +579,20 @@ class EvApi {
   }
 
   Future<void> signOut() async {
+    // Local revocation comes first; never send an old logout using cookies
+    // belonging to an account that signed in during secure-storage deletion.
+    final logoutEpoch = _epoch + 1;
     await forgetSession();
+    if (logoutEpoch != _epoch) return;
     try {
       await request('logout', method: 'POST');
     } finally {
-      _cookies.clear();
-      _csrf = null;
+      // The request may have been in flight when a newer identity signed in.
+      // Do not erase its in-memory cookies/CSRF after the old logout settles.
+      if (logoutEpoch == _epoch) {
+        _cookies.clear();
+        _csrf = null;
+      }
     }
   }
 
