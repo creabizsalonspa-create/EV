@@ -13,6 +13,7 @@ val releaseKeyPassword = providers.gradleProperty("HASONE_ANDROID_KEY_PASSWORD")
 val releaseSigningComplete = listOf(
     releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
 ).all { !it.isNullOrBlank() }
+val mapsApiKey = providers.gradleProperty("MAPS_API_KEY").orNull
 
 android {
 
@@ -42,7 +43,7 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.creabiz.hasone.customer.dev"
-        manifestPlaceholders["mapsApiKey"] = providers.gradleProperty("MAPS_API_KEY").orElse("").get()
+        manifestPlaceholders["mapsApiKey"] = mapsApiKey ?: ""
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -83,12 +84,25 @@ val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
     }
 }
 
+val verifyReleaseMapsApiKey = tasks.register("verifyReleaseMapsApiKey") {
+    group = "verification"
+    description = "Require an approved Google Maps Android API key for distribution."
+    doLast {
+        if (mapsApiKey.isNullOrBlank()) {
+            throw GradleException(
+                "HASONE Android release requires MAPS_API_KEY as a secured " +
+                    "Gradle project property restricted to the approved app ID."
+            )
+        }
+    }
+}
+
 // Fail closed for release distribution while keeping unsigned debug/simulator
 // development usable. Gradle's release tasks can be created lazily by AGP.
 tasks.matching {
     it.name in setOf("assembleRelease", "bundleRelease", "packageRelease")
 }.configureEach {
-    dependsOn(verifyReleaseSigning)
+    dependsOn(verifyReleaseSigning, verifyReleaseMapsApiKey)
 }
 
 flutter {
