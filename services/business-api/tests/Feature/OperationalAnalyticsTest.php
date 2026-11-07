@@ -95,8 +95,10 @@ class OperationalAnalyticsTest extends TestCase
         $this->getJson($url.'?site_id=99999')->assertNotFound();
         $member->update(['status' => 'revoked']);
         $this->getJson($url)->assertNotFound();
-        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
-        $this->getJson(str_replace('/api/', '/api/v1/', $url))->assertOk()->assertJsonPath('financial_visible', true);
+        $admin = User::factory()->create(['role' => 'admin']);
+        Sanctum::actingAs($admin);
+        $this->getJson(str_replace('/api/', '/api/v1/', $url))->assertForbidden();
+        $this->actingAs($admin, 'web')->getJson($url)->assertOk()->assertJsonPath('financial_visible', true);
     }
 
     public function test_unapplied_or_inconsistent_source_is_excluded_and_rebinding_drops_old_evidence(): void
