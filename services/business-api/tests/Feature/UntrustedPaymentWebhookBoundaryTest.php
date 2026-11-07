@@ -1,0 +1,74 @@
+<?php
+
+namespace Tests\Feature;
+
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
+
+/**
+ * Never call a provider or transfer money in this suite. Exercise every
+ * externally reachable payment/dispute web hook with forged success evidence.
+ */
+class UntrustedPaymentWebhookBoundaryTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_all_payment_webhook_families_reject_unsigned_or_forged_success(): void
+    {
+        Http::preventStrayRequests();
+        config([
+            'payments.provider' => 'mock',
+            'payments.webhook_secret' => str_repeat('a', 48),
+        ]);
+
+        $paths = [
+            '/api/payments/mock/webhook',
+            '/api/payments/stripe-test/webhook',
+            '/api/subscription-payments/stripe-test/webhook',
+            '/api/subscription-credit-payments/stripe-test/webhook',
+            '/api/payment-enrollments/stripe-test/webhook',
+            '/api/corporate-payments/stripe-test/webhook',
+            '/api/disputes/stripe-test/webhook',
+            '/api/webhooks/payouts/stripe-test',
+        ];
+        $raw = json_encode([
+            'id' => 'evt_agent9_forged_capture',
+            'event_id' => 'evt_agent9_forged_capture',
+            'type' => 'payment_intent.succeeded',
+            'created' => time(),
+            'data' => ['object' => [
+                'id' => 'pi_agent9_no_real_money',
+                'status' => 'succeeded',
+                'amount' => 999999999,
+                'currency' => 'aed',
+            ]],
+            'invoice_id' => 1,
+            'amount_minor' => 999999999,
+            'status' => 'captured',
+        ], JSON_THROW_ON_ERROR);
+
+        foreach ($paths as $path) {
+            foreach ([[], [
+                'HTTP_STRIPE_SIGNATURE' => 't='.time().',v1='.str_repeat('0', 64),
+                'HTTP_X_PAYMENT_TIMESTAMP' => (string) time(),
+                'HTTP_X_PAYMENT_SIGNATURE' => str_repeat('0', 64),
+            ]] as $headers) {
+                $response = $this->call('POST', $path, [], [], [], [
+                    'CONTENT_TYPE' => 'application/json',
+                    'HTTP_ACCEPT' => 'application/json',
+                ] + $headers, $raw);
+
+                $this->assertContains($response->status(), [400, 401, 403, 404, 422, 429, 503],
+                    'A forged webhook must not authorize funds, redirect or crash: '.$path);
+                $this->assertSame('nosniff', $response->headers->get('X-Content-Type-Options'), $path);
+                $this->assertSame('DENY', $response->headers->get('X-Frame-Options'), $path);
+            }
+        }
+
+        $this->assertDatabaseCount('gateway_webhook_events', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        Http::assertNothingSent();
+    }
+}
