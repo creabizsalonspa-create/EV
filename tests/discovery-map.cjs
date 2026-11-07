@@ -135,6 +135,15 @@ const assert = require("node:assert/strict");
     await page.locator(".station-map-pin:not(.partner-map-pin)").waitFor();
     assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
     assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    const layerToggle = page.locator("#show-partner-map-pins");
+    assert.equal(await layerToggle.isChecked(), true);
+    const mapRequestsBeforeToggle = partnerQueries.length;
+    await layerToggle.uncheck();
+    assert.equal(await page.locator(".partner-map-pin").count(), 0);
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
+    await layerToggle.check();
+    assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    assert.equal(partnerQueries.length, mapRequestsBeforeToggle, "Layer toggle must remain local and never refetch partner data");
     // Refit requires explicit interaction; never creates new inventory.
     await page.getByRole("button", { name: "Show loaded locations on map" }).click();
     await page.getByText("Map fitted to loaded results only. Other nearby sites may not be listed.", { exact: true }).waitFor();
@@ -198,6 +207,7 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#location-consent").isChecked(), false);
     assert.equal(await page.getByRole("button", { name: "البحث عن شركاء قرب النقطة المحددة" }).isHidden(), true);
     assert.equal(await page.getByRole("button", { name: "إظهار المواقع المحملة على الخريطة" }).isHidden(), true);
+    assert.equal(await layerToggle.isHidden(), true);
     assert.equal(await page.getByRole("button", { name: "تفعيل الخريطة التفاعلية" }).isVisible(), true);
     // A second consent must create a fresh Leaflet instance cleanly.
     await page.getByRole("button", { name: "تفعيل الخريطة التفاعلية" }).click();
