@@ -38,7 +38,7 @@ def action_workflow_run_id(details_url, repo=REPOSITORY):
     """Only accept GitHub Actions job links for this exact repository."""
     if not isinstance(details_url, str):
         return None
-    pattern = (r"https://github\\.com/" + re.escape(repo) +
+    pattern = (r"https://github\.com/" + re.escape(repo) +
                r"/actions/runs/([1-9][0-9]*)/job/[1-9][0-9]*")
     match = re.fullmatch(pattern, details_url)
     return int(match.group(1)) if match else None
