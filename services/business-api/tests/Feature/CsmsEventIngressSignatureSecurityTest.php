@@ -54,7 +54,8 @@ class CsmsEventIngressSignatureSecurityTest extends TestCase
         $this->submit($event, (string) $now, str_repeat('0', 64))->assertUnauthorized();
         $this->submit($event, (string) $now, $signature($now, str_repeat('w', 48)))->assertUnauthorized();
         $this->submit($event, (string) ($now - 301), $signature($now - 301))->assertUnauthorized();
-        $this->submit($event, (string) ($now + 301), $signature($now + 301))->assertUnauthorized();
+        // Give the future-window negative test margin for a one-second clock tick.
+        $this->submit($event, (string) ($now + 305), $signature($now + 305))->assertUnauthorized();
         $this->submit($event, '0x'.dechex($now), $signature($now))->assertUnauthorized();
 
         $this->assertDatabaseCount('charging_sessions', 0);
