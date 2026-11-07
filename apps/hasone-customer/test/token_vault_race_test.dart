@@ -230,6 +230,27 @@ void main() {
     expect(Session.accessToken, 'second-session');
   });
 
+  test('malformed persisted revocation marker stays fail-closed', () async {
+    final vault = ControlledTokenVault();
+    final prefs = SharedPrefs(vault: vault);
+    await prefs.saveToken('original-credential');
+    await prefs.saveUser({'email': 'old@example.test'});
+    final storage = await SharedPreferences.getInstance();
+    final key = 'credential_blocked:${ApiConfig.baseUrl}';
+
+    // A migrated/corrupt marker must never be interpreted as permission to
+    // restore an old bearer, or crash startup on a failed bool cast.
+    await storage.setString(key, 'invalid-marker-value');
+    expect(await SharedPrefs(vault: vault).getToken(), isNull);
+    expect(await SharedPrefs(vault: vault).getUser(), isNull);
+    expect(vault.value, 'original-credential');
+
+    await prefs.saveToken('new-approved-credential');
+    expect(await prefs.getToken(), 'new-approved-credential');
+    expect(storage.containsKey(key), isFalse);
+    expect(await prefs.getUser(), isNull);
+  });
+
   test('corrupt or oversized cached user data never crashes startup', () async {
     final vault = ControlledTokenVault();
     final prefs = SharedPrefs(vault: vault);
