@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+# Agent 3: destructive restore operations are restricted to disposable, run-owned
+# PostgreSQL containers. No host port, existing database or production service is used.
+set -euo pipefail
+umask 077
+
+if [[ "$#" -ne 1 ]]; then
+  echo 'Usage: scripts/staging-recovery-smoke creabiz-ev-business:review' >&2
+  exit 2
+fi
+image="$1"
+case "$image" in
+  creabiz-ev-business:*) ;;
+  *) echo 'Refusing a non-review application image.' >&2; exit 2 ;;
+esac
+command -v docker >/dev/null
+command -v python3 >/dev/null
+docker image inspect "$image" >/dev/null
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+review_id="ev-recovery-i6ep2bl2gzs"
+scratch=$(mktemp -d /tmp/ev-recovery.XXXXXXXX)
+source_net= target_net= source_db= target_db= source_app= target_app=
+cleanup() {
+  result=$?
+  for id in "$target_app" "$source_app" "$target_db" "$source_db"; do
+    [[ -z "$id" ]] || docker rm -fv "$id" >/dev/null 2>&1 || true
+  done
+  for id in "$target_net" "$source_net"; do
+    [[ -z "$id" ]] || docker network rm "$id" >/dev/null 2>&1 || true
+  done
+  rm -rf -- "$scratch"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Distinct credentials and isolated networks prove restore independently of source.
+python3 - "$scratch" "$review_id" <<'PY_SETUP'
+import base64, os, pathlib, secrets, sys
+root, prefix = pathlib.Path(sys.argv[1]), sys.argv[2]
+for side in ('source', 'target'):
+    password = secrets.token_hex(32)
+    app_key = 'base64:' + base64.b64encode(secrets.token_bytes(32)).decode()
+    database = {
+        'POSTGRES_DB': 'ev_recovery_review',
+        'POSTGRES_USER': 'ev_recovery_review',
+        'POSTGRES_PASSWORD': password,
+    }
+    application = {
+        'APP_ENV': 'staging',
+        'APP_DEBUG': 'false',
+        'APP_URL': 'https://recovery.example.invalid',
+        'APP_KEY': app_key,
+        'DB_CONNECTION': 'pgsql',
+        'DB_HOST': prefix + '-db-' + side,
+        'DB_PORT': '5432',
+        'DB_DATABASE': 'ev_recovery_review',
+        'DB_USERNAME': 'ev_recovery_review',
+        'DB_PASSWORD': password,
+        'DB_URL': '',
+        'SESSION_DRIVER': 'database',
+        'SESSION_ENCRYPT': 'true',
+        'SESSION_SECURE_COOKIE': 'true',
+        'CACHE_STORE': 'database',
+        'QUEUE_CONNECTION': 'database',
+        'LOG_CHANNEL': 'stderr',
+        'LOG_LEVEL': 'warning',
+        'CSMS_SIMULATOR_ENABLED': 'false',
+        'CSMS_COMMAND_WORKER_ENABLED': 'false',
+        'CSMS_REMOTE_AUTHORIZATION_ENABLED': 'false',
+        'CSMS_INGRESS_AUTH_ENABLED': 'false',
+        'OCPI_TEST_COMMANDS_ENABLED': 'false',
+        'SUBSCRIPTION_COLLECTION_ENABLED': 'false',
+        'PAYOUT_TEST_ENABLED': 'false',
+        'EV_BATTERY_SIMULATOR_ENABLED': 'false',
+    }
+    for suffix, mapping in (('database', database), ('application', application)):
+        path = root / (side + '-' + suffix + '.env')
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as handle:
+            handle.write(''.join(key + '=' + value + '\n' for key, value in mapping.items()))
+PY_SETUP
+
+postgres_image='postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b'
+source_net=$(docker network create "$review_id-net-source")
+target_net=$(docker network create "$review_id-net-target")
+source_db=$(docker run -d --name "$review_id-db-source" --network "$source_net" \
+  --env-file "$scratch/source-database.env" "$postgres_image")
+target_db=$(docker run -d --name "$review_id-db-target" --network "$target_net" \
+  --env-file "$scratch/target-database.env" "$postgres_image")
+
+wait_for_postgres() {
+  local id="$1" ready=false
+  for attempt in {1..45}; do
+    if docker exec "$id" pg_isready -h 127.0.0.1 -U ev_recovery_review \
+      -d ev_recovery_review >/dev/null 2>&1; then ready=true; break; fi
+    sleep 1
+  done
+  [[ "$ready" == true ]] || { echo 'Disposable PostgreSQL readiness failed.' >&2; exit 1; }
+}
+wait_for_app() {
+  local id="$1" ready=false
+  for attempt in {1..45}; do
+    if docker exec --user www-data "$id" php -r \
+      'exit(@file_get_contents("http://127.0.0.1/up")===false?1:0);' \
+      >/dev/null 2>&1; then ready=true; break; fi
+    sleep 1
+  done
+  [[ "$ready" == true ]] || { echo 'Disposable application readiness failed.' >&2; exit 1; }
+}
+query() {
+  docker exec "$1" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
+    -d ev_recovery_review -Atqc "$2"
+}
+wait_for_postgres "$source_db"
+wait_for_postgres "$target_db"
+
+# The same built runtime used by staging-image-smoke applies *all* Laravel migrations.
+source_app=$(docker run -d --name "$review_id-app-source" --network "$source_net" \
+  --env-file "$scratch/source-application.env" \
+  --mount type=volume,target=/var/www/html/storage/app/private "$image")
+wait_for_app "$source_app"
+docker exec --user www-data "$source_app" php artisan migrate --force --no-interaction
+
+# A durable synthetic marker proves that data, not just empty schema, survives restore.
+docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
+  -d ev_recovery_review >/dev/null <<'SQL_SEED'
+CREATE TABLE ev_agent3_recovery_probe (
+  marker_key text PRIMARY KEY,
+  marker_value text NOT NULL
+);
+INSERT INTO ev_agent3_recovery_probe VALUES
+  ('alpha', 'integrity-checked'), ('beta', 'source-only-data');
+SQL_SEED
+migration_count=$(query "$source_db" 'SELECT count(*) FROM migrations')
+[[ "$migration_count" =~ ^[0-9]+$ && "$migration_count" -gt 0 ]] || {
+  echo 'Expected Laravel migration history before backup.' >&2; exit 1;
+}
+migration_fingerprint_sql="SELECT md5(string_agg(migration || ':' || batch::text, '|' ORDER BY migration)) FROM migrations"
+probe_fingerprint_sql="SELECT md5(string_agg(marker_key || ':' || marker_value, '|' ORDER BY marker_key)) FROM ev_agent3_recovery_probe"
+migration_fingerprint=$(query "$source_db" "$migration_fingerprint_sql")
+probe_fingerprint=$(query "$source_db" "$probe_fingerprint_sql")
+
+archive="$scratch/ev_recovery_review.dump"
+docker exec "$source_db" pg_dump -U ev_recovery_review -d ev_recovery_review \
+  --format=custom --no-owner --no-privileges > "$archive"
+[[ -s "$archive" ]] || { echo 'PostgreSQL dump is empty.' >&2; exit 1; }
+docker exec -i "$target_db" pg_restore -U ev_recovery_review -d ev_recovery_review \
+  --clean --if-exists --no-owner --no-privileges --exit-on-error < "$archive"
+[[ "$(query "$target_db" 'SELECT count(*) FROM migrations')" == "$migration_count" ]] || {
+  echo 'Migration count changed after restore.' >&2; exit 1;
+}
+[[ "$(query "$target_db" "$migration_fingerprint_sql")" == "$migration_fingerprint" ]] || {
+  echo 'Migration history fingerprint changed after restore.' >&2; exit 1;
+}
+[[ "$(query "$target_db" "$probe_fingerprint_sql")" == "$probe_fingerprint" ]] || {
+  echo 'Durable synthetic record changed after restore.' >&2; exit 1;
+}
+
+# A fresh application instance must boot against *only* the recovered database.
+target_app=$(docker run -d --name "$review_id-app-target" --network "$target_net" \
+  --env-file "$scratch/target-application.env" \
+  --mount type=volume,target=/var/www/html/storage/app/private "$image")
+wait_for_app "$target_app"
+docker exec --user www-data "$target_app" php artisan migrate:status --no-interaction >/dev/null
+docker exec -i --user www-data "$target_app" php <<'PHP_HTTP'
+<?php
+$context = stream_context_create(['http' => ['timeout' => 10, 'ignore_errors' => true]]);
+$response = file_get_contents('http://127.0.0.1/api/stations', false, $context);
+$headers = http_get_last_response_headers() ?: [];
+if ($response === false || !preg_match('/^HTTP\/\S+ 200\b/', $headers[0] ?? '')) {
+    throw new RuntimeException('Restored application did not serve the station catalog.');
+}
+$json = json_decode($response, true, flags: JSON_THROW_ON_ERROR);
+if (($json['data'] ?? null) !== [] || ($json['total'] ?? null) !== 0) {
+    throw new RuntimeException('Restored isolated database must have an empty station catalog.');
+}
+echo "Recovered application HTTP and Laravel migrations: PASS\n";
+PHP_HTTP
+
+mkdir -p "$root/artifacts/agent3-recovery"
+archive_hash=$(sha256sum "$archive" | awk '{print $1}')
+python3 - "$root/artifacts/agent3-recovery/validation.json" \
+  "$archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" <<'PY_EVIDENCE'
+import json, os, sys
+path, archive_hash, count, migration_hash, probe_hash = sys.argv[1:]
+record = {
+    'status': 'PASS',
+    'classification': 'disposable staging software only',
+    'postgresql': '17-alpine pinned image',
+    'dump_sha256': archive_hash,
+    'laravel_migration_rows': int(count),
+    'migration_history_md5': migration_hash,
+    'synthetic_data_md5': probe_hash,
+    'restored_http_catalog': '200 and empty',
+    'external_acceptance': 'not tested',
+}
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as output:
+    json.dump(record, output, indent=2, sort_keys=True)
+    output.write('\n')
+PY_EVIDENCE
+echo 'PASS: isolated PostgreSQL17 custom-format backup, data+schema restore, independent Laravel boot and HTTP. No production resources touched.'
