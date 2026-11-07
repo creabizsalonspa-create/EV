@@ -84,6 +84,8 @@ class AuthController extends GetxController {
   /// response: { status: "Success", message: "...", token: "..." }
   Future<bool> verifyOtp(String email, String otp) async {
     final attempt = ++_credentialAttempt;
+    int? committedGeneration;
+    String? committedToken;
     loading.value = true;
     try {
       // Authentication is a new identity boundary. Clear the prior token
@@ -119,6 +121,8 @@ class AuthController extends GetxController {
             savedGeneration != SharedPrefs.credentialGeneration) {
           return false;
         }
+        committedGeneration = savedGeneration;
+        committedToken = token;
         _notifyAuthFeedback(
           'Success',
           res.responseData?['message']?.toString() ?? 'OTP verified successfully',
@@ -132,10 +136,24 @@ class AuthController extends GetxController {
       return false;
     } catch (_) {
       if (attempt == _credentialAttempt) {
-        _notifyAuthFeedback(
-          'Verification unavailable',
-          'Could not safely save this session.',
-        );
+        if (committedGeneration != null) {
+          try {
+            await _prefs.clearIfCurrent(
+              expectedGeneration: committedGeneration,
+              expectedToken: committedToken,
+            );
+          } catch (_) {
+            // This failed completion must never surface the committed token;
+            // clear() immediately invalidates memory and persists a vault
+            // block before attempting platform credential deletion.
+          }
+        }
+        if (attempt == _credentialAttempt) {
+          _notifyAuthFeedback(
+            'Verification unavailable',
+            'Could not safely save this session.',
+          );
+        }
       }
       return false;
     } finally {
