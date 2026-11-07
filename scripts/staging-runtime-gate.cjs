@@ -110,7 +110,11 @@ function localDockerSnapshot(env = process.env, runner = execFileSync) {
       env.DOCKER_TLS_VERIFY || env.DOCKER_CERT_PATH) {
     throw Error('Remote Docker context disallowed');
   }
-  // Guard against an altered default context pointing to a remote engine.
+  // Docker's active context may differ from "default" even with DOCKER_CONTEXT unset.
+  // Never trust checking the default socket alone while the active context is remote.
+  const active = String(runner('docker', ['context', 'show'],
+    { encoding: 'utf8', timeout: 8000, maxBuffer: 16384 })).trim();
+  if (active !== 'default') throw Error('Active Docker context must be default');
   const host = String(runner('docker', ['context', 'inspect', 'default', '--format', '{{(index .Endpoints "docker").Host}}'],
     { encoding: 'utf8', timeout: 8000, maxBuffer: 16384 })).trim();
   if (!['unix:///var/run/docker.sock', 'unix:///run/docker.sock'].includes(host)) {
