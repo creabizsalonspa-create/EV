@@ -1,0 +1,107 @@
+"""Offline gate tests: never interpret a passing partial PR as merge approval."""
+import importlib.util
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location(
+    "ev_integration_readiness", ROOT / "scripts/integration_readiness.py"
+)
+gate = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gate)
+
+
+def pr(number=57, base=gate.TARGET, draft=False, mergeable=True):
+    return {"number": number, "title": "Synthetic integration candidate",
+            "head": {"sha": "a" * 40, "ref": "integration/demo"},
+            "base": {"ref": base}, "draft": draft,
+            "mergeable": mergeable, "state": "open"}
+
+
+def checks(names=None):
+    names = names or sorted(gate.CORE)
+    return [{"name": n, "head_sha": "a" * 40,
+             "status": "completed", "conclusion": "success"}
+            for n in names]
+
+
+class IntegrationReadinessTest(unittest.TestCase):
+    def test_passed_core_checks_are_only_a_manual_review_candidate(self):
+        result = gate.assess(pr(), checks(), ["scripts/integration-readiness"])
+        self.assertEqual("candidate_for_manual_review", result["status"])
+        self.assertFalse(result["merge_executed"])
+        self.assertIn("manual", result["warning"])
+
+    def test_pending_or_failed_checks_always_block(self):
+        for status, conclusion in [("queued", None), ("in_progress", None),
+                                   ("completed", "failure"),
+                                   ("completed", "cancelled"),
+                                   ("completed", "neutral")]:
+            with self.subTest(status=status, conclusion=conclusion):
+                case = checks()
+                case[0].update(status=status, conclusion=conclusion)
+                result = gate.assess(pr(), case, ["README.md"])
+                self.assertEqual("blocked", result["status"])
+
+    def test_missing_core_suite_or_no_checks_block(self):
+        for case in [[], checks(["business-platform"])]:
+            self.assertEqual("blocked",
+                             gate.assess(pr(), case, ["README.md"])["status"])
+
+    def test_draft_conflict_and_unknown_mergeability_block(self):
+        for props in [{"draft": True}, {"mergeable": False},
+                      {"mergeable": None}]:
+            with self.subTest(props=props):
+                self.assertEqual("blocked", gate.assess(
+                    pr(**props), checks(), ["README.md"])["status"])
+
+    def test_stacked_pr_requires_its_parent_before_integration(self):
+        for base, parent in [("development/battery-discovery-journey", 53),
+                             ("development/ocpi-test-invoice-lineage", 59)]:
+            case = pr(number=61, base=base)
+            result = gate.assess(case, checks(), ["README.md"],
+                                 parents={base: parent})
+            self.assertEqual("blocked", result["status"])
+            self.assertEqual(parent, result["dependency_pr"])
+            self.assertIn("stacked_parent_pending:" + str(parent), result["blockers"])
+
+    def test_old_pr_with_different_base_is_not_merged_blindly(self):
+        result = gate.assess(pr(3, base="development/universal-integration"),
+                             checks(), ["README.md"])
+        self.assertIn("wrong_merge_target:development/universal-integration",
+                      result["blockers"])
+
+    def test_flutter_requires_both_hosted_native_platforms(self):
+        for surface in ["apps/mobile/lib/api.dart",
+                        "apps/hasone-customer/lib/main.dart"]:
+            with self.subTest(surface=surface):
+                self.assertEqual("blocked",
+                    gate.assess(pr(), checks(), [surface])["status"])
+                all_names = gate.CORE | gate.NATIVE
+                self.assertEqual("candidate_for_manual_review",
+                    gate.assess(pr(), checks(all_names), [surface])["status"])
+
+    def test_express_and_disaster_recovery_have_specific_gates(self):
+        examples = [("integrations/hasone-express/ocppMultiCharger.mjs",
+                     "integration-guards"),
+                    ("scripts/csms-recovery-smoke", "csms-recovery")]
+        for path, expected in examples:
+            with self.subTest(path=path):
+                result = gate.assess(pr(), checks(), [path])
+                self.assertIn(expected, result["missing_required"])
+
+    def test_wrong_commit_or_missing_file_inventory_blocks(self):
+        case = checks()
+        case[0]["head_sha"] = "b" * 40
+        result = gate.assess(pr(), case, ["README.md"])
+        self.assertTrue(any(x.startswith("wrong_source_checks:") for x in result["blockers"]))
+        self.assertEqual("blocked", gate.assess(pr(), checks(), [])["status"])
+
+    def test_check_run_inventory_above_safe_limit_blocks(self):
+        large = checks(["job-%d" % n for n in range(gate.CHECK_LIMIT)])
+        result = gate.assess(pr(), large, ["README.md"])
+        self.assertIn("check_run_limit_requires_review", result["blockers"])
+
+
+if __name__ == "__main__":
+    unittest.main()
