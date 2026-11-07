@@ -130,6 +130,23 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('inbox_notifications', 1);
     }
 
+    public function test_bad_historical_timestamp_fails_closed_without_starving_next_vendor(): void
+    {
+        $invalid = $this->fixture();
+        DB::table('charging_status_observations')->where('id', $invalid['observation'])
+            ->update(['occurred_at' => 'invalid-not-a-date']);
+        $valid = $this->fixture();
+
+        $result = app(FaultReminderEscalator::class)->scan(2);
+        $this->assertSame(2, $result['examined']);
+        $this->assertSame(1, $result['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 1);
+        $this->assertSame($valid['owner']->id,
+            InboxNotification::where('kind', 'charging.fault.reminder.simulated')
+                ->firstOrFail()->user_id);
+        $this->assertSame(0, app(FaultReminderEscalator::class)->scan(2)['reminded']);
+    }
+
     public function test_owner_can_suppress_repeat_reminder_but_original_fault_remains_available(): void
     {
         $f = $this->fixture();

@@ -5,6 +5,7 @@ namespace App\Services\Charging;
 use App\Models\InboxNotification;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * One optional in-app reminder for a genuinely unresolved simulator fault.
@@ -111,11 +112,21 @@ class FaultReminderEscalator
                 $observation = DB::table('charging_status_observations')
                     ->where('id', $alert->observation_id)->first();
                 if (! $observation || $observation->binding_id !== $binding->id
-                    || CarbonImmutable::parse($observation->occurred_at)->greaterThan($cutoff)
                     || ! hash_equals(
                         FaultMonitor::generation($binding),
                         (string) $observation->source_generation
                     )) {
+                    return false;
+                }
+                // A malformed retained source timestamp cannot terminate the
+                // bounded scan or starve other vendors. Never infer a valid
+                // overdue fault from an unparsable historical observation.
+                try {
+                    $occurredAt = CarbonImmutable::parse($observation->occurred_at);
+                } catch (Throwable) {
+                    return false;
+                }
+                if ($occurredAt->greaterThan($cutoff)) {
                     return false;
                 }
                 $preference = DB::table('notification_preferences')
