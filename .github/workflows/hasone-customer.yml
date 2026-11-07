@@ -18,6 +18,9 @@ concurrency:
 
 jobs:
   native:
+    # Keep these check contexts distinct from apps/mobile's native jobs.
+    # Both suites are required when a PR changes both app trees.
+    name: hasone-native (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
