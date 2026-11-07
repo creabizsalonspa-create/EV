@@ -8,6 +8,9 @@ import '../../../../core/service/shared_preferance/shared_prefarance.dart';
 class AuthController extends GetxController {
   final _net = NetworkService().client;
   final _prefs = SharedPrefs();
+  // Shared across controller instances: whichever sign-in or OTP verification
+  // starts most recently is the only attempt permitted to publish credentials.
+  static int _credentialAttempt = 0;
 
   Rxn<UserModel> user = Rxn<UserModel>();
   RxBool loading = false.obs;
@@ -60,84 +63,111 @@ class AuthController extends GetxController {
   /// body: { email, otp }
   /// response: { status: "Success", message: "...", token: "..." }
   Future<bool> verifyOtp(String email, String otp) async {
+    final attempt = ++_credentialAttempt;
     loading.value = true;
-
-    final res = await _net.postRequest(
-      '/api/v1/VerifyOTP',
-      body: {'email': email, 'otp': otp},
-    );
-
-    loading.value = false;
-
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      final token = res.responseData?['token']?.toString();
-      if (token != null && token.isNotEmpty) {
-        await _prefs.saveToken(token);
-      }
-      Get.snackbar(
-        'Success',
-        res.responseData?['message']?.toString() ?? 'OTP verified successfully',
-        snackPosition: SnackPosition.TOP,
+    try {
+      // Authentication is a new identity boundary. Clear the prior token
+      // first; leave it blocked if secure deletion cannot be confirmed.
+      await _prefs.clear();
+      if (attempt != _credentialAttempt) return false;
+      final res = await _net.postRequest(
+        '/api/v1/VerifyOTP',
+        body: {'email': email, 'otp': otp},
       );
-      return true;
-    } else {
+      if (attempt != _credentialAttempt) return false;
+      if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
+        final token = res.responseData?['token']?.toString();
+        if (token == null || token.trim().isEmpty) {
+          Get.snackbar('Verification incomplete', 'The server did not return a valid session.',
+              snackPosition: SnackPosition.TOP);
+          return false;
+        }
+        await _prefs.saveToken(token);
+        if (attempt != _credentialAttempt) return false;
+        Get.snackbar(
+          'Success',
+          res.responseData?['message']?.toString() ?? 'OTP verified successfully',
+          snackPosition: SnackPosition.TOP,
+        );
+        return true;
+      }
       Get.snackbar(
         'Invalid OTP',
         res.errorMessage ?? 'The OTP you entered is incorrect',
         snackPosition: SnackPosition.TOP,
       );
       return false;
+    } catch (_) {
+      if (attempt == _credentialAttempt) {
+        Get.snackbar('Verification unavailable', 'Could not safely save this session.',
+            snackPosition: SnackPosition.TOP);
+      }
+      return false;
+    } finally {
+      if (attempt == _credentialAttempt) loading.value = false;
     }
   }
 
-  // ── LOGIN ────────────────────────────────────────────────────────────────────
+    // ── LOGIN ────────────────────────────────────────────────────────────────────
   /// POST /api/v1/Login
   /// body: { email, password }
   /// response: { status, message, token, userId, name, email }
   Future<bool> login(String email, String password) async {
+    final attempt = ++_credentialAttempt;
     loading.value = true;
-
-    final res = await _net.postRequest(
-      '/api/v1/Login',
-      body: {'email': email, 'password': password},
-    );
-
-    loading.value = false;
-
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      // Save token
-      final token = res.responseData?['token']?.toString();
-      if (token != null && token.isNotEmpty) {
-        await _prefs.saveToken(token);
-      }
-
-      // Save user data from response
-      final userData = <String, dynamic>{
-        'fullName': res.responseData?['name']?.toString(),
-        'email': res.responseData?['email']?.toString(),
-        'userId': res.responseData?['userId']?.toString(),
-      };
-      user.value = UserModel.fromJson(userData);
-      await _prefs.saveUser(userData);
-
-      pendingEmail = email;
-      Get.snackbar(
-        'Success',
-        res.responseData?['message']?.toString() ?? 'Login successful',
-        snackPosition: SnackPosition.TOP,
+    try {
+      // Supersede earlier login responses and invalidate any old cached
+      // account before the new request. A failed login stays logged out.
+      await _prefs.clear();
+      if (attempt != _credentialAttempt) return false;
+      final res = await _net.postRequest(
+        '/api/v1/Login',
+        body: {'email': email, 'password': password},
       );
-      return true;
-    } else {
+      if (attempt != _credentialAttempt) return false;
+      if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
+        final token = res.responseData?['token']?.toString();
+        if (token == null || token.trim().isEmpty) {
+          Get.snackbar('Login incomplete', 'The server did not return a valid session.',
+              snackPosition: SnackPosition.TOP);
+          return false;
+        }
+        await _prefs.saveToken(token);
+        if (attempt != _credentialAttempt) return false;
+        final userData = <String, dynamic>{
+          'fullName': res.responseData?['name']?.toString(),
+          'email': res.responseData?['email']?.toString(),
+          'userId': res.responseData?['userId']?.toString(),
+        };
+        await _prefs.saveUser(userData);
+        if (attempt != _credentialAttempt) return false;
+        user.value = UserModel.fromJson(userData);
+        pendingEmail = email;
+        Get.snackbar(
+          'Success',
+          res.responseData?['message']?.toString() ?? 'Login successful',
+          snackPosition: SnackPosition.TOP,
+        );
+        return true;
+      }
       Get.snackbar(
         'Login Failed',
         res.errorMessage ?? 'Invalid credentials',
         snackPosition: SnackPosition.TOP,
       );
       return false;
+    } catch (_) {
+      if (attempt == _credentialAttempt) {
+        Get.snackbar('Sign-in unavailable', 'Could not safely save this session.',
+            snackPosition: SnackPosition.TOP);
+      }
+      return false;
+    } finally {
+      if (attempt == _credentialAttempt) loading.value = false;
     }
   }
 
-  // ── RESEND OTP ───────────────────────────────────────────────────────────────
+    // ── RESEND OTP ───────────────────────────────────────────────────────────────
   /// POST /api/v1/ResendOTP
   /// body: { email }
   /// response: { status: "Success", message: "New OTP has been sent to your email!" }
