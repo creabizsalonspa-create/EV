@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const required = ['APP_KEY', 'STAGING_HOST', 'ACME_EMAIL', 'DB_PASSWORD'];
+const required = ['APP_KEY', 'STAGING_HOST', 'ACME_EMAIL', 'DB_PASSWORD', 'PAYMENT_PROVIDER', 'MAIL_MAILER'];
 const reservedSuffixes = ['.example', '.invalid', '.test', '.localhost', '.local'];
 const safeTag = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 
