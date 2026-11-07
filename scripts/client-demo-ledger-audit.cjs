@@ -93,8 +93,9 @@ async function inspect(manifest,send=jsonRequest,clock=()=>new Date().toISOStrin
     payment_processor_verified:false,real_money_moved:false,physical_charging_verified:false,
     production_accepted:false,customer_contract_accepted:false};
   const fixture=load(manifest);
-  let customerOk=false,adminOk=false;
+  let customerOk=false,vendorOk=false,adminOk=false;
   const customerJar=new Map();
+  const vendorJar=new Map();
   const adminJar=new Map();
   try {
     const customer=await authorize('customer',fixture,send,customerJar);
@@ -118,12 +119,35 @@ async function inspect(manifest,send=jsonRequest,clock=()=>new Date().toISOStrin
     if(!await revoke(customerJar,send))throw Error('Local customer session remained authenticated');
     customerOk=false;
 
+    const invoices=page(i.body);
+    const vendor=await authorize('vendor',fixture,send,vendorJar);
+    vendorOk=vendor.loggedIn;
+    if(!vendorOk || vendor.identity?.role!=='vendor' ||
+      vendor.identity?.email!==fixture.accounts.vendor.email ||
+      !Number.isSafeInteger(vendor.id))throw Error('Wrong local vendor identity');
+    const vendorListing=await send('/api/finance/invoices','GET',undefined,vendorJar);
+    if(vendorListing.status!==200 || !Array.isArray(vendorListing.body?.data) ||
+      vendorListing.body.data.some(x=>x.vendor_id!==vendor.id)) {
+      throw Error('Private vendor invoice scope mismatch');
+    }
+    for(const reference of references) {
+      const invoice=invoices.find(x=>x.id===reference.invoice_id);
+      if(!invoice || invoice.vendor_id!==vendor.id ||
+        !vendorListing.body.data.some(x=>x.id===invoice.id)) {
+        throw Error('Simulated invoice not owned by synthetic vendor');
+      }
+      const response=await send('/api/finance/invoices/'+invoice.id+'/journal','GET',undefined,vendorJar);
+      if(response.status!==200)throw Error('Vendor cannot review its simulated journal');
+      validateInvoiceJournal(invoice,customer.id,response.body);
+    }
+    if(!await revoke(vendorJar,send))throw Error('Local vendor session remained authenticated');
+    vendorOk=false;
+
     const admin=await authorize('admin',fixture,send,adminJar);
     adminOk=admin.loggedIn;
     if(!adminOk || admin.identity?.role!=='admin'||
       admin.identity?.email!==fixture.accounts.admin.email ||
       !Number.isSafeInteger(admin.id))throw Error('Wrong synthetic Admin identity');
-    const invoices=page(i.body);
     for(const reference of references){
       const invoice=invoices.find(x=>x.id===reference.invoice_id);
       if(!invoice)throw Error('Source invoice disappeared from customer listing');
@@ -139,9 +163,10 @@ async function inspect(manifest,send=jsonRequest,clock=()=>new Date().toISOStrin
   }catch{
     result.status='INCOMPLETE';result.simulated_protocols=[];result.balanced_invoice_postings=0;
   }finally{
-    if(customerOk||adminOk){
+    if(customerOk||vendorOk||adminOk){
       let cleared=true;
       if(customerOk)cleared=(await revoke(customerJar,send))&&cleared;
+      if(vendorOk)cleared=(await revoke(vendorJar,send))&&cleared;
       if(adminOk)cleared=(await revoke(adminJar,send))&&cleared;
       if(!cleared){result.status='INCOMPLETE';result.simulated_protocols=[];result.balanced_invoice_postings=0;}
     }
@@ -156,7 +181,7 @@ async function main(argv=process.argv.slice(2),deps={}){
     const proof=await inspect(config.manifest,deps.send||jsonRequest,deps.clock);
     writeEvidence(config.output,proof);
     if(proof.status!=='LOCAL_SIMULATED_LEDGER_VERIFIED'){
-      process.stderr.write('FAIL: private synthetic double-entry ledger or customer/Admin authorization evidence incomplete; no details disclosed.\n');
+      process.stderr.write('FAIL: private synthetic double-entry ledger or customer/vendor/Admin authorization evidence incomplete; no details disclosed.\n');
       return 1;
     }
     process.stdout.write('PASS: two independent simulated OCPP invoice postings balanced, with no cash ledger, real payment or physical charger acceptance.\n');
