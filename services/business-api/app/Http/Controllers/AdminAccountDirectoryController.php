@@ -42,9 +42,10 @@ class AdminAccountDirectoryController extends Controller
         }
 
         if (isset($filters['verified'])) {
-            $query->whereNull('email_verified_at', 'and', $filters['verified'] === 'no');
             if ($filters['verified'] === 'yes') {
                 $query->whereNotNull('email_verified_at');
+            } else {
+                $query->whereNull('email_verified_at');
             }
         }
 
