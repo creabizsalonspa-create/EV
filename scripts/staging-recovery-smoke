@@ -43,9 +43,10 @@ trap 'exit 143' TERM
 python3 - "$scratch" "$review_id" <<'PY_SETUP'
 import base64, os, pathlib, secrets, sys
 root, prefix = pathlib.Path(sys.argv[1]), sys.argv[2]
+# A restorable Laravel database requires the original APP_KEY.
+app_key = 'base64:' + base64.b64encode(secrets.token_bytes(32)).decode()
 for side in ('source', 'target'):
     password = secrets.token_hex(32)
-    app_key = 'base64:' + base64.b64encode(secrets.token_bytes(32)).decode()
     database = {
         'POSTGRES_DB': 'ev_recovery_review',
         'POSTGRES_USER': 'ev_recovery_review',
@@ -137,6 +138,18 @@ CREATE TABLE ev_agent3_recovery_probe (
 INSERT INTO ev_agent3_recovery_probe VALUES
   ('alpha', 'integrity-checked'), ('beta', 'source-only-data');
 SQL_SEED
+# Synthetic Laravel ciphertext is created by the application, not a SQL fixture.
+docker exec -i --user www-data "$source_app" php <<'PHP_ENCRYPT'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$ciphertext = \Illuminate\Support\Facades\Crypt::encryptString('agent3-recovery-private-marker');
+\Illuminate\Support\Facades\DB::table('ev_agent3_recovery_probe')->insert([
+    'marker_key' => 'encrypted-laravel',
+    'marker_value' => $ciphertext,
+]);
+PHP_ENCRYPT
 # Distinct run-owned private file, never a real customer's document.
 docker exec --user www-data "$source_app" php -r '
 $p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
@@ -185,6 +198,21 @@ if (!hash_equals(hash("sha256", "synthetic-private-archive"), hash_file("sha256"
 if ((fileperms($p) & 0777) !== 0600) exit(1);
 '
 docker exec --user www-data "$target_app" php artisan migrate:status --no-interaction >/dev/null
+docker exec -i --user www-data "$target_app" php <<'PHP_DECRYPT'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$ciphertext = \Illuminate\Support\Facades\DB::table('ev_agent3_recovery_probe')
+    ->where('marker_key', 'encrypted-laravel')->value('marker_value');
+if (!is_string($ciphertext) || !hash_equals(
+    'agent3-recovery-private-marker',
+    \Illuminate\Support\Facades\Crypt::decryptString($ciphertext)
+)) {
+    throw new RuntimeException('Recovered APP_KEY could not decrypt source data.');
+}
+echo "Recovered Laravel encrypted record: PASS\n";
+PHP_DECRYPT
 docker exec -i --user www-data "$target_app" php <<'PHP_HTTP'
 <?php
 $context = stream_context_create(['http' => ['timeout' => 10, 'ignore_errors' => true]]);
