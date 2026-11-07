@@ -138,6 +138,9 @@
         if (!a.trim() || !b.trim() || !Number.isFinite(Number(a)) || !Number.isFinite(Number(b))) return;
         lat.value = a;
         lng.value = b;
+        // A programmatic coordinate change must invalidate prior source
+        // records too; it never authorizes another external provider call.
+        lat.dispatchEvent(new Event('input', { bubbles: true }));
         // Copy does not authorize or trigger an external provider call.
         announce('Coordinates copied locally; confirm consent to search.', 'نُسخت الإحداثيات محلياً؛ أكد الموافقة للبحث.');
     };
@@ -146,6 +149,8 @@
         r.reported_operational_evidence === 'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED' &&
         (r.reported_operational === null || typeof r.reported_operational === 'boolean') &&
         r.reported_access_evidence === 'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED' &&
+        r.reported_cost_evidence === 'OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED' &&
+        typeof r.reported_cost_note === 'string' && Array.from(r.reported_cost_note).length <= 240 &&
         typeof r.reported_access === 'string' &&
         (r.reported_membership_required === null || typeof r.reported_membership_required === 'boolean') &&
         (r.reported_access_key_required === null || typeof r.reported_access_key_required === 'boolean') &&
@@ -205,6 +210,10 @@
                 : r.reported_membership_required === false
                     ? (ar() ? 'العضوية غير مطلوبة حسب تقرير المجتمع؛ غير مؤكدة.' : 'Crowd report: membership not required; unverified.')
                     : (ar() ? 'اشتراط العضوية غير معروف.' : 'Crowd-reported membership requirement unknown.');
+            const cost = document.createElement('p');
+            cost.textContent = (ar() ? 'ملاحظة التكلفة حسب تقرير المجتمع (غير مؤكدة وليست عرض سعر): ' : 'Crowd-reported cost note (unverified, not a quote): ') +
+                (r.reported_cost_note || (ar() ? 'غير متاحة' : 'unavailable')) +
+                (ar() ? ' · تحقق من الأسعار مع المشغل.' : ' · Confirm prices with the operator.');
             const license = document.createElement('p');
             license.textContent = (ar() ? 'المصدر والترخيص: ' : 'Source/license: ') + r.attribution + ' · ' + r.data_license;
             const connectors = document.createElement('p');
@@ -226,7 +235,7 @@
                     : 'Send this crowd-reported location to Google Maps? Its privacy policy applies. No route, ETA or live charger availability is verified.'))
                     event.preventDefault();
             };
-            card.append(heading, place, distance, age, reportedStatus, operatorInfo, access, membership, license, connectors,
+            card.append(heading, place, distance, age, reportedStatus, operatorInfo, access, membership, cost, license, connectors,
                 text('p', 'Availability unknown. No remote charging, booking or payment.',
                     'التوفر غير معروف. لا شحن أو حجز أو دفع عن بُعد.'), link, directions);
             results.append(card);
@@ -256,6 +265,24 @@
         radius.value = '25';
         announce('', '');
     };
+    // Results are tied to the *submitted* query, not to whatever filters
+    // happen to be visible afterward. Editing any search field invalidates
+    // both the list and map immediately; no additional coordinates are sent.
+    const invalidateOnEdit = event => {
+        if (event.target === consent || (!current && !lastResult)) return;
+        generation++;
+        current?.abort();
+        current = null;
+        lastResult = null;
+        search.disabled = false;
+        results.replaceChildren();
+        window.dispatchEvent(new CustomEvent('open-charge-map-data', { detail: [] }));
+        consent.checked = false;
+        announce('Filters changed. Results cleared; review and consent to search again.',
+            'تغيرت عوامل التصفية. حُذفت النتائج؛ راجع البحث ووافق من جديد.');
+    };
+    form.addEventListener('input', invalidateOnEdit);
+    form.addEventListener('change', invalidateOnEdit);
     form.onsubmit = async e => {
         e.preventDefault();
         if (!enabled || !consent.checked || !form.checkValidity()) return;

@@ -69,6 +69,8 @@ final class OpenChargeMapProjection
         $accessLabel = self::label($usage['Title'] ?? null, 120);
         $membership = $usage['IsMembershipRequired'] ?? null;
         $accessKey = $usage['IsAccessKeyRequired'] ?? null;
+        // Open Charge Map UsageCost is crowd text, never a verified tariff.
+        $costNote = self::label($poi['UsageCost'] ?? null, 240);
 
         $connections = [];
         foreach (is_array($poi['Connections'] ?? null) ? $poi['Connections'] : [] as $connection) {
@@ -110,6 +112,8 @@ final class OpenChargeMapProjection
             'reported_membership_required' => is_bool($membership) ? $membership : null,
             'reported_access_key_required' => is_bool($accessKey) ? $accessKey : null,
             'reported_access_evidence' => 'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED',
+            'reported_cost_note' => $costNote,
+            'reported_cost_evidence' => 'OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED',
             'data_provider' => $providerLabel,
             'data_license' => $license,
             'attribution' => 'Open Charge Map / '.$providerLabel,

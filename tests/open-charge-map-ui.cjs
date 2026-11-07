@@ -24,6 +24,8 @@ const point = {
   reported_membership_required: true,
   reported_access_key_required: false,
   reported_access_evidence: "OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED",
+  reported_cost_note: "Check <strong>operator</strong> app",
+  reported_cost_evidence: "OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED",
   source_clock_evidence: "CROWD_REPORTED_TIME",
   source_age_minutes: 120,
   connections: [{ reported_connector_type: "Type 2", reported_power_kw: 22, availability: "unknown" }],
@@ -54,10 +56,10 @@ const reply = {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   try {
-    for (const mode of ["disabled", "enabled", "unsafe", "late"]) {
+    for (const mode of ["disabled", "enabled", "copy", "unsafe", "late", "late-filter"]) {
       const context = await browser.newContext({ permissions: [] });
       const page = await context.newPage();
-      if (mode === "late") await page.addInitScript(() => {
+      if (mode === "late" || mode === "late-filter") await page.addInitScript(() => {
         const original = Response.prototype.json;
         Response.prototype.json = function(...args) {
           if (this.url.includes("/api/discovery/open-charge-map/search")) {
@@ -136,9 +138,13 @@ const reply = {
       assert.equal(searchRequests.length, 0, "Filling coordinates must not start a partner request");
       await root.locator('input[type="checkbox"]').check();
       await root.getByRole("button", { name: "Search open-licensed locations" }).click();
-      if (mode === "late") {
+      if (mode === "late" || mode === "late-filter") {
         await page.waitForFunction(() => typeof window.__releaseOcmJson === "function", { timeout: 6000 });
-        await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
+        if (mode === "late") {
+          await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
+        } else {
+          await root.locator('[name="ocm_min_reported_power_kw"]').fill("40");
+        }
         await page.evaluate(() => window.__releaseOcmJson());
         await page.waitForTimeout(200);
         assert.equal(await root.locator("article").count(), 0);
@@ -146,6 +152,10 @@ const reply = {
           "Delayed JSON after identity switch leaked stale licensed-source data");
         assert.equal(await root.getByRole("button", { name: "Search open-licensed locations" }).isEnabled(), true,
           "Aborted source query must not permanently disable search");
+        if (mode === "late-filter") {
+          assert.equal(await root.locator('input[type="checkbox"]').isChecked(), false);
+          assert.match(await root.textContent(), /Filters changed\. Results cleared/);
+        }
         assert.deepEqual(pageErrors, []);
         await context.close();
         continue;
@@ -154,6 +164,25 @@ const reply = {
         const el = document.querySelector("#open-charge-map-discovery");
         return el && (el.querySelector("article") || el.textContent.includes("Licensed source unavailable"));
       });
+      if (mode === "copy") {
+        await page.locator(".ocm-map-pin").waitFor();
+        await page.evaluate(() => {
+          const source = document.getElementById("filters");
+          source.elements.latitude.value = "25.3";
+          source.elements.longitude.value = "55.4";
+        });
+        await root.getByRole("button", { name: "Copy chosen map point" }).click();
+        assert.equal(await root.locator('[name="ocm_latitude"]').inputValue(), "25.3");
+        assert.equal(await root.locator('[name="ocm_longitude"]').inputValue(), "55.4");
+        assert.equal(await root.locator("article").count(), 0);
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0,
+          "Copying a different map point cannot retain old source markers");
+        assert.equal(await root.locator('input[type="checkbox"]').isChecked(), false);
+        assert.equal(searchRequests.length, 1, "Copying coordinates must not call OCM without consent");
+        assert.deepEqual(pageErrors, []);
+        await context.close();
+        continue;
+      }
       assert.equal(searchRequests.length, 1);
       assert.equal(searchRequests[0].method, "POST");
       assert.deepEqual(searchRequests[0].body, {
@@ -178,6 +207,8 @@ const reply = {
         await root.getByText("Crowd-reported operational at last update; unverified and not live.", { exact: true }).waitFor();
         await root.getByText("Reported operator (unverified): Unverified network", { exact: true }).waitFor();
         await root.getByText("Crowd report: membership required; unverified.", { exact: true }).waitFor();
+        await root.getByText("Crowd-reported cost note (unverified, not a quote): Check <strong>operator</strong> app · Confirm prices with the operator.", { exact: true }).waitFor();
+        assert.equal(await root.locator("article strong").count(), 0, "Cost notes cannot render as markup");
         await root.getByText("Crowd-reported access (unverified): Membership Required · confirm with operator, not live.", { exact: true }).waitFor();
         assert.equal(await root.getByRole("button", { name: "Request charge" }).count(), 0);
         const source = root.getByRole("link", { name: "View source and license" });
@@ -216,6 +247,8 @@ const reply = {
         ).waitFor();
         await popup.getByText("Crowd-reported operator (unverified): Unverified network", { exact: true }).waitFor();
         await popup.getByText("Crowd report: membership required; unverified.", { exact: true }).waitFor();
+        await popup.getByText("Crowd-reported cost note (unverified, not a quote): Check <strong>operator</strong> app. Check current operator tariff.", { exact: true }).waitFor();
+        assert.equal(await popup.locator("strong").count(), 1, "Untrusted cost note cannot create markup");
         assert.equal(await popup.getByRole("button", { name: "Add charging stop" }).count(), 0);
         assert.equal(await popup.getByRole("button", { name: "Request charge" }).count(), 0);
         assert.equal(await popup.getByRole("link", { name: "View Open Charge Map source" }).getAttribute("href"),
@@ -265,6 +298,17 @@ const reply = {
         assert.equal(searchRequests.length, requestCountBeforeLocale, "Locale switch must not refetch OCM coordinates");
         await page.locator("#language").click();
         await root.getByText("Straight-line distance: 1.25 km", { exact: true }).waitFor();
+        const queriesBeforeEdit = searchRequests.length;
+        await root.locator('[name="ocm_reported_connector"]').fill("CCS");
+        assert.equal(await root.locator("article").count(), 0,
+          "Changing a connector filter must invalidate previously submitted results");
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0,
+          "Changing a filter must clear mismatched map markers");
+        assert.equal(await layer.isHidden(), true);
+        assert.equal(await root.locator('input[type="checkbox"]').isChecked(), false);
+        assert.match(await root.textContent(), /Filters changed\. Results cleared/);
+        assert.equal(searchRequests.length, queriesBeforeEdit,
+          "Editing filters must not silently call provider or transmit coordinates");
         await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
         assert.equal(await root.locator("article").count(), 0);
         assert.equal(await page.locator(".ocm-map-pin").count(), 0,

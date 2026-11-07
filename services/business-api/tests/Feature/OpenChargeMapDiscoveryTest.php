@@ -32,6 +32,7 @@ class OpenChargeMapDiscoveryTest extends TestCase
             ],
             'SubmissionStatusTypeID' => 200,
             'StatusType' => ['IsOperational' => true],
+            'UsageCost' => 'See operator app <script>alert(1)</script>; not a quote',
             'OperatorInfo' => ['Title' => 'Synthetic Operator'],
             'UsageType' => ['Title' => 'Membership Required', 'IsMembershipRequired' => true, 'IsAccessKeyRequired' => false],
             'AddressInfo' => [
@@ -91,6 +92,8 @@ class OpenChargeMapDiscoveryTest extends TestCase
             ->assertJsonPath('results.0.reported_access', 'Membership Required')
             ->assertJsonPath('results.0.reported_membership_required', true)
             ->assertJsonPath('results.0.reported_access_evidence', 'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED')
+            ->assertJsonPath('results.0.reported_cost_note', 'See operator app <script>alert(1)</script>; not a quote')
+            ->assertJsonPath('results.0.reported_cost_evidence', 'OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED')
             ->assertJsonPath('results.0.remote_control', false)
             ->assertJsonPath('results.0.reservable', false)
             ->assertJsonPath('results.0.billing_eligible', false)

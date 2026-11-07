@@ -14,6 +14,7 @@ $poi = [
     'SubmissionStatusTypeID'=>200,
     'StatusType'=>['IsOperational'=>true],
     'UsageType'=>['Title'=>'Membership Required','IsMembershipRequired'=>true,'IsAccessKeyRequired'=>false],
+    'UsageCost'=>'Check operator pricing <b>unverified</b>',
     'DateLastStatusUpdate'=>'2026-11-07T10:00:00Z',
     'PrivateNotes'=>'untrusted',
 ];
@@ -29,6 +30,9 @@ check($v['availability']==='unknown' && $v['remote_control']===false && $v['rese
 check($v['reported_operational']===true && $v['reported_operational_evidence']==='OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED','crowd operational evidence');
 check($v['reported_access']==='Membership Required' && $v['reported_membership_required']===true && $v['reported_access_key_required']===false, 'source-qualified access metadata');
 check($v['reported_access_evidence']==='OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED','unverified access provenance');
+check($v['reported_cost_note']==='Check operator pricing <b>unverified</b>' && $v['reported_cost_evidence']==='OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED','crowd cost provenance');
+$badCost=$poi;$badCost['UsageCost']=str_repeat('x',500);check(strlen(OpenChargeMapProjection::item($badCost,$now)['reported_cost_note'])===240,'cost length capped');
+$badCost=$poi;$badCost['UsageCost']=['private'=>'ignored'];check(OpenChargeMapProjection::item($badCost,$now)['reported_cost_note']==='','malformed cost hidden');
 check(count($v['connections'])===2 && $v['connections'][1]['reported_power_kw']===null,'reported connections');
 check(!str_contains(json_encode($v),'ApiKey')&&!str_contains(json_encode($v),'secret')&&!str_contains(json_encode($v),'PrivateNotes'),'private data leakage');
 $bad=$poi;$bad['StatusType']['IsOperational']=false;check(OpenChargeMapProjection::item($bad,$now)['reported_operational']===false,'reported false');

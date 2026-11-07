@@ -341,6 +341,8 @@
         r.reported_operational_evidence === "OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED" &&
         (r.reported_operational === null || typeof r.reported_operational === "boolean") &&
         r.reported_access_evidence === "OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED" &&
+        r.reported_cost_evidence === "OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED" &&
+        typeof r.reported_cost_note === "string" && Array.from(r.reported_cost_note).length <= 240 &&
         typeof r.reported_access === "string" &&
         r.availability === "unknown" && r.remote_control === false &&
         r.reservable === false && r.billing_eligible === false &&
@@ -429,6 +431,11 @@
                             ? "العضوية غير مطلوبة حسب تقرير المجتمع؛ غير مؤكدة."
                             : "اشتراط العضوية في التقرير غير معروف.",
                 );
+                const cost = make(
+                    "p",
+                    "Crowd-reported cost note (unverified, not a quote): " + (row.reported_cost_note || "unavailable") + ". Check current operator tariff.",
+                    "ملاحظة التكلفة حسب تقرير المجتمع (غير مؤكدة وليست عرض سعر): " + (row.reported_cost_note || "غير متاحة") + ". تحقق من الأسعار الحالية مع المشغل.",
+                );
                 const attribution = document.createElement("p");
                 attribution.textContent = row.attribution + " · " + row.data_license;
                 const jump = make(
@@ -466,7 +473,7 @@
                         "إرسال موقع المصدر المجتمعي إلى خرائط Google؟ تطبق سياسة خصوصية المزود، ولم يتم التحقق من المسار أو الوقت أو توفر الشاحن.",
                     ))) event.preventDefault();
                 };
-                popup.append(name, evidence, sourceAge, reported, operatorInfo, access, membership, attribution, jump, source, directions);
+                popup.append(name, evidence, sourceAge, reported, operatorInfo, access, membership, cost, attribution, jump, source, directions);
             }
             L.marker([+first.latitude, +first.longitude], {
                 title: freshness === "ocm-pin-uncertain"
