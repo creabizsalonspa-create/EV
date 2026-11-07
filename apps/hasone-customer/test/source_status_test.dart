@@ -92,6 +92,42 @@ void main() {
     }
   });
   testWidgets(
+    'verified OCPP meter still cannot display an injected battery percentage',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      Get.testMode = true;
+      final controller = PendingStatus();
+      Get.put<AllBookingController>(controller);
+      await tester.pumpWidget(
+        ScreenUtilInit(
+          designSize: const Size(390, 844),
+          builder: (_, child) => const GetMaterialApp(
+            home: ChargingScreen(
+              bookingId: 'b',
+              sessionId: 's',
+              initialBatteryPercent: 99,
+              initialTimeRemainingMs: 60000,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      controller.response.complete(
+        Data.fromJson({...contract(), 'batteryPercent': 99}),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Completed'), findsOneWidget);
+      expect(find.text('99%'), findsNothing);
+      expect(find.text('Unavailable'), findsWidgets);
+      await tester.pumpWidget(const SizedBox());
+      Get.reset();
+    },
+  );
+  testWidgets(
     'initial estimates and late background responses cannot show charging',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
