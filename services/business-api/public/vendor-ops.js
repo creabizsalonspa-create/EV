@@ -2256,6 +2256,7 @@ window.createVendorWorkspace = ({
             };
             for (const row of data.data) {
                 const card = document.createElement("article");
+                card.dataset.repairOrderId = String(row.id);
                 card.append(
                     raw("h4", `#${row.id} · ${row.alert_id}`),
                     ui("p", states[row.state] || "Repair state unavailable"),
@@ -3266,6 +3267,30 @@ window.createVendorWorkspace = ({
         pane.scrollIntoView({ block: "center", behavior: "smooth" });
     }
 
+    async function openRepairNotice(companyId, chargerId, orderId) {
+        if (![companyId, chargerId, orderId].every(
+            (id) => Number.isSafeInteger(id) && id > 0,
+        )) throw new Error("Invalid simulator repair navigation target.");
+        const epoch = generation;
+        if (!valid(epoch)) return;
+        const company = await api(base + "companies/" + companyId);
+        if (!valid(epoch)) return;
+        await detail(company);
+        if (!valid(epoch)) return;
+        const host = root.querySelector("[data-company-detail]");
+        if (!host || !host.isConnected) return;
+        const pane = document.createElement("section");
+        pane.dataset.notificationRepairReview = String(orderId);
+        host.append(pane);
+        await repairOrders(company, { id: chargerId }, pane, epoch);
+        if (!valid(epoch) || !pane.isConnected) return;
+        const found = Array.from(pane.querySelectorAll("[data-repair-order-id]")).find(
+            (node) => Number(node.dataset.repairOrderId) === orderId,
+        );
+        if (found) found.scrollIntoView({ block: "center", behavior: "smooth" });
+        else pane.append(ui("p", "Repair work order not on this page. Use Next to review older orders."));
+    }
+
     async function openFaultNotice(companyId, chargerId, alertId) {
         if (![companyId, chargerId, alertId].every(
             (id) => Number.isSafeInteger(id) && id > 0,
@@ -3435,5 +3460,5 @@ window.createVendorWorkspace = ({
             }
         }
     }
-    return { clear, setActor, openFaultNotice, openMonitorNotice };
+    return { clear, setActor, openFaultNotice, openMonitorNotice, openRepairNotice };
 };

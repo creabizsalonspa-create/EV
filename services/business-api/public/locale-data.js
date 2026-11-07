@@ -119,6 +119,14 @@ window.EV_MESSAGES = {
     "Support notifications": { en: "Support notifications", ar: "إشعارات الدعم" },
     "Vehicle notifications": { en: "Vehicle notifications", ar: "إشعارات المركبة" },
     "Charging notifications": { en: "Charging notifications", ar: "إشعارات الشحن" },
+    "Repair work order not on this page. Use Next to review older orders.": {
+        en: "Repair work order not on this page. Use Next to review older orders.",
+        ar: "أمر الإصلاح ليس في هذه الصفحة. استخدم التالي لعرض الأوامر الأقدم.",
+    },
+    "Review simulated repair work orders": {
+        en: "Review simulated repair work orders",
+        ar: "مراجعة أوامر إصلاح الشاحن التجريبي",
+    },
     "Simulated charger repair opened · station #{id}": {
         en: "Simulated charger repair opened · station #{id}",
         ar: "فُتح طلب إصلاح الشاحن التجريبي · المحطة #{id}",

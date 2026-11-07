@@ -4,6 +4,7 @@ import 'api.dart';
 import 'strings.dart';
 import 'fleet.dart';
 import 'charger_diagnostics.dart';
+import 'charger_repairs.dart';
 import 'charging_operations.dart';
 
 String newSupportRequestKey() {
@@ -100,17 +101,38 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
 }
 
 
+/// Navigate to a repair-order review without conflating source evidence with
+/// fault acknowledgment or physical repair. The vendor API rechecks access.
+Map<String, int>? simulatedRepairTarget(Map<String, dynamic> row) {
+  if (!const {
+    'charging.repair.opened.simulated',
+    'charging.repair.work_started.simulated',
+    'charging.repair.reopened.simulated',
+    'charging.repair.review_requested.simulated',
+    'charging.repair.review_closed.simulated',
+  }.contains(row['kind'])) {
+    return null;
+  }
+  final metadata = row['metadata'];
+  if (metadata is! Map ||
+      metadata['source'] != 'simulator' ||
+      metadata['physical_verification'] != false ||
+      metadata['review_only'] != true) {
+    return null;
+  }
+  const fields = ['company_id', 'charger_id', 'alert_id', 'repair_order_id'];
+  if (!fields.every((key) => metadata[key] is int && metadata[key] > 0)) {
+    return null;
+  }
+  return {for (final key in fields) key: metadata[key] as int};
+}
+
 /// Navigate only unambiguous, simulator-scoped owner notifications. Backend
 /// VendorAccess still re-authorizes the selected charger on every request.
 Map<String, int>? simulatedFaultTarget(Map<String, dynamic> row) {
   if (row['kind'] != 'charging.fault.simulated' &&
       row['kind'] != 'charging.fault.recovered.simulated' &&
-      row['kind'] != 'charging.fault.reminder.simulated' &&
-      row['kind'] != 'charging.repair.opened.simulated' &&
-      row['kind'] != 'charging.repair.work_started.simulated' &&
-      row['kind'] != 'charging.repair.reopened.simulated' &&
-      row['kind'] != 'charging.repair.review_requested.simulated' &&
-      row['kind'] != 'charging.repair.review_closed.simulated') {
+      row['kind'] != 'charging.fault.reminder.simulated') {
     return null;
   }
   final details = row['metadata'];
@@ -812,6 +834,29 @@ class SupportViewState extends State<SupportView> {
                                       if (mounted) await refresh();
                                     },
                               child: Text(s.t('reviewSimulatorMonitor')),
+                            ),
+                          if (simulatedRepairTarget(row) != null)
+                            TextButton(
+                              key: const Key('review-simulated-repair'),
+                              onPressed: loading
+                                  ? null
+                                  : () async {
+                                      final target = simulatedRepairTarget(row);
+                                      if (target == null) return;
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => ChargerRepairsView(
+                                            api: widget.api,
+                                            companyId: target['company_id']!,
+                                            chargerId: target['charger_id']!,
+                                            initialAlertId: target['alert_id'],
+                                            onExpired: widget.onSessionExpired,
+                                          ),
+                                        ),
+                                      );
+                                      if (mounted) await refresh();
+                                    },
+                              child: Text(s.t('reviewSimulatedRepair')),
                             ),
                           if (simulatedFaultTarget(row) != null)
                             TextButton(

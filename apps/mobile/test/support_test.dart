@@ -1099,14 +1099,30 @@ void main() {
       };
       expect(inboxNotificationTitle(notice, en), contains('station #17'));
       expect(inboxNotificationTitle(notice, ar), contains('المحطة #17'));
-      expect(simulatedFaultTarget(notice), {
-        'company_id': 5, 'charger_id': 7, 'alert_id': 9,
+      expect(simulatedFaultTarget(notice), isNull);
+      expect(simulatedRepairTarget(notice), {
+        'company_id': 5, 'charger_id': 7,
+        'alert_id': 9, 'repair_order_id': 22,
       });
-      expect(simulatedFaultTarget({
+      expect(simulatedRepairTarget({
         ...notice,
         'metadata': {
           ...notice['metadata'] as Map<String, dynamic>,
           'physical_verification': true,
+        },
+      }), isNull);
+      expect(simulatedRepairTarget({
+        ...notice,
+        'metadata': {
+          ...notice['metadata'] as Map<String, dynamic>,
+          'review_only': false,
+        },
+      }), isNull);
+      expect(simulatedRepairTarget({
+        ...notice,
+        'metadata': {
+          ...notice['metadata'] as Map<String, dynamic>,
+          'repair_order_id': -1,
         },
       }), isNull);
     }

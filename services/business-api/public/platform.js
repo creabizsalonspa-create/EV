@@ -1612,12 +1612,7 @@ async function refreshInbox() {
             row.dataset.notificationId = String(m.id);
         }
         if (["charging.fault.simulated", "charging.fault.recovered.simulated",
-             "charging.fault.reminder.simulated",
-             "charging.repair.opened.simulated",
-             "charging.repair.work_started.simulated",
-             "charging.repair.reopened.simulated",
-             "charging.repair.review_requested.simulated",
-             "charging.repair.review_closed.simulated"].includes(m.kind)) {
+             "charging.fault.reminder.simulated"].includes(m.kind)) {
             const meta = m.metadata;
             if (meta?.source === "simulator" && meta?.physical_verification === false &&
                 ["company_id", "charger_id", "alert_id"].every(
@@ -1631,6 +1626,40 @@ async function refreshInbox() {
                     try {
                         await vendorWorkspace.openFaultNotice(
                             meta.company_id, meta.charger_id, meta.alert_id,
+                        );
+                        if (session !== client.sessionEpoch || account !== user?.id) return;
+                        el("vendor-operations").scrollIntoView({
+                            behavior: "smooth", block: "center",
+                        });
+                    } catch (error) {
+                        if (session === client.sessionEpoch && account === user?.id)
+                            notice(error);
+                    } finally {
+                        review.disabled = false;
+                    }
+                };
+                row.append(review);
+            }
+        }
+        if (["charging.repair.opened.simulated",
+             "charging.repair.work_started.simulated",
+             "charging.repair.reopened.simulated",
+             "charging.repair.review_requested.simulated",
+             "charging.repair.review_closed.simulated"].includes(m.kind)) {
+            const meta = m.metadata;
+            if (meta?.source === "simulator" && meta?.physical_verification === false &&
+                meta?.review_only === true &&
+                ["company_id", "charger_id", "repair_order_id", "alert_id"].every(
+                    (key) => Number.isSafeInteger(meta[key]) && meta[key] > 0,
+                ) && ["vendor", "admin"].includes(user?.role)) {
+                const review = ui("button", "Review simulated repair work orders");
+                review.type = "button";
+                review.onclick = async () => {
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    review.disabled = true;
+                    try {
+                        await vendorWorkspace.openRepairNotice(
+                            meta.company_id, meta.charger_id, meta.repair_order_id,
                         );
                         if (session !== client.sessionEpoch || account !== user?.id) return;
                         el("vendor-operations").scrollIntoView({
