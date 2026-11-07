@@ -1293,6 +1293,7 @@ async function support() {
             const throughId = inbox.latest_id;
             const button = ui("button", "Mark all current notifications as read");
             button.type = "button";
+            button.id = "notification-read-through";
             button.onclick = async () => {
                 button.disabled = true;
                 try {

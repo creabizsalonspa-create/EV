@@ -307,6 +307,43 @@ const { randomUUID } = require("node:crypto");
         "Internal secret QA note",
       ),
     );
+    // New browser + Laravel notification-cutoff acceptance. The second reply is
+    // created AFTER the customer's first visible high-water mark, and must stay
+    // unread when the customer marks only the previously observed messages.
+    const publicReply = async (text) => {
+      await admin.page.locator("#ticket-detail textarea").fill(text);
+      await admin.page.locator("#ticket-detail input[name=internal]").uncheck();
+      await admin.page.locator("#ticket-detail button")
+        .filter({ hasText: "Reply" }).click();
+      await admin.page.waitForFunction(
+        (value) => document.querySelector("#ticket-detail").textContent.includes(value),
+        text,
+      );
+    };
+    await publicReply("Synthetic public update 1 " + run);
+    await customer.page.reload();
+    await customer.page.locator("#notification-read-through").waitFor();
+    const observed = await customer.page.evaluate(() => api("notifications/summary"));
+    assert.equal(observed.unread_count, 1);
+    assert(observed.latest_id > 0);
+    await publicReply("Synthetic public update 2 " + run);
+    await customer.page.locator("#notification-read-through").click();
+    await customer.page.waitForFunction(
+      async () => (await api("notifications/summary")).unread_count === 1,
+    );
+    const afterBulk = await customer.page.evaluate(async () => ({
+      summary: await api("notifications/summary"),
+      page: await api("notifications"),
+    }));
+    assert(afterBulk.summary.latest_id > observed.latest_id);
+    assert.equal(afterBulk.summary.unread_count, 1);
+    const oldRow = afterBulk.page.data.find((row) => row.id === observed.latest_id);
+    assert(oldRow && oldRow.read_at !== null);
+    const newest = afterBulk.page.data.find((row) => row.id === afterBulk.summary.latest_id);
+    assert(newest && newest.read_at === null);
+    assert.equal(await vendor.page.locator("#notifications").getByText(
+      /Synthetic public update 1/,
+    ).count(), 0);
     await vendor.page.setViewportSize({ width: 390, height: 844 });
     assert(
       await vendor.page.evaluate(
