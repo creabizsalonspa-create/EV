@@ -96,6 +96,80 @@ class AdminKycQueueTest extends TestCase
             ->assertOk()->assertJsonPath('total', 0);
     }
 
+    public function test_direct_kyc_approval_requires_real_trade_license_document(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner, 'submitted');
+        $this->actingAs($admin)
+            ->postJson("/api/vendor-ops/companies/{$company->id}/review", [
+                'status' => 'approved',
+                'reason' => 'Reviewed company without trade-license evidence',
+            ])->assertUnprocessable();
+
+        $this->assertDatabaseHas('vendor_companies', [
+            'id' => $company->id, 'status' => 'submitted',
+        ]);
+        $this->assertDatabaseHas('users', [
+            'id' => $owner->id, 'role' => 'customer', 'auth_epoch' => 0,
+        ]);
+        $this->assertDatabaseCount('vendor_company_reviews', 0);
+    }
+
+    public function test_direct_kyc_approval_rejects_suspended_company_owner(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $owner->forceFill(['account_status' => 'suspended'])->save();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner, 'submitted');
+        VendorKycDocument::create([
+            'company_id' => $company->id,
+            'uploaded_by' => $owner->id,
+            'kind' => 'trade_license',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => 2048,
+            'sha256' => str_repeat('a', 64),
+            'storage_path' => 'test-kyc-file.enc',
+        ]);
+        $this->actingAs($admin)
+            ->postJson("/api/vendor-ops/companies/{$company->id}/review", [
+                'status' => 'approved',
+                'reason' => 'Owner suspended during manual review',
+            ])->assertStatus(409);
+        $this->assertDatabaseHas('vendor_companies', [
+            'id' => $company->id, 'status' => 'submitted',
+        ]);
+        $this->assertDatabaseCount('vendor_company_reviews', 0);
+    }
+
+    public function test_approved_company_customer_role_change_revokes_old_browser_epoch(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner, 'submitted');
+        VendorKycDocument::create([
+            'company_id' => $company->id,
+            'uploaded_by' => $owner->id,
+            'kind' => 'trade_license',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => 2048,
+            'sha256' => str_repeat('b', 64),
+            'storage_path' => 'test-kyc-file.enc',
+        ]);
+        $this->actingAs($admin)
+            ->postJson("/api/vendor-ops/companies/{$company->id}/review", [
+                'status' => 'approved',
+                'reason' => 'Reviewed valid trade-license evidence',
+            ])->assertOk()->assertJsonPath('status', 'approved');
+        $this->assertDatabaseHas('users', [
+            'id' => $owner->id, 'role' => 'vendor', 'auth_epoch' => 1,
+        ]);
+        $this->assertDatabaseCount('vendor_company_reviews', 1);
+        $this->actingAs($owner->fresh(), 'web')
+            ->withSession(['account_auth_epoch' => 0])
+            ->getJson('/api/vehicles')->assertUnauthorized();
+    }
+
     public function test_malformed_filters_and_write_requests_are_rejected(): void
     {
         $this->actingAs(User::factory()->create(['role' => 'admin']))
