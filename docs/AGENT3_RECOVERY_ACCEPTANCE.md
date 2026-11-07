@@ -101,3 +101,7 @@ Both independent disposable restore drills record integer UTC epoch boundaries f
 ### Ephemeral run-local HMAC manifest verification
 
 Each *synthetic-only* disposable restore now generates a fresh random 32-byte key in a 0600 file under its run-owned temporary directory. The backup manifest is authenticated using SHA-256 HMAC over canonical JSON and is reverified before/after atomic database restoration and private-file extraction. The checker rejects unsigned manifests when a key is required, wrong keys, altered manifest fields, unsafe/symlinked/weak-permission key files, and mismatching archive bytes. The key is never printed, exported or stored in a success artifact and is destroyed with the disposable scratch directory. **This is NOT independent/offsite authenticity:** an attacker controlling both backup and its ephemeral key could recreate the manifest; no production key-management, signed archive storage or retention guarantees are implied.
+
+### Reviewed container volume destinations
+
+The disposable recovery runtime inspector rejects missing, extra, read-only or bind-mounted Docker volumes and requires exactly one writable local Docker volume at the expected location for each run-owned container. The database role is limited to `/var/lib/postgresql/data`; the Laravel application role is limited to `/var/www/html/storage/app/private`. Distinct source and target volume IDs remain mandatory. Unexpected image-declared additional volumes fail closed. No existing production volume is examined, mounted or modified by the unit tests.

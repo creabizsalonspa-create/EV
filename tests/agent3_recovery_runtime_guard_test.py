@@ -33,7 +33,8 @@ def container(name, network_id, volume):
             'Networks': {'recovery-net': {'NetworkID': network_id}},
             'Ports': {'5432/tcp': None},
         },
-        'Mounts': [{'Type': 'volume', 'Name': volume}],
+        'Mounts': [{'Type': 'volume', 'Name': volume,
+                    'Destination': '/var/lib/postgresql/data', 'RW': True}],
     }
 
 
@@ -76,6 +77,15 @@ class RecoveryIsolationTests(unittest.TestCase):
             ('NetworkSettings.Ports', {'5432/tcp': [{'HostPort': '5432'}]}),
             ('NetworkSettings.Ports', ['malformed-list']),
             ('Mounts', [{'Type': 'bind', 'Source': '/etc', 'Destination': '/host'}]),
+            ('Mounts', []),
+            ('Mounts', [{'Type': 'volume', 'Name': 'new', 'RW': True,
+                         'Destination': '/etc'}]),
+            ('Mounts', [{'Type': 'volume', 'Name': 'new', 'RW': False,
+                         'Destination': '/var/lib/postgresql/data'}]),
+            ('Mounts', [{'Type': 'volume', 'Name': 'new', 'RW': True,
+                         'Destination': '/var/lib/postgresql/data'},
+                        {'Type': 'volume', 'Name': 'extra', 'RW': True,
+                         'Destination': '/home/customer'}]),
             ('Mounts', [{'Type': 'volume', 'Name': 'private-target'}]),
         ]
         for key, bad in tests:
@@ -93,11 +103,18 @@ class RecoveryIsolationTests(unittest.TestCase):
                 container('source-app', S, 'source-app-private'),
                 container('target-db', T, 'target-db-storage'),
                 container('target-app', T, 'target-app-private')]
+        for index in (1, 3):
+            rows[index]['Mounts'][0]['Destination'] = '/var/www/html/storage/app/private'
         g.validate_containers(rows, S, T,
                               ['source-db', 'source-app'], ['target-db', 'target-app'])
         with self.assertRaises(g.IsolationError):
             g.validate_containers(rows[:2], S, T,
                                   ['source-db', 'source-app'], ['target-db', 'target-app'])
+        wrong = copy.deepcopy(rows)
+        wrong[1]['Mounts'][0]['Destination'] = '/var/lib/postgresql/data'
+        with self.assertRaises(g.IsolationError):
+            g.validate_containers(wrong, S, T, ['source-db', 'source-app'],
+                                  ['target-db', 'target-app'])
 
     def test_cli_never_prints_inspect_environment_fields(self):
         rows = [container('source-db', S, 'one'), container('target-db', T, 'two')]

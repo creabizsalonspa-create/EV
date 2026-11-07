@@ -97,16 +97,29 @@ def validate_containers(rows, source, target, source_names, target_names):
                 host.get('IpcMode') not in ('host',) and
                 host.get('UsernsMode') not in ('host',),
                 'Recovery container shares host namespaces')
+        # The script owns each container name: database and application
+        # mounts have distinct, reviewed destinations. A changed image with
+        # additional VOLUME directives must fail before data restoration.
+        container_name = name[1:]
+        if '-app-' in container_name or container_name.endswith('-app'):
+            destination = '/var/www/html/storage/app/private'
+        elif '-db-' in container_name or container_name.endswith('-db'):
+            destination = '/var/lib/postgresql/data'
+        else:
+            raise IsolationError('Unexpected recovery container role')
         mounts = row.get('Mounts')
-        require(isinstance(mounts, list), 'Missing Docker mount audit')
-        for mount in mounts:
-            require(isinstance(mount, dict) and mount.get('Type') == 'volume',
-                    'Bind, tmpfs or other unreviewed recovery mount')
-            volume_name = mount.get('Name')
-            require(isinstance(volume_name, str) and bool(volume_name) and
-                    volume_name not in volumes,
-                    'Recovery source and target must not share a volume')
-            volumes.add(volume_name)
+        require(isinstance(mounts, list) and len(mounts) == 1,
+                'Exactly one recovery volume required for each container')
+        mount = mounts[0]
+        require(isinstance(mount, dict) and mount.get('Type') == 'volume'
+                and mount.get('Destination') == destination
+                and mount.get('RW') is True,
+                'Recovery volume not writable at its reviewed destination')
+        volume_name = mount.get('Name')
+        require(isinstance(volume_name, str) and bool(volume_name) and
+                volume_name not in volumes,
+                'Recovery source and target must not share a volume')
+        volumes.add(volume_name)
     require(seen == {'/' + n for n in mapping},
             'Recovery runtime inspection was incomplete')
 

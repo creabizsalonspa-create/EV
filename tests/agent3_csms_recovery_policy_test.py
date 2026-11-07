@@ -68,6 +68,11 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
                         code.index('pg_restore -U ev_csms_recovery'))
         self.assertIn("'isolated_runtime_verified': True", code)
 
+    def test_container_mount_target_enforced_for_postgis(self):
+        guard = (ROOT / 'scripts/recovery-runtime-guard.py').read_text()
+        self.assertIn("destination = '/var/lib/postgresql/data'", guard)
+        self.assertIn("mount.get('Destination') == destination", guard)
+
     def test_timing_span_covers_dump_restore_and_geospatial_checks(self):
         code = self.source
         self.assertLess(code.index('snapshot_started_epoch=$(date -u +%s)'),

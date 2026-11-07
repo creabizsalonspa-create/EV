@@ -117,6 +117,13 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
                         code.index('pg_restore -U ev_recovery_review'))
         self.assertIn("'isolated_runtime_verified': True", code)
 
+    def test_runtime_guard_requires_only_reviewed_database_and_private_mounts(self):
+        guard = (ROOT / 'scripts/recovery-runtime-guard.py').read_text()
+        self.assertIn("destination = '/var/lib/postgresql/data'", guard)
+        self.assertIn("destination = '/var/www/html/storage/app/private'", guard)
+        self.assertIn('len(mounts) == 1', guard)
+        self.assertIn("mount.get('RW') is True", guard)
+
     def test_timed_recovery_proof_covers_private_snapshot_and_laravel_boot(self):
         code = self.source
         self.assertIn('drill_started_epoch=$(date -u +%s)', code)
