@@ -53,7 +53,9 @@ async function sandbox(fn){
   finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 function sender({journalFault=null,denyCustomerJournal=true,adminJournalStatus=200,
-  customerBadRole=false,adminBadRole=false,badAdminLogout=false,rows=records(),trace=[]}={}){
+  customerBadRole=false,vendorBadRole=false,adminBadRole=false,
+  vendorJournalStatus=200,vendorForeignInvoice=false,
+  badAdminLogout=false,rows=records(),trace=[]}={}){
   let counter=0;
   const stage=new Map();
   return async(route,method,payload,jar)=>{
@@ -66,17 +68,26 @@ function sender({journalFault=null,denyCustomerJournal=true,adminJournalStatus=2
     if(route==='/api/login'){
       const role=roles.find(r=>payload.email===manifestData().accounts[r].email);
       stage.set(jar,role);
-      return {status:200,body:{id:role==='customer'?CUSTOMER_ID:ADMIN_ID,
+      return {status:200,body:{id:role==='customer'?CUSTOMER_ID:
+        role==='vendor'?VENDOR_ID:ADMIN_ID,
         role:role==='customer'&&customerBadRole?'admin':
+          role==='vendor'&&vendorBadRole?'customer':
           role==='admin'&&adminBadRole?'vendor':role,email:payload.email}};
     }
     if(route==='/api/reservations')return {status:200,body:{data:rows.reservations,total:rows.reservations.length}};
     if(route==='/api/simulations')return {status:200,body:{data:rows.sessions,total:rows.sessions.length}};
-    if(route==='/api/finance/invoices')return {status:200,body:{data:rows.invoices,total:rows.invoices.length}};
+    if(route==='/api/finance/invoices'){
+      const list=stage.get(jar)==='vendor'&&vendorForeignInvoice?
+        [...rows.invoices,{id:999,vendor_id:999}]:rows.invoices;
+      return {status:200,body:{data:list,total:list.length}};
+    }
     if(/^\/api\/finance\/invoices\/[0-9]+\/journal$/.test(route)){
       if(stage.get(jar)==='customer')
         return {status:denyCustomerJournal?403:200,body:{}};
-      if(adminJournalStatus!==200)return {status:adminJournalStatus,body:{}};
+      if(stage.get(jar)==='vendor' && vendorJournalStatus!==200)
+        return {status:vendorJournalStatus,body:{}};
+      if(stage.get(jar)==='admin' && adminJournalStatus!==200)
+        return {status:adminJournalStatus,body:{}};
       const id=Number(route.split('/').at(-2)),inv=rows.invoices.find(x=>x.id===id);
       if(!inv)return {status:404,body:{}};
       const journalId=1000+id;
@@ -140,10 +151,10 @@ test('customer denied journal while Admin obtains read-only balanced postings',(
   assert.equal(result.production_accepted,false);
   assert.equal(result.real_money_moved,false);
   assert.deepEqual(result.simulated_protocols,['1.6','2.0.1']);
-  assert.equal(trace.filter(x=>x.route.includes('/journal')).length,4);
+  assert.equal(trace.filter(x=>x.route.includes('/journal')).length,6);
   assert.equal(trace.filter(x=>x.route.includes('/journal')&&x.method!=='GET').length,0);
   assert.deepEqual(trace.filter(x=>x.method==='POST').map(x=>x.route),
-    ['/api/login','/api/logout','/api/login','/api/logout']);
+    ['/api/login','/api/logout','/api/login','/api/logout','/api/login','/api/logout']);
 }));
 test('customer unexpectedly authorized to view financial journal fails closed',()=>sandbox(async({file})=>{
   const result=await audit.inspect(file,sender({denyCustomerJournal:false}));
@@ -192,3 +203,22 @@ test('unexpected CLI switches and public server URLs cannot be used',()=>{
     assert.throws(()=>audit.parseArgs(args));
   }
 });
+
+test('vendor must see both own simulated journals and no unrelated invoices',()=>sandbox(async({file})=>{
+  const trace=[];
+  const proof=await audit.inspect(file,sender({trace}));
+  assert.equal(proof.status,'LOCAL_SIMULATED_LEDGER_VERIFIED');
+  const vendorReads=trace.filter(x=>x.role==='vendor'&&x.route.includes('/journal'));
+  assert.equal(vendorReads.length,2);
+  assert.ok(vendorReads.every(x=>x.method==='GET'));
+}));
+test('foreign vendor invoice in vendor list blocks synthetic finance acceptance',()=>sandbox(async({file})=>{
+  const proof=await audit.inspect(file,sender({vendorForeignInvoice:true}));
+  assert.equal(proof.status,'INCOMPLETE');
+}));
+test('vendor without journal read permission or wrong role cannot pass',()=>sandbox(async({file})=>{
+  for(const opts of [{vendorJournalStatus:403},{vendorBadRole:true}]){
+    const proof=await audit.inspect(file,sender(opts));
+    assert.equal(proof.status,'INCOMPLETE');
+  }
+}));
