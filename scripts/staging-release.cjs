@@ -64,10 +64,22 @@ function inspectImage(imageName, run = execFileSync) {
   return items[0];
 }
 
+function reviewIsolatedConfig(envFile, deps={}) {
+  // Require Agent 10's canonical offline config gate from PR #62.
+  // Never deploy a candidate when DB_URL, live PSP, OCPP or OCPI flags could escape staging.
+  const gate=deps.preflight || (() => {
+    const file=path.resolve(__dirname,'staging-preflight.cjs');
+    if (!fs.existsSync(file)) throw Error('Mandatory isolated staging preflight is not integrated');
+    return require(file).reviewFile;
+  })();
+  const report=gate(envFile);
+  if(!report || report.ok!==true) throw Error('Staging environment failed isolated preflight');
+}
 function inspectPlan(config, deps = {}) {
   const run = deps.run || execFileSync, env = deps.env || process.env;
   const dotenv = deps.envFile || envPath;
   assertLocalSafety(dotenv,env);
+  reviewIsolatedConfig(dotenv,deps);
   const before = parseSnapshot(localDockerSnapshot(env,run));
   const current = checkSnapshot(before);
   if (!current.ok) throw Error('Staging health or private port gate failed');
@@ -210,4 +222,4 @@ function main(args=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)process.exitCode=main();
-module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,composeUp,verifyRunning,apply,main};
+module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,composeUp,verifyRunning,apply,main};
