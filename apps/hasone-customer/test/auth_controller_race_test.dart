@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:evcharg/core/service/network/network_client.dart';
 import 'package:evcharg/core/service/session/session.dart';
@@ -63,7 +65,9 @@ void main() {
     Session.clear();
   });
 
-  test('failed profile cache save cannot leave a live login token', () async {
+  testWidgets('failed profile cache save cannot leave a live login token',
+      (tester) async {
+    await tester.pumpWidget(const GetMaterialApp(home: Scaffold()));
     final vault = _MemoryVault();
     final network = _HeldAuthenticationNetwork();
     final auth = AuthController(
