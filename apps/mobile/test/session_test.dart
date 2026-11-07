@@ -145,6 +145,25 @@ void main() {
     }
   });
 
+  test('closing the client invalidates a pending vault restore', () async {
+    final origin = Uri.parse('https://example.test');
+    final vault = MemoryVault();
+    final release = Completer<void>();
+    final started = Completer<void>();
+    vault.readWait = release.future;
+    vault.readStarted = started;
+    vault.entries[origin.origin] = 'stale-snapshot';
+    final api = EvApi(origin, vault: vault);
+    final pendingRestore = api.restoreSession();
+    await started.future;
+    api.close();
+    release.complete();
+    expect(await pendingRestore, isNull);
+    // Closing the client must not delete secure storage: only an explicit
+    // forget or logout has permission to destroy persisted credentials.
+    expect(vault.entries[origin.origin], 'stale-snapshot');
+  });
+
   test('plaintext origins never persist credentials', () async {
     final vault = MemoryVault();
     final api = EvApi(Uri.parse('http://127.0.0.1:8000'), vault: vault);
