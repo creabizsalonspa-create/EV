@@ -27,7 +27,7 @@ function setup(dir,events=['RELEASE_STARTED']) {
 function mock(dir){
   const state={tag:'new',up:0,badGateway:false,badDatabase:false,foreign:false,
     staleOld:false,failOld:false,appUnhealthy:true,seen:[]};
-  const options={lockPath:path.join(dir,'operation.lock'),env:{},envFile:path.join(dir,'private.env'),preflight:()=>({ok:true,errors:[]}),effectiveConfig:()=>true};
+  const options={lockPath:path.join(dir,'operation.lock'),env:{},envFile:path.join(dir,'private.env'),preflight:()=>({ok:true,errors:[]}),effectiveConfig:()=>true,checkHttp:()=>true};
   fs.writeFileSync(options.envFile,'DB_PASSWORD=SYNTHETIC\nAPP_KEY=local_fake_not_real\n',{mode:0o600});
   const rows=()=> ['application','worker','scheduler','database','gateway'].map((service,i)=>({
     Project:'ev-staging',Service:service,State:'running',
@@ -182,4 +182,21 @@ test('recovery provenance requires stable protected container IDs',()=>temp(dir=
   delete records[0].plan.protected_services;
   fs.writeFileSync(file,records.map(x=>JSON.stringify(x)).join('\n')+'\n');
   assert.throws(()=>recovery.loadJournal(file));
+}));
+
+test('manual rollback requires healthy private HTTP routes after restoring prior app',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.checkHttp=()=>false;
+  assert.equal(recovery.main(cli(file),deps),3);
+  assert.equal(deps.state.up,1);
+  const events=fs.readFileSync(file,'utf8');
+  assert.ok(events.includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.ok(!events.includes('"event":"MANUAL_ROLLBACK_VERIFIED"'));
+}));
+test('previous verified rollback is not reaccepted with broken HTTP readiness',()=>temp(dir=>{
+  const file=setup(dir,['RELEASE_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir);
+  deps.state.tag='old';deps.state.appUnhealthy=false;
+  deps.checkHttp=()=>false;
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
 }));
