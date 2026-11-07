@@ -282,6 +282,28 @@ class MobileReleaseSigningTest(unittest.TestCase):
                 self.assertGreater(len(value.strip()), 20)
                 self.assertNotIn("TODO", value.upper())
 
+    def test_shared_ev_ios_release_requires_owner_bundle_id(self):
+        root = ROOT / "apps/mobile/ios"
+        project = (root / "Runner.xcodeproj/project.pbxproj").read_text()
+        ids = re.findall(r"PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);", project)
+        self.assertEqual(
+            [
+                '"$(EV_SHARED_IOS_RELEASE_BUNDLE_ID)"',
+                "com.creabiz.creabizEv.RunnerTests",
+                '"$(EV_SHARED_IOS_RELEASE_BUNDLE_ID).RunnerTests"',
+                '"$(EV_SHARED_IOS_RELEASE_BUNDLE_ID).RunnerTests"',
+                "com.creabiz.creabizEv",
+                '"$(EV_SHARED_IOS_RELEASE_BUNDLE_ID)"',
+            ],
+            ids,
+        )
+        release_config = (root / "Flutter/Release.xcconfig").read_text()
+        self.assertIn('#include? "ReleaseIdentity.xcconfig"', release_config)
+        self.assertIn(
+            "Flutter/ReleaseIdentity.xcconfig",
+            (root / ".gitignore").read_text(),
+        )
+
     def test_customer_ios_release_uses_private_approved_bundle_id(self):
         project = (
             ROOT / "apps/hasone-customer/ios/Runner.xcodeproj/project.pbxproj"
