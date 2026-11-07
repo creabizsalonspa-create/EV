@@ -17,14 +17,6 @@ command -v sha256sum >/dev/null
 
 review_id="ev-csms-recovery-$RANDOM-$$"
 scratch=$(mktemp -d /tmp/ev-csms-recovery.XXXXXXXX)
-# The key never leaves this disposable run; it is not a production signing root.
-auth_key="$scratch/backup-hmac.key"
-python3 - "$auth_key" <<'PY_LOCAL_HMAC'
-import os, sys
-fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(fd, 'wb') as stream:
-    stream.write(os.urandom(32))
-PY_LOCAL_HMAC
 source_net= target_net= source_db= target_db=
 cleanup() {
   result=$?
@@ -40,6 +32,15 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# The key never leaves this disposable run; it is not a production signing root.
+auth_key="$scratch/backup-hmac.key"
+python3 - "$auth_key" <<'PY_LOCAL_HMAC'
+import os, sys
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, 'wb') as stream:
+    stream.write(os.urandom(32))
+PY_LOCAL_HMAC
 
 image='postgis/postgis:16-3.5@sha256:94146ac37bc61e2322f88016056c5920729cb8c64c8542ed590af8fc2abdac07'
 python3 - "$scratch" <<'PY_SETUP'
