@@ -173,6 +173,7 @@ class FaultFixture extends FixtureApi {
 }
 
 class FleetFixture extends FixtureApi {
+  int acceptRequests = 0;
   @override
   Future<dynamic> request(
     String path, {
@@ -180,6 +181,10 @@ class FleetFixture extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path.startsWith('fleet-invitations/') && method == 'POST') {
+      acceptRequests++;
+      return {'status': 'active'};
+    }
     if (path == 'fleet-invitations') {
       return {
         'data': [
@@ -443,6 +448,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('fleet-invitations')), findsOneWidget);
     expect(find.text('Accept invitation'), findsOneWidget);
+    expect(api.acceptRequests, 0);
     // The notification review action must never accept on the user's behalf.
   });
 

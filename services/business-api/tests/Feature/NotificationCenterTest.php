@@ -68,6 +68,32 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonPath('unread_count', 1);
     }
 
+    public function test_summary_high_water_does_not_reset_after_read_and_is_single_account_scoped(): void
+    {
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+        $first = $this->makeNotification($owner);
+        $last = $this->makeNotification($owner);
+        $this->makeNotification($other);
+        $this->actingAs($owner)->postJson('/api/notifications/read-through', [
+            'through_id' => $last->id,
+        ])->assertOk()->assertJsonPath('remaining_unread', 0);
+
+        $this->getJson('/api/notifications/summary')->assertOk()->assertExactJson([
+            'unread_count' => 0,
+            'latest_id' => $last->id,
+            'in_app_only' => true,
+        ]);
+        $newer = $this->makeNotification($owner);
+        $this->getJson('/api/v1/notifications/summary')->assertOk()->assertExactJson([
+            'unread_count' => 1,
+            'latest_id' => $newer->id,
+            'in_app_only' => true,
+        ]);
+        $this->assertNotNull($first->fresh()->read_at);
+        $this->assertNull($newer->fresh()->read_at);
+    }
+
     public function test_bulk_read_is_idempotent_and_never_consumes_newer_messages(): void
     {
         $owner = User::factory()->create();

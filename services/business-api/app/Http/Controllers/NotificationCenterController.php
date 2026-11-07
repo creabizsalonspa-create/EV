@@ -16,11 +16,16 @@ class NotificationCenterController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        $scope = InboxNotification::query()->where('user_id', $request->user()->id);
+        // One database snapshot for the count and high-water marker:
+        // separate SELECTs could span a newly inserted notification.
+        $snapshot = InboxNotification::query()
+            ->where('user_id', $request->user()->id)
+            ->selectRaw('COALESCE(SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count, COALESCE(MAX(id), 0) AS latest_id')
+            ->first();
 
         return response()->json([
-            'unread_count' => (clone $scope)->whereNull('read_at')->count(),
-            'latest_id' => (int) ((clone $scope)->max('id') ?? 0),
+            'unread_count' => (int) $snapshot->unread_count,
+            'latest_id' => (int) $snapshot->latest_id,
             'in_app_only' => true,
         ]);
     }

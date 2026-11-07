@@ -61,3 +61,7 @@ Account initialization loads the existing support tickets and then the inbox, wh
 ## Actionable fleet notifications (no automatic consent)
 
 The browser inbox now provides a **Review fleet invitation** action that refreshes the existing authenticated fleet invitation list and scrolls to the current actionable invitations. A historical or revoked notification cannot directly accept an invitation. The Flutter SupportView accepts the currently authenticated account ID and can open the existing FleetView on its Invitations tab; this reuses FleetView's explicit confirmation-before-accept path. In both surfaces, tapping the inbox notification itself causes **no membership mutation** and does not bypass backend ownership checks. EN/AR labels and a native navigation fixture were added.
+
+### Same-snapshot high-water summary
+
+The unread count and maximum observed notification ID are now derived from one aggregate SQL statement (portable conditional SUM and MAX), rather than two independently timed SELECT queries. This prevents a concurrent insert between separate reads from producing an internally inconsistent count/cutoff pair. The count is still per account, and the ID remains an observed database high-water mark, not proof that the user saw or received every item. Tests verify zero-unread-with-history and later-arrival behavior. The native fleet review regression also asserts that navigating from the notification performs no invitation acceptance POST.
