@@ -21,16 +21,12 @@ class AuthController extends GetxController {
        _prefs = prefs ?? SharedPrefs(),
        _authFeedback = authFeedback;
 
-  void _notifyLoginUnavailable() {
+  void _notifyLoginFeedback(String title, String message) {
     if (_authFeedback != null) {
-      _authFeedback('Sign-in unavailable', 'Could not safely save this session.');
+      _authFeedback(title, message);
       return;
     }
-    Get.snackbar(
-      'Sign-in unavailable',
-      'Could not safely save this session.',
-      snackPosition: SnackPosition.TOP,
-    );
+    Get.snackbar(title, message, snackPosition: SnackPosition.TOP);
   }
   // Shared across controller instances: whichever sign-in or OTP verification
   // starts most recently is the only attempt permitted to publish credentials.
@@ -179,8 +175,10 @@ class AuthController extends GetxController {
       if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
         final token = res.responseData?['token']?.toString();
         if (token == null || token.trim().isEmpty) {
-          Get.snackbar('Login incomplete', 'The server did not return a valid session.',
-              snackPosition: SnackPosition.TOP);
+          _notifyLoginFeedback(
+            'Login incomplete',
+            'The server did not return a valid session.',
+          );
           return false;
         }
         final saving = _prefs.saveToken(token);
@@ -204,17 +202,15 @@ class AuthController extends GetxController {
         }
         user.value = UserModel.fromJson(userData);
         pendingEmail = email;
-        Get.snackbar(
+        _notifyLoginFeedback(
           'Success',
           res.responseData?['message']?.toString() ?? 'Login successful',
-          snackPosition: SnackPosition.TOP,
         );
         return true;
       }
-      Get.snackbar(
+      _notifyLoginFeedback(
         'Login Failed',
         res.errorMessage ?? 'Invalid credentials',
-        snackPosition: SnackPosition.TOP,
       );
       return false;
     } catch (_) {
@@ -231,8 +227,15 @@ class AuthController extends GetxController {
             // A newer login must never be revoked by this old failure.
           }
         }
-        user.value = null;
-        _notifyLoginUnavailable();
+        // Another controller may have begun a new identity while Keychain
+        // deletion was suspended; suppress obsolete UI error notifications.
+        if (attempt == _credentialAttempt) {
+          user.value = null;
+          _notifyLoginFeedback(
+            'Sign-in unavailable',
+            'Could not safely save this session.',
+          );
+        }
       }
       return false;
     } finally {
