@@ -1411,6 +1411,14 @@ async function refreshInbox() {
                     ? ui("p", "Simulator source reported recovery · station #{id}", {
                         id: m.metadata?.station_id ?? "?",
                     })
+                    : m.kind === "charging.monitor.requires_review.simulated"
+                        ? ui("p", "Simulator charger monitor requires review · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                        : m.kind === "charging.monitor.resumed.simulated"
+                            ? ui("p", "Simulator charger monitor caught up · station #{id}", {
+                                id: m.metadata?.station_id ?? "?",
+                            })
                     : m.kind === "fleet.invitation"
                         ? ui("p", "Fleet invitation · fleet #{id}", {
                             id: m.metadata?.fleet_id ?? "?",

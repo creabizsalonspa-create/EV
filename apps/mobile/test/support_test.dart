@@ -277,6 +277,19 @@ class PendingSupport extends FixtureApi {
 }
 
 void main() {
+  test('monitor review and source catch-up are distinct from physical repair', () {
+    final en = EvStrings(const Locale('en'));
+    final ar = EvStrings(const Locale('ar'));
+    expect(inboxNotificationTitle({
+      'kind': 'charging.monitor.requires_review.simulated',
+      'metadata': {'station_id': 17},
+    }, en), 'Simulator charger monitor requires review · station #17');
+    expect(inboxNotificationTitle({
+      'kind': 'charging.monitor.resumed.simulated',
+      'metadata': {'station_id': 17},
+    }, ar), contains('المحطة #17'));
+  });
+
   test('pending invitation withdrawal is never presented as active-access revocation', () {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));

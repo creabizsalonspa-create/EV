@@ -23,6 +23,10 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
       return strings.t('simulatedRecoveryAlert', {
         'station': id('station_id'),
       });
+    case 'charging.monitor.requires_review.simulated':
+      return strings.t('simulatedMonitorReview', {'station': id('station_id')});
+    case 'charging.monitor.resumed.simulated':
+      return strings.t('simulatedMonitorCaughtUp', {'station': id('station_id')});
     case 'fleet.invitation':
       return strings.t('fleetInvitationAlert', {'fleet': id('fleet_id')});
     case 'fleet.invitation.accepted':

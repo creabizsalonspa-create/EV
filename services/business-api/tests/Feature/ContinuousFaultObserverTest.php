@@ -125,11 +125,23 @@ class ContinuousFaultObserverTest extends TestCase
         }
         $this->assertDatabaseCount('charging_status_observations', 2);
         $this->assertDatabaseCount('charging_fault_alerts', 1);
-        $this->assertDatabaseCount('inbox_notifications', 2);
+        // Failed source batch rolls back its proposed fault+inbox, but records
+        // one monitor review notice in a separate verified transaction.
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.requires_review.simulated')->count());
         $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 2, 'state' => 'requires_review']);
+        $this->source($f, $invalid, newest: 4);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Repeated invalid batch accepted');
+        } catch (HttpException $e) {
+            $this->assertSame(503, $e->getStatusCode());
+        }
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.requires_review.simulated')->count());
         $this->source($f, $this->events(3, 4), newest: 4);
         app(ContinuousFaultObserver::class)->observe($f['binding']);
         $this->assertDatabaseCount('charging_status_observations', 4);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.resumed.simulated')->count());
         $this->source($f, [], station: 43, newest: 4);
         try {
             app(ContinuousFaultObserver::class)->observe($f['binding']);
@@ -138,6 +150,7 @@ class ContinuousFaultObserverTest extends TestCase
             $this->assertSame(409, $e->getStatusCode());
         }
         $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 4, 'source_station_id' => 42, 'state' => 'requires_review']);
+        $this->assertSame(2, InboxNotification::where('kind', 'charging.monitor.requires_review.simulated')->count());
     }
 
     public function test_ownership_or_mapping_change_during_network_discards_batch(): void

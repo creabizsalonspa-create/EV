@@ -95,6 +95,24 @@ class ContinuousFaultObserver
                     fn (int $alertId) => $notify($alertId, 'charging.fault.simulated'),
                     fn (int $alertId) => $notify($alertId, 'charging.fault.recovered.simulated'),
                 );
+                // A previous monitor review state has cleared only when an
+                // authenticated source page catches up, never on a mere poll.
+                $previous = DB::table('charging_fault_cursors')
+                    ->where('source_generation', $generation)->lockForUpdate()->first();
+                if ($previous && $previous->state === 'requires_review' && $state === 'caught_up') {
+                    InboxNotification::create([
+                        'user_id' => $ownerId,
+                        'kind' => 'charging.monitor.resumed.simulated',
+                        'metadata' => [
+                            'source' => 'simulator',
+                            'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                            'station_id' => $current->station_id,
+                            'company_id' => $companyId,
+                            'charger_id' => $current->vendor_charger_id,
+                            'physical_verification' => false,
+                        ],
+                    ]);
+                }
                 $last = $events ? end($events)['id'] : $after;
                 DB::table('charging_fault_cursors')->updateOrInsert(['source_generation' => $generation], ['binding_id' => $current->id, 'source_station_id' => $sourceId, 'last_event_id' => $last, 'state' => $state, 'checked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
@@ -102,8 +120,35 @@ class ContinuousFaultObserver
             });
         } catch (Throwable $e) {
             // Current ownership and unchanged cursor are required even to record a failure.
-            $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $after, $cursor) {
-                DB::table('charging_fault_cursors')->updateOrInsert(['source_generation' => $generation], ['binding_id' => $current->id, 'source_station_id' => $cursor->source_station_id ?? null, 'last_event_id' => $after, 'state' => 'requires_review', 'checked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+            $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $after, $cursor, $ownerId, $companyId) {
+                $previous = DB::table('charging_fault_cursors')
+                    ->where('source_generation', $generation)->lockForUpdate()->first();
+                if (! $previous || $previous->state !== 'requires_review') {
+                    InboxNotification::create([
+                        'user_id' => $ownerId,
+                        'kind' => 'charging.monitor.requires_review.simulated',
+                        'metadata' => [
+                            'source' => 'simulator',
+                            'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                            'station_id' => $current->station_id,
+                            'company_id' => $companyId,
+                            'charger_id' => $current->vendor_charger_id,
+                            'physical_verification' => false,
+                        ],
+                    ]);
+                }
+                DB::table('charging_fault_cursors')->updateOrInsert(
+                    ['source_generation' => $generation],
+                    [
+                        'binding_id' => $current->id,
+                        'source_station_id' => $cursor->source_station_id ?? null,
+                        'last_event_id' => $after,
+                        'state' => 'requires_review',
+                        'checked_at' => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]
+                );
 
                 return [];
             });
