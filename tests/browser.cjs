@@ -351,6 +351,42 @@ const { randomUUID } = require("node:crypto");
     assert(oldRow && oldRow.read_at !== null);
     const newest = afterBulk.page.data.find((row) => row.id === afterBulk.summary.latest_id);
     assert(newest && newest.read_at === null);
+    assert.equal(afterBulk.summary.unread_by_category.support, 1);
+    assert.equal(afterBulk.summary.unread_by_category.charging, 0);
+    // Older messages retain their own read receipt. Explicitly reopening one
+    // cannot create an event or change the newer message's state.
+    const oldNotification = customer.page.locator(
+      '[data-notification-id="' + observed.latest_id + '"]',
+    );
+    const unreadResponse = customer.page.waitForResponse(
+      (response) => response.url().endsWith(
+        '/api/notifications/' + observed.latest_id + '/unread',
+      ) && response.request().method() === 'POST',
+    );
+    await oldNotification.getByRole('button', { name: 'Mark unread' }).click();
+    assert.equal((await unreadResponse).status(), 200);
+    const reopened = await customer.page.evaluate(async () => ({
+      summary: await api('notifications/summary'),
+      notices: await api('notifications'),
+    }));
+    assert.equal(reopened.summary.unread_count, 2);
+    assert.equal(reopened.summary.unread_by_category.support, 2);
+    assert.equal(reopened.notices.total, afterBulk.page.total);
+    const openedNote = reopened.notices.data.find((row) => row.id === observed.latest_id);
+    assert(openedNote && openedNote.read_at === null);
+    const rereadResponse = customer.page.waitForResponse(
+      (response) => response.url().endsWith(
+        '/api/notifications/' + observed.latest_id + '/read',
+      ) && response.request().method() === 'POST',
+    );
+    await customer.page.locator(
+      '[data-notification-id="' + observed.latest_id + '"]',
+    ).getByRole('button', { name: 'Mark read', exact: true }).click();
+    assert.equal((await rereadResponse).status(), 200);
+    assert.equal(
+      (await customer.page.evaluate(() => api('notifications/summary'))).unread_count,
+      1,
+    );
     const filtered = await customer.page.evaluate(
       () => api("notifications?unread_only=1"),
     );

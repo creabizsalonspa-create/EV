@@ -10,12 +10,14 @@ return new class extends Migration
     {
         Schema::table('inbox_notifications', function (Blueprint $table) {
             $table->index(['user_id', 'read_at', 'id'], 'inbox_notification_owner_unread_cursor');
+            $table->index(['user_id', 'kind', 'id'], 'inbox_notification_owner_category_cursor');
         });
     }
 
     public function down(): void
     {
         Schema::table('inbox_notifications', function (Blueprint $table) {
+            $table->dropIndex('inbox_notification_owner_category_cursor');
             $table->dropIndex('inbox_notification_owner_unread_cursor');
         });
     }

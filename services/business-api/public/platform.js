@@ -1427,6 +1427,9 @@ async function refreshInbox() {
                     kind: { translate: m.kind },
                     id: m.support_ticket_id,
                 });
+        if (Number.isSafeInteger(m.id) && m.id > 0) {
+            row.dataset.notificationId = String(m.id);
+        }
         if (m.kind === "fleet.invitation") {
             const review = ui("button", "Review fleet invitation");
             review.type = "button";
