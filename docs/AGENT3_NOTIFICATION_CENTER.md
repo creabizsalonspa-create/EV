@@ -53,3 +53,7 @@ The fleet membership revocation path now acquires the fleet row before the membe
 ### Web inbox pagination
 
 The browser now reads backend page metadata and renders bounded previous/next controls with EN/AR labels. The page state is identity-scoped, and changing unread/category filters or completing a bulk-read resets to the first page. The existing Laravel pagination limit stays at 25; backend regression tests verify 27 own records across two pages, descending order, and non-disclosure of an unrelated account's rows. No API returns an unbounded inbox dump.
+
+### Bounded UI refresh behavior
+
+Account initialization loads the existing support tickets and then the inbox, while **inbox-only** filter, category, page and read actions now call `refreshInbox()` rather than refetching support tickets. The two read-only inbox requests (page and global unread summary) are issued concurrently and the result is discarded if the account/session epoch changed. This reduces repeated support requests and preserves existing ticket reply/transition flows.

@@ -1288,13 +1288,21 @@ async function support() {
         b.onclick = () => ticketDetail(t.id).catch((e) => notice(e));
         el("ticket-list").append(b);
     }
+    await refreshInbox();
+}
+
+async function refreshInbox() {
+    const session = client.sessionEpoch, account = user?.id;
+    if (!account) return;
     const notificationFilters = [
         "page=" + inboxPage,
         inboxUnreadOnly ? "unread_only=1" : null,
         inboxCategory !== "all" ? "category=" + encodeURIComponent(inboxCategory) : null,
     ].filter(Boolean).join("&");
-    const n = await api("notifications" + (notificationFilters ? "?" + notificationFilters : ""));
-    const inbox = await api("notifications/summary");
+    const [n, inbox] = await Promise.all([
+        api("notifications" + (notificationFilters ? "?" + notificationFilters : "")),
+        api("notifications/summary"),
+    ]);
     if (session !== client.sessionEpoch || account !== user?.id) return;
     const view = el("notifications");
     view.replaceChildren();
@@ -1307,7 +1315,7 @@ async function support() {
         inboxPage = 1;
         filterButton.disabled = true;
         try {
-            await support();
+            await refreshInbox();
         } catch (error) {
             if (session === client.sessionEpoch && account === user?.id) notice(error);
         } finally {
@@ -1336,7 +1344,7 @@ async function support() {
         inboxPage = 1;
         categorySelect.disabled = true;
         try {
-            await support();
+            await refreshInbox();
         } catch (error) {
             if (session === client.sessionEpoch && account === user?.id) notice(error);
         } finally {
@@ -1357,7 +1365,7 @@ async function support() {
                     await api("notifications/read-through", "POST", { through_id: throughId });
                     if (session !== client.sessionEpoch || account !== user?.id) return;
                     inboxPage = 1;
-                    await support();
+                    await refreshInbox();
                 } catch (error) {
                     if (session === client.sessionEpoch && account === user?.id) notice(error);
                 } finally {
@@ -1399,7 +1407,7 @@ async function support() {
             b.onclick = async () => {
                 try {
                     await api("notifications/" + m.id + "/read", "POST");
-                    await support();
+                    await refreshInbox();
                 } catch (e) {
                     notice(e);
                 }
@@ -1420,7 +1428,7 @@ async function support() {
             inboxPage = target;
             button.disabled = true;
             try {
-                await support();
+                await refreshInbox();
             } catch (error) {
                 if (session === client.sessionEpoch && account === user?.id) notice(error);
             } finally {
