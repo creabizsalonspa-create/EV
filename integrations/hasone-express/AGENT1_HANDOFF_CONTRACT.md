@@ -136,3 +136,21 @@ The authorized Admin finalize endpoint rejects an active OCPP session or missing
 The QR validator confirms station identity only; it returns `canStartCharging:false` and `requiresOcppConfirmation:true` until the authorized gateway reports an actual source transaction. The station detail and active status APIs derive session state from OCPP events, rather than the booked slot clock; a source-bound station cannot be scanned again. A verified stopped session exposes `energyDelivered`, `costPerKwh`, `vatAed`, `totalAmount`, `billingStatus:'calculated_unpaid'`, and `paymentStatus:'not_collected'`. Legacy extension payment is blocked to avoid duplicate settlement against a prepaid reservation.
 
 **Latest reproducibility check:** 55/55 Express/Mongo/OCPP tests, 28/28 guard tests and 13/13 HTTP callback tests passed after a clean patch rebuild on the authorized server. No production deployment or real charger command occurred.
+
+## Existing Next Admin report UI
+
+The owner's deployed Admin is Next.js 16, React 19 and uses its authenticated
+Axios `@/lib/api` client and the common admin layout. Agent 2 staged a new
+`/ocpp-sessions` page and sidebar link, populated by the protected
+`GET /api/v1/admin/ocpp/booking-sessions` contract above. It displays verified
+source-linked transactions, customer booking references, metered kWh, OCPP
+protocol, and `calculated_unpaid` AED totals. It explicitly shows **AED 0
+collected** in the absence of a verified PSP settlement.
+
+Source: `integrations/hasone-next-admin/ocpp-sessions-page.tsx`.
+Install (staging only): `tools/agent2/stage_next_ocpp_report_page.py`.
+On a copy of `admin-password-rotation` from the authorized server, Next.js
+TypeScript check passed and **Next.js 16.1.6 Webpack production build succeeded**,
+including the `/ocpp-sessions` route.
+
+This is NOT deployed at `admin.hasone.io`; the live Admin remains unchanged.
