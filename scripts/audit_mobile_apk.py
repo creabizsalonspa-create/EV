@@ -91,6 +91,14 @@ def audit_manifest(
             raise AuditError("Release requires the approved signing certificate digest")
         if not signer_output:
             raise AuditError("Release APK signature has not been verified")
+        # A configured digest may accidentally have been copied from a
+        # debug build. Reject the conventional Android debug certificate
+        # even when its fingerprint is the caller's supplied "expected" one.
+        if re.search(
+            r"(?mi)^Signer #\\d+ certificate DN:[^\\n]*\\bCN\\s*=\\s*Android Debug\\b",
+            signer_output,
+        ):
+            raise AuditError("Distribution APK is signed with Android Debug")
         signer = re.search(
             r"Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]{64})",
             signer_output,
