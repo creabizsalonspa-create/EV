@@ -46,10 +46,12 @@ function jsonRequest(route, method='GET', payload=undefined,jar=new Map(),client
   const allowed={
     '/api/csrf':'GET','/api/login':'POST','/api/me':'GET',
     '/api/vehicles':'GET','/api/reservations':'GET','/api/simulations':'GET',
+    '/api/finance/invoices':'GET',
     '/api/admin/overview':'GET','/api/logout':'POST',
   };
   const discovery=/^\/api\/stations\?q=[a-f0-9]{8}$/.test(route) && method==='GET';
-  if((allowed[route]!==method && !discovery) || !jar || !(jar instanceof Map)){
+  const invoice=/^\/api\/finance\/invoices\/[1-9][0-9]{0,9}$/.test(route) && method==='GET';
+  if((allowed[route]!==method && !discovery && !invoice) || !jar || !(jar instanceof Map)){
     throw Error('Unsupported synthetic route');
   }
   if((method==='GET' && payload!==undefined) || (method==='POST' && route!=='/api/login' && payload!==undefined)){
