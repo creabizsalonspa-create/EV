@@ -28,6 +28,17 @@ class AuthController extends GetxController {
     }
     Get.snackbar(title, message, snackPosition: SnackPosition.TOP);
   }
+
+  // Error feedback must not turn a handled authentication/storage failure
+  // into an uncaught exception when no navigator/overlay is mounted.
+  void _notifyAuthFailure(String title, String message) {
+    try {
+      _notifyAuthFeedback(title, message);
+    } catch (_) {
+      // Secure credential cleanup has already been attempted. UI feedback is
+      // best-effort; the caller must still receive a failed login result.
+    }
+  }
   // Shared across controller instances: whichever sign-in or OTP verification
   // starts most recently is the only attempt permitted to publish credentials.
   static int _credentialAttempt = 0;
@@ -149,7 +160,7 @@ class AuthController extends GetxController {
           }
         }
         if (attempt == _credentialAttempt) {
-          _notifyAuthFeedback(
+          _notifyAuthFailure(
             'Verification unavailable',
             'Could not safely save this session.',
           );
@@ -251,7 +262,7 @@ class AuthController extends GetxController {
         // deletion was suspended; suppress obsolete UI error notifications.
         if (attempt == _credentialAttempt) {
           user.value = null;
-          _notifyAuthFeedback(
+          _notifyAuthFailure(
             'Sign-in unavailable',
             'Could not safely save this session.',
           );
