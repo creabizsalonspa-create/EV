@@ -91,6 +91,7 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business.get('post_snapshot_write_excluded') is True and
             business.get('post_snapshot_private_write_excluded') is True and
             business.get('archive_tamper_rejected') is True and
+            business.get('run_local_manifest_hmac_verified') is True and
             business.get('single_transaction_restore') is True and
             business.get('isolated_runtime_verified') is True and
             business.get('private_archive_tamper_rejected') is True and
@@ -110,6 +111,7 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             csms.get('rabbitmq_broker_restored') is False and
             csms.get('physical_charger_or_money') is False and
             csms.get('archive_tamper_rejected') is True and
+            csms.get('run_local_manifest_hmac_verified') is True and
             csms.get('single_transaction_restore') is True and
             csms.get('isolated_runtime_verified') is True,
             'PostGIS recovery or external acceptance boundary invalid')

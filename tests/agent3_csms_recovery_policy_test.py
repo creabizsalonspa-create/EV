@@ -78,6 +78,15 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
                            code.index('restored_fingerprint'))
         self.assertIn("'drill_completed_epoch': int(drill_end)", code)
 
+    def test_disposable_manifest_hmac_authentication(self):
+        code = self.source
+        self.assertIn('auth_key="$scratch/backup-hmac.key"', code)
+        self.assertIn('stream.write(os.urandom(32))', code)
+        self.assertGreaterEqual(code.count('--auth-key-file "$auth_key"'), 5)
+        self.assertLess(code.index('auth_key="$scratch/backup-hmac.key"'),
+                        code.index('pg_restore -U ev_csms_recovery'))
+        self.assertIn("'run_local_manifest_hmac_verified': True", code)
+
     def test_redacted_artifact(self):
         record = self.source.split("record = {", 1)[1].split("\n}", 1)[0]
         self.assertNotRegex(record, re.compile(r"secret|password|token|app_key", re.I))

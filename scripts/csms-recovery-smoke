@@ -17,6 +17,14 @@ mkdir -p "$root/artifacts/agent3-csms-recovery"
 rm -f -- "$root/artifacts/agent3-csms-recovery/validation.json"
 review_id="ev-csms-recovery-$RANDOM-$$"
 scratch=$(mktemp -d /tmp/ev-csms-recovery.XXXXXXXX)
+# The key never leaves this disposable run; it is not a production signing root.
+auth_key="$scratch/backup-hmac.key"
+python3 - "$auth_key" <<'PY_LOCAL_HMAC'
+import os, sys
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, 'wb') as stream:
+    stream.write(os.urandom(32))
+PY_LOCAL_HMAC
 source_net= target_net= source_db= target_db=
 cleanup() {
   result=$?
@@ -123,23 +131,23 @@ INSERT INTO ev_agent3_recovery.synthetic_locations VALUES
   ('post-snapshot', 'late-data', ST_SetSRID(ST_MakePoint(56,26),4326), '{"synthetic":true}');
 SQL_AFTER
 
-python3 "$root/scripts/backup-artifact-guard.py" record --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
-python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
+python3 "$root/scripts/backup-artifact-guard.py" record --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
 cp -- "$archive" "$scratch/tampered-csms.dump"
 printf 'tampered-after-snapshot' >> "$scratch/tampered-csms.dump"
 if python3 "$root/scripts/backup-artifact-guard.py" check \
     --pg-dump "$scratch/tampered-csms.dump" \
-    --manifest "$scratch/backup-proof.json" >/dev/null 2>&1; then
+    --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key" >/dev/null 2>&1; then
   echo 'Corrupted PostGIS archive bypassed the integrity gate.' >&2
   exit 1
 fi
 # Guard the byte range consumed by the disposable restore, not only the
 # earlier pre-restore snapshot validation.
-python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
 restore_started_epoch=$(date -u +%s)
 docker exec -i "$target_db" pg_restore -U ev_csms_recovery -d ev_csms_recovery \
   --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
-python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
 # Re-verify Docker runtime after restore in case networking or mounts changed.
 docker inspect "$source_db" "$target_db" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
@@ -189,6 +197,7 @@ record = {
     'srid': 4326,
     'post_snapshot_write_excluded': True,
     'archive_tamper_rejected': True,
+    'run_local_manifest_hmac_verified': True,
     'single_transaction_restore': True,
     'isolated_runtime_verified': True,
     'drill_started_epoch': int(drill_start),

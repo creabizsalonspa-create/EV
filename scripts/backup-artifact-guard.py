@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Synthetic dump integrity guard: not a signature, encryption or production backup."""
-import argparse, gzip, hashlib, json, os, stat, sys, tarfile
+import argparse, gzip, hashlib, hmac, json, os, stat, sys, tarfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -128,17 +128,37 @@ def inspect(pg_dump, private_tar=None):
         result['private'] = {**before, **structure}
     return result
 
+def manifest_mac(record, key):
+    canonical = json.dumps(record, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    return hmac.new(key, canonical, hashlib.sha256).hexdigest()
+
+def signed_manifest(record, key):
+    return {**record, 'authentication': 'run-local-hmac-sha256',
+            'manifest_hmac_sha256': manifest_mac(record, key)}
+
+def read_auth_key(path):
+    with open_regular_archive(path) as stream:
+        info = os.fstat(stream.fileno())
+        require(info.st_size == 32 and info.st_mode & 0o077 == 0,
+                'Run-local HMAC key must be an owner-only 32-byte file')
+        key = stream.read(33)
+        require(len(key) == 32, 'Run-local HMAC key changed during reading')
+    return key
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action',choices=('record','check'))
     parser.add_argument('--pg-dump',required=True,type=Path)
     parser.add_argument('--private-tar',type=Path)
     parser.add_argument('--manifest',required=True,type=Path)
+    parser.add_argument('--auth-key-file',type=Path)
     args=parser.parse_args(argv)
     try:
         if args.action=='record':
             args.manifest.unlink(missing_ok=True)
             actual=inspect(args.pg_dump,args.private_tar)
+            if args.auth_key_file is not None:
+                actual = signed_manifest(actual, read_auth_key(args.auth_key_file))
             args.manifest.parent.mkdir(parents=True,exist_ok=True)
             tmp=args.manifest.with_suffix('.pending-manifest')
             tmp.unlink(missing_ok=True)
@@ -155,12 +175,29 @@ def main(argv=None):
                 require(len(payload) == info.st_size and len(payload) <= 65536,
                         'Manifest size changed during read')
                 saved = json.loads(payload.decode('utf-8'))
-            require(saved == inspect(args.pg_dump,args.private_tar),
-                    'Backup bytes differ from integrity record')
+            require(type(saved) is dict, 'Backup manifest must be a JSON object')
+            if args.auth_key_file is not None:
+                key = read_auth_key(args.auth_key_file)
+                require(saved.get('authentication') == 'run-local-hmac-sha256',
+                        'Run-local HMAC authentication is missing')
+                tag = saved.get('manifest_hmac_sha256')
+                require(type(tag) is str and len(tag) == 64 and
+                        all(ch in '0123456789abcdef' for ch in tag),
+                        'Run-local HMAC tag is invalid')
+                unsigned = {k: v for k, v in saved.items()
+                            if k not in ('authentication', 'manifest_hmac_sha256')}
+                require(hmac.compare_digest(tag, manifest_mac(unsigned, key)),
+                        'Run-local HMAC manifest authentication failed')
+                expected = signed_manifest(inspect(args.pg_dump,args.private_tar), key)
+            else:
+                require('authentication' not in saved and 'manifest_hmac_sha256' not in saved,
+                        'Signed manifest requires run-local HMAC key')
+                expected = inspect(args.pg_dump,args.private_tar)
+            require(saved == expected, 'Backup bytes differ from integrity record')
     except (OSError, ValueError, ArchiveError) as exc:
         print(f'FAIL: {exc}',file=sys.stderr)
         return 1
-    print('PASS: synthetic archive format and digest; no independent authenticity')
+    print('PASS: synthetic archive digest and optional run-local HMAC; no independent authenticity')
     return 0
 
 if __name__=='__main__':

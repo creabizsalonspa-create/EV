@@ -21,6 +21,56 @@ def sample_tar(path,name='file.txt',link=False):
             tar.addfile(item,io.BytesIO(data))
 
 class ArchiveTests(unittest.TestCase):
+    def test_run_local_manifest_hmac_authenticates_proof_and_rejects_tampering(self):
+        import json
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump, private, manifest = root/'db.dump', root/'private.tar.gz', root/'proof.json'
+            keyfile, wrong = root/'local.key', root/'wrong.key'
+            sample_db(dump)
+            sample_tar(private)
+            keyfile.write_bytes(os.urandom(32))
+            wrong.write_bytes(os.urandom(32))
+            os.chmod(keyfile, 0o600)
+            os.chmod(wrong, 0o600)
+            args = ['--pg-dump', str(dump), '--private-tar', str(private),
+                    '--manifest', str(manifest)]
+            signed = args + ['--auth-key-file', str(keyfile)]
+            self.assertEqual(guard.main(['record'] + signed), 0)
+            self.assertEqual(guard.main(['check'] + signed), 0)
+            self.assertEqual(guard.main(['check'] + args), 1)
+            self.assertEqual(guard.main(['check'] + args + ['--auth-key-file', str(wrong)]), 1)
+            payload = json.loads(manifest.read_text())
+            self.assertEqual(payload['authentication'], 'run-local-hmac-sha256')
+            self.assertEqual(len(payload['manifest_hmac_sha256']), 64)
+            payload['database']['sha256'] = 'a' * 64
+            manifest.write_text(json.dumps(payload))
+            self.assertEqual(guard.main(['check'] + signed), 1)
+            self.assertEqual(guard.main(['record'] + signed), 0)
+            private.write_bytes(private.read_bytes() + b'mutation')
+            self.assertEqual(guard.main(['check'] + signed), 1)
+
+    def test_run_local_key_permissions_and_symlink_swap_fail_closed(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump, manifest, key = root/'db.dump', root/'proof.json', root/'run.key'
+            sample_db(dump)
+            key.write_bytes(os.urandom(32))
+            os.chmod(key, 0o644)
+            args = ['--pg-dump', str(dump), '--manifest', str(manifest),
+                    '--auth-key-file', str(key)]
+            self.assertEqual(guard.main(['record'] + args), 1)
+            self.assertFalse(manifest.exists())
+            os.chmod(key, 0o600)
+            self.assertEqual(guard.main(['record'] + args), 0)
+            link = root/'link.key'
+            link.symlink_to(key)
+            self.assertEqual(guard.main(['check'] + args[:-1] + [str(link)]), 1)
+            key.write_bytes(b'short')
+            self.assertEqual(guard.main(['check'] + args), 1)
+
     def test_content_change_detected(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);db=root/'db.dump';private=root/'p.tar.gz';manifest=root/'m.json'

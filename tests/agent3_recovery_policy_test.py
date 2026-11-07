@@ -128,6 +128,16 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
                            code.index('PHP_HTTP'))
         self.assertIn("'drill_completed_epoch': int(drill_end)", code)
 
+    def test_disposable_hmac_key_rejects_tampered_manifest_before_restore(self):
+        code = self.source
+        self.assertIn('auth_key="$scratch/backup-hmac.key"', code)
+        self.assertIn('stream.write(os.urandom(32))', code)
+        self.assertEqual(code.count('backup-artifact-guard.py" record'), 1)
+        self.assertGreaterEqual(code.count('--auth-key-file "$auth_key"'), 7)
+        self.assertLess(code.index('auth_key="$scratch/backup-hmac.key"'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertIn("'run_local_manifest_hmac_verified': True", code)
+
     def test_no_sensitive_data_in_artifact_schema(self):
         code = self.source
         artifact = code.split("record = {", 1)[1].split("\n}", 1)[0]
