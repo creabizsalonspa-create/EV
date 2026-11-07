@@ -4,8 +4,8 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 class AdminSecondFactorGate
@@ -111,7 +111,7 @@ class AdminSecondFactorGate
         }
 
         if ($request->is('api/login', 'api/logout', 'api/me', 'api/csrf',
-                'api/admin/second-factor/*', 'admin/second-factor')) {
+            'api/admin/second-factor/*', 'admin/second-factor')) {
             return $next($request);
         }
 
