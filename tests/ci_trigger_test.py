@@ -1,4 +1,4 @@
-"""Prevent a fifth-agent push storm without weakening mandatory pull-request CI.
+"""Prevent ten-agent push storms without weakening mandatory PR/default-branch CI.
 
 This uses only stdlib because it runs before Composer/npm/bootstrap is installed.
 """
@@ -15,6 +15,7 @@ WORKFLOWS = {
     "hasone-customer.yml": ("native",),
 }
 INTEGRATION_BRANCH = "development/fullstack-continuation"
+DEFAULT_BRANCH = "development/platform-foundation"
 
 
 def top_level_section(content, key):
@@ -55,8 +56,8 @@ class CITriggerTest(unittest.TestCase):
                 self.assertNotRegex(pull_request, r"(?m)^    branches(?:-ignore)?:")
                 self.assertEqual(
                     re.findall(r"(?m)^    branches: \[(.+)\]$", push),
-                    [INTEGRATION_BRANCH],
-                    "Integration pushes must run, while feature branches use mandatory PR checks",
+                    [f"{INTEGRATION_BRANCH}, {DEFAULT_BRANCH}"],
+                    "Integration and repository default pushes must run; feature branches use mandatory PR checks",
                 )
                 for job in expected_jobs:
                     self.assertRegex(workflow, rf"(?m)^  {re.escape(job)}:")
