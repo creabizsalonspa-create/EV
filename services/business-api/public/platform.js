@@ -78,6 +78,7 @@ function clearPrivateViews() {
     riderWorkspace.clear();
     vendorWorkspace.clear();
     roamingWorkspace.clear();
+    chargingReviews.clear();
     invoiceHistory.clear();
     commercialWorkspace.clear();
     tariffWorkspace.clear();
@@ -242,6 +243,7 @@ async function identity() {
     await vendorWorkspace.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
+    await chargingReviews.setActor(user);
     await invoiceHistory.setActor(user);
     await tariffWorkspace.setActor(user);
     await commercialWorkspace.setActor(user);
@@ -528,6 +530,16 @@ async function stations(query = "") {
             ),
         );
         a.append(details);
+        const feedback = document.createElement("button");
+        feedback.type = "button";
+        feedback.dataset.en = "Charging feedback";
+        feedback.dataset.ar = "ملاحظات الشحن";
+        feedback.textContent =
+            document.documentElement.lang === "ar"
+                ? feedback.dataset.ar
+                : feedback.dataset.en;
+        feedback.onclick = () => chargingReviews.station(s.id);
+        a.append(feedback);
         if (user?.role === "customer") {
             const button = ui(
                 "button",
@@ -1143,6 +1155,11 @@ const riderWorkspace = createRiderAccessWorkspace({
     ui,
     notice,
     expired: clearIdentity,
+});
+const chargingReviews = createChargingReviews({
+    root: el("charging-reviews"),
+    api,
+    actor: () => user,
 });
 const roamingWorkspace = createRoamingWorkspace({
     publicRoot: el("roaming-discovery"),
