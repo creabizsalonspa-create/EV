@@ -1,6 +1,7 @@
 name: Finance commercial validation
 on:
   push:
+    branches: [development/fullstack-continuation]
     paths:
       - "services/business-api/app/Services/Commercial/**"
       - "services/business-api/app/Http/Controllers/FinancialAnalyticsController.php"
