@@ -172,6 +172,12 @@ test('staging Compose continues to publish only the private gateway', () => {
   assert.doesNotMatch(yaml,/\b443:443['"]?\s*$/m);
 });
 
+test('private staging Laravel origin includes the only published TLS gateway port', () => {
+  const compose=fs.readFileSync(path.resolve(__dirname,'../infra/staging/compose.yaml'),'utf8');
+  assert.match(compose,/APP_URL: https:\/\/\$\{STAGING_HOST:\?Set an authorized staging hostname\}:8443/);
+  assert.match(compose,/STAGING_BIND_IP:-127\.0\.0\.1\}:8443:443/);
+  assert.doesNotMatch(compose,/APP_URL: https:\/\/\$\{STAGING_HOST[^\n]*\}\s*$/m);
+});
 test('isolated payment and log-mail settings are required rather than inherited from unknown app defaults',()=>{
   const x={...defaults};delete x.PAYMENT_PROVIDER;
   assert.ok(checkValues(x).some(e=>e.startsWith('PAYMENT_PROVIDER: required')));

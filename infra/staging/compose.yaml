@@ -11,7 +11,7 @@ x-application: &application
   environment:
     APP_ENV: staging
     APP_DEBUG: 'false'
-    APP_URL: https://${STAGING_HOST:?Set an authorized staging hostname}
+    APP_URL: https://${STAGING_HOST:?Set an authorized staging hostname}:8443
     DB_CONNECTION: pgsql
     DB_HOST: database
     DB_PORT: '5432'
