@@ -321,7 +321,11 @@ class FaultReminderEscalatorTest extends TestCase
             'charging.fault.escalation_closed.simulated')->firstOrFail();
         $this->assertSame($admin->id, $closure->user_id);
         $this->assertSame('operator_acknowledged', $closure->metadata['resolution_source']);
-        $this->assertDatabaseCount('inbox_notifications', 2);
+        // The original vendor reminder is independent of the two private
+        // Admin escalation lifecycle notices.
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        $this->assertSame(1, InboxNotification::where('kind',
+            'charging.fault.reminder.simulated')->count());
         foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
             $this->actingAs($admin)->getJson($prefix.'?category=charging')
                 ->assertOk()->assertJsonPath('total', 0);
