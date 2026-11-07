@@ -27,7 +27,7 @@ This plan verifies current Compose health/network exposure, the existing deploym
 
 ### Gateway/Caddy prerequisite
 
-The stage reverse proxy now supplies a reviewed Content-Security-Policy in `infra/staging/Caddyfile`, required by `scripts/staging-health.cjs`. The application-only rollout **does not reload or restart the gateway**. An authorized staging operator must independently check that the running, trusted-TLS Caddy instance is serving this reviewed configuration before applying a new app image. If the gateway is stale or TLS is unavailable, the rollout will fail safely rather than certifying the environment.
+The stage reverse proxy supplies a reviewed Content-Security-Policy and **`tls internal`** in `infra/staging/Caddyfile`, required for the private loopback-only deployment. An authorized operator must trust the Caddy **public root certificate** on the local test machine before running `scripts/staging-health.cjs`; the issuer's **private key must never be exported**. Do not disable TLS verification. The application-only rollout **does not reload or restart the gateway**. An authorized staging operator must independently check that the running, trusted-TLS Caddy instance is serving this reviewed configuration before applying a new app image. If the gateway is stale or TLS is unavailable, the rollout will fail safely rather than certifying the environment.
 
 ## 2. Explicit operator-authorized staging apply
 
