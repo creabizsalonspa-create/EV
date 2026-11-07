@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:evcharg/core/service/api_service/api_config.dart';
 import 'package:evcharg/core/service/session/session.dart';
 import 'package:evcharg/core/service/shared_preferance/shared_prefarance.dart';
 
@@ -14,6 +15,7 @@ class ControlledTokenVault implements TokenVault {
   Future<void>? writeWait;
   Future<void>? deleteWait;
   bool failDelete = false;
+  bool failWriteAfterCommit = false;
 
   void started(Completer<void>? signal) {
     if (signal != null && !signal.isCompleted) signal.complete();
@@ -32,6 +34,7 @@ class ControlledTokenVault implements TokenVault {
     started(writeStarted);
     if (writeWait != null) await writeWait;
     this.value = value;
+    if (failWriteAfterCommit) throw StateError('write failed after commit');
   }
 
   @override
@@ -113,6 +116,67 @@ void main() {
     vault.failDelete = false;
     await prefs.clear();
     expect(vault.value, isNull);
+  });
+
+  test('failed vault deletion blocks rejected token across new instances', () async {
+    final vault = ControlledTokenVault();
+    final prefs = SharedPrefs(vault: vault);
+    await prefs.saveToken('expired-credential');
+    await prefs.saveUser({'email': 'previous@example.test'});
+    vault.failDelete = true;
+    await expectLater(prefs.clear(), throwsStateError);
+    final storage = await SharedPreferences.getInstance();
+    expect(
+      storage.getBool('credential_blocked:${ApiConfig.baseUrl}'),
+      isTrue,
+    );
+    // A new SharedPrefs instance also fails closed: neither token nor the
+    // old cached profile is exposed while a Keychain deletion is pending.
+    final nextLaunch = SharedPrefs(vault: vault);
+    expect(await nextLaunch.getToken(), isNull);
+    expect(await nextLaunch.getUser(), isNull);
+    expect(vault.value, 'expired-credential');
+    expect(Session.accessToken, isNull);
+
+    vault.failDelete = false;
+    await nextLaunch.saveToken('fresh-credential');
+    expect(await nextLaunch.getToken(), 'fresh-credential');
+    expect(storage.getBool('credential_blocked:${ApiConfig.baseUrl}'), isNull);
+  });
+
+  test('failed secure write cannot expose a partially stored bearer', () async {
+    final vault = ControlledTokenVault()..failWriteAfterCommit = true;
+    final prefs = SharedPrefs(vault: vault);
+    await expectLater(
+      prefs.saveToken('partially-stored'),
+      throwsStateError,
+    );
+    final storage = await SharedPreferences.getInstance();
+    expect(
+      storage.getBool('credential_blocked:${ApiConfig.baseUrl}'),
+      isTrue,
+    );
+    expect(vault.value, 'partially-stored');
+    expect(await SharedPrefs(vault: vault).getToken(), isNull);
+    expect(Session.accessToken, isNull);
+
+    vault.failWriteAfterCommit = false;
+    await prefs.saveToken('approved-new-login');
+    expect(await prefs.getToken(), 'approved-new-login');
+    expect(storage.getBool('credential_blocked:${ApiConfig.baseUrl}'), isNull);
+  });
+
+  test('new login replaces old cached profile before publishing its token', () async {
+    final vault = ControlledTokenVault();
+    final prefs = SharedPrefs(vault: vault);
+    await prefs.saveToken('first-user');
+    await prefs.saveUser({'email': 'first@example.test'});
+    expect((await prefs.getUser())?['email'], 'first@example.test');
+    await prefs.saveToken('second-user');
+    expect(Session.accessToken, 'second-user');
+    expect(await prefs.getUser(), isNull);
+    await prefs.saveUser({'email': 'second@example.test'});
+    expect((await prefs.getUser())?['email'], 'second@example.test');
   });
 
   test('cached user profile is erased along with the token', () async {
