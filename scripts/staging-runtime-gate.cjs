@@ -58,13 +58,19 @@ function checkSnapshot(records) {
       problems.push(`${name}: invalid published-port data`);
       continue;
     }
+    // Docker ps reports exposed-but-unpublished ports as PublishedPort: 0.
+    // Only a positive published host port represents an external socket mapping.
+    if (publishers.some(p => !p || !Number.isInteger(Number(p.PublishedPort)) || Number(p.PublishedPort) < 0)) {
+      problems.push(`${name}: invalid published port number`);
+    }
+    const published = publishers.filter(p => p && Number(p.PublishedPort) > 0);
     if (name !== 'gateway') {
-      if (publishers.length) problems.push(`${name}: private service publishes host port`);
-    } else if (publishers.length !== 1 ||
-      publishers[0]?.URL !== '127.0.0.1' ||
-      Number(publishers[0]?.PublishedPort) !== 8443 ||
-      Number(publishers[0]?.TargetPort) !== 443 ||
-      publishers[0]?.Protocol !== 'tcp') {
+      if (published.length) problems.push(`${name}: private service publishes host port`);
+    } else if (published.length !== 1 ||
+      published[0]?.URL !== '127.0.0.1' ||
+      Number(published[0]?.PublishedPort) !== 8443 ||
+      Number(published[0]?.TargetPort) !== 443 ||
+      published[0]?.Protocol !== 'tcp') {
       problems.push('gateway: expected single loopback-only 8443 to 443 TCP binding');
     }
   }
