@@ -108,7 +108,7 @@ jobs:
 
   staging-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Seed synthetic build-context exclusion canaries
@@ -122,3 +122,16 @@ jobs:
         run: ./scripts/staging-image-build creabiz-ev-business:ci-review
       - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership
         run: ./scripts/staging-image-smoke creabiz-ev-business:ci-review
+      - name: Static validation of disposable recovery runner
+        run: |
+          bash -n scripts/staging-recovery-smoke
+          python3 -m unittest discover -s tests -p agent3_recovery_policy_test.py
+      - name: Verify real disposable PostgreSQL dump and independent Laravel restore
+        run: bash scripts/staging-recovery-smoke creabiz-ev-business:ci-review
+      - name: Retain non-secret recovery acceptance evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staging-disposable-recovery-evidence
+          path: artifacts/agent3-recovery/validation.json
+          if-no-files-found: warn
