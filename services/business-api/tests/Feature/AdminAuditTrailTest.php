@@ -47,7 +47,6 @@ class AdminAuditTrailTest extends TestCase
             ->assertOk()->assertJsonCount(3, 'events')
             ->assertJsonPath('has_more', true);
         $firstIds = array_column($first->json('events'), 'id');
-        $this->assertSame(array_reverse($firstIds), array_values(array_reverse($firstIds))); // ordered numeric IDs below
         $this->assertGreaterThan($firstIds[1], $firstIds[0]);
         $this->assertGreaterThan($firstIds[2], $firstIds[1]);
         $cursor = $first->json('next_before_id');
