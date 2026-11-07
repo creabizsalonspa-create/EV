@@ -130,6 +130,20 @@ def verify_workflow_reference(workflow, source_sha):
         raise BundleError('Duplicate GitHub workflow artifact IDs')
 
 
+def validate_created_at_utc(value):
+    # This is the local *packaging* timestamp, not GitHub's build time and
+    # not independently attested. Still reject nonsensical or future claims.
+    if not isinstance(value, str) or not re.fullmatch(
+            r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z', value):
+        raise BundleError('Bundle creation time must be an exact UTC ISO timestamp')
+    try:
+        parsed = dt.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc)
+    except ValueError as exc:
+        raise BundleError('Invalid bundle creation date or clock time') from exc
+    if parsed > dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5):
+        raise BundleError('Bundle claims to be created in the future')
+
+
 def verify(folder, expected_source=None):
     root = Path(folder)
     if root.is_symlink() or not root.is_dir():
@@ -158,8 +172,7 @@ def verify(folder, expected_source=None):
         raise BundleError('Unsafe acceptance or signing claim')
     if 'workflow_evidence' in manifest:
         verify_workflow_reference(manifest['workflow_evidence'], manifest['source_sha'])
-    if not isinstance(manifest['created_at_utc'], str) or not manifest['created_at_utc'].endswith('Z'):
-        raise BundleError('Invalid bundle creation timestamp')
+    validate_created_at_utc(manifest['created_at_utc'])
     if not isinstance(manifest['artifacts'], list) or len(manifest['artifacts']) != 2:
         raise BundleError('Bundle requires one Android and one iOS simulator artifact')
     seen = set()

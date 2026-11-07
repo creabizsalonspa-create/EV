@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 import os
 from pathlib import Path
 import tempfile
@@ -51,6 +52,23 @@ class DeliveryBundleTests(unittest.TestCase):
             artifact = bundle / relative
             artifact.chmod(0o644)
             with self.subTest(relative=relative), self.assertRaises(BundleError):
+                verify(bundle, SHA)
+
+    def test_reject_malformed_or_future_packaging_timestamp(self):
+        for label, value in [
+            ('non-date', 'unknownZ'),
+            ('impossible month', '2026-13-01T00:00:00Z'),
+            ('missing timezone', '2026-01-01T00:00:00'),
+            ('UTC offset instead of canonical Z', '2026-01-01T00:00:00+00:00'),
+            ('future time', (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ')),
+        ]:
+            bundle = self.root / ('timestamp-' + label.replace(' ', '-'))
+            create(bundle, SHA, self.android, self.ios)
+            file = bundle / 'manifest.json'
+            m = json.loads(file.read_text())
+            m['created_at_utc'] = value
+            file.write_text(json.dumps(m))
+            with self.subTest(label=label), self.assertRaises(BundleError):
                 verify(bundle, SHA)
 
     def test_reject_wrong_source_sha(self):
