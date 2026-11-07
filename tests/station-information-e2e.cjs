@@ -57,10 +57,49 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   assert.equal(published.data.source_label,'VENDOR_REPORTED_UNVERIFIED');
   assert.deepEqual(published.data.closed_dates,['2026-12-02']);
   assert.equal(published.data.weekly_hours.tue.open,null);
+  // Create a second station, return to the original editor, then intentionally
+  // hold the second GET. The original form must disappear synchronously,
+  // not remain active with its previous station revision and mutable target.
+  await creation.locator('[name=name]').fill('Other QA Station '+crypto.randomBytes(5).toString('hex'));
+  await creation.locator('[name=latitude]').fill('25.21');
+  await creation.locator('[name=longitude]').fill('55.34');
+  await creation.locator('[name=power_kw]').fill('75');
+  await creation.locator('[name=source]').selectOption('simulator');
+  const creatingSecond=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/stations'&&r.request().method()==='POST',{timeout:20000});
+  await creation.locator('button').click();
+  const createdSecond=await creatingSecond;
+  assert.equal(createdSecond.status(),201);
+  const second=await createdSecond.json();
+  const picker=root.locator('select[aria-label]');
+  await page.waitForFunction(() => document.querySelector('#station-information-vendor select[aria-label]')?.options.length >= 2);
+  await picker.selectOption(String(station.id));
+  await form.getByText('Edit information for '+name).waitFor({timeout:20000});
+  let release;
+  const paused=new Promise(resolve=>{release=resolve;});
+  let intercepted=0;
+  await page.route('**/api/stations/*/information',async route=>{
+    if(route.request().method()==='GET'&&new URL(route.request().url()).pathname==='/api/stations/'+second.id+'/information'){
+      intercepted++;
+      await paused;
+    }
+    await route.continue();
+  });
+  try {
+    await picker.selectOption(String(second.id));
+    await page.waitForFunction(() =>
+      document.querySelector('#station-information-vendor [data-station-info-state]')?.textContent?.includes('Loading station information'));
+    assert.equal(await form.count(),0,'Old station editor must be removed while next station GET is pending');
+    assert.equal(intercepted,1,'Second station load should be held by the test');
+  } finally {
+    release();
+    await page.unroute('**/api/stations/*/information');
+  }
+  await form.waitFor({timeout:20000});
+  assert.equal(await form.locator('[name=description_en]').inputValue(),'');
   assert.deepEqual(errors,[]);
   await page.locator('#logout').click();
   await page.locator('#vendor').waitFor({state:'hidden',timeout:25000});
   assert.equal(await root.locator('form').count(),0);
-  console.log('PASS: vendor station create -> publish hours and facilities -> reload -> public provenance -> logout');
+  console.log('PASS: vendor publish/persistence/provenance and safe station switching with delayed GET; logout');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
