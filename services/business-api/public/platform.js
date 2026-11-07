@@ -82,6 +82,7 @@ function clearPrivateViews() {
     invoiceHistory.clear();
     commercialWorkspace.clear();
     tariffWorkspace.clear();
+    window.EvAdminSessions?.clear();
     commandRequest?.abort();
     el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
@@ -172,6 +173,7 @@ function renderIdentity() {
     window.EvAdminAuditTrail?.setActor(user, api);
     window.EvPrivacyRequests?.setSelfActor(user, api);
     window.EvPrivacyRequests?.setAdminActor(user, api);
+    window.EvAdminSessions?.setActor(user, api);
 }
 
 function node(tag, text) {
