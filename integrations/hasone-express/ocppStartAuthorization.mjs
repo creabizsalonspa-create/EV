@@ -17,10 +17,13 @@ export async function claimOcppStartToken(tokens,chargerId,raw,now=new Date()){
     return {accepted:false,tokenHash:null};
   }
   // Atomic compare-and-swap. Never use findOne + updateOne here.
+  // Remove expiresAt on claim so Mongo's TTL index cannot erase the durable
+  // consumed-token evidence before an operator checks for safe reissue.
   const claimed=await tokens.findOneAndUpdate({
     chargerId,tokenHash,enabled:true,consumedAt:{$exists:false},
     expiresAt:{$gt:now}
-  },{$set:{enabled:false,consumedAt:now}},{returnDocument:'after'});
+  },{$set:{enabled:false,consumedAt:now},$unset:{expiresAt:''}},
+    {returnDocument:'after'});
   return {accepted:!!claimed,tokenHash:claimed?tokenHash:null};
 }
 /** Reuse only the SAME active OCPP1.6 source session after lost reply. */
