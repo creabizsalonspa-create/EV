@@ -217,7 +217,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
       if (success != null) Text(success!, key: const Key('station-info-success')),
       if (owned.isEmpty && !busy) Text(t('No registered stations.', 'لا توجد محطات مسجلة.')),
       if (owned.isNotEmpty) DropdownButtonFormField<int>(
-        key: const Key('station-info-picker'), value: chosen?['id'] as int?,
+        key: const Key('station-info-picker'), initialValue: chosen?['id'] as int?,
         decoration: InputDecoration(labelText: t('Station', 'المحطة')),
         items: owned.map((row) => DropdownMenuItem<int>(value: row['id'] as int, child: Text(row['name'] as String))).toList(),
         onChanged: saving || busy ? null : (id) {
