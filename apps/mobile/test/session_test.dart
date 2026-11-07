@@ -414,6 +414,87 @@ void main() {
     }
   });
 
+  test('logout blocks unrelated requests during delayed vault deletion', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var otherRequests = 0;
+    var logouts = 0;
+    final subscription = server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      if (request.uri.path == '/api/logout') {
+        logouts++;
+      } else {
+        otherRequests++;
+      }
+      request.response.write('{}');
+      await request.response.close();
+    });
+    final gate = Completer<void>();
+    final vault = MemoryVault()..deleteWait = gate.future;
+    final api = EvApi(
+      Uri.parse('http://127.0.0.1:${server.port}'),
+      vault: vault,
+    );
+    try {
+      final logout = api.signOut();
+      await expectLater(
+        api.request('notes', method: 'POST', body: {'value': 'never-send'}),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      expect(otherRequests, 0);
+      gate.complete();
+      await logout;
+      expect(logouts, 1);
+      expect(otherRequests, 0);
+    } finally {
+      if (!gate.isCompleted) gate.complete();
+      api.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('sign-in blocks stale UI actions while old vault is clearing', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var forbiddenRequests = 0;
+    final subscription = server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      switch (request.uri.path) {
+        case '/api/csrf':
+          request.response.write(jsonEncode({'token': 'fresh-csrf'}));
+        case '/api/login':
+          request.response.write(jsonEncode({
+            'id': 23, 'name': 'Current user', 'role': 'customer',
+          }));
+        default:
+          forbiddenRequests++;
+          request.response.write('{}');
+      }
+      await request.response.close();
+    });
+    final gate = Completer<void>();
+    final vault = MemoryVault()..deleteWait = gate.future;
+    final api = EvApi(
+      Uri.parse('http://127.0.0.1:${server.port}'),
+      vault: vault,
+    );
+    try {
+      final login = api.signIn('current@example.test', 'synthetic');
+      await expectLater(
+        api.request('notes', method: 'POST', body: {'value': 'stale'}),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      expect(forbiddenRequests, 0);
+      gate.complete();
+      expect((await login).name, 'Current user');
+      expect(forbiddenRequests, 0);
+    } finally {
+      if (!gate.isCompleted) gate.complete();
+      api.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
   test('plaintext origins never persist credentials', () async {
     final vault = MemoryVault();
     final api = EvApi(Uri.parse('http://127.0.0.1:8000'), vault: vault);
