@@ -130,6 +130,51 @@ class MobileReleaseSigningTest(unittest.TestCase):
                         for item in domains)
                 )
 
+    def test_ios_debug_transport_is_loopback_only_and_release_is_unchanged(self):
+        for app in ("mobile", "hasone-customer"):
+            with self.subTest(app=app):
+                root = ROOT / "apps" / app / "ios"
+                with (root / "Runner/Info.plist").open("rb") as handle:
+                    release = plistlib.load(handle)
+                with (root / "Runner/Info-Debug.plist").open("rb") as handle:
+                    debug = plistlib.load(handle)
+                self.assertNotIn("NSAppTransportSecurity", release)
+                ats = debug.pop("NSAppTransportSecurity")
+                self.assertEqual(release, debug)
+                exceptions = ats["NSExceptionDomains"]
+                self.assertEqual(
+                    {"localhost", "127.0.0.1"}, set(exceptions)
+                )
+                for host in exceptions:
+                    self.assertIs(
+                        False, exceptions[host]["NSIncludesSubdomains"]
+                    )
+                    self.assertIs(
+                        True, exceptions[host][
+                            "NSExceptionAllowsInsecureHTTPLoads"
+                        ]
+                    )
+                project = (
+                    root / "Runner.xcodeproj/project.pbxproj"
+                ).read_text()
+                debug_start = project.index(
+                    '97C147061CF9000F007C117D /* Debug */ = {'
+                )
+                release_start = project.index(
+                    '97C147071CF9000F007C117D /* Release */ = {',
+                    debug_start,
+                )
+                debug_target = project[debug_start:release_start]
+                release_target = project[release_start:]
+                self.assertIn(
+                    'INFOPLIST_FILE = "Runner/Info-Debug.plist";',
+                    debug_target,
+                )
+                self.assertIn(
+                    'INFOPLIST_FILE = Runner/Info.plist;',
+                    release_target,
+                )
+
     def test_ios_photo_picker_has_user_visible_privacy_description(self):
         app = ROOT / "apps/hasone-customer"
         # Profile screen invokes ImagePicker with both camera and gallery.
