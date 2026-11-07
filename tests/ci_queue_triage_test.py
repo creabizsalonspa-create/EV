@@ -2,6 +2,9 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -222,6 +225,37 @@ class QueueTriageTest(unittest.TestCase):
         self.assertEqual([{"id": 2, "type": "HTTPError", "http_status": 403}],
                          errors)
 
+
+
+    def test_operator_summary_is_compact_and_never_cancels(self):
+        fixture = {
+            "repository": REPO, "queued_scanned": 4,
+            "queue_scan_truncated": False, "open_pr_count": 2,
+            "candidate_count": 3, "cancellations_executed": 0,
+            "candidates": [
+                {"id": 1, "reason": "superseded_feature_push"},
+                {"id": 2, "reason": "superseded_feature_push"},
+                {"id": 3, "reason": "superseded_pr_head"},
+            ],
+        }
+        stdout = StringIO()
+        with patch.object(triage, "inspect", return_value=fixture), \
+                patch.dict("os.environ", {"GH_TOKEN": "", "GITHUB_TOKEN": ""}), \
+                redirect_stdout(stdout):
+            self.assertEqual(0, triage.main(["--summary-only"]))
+        shown = __import__("json").loads(stdout.getvalue())
+        self.assertNotIn("candidates", shown)
+        self.assertEqual(
+            {"superseded_feature_push": 2, "superseded_pr_head": 1},
+            shown["candidate_reasons"])
+        self.assertEqual(3, shown["candidate_count"])
+        self.assertEqual(0, shown["cancellations_executed"])
+
+    def test_manual_apply_refuses_missing_credentials_before_any_lookup(self):
+        with patch.dict("os.environ", {"GH_TOKEN": "", "GITHUB_TOKEN": ""}), \
+                patch.object(triage, "inspect", side_effect=AssertionError(
+                    "Apply without authorization must never call GitHub")):
+            self.assertEqual(2, triage.main(["--apply", "--max-cancel", "1"]))
 
 
 if __name__ == "__main__":
