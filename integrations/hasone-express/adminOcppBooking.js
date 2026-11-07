@@ -37,7 +37,7 @@ export async function AdminIssueBookingOcppToken(req,res){
   const updated=await BookingModel.findOneAndUpdate({
     _id:booking._id,isPaid:true,hasArrived:true,status:'Upcoming',
     ocppTokenHash:{$in:['',null]},
-  },{$set:{ocppTokenHash:tokenHash,ocppTokenIssuedAt:issuedAt}},{new:true});
+  },{$set:{ocppTokenHash:tokenHash,ocppTokenIssuedAt:issuedAt}},{returnDocument:'after'});
   if(!updated)return fail(res,409,'Booking token already issued or booking status changed');
   try{
    await mongoose.connection.db.collection('ocpp_access_tokens').insertOne({
