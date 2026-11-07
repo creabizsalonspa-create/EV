@@ -94,6 +94,7 @@
             !data.results.every(secure)) throw Error('Unsafe source data');
         lastResult = data;
         results.replaceChildren();
+        window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: data.results }));
         for (const r of data.results) {
             const card = document.createElement('article');
             card.dataset.ocmLocationId = r.id;
@@ -132,6 +133,7 @@
         current?.abort();
         lastResult = null;
         results.replaceChildren();
+        window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: [] }));
         consent.checked = false;
         lat.value = lng.value = '';
         radius.value = '25';
@@ -148,6 +150,7 @@
         current = new AbortController();
         lastResult = null;
         results.replaceChildren();
+        window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: [] }));
         search.disabled = true;
         announce('Searching licensed sources…', 'يجري البحث في المصادر المرخصة…');
         try {

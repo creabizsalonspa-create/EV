@@ -57,6 +57,16 @@
         make("span", "Show unverified partner pins", "عرض مواقع الشركاء غير المؤكدة"),
     );
     partnerLayerLabel.hidden = true;
+    const ocmLayerLabel = document.createElement("label");
+    const showOcmLayer = document.createElement("input");
+    showOcmLayer.id = "show-ocm-map-pins";
+    showOcmLayer.type = "checkbox";
+    showOcmLayer.checked = true;
+    ocmLayerLabel.append(
+        showOcmLayer,
+        make("span", "Show open-licensed discovery pins", "عرض مواقع الاكتشاف ذات البيانات المفتوحة"),
+    );
+    ocmLayerLabel.hidden = true;
     enable.type = locate.type = disable.type = focus.type = "button";
     disable.hidden = focus.hidden = true;
     const consent = document.createElement("label");
@@ -82,7 +92,7 @@
     canvas.id = "station-map";
     canvas.hidden = true;
     canvas.setAttribute("aria-label", "Station map / خريطة المحطات");
-    root.append(intro, enable, disable, focus, searchPartners, searchViewport, platformLayerLabel, partnerLayerLabel, consent, locate, status, canvas);
+    root.append(intro, enable, disable, focus, searchPartners, searchViewport, platformLayerLabel, partnerLayerLabel, ocmLayerLabel, consent, locate, status, canvas);
     let locationGeneration = 0;
     let planner,
         selectedCentre = null,
@@ -91,9 +101,11 @@
     let popupOpen = false;
     let records = [],
         partnerRows = [],
+        ocmRows = [],
         map,
         markers,
         partnerMarkers,
+        ocmMarkers,
         picked;
     const valid = (s) =>
         s.latitude !== null &&
@@ -321,11 +333,85 @@
             }).bindPopup(popup).addTo(partnerMarkers);
         }
     }
+    // Open-licensed crowd data is a third read-only source, never a canonical
+    // charging station or an authorized OCPI provider/EVSE ledger.
+    const ocmSafe = (r) =>
+        r && typeof r.id === "string" && /^ocm:[1-9]\d*$/.test(r.id) &&
+        r.source_status_evidence === "OPEN_CHARGE_MAP_DISCOVERY_ONLY" &&
+        r.availability === "unknown" && r.remote_control === false &&
+        r.reservable === false && r.billing_eligible === false &&
+        typeof r.data_license === "string" && r.data_license.trim() &&
+        typeof r.attribution === "string" && r.attribution.trim() &&
+        r.source_url === "https://openchargemap.org/site/poi/details/" + r.id.slice(4) &&
+        valid(r);
+    function renderOcm() {
+        if (!map || !ocmMarkers) return;
+        ocmMarkers.clearLayers();
+        ocmLayerLabel.hidden = ocmRows.length === 0;
+        if (!showOcmLayer.checked) return;
+        const buckets = new Map();
+        for (const row of ocmRows.filter(ocmSafe)) {
+            const p = map.latLngToContainerPoint([+row.latitude, +row.longitude]);
+            const key = `${Math.floor(p.x / 48)}:${Math.floor(p.y / 48)}`;
+            if (!buckets.has(key)) buckets.set(key, []);
+            buckets.get(key).push(row);
+        }
+        for (const group of buckets.values()) {
+            const first = group[0];
+            const popup = document.createElement("div");
+            for (const row of group) {
+                const name = document.createElement("strong");
+                name.textContent = String(row.name || row.id).slice(0, 180);
+                const evidence = make(
+                    "p",
+                    "Open Charge Map crowd report (licensed source). Live availability unverified; no booking, charging or payment.",
+                    "تقرير مجتمعي من خريطة الشحن المفتوحة (مصدر مرخص). التوفر المباشر غير مؤكد؛ لا حجز أو شحن أو دفع.",
+                );
+                const attribution = document.createElement("p");
+                attribution.textContent = row.attribution + " · " + row.data_license;
+                const jump = make(
+                    "button",
+                    "View open-licensed location in list",
+                    "عرض الموقع ذي البيانات المفتوحة في القائمة",
+                );
+                jump.type = "button";
+                jump.onclick = () => {
+                    const card = document.querySelector(
+                        `[data-ocm-location-id="${row.id}"]`,
+                    );
+                    if (card) {
+                        card.tabIndex = -1;
+                        card.focus();
+                        card.scrollIntoView({ block: "center" });
+                    }
+                };
+                const source = make("a", "View Open Charge Map source", "عرض المصدر في خريطة الشحن المفتوحة");
+                source.href = row.source_url;
+                source.target = "_blank";
+                source.rel = "noopener noreferrer";
+                popup.append(name, evidence, attribution, jump, source);
+            }
+            L.marker([+first.latitude, +first.longitude], {
+                title: text(
+                    "Open Charge Map — unverified discovery",
+                    "خريطة الشحن المفتوحة — اكتشاف غير مؤكد",
+                ),
+                zIndexOffset: -900,
+                icon: L.divIcon({
+                    className: "station-map-pin ocm-map-pin",
+                    html: `O${group.length}`,
+                    iconSize: [36, 36],
+                }),
+            }).bindPopup(popup).addTo(ocmMarkers);
+        }
+    }
+
     function render() {
         if (!map) return;
         markers.clearLayers();
         if (!showPlatformLayer.checked) {
             renderPartners();
+            renderOcm();
             return;
         }
         // Screen-space groups keep dense pages usable; clusters never imply shared chargers.
@@ -402,6 +488,7 @@
                 .addTo(markers);
         }
         renderPartners();
+        renderOcm();
     }
     const loadedPoints = () => [
         ...(showPlatformLayer.checked
@@ -410,12 +497,16 @@
         ...(showPartnerLayer.checked
             ? partnerRows.filter(partnerSafe).map((r) => [+r.location.latitude, +r.location.longitude])
             : []),
+        ...(showOcmLayer.checked
+            ? ocmRows.filter(ocmSafe).map((r) => [+r.latitude, +r.longitude])
+            : []),
     ];
     showPartnerLayer.onchange = () => {
         // Purely local presentation toggle: no API, location or tile request.
         renderPartners();
     };
     showPlatformLayer.onchange = () => render();
+    showOcmLayer.onchange = () => renderOcm();
     function fitLoaded(announce = false) {
         if (!map) return;
         const points = loadedPoints();
@@ -444,10 +535,10 @@
         searchPartners.hidden = true;
         if (map) map.remove();
         popupOpen = false;
-        map = markers = partnerMarkers = routeLines = picked = null;
+        map = markers = partnerMarkers = ocmMarkers = routeLines = picked = null;
         canvas.hidden = true;
         enable.hidden = false;
-        disable.hidden = focus.hidden = searchViewport.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = true;
+        disable.hidden = focus.hidden = searchViewport.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = ocmLayerLabel.hidden = true;
         setStatus(
             "Interactive map disabled. Results remain available in the lists.",
             "تم إيقاف الخريطة التفاعلية. لا تزال النتائج متاحة في القوائم.",
@@ -473,6 +564,7 @@
             });
         markers = L.layerGroup().addTo(map);
         partnerMarkers = L.layerGroup().addTo(map);
+        ocmMarkers = L.layerGroup().addTo(map);
         routeLines = L.layerGroup().addTo(map);
         renderRoute();
         fitLoaded();
@@ -559,6 +651,12 @@
             : [];
         render();
     });
+    window.addEventListener("open-charge-map-data", (event) => {
+        ocmRows = Array.isArray(event.detail) && event.detail.length <= 25
+            ? event.detail.filter(ocmSafe)
+            : [];
+        render();
+    });
     window.addEventListener("catalog-map-data", (event) => {
         records = event.detail;
         planner?.update(records);
@@ -567,7 +665,10 @@
     window.addEventListener("catalog-map-clear", () => {
         records = [];
         partnerRows = [];
+        ocmRows = [];
+        ocmLayerLabel.hidden = true;
         if (partnerMarkers) partnerMarkers.clearLayers();
+        if (ocmMarkers) ocmMarkers.clearLayers();
         locationGeneration++;
         locate.disabled = false;
         checkbox.checked = false;

@@ -99,6 +99,9 @@ const reply = {
         return status && status.textContent.trim() !== "" &&
           stations && !stations.hasAttribute("aria-busy");
       });
+      await page.getByRole("button", { name: "Enable interactive map" }).click();
+      const layer = page.locator("#show-ocm-map-pins");
+      assert.equal(await layer.isHidden(), true, "OCM overlay should not appear before a licensed search");
       await root.locator('[name="ocm_latitude"]').fill("25.2");
       await root.locator('[name="ocm_longitude"]').fill("55.3");
       await root.locator('[name="ocm_radius_km"]').fill("10");
@@ -127,6 +130,27 @@ const reply = {
         const source = root.getByRole("link", { name: "View source and license" });
         assert.equal(await source.getAttribute("href"), "https://openchargemap.org/site/poi/details/12345");
         assert.equal(await source.getAttribute("rel"), "noopener noreferrer");
+        await page.locator(".ocm-map-pin").waitFor();
+        assert.equal(await page.locator(".ocm-map-pin").count(), 1);
+        assert.equal(await page.locator(".ocm-map-pin").getAttribute("title"),
+          "Open Charge Map — unverified discovery");
+        await page.locator(".ocm-map-pin").click();
+        const popup = page.locator(".leaflet-popup-content");
+        await popup.getByText(
+          "Open Charge Map crowd report (licensed source). Live availability unverified; no booking, charging or payment.",
+          { exact: true },
+        ).waitFor();
+        assert.equal(await popup.getByRole("button", { name: "Add charging stop" }).count(), 0);
+        assert.equal(await popup.getByRole("button", { name: "Request charge" }).count(), 0);
+        assert.equal(await popup.getByRole("link", { name: "View Open Charge Map source" }).getAttribute("href"),
+          "https://openchargemap.org/site/poi/details/12345");
+        const noSearchOnToggle = searchRequests.length;
+        await layer.uncheck();
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0);
+        await layer.check();
+        assert.equal(await page.locator(".ocm-map-pin").count(), 1);
+        assert.equal(searchRequests.length, noSearchOnToggle,
+          "OCM source layer toggle must not request new coordinates or external data");
         const requestCountBeforeLocale = searchRequests.length;
         await page.locator("#language").click();
         assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
@@ -137,9 +161,14 @@ const reply = {
         await root.getByText("Straight-line distance: 1.25 km", { exact: true }).waitFor();
         await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
         assert.equal(await root.locator("article").count(), 0);
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0,
+          "Identity clear must remove all stale OCM map markers");
+        assert.equal(await layer.isHidden(), true);
         assert.equal(await root.locator('[name="ocm_latitude"]').inputValue(), "");
       } else {
         assert.equal(await root.locator("article").count(), 0);
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0,
+          "Rejected actionable OCM results must never appear as markers");
         assert.match(await root.textContent(), /Licensed source unavailable or invalid/);
       }
       assert.deepEqual(pageErrors, []);
