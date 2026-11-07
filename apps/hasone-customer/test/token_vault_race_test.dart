@@ -230,6 +230,28 @@ void main() {
     expect(Session.accessToken, 'second-session');
   });
 
+  test('corrupt or oversized cached user data never crashes startup', () async {
+    final vault = ControlledTokenVault();
+    final prefs = SharedPrefs(vault: vault);
+    await prefs.saveToken('valid-synthetic-credential');
+    final storage = await SharedPreferences.getInstance();
+    final key = 'user:${ApiConfig.baseUrl}';
+
+    for (final malformed in [
+      '{unfinished:',
+      '["array-is-not-an-account"]',
+      'x' * 33000,
+    ]) {
+      await storage.setString(key, malformed);
+      expect(await prefs.getUser(), isNull);
+      expect(storage.getString(key), isNull);
+      expect(Session.accessToken, 'valid-synthetic-credential');
+    }
+
+    await prefs.saveUser({'email': 'clean@example.test'});
+    expect((await prefs.getUser())?['email'], 'clean@example.test');
+  });
+
   test('cached user profile is erased along with the token', () async {
     final vault = ControlledTokenVault();
     final prefs = SharedPrefs(vault: vault);
