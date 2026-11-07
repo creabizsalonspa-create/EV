@@ -38,6 +38,7 @@ class PlatformController extends Controller
         $u->save();
         Auth::login($u);
         $r->session()->regenerate();
+        $r->session()->put('account_auth_epoch', (int) $u->auth_epoch);
 
         return response()->json($u, 201);
     }
@@ -57,6 +58,7 @@ class PlatformController extends Controller
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
         }
         $r->session()->regenerate();
+        $r->session()->put('account_auth_epoch', (int) $r->user()->auth_epoch);
 
         return response()->json($r->user());
     }

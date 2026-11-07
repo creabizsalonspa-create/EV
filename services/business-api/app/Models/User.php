@@ -13,7 +13,7 @@ class User extends Authenticatable implements MustVerifyEmail
     /** @use HasFactory<UserFactory> */
     use HasFactory, \Laravel\Sanctum\HasApiTokens, Notifiable;
 
-    protected $attributes = ['role' => 'customer', 'locale' => 'en', 'account_status' => 'active'];
+    protected $attributes = ['role' => 'customer', 'locale' => 'en', 'account_status' => 'active', 'auth_epoch' => 0];
 
     /**
      * The attributes that are mass assignable.
@@ -34,6 +34,8 @@ class User extends Authenticatable implements MustVerifyEmail
     protected $hidden = [
         'password',
         'remember_token',
+        'auth_epoch',
+        'suspended_at',
     ];
 
     /**
@@ -46,6 +48,8 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'auth_epoch' => 'integer',
+            'suspended_at' => 'datetime',
         ];
     }
 }

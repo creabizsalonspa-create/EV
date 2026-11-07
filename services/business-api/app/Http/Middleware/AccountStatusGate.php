@@ -11,29 +11,53 @@ class AccountStatusGate
 {
     public function handle(Request $request, Closure $next): Response
     {
-        // Native Sanctum may authenticate after this group-level middleware.
-        // Resolve only v1 identity here; public discovery is unaffected.
-        $account = $request->is('api/v1/*')
+        // Fresh sign-in, sign-out, CSRF, registration and account recovery
+        // must remain reachable even when a stale session is presented.
+        // Credential issuance itself validates the current account status.
+        if ($request->is(
+            'api/login', 'api/logout', 'api/register', 'api/csrf',
+            'api/forgot-password', 'api/reset-password'
+        )) {
+            return $next($request);
+        }
+
+        // Native Sanctum authorization runs after this middleware. Resolve
+        // that actor only for v1 requests; bearer revocation is enforced by
+        // the same database-backed account status.
+        $native = $request->is('api/v1/*');
+        $account = $native
             ? Auth::guard('sanctum')->user()
             : $request->user();
 
-        if ($account?->account_status !== 'suspended') {
-            return $next($request);
-        }
-
-        // Revoked sessions normally fail authentication first, but preserve a
-        // minimal self-logout route if a request was already authenticated.
-        if ($request->isMethod('POST')
-            && $request->is('api/logout', 'api/v1/logout')) {
-            return $next($request);
-        }
-
-        if ($request->is('api/*') || $request->expectsJson()) {
+        if ($account?->account_status === 'suspended') {
+            if ($request->isMethod('POST') && $request->is('api/v1/logout')) {
+                return $next($request);
+            }
             return response()->json(['message' => 'Account access is unavailable.'], 403)
                 ->header('Cache-Control', 'no-store, private');
         }
 
-        return response('Account access is unavailable.', 403)
-            ->header('Cache-Control', 'no-store, private');
+        // After a moderation action, rotating account_auth_epoch invalidates
+        // old file/array/Redis sessions, not just database-backed sessions.
+        // Existing unmoderated accounts (epoch=0) remain compatible.
+        if (! $native && $account && (int) $account->auth_epoch > 0
+            && (! $request->hasSession()
+                || (int) $request->session()->get('account_auth_epoch', -1)
+                    !== (int) $account->auth_epoch)) {
+            Auth::guard('web')->logout();
+            if ($request->hasSession()) {
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+            }
+
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json(['message' => 'Sign in again to continue.'], 401)
+                    ->header('Cache-Control', 'no-store, private');
+            }
+
+            return redirect('/?session=expired')->header('Cache-Control', 'no-store, private');
+        }
+
+        return $next($request);
     }
 }

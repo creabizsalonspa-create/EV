@@ -10,6 +10,9 @@ return new class extends Migration
     {
         Schema::table('users', function (Blueprint $table) {
             $table->string('account_status', 16)->default('active')->index();
+            // Browser credential epoch survives reinstatement, including when
+            // sessions are stored outside the database.
+            $table->unsignedBigInteger('auth_epoch')->default(0);
             $table->timestamp('suspended_at')->nullable();
         });
 
@@ -28,6 +31,6 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('admin_account_moderations');
-        Schema::table('users', fn (Blueprint $table) => $table->dropColumn(['account_status', 'suspended_at']));
+        Schema::table('users', fn (Blueprint $table) => $table->dropColumn(['account_status', 'auth_epoch', 'suspended_at']));
     }
 };

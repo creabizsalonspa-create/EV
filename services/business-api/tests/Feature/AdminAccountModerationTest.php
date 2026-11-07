@@ -149,6 +149,30 @@ class AdminAccountModerationTest extends TestCase
         $this->assertDatabaseCount('audit_events', 0);
     }
 
+    public function test_old_browser_session_does_not_reactivate_after_reinstatement(): void
+    {
+        $account = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $route = "/api/admin/accounts/{$account->id}/moderate";
+        $this->actingAs($admin)->patchJson($route, $this->decision('suspended'))->assertOk();
+        $this->patchJson($route, $this->decision('active', 'suspended',
+            'Review confirmed and account restored'))->assertOk();
+        $this->assertDatabaseHas('users', [
+            'id' => $account->id, 'account_status' => 'active', 'auth_epoch' => 2,
+        ]);
+
+        // Simulate an old still-stored browser session, as can happen with a
+        // file or distributed session driver. Role and status alone are not
+        // enough: this stale authorization must not survive reinstatement.
+        $this->actingAs($account->fresh(), 'web')
+            ->withSession(['account_auth_epoch' => 0])
+            ->getJson('/api/vehicles')->assertUnauthorized();
+        $this->postJson('/api/login', [
+            'email' => $account->email, 'password' => 'password',
+        ])->assertOk();
+        $this->getJson('/api/vehicles')->assertOk();
+    }
+
     public function test_account_directory_can_filter_moderation_state_without_exposing_reason(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

@@ -120,6 +120,9 @@ class AdminAccountDirectoryController extends Controller
 
             $account->forceFill([
                 'account_status' => $input['account_status'],
+                // Every moderation transition revokes old browser session
+                // grants, even when the session driver is not database.
+                'auth_epoch' => (int) $account->auth_epoch + 1,
                 'suspended_at' => $input['account_status'] === 'suspended' ? now() : null,
                 'remember_token' => Str::random(60),
             ])->save();
@@ -129,6 +132,7 @@ class AdminAccountDirectoryController extends Controller
             // after this transaction commits.
             $account->tokens()->delete();
             DB::table('sessions')->where('user_id', $account->id)->delete();
+            DB::table('password_reset_tokens')->where('email', $account->email)->delete();
 
             DB::table('admin_account_moderations')->insert([
                 'target_user_id' => $account->id,
