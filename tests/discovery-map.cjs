@@ -230,6 +230,7 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator(".station-map-pin").count(), 0);
     assert.equal(await page.locator("#location-consent").isChecked(), false);
     assert.equal(await page.getByRole("button", { name: "البحث عن شركاء قرب النقطة المحددة" }).isHidden(), true);
+    assert.equal(await page.getByRole("button", { name: "البحث في تقارير الشركاء حول مركز الخريطة" }).isHidden(), true);
     assert.equal(await page.getByRole("button", { name: "إظهار المواقع المحملة على الخريطة" }).isHidden(), true);
     assert.equal(await layerToggle.isHidden(), true);
     assert.equal(await platformLayerToggle.isHidden(), true);
@@ -251,6 +252,22 @@ const assert = require("node:assert/strict");
     const mapSelectionUri = new URL((await clickedMapQuery).url());
     assert.notEqual(mapSelectionUri.searchParams.get("latitude"), "25.200000");
     assert.equal(mapSelectionUri.searchParams.get("radius_km"), "25");
+    const beforeViewSearch = partnerQueries.length;
+    await page.locator("#station-map").hover();
+    await page.mouse.wheel(0, 240);
+    await page.waitForTimeout(150);
+    assert.equal(partnerQueries.length, beforeViewSearch, "Map wheel/zoom must not transmit partner location");
+    const viewRequest = page.waitForRequest(req => {
+      const url = new URL(req.url());
+      return url.pathname === "/api/roaming/locations" && url.searchParams.has("latitude");
+    });
+    await page.getByRole("button", { name: "البحث في تقارير الشركاء حول مركز الخريطة" }).click();
+    const mapUri = new URL((await viewRequest).url());
+    assert(Number(mapUri.searchParams.get("radius_km")) >= 1);
+    assert.equal(mapUri.searchParams.get("radius_km"), "200", "Wide viewport must explicitly cap partner-radius to 200 km");
+    await page.getByText("مساحة الخريطة أوسع من 200 كم؛ البحث في تقارير الشركاء ضمن 200 كم فقط من المركز. ليس توافراً مباشراً.", { exact: true }).waitFor();
+    assert(Math.abs(Number(mapUri.searchParams.get("latitude"))) <= 90);
+    assert(Math.abs(Number(mapUri.searchParams.get("longitude"))) <= 180);
     // Web Mercator stops at +/-85.0511. Valid polar GPS coordinates must
     // remain usable for list search without corrupting the Leaflet map.
     const queriesBeforePolarGps = partnerQueries.length;

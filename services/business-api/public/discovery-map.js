@@ -30,6 +30,13 @@
     const searchPartners = make("button", "Find partners near selected point", "البحث عن شركاء قرب النقطة المحددة");
     searchPartners.type = "button";
     searchPartners.hidden = true;
+    const searchViewport = make(
+        "button",
+        "Search partner reports around map centre",
+        "البحث في تقارير الشركاء حول مركز الخريطة",
+    );
+    searchViewport.type = "button";
+    searchViewport.hidden = true;
     const platformLayerLabel = document.createElement("label");
     const showPlatformLayer = document.createElement("input");
     showPlatformLayer.id = "show-platform-map-pins";
@@ -75,7 +82,7 @@
     canvas.id = "station-map";
     canvas.hidden = true;
     canvas.setAttribute("aria-label", "Station map / خريطة المحطات");
-    root.append(intro, enable, disable, focus, searchPartners, platformLayerLabel, partnerLayerLabel, consent, locate, status, canvas);
+    root.append(intro, enable, disable, focus, searchPartners, searchViewport, platformLayerLabel, partnerLayerLabel, consent, locate, status, canvas);
     let locationGeneration = 0;
     let planner,
         selectedCentre = null,
@@ -158,6 +165,38 @@
         setStatus(
             "Searching partner-reported locations around selected coordinates. Availability is not live.",
             "يجري البحث في مواقع الشركاء المبلغ عنها قرب الإحداثيات المحددة. التوفر ليس مباشراً.",
+        );
+    };
+
+    // The map is a visual selection surface, not a background GPS search.
+    // Panning/zooming alone never submits coordinates or refetches partners.
+    searchViewport.onclick = () => {
+        if (!map) return;
+        const centre = map.getCenter().wrap();
+        const bounds = map.getBounds();
+        const corners = [bounds.getNorthEast(), bounds.getSouthEast(), bounds.getNorthWest(), bounds.getSouthWest()];
+        if (!Number.isFinite(centre.lat) || !Number.isFinite(centre.lng) ||
+            Math.abs(centre.lat) > 90 || Math.abs(centre.lng) > 180) return;
+        // The public endpoint has an intentionally bounded radius (<=200km).
+        // A wider visible viewport is not claimed to have been searched fully.
+        const visibleRadiusKm = Math.ceil(Math.max(
+            1, ...corners.map(point => map.distance(centre, point) / 1000),
+        ));
+        const radius = Math.max(1, Math.min(200, visibleRadiusKm));
+        window.dispatchEvent(new CustomEvent("partner-nearby-search", {
+            detail: {
+                latitude: centre.lat.toFixed(6),
+                longitude: centre.lng.toFixed(6),
+                radius_km: String(radius),
+            },
+        }));
+        setStatus(
+            visibleRadiusKm > 200
+                ? "Map view exceeds 200 km; searching partner reports within 200 km of map centre only. Not live availability."
+                : "Searching partner-reported locations around this map centre. Not live availability.",
+            visibleRadiusKm > 200
+                ? "مساحة الخريطة أوسع من 200 كم؛ البحث في تقارير الشركاء ضمن 200 كم فقط من المركز. ليس توافراً مباشراً."
+                : "يجري البحث في مواقع الشركاء المبلغ عنها حول مركز الخريطة. ليس توافراً مباشراً.",
         );
     };
 
@@ -408,7 +447,7 @@
         map = markers = partnerMarkers = routeLines = picked = null;
         canvas.hidden = true;
         enable.hidden = false;
-        disable.hidden = focus.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = true;
+        disable.hidden = focus.hidden = searchViewport.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = true;
         setStatus(
             "Interactive map disabled. Results remain available in the lists.",
             "تم إيقاف الخريطة التفاعلية. لا تزال النتائج متاحة في القوائم.",
@@ -418,7 +457,7 @@
         if (map) return;
         canvas.hidden = false;
         enable.hidden = true;
-        disable.hidden = focus.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = false;
+        disable.hidden = focus.hidden = searchViewport.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = false;
         map = L.map(canvas, { worldCopyJump: true }).setView([24.45, 54.38], 6);
         L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
