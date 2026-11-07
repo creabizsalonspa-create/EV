@@ -181,6 +181,30 @@ class RecoveryIsolationTests(unittest.TestCase):
                                          ['target-db', 'target-app'],
                                          DB_IMAGE, APP_IMAGE)
 
+    def test_inspector_rejects_ambiguous_nested_json_and_never_logs_secrets(self):
+        payloads = (
+            b'[{"Id":"a","Id":"b"},{}]',
+            b'[{"HostConfig":{"Privileged":false,"Privileged":true}},{}]',
+            b'[{"Config":{"Env":["DB_PASSWORD=TOP_SECRET"],"Image":NaN}},{}]',
+            b'[{"Config":{"Image":Infinity}},{}]',
+            b'[{"Config":{"Image":-Infinity}},{}]',
+            b'[' + b'[' * 1200 + b']' * 1200 + b']',
+        )
+        for value in payloads:
+            with self.subTest(payload=value[:48]):
+                out, err = io.StringIO(), io.StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    self.assertEqual(g.main([
+                        'networks', '--source-network', S, '--target-network', T,
+                    ], io.BytesIO(value)), 1)
+                self.assertNotIn('TOP_SECRET', out.getvalue() + err.getvalue())
+                self.assertNotIn('DB_PASSWORD', out.getvalue() + err.getvalue())
+
+        clean = io.BytesIO(json.dumps([network(S), network(T)]).encode())
+        self.assertEqual(g.main([
+            'networks', '--source-network', S, '--target-network', T,
+        ], clean), 0)
+
     def test_cli_never_prints_inspect_environment_fields(self):
         rows = [container('source-db', S, 'one'), container('target-db', T, 'two')]
         rows[0]['Config']['Env'] = ['DB_PASSWORD=SUPER_SECRET_DO_NOT_PRINT']

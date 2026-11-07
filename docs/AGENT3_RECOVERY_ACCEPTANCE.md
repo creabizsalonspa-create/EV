@@ -129,3 +129,7 @@ The disposable inspector now checks the actual Docker `Config.Image` against the
 ### Early hosted recovery policy coverage
 
 The hosted `staging-image` job now runs the entire `agent3_*_test.py` Python negative/policy suite **before** building or starting the synthetic Docker images. It includes the runtime network/image checks, HMAC/digest handling, atomic evidence publication, proof parser, strict staging config and both restore-runner policies, even when later `recovery-acceptance` prerequisites are blocked. Workflow-policy tests enforce this early position. This does not substitute for the separately required real Docker restore and GitHub job outcome.
+
+### Strict untrusted Docker inspection boundary
+
+The disposable network/container inspector treats Docker's JSON output as an untrusted payload. Parsing now rejects duplicate JSON object keys at any nesting level, non-standard NaN/Infinity numeric constants, deeply nested input that exhausts JSON parsing recursion, and oversized messages. Error paths deliberately report only a constant or minimal error category, never the supplied JSON body or embedded `Config.Env` secrets. These controls are validated with synthetic duplicate, malformed, non-finite, and secret-carrying fixtures; they do not constitute a live Docker restore or production environment acceptance.

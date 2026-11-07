@@ -18,9 +18,23 @@ def read_inspect(stream):
     # Docker inspect includes environment secrets. Never print or save payloads.
     raw = stream.read(1048577)
     require(len(raw) <= 1048576, 'Docker inspection data exceeds one MiB')
+
+    def unique_pairs(pairs):
+        obj = {}
+        for key, value in pairs:
+            require(key not in obj, 'Ambiguous duplicate Docker inspection field')
+            obj[key] = value
+        return obj
+
+    def reject_nonfinite(_value):
+        raise IsolationError('Nonstandard Docker inspection numeric constant')
+
     try:
-        parsed = json.loads(raw)
-    except (ValueError, UnicodeError):
+        parsed = json.loads(raw, object_pairs_hook=unique_pairs,
+                            parse_constant=reject_nonfinite)
+    except (ValueError, UnicodeError, RecursionError):
+        # A malformed inspect response must never reveal its content, which
+        # may contain DB credentials passed through Config.Env.
         raise IsolationError('Invalid Docker inspection JSON') from None
     require(isinstance(parsed, list) and 2 <= len(parsed) <= 4,
             'Unexpected inspected runtime object count')
