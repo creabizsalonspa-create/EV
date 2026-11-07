@@ -29,6 +29,9 @@ const opsEn = {
   'activeSessions': 'Open source-linked sessions',
   'missingEvidence': 'No source evidence in the last 5 minutes',
   'unresolvedCases': 'Unresolved recovery cases',
+  'monitorReviewCount': 'Recorded simulator monitor review flags',
+  'unackFaultCount': 'Unacknowledged recorded charger fault alerts',
+  'recoveredUnackFaultCount': 'Source-recovered faults still awaiting acknowledgment',
   'evidenceNotice':
       'Recorded business evidence does not prove charger connectivity, connector availability or physical charging.',
   'commandStates': 'Recorded command states',
@@ -57,6 +60,9 @@ const opsAr = {
   'activeSessions': 'جلسات مرتبطة بالمصدر لم تنته',
   'missingEvidence': 'بلا أدلة مصدر خلال آخر ٥ دقائق',
   'unresolvedCases': 'حالات الاسترداد غير المعالجة',
+  'monitorReviewCount': 'سجلات مراقبة المحاكاة التي تتطلب مراجعة',
+  'unackFaultCount': 'تنبيهات أعطال الشواحن المسجلة وغير المقَرّة',
+  'recoveredUnackFaultCount': 'أعطال سُجل تعافي مصدرها وما زالت تنتظر الإقرار',
   'evidenceNotice':
       'أدلة الأعمال المسجلة لا تثبت اتصال الشاحن أو توفر الموصل أو الشحن الفعلي.',
   'commandStates': 'حالات الأوامر المسجلة',
@@ -265,6 +271,9 @@ class _OperationsState extends State<ChargingOperationsView> {
             Text(
               '${t('unresolvedCases')}: ${dashboard!['unresolved_case_count']}',
             ),
+            Text('${t('monitorReviewCount')}: ${dashboard!['recorded_monitor_review_count'] ?? 0}'),
+            Text('${t('unackFaultCount')}: ${dashboard!['unacknowledged_fault_alert_count'] ?? 0}'),
+            Text('${t('recoveredUnackFaultCount')}: ${dashboard!['source_recovered_unacknowledged_fault_count'] ?? 0}'),
             Text(t('evidenceNotice')),
             ExpansionTile(
               title: Text(t('commandStates')),

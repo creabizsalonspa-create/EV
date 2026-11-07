@@ -62,6 +62,78 @@ class ChargingDashboardTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson('/api/charging-operations/dashboard')->assertOk()->assertJsonPath('station_count', 6);
     }
 
+    public function test_recorded_fault_and_monitor_attention_counts_are_vendor_scoped_not_live_health(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $stranger = User::factory()->create(['role' => 'vendor']);
+        foreach ([$owner, $stranger] as $offset => $vendor) {
+            $station = Station::create([
+                'vendor_id' => $vendor->id,
+                'name' => 'Fixture charging monitor '.$offset,
+                'country' => 'AE',
+                'currency' => 'AED',
+                'timezone' => 'Asia/Dubai',
+                'latitude' => 25,
+                'longitude' => 55,
+                'source' => 'simulator',
+                'connector_type' => 'CCS2',
+                'power_kw' => 50,
+            ]);
+            $binding = DB::table('csms_bindings')->insertGetId([
+                'station_id' => $station->id,
+                'identifier' => 'ev-test-observer-'.$station->id,
+                'protocol' => '1.6',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $generation = hash('sha256', 'test-namespace-'.$binding);
+            DB::table('charging_fault_cursors')->insert([
+                'binding_id' => $binding,
+                'source_generation' => $generation,
+                'source_station_id' => 42 + $offset,
+                'last_event_id' => 1,
+                'state' => 'requires_review',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $observation = DB::table('charging_status_observations')->insertGetId([
+                'binding_id' => $binding,
+                'source_generation' => $generation,
+                'source_event_id' => 1,
+                'fingerprint' => hash('sha256', 'fault-'.$binding),
+                'evse_number' => 1,
+                'connector_number' => 1,
+                'status' => 'Faulted',
+                'error_code' => 'GroundFailure',
+                'occurred_at' => now(),
+                'created_at' => now(),
+            ]);
+            DB::table('charging_fault_alerts')->insert([
+                'observation_id' => $observation,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $response = $this->actingAs($owner)
+            ->getJson('/api/v1/charging-operations/dashboard')
+            ->assertOk()
+            ->assertJsonPath('recorded_monitor_review_count', 1)
+            ->assertJsonPath('unacknowledged_fault_alert_count', 1)
+            ->assertJsonPath('source_recovered_unacknowledged_fault_count', 0)
+            ->assertJsonPath('alert_metrics_are_historical', true)
+            ->assertJsonPath('physical_charging_verified', false);
+        $this->assertStringNotContainsString('GroundFailure', $response->getContent());
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson('/api/charging-operations/dashboard')
+            ->assertOk()->assertJsonPath('recorded_monitor_review_count', 2)
+            ->assertJsonPath('unacknowledged_fault_alert_count', 2);
+        $this->actingAs($stranger)
+            ->getJson('/api/v1/charging-operations/dashboard')
+            ->assertOk()->assertJsonPath('recorded_monitor_review_count', 1)
+            ->assertJsonPath('unacknowledged_fault_alert_count', 1);
+    }
+
     public function test_guests_customers_and_invalid_pagination_are_rejected(): void
     {
         $this->getJson('/api/charging-operations/dashboard')->assertUnauthorized();

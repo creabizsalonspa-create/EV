@@ -2028,6 +2028,21 @@ async function commandHistory(page = 1) {
             "حالات الاسترداد غير المعالجة",
             dashboard.unresolved_case_count,
         );
+        line(
+            "Recorded simulator monitor review flags",
+            "سجلات مراقبة المحاكاة التي تتطلب مراجعة",
+            dashboard.recorded_monitor_review_count ?? 0,
+        );
+        line(
+            "Unacknowledged recorded charger fault alerts",
+            "تنبيهات أعطال الشواحن المسجلة وغير المقَرّة",
+            dashboard.unacknowledged_fault_alert_count ?? 0,
+        );
+        line(
+            "Recorded source-recovered faults still awaiting acknowledgment",
+            "أعطال سُجل تعافي مصدرها وما زالت تنتظر الإقرار",
+            dashboard.source_recovered_unacknowledged_fault_count ?? 0,
+        );
         const details = document.createElement("details");
         const summary = document.createElement("summary");
         summary.dataset.en = "Recorded command states";

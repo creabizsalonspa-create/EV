@@ -21,6 +21,10 @@ class OpsApi extends FixtureApi {
         'active_session_count': 3,
         'missing_recent_evidence_count': 2,
         'unresolved_case_count': 1,
+        'recorded_monitor_review_count': 2,
+        'unacknowledged_fault_alert_count': 3,
+        'source_recovered_unacknowledged_fault_count': 1,
+        'alert_metrics_are_historical': true,
       };
     }
     if (path == 'charging-operations/7/case' && method == 'GET') {
@@ -82,6 +86,8 @@ void main() {
       );
       await t.pumpAndSettle();
       expect(find.text('Open source-linked sessions: 3'), findsOneWidget);
+      expect(find.text('Recorded simulator monitor review flags: 2'), findsOneWidget);
+      expect(find.text('Unacknowledged recorded charger fault alerts: 3'), findsOneWidget);
       expect(find.text('No source evidence in the last 5 minutes: 2'), findsOneWidget);
       await t.ensureVisible(find.text('Open recovery case'));
       await t.tap(find.text('Open recovery case'));
