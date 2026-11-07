@@ -6,6 +6,26 @@ use Tests\TestCase;
 
 class SecurityHeadersTest extends TestCase
 {
+    public function test_blank_route_content_security_policy_cannot_disable_the_platform_default(): void
+    {
+        $middleware = new \App\Http\Middleware\SecurityHeaders;
+
+        foreach (['', '   '] as $blankPolicy) {
+            $request = \Illuminate\Http\Request::create('/stations', 'GET');
+            $result = $middleware->handle($request, function () use ($blankPolicy) {
+                $response = new \Symfony\Component\HttpFoundation\Response('safe');
+                $response->headers->set('Content-Security-Policy', $blankPolicy);
+
+                return $response;
+            });
+
+            $policy = $result->headers->get('Content-Security-Policy');
+            $this->assertStringContainsString("base-uri 'self'", $policy);
+            $this->assertStringContainsString("object-src 'none'", $policy);
+            $this->assertStringContainsString("frame-ancestors 'none'", $policy);
+        }
+    }
+
     public function test_hosted_payment_return_keeps_the_route_specific_restrictive_csp(): void
     {
         $response = $this->get('/payments/hosted-return?hosted_reference=synthetic-reference');
