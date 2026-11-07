@@ -87,6 +87,16 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
         ):
             self.assertIn(guard, code)
 
+    def test_database_identity_and_empty_restore_schema_proven(self):
+        code = self.source
+        self.assertIn('pg_control_system()', code)
+        self.assertIn('"$source_cluster_id" != "$target_cluster_id"', code)
+        self.assertLess(code.index('source_cluster_id=$(query'), code.index('pg_dump -U ev_csms_recovery'))
+        self.assertLess(code.index("Restore target was not empty/isolated."),
+                        code.index('pg_restore -U ev_csms_recovery'))
+        self.assertIn("'distinct_cluster_system_ids_verified': True", code)
+        self.assertIn("'restore_target_previously_empty': True", code)
+
     def test_effective_runtime_isolation_is_required_before_restore(self):
         code = self.source
         self.assertIn('recovery-runtime-guard.py" networks', code)

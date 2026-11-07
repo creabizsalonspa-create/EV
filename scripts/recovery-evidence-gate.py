@@ -122,6 +122,8 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business.get('run_local_manifest_hmac_verified') is True and
             business.get('single_transaction_restore') is True and
             business.get('isolated_runtime_verified') is True and
+            business.get('distinct_cluster_system_ids_verified') is True and
+            business.get('restore_target_previously_empty') is True and
             business.get('private_archive_tamper_rejected') is True and
             business.get('queue_worker_started') is True and
             business.get('durable_queue_job_restored_and_executed') is True and
@@ -145,7 +147,9 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             csms.get('archive_tamper_rejected') is True and
             csms.get('run_local_manifest_hmac_verified') is True and
             csms.get('single_transaction_restore') is True and
-            csms.get('isolated_runtime_verified') is True,
+            csms.get('isolated_runtime_verified') is True and
+            csms.get('distinct_cluster_system_ids_verified') is True and
+            csms.get('restore_target_previously_empty') is True,
             'PostGIS recovery or external acceptance boundary invalid')
     business_timing = timing_metrics(business, 'business')
     csms_timing = timing_metrics(csms, 'csms')

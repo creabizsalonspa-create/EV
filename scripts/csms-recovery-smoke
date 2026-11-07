@@ -92,6 +92,17 @@ query() {
 wait_for_postgres "$source_db"
 wait_for_postgres "$target_db"
 
+# Even with distinct Docker volumes, compare PostgreSQL's own cluster
+# identifiers. A shared/misattached data directory must never be restored.
+source_cluster_id=$(query "$source_db" 'SELECT system_identifier::text FROM pg_control_system()')
+target_cluster_id=$(query "$target_db" 'SELECT system_identifier::text FROM pg_control_system()')
+[[ "$source_cluster_id" =~ ^[0-9]+$ &&
+   "$target_cluster_id" =~ ^[0-9]+$ &&
+   "$source_cluster_id" != "$target_cluster_id" ]] || {
+  echo 'Recovery source and target do not have distinct PostgreSQL clusters.' >&2
+  exit 1
+}
+
 docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_csms_recovery \
   -d ev_csms_recovery >/dev/null <<'SQL_SEED'
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -211,6 +222,8 @@ record = {
     'run_local_manifest_hmac_verified': True,
     'single_transaction_restore': True,
     'isolated_runtime_verified': True,
+    'distinct_cluster_system_ids_verified': True,
+    'restore_target_previously_empty': True,
     'drill_started_epoch': int(drill_start),
     'snapshot_started_epoch': int(snapshot_start),
     'snapshot_completed_epoch': int(snapshot_end),

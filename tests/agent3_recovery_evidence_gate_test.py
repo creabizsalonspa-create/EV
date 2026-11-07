@@ -35,6 +35,8 @@ def evidence():
         'run_local_manifest_hmac_verified': True,
         'single_transaction_restore': True,
         'isolated_runtime_verified': True,
+        'distinct_cluster_system_ids_verified': True,
+        'restore_target_previously_empty': True,
         'drill_started_epoch': 1790000000,
         'snapshot_started_epoch': 1790000010,
         'snapshot_completed_epoch': 1790000020,
@@ -63,6 +65,8 @@ def evidence():
         'run_local_manifest_hmac_verified': True,
         'single_transaction_restore': True,
         'isolated_runtime_verified': True,
+        'distinct_cluster_system_ids_verified': True,
+        'restore_target_previously_empty': True,
         'drill_started_epoch': 1790000000,
         'snapshot_started_epoch': 1790000010,
         'snapshot_completed_epoch': 1790000020,
@@ -117,6 +121,8 @@ class GateTest(unittest.TestCase):
             ('run_local_manifest_hmac_verified',False),
             ('single_transaction_restore',False),
             ('isolated_runtime_verified',False),
+            ('distinct_cluster_system_ids_verified',False),
+            ('restore_target_previously_empty',False),
             ('private_archive_tamper_rejected',False),
             ('queue_worker_started',False),
             ('durable_queue_job_restored_and_executed',False),
@@ -146,6 +152,8 @@ class GateTest(unittest.TestCase):
             ('run_local_manifest_hmac_verified',False),
             ('single_transaction_restore',False),
             ('isolated_runtime_verified',False),
+            ('distinct_cluster_system_ids_verified',False),
+            ('restore_target_previously_empty',False),
         ]
         for field,value in cases:
             with self.subTest(field=field,value=value):

@@ -143,6 +143,23 @@ query() {
 wait_for_postgres "$source_db"
 wait_for_postgres "$target_db"
 
+# Even with distinct Docker volumes, compare PostgreSQL's own cluster
+# identifiers. A shared/misattached data directory must never be restored.
+source_cluster_id=$(query "$source_db" 'SELECT system_identifier::text FROM pg_control_system()')
+target_cluster_id=$(query "$target_db" 'SELECT system_identifier::text FROM pg_control_system()')
+[[ "$source_cluster_id" =~ ^[0-9]+$ &&
+   "$target_cluster_id" =~ ^[0-9]+$ &&
+   "$source_cluster_id" != "$target_cluster_id" ]] || {
+  echo 'Recovery source and target do not have distinct PostgreSQL clusters.' >&2
+  exit 1
+}
+
+# The disposable target must be empty, not a previous data-bearing schema.
+[[ "$(query "$target_db" "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" == 0 ]] || {
+  echo 'Disposable Laravel restore target already contains public tables.' >&2
+  exit 1
+}
+
 # The same built runtime used by staging-image-smoke applies *all* Laravel migrations.
 source_app=$(docker run -d --name "$review_id-app-source" --network "$source_net" \
   --env-file "$scratch/source-application.env" \
@@ -308,6 +325,10 @@ if (!chmod($p, 0600)) exit(1);
 # Recheck exact on-disk bytes immediately before and after the isolated
 # database restore; the recovery proof must describe the consumed archive.
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+[[ "$(query "$target_db" "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" == 0 ]] || {
+  echo 'Laravel target became nonempty before isolated restore.' >&2
+  exit 1
+}
 restore_started_epoch=$(date -u +%s)
 docker exec -i "$target_db" pg_restore -U ev_recovery_review -d ev_recovery_review \
   --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
@@ -491,6 +512,8 @@ record = {
     'run_local_manifest_hmac_verified': True,
     'single_transaction_restore': True,
     'isolated_runtime_verified': True,
+    'distinct_cluster_system_ids_verified': True,
+    'restore_target_previously_empty': True,
     'drill_started_epoch': int(drill_start),
     'snapshot_started_epoch': int(snapshot_start),
     'snapshot_completed_epoch': int(snapshot_end),

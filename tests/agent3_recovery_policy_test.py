@@ -157,6 +157,17 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertIn("'database_session_cache_restored': True", code)
         self.assertIn("'post_snapshot_session_cache_changes_excluded': True", code)
 
+    def test_target_is_fresh_distinct_postgresql_cluster_before_restore(self):
+        code = self.source
+        self.assertIn('pg_control_system()', code)
+        self.assertIn('"$source_cluster_id" != "$target_cluster_id"', code)
+        self.assertEqual(code.count("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'"), 2)
+        self.assertLess(code.index('source_cluster_id=$(query'), code.index('pg_dump -U ev_recovery_review'))
+        self.assertLess(code.rindex('Laravel target became nonempty before isolated restore'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertIn("'distinct_cluster_system_ids_verified': True", code)
+        self.assertIn("'restore_target_previously_empty': True", code)
+
     def test_durable_laravel_queue_is_restored_and_post_snapshot_job_is_excluded(self):
         code = self.source
         self.assertEqual(code.count('Bus::dispatch(new \\App\\Jobs\\Agent3SyntheticQueueRecoveryProbe'), 2)
