@@ -2,6 +2,7 @@ name: Native client validation
 on:
   workflow_dispatch:
   push:
+    branches: [development/fullstack-continuation]
     paths:
       [
         "apps/mobile/**",
