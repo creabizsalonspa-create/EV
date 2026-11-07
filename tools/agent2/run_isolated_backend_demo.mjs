@@ -380,6 +380,19 @@ try{
     assert.equal(z.code,401);
     assert.equal(await db.collection('ocpp_access_tokens').countDocuments({chargerId:adminCharger}),0);
   });
+  const opPath='/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/operations';
+  await check('customer cannot view Admin OCPP workflow state',async()=>{
+    const z=await request('GET',opPath,undefined,true);
+    assert.equal(z.code,401);
+  });
+  await check('Admin sees eligible booking, no existing credential or source',async()=>{
+    const z=await request('GET',opPath,undefined,false,{authorization:adminBearer});
+    assert.equal(z.code,200);
+    assert.equal(z.body.data.canIssueToken,true);
+    assert.equal(z.body.data.canFinalizeSource,false);
+    assert.equal(z.body.data.authorizationIssued,false);
+    assert.equal(JSON.stringify(z.body).includes('ocppTokenHash'),false);
+  });
   let issuedToken;
   await check('authorized Admin issues one scoped, expiring OCPP token for an arrived booking',async()=>{
     const z=await request('POST',issuePath,{},false,{authorization:adminBearer});
@@ -393,6 +406,15 @@ try{
     assert.equal(saved.ocppTokenHash,hash);
     assert.ok(saved.ocppTokenIssuedAt);
     assert.equal(await db.collection('ocpp_access_tokens').countDocuments({chargerId:adminCharger,tokenHash:hash,enabled:true}),1);
+  });
+  await check('Admin workflow acknowledges issued credential without revealing token',async()=>{
+    const z=await request('GET',opPath,undefined,false,{authorization:adminBearer});
+    assert.equal(z.code,200);
+    assert.equal(z.body.data.authorizationIssued,true);
+    assert.equal(z.body.data.canIssueToken,false);
+    assert.equal(z.body.data.canBindSource,true);
+    assert.equal(JSON.stringify(z.body).includes(issuedToken),false);
+    assert.equal(JSON.stringify(z.body).includes(createHash('sha256').update(issuedToken).digest('hex')),false);
   });
   await check('Admin duplicate token issuance rejected without adding another credential',async()=>{
     const z=await request('POST',issuePath,{},false,{authorization:adminBearer});
@@ -451,6 +473,17 @@ try{
     assert.equal(z.body.data.canScan,false);
     assert.equal(z.body.data.sourceVerified,true);
   });
+  await check('Admin sees bound stopped session and actionable finalization',async()=>{
+    const z=await request('GET',opPath,undefined,false,{authorization:adminBearer});
+    assert.equal(z.code,200);
+    assert.equal(z.body.data.sourceVerified,true);
+    assert.equal(z.body.data.meterVerified,true);
+    assert.equal(z.body.data.sourceEnded,true);
+    assert.equal(z.body.data.energyKwh,5);
+    assert.equal(z.body.data.canBindSource,false);
+    assert.equal(z.body.data.canFinalizeSource,true);
+    assert.equal(z.body.data.paymentStatus,'not_collected');
+  });
   await check('customer sees meter-backed charging history from Admin-bound transaction',async()=>{
     const z=await request('GET','/api/v1/ChargingSession/'+adminLinkedSession._id+'/status',
       undefined,true);
@@ -495,6 +528,13 @@ try{
     const result=await request('POST','/api/v1/ChargingSession/'+adminLinkedSession._id+'/pay',
       {paymentMethod:'stripe'},true);
     assert.equal(result.code,400);
+  });
+  await check('Admin workflow shows completed booking and disables finalization',async()=>{
+    const z=await request('GET',opPath,undefined,false,{authorization:adminBearer});
+    assert.equal(z.code,200);
+    assert.equal(z.body.data.bookingStatus,'Completed');
+    assert.equal(z.body.data.canFinalizeSource,false);
+    assert.equal(z.body.data.paymentStatus,'not_collected');
   });
   await check('repeated verified finalization cannot create duplicate billing',async()=>{
     const r=await request('POST',
