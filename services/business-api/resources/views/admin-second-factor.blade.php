@@ -38,6 +38,27 @@
       </label>
       <button type="submit">Verify and open Admin workspace</button>
     </form>
+    <section id="factor-recovery-codes" hidden aria-label="Private recovery codes">
+      <h2>Save these eight recovery codes now / احتفظ برموز الاسترداد</h2>
+      <p>These single-use codes are displayed only once. Save them in a secure password manager, separate from your authenticator device.</p>
+      <pre id="factor-recovery-list" aria-label="Your one-time recovery codes"></pre>
+      <button type="button" id="factor-codes-saved">I have securely saved these codes</button>
+    </section>
+    <form id="factor-recover" hidden>
+      <h2>Use a saved recovery code / استخدام رمز الاسترداد</h2>
+      <label>20-character recovery code / رمز الاسترداد
+        <input name="recovery_code" type="text" pattern="[a-fA-F0-9]{20}" minlength="20" maxlength="20" autocomplete="off" spellcheck="false" required>
+      </label>
+      <button type="submit">Use recovery code</button>
+    </form>
+    <form id="factor-reset" hidden>
+      <h2>Replace your lost authenticator</h2>
+      <p>A recovery code has been used. Confirm your account password to reset and enroll a replacement authenticator. Old codes will be invalidated.</p>
+      <label>Account password / كلمة المرور
+        <input name="password" type="password" autocomplete="current-password" maxlength="128" required>
+      </label>
+      <button type="submit">Reset authenticator and enroll a new device</button>
+    </form>
     <button id="factor-signout" type="button">Sign out / تسجيل الخروج</button>
   </section>
 </main>
