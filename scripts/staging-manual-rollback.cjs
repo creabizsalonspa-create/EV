@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { parseSnapshot, localDockerSnapshot } = require('./staging-runtime-gate.cjs');
-const { inspectImage, acquireLock, composeUp, verifyRunning, journal } = require('./staging-release.cjs');
+const { inspectImage, acquireLock, reviewIsolatedConfig, composeUp, verifyRunning, journal } = require('./staging-release.cjs');
 
 const SHA=/^[a-f0-9]{40}$/;
 const ID=/^sha256:[a-f0-9]{64}$/;
@@ -93,6 +93,8 @@ function rollback(config,deps={}) {
   if(config.approval!=='ROLLBACK_PRIVATE_STAGING_'+p.source_sha.slice(0,12)) {
     throw Error('Explicit staging-only rollback approval missing');
   }
+  // A recovery operation must not reactivate live partner, payment or charger wiring.
+  reviewIsolatedConfig(deps.envFile||path.resolve(__dirname,'../infra/staging/.env'),deps);
   const unlock=acquireLock(deps);
   try {
     const run=deps.run||execFileSync;
