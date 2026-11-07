@@ -31,7 +31,7 @@ The script does not call `up`, `down`, `restart`, `exec`, `rm`, or `docker inspe
 
 The verifier requires exactly one container for each of these expected services: `application`, `worker`, `scheduler`, `database`, and `gateway`. It rejects missing, duplicate or extra services, wrong Compose project, stopped services, unhealthy application or database, and a running worker/scheduler/gateway reporting an unhealthy or starting state. Application, worker and scheduler must have the **same** `creabiz-ev-business:<tag>` image identity. Database and proxy images must be from the expected PostgreSQL 17 / Caddy 2 families.
 
-Only the gateway may publish a host port, and it must be a **single TCP** `127.0.0.1:8443 -> 443` mapping. A wildcard, IPv6 wildcard, unintended public binding, or published PostgreSQL/application/worker ports causes failure.
+Docker's internal **EXPOSE-only** port records with `PublishedPort: 0` do not count as public bindings. Only the gateway may publish a host port, and it must be a **single TCP** `127.0.0.1:8443 -> 443` mapping. A wildcard, IPv6 wildcard, unintended public binding, or published PostgreSQL/application/worker ports causes failure.
 
 ## Test evidence and limitations
 
@@ -41,6 +41,6 @@ node --check tests/staging-runtime-gate.cjs
 node --test tests/staging-runtime-gate.cjs
 ```
 
-Agent 10's local Node 22.16.0 focused run: **17 passed / 0 failed**, including fake Docker command capture (proving no mutating Docker commands), malformed snapshot inputs, wrong image/port/project, missing/unhealthy services, and remote Docker environment rejection. Source blobs correspond exactly to GitHub committed copies.
+Agent 10's local Node 22.16.0 focused run: **19 passed / 0 failed**, including fake Docker command capture (proving no mutating Docker commands), malformed snapshot inputs, wrong image/port/project, missing/unhealthy services, and remote Docker environment rejection. Source blobs correspond exactly to GitHub committed copies.
 
 **Limits:** This confirms only the sampled runtime process/health and port state. It does **not** prove that migrations, background jobs, notifications, customer/vendor/Admin journeys, remote commands, finances, physical chargers, OCPI partners, backup restore, delivery artifacts, legal approvals, public TLS, or mobile signing work. Any external deployment or physical charging still requires explicit customer authorization. Agent 4 owns final merge and source-complete integration.
