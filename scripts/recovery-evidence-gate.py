@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 """Gate independent same-run synthetic recovery evidence, never production acceptance."""
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import stat
 import sys
-from recovery_proof_writer import publish
+
+# Resolve the sibling publisher from this reviewed script path. This works
+# both when called by CI and when audit tests import this gate from a file.
+_writer_spec = importlib.util.spec_from_file_location(
+    'agent3_atomic_recovery_writer',
+    Path(__file__).with_name('recovery_proof_writer.py'))
+_writer = importlib.util.module_from_spec(_writer_spec)
+_writer_spec.loader.exec_module(_writer)
+publish = _writer.publish
 
 class EvidenceError(Exception):
     pass
