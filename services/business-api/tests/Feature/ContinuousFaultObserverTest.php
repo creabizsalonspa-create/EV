@@ -107,6 +107,10 @@ class ContinuousFaultObserverTest extends TestCase
         $this->source($f, $this->events(1, 2), newest: 2);
         app(ContinuousFaultObserver::class)->observe($f['binding']);
         $invalid = $this->events(3, 4);
+        // The first event would create a new fault+inbox notice, but a later
+        // invalid source event must roll back the entire batch atomically.
+        $invalid[0]['connectorStatus'] = 'Faulted';
+        $invalid[0]['errorCode'] = 'GroundFailure';
         $invalid[1]['connectorId'] = -1;
         $this->source($f, $invalid, newest: 4);
         try {
@@ -116,6 +120,8 @@ class ContinuousFaultObserverTest extends TestCase
             $this->assertSame(503, $e->getStatusCode());
         }
         $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('inbox_notifications', 2);
         $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 2, 'state' => 'requires_review']);
         $this->source($f, $this->events(3, 4), newest: 4);
         app(ContinuousFaultObserver::class)->observe($f['binding']);
