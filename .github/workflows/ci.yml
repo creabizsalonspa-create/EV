@@ -1,5 +1,8 @@
 name: Platform validation
 on: [push, pull_request]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -112,9 +115,22 @@ jobs:
 
   staging-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Check safe staging config and prove negative test cases
+        run: |
+          python3 -B -m unittest discover -s tests -p agent3_staging_preflight_test.py
+          python3 scripts/staging-release-preflight.py --output artifacts/agent3-preflight/validation.json
+      - name: Keep staging preflight evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent3-staging-preflight
+          path: artifacts/agent3-preflight/validation.json
+          if-no-files-found: warn
+      - name: Run all Agent 3 recovery policies and negative security cases
+        run: python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q
       - name: Seed synthetic build-context exclusion canaries
         shell: bash
         run: |
@@ -126,3 +142,69 @@ jobs:
         run: ./scripts/staging-image-build creabiz-ev-business:ci-review
       - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership
         run: ./scripts/staging-image-smoke creabiz-ev-business:ci-review
+      - name: Static validation of disposable recovery runner
+        run: |
+          bash -n scripts/staging-recovery-smoke
+          python3 -m unittest discover -s tests -p agent3_recovery_policy_test.py
+          python3 -B -m unittest discover -s tests -p agent3_backup_artifact_guard_test.py
+      - name: Verify real disposable PostgreSQL dump and independent Laravel restore
+        run: bash scripts/staging-recovery-smoke creabiz-ev-business:ci-review
+      - name: Retain non-secret recovery acceptance evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staging-disposable-recovery-evidence
+          path: artifacts/agent3-recovery/validation.json
+          if-no-files-found: warn
+
+  csms-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate isolated CSMS PostGIS recovery safety policy
+        run: |
+          bash -n scripts/csms-recovery-smoke
+          python3 -m unittest discover -s tests -p agent3_csms_recovery_policy_test.py
+          python3 -B -m unittest discover -s tests -p agent3_backup_artifact_guard_test.py
+      - name: Verify disposable pinned PostGIS data and recovery-point integrity
+        run: bash scripts/csms-recovery-smoke
+      - name: Retain non-secret CSMS synthetic recovery evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: csms-disposable-postgis-recovery-evidence
+          path: artifacts/agent3-csms-recovery/validation.json
+          if-no-files-found: warn
+
+  recovery-acceptance:
+    needs: [business-platform, finance-postgres, connector-postgres, staging-image, csms-recovery]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exact-run Laravel recovery evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-disposable-recovery-evidence
+          path: artifacts/recovery-input/business
+      - name: Fetch exact-run PostGIS recovery evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: csms-disposable-postgis-recovery-evidence
+          path: artifacts/recovery-input/csms
+      - name: Reject stale, incomplete or forged acceptance claims
+        run: |
+          python3 -B -m unittest discover -s tests -p agent3_recovery_evidence_gate_test.py
+          python3 scripts/recovery-evidence-gate.py \
+            --business artifacts/recovery-input/business/validation.json \
+            --csms artifacts/recovery-input/csms/validation.json \
+            --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --output artifacts/recovery-acceptance/summary.json
+      - name: Retain conservative multi-service review summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent3-two-store-recovery-summary
+          path: artifacts/recovery-acceptance/summary.json
+          if-no-files-found: warn

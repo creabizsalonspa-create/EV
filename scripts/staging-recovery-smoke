@@ -1,0 +1,542 @@
+#!/usr/bin/env bash
+# Agent 3: destructive restore operations are restricted to disposable, run-owned
+# PostgreSQL containers. No host port, existing database or production service is used.
+set -euo pipefail
+umask 077
+root=$(cd "$(dirname "$0")/.." && pwd)
+# Clear stale success BEFORE input, image, Docker or runtime checks.
+mkdir -p "$root/artifacts/agent3-recovery"
+rm -f -- "$root/artifacts/agent3-recovery/validation.json"
+command -v date >/dev/null
+drill_started_epoch=$(date -u +%s)
+
+if [[ "$#" -ne 1 ]]; then
+  echo 'Usage: scripts/staging-recovery-smoke creabiz-ev-business:review' >&2
+  exit 2
+fi
+image="$1"
+case "$image" in
+  creabiz-ev-business:*) ;;
+  *) echo 'Refusing a non-review application image.' >&2; exit 2 ;;
+esac
+command -v docker >/dev/null
+command -v python3 >/dev/null
+docker image inspect "$image" >/dev/null
+
+review_id="ev-recovery-$RANDOM-$$"
+scratch=$(mktemp -d /tmp/ev-recovery.XXXXXXXX)
+source_net= target_net= source_db= target_db= source_app= target_app=
+cleanup() {
+  result=$?
+  for id in "$target_app" "$source_app" "$target_db" "$source_db"; do
+    [[ -z "$id" ]] || docker rm -fv "$id" >/dev/null 2>&1 || true
+  done
+  for id in "$target_net" "$source_net"; do
+    [[ -z "$id" ]] || docker network rm "$id" >/dev/null 2>&1 || true
+  done
+  rm -rf -- "$scratch"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# The key never leaves this disposable run; it is not a production signing root.
+auth_key="$scratch/backup-hmac.key"
+python3 - "$auth_key" <<'PY_LOCAL_HMAC'
+import os, sys
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, 'wb') as stream:
+    stream.write(os.urandom(32))
+PY_LOCAL_HMAC
+
+# Distinct credentials and isolated networks prove restore independently of source.
+python3 - "$scratch" "$review_id" <<'PY_SETUP'
+import base64, os, pathlib, secrets, sys
+root, prefix = pathlib.Path(sys.argv[1]), sys.argv[2]
+# A restorable Laravel database requires the original APP_KEY.
+app_key = 'base64:' + base64.b64encode(secrets.token_bytes(32)).decode()
+for side in ('source', 'target'):
+    password = secrets.token_hex(32)
+    database = {
+        'POSTGRES_DB': 'ev_recovery_review',
+        'POSTGRES_USER': 'ev_recovery_review',
+        'POSTGRES_PASSWORD': password,
+    }
+    application = {
+        'APP_ENV': 'staging',
+        'APP_DEBUG': 'false',
+        'APP_URL': 'https://recovery.example.invalid',
+        'APP_KEY': app_key,
+        'DB_CONNECTION': 'pgsql',
+        'DB_HOST': prefix + '-db-' + side,
+        'DB_PORT': '5432',
+        'DB_DATABASE': 'ev_recovery_review',
+        'DB_USERNAME': 'ev_recovery_review',
+        'DB_PASSWORD': password,
+        'DB_URL': '',
+        'SESSION_DRIVER': 'database',
+        'SESSION_ENCRYPT': 'true',
+        'SESSION_SECURE_COOKIE': 'true',
+        'CACHE_STORE': 'database',
+        'QUEUE_CONNECTION': 'database',
+        'LOG_CHANNEL': 'stderr',
+        'LOG_LEVEL': 'warning',
+        'CSMS_SIMULATOR_ENABLED': 'false',
+        'CSMS_COMMAND_WORKER_ENABLED': 'false',
+        'CSMS_REMOTE_AUTHORIZATION_ENABLED': 'false',
+        'CSMS_INGRESS_AUTH_ENABLED': 'false',
+        'OCPI_TEST_COMMANDS_ENABLED': 'false',
+        'SUBSCRIPTION_COLLECTION_ENABLED': 'false',
+        'PAYOUT_TEST_ENABLED': 'false',
+        'EV_BATTERY_SIMULATOR_ENABLED': 'false',
+    }
+    for suffix, mapping in (('database', database), ('application', application)):
+        path = root / (side + '-' + suffix + '.env')
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as handle:
+            handle.write(''.join(key + '=' + value + '\n' for key, value in mapping.items()))
+PY_SETUP
+
+postgres_image='postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b'
+source_net=$(docker network create --internal "$review_id-net-source")
+target_net=$(docker network create --internal "$review_id-net-target")
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net"
+source_db=$(docker run -d --name "$review_id-db-source" --network "$source_net" \
+  --env-file "$scratch/source-database.env" "$postgres_image")
+target_db=$(docker run -d --name "$review_id-db-target" --network "$target_net" \
+  --env-file "$scratch/target-database.env" "$postgres_image")
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --target-container "$target_db"
+docker inspect "$source_db" "$target_db" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --reviewed-db-image "$postgres_image" --reviewed-app-image "$image" \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-db-source" --target-name "$review_id-db-target"
+
+wait_for_postgres() {
+  local id="$1" ready=false
+  for attempt in {1..45}; do
+    if docker exec "$id" pg_isready -h 127.0.0.1 -U ev_recovery_review \
+      -d ev_recovery_review >/dev/null 2>&1; then ready=true; break; fi
+    sleep 1
+  done
+  [[ "$ready" == true ]] || { echo 'Disposable PostgreSQL readiness failed.' >&2; exit 1; }
+}
+wait_for_app() {
+  local id="$1" ready=false
+  for attempt in {1..45}; do
+    if docker exec --user www-data "$id" php -r \
+      'exit(@file_get_contents("http://127.0.0.1/up")===false?1:0);' \
+      >/dev/null 2>&1; then ready=true; break; fi
+    sleep 1
+  done
+  [[ "$ready" == true ]] || { echo 'Disposable application readiness failed.' >&2; exit 1; }
+}
+query() {
+  docker exec "$1" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
+    -d ev_recovery_review -Atqc "$2"
+}
+wait_for_postgres "$source_db"
+wait_for_postgres "$target_db"
+
+# Even with distinct Docker volumes, compare PostgreSQL's own cluster
+# identifiers. A shared/misattached data directory must never be restored.
+source_cluster_id=$(query "$source_db" 'SELECT system_identifier::text FROM pg_control_system()')
+target_cluster_id=$(query "$target_db" 'SELECT system_identifier::text FROM pg_control_system()')
+[[ "$source_cluster_id" =~ ^[0-9]+$ &&
+   "$target_cluster_id" =~ ^[0-9]+$ &&
+   "$source_cluster_id" != "$target_cluster_id" ]] || {
+  echo 'Recovery source and target do not have distinct PostgreSQL clusters.' >&2
+  exit 1
+}
+
+# The disposable target must be empty, not a previous data-bearing schema.
+[[ "$(query "$target_db" "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" == 0 ]] || {
+  echo 'Disposable Laravel restore target already contains public tables.' >&2
+  exit 1
+}
+
+# The same built runtime used by staging-image-smoke applies *all* Laravel migrations.
+source_app=$(docker run -d --name "$review_id-app-source" --network "$source_net" \
+  --env-file "$scratch/source-application.env" \
+  --mount type=volume,target=/var/www/html/storage/app/private "$image")
+wait_for_app "$source_app"
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --source-container "$source_app" \
+    --target-container "$target_db"
+docker exec --user www-data "$source_app" php artisan migrate --force --no-interaction
+
+# A durable synthetic marker proves that data, not just empty schema, survives restore.
+docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
+  -d ev_recovery_review >/dev/null <<'SQL_SEED'
+CREATE TABLE ev_agent3_recovery_probe (
+  marker_key text PRIMARY KEY,
+  marker_value text NOT NULL
+);
+INSERT INTO ev_agent3_recovery_probe VALUES
+  ('alpha', 'integrity-checked'),
+  ('beta', 'source-only-data'),
+  ('queue-snapshot-intent', 'SYNTHETIC_AGENT3_RECOVERY_V1');
+SQL_SEED
+# Synthetic Laravel ciphertext is created by the application, not a SQL fixture.
+docker exec -i --user www-data "$source_app" php <<'PHP_ENCRYPT'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$ciphertext = \Illuminate\Support\Facades\Crypt::encryptString('agent3-recovery-private-marker');
+\Illuminate\Support\Facades\DB::table('ev_agent3_recovery_probe')->insert([
+    'marker_key' => 'encrypted-laravel',
+    'marker_value' => $ciphertext,
+]);
+PHP_ENCRYPT
+# Persist a *real serialized Laravel database queue job* before the
+# snapshot. No source queue worker is running; target alone may execute it.
+docker exec -i --user www-data "$source_app" php <<'PHP_QUEUE_ENQUEUE'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if (config('queue.default') !== 'database') {
+    throw new RuntimeException('Synthetic queue restore requires database queue.');
+}
+\Illuminate\Support\Facades\Bus::dispatch(new \App\Jobs\Agent3SyntheticQueueRecoveryProbe(
+    \App\Jobs\Agent3SyntheticQueueRecoveryProbe::TOKEN
+));
+PHP_QUEUE_ENQUEUE
+[[ "$(query "$source_db" 'SELECT count(*) FROM jobs')" == 1 ]] || {
+  echo 'Synthetic queued job did not persist before snapshot.' >&2; exit 1;
+}
+# Persist synthetic database-backed cache and session-handler payloads.
+# No real user login, cookie, customer or remote cache is involved.
+docker exec -i --user www-data "$source_app" php <<'PHP_SESSION_CACHE_BEFORE'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if (config('cache.default') !== 'database' ||
+    config('session.driver') !== 'database') {
+    throw new RuntimeException('Synthetic session/cache restore requires database stores.');
+}
+$cache = \Illuminate\Support\Facades\Cache::store('database');
+if (! $cache->put('agent3:recovery:cache', 'cached-before-snapshot', 7200) ||
+    $cache->get('agent3:recovery:cache') !== 'cached-before-snapshot') {
+    throw new RuntimeException('Synthetic pre-snapshot cache value was not persisted.');
+}
+$handler = \Illuminate\Support\Facades\Session::driver('database')->getHandler();
+if (! $handler->write('agent3syntheticrecovery000000000000000001', 'session-before-snapshot') ||
+    $handler->read('agent3syntheticrecovery000000000000000001') !== 'session-before-snapshot') {
+    throw new RuntimeException('Synthetic pre-snapshot session-handler bytes missing.');
+}
+PHP_SESSION_CACHE_BEFORE
+# Distinct run-owned private file, never a real customer's document.
+docker exec --user www-data "$source_app" php -r '
+$p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
+if (file_put_contents($p, "synthetic-private-archive", LOCK_EX) === false) exit(1);
+if (!chmod($p, 0600)) exit(1);
+'
+snapshot_started_epoch=$(date -u +%s)
+docker exec "$source_app" tar -C /var/www/html/storage/app/private -czf -   agent3-recovery-probe.bin > "$scratch/private-probe.tar.gz"
+[[ -s "$scratch/private-probe.tar.gz" ]] || {
+  echo 'Synthetic private-storage archive is empty.' >&2; exit 1;
+}
+migration_count=$(query "$source_db" 'SELECT count(*) FROM migrations')
+[[ "$migration_count" =~ ^[0-9]+$ && "$migration_count" -gt 0 ]] || {
+  echo 'Expected Laravel migration history before backup.' >&2; exit 1;
+}
+migration_fingerprint_sql="SELECT md5(string_agg(migration || ':' || batch::text, '|' ORDER BY migration)) FROM migrations"
+probe_fingerprint_sql="SELECT md5(string_agg(marker_key || ':' || marker_value, '|' ORDER BY marker_key)) FROM ev_agent3_recovery_probe"
+migration_fingerprint=$(query "$source_db" "$migration_fingerprint_sql")
+probe_fingerprint=$(query "$source_db" "$probe_fingerprint_sql")
+
+archive="$scratch/ev_recovery_review.dump"
+docker exec "$source_db" pg_dump -U ev_recovery_review -d ev_recovery_review \
+  --format=custom --no-owner --no-privileges > "$archive"
+[[ -s "$archive" ]] || { echo 'PostgreSQL dump is empty.' >&2; exit 1; }
+snapshot_completed_epoch=$(date -u +%s)
+python3 "$root/scripts/backup-artifact-guard.py" record --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+# Prove real backup-byte tampering is rejected before the restored DB is touched.
+cp -- "$archive" "$scratch/tampered-business.dump"
+printf 'tampered-after-snapshot' >> "$scratch/tampered-business.dump"
+if python3 "$root/scripts/backup-artifact-guard.py" check \
+    --pg-dump "$scratch/tampered-business.dump" \
+    --private-tar "$scratch/private-probe.tar.gz" \
+    --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key" >/dev/null 2>&1; then
+  echo 'Corrupted PostgreSQL dump bypassed the integrity gate.' >&2
+  exit 1
+fi
+cp -- "$scratch/private-probe.tar.gz" "$scratch/tampered-private.tar.gz"
+printf 'tampered-private-archive' >> "$scratch/tampered-private.tar.gz"
+if python3 "$root/scripts/backup-artifact-guard.py" check \
+    --pg-dump "$archive" --private-tar "$scratch/tampered-private.tar.gz" \
+    --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key" >/dev/null 2>&1; then
+  echo 'Corrupted private archive bypassed the integrity gate.' >&2
+  exit 1
+fi
+# A source-side write after the snapshot must not appear after restoration.
+docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
+  -d ev_recovery_review >/dev/null <<'SQL_AFTER_SNAPSHOT'
+INSERT INTO ev_agent3_recovery_probe VALUES ('post-snapshot', 'not-part-of-backup');
+SQL_AFTER_SNAPSHOT
+# This second valid queued job is committed AFTER the database snapshot.
+# It must never appear in the isolated target's restored jobs table.
+docker exec -i --user www-data "$source_app" php <<'PHP_QUEUE_AFTER_SNAPSHOT'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+\Illuminate\Support\Facades\Bus::dispatch(new \App\Jobs\Agent3SyntheticQueueRecoveryProbe(
+    \App\Jobs\Agent3SyntheticQueueRecoveryProbe::TOKEN
+));
+PHP_QUEUE_AFTER_SNAPSHOT
+[[ "$(query "$source_db" 'SELECT count(*) FROM jobs')" == 2 ]] || {
+  echo 'Late synthetic source queue write was not recorded.' >&2; exit 1;
+}
+# Only SOURCE gets the late session/cache updates; target must restore
+# the former values. Never use actual cookies, auth users or PII.
+docker exec -i --user www-data "$source_app" php <<'PHP_SESSION_CACHE_LATE'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$cache = \Illuminate\Support\Facades\Cache::store('database');
+$handler = \Illuminate\Support\Facades\Session::driver('database')->getHandler();
+$cache->put('agent3:recovery:cache', 'cached-after-snapshot', 7200);
+$handler->write('agent3syntheticrecovery000000000000000001', 'session-after-snapshot');
+if ($cache->get('agent3:recovery:cache') !== 'cached-after-snapshot' ||
+    $handler->read('agent3syntheticrecovery000000000000000001') !== 'session-after-snapshot') {
+    throw new RuntimeException('Synthetic post-snapshot source changes not persisted.');
+}
+PHP_SESSION_CACHE_LATE
+# Synthetic source-private file created after the archived snapshot.
+# Restoring the archive must not include this late source-side write.
+docker exec --user www-data "$source_app" php -r '
+$p="/var/www/html/storage/app/private/agent3-post-snapshot-private.bin";
+if (file_put_contents($p, "not-in-private-snapshot", LOCK_EX) === false) exit(1);
+if (!chmod($p, 0600)) exit(1);
+'
+# Recheck exact on-disk bytes immediately before and after the isolated
+# database restore; the recovery proof must describe the consumed archive.
+[[ "$(query "$target_db" "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" == 0 ]] || {
+  echo 'Laravel target became nonempty before isolated restore.' >&2
+  exit 1
+}
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+restore_started_epoch=$(date -u +%s)
+docker exec -i "$target_db" pg_restore -U ev_recovery_review -d ev_recovery_review \
+  --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+# Confirm effective isolation again after the atomic target restore.
+docker inspect "$source_db" "$target_db" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --reviewed-db-image "$postgres_image" --reviewed-app-image "$image" \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-db-source" --target-name "$review_id-db-target"
+[[ "$(query "$target_db" 'SELECT count(*) FROM migrations')" == "$migration_count" ]] || {
+  echo 'Migration count changed after restore.' >&2; exit 1;
+}
+[[ "$(query "$target_db" "$migration_fingerprint_sql")" == "$migration_fingerprint" ]] || {
+  echo 'Migration history fingerprint changed after restore.' >&2; exit 1;
+}
+[[ "$(query "$target_db" "SELECT count(*) FROM ev_agent3_recovery_probe WHERE marker_key = 'post-snapshot'")" == 0 ]] || {
+  echo 'Post-snapshot write unexpectedly restored into Laravel database.' >&2
+  exit 1
+}
+[[ "$(query "$source_db" "SELECT count(*) FROM ev_agent3_recovery_probe WHERE marker_key = 'post-snapshot'")" == 1 ]] || {
+  echo 'Source unexpectedly lost the post-snapshot marker.' >&2
+  exit 1
+}
+[[ "$(query "$target_db" "$probe_fingerprint_sql")" == "$probe_fingerprint" ]] || {
+  echo 'Durable synthetic record changed after restore.' >&2; exit 1;
+}
+
+# The pre-snapshot queue payload must have been restored, with no late job.
+[[ "$(query "$target_db" 'SELECT count(*) FROM jobs')" == 1 ]] || {
+  echo 'Restored database queue omitted the expected synthetic job.' >&2; exit 1;
+}
+# A fresh application instance must boot against *only* the recovered database.
+target_app=$(docker run -d --name "$review_id-app-target" --network "$target_net" \
+  --env-file "$scratch/target-application.env" \
+  --mount type=volume,target=/var/www/html/storage/app/private "$image")
+wait_for_app "$target_app"
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --source-container "$source_app" \
+    --target-container "$target_db" --target-container "$target_app"
+# Recheck source/target isolation and distinct private volumes before extraction.
+docker inspect "$source_db" "$source_app" "$target_db" "$target_app" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --reviewed-db-image "$postgres_image" --reviewed-app-image "$image" \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-db-source" --source-name "$review_id-app-source" \
+    --target-name "$review_id-db-target" --target-name "$review_id-app-target"
+# Extract as the unprivileged application owner, never as Docker's default
+# root user. The isolated source file is mode 0600 and the target directory
+# must already be writable by the www-data application account.
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+docker exec -i --user www-data "$target_app" sh -ceu \
+  'umask 077; tar --no-same-owner --no-same-permissions -C /var/www/html/storage/app/private -xzf -' \
+  < "$scratch/private-probe.tar.gz"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+docker exec --user www-data "$target_app" php -r '
+$p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
+if (!is_file($p) || !is_readable($p)) exit(1);
+if (!hash_equals(hash("sha256", "synthetic-private-archive"), hash_file("sha256", $p))) exit(1);
+if ((fileperms($p) & 0777) !== 0600) exit(1);
+if (file_exists("/var/www/html/storage/app/private/agent3-post-snapshot-private.bin")) exit(1);
+'
+docker exec --user www-data "$source_app" php -r '
+if (!is_file("/var/www/html/storage/app/private/agent3-post-snapshot-private.bin")) exit(1);
+'
+docker exec --user www-data "$target_app" php artisan migrate:status --no-interaction >/dev/null
+# Directly read the persisted session-handler payload and database cache
+# from the restored application; neither is a real authenticated session.
+docker exec -i --user www-data "$target_app" php <<'PHP_SESSION_CACHE_TARGET'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$cache = \Illuminate\Support\Facades\Cache::store('database');
+$handler = \Illuminate\Support\Facades\Session::driver('database')->getHandler();
+if ($cache->get('agent3:recovery:cache') !== 'cached-before-snapshot' ||
+    $handler->read('agent3syntheticrecovery000000000000000001') !== 'session-before-snapshot') {
+    throw new RuntimeException('Restored cache/session differs from snapshot.');
+}
+PHP_SESSION_CACHE_TARGET
+docker exec -i --user www-data "$source_app" php <<'PHP_SESSION_CACHE_SOURCE'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$cache = \Illuminate\Support\Facades\Cache::store('database');
+$handler = \Illuminate\Support\Facades\Session::driver('database')->getHandler();
+if ($cache->get('agent3:recovery:cache') !== 'cached-after-snapshot' ||
+    $handler->read('agent3syntheticrecovery000000000000000001') !== 'session-after-snapshot') {
+    throw new RuntimeException('Target restore unexpectedly changed source state.');
+}
+PHP_SESSION_CACHE_SOURCE
+# Execute only the single known synthetic recovery probe job in the
+# fresh target, then list the scheduler without running scheduled tasks.
+docker exec --user www-data "$target_app" php artisan queue:work --once   --stop-when-empty --tries=1 --timeout=10 --no-interaction >/dev/null
+[[ "$(query "$target_db" 'SELECT count(*) FROM jobs')" == 0 ]] || {
+  echo 'Restored synthetic queued job was not consumed.' >&2; exit 1;
+}
+[[ "$(query "$target_db" 'SELECT count(*) FROM failed_jobs')" == 0 ]] || {
+  echo 'Restored synthetic queued job failed in isolated worker.' >&2; exit 1;
+}
+[[ "$(query "$target_db" "SELECT count(*) FROM ev_agent3_recovery_probe WHERE marker_key = 'queue-snapshot-executed' AND marker_value = 'SYNTHETIC_AGENT3_RECOVERY_V1'")" == 1 ]] || {
+  echo 'Recovered queued job did not create its durable synthetic completion marker.' >&2; exit 1;
+}
+[[ "$(query "$source_db" 'SELECT count(*) FROM jobs')" == 2 ]] || {
+  echo 'Restored worker unexpectedly consumed a source-only queued job.' >&2; exit 1;
+}
+[[ "$(query "$source_db" "SELECT count(*) FROM ev_agent3_recovery_probe WHERE marker_key = 'queue-snapshot-executed'")" == 0 ]] || {
+  echo 'Queue restore altered the source-only synthetic table.' >&2; exit 1;
+}
+docker exec --user www-data "$target_app" php artisan schedule:list   --no-interaction >/dev/null
+docker exec -i --user www-data "$target_app" php <<'PHP_DECRYPT'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$ciphertext = \Illuminate\Support\Facades\DB::table('ev_agent3_recovery_probe')
+    ->where('marker_key', 'encrypted-laravel')->value('marker_value');
+if (!is_string($ciphertext) || !hash_equals(
+    'agent3-recovery-private-marker',
+    \Illuminate\Support\Facades\Crypt::decryptString($ciphertext)
+)) {
+    throw new RuntimeException('Recovered APP_KEY could not decrypt source data.');
+}
+// A syntactically valid but unrelated key must fail authentication/decryption.
+// This never rotates the recovered Laravel application's actual encryption key.
+$acceptedWrongKey = false;
+try {
+    $unrelated = new \Illuminate\Encryption\Encrypter(random_bytes(32), config('app.cipher'));
+    $unrelated->decryptString($ciphertext);
+    $acceptedWrongKey = true;
+} catch (\Illuminate\Contracts\Encryption\DecryptException) {
+    // Expected: source data cannot be decrypted by an unrelated key.
+}
+if ($acceptedWrongKey) {
+    throw new RuntimeException('Recovered Laravel ciphertext accepted an unrelated key.');
+}
+echo "Recovered Laravel encrypted record and wrong-key refusal: PASS\n";
+PHP_DECRYPT
+docker exec -i --user www-data "$target_app" php <<'PHP_HTTP'
+<?php
+$context = stream_context_create(['http' => ['timeout' => 10, 'ignore_errors' => true]]);
+$response = file_get_contents('http://127.0.0.1/api/stations', false, $context);
+$headers = http_get_last_response_headers() ?: [];
+if ($response === false || !preg_match('/^HTTP\/\S+ 200\b/', $headers[0] ?? '')) {
+    throw new RuntimeException('Restored application did not serve the station catalog.');
+}
+$json = json_decode($response, true, flags: JSON_THROW_ON_ERROR);
+if (($json['data'] ?? null) !== [] || ($json['total'] ?? null) !== 0) {
+    throw new RuntimeException('Restored isolated database must have an empty station catalog.');
+}
+echo "Recovered application HTTP and Laravel migrations: PASS\n";
+PHP_HTTP
+
+# Measure until all database, private-storage and Laravel boot checks pass.
+drill_completed_epoch=$(date -u +%s)
+mkdir -p "$root/artifacts/agent3-recovery"
+archive_hash=$(sha256sum "$archive" | awk '{print $1}')
+private_archive_hash=$(sha256sum "$scratch/private-probe.tar.gz" | awk '{print $1}')
+PYTHONPATH="$root/scripts" python3 - "$root/artifacts/agent3-recovery/validation.json" \
+  "$archive_hash" "$private_archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" \
+  "$drill_started_epoch" "$snapshot_started_epoch" "$snapshot_completed_epoch" \
+  "$restore_started_epoch" "$drill_completed_epoch" <<'PY_EVIDENCE'
+import os, sys
+from recovery_proof_writer import publish
+path, archive_hash, private_hash, count, migration_hash, probe_hash, \
+    drill_start, snapshot_start, snapshot_end, restore_start, drill_end = sys.argv[1:]
+record = {
+    'status': 'PASS',
+    'source_sha': os.environ.get('GITHUB_SHA', 'local-unverified'),
+    'workflow_run_id': os.environ.get('GITHUB_RUN_ID', 'local-unverified'),
+    'workflow_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT', 'local-unverified'),
+    'laravel_encrypted_record_restored': True,
+    'wrong_laravel_key_rejected': True,
+    'synthetic_private_file_restored': True,
+    'post_snapshot_write_excluded': True,
+    'post_snapshot_private_write_excluded': True,
+    'archive_tamper_rejected': True,
+    'run_local_manifest_hmac_verified': True,
+    'single_transaction_restore': True,
+    'isolated_runtime_verified': True,
+    'distinct_cluster_system_ids_verified': True,
+    'restore_target_previously_empty': True,
+    'drill_started_epoch': int(drill_start),
+    'snapshot_started_epoch': int(snapshot_start),
+    'snapshot_completed_epoch': int(snapshot_end),
+    'restore_started_epoch': int(restore_start),
+    'drill_completed_epoch': int(drill_end),
+    'private_archive_tamper_rejected': True,
+    'queue_worker_started': True,
+    'durable_queue_job_restored_and_executed': True,
+    'database_session_cache_restored': True,
+    'post_snapshot_session_cache_changes_excluded': True,
+    'post_snapshot_queue_write_excluded': True,
+    'scheduler_bootstrapped': True,
+    'classification': 'disposable staging software only',
+    'postgresql': '17-alpine pinned image',
+    'dump_sha256': archive_hash,
+    'synthetic_private_archive_sha256': private_hash,
+    'laravel_migration_rows': int(count),
+    'migration_history_md5': migration_hash,
+    'synthetic_data_md5': probe_hash,
+    'restored_http_catalog': '200 and empty',
+    'external_acceptance': 'not tested',
+}
+publish(path, record)
+PY_EVIDENCE
+echo 'PASS: isolated PostgreSQL17 custom-format backup, data+schema/private-file restore, independent Laravel boot and HTTP. No production resources touched.'
