@@ -26,7 +26,10 @@ services:
       timeout: 5s
       retries: 30
   citrine:
-    image: ghcr.io/citrineos/citrineos-server:v2.1.0@sha256:45aedf1e5908ea9aeea29028790bfaeb51a6baf5d7c5fefb94d00e549a7aeece
+    image: creabiz-citrineos-signed:v2.1.0
+    build:
+      context: ../..
+      dockerfile: services/csms/rider/Dockerfile
     environment:
       APP_NAME: all
       DB_STRATEGY: migrate
@@ -38,6 +41,9 @@ services:
       CITRINEOS_AUTH_MODE: localDev
     volumes:
       - ./websocket-servers.json:/usr/local/apps/citrineos/apps/ocpp-server/dist/assets/websocket-servers.json:ro
+      - ./rider/bootstrap.js:/usr/local/apps/citrineos/apps/ocpp-server/dist/index.js:ro
+      - ./rider/signed-firmware.js:/usr/local/apps/citrineos/apps/ocpp-server/dist/creabiz-signed-firmware.js:ro
+      - ./rider/runtime:/run/creabiz-rider:ro
     ports:
       - 127.0.0.1:8080:8080
       - 127.0.0.1:8081:8081

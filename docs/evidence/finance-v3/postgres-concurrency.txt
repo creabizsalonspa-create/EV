@@ -1,0 +1,102 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+..........................................................        58 / 58 (100%)
+
+Time: 01:27.197, Memory: 56.50 MB
+
+Charger Admission Concurrency (Tests\Postgres\ChargerAdmissionConcurrency)
+ ✔ Two companies cannot race to claim the same charger identity
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #0
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #1
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #2
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #3
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #4
+
+Charging Expiry Concurrency (Tests\Postgres\ChargingExpiryConcurrency)
+ ✔ Concurrent expiry workers close once without faking source end
+
+Command Reconciliation Concurrency (Tests\Postgres\CommandReconciliationConcurrency)
+ ✔ Concurrent source recovery records one observation without device or financial mutation
+
+Connector Reservation Concurrency (Tests\Postgres\ConnectorReservationConcurrency)
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #0
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #1
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #2
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #3
+
+Corporate Billing Concurrency (Tests\Postgres\CorporateBillingConcurrency)
+ ✔ Competing statements cannot overrun shared corporate credit limit
+ ✔ Identical issue and simulated collection workers share one statement and cash journal
+ ✔ Statement owner is reauthorized after waiting for fleet transfer
+ ✔ Claim decision owner is reauthorized after waiting for fleet transfer
+
+External Dispute Concurrency (Tests\Postgres\ExternalDisputeConcurrency)
+ ✔ Duplicate callbacks serialize to one dispute and one hold
+ ✔ Distinct provider events share one canonical invoice hold
+
+Finance Concurrency (Tests\Postgres\FinanceConcurrency)
+ ✔ Concurrent tariff retries publish once and keep commission policy
+ ✔ Cross invoice payment key race returns conflict without double posting
+ ✔ Cross invoice refund key race returns conflict without double refund
+
+Financial Document Concurrency (Tests\Postgres\FinancialDocumentConcurrency)
+ ✔ Simultaneous generation of same source returns one immutable pdf and number
+ ✔ Concurrent vendor statement generation has one snapshot and no payout
+ ✔ Concurrent corporate statement document generation never collects payment
+ ✔ Different sources serialize first issuer sequence allocation without duplicate numbers
+
+Gateway Concurrency (Tests\Postgres\GatewayConcurrency)
+ ✔ Simultaneous capture retries post exactly once
+ ✔ Competing authorizations cannot double capture invoice
+ ✔ Simultaneous signed webhook retries commit one event and one payment
+
+Loyalty Concurrency (Tests\Postgres\LoyaltyConcurrency)
+ ✔ Two process earning grants one invoice award and one points credit
+ ✔ Two process identical redemptions share one hold and debit
+ ✔ Two members cannot oversell last reward or lose the rejected members points
+
+Payment Recovery Concurrency (Tests\Postgres\PaymentRecoveryConcurrency)
+ ✔ Actual process crash preserves committed intent and retry reuses provider key
+ ✔ Overlapping provider calls are rejected by lease and commit one capture
+
+Payout Concurrency (Tests\Postgres\PayoutConcurrency)
+ ✔ Identical concurrent payout requests share one durable claim
+ ✔ Distinct concurrent payout requests cannot claim a settlement twice
+ ✔ Parallel execution and legacy bypass do not duplicate payout
+ ✔ Process death keeps sent attempt and expired lease replay keeps its identity
+
+Reservation Lifecycle Concurrency (Tests\Postgres\ReservationLifecycleConcurrency)
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #0
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #1
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #2
+
+Settlement Concurrency (Tests\Postgres\SettlementConcurrency)
+ ✔ Concurrent drafts cannot reserve the same payable twice
+ ✔ Concurrent identical draft retries return one settlement
+
+Subscription Concurrency (Tests\Postgres\SubscriptionConcurrency)
+ ✔ Racing dunning workers record one notice without payment
+ ✔ Racing enrollment same key returns one subscription and invoice
+ ✔ Racing distinct enrollment keys cannot create two active subscriptions
+ ✔ Racing mock payment replays post one receipt and balanced journal
+ ✔ Racing distinct payment keys cannot double charge invoice
+ ✔ Racing due renewals issue one cycle without capturing money
+ ✔ Racing gateway captures share single receipt and payment journal
+ ✔ Racing subscription credit retries post one immutable refund
+ ✔ Racing distinct subscription credit keys cannot exceed capture
+
+Subscription Recurring Concurrency (Tests\Postgres\SubscriptionRecurringConcurrency)
+ ✔ Independent workers collect once with one provider authorization
+ ✔ Revocation racing collection cannot leave future consent enabled
+ ✔ Process exit after provider acceptance recovers by get without replacement charge
+
+Vendor Ops Creation Concurrency (Tests\Postgres\VendorOpsCreationConcurrency)
+ ✔ Concurrent creations share one receipt and reject changed payload with data set #0
+ ✔ Concurrent creations share one receipt and reject changed payload with data set #1
+ ✔ Equal keys for different accounts never return another tenants company
+ ✔ Revocation racing versioned consent cannot leave membership active
+
+OK (58 tests, 758 assertions)

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Local simulator service supervision; never a production dispatch switch.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$root"
+mode=${1:-status}
+[[ "$mode" == start || "$mode" == stop || "$mode" == status ]] || { echo 'Use start, stop or status.' >&2; exit 1; }
+python3 - <<'PY'
+from pathlib import Path
+lines=Path('services/business-api/.env').read_text().splitlines()
+v=dict(line.split('=',1) for line in lines if '=' in line and not line.startswith('#'))
+if v.get('CSMS_REMOTE_AUTHORIZATION_ENABLED','').strip('"\'')!='true':raise SystemExit('Run scripts/remote-session-auth-setup before starting the unattended charging workers.')
+if v.get('APP_ENV','').strip('"\'')!='local' or v.get('CSMS_SESSION_BRIDGE_ENABLED','').strip('"\'')!='true':raise SystemExit('Local source charging configuration required; production is never enabled.')
+PY
+for name in ev-csms-command-worker ev-csms-source-worker ev-csms-fault-worker; do
+ if docker inspect "$name" >/dev/null 2>&1; then
+  mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}' "$name")
+  [[ "$mount" == "$root" ]] || { echo 'Existing worker belongs to another checkout; refusing to modify it.' >&2; exit 1; }
+ fi
+done
+if [[ "$mode" == start ]]; then
+ curl --fail --silent http://127.0.0.1:8000/up >/dev/null
+ curl --fail --silent http://127.0.0.1:8080/docs/json >/dev/null
+ curl --fail --silent http://127.0.0.1:8095/healthz >/dev/null
+ for name in ev-csms-command-worker ev-csms-source-worker ev-csms-fault-worker; do
+  if docker inspect "$name" >/dev/null 2>&1; then
+   version=$(docker inspect --format '{{index .Config.Labels "creabiz.charging-worker.version"}}' "$name")
+   if [[ "$version" == 2 ]]; then docker start "$name" >/dev/null; continue; fi
+   # Upgrade only owned disposable runners; durable outbox/cursors stay mounted.
+   docker stop --time 45 "$name" >/dev/null
+   docker rm "$name" >/dev/null
+  fi
+  args=(csms:dispatch-pending --interval=2)
+  extra=(-e CSMS_SIMULATOR_ENABLED=true -e CSMS_COMMAND_WORKER_ENABLED=true -e CSMS_GRAPHQL_URL=http://127.0.0.1:8095/v1/graphql -e CSMS_RIDER_SOURCE_API_URL=http://127.0.0.1:8080)
+  if [[ "$name" == ev-csms-source-worker ]]; then
+   args=(csms:consume --interval=2)
+   extra=(-e CSMS_GRAPHQL_URL=http://127.0.0.1:8095/v1/graphql)
+  fi
+  if [[ "$name" == ev-csms-fault-worker ]]; then
+   args=(csms:observe-faults --interval=15)
+   extra=(-e CSMS_FAULT_WORKER_ENABLED=true -e CSMS_GRAPHQL_URL=http://127.0.0.1:8095/v1/graphql)
+  fi
+  docker run -d --name "$name" --label creabiz.charging-worker.version=2 --restart unless-stopped --init --network host \
+   --user "$(id -u):$(id -g)" "${extra[@]}" -v "$root:/app" \
+   -w /app/services/business-api --entrypoint php \
+   composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc artisan "${args[@]}" >/dev/null
+ done
+elif [[ "$mode" == stop ]]; then
+ for name in ev-csms-command-worker ev-csms-source-worker ev-csms-fault-worker; do
+  if docker inspect "$name" >/dev/null 2>&1; then docker stop "$name" >/dev/null; fi
+ done
+fi
+for name in ev-csms-command-worker ev-csms-source-worker ev-csms-fault-worker; do
+ if docker inspect "$name" >/dev/null 2>&1; then
+  docker inspect --format '{{.Name}} running={{.State.Running}} exit={{.State.ExitCode}} restarts={{.RestartCount}}' "$name"
+ else echo "$name not configured"; fi
+done
+# Process status is deliberately distinct from source health or physical charging.

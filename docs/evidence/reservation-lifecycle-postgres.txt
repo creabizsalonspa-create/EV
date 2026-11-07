@@ -1,0 +1,28 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+..............                                                    14 / 14 (100%)
+
+Time: 00:06.219, Memory: 54.50 MB
+
+Connector Topology (Tests\Feature\ConnectorTopology)
+ ✔ Parallel evse bookings shared connector capacity and payload bound replay
+ ✔ Public choices do not leak sources or maintenance reasons and scope remains enforced
+ ✔ Application sessions are parallel across evses but unresolved prior slot blocks same evse
+ ✔ Csms dispatch targets selected source and parallel evses with data set #0
+ ✔ Csms dispatch targets selected source and parallel evses with data set #1
+ ✔ Source inbox requires the exact canonical target before accepting energy
+ ✔ Activation preserves legacy bookings and rejects uncorrelated outbox history
+ ✔ Multiple charge points use their own source binding not first station match
+ ✔ Catalog filters use actual mapped connector capabilities
+
+Reservation Lifecycle (Tests\Feature\ReservationLifecycle)
+ ✔ Check in is scoped explicit self reported server timed and idempotent
+ ✔ Unused window expiry is exact retains arrival and never creates session or money with data set #0
+ ✔ Unused window expiry is exact retains arrival and never creates session or money with data set #1
+ ✔ Existing session any state and uncorrelated commands require separate reconciliation
+ ✔ Scheduled scan is bounded and resumes past reconciliation records
+
+OK (14 tests, 190 assertions)

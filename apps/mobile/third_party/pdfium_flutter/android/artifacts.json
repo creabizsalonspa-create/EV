@@ -1,0 +1,26 @@
+{
+  "release": "chromium/7520",
+  "metadata_source": "https://api.github.com/repos/bblanchon/pdfium-binaries/releases/tags/chromium%2F7520",
+  "artifacts": {
+    "armeabi-v7a": {
+      "name": "pdfium-android-arm.tgz",
+      "sha256": "8c778dad06818d1463c7b006325c9b52a86e21f591c5db78ac12287fd1112993",
+      "size": 2251897
+    },
+    "arm64-v8a": {
+      "name": "pdfium-android-arm64.tgz",
+      "sha256": "785d4804656f42199c9bb2f5c69a6f3e07a1514cc251d1e12d425cf87b4982f8",
+      "size": 2714456
+    },
+    "x86_64": {
+      "name": "pdfium-android-x64.tgz",
+      "sha256": "ad0988f7b59b617eb02a15e27888e34edb76cd13d136a4236411bfb99e410d31",
+      "size": 2782571
+    },
+    "x86": {
+      "name": "pdfium-android-x86.tgz",
+      "sha256": "291e642fe2ee0b75c9f755928ba11112b9a556873575ceb5a9910014e567737d",
+      "size": 2607286
+    }
+  }
+}

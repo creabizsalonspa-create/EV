@@ -1,5 +1,7 @@
 # Test evidence index
 
+> Historical checkpoint content follows. Current branch, canonical apps/mobile client, toolchain and verified evidence are in UNIVERSAL_CONTINUATION.md, PROGRESS.md and QA_REPORT.md. Retired parallel app/package paths below must not be recreated.
+
 Updated 2026-10-27. Evidence applies to the named source checkpoint and tested operation. This is not a complete-platform acceptance report; [FEATURE_MATRIX.md](FEATURE_MATRIX.md) and [INTEGRATION_GAPS.md](INTEGRATION_GAPS.md) retain missing work.
 
 ## Source and environment

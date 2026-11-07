@@ -55,6 +55,8 @@ class CsmsSessionBridgeTest extends TestCase
         TariffVersion::create(['station_id' => $station->id, 'created_by' => $v->id, 'rate_minor_per_kwh' => 125, 'tax_bps' => 500, 'commission_bps' => 0, 'currency' => 'AED', 'minor_units' => 2, 'effective_from' => now()->subMinute()]);
         $this->actingAs($u)->postJson('/api/reservations/'.$r->id.'/csms-start')->assertAccepted()->assertJsonPath('session.status', 'pending_start');
         $s = ChargingSession::first();
+        $this->getJson('/api/reservations')->assertOk()->assertJsonPath('data.0.csms_bound', true);
+        $this->getJson('/api/simulations')->assertOk()->assertJsonPath('data.0.csms_linked', true)->assertJsonPath('data.0.evidence', 'SIMULATED_CSMS')->assertJsonPath('data.0.start_command_status', 'pending');
         $this->postJson('/api/reservations/'.$r->id.'/csms-start')->assertAccepted();
         $this->assertDatabaseCount('charger_commands', 1);
         $this->send($this->event($s->id, 'started', 0, 1000))->assertOk()->assertJsonPath('status', 'charging');

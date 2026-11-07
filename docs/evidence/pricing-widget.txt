@@ -1,0 +1,5 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/tariffs_test.dart
+00:00 +0: exact prices support Arabic/Persian digits and reject rounding, exponent, overflow and ambiguous separators
+00:00 +1: vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel
+00:02 +2: lost publish acknowledgement never retries and requires history refresh; expiry removes private pricing
+00:03 +3: All tests passed!

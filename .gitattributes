@@ -1,0 +1,2 @@
+# Preserve the official Leaflet archive bytes recorded in PROVENANCE.json.
+services/business-api/public/vendor/leaflet/** -text

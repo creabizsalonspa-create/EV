@@ -12,6 +12,8 @@ use App\Models\Finance\SessionQuote;
 use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Services\Commercial\Payments\CorporateHostedCollection;
+use App\Services\Commercial\Payments\HostedCheckout;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -115,6 +117,8 @@ class FinanceService
         try {
             return DB::transaction(function () use ($invoice, $actorId, $amount, $key) {
                 $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+                HostedCheckout::guard('charging', (int) $invoice->id);
+                CorporateHostedCollection::guardPayment((int) $invoice->id);
                 $eventKey = 'payment:'.$actorId.':'.$key;
                 $prior = Journal::where('idempotency_key', $eventKey)->first();
                 if ($prior) {
@@ -145,6 +149,7 @@ class FinanceService
         try {
             return DB::transaction(function () use ($invoice, $actorId, $amount, $key, $reason) {
                 $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+                CorporateHostedCollection::guardRefund((int) $invoice->id);
                 $eventKey = 'refund:'.$actorId.':'.$key;
                 $prior = Journal::where('idempotency_key', $eventKey)->first();
                 if ($prior) {

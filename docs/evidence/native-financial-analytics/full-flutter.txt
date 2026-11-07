@@ -1,0 +1,262 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/api_documents_test.dart
+00:00 +0: /workspace/EV/apps/mobile/test/api_documents_test.dart: session change while opening transport aborts before credentials or JSON body attach
+00:00 +1: /workspace/EV/apps/mobile/test/api_documents_test.dart: session change while opening transport aborts before credentials or multipart body attach
+00:00 +2: /workspace/EV/apps/mobile/test/api_documents_test.dart: case evidence transport rejects invalid source, category, type and four-MiB overflow before I/O
+00:00 +3: /workspace/EV/apps/mobile/test/api_documents_test.dart: multipart evidence reuses CSRF/cookie scope, fixed filename and stable operation identity
+00:00 +4: /workspace/EV/apps/mobile/test/api_documents_test.dart: document type and file-size input limits fail before any request
+00:00 +5: /workspace/EV/apps/mobile/test/api_documents_test.dart: private binary download preserves bytes and rejects redirects without forwarding a cookie
+00:00 +6: /workspace/EV/apps/mobile/test/api_documents_test.dart: session expiry during document access clears cookies and never returns private bytes
+00:00 +7: /workspace/EV/apps/mobile/test/api_documents_test.dart: logout fences a private document whose body finishes afterward
+00:00 +8: /workspace/EV/apps/mobile/test/api_test.dart: rejects remote plaintext and credential-bearing origins
+00:00 +9: /workspace/EV/apps/mobile/test/api_test.dart: csrf, cookies and session rotation use the actual protocol
+00:01 +10: /workspace/EV/apps/mobile/test/catalog_test.dart: query parameters are encoded and pagination stays on the configured service origin
+00:01 +11: /workspace/EV/apps/mobile/test/catalog_test.dart: late responses cannot replace a newer search and disposal ignores late completion
+00:01 +12: /workspace/EV/apps/mobile/test/catalog_test.dart: failed next page keeps current records and retries exactly the requested filtered page
+00:01 +13: /workspace/EV/apps/mobile/test/charger_admission_test.dart: admission translation keys match
+00:01 +14: /workspace/EV/apps/mobile/test/charger_admission_test.dart: one-time secret requires confirmation and is removed after30 seconds
+00:02 +15: /workspace/EV/apps/mobile/test/charger_admission_test.dart: one-time secret requires confirmation and is removed after30 seconds
+00:02 +16: /workspace/EV/apps/mobile/test/charging_operations_test.dart: uncertain command can enter investigation but cannot offer manual resolution without proof
+00:02 +17: /workspace/EV/apps/mobile/test/charging_operations_test.dart: uncertain command can enter investigation but cannot offer manual resolution without proof
+00:02 +18: /workspace/EV/apps/mobile/test/charging_operations_test.dart: uncertain command can enter investigation but cannot offer manual resolution without proof
+00:02 +19: /workspace/EV/apps/mobile/test/charging_operations_test.dart: uncertain command can enter investigation but cannot offer manual resolution without proof
+00:03 +20: /workspace/EV/apps/mobile/test/charging_operations_test.dart: uncertain command can enter investigation but cannot offer manual resolution without proof
+00:03 +21: /workspace/EV/apps/mobile/test/charging_operations_test.dart: lost case response is not automatically replayed
+00:03 +22: /workspace/EV/apps/mobile/test/command_recovery_test.dart: native reconciliation requires explicit consent and renders source outcome without acceptance claim
+00:04 +23: /workspace/EV/apps/mobile/test/command_recovery_test.dart: native reconciliation requires explicit consent and renders source outcome without acceptance claim
+00:04 +24: /workspace/EV/apps/mobile/test/connector_topology_test.dart: customer selects an explicit mapped connector with actual capabilities
+00:04 +25: /workspace/EV/apps/mobile/test/command_recovery_test.dart: reconciliation acknowledgement loss does not repeat writes
+00:05 +26: /workspace/EV/apps/mobile/test/connector_topology_test.dart: Arabic pagination failure clears stale choices and retries the failed page
+00:05 +27: /workspace/EV/apps/mobile/test/command_recovery_test.dart: Arabic source observation is RTL at phone width without implying acceptance
+00:05 +28: /workspace/EV/apps/mobile/test/command_recovery_test.dart: Arabic source observation is RTL at phone width without implying acceptance
+00:05 +29: /workspace/EV/apps/mobile/test/connector_topology_test.dart: vendor creates a real payload with Arabic digits and refreshed immutable identity
+00:05 +30: /workspace/EV/apps/mobile/test/connector_topology_test.dart: mapping an application connector requires confirmation and has no source target
+00:05 +31: /workspace/EV/apps/mobile/test/connector_topology_test.dart: read-only staff cannot create or map identities
+00:05 +32: /workspace/EV/apps/mobile/test/corporate_billing_test.dart: company membership hides owner acceptance and company-wide statements from drivers
+00:05 +33: /workspace/EV/apps/mobile/test/corporate_billing_test.dart: company membership hides owner acceptance and company-wide statements from drivers
+00:06 +34: /workspace/EV/apps/mobile/test/corporate_billing_test.dart: company membership hides owner acceptance and company-wide statements from drivers
+00:06 +35: /workspace/EV/apps/mobile/test/corporate_billing_test.dart: company membership hides owner acceptance and company-wide statements from drivers
+00:06 +36: /workspace/EV/apps/mobile/test/corporate_billing_test.dart: company membership hides owner acceptance and company-wide statements from drivers
+00:06 +37: /workspace/EV/apps/mobile/test/discovery_route_test.dart: address search is consent gated, debounced and stale results never replace a newer query
+00:06 +38: /workspace/EV/apps/mobile/test/discovery_route_test.dart: address search is consent gated, debounced and stale results never replace a newer query
+00:07 +39: /workspace/EV/apps/mobile/test/corporate_billing_test.dart: own invoice and cost-center claim freezes exact scope across unknown results
+00:07 +40: /workspace/EV/apps/mobile/test/discovery_route_test.dart: native route sends exact endpoint/stop order and shows only sourced estimates
+00:08 +41: /workspace/EV/apps/mobile/test/discovery_route_test.dart: native route sends exact endpoint/stop order and shows only sourced estimates
+00:08 +42: /workspace/EV/apps/mobile/test/discovery_route_test.dart: native route sends exact endpoint/stop order and shows only sourced estimates
+00:08 +43: /workspace/EV/apps/mobile/test/discovery_route_test.dart: native route sends exact endpoint/stop order and shows only sourced estimates
+00:08 +44: /workspace/EV/apps/mobile/test/discovery_route_test.dart: unconfigured provider still supports explicit-consent manual multi-stop navigation
+00:08 +45: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: CSMS-linked vendor hides manual meters and queues source stop instead of freezing energy
+00:09 +46: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: CSMS-linked vendor hides manual meters and queues source stop instead of freezing energy
+00:09 +47: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: CSMS-linked vendor hides manual meters and queues source stop instead of freezing energy
+00:09 +48: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: CSMS-linked vendor hides manual meters and queues source stop instead of freezing energy
+00:09 +49: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: CSMS-linked vendor hides manual meters and queues source stop instead of freezing energy
+00:09 +50: /workspace/EV/apps/mobile/test/foreground_location_test.dart: app consent precedes location access and coordinates are sent only on explicit Search
+00:09 +51: /workspace/EV/apps/mobile/test/foreground_location_test.dart: app consent precedes location access and coordinates are sent only on explicit Search
+00:10 +52: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: owner creates cost center, invites privately, assigns own second-page vehicle and revokes membership
+00:10 +53: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: owner creates cost center, invites privately, assigns own second-page vehicle and revokes membership
+00:10 +54: /workspace/EV/apps/mobile/test/fleet_sessions_test.dart: driver has no owner controls and explicitly accepts an invitation
+00:11 +55: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:11 +56: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:12 +57: /workspace/EV/apps/mobile/test/invoice_test.dart: read-only simulated invoice displays actual minor-unit totals and clears private data on expiry
+00:12 +58: /workspace/EV/apps/mobile/test/invoice_test.dart: read-only simulated invoice displays actual minor-unit totals and clears private data on expiry
+00:12 +59: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invalid calendar and reversed date filters are rejected without a request
+00:13 +60: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invalid calendar and reversed date filters are rejected without a request
+00:13 +61: /workspace/EV/apps/mobile/test/live_api_test.dart: native client exercises Laravel fleets, meters, bookings and privacy
+  Skip: Set EV_NATIVE_SMOKE_URL to the disposable local Laravel service.
+00:13 +61 ~1: /workspace/EV/apps/mobile/test/live_charger_operations_test.dart: native actual Laravel prepares, rotates and revokes admission and quarantines unknown command
+  Skip: Run tests/native-charger-operations.cjs against an isolated local Laravel fixture
+00:14 +61 ~2: /workspace/EV/apps/mobile/test/live_commercial_parity_test.dart: actual Laravel company consent claim review statement privacy and native subscription lifecycle preserve canonical identity
+  Skip: Run node tests/native-commercial-parity.cjs with guarded local synthetic fixtures
+00:14 +61 ~3: /workspace/EV/apps/mobile/test/live_financial_operations_test.dart: native actual Laravel private Arabic PDF and canonical refund submission review enforce ownership and replay identity
+  Skip: Run node tests/native-financial-operations.cjs with local guarded synthetic fixtures
+00:14 +61 ~4: /workspace/EV/apps/mobile/test/live_inventory_test.dart: real Laravel native inventory hierarchy, owner maintenance and read-only staff enforcement
+  Skip: Requires an isolated local native inventory fixture; run node tests/native-inventory.cjs.
+00:14 +61 ~5: /workspace/EV/apps/mobile/test/live_loyalty_test.dart: native actual Laravel points reward history and private owner scope use canonical finance evidence
+  Skip: Run node tests/native-loyalty.cjs against isolated local mock fixtures
+00:15 +61 ~6: /workspace/EV/apps/mobile/test/live_payment_recovery_test.dart: native real Laravel recovery queue and audit enforce invoice ownership without creating payments
+  Skip: Run node tests/native-payment-recovery.cjs with local Laravel and mock provider
+00:15 +61 ~7: /workspace/EV/apps/mobile/test/live_recurring_payments_test.dart: native real Laravel saved consent revocation history and tenant isolation
+  Skip: Run node tests/native-recurring-payments.cjs with local Laravel
+00:15 +61 ~8: /workspace/EV/apps/mobile/test/live_reservation_lifecycle_test.dart: actual Laravel check-in is explicit, idempotent and scoped; unused expiry creates no session
+  Skip: Requires isolated actual Laravel fixture; run tests/native-reservation-lifecycle.cjs
+00:15 +61 ~9: /workspace/EV/apps/mobile/test/live_subscription_dunning_test.dart: native actual Laravel overdue notices are scoped with authoritative status and no collection
+  Skip: Run tests/native-subscription-dunning.cjs against isolated local Laravel
+00:16 +61 ~10: /workspace/EV/apps/mobile/test/live_topology_test.dart: actual native client maps inventory and reserves independent EVSEs with shared-connector capacity
+  Skip: Requires isolated local fixture; run node tests/native-topology.cjs.
+00:16 +61 ~11: /workspace/EV/apps/mobile/test/live_vendor_onboarding_test.dart: native real Laravel company KYC4 MiB upload review inventory idempotency and versioned staff consent
+  Skip: Run node tests/native-vendor-onboarding.cjs with local Laravel and guarded fixtures
+00:16 +61 ~12: /workspace/EV/apps/mobile/test/loyalty_test.dart: canonical noncash debt, hold and tier are displayed without raw provider fields or mutations
+00:17 +62 ~12: /workspace/EV/apps/mobile/test/loyalty_test.dart: canonical noncash debt, hold and tier are displayed without raw provider fields or mutations
+00:17 +63 ~12: /workspace/EV/apps/mobile/test/managed_gate_test.dart: customer can confirm cancellation of a provably undispatched start and refresh its state
+00:17 +64 ~12: /workspace/EV/apps/mobile/test/managed_gate_test.dart: customer can confirm cancellation of a provably undispatched start and refresh its state
+00:18 +65 ~12: /workspace/EV/apps/mobile/test/loyalty_test.dart: points history uses server pages and safe kind labels without currency math
+00:18 +66 ~12: /workspace/EV/apps/mobile/test/managed_gate_test.dart: managed blocked simulator shows Arabic policy state without a reserve action
+00:18 +67 ~12: /workspace/EV/apps/mobile/test/loyalty_test.dart: Arabic reward catalog and pending history fit390px with no invented fulfillment
+00:18 +68 ~12: /workspace/EV/apps/mobile/test/managed_gate_test.dart: Arabic Material route back navigation does not rely on an English tooltip
+00:18 +69 ~12: /workspace/EV/apps/mobile/test/loyalty_test.dart: own redemption audit keeps pending status and literal reasons while hiding arbitrary fields
+00:19 +70 ~12: /workspace/EV/apps/mobile/test/loyalty_test.dart: expiry clears private account and current owning session
+00:19 +71 ~12: /workspace/EV/apps/mobile/test/loyalty_test.dart: disposed private reads cannot expire or repopulate another screen
+00:19 +72 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: a stale pending screen retains its original request key after another screen confirms
+00:19 +73 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: stale retry secure write failure blocks dispatch and preserves its identity
+00:19 +74 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: persisting a stale retry never overwrites another newer durable intent
+00:19 +75 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: nested financial selections are frozen before asynchronous storage
+00:19 +76 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: reward request has no automatic POST and resumes the same durable request after restart
+00:19 +77 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: reward request has no automatic POST and resumes the same durable request after restart
+00:20 +78 ~12: /workspace/EV/apps/mobile/test/nearby_catalog_test.dart: Arabic coordinates validate together, normalize digits and clear
+00:20 +79 ~12: /workspace/EV/apps/mobile/test/nearby_catalog_test.dart: Arabic coordinates validate together, normalize digits and clear
+00:21 +80 ~12: /workspace/EV/apps/mobile/test/nearby_catalog_test.dart: Arabic coordinates validate together, normalize digits and clear
+00:21 +81 ~12: /workspace/EV/apps/mobile/test/nearby_catalog_test.dart: Arabic coordinates validate together, normalize digits and clear
+00:21 +82 ~12: /workspace/EV/apps/mobile/test/nearby_catalog_test.dart: Arabic coordinates validate together, normalize digits and clear
+00:21 +83 ~12: /workspace/EV/apps/mobile/test/nearby_catalog_test.dart: Arabic coordinates validate together, normalize digits and clear
+00:21 +84 ~12: /workspace/EV/apps/mobile/test/nearby_catalog_test.dart: Arabic coordinates validate together, normalize digits and clear
+00:21 +85 ~12: /workspace/EV/apps/mobile/test/nearby_catalog_test.dart: Arabic coordinates validate together, normalize digits and clear
+00:21 +86 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: lost refund acknowledgement persists frozen exact Arabic input and explicit retry uses the same key
+00:22 +87 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: storage failure blocks refund POST and raw diagnostics are hidden
+00:22 +88 ~12: /workspace/EV/apps/mobile/test/native_financial_operations_test.dart: vendor decision restores same immutable intent after uncertain transport
+00:22 +89 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: subscription reminder opens its scoped subscription without collection or mutation
+00:22 +90 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: subscription reminder opens its scoped subscription without collection or mutation
+00:22 +91 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: subscription reminder opens its scoped subscription without collection or mutation
+00:23 +92 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: subscription reminder opens its scoped subscription without collection or mutation
+00:23 +93 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: subscription reminder opens its scoped subscription without collection or mutation
+00:23 +94 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: subscription reminder opens its scoped subscription without collection or mutation
+00:23 +95 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: unsupported server precision fails closed without displaying a misleading amount
+00:23 +96 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: empty subscription notices do not use the payment-recovery empty label
+00:23 +97 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: subscription reminders render authoritative recovery hold and offer no collection action
+00:23 +98 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: payment recovery translations have parity
+00:23 +99 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: scoped list paginates and history performs no financial write
+00:24 +100 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: scoped list paginates and history performs no financial write
+00:24 +101 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: scoped list paginates and history performs no financial write
+00:24 +102 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: scoped list paginates and history performs no financial write
+00:24 +103 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: status inspection requires confirmation and lost response never replays
+00:24 +104 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: expired authentication clears rows and invokes session invalidation
+00:24 +105 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: Arabic layout is RTL at mobile width without overflow
+00:24 +106 ~12: /workspace/EV/apps/mobile/test/payment_recovery_test.dart: late responses after route disposal are ignored
+00:24 +107 ~12: /workspace/EV/apps/mobile/test/recurring_payments_test.dart: provider URLs reject alternate hosts, credentials and non HTTPS
+00:24 +108 ~12: /workspace/EV/apps/mobile/test/recurring_payments_test.dart: masked methods revoke with expected version and refresh without replay
+00:25 +109 ~12: /workspace/EV/apps/mobile/test/recurring_payments_test.dart: masked methods revoke with expected version and refresh without replay
+00:26 +110 ~12: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: consent is required and successful POST refreshes authoritative records once
+00:26 +111 ~12: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: consent is required and successful POST refreshes authoritative records once
+00:26 +112 ~12: /workspace/EV/apps/mobile/test/recurring_payments_test.dart: lost mutation is not replayed by refresh and expired session clears private rows
+00:26 +113 ~12: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: lost acknowledgement never automatically repeats a write or exposes diagnostics
+00:26 +114 ~12: /workspace/EV/apps/mobile/test/recurring_payments_test.dart: Arabic uses RTL with equivalent saved authorization controls
+00:26 +115 ~12: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: expired authentication reaches root handler
+00:26 +116 ~12: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: disposed in-flight response does not refresh or signal stale scope
+00:26 +117 ~12: /workspace/EV/apps/mobile/test/reservation_arrival_test.dart: Arabic narrow layout has RTL consent and no overflow
+00:27 +118 ~12: /workspace/EV/apps/mobile/test/roaming_test.dart: roaming cannot promote partner capabilities to charging authority
+00:27 +119 ~12: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:27 +120 ~12: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:27 +121 ~12: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:27 +122 ~12: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:27 +123 ~12: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:27 +124 ~12: /workspace/EV/apps/mobile/test/roaming_test.dart: Arabic RTL preserves partner text; pagination failure is retryable without stale cards
+00:27 +125 ~12: /workspace/EV/apps/mobile/test/station_favorites_test.dart: lost write response never replays and refresh reads authoritative state
+00:28 +126 ~12: /workspace/EV/apps/mobile/test/station_favorites_test.dart: lost write response never replays and refresh reads authoritative state
+00:29 +126 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: native map creates no tiles before consent and opens truthful station details
+  [1m[flutter_map][0m
+    We want to help keep OpenStreetMap available for everyone. Our examples
+    and demo app use the public tile servers, but they are NOT free to use by
+    everyone! Please review whether the OpenStreetMap tile servers are suitable
+    for your project.
+    See:
+      * https://operations.osmfoundation.org/policies/tiles (OSM Tile Usage Policy)
+      * https://docs.fleaflet.dev/osm-warn for more information about this warning
+00:29 +127 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: native map creates no tiles before consent and opens truthful station details
+00:29 +128 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: native map creates no tiles before consent and opens truthful station details
+00:29 +129 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: native map creates no tiles before consent and opens truthful station details
+00:29 +130 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: native map creates no tiles before consent and opens truthful station details
+00:29 +131 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: charging options remain customer-only even for reservable markers
+  [1m[flutter_map][0m
+    We want to help keep OpenStreetMap available for everyone. Our examples
+    and demo app use the public tile servers, but they are NOT free to use by
+    everyone! Please review whether the OpenStreetMap tile servers are suitable
+    for your project.
+    See:
+      * https://operations.osmfoundation.org/policies/tiles (OSM Tile Usage Policy)
+      * https://docs.fleaflet.dev/osm-warn for more information about this warning
+  [1m[flutter_map][0m
+    We want to help keep OpenStreetMap available for everyone. Our examples
+    and demo app use the public tile servers, but they are NOT free to use by
+    everyone! Please review whether the OpenStreetMap tile servers are suitable
+    for your project.
+    See:
+      * https://operations.osmfoundation.org/policies/tiles (OSM Tile Usage Policy)
+      * https://docs.fleaflet.dev/osm-warn for more information about this warning
+00:29 +132 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: clusters preserve all valid stations without treating a cluster as one charger
+00:29 +133 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: map points reject absent, malformed, infinite and unsupported polar coordinates
+00:29 +134 ~12: /workspace/EV/apps/mobile/test/station_map_test.dart: tiles require explicit consent and absent coordinates stay out of map
+  [1m[flutter_map][0m
+    We want to help keep OpenStreetMap available for everyone. Our examples
+    and demo app use the public tile servers, but they are NOT free to use by
+    everyone! Please review whether the OpenStreetMap tile servers are suitable
+    for your project.
+    See:
+      * https://operations.osmfoundation.org/policies/tiles (OSM Tile Usage Policy)
+      * https://docs.fleaflet.dev/osm-warn for more information about this warning
+00:30 +135 ~12: /workspace/EV/apps/mobile/test/subscriptions_test.dart: account change during secure persistence blocks enrollment even before the route disposes
+00:31 +136 ~12: /workspace/EV/apps/mobile/test/support_test.dart: disposed support requests cannot expire a later screen
+00:31 +137 ~12: /workspace/EV/apps/mobile/test/subscriptions_test.dart: leaving enrollment during secure persistence cannot dispatch under a later session
+00:31 +138 ~12: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:31 +139 ~12: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:31 +140 ~12: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:31 +141 ~12: /workspace/EV/apps/mobile/test/support_test.dart: thread loads public messages, sends replies and disables closed-ticket actions
+00:31 +142 ~12: /workspace/EV/apps/mobile/test/subscriptions_test.dart: unknown enrollment retains exact plan and key after process recreation
+00:31 +143 ~12: /workspace/EV/apps/mobile/test/support_test.dart: inbox read actions update actual API state and notification opens its thread
+00:31 +144 ~12: /workspace/EV/apps/mobile/test/support_test.dart: inbox read actions update actual API state and notification opens its thread
+00:32 +145 ~12: /workspace/EV/apps/mobile/test/subscriptions_test.dart: subscription details do not infer benefits from unpaid invoice or capture on load
+00:32 +146 ~12: /workspace/EV/apps/mobile/test/subscriptions_test.dart: Arabic lifecycle confirmation fits narrow screen and requires explicit consent
+00:32 +147 ~12: /workspace/EV/apps/mobile/test/subscriptions_test.dart: expired subscription access hides details without exposing diagnostics
+00:32 +148 ~12: /workspace/EV/apps/mobile/test/subscriptions_test.dart: summary rejects unbalanced or live evidence and mismatched invoice source
+00:32 +149 ~12: /workspace/EV/apps/mobile/test/tariffs_test.dart: exact prices support Arabic/Persian digits and reject rounding, exponent, overflow and ambiguous separators
+00:32 +150 ~12: /workspace/EV/apps/mobile/test/tariffs_test.dart: vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel
+00:33 +151 ~12: /workspace/EV/apps/mobile/test/tariffs_test.dart: vendor publishes exact Arabic prices with an idempotency identity and zero commission sentinel
+00:33 +152 ~12: /workspace/EV/apps/mobile/test/vendor_finance_test.dart: vendor earnings keep three-decimal and signed allocations distinct from bank proof
+00:34 +153 ~12: /workspace/EV/apps/mobile/test/tariffs_test.dart: lost publish acknowledgement never retries and requires history refresh; expiry removes private pricing
+00:34 +154 ~12: /workspace/EV/apps/mobile/test/vendor_finance_test.dart: versioned consent resumes one saved identity and never configures or verifies a bank
+00:34 +155 ~12: /workspace/EV/apps/mobile/test/vendor_finance_test.dart: hosted onboarding does not open automatically and refuses deceptive provider hosts
+00:34 +156 ~12: /workspace/EV/apps/mobile/test/vendor_finance_test.dart: trusted TEST onboarding requires a second explicit external-navigation action
+00:34 +157 ~12: /workspace/EV/apps/mobile/test/vendor_finance_test.dart: Arabic earnings preserve exact precision at390px without raw bank fields
+00:34 +158 ~12: /workspace/EV/apps/mobile/test/vendor_finance_test.dart: expired vendor status removes private earnings and expires only current session
+00:34 +159 ~12: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: inventory translation contracts match
+00:34 +160 ~12: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: company pagination and hierarchy use scoped APIs without hardware commands
+00:35 +161 ~12: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: company pagination and hierarchy use scoped APIs without hardware commands
+00:36 +162 ~12: /workspace/EV/apps/mobile/test/vendor_operations_test.dart: create company validates date and sends one stable scoped operation
+00:36 +163 ~12: /workspace/EV/apps/mobile/test/vendor_operations_test.dart: create company validates date and sends one stable scoped operation
+00:36 +164 ~12: /workspace/EV/apps/mobile/test/vendor_operations_test.dart: create company validates date and sends one stable scoped operation
+00:36 +165 ~12: /workspace/EV/apps/mobile/test/vendor_operations_test.dart: create company validates date and sends one stable scoped operation
+00:36 +166 ~12: /workspace/EV/apps/mobile/test/vendor_operations_test.dart: create company validates date and sends one stable scoped operation
+00:36 +167 ~12: /workspace/EV/apps/mobile/test/vendor_operations_test.dart: create company validates date and sends one stable scoped operation
+00:36 +168 ~12: /workspace/EV/apps/mobile/test/vendor_operations_test.dart: create company validates date and sends one stable scoped operation
+00:37 +169 ~12: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: nested authentication expiry returns to the public root without reloading removed scopes
+00:37 +170 ~12: /workspace/EV/apps/mobile/test/vendor_inventory_test.dart: nested authentication expiry returns to the public root without reloading removed scopes
+00:37 +171 ~12: /workspace/EV/apps/mobile/test/vendor_operations_test.dart: approved inventory site form selects only canonical owned station and uses its coordinates
+00:38 +172 ~12: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:38 +173 ~12: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:39 +174 ~12: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:39 +175 ~12: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:39 +176 ~12: /workspace/EV/apps/mobile/test/widget_test.dart: missing service configuration never displays mock inventory
+00:40 +177 ~12: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:40 +177 ~12: /workspace/EV/apps/mobile/test/live_financial_analytics_test.dart: actual Laravel native scoped source filters private Arabic PDF and unchanged canonical finances
+  Skip: Requires isolated local Laravel analytics fixture.
+00:40 +177 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:40 +178 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:40 +179 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:41 +180 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:42 +181 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:42 +182 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:42 +183 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:42 +184 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: appearance and Arabic persist across app recreation, including signed-in customer UI
+00:42 +185 ~13: /workspace/EV/apps/mobile/test/workspace_test.dart: catalog UI applies all filters, retries failed next page and preserves state across tabs
+00:43 +186 ~13: /workspace/EV/apps/mobile/test/payment_cases_test.dart: leaving evidence upload during secure persistence prevents a later-session upload
+00:44 +187 ~13: /workspace/EV/apps/mobile/test/payment_cases_test.dart: leaving evidence upload during secure persistence prevents a later-session upload
+00:44 +188 ~13: /workspace/EV/apps/mobile/test/payment_cases_test.dart: an invoice with no remaining captured funds offers no new dispute submission
+00:45 +189 ~13: /workspace/EV/apps/mobile/test/payment_cases_test.dart: resolved case retains private review but offers no new upload form
+00:45 +190 ~13: /workspace/EV/apps/mobile/test/payment_cases_test.dart: unknown customer case creation freezes exact Arabic amount reason and identity through restart
+00:45 +190 ~13: /workspace/EV/apps/mobile/test/live_case_evidence_test.dart: actual Laravel native private case evidence preserves encryption contract replay fingerprint tenant privacy and canonical finances
+  Skip: Run tests/native-case-evidence.cjs with guarded local synthetic fixtures
+00:45 +190 ~14: /workspace/EV/apps/mobile/test/payment_cases_test.dart: unknown customer case creation freezes exact Arabic amount reason and identity through restart
+00:45 +191 ~14: /workspace/EV/apps/mobile/test/payment_cases_test.dart: private upload requires explicit file and consent then retains same fingerprint and key after lost acknowledgement
+00:45 +192 ~14: /workspace/EV/apps/mobile/test/payment_cases_test.dart: different reselected bytes cannot replace the original pending evidence
+00:46 +193 ~14: /workspace/EV/apps/mobile/test/payment_cases_test.dart: tampered private evidence is rejected before any viewer opens
+00:46 +194 ~14: /workspace/EV/apps/mobile/test/payment_cases_test.dart: case history is paginated literal text and never submits a refund or provider evidence
+00:46 +195 ~14: /workspace/EV/apps/mobile/test/payment_cases_test.dart: Arabic evidence consent fits390px and expiry clears private rows
+00:46 +196 ~14: /workspace/EV/apps/mobile/test/payment_cases_test.dart: case interface translations have parity
+00:46 +197 ~14: All tests passed!

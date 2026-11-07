@@ -1,0 +1,444 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 747B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/php:8.5-cli-bookworm@sha256:d4f6e10eb393de7e3a7a88e8b88e139072dd3ae297f6a5dada8257e6fe32c585
+#2 DONE 1.4s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [stage-0 1/2] FROM docker.io/library/php:8.5-cli-bookworm@sha256:d4f6e10eb393de7e3a7a88e8b88e139072dd3ae297f6a5dada8257e6fe32c585
+#4 DONE 0.0s
+
+#5 [stage-0 2/2] RUN --mount=type=secret,id=host_ca,target=/tmp/host-ca.pem cp /tmp/host-ca.pem /etc/ssl/certs/ca-certificates.crt && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && apt-get update && apt-get install -y --no-install-recommends libpq-dev && rm -rf /var/lib/apt/lists/* && mkdir /tmp/pdo-pgsql && tar -xJf /usr/src/php.tar.xz --wildcards --strip-components=3 -C /tmp/pdo-pgsql '*/ext/pdo_pgsql/*' && cd /tmp/pdo-pgsql && phpize && ./configure --with-pdo-pgsql=/usr && make -j2 && make install && docker-php-ext-enable pdo_pgsql && cd / && rm -rf /tmp/pdo-pgsql
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 writing image sha256:96430bcc2c589a5c195329b41794850e8c21f6f8c73cd18f99c3841175d95290 done
+#6 naming to docker.io/library/ev-finance-pg-tests:ev-finance-tests-30633-20734 done
+#6 DONE 0.0s
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+...............................................................  63 / 251 ( 25%)
+............................................................... 126 / 251 ( 50%)
+............................................................... 189 / 251 ( 75%)
+..............................................................  251 / 251 (100%)
+
+Time: 00:33.751, Memory: 98.50 MB
+
+Commercial Campaign (Tests\Feature\CommercialCampaign)
+ ✔ Paid package campaign review delivery and governance preserve cash journals
+ ✔ Unpaid or non entitled package and foreign station cannot create campaign
+ ✔ Budget reservations idempotency and cancellation do not reopen used units
+ ✔ Signed delivery is required budget bounded and click parent is verified
+ ✔ Admin can suspend vendor cannot resume and refunded package stops delivery
+ ✔ Tenant roles expiry country dates and immutable terms fail closed
+ ✔ Authentication enablement dates and payload changes fail without new delivery
+ ✔ Invalid or expired signature never reserves package delivery
+ ✔ Expired paid cycle and station transfer stop previously approved campaign
+ ✔ Uncertain and pending refund sources hold delivery but known failure does not
+ ✔ Current locked roles override stale request account roles
+
+Commercial Finance (Tests\Feature\CommercialFinance)
+ ✔ Customer request vendor review credit note and private report
+ ✔ Rejection releases reserved amount and validation
+ ✔ External provider invoice cannot use ledger only simulation after config switch
+ ✔ Native and cookie clients share financial records and report filters
+
+Corporate Billing (Tests\Feature\CorporateBilling)
+ ✔ Complete claim consolidation cost center statement and atomic canonical simulated receipts
+ ✔ Unaccepted expired foreign and revoked membership cannot claim
+ ✔ Duplicate invoice claim idempotency and decisions cannot be rewritten
+ ✔ Manager privacy claim approval credit limit and month guards
+ ✔ Partial payment gateway attempt and changed invoice stop collection without partial receipts
+ ✔ Gateway checkout never becomes a corporate mock payment bypass
+ ✔ Wrong cost center month duplicate claims and changed key payload are rejected
+ ✔ Only administrator can publish and only owner can accept
+ ✔ Financial history database protects claims statements and acceptances
+ ✔ Company credit history redacts vendor allocations and csv neutralizes hidden formulas
+ ✔ Current locked owner controls decisions and new statement payer snapshot
+ ✔ Production or nonmock collection is disabled
+
+External Disputes (Tests\Feature\ExternalDisputes)
+ ✔ Signed callback creates one canonical hold and private history
+ ✔ Changed event and wrong charge currency fail closed
+ ✔ Provider reconciliation releases only won hold and preserves lost hold
+ ✔ Provider case cannot be manually rejected to release hold
+ ✔ Evidence is admin only encrypted idempotent and bounded
+ ✔ Evidence deadline blocks new submission
+ ✔ Lost evidence response is recovered by read only exact evidence
+ ✔ Live provider evidence and keys are never accepted
+ ✔ Reload safe retry uses only stored payload and original provider key
+ ✔ Stored retry rejects foreign scope role and active worker lease
+ ✔ Stored retry cannot outlive provider retention or acceptance state
+ ✔ Dispute events and submitted evidence terms are database immutable
+ ✔ Unresolved provider disputes block refund before provider mutation
+ ✔ Provider scan requires opt in and reports attention without mutations
+ ✔ Failed scan never claims new authoritative provider observation
+
+Finance (Tests\Feature\Finance)
+ ✔ Integer rounding tariff snapshot and invoice are immutable and reconcile
+ ✔ Database rejects direct financial record mutation
+ ✔ Legacy session does not pick up a new tariff retroactively
+ ✔ Partial payments idempotency credit notes and full refund reconcile
+ ✔ Overpayment overrefund and idempotency payload mismatch are rejected
+ ✔ Unfinished or inconsistent sessions cannot be invoiced
+ ✔ Finance http authorization and tenant scope
+ ✔ Invoice history filters preserve tenant scope and validate dates and literal prefix
+ ✔ Only vendor owner or admin can publish tariff and vendor cannot set commission
+ ✔ Vendor pricing retains admin commission and publish retries are payload bound
+ ✔ Pricing station selector is role scoped and requires matching currency configuration
+ ✔ Numeric form tariffs keep integer contract and snapshot comparisons
+ ✔ Money allocator has no negative or lost minor units
+ ✔ Production never processes simulated money
+
+Finance History Rollback (Tests\Feature\FinanceHistoryRollback)
+ ✔ Payout history refuses populated downgrade before any ddl
+ ✔ Payout identity guard cannot be removed before a populated base rollback
+ ✔ Loyalty history refuses populated downgrade before any ddl
+
+Finance Money (Tests\Unit\FinanceMoney)
+ ✔ Every small refund preserves units component bounds and full reversal
+ ✔ Money math uses half up rounding and rejects overflow
+ ✔ Invalid components are rejected
+
+Financial Analytics (Tests\Feature\FinancialAnalytics)
+ ✔ Actual postings refunds and reservations are distinct and never multiply
+ ✔ Customer vendor and native api scopes cannot select another actor
+ ✔ Period comparison uses posting time even for an older invoice
+ ✔ Provider payout is test evidence and separate from original customer capture
+ ✔ Corporate aging is current authorized receivable not duplicate revenue
+ ✔ Filters date bounds and private csv export are fail closed
+ ✔ Recurring equivalents use paid cycles exact group rounding and credits
+ ✔ Posted points are not a currency or a cash liability
+ ✔ Real private arabic management pdf is not a tax invoice
+ ✔ Currency and precision groups are never combined
+ ✔ Malformed imported receipt currency never gets relabelled as invoice currency
+ ✔ Json client integer bounds reject an oversized imported invoice
+ ✔ Pdf bound includes recurring components before rendering
+ ✔ As of cutoff excludes future posted records within the same day
+
+Financial Audit Integrity (Tests\Feature\FinancialAuditIntegrity)
+ ✔ Financial audit dates cannot be erased using sql null semantics
+ ✔ New payout accounts require a real creation date
+ ✔ Hardened terms still allow operational updates without new cash postings
+ ✔ Upgrade refuses existing missing audit dates without fabricating history
+ ✔ Populated payout history refuses non testing downgrade
+ ✔ Populated loyalty history refuses non testing downgrade
+
+Financial Documents (Tests\Feature\FinancialDocuments)
+ ✔ Real pdf csv private encryption exact amounts and natural replay
+ ✔ All four immutable source types generate without creating financial postings
+ ✔ Wrong tenants cannot generate list read or download and issuer controls are admin only
+ ✔ Issuer versions replay effective dates and historical document bytes are stable
+ ✔ Missing or ambiguous issuer jurisdictions fail without number allocation or artifacts
+ ✔ Escaped html and csv formula defense preserve literal disclosures
+ ✔ English arabic documents are distinct unicode pdf assets with immutable snapshots
+ ✔ Missing or corrupt private files fail closed and never regenerate history
+ ✔ Vendor settlement statements snapshot signed lines and state without claiming bank payment
+ ✔ Corporate document permissions follow current company owner and keep issued source snapshots
+ ✔ Corporate metadata and new statement version preserve canonical collection attention
+ ✔ Populated document history cannot be downgraded outside disposable tests
+ ✔ Zero and three minor unit currencies never use float formatting
+
+Loyalty Economics (Tests\Feature\LoyaltyEconomics)
+ ✔ Qualifying invoice earns exact points once and keeps cash ledger unchanged
+ ✔ Partial refund reverses proportional points and repeated reconcile is idempotent
+ ✔ Redemption reserves lots inventory and is payload bound then admin fulfills
+ ✔ Refund after redemption creates points debt blocks fulfillment and rejection releases safely
+ ✔ Expiration then refund does not double claw back expired points and rejection does not revive them
+ ✔ Partial refund before first earn grants only net points and future policy does not rewrite award
+ ✔ Pending refund hold prevents spending previously earned points
+ ✔ Roles privacy payload limits and production gate are enforced
+ ✔ Points ledger is database immutable
+ ✔ Partial and unpaid sources cannot mint points
+ ✔ Tier multipliers and per member reward limit are server enforced
+ ✔ Daily earn cap is enforced and expired rejection does not revive points
+ ✔ Uncertain psp cannot mint points and confirmed lost chargeback claws back without cash mutation
+
+Managed Charging Gate (Tests\Feature\ManagedChargingGate)
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #0
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #1
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #2
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #3
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #4
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #5
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #6
+ ✔ Maintenance blocks new admission but preserves replay and safe stop
+ ✔ Provably undispatched start can cancel without faking source end and releases binding
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #0
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #1
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #2
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #3
+ ✔ Bound admission and dispatch recheck company policy window and target
+ ✔ Expiry is exactly at window end idempotent audited and releases binding without money or http
+ ✔ Expiry never closes admitted or unknown dispatch with data set #0
+ ✔ Expiry never closes admitted or unknown dispatch with data set #1
+ ✔ Expiry never closes admitted or unknown dispatch with data set #2
+ ✔ Expiry never closes admitted or unknown dispatch with data set #3
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #0
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #1
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #2
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #3
+ ✔ Expiry preserves contradictory observed state for reconciliation with data set #4
+ ✔ Expiry command validation feature gate and scheduler registration
+ ✔ Bounded scheduled scan advances past reconciliation records and restarts safely
+
+Payment Gateway (Tests\Feature\PaymentGateway)
+ ✔ Checkout authorize capture replay refund reconcile and exact ledger
+ ✔ Failed authorizations expiry cancel and competing checkout balance
+ ✔ Signed webhooks exact replay conflicts and invalid signatures
+ ✔ Customer cases admin approval credit notes replays and tenant isolation
+ ✔ Production and unconfigured provider fail closed and raw card fields are not accepted
+
+Payment Recovery (Tests\Feature\PaymentRecovery)
+ ✔ Durable intent survives provider success followed by business transaction rollback
+ ✔ Timeout retry with changed client key preserves provider key and posts one capture
+ ✔ Uncertain refund rejects changed payload or replacement key without another provider request
+ ✔ Unexpired crash lease blocks retry and expired lease reuses same recovery identity
+ ✔ Expired provider retry window and scan never send another mutation
+ ✔ Authenticated capture webhook completes uncertain recovery only with committed ledger
+ ✔ Recovery http is tenant scoped hides private evidence and reconciles by get only
+ ✔ Read only reconciliation rejects another payment identity even when amount and currency match
+ ✔ Uncertain capture holds other authorized checkouts and replacement checkout on same invoice
+ ✔ Malformed capture response cannot redirect reconciliation to another payment
+ ✔ Refund lookup requires its own recovery metadata even on same capture
+
+Settlement (Tests\Feature\Settlement)
+ ✔ Full capture commission reservation approval and payout simulation reconcile
+ ✔ Unpaid partial and unmatured invoices are not payable
+ ✔ Refund after reservation blocks approval and rejection releases revised funds
+ ✔ Post settlement refund debt is carried forward and offset against next earnings
+ ✔ Tenant isolation currency and admin adjustment dual control
+ ✔ Statements return configured three digit precision and reject mixed history
+ ✔ Precision migration backfills existing adjustments without changing economics
+ ✔ Precision backfill rejects ambiguous currency before schema change
+ ✔ Simulated payout is disabled in production
+ ✔ Pending refund or dispute holds earnings and approved settlement can be rejected
+
+Stripe Sandbox (Tests\Feature\StripeSandbox)
+ ✔ Stripe manual authorization capture refund and signed callback use immutable ledger
+ ✔ Signed provider capture can recover a lost response once without another network call
+ ✔ Live secret and live webhook are rejected without network calls
+ ✔ Provider declines action required unconfirmed refunds and unexpected live response
+ ✔ Cancellation and transport uncertainty do not invent success
+
+Subscription (Tests\Feature\Subscription)
+ ✔ Enrollment payment entitlements and replays are connected
+ ✔ Payment failure retry and period expiry never grant unpaid features
+ ✔ Upgrades and downgrades are scheduled with frozen current cycle prices
+ ✔ Cancellation resume and due command do not charge or reenable cancelled subscription
+ ✔ Tenant isolation and audience apply to every subscription operation
+ ✔ Plan versioning retirement and validation preserve historical terms
+ ✔ Database guards invoice receipt plan and event immutability
+ ✔ Yearly billing leap day and production mock guard
+ ✔ Month end anniversary is restored after short months
+
+Subscription Credit (Tests\Feature\SubscriptionCredit)
+ ✔ Partial and full refunds allocate exactly without mutating invoice or receipt
+ ✔ Overrefund conflicting key and unpaid invoice fail without financial posting
+ ✔ Only administrators can refund and credit reads preserve tenant isolation
+ ✔ Historical cycle full refund preserves later paid entitlement
+ ✔ Stripe refund is provider backed and replays do not call provider again
+ ✔ External receipt cannot be locally credited without verified capture link
+ ✔ Wrong provider amount and failed refund never create credit or revoke features
+ ✔ Uncertain refund retries use same provider identity and post only once
+ ✔ Signed refund recovers durable request after timeout and is idempotent
+ ✔ Invalid signature live events and uncorrelated refunds never post credits
+ ✔ Credit requests notes and journal are immutable and production refunds fail closed
+ ✔ Read only provider recovery after retry window posts credit without another refund
+
+Subscription Dunning (Tests\Feature\SubscriptionDunning)
+ ✔ Exact reminder boundaries replay and no funds or entitlements mutation
+ ✔ Delayed scan sends only latest stage and prior notices cannot starve later due invoices
+ ✔ Waiting for next stage does not starve other due notices
+ ✔ Paid cancelled zero price and uncertain provider invoices are suppressed
+ ✔ Notices are scoped and current payment state is authoritative
+ ✔ Command rejects invalid limits and history is immutable
+
+Subscription Gateway (Tests\Feature\SubscriptionGateway)
+ ✔ Stripe contract capture uses shared invoice receipt ledger and entitlements once
+ ✔ Signed webhook recovers capture without second external call and rejects conflicts
+ ✔ Invalid signatures stale events wrong amount currency and live mode cannot post receipts
+ ✔ Declined and action required authorizations never grant features
+ ✔ Tenant checks and outstanding gateway guards prevent mixed mock double settlement
+ ✔ Timeout retries keep provider capture key and do not double post
+ ✔ Reconciliation compares provider currency capture and refund amounts
+ ✔ Mock provider reuses same subscription settlement and production rejects every provider
+ ✔ Out of order events do not downgrade capture and gateway evidence is immutable
+
+Subscription Recurring (Tests\Feature\SubscriptionRecurring)
+ ✔ Hosted consent is authoritative private tenant scoped and versioned
+ ✔ Old callback cannot restore revoked consent or disabled policies
+ ✔ Collection uses server mandate and posts canonical receipt once across worker replays
+ ✔ Timeout holds invoice and never automatically replaces uncertain authorization
+ ✔ Recoverable decline obeys due time and revocation stops retry
+ ✔ Sca uses existing intent and authenticated inspection before capture
+ ✔ Wrong provider owner and expired or changed consent never enable collection
+ ✔ Lost hosted ack is recovered read only and blocks changed enrollment key
+ ✔ Signed enrollment callback duplicate replay and session binding
+ ✔ Cancelled subscription cannot be collected
+ ✔ Controlled retry only runs after due time and preserves one invoice
+ ✔ Failed sca and permanent declines do not grant entitlements or loop
+ ✔ Due renewal issues next frozen invoice and collects once through shared gateway
+
+Vendor Ops (Tests\Feature\VendorOps)
+ ✔ Catalog station picker is scoped to company writers and unlinked owned simulators
+ ✔ Onboarding requires private documents and explicit admin review
+ ✔ Kyc documents are not public or visible to other tenants or staff
+ ✔ Staff requires consent scope and cannot grant itself permissions
+ ✔ Inventory hierarchy is tenant scoped and does not enable live control
+ ✔ Unapproved or suspended company cannot create inventory
+ ✔ Company edits are locked after submission and expired license blocks inventory
+ ✔ Reinviting revoked staff requires fresh acceptance before new scope
+ ✔ Arbitrary files and invalid permissions are rejected
+ ✔ Client capabilities follow staff consent and revocation without private evidence
+ ✔ Expired approved license can be corrected only after audited review request
+ ✔ License operational gate uses the configured country calendar boundary
+
+Vendor Ops Creation (Tests\Feature\VendorOpsCreation)
+ ✔ Company creation replay is scoped payload bound and does not repeat audit
+ ✔ Inventory creation replays before unique validation without enabling remote control
+ ✔ Revoked staff cannot replay a previously authorized creation
+ ✔ Private evidence replay does not write another encrypted file
+ ✔ Stale staff consent cannot accept a reinvitation with new scopes
+ ✔ Completed creation receipts cannot be rewritten or deleted
+ ✔ Creation fingerprint uses secret key and supports retained rotation keys
+
+Vendor Payout (Tests\Feature\VendorPayout)
+ ✔ Mock payout has maker checker source state and no invoice cash mutation
+ ✔ Account configuration is encrypted and requires vendor consent and provider ownership
+ ✔ Stripe test connected bank payout is funding checked and posts once
+ ✔ Insufficient connected funding sends no bank payout and needs fresh approval on retry
+ ✔ Timeout is durable blocks legacy bypass and recovers by metadata get without repost
+ ✔ Unknown same attempt replay retains provider key and never gets a replacement identity
+ ✔ Provider paid fact survives refund after dispatch and creates vendor debt
+ ✔ Pending provider status never releases reservation and final failure allows retry
+ ✔ Signed webhook retrieval reversal deduplication and scope checks
+ ✔ Tenant privacy role authorization and immutable economic terms
+ ✔ Refund request after payout approval holds dispatch without creating an attempt
+ ✔ Unknown attempt outside retry window requires read only reconciliation
+ ✔ Mismatched provider amount is uncertain and never records a paid settlement
+ ✔ Bounded reconciliation worker only reads provider and preserves exact invoice journals
+ ✔ Production and live credentials are rejected before any provider request
+ ✔ Revocation refund hold and production or live keys prevent execution
+ ✔ Hosted recipient onboarding is owner only provider bound and never verifies payment
+ ✔ Hosted onboarding rejects untrusted redirect and revoked or mock recipient
+
+OK (251 tests, 7346 assertions)
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+..............................................................    62 / 62 (100%)
+
+Time: 01:22.046, Memory: 56.50 MB
+
+Charger Admission Concurrency (Tests\Postgres\ChargerAdmissionConcurrency)
+ ✔ Two companies cannot race to claim the same charger identity
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #0
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #1
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #2
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #3
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #4
+
+Charging Expiry Concurrency (Tests\Postgres\ChargingExpiryConcurrency)
+ ✔ Concurrent expiry workers close once without faking source end
+
+Command Reconciliation Concurrency (Tests\Postgres\CommandReconciliationConcurrency)
+ ✔ Concurrent source recovery records one observation without device or financial mutation
+
+Commercial Campaign Concurrency (Tests\Postgres\CommercialCampaignConcurrency)
+ ✔ Concurrent same creation key reserves one campaign and preserves cash
+ ✔ Distinct concurrent campaigns cannot overreserve paid package units
+ ✔ Concurrent verified delivery events cannot overspend one remaining unit
+ ✔ Same verified event is idempotent across processes
+
+Connector Reservation Concurrency (Tests\Postgres\ConnectorReservationConcurrency)
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #0
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #1
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #2
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #3
+
+Corporate Billing Concurrency (Tests\Postgres\CorporateBillingConcurrency)
+ ✔ Competing statements cannot overrun shared corporate credit limit
+ ✔ Identical issue and simulated collection workers share one statement and cash journal
+ ✔ Statement owner is reauthorized after waiting for fleet transfer
+ ✔ Claim decision owner is reauthorized after waiting for fleet transfer
+
+External Dispute Concurrency (Tests\Postgres\ExternalDisputeConcurrency)
+ ✔ Duplicate callbacks serialize to one dispute and one hold
+ ✔ Distinct provider events share one canonical invoice hold
+
+Finance Concurrency (Tests\Postgres\FinanceConcurrency)
+ ✔ Concurrent tariff retries publish once and keep commission policy
+ ✔ Cross invoice payment key race returns conflict without double posting
+ ✔ Cross invoice refund key race returns conflict without double refund
+
+Financial Document Concurrency (Tests\Postgres\FinancialDocumentConcurrency)
+ ✔ Simultaneous generation of same source returns one immutable pdf and number
+ ✔ Concurrent vendor statement generation has one snapshot and no payout
+ ✔ Concurrent corporate statement document generation never collects payment
+ ✔ Different sources serialize first issuer sequence allocation without duplicate numbers
+
+Gateway Concurrency (Tests\Postgres\GatewayConcurrency)
+ ✔ Simultaneous capture retries post exactly once
+ ✔ Competing authorizations cannot double capture invoice
+ ✔ Simultaneous signed webhook retries commit one event and one payment
+
+Loyalty Concurrency (Tests\Postgres\LoyaltyConcurrency)
+ ✔ Two process earning grants one invoice award and one points credit
+ ✔ Two process identical redemptions share one hold and debit
+ ✔ Two members cannot oversell last reward or lose the rejected members points
+
+Payment Recovery Concurrency (Tests\Postgres\PaymentRecoveryConcurrency)
+ ✔ Actual process crash preserves committed intent and retry reuses provider key
+ ✔ Overlapping provider calls are rejected by lease and commit one capture
+
+Payout Concurrency (Tests\Postgres\PayoutConcurrency)
+ ✔ Identical concurrent payout requests share one durable claim
+ ✔ Distinct concurrent payout requests cannot claim a settlement twice
+ ✔ Parallel execution and legacy bypass do not duplicate payout
+ ✔ Process death keeps sent attempt and expired lease replay keeps its identity
+
+Reservation Lifecycle Concurrency (Tests\Postgres\ReservationLifecycleConcurrency)
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #0
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #1
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #2
+
+Settlement Concurrency (Tests\Postgres\SettlementConcurrency)
+ ✔ Concurrent drafts cannot reserve the same payable twice
+ ✔ Concurrent identical draft retries return one settlement
+
+Subscription Concurrency (Tests\Postgres\SubscriptionConcurrency)
+ ✔ Racing dunning workers record one notice without payment
+ ✔ Racing enrollment same key returns one subscription and invoice
+ ✔ Racing distinct enrollment keys cannot create two active subscriptions
+ ✔ Racing mock payment replays post one receipt and balanced journal
+ ✔ Racing distinct payment keys cannot double charge invoice
+ ✔ Racing due renewals issue one cycle without capturing money
+ ✔ Racing gateway captures share single receipt and payment journal
+ ✔ Racing subscription credit retries post one immutable refund
+ ✔ Racing distinct subscription credit keys cannot exceed capture
+
+Subscription Recurring Concurrency (Tests\Postgres\SubscriptionRecurringConcurrency)
+ ✔ Independent workers collect once with one provider authorization
+ ✔ Revocation racing collection cannot leave future consent enabled
+ ✔ Process exit after provider acceptance recovers by get without replacement charge
+
+Vendor Ops Creation Concurrency (Tests\Postgres\VendorOpsCreationConcurrency)
+ ✔ Concurrent creations share one receipt and reject changed payload with data set #0
+ ✔ Concurrent creations share one receipt and reject changed payload with data set #1
+ ✔ Equal keys for different accounts never return another tenants company
+ ✔ Revocation racing versioned consent cannot leave membership active
+
+OK (62 tests, 801 assertions)

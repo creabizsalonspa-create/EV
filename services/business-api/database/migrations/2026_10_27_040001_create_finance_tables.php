@@ -105,7 +105,9 @@ return new class extends Migration
                 }
             }
         } elseif (DB::getDriverName() === 'pgsql') {
-            DB::unprepared("CREATE FUNCTION finance_reject_mutation() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'Finance records are immutable'; END; \$\$");
+            // migrate:fresh drops tables, not PostgreSQL functions. Reinstall
+            // the same guard when rebuilding a disposable or restored schema.
+            DB::unprepared("CREATE OR REPLACE FUNCTION finance_reject_mutation() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'Finance records are immutable'; END; \$\$");
             foreach ($this->immutable as $table) {
                 DB::unprepared("CREATE TRIGGER {$table}_immutable BEFORE UPDATE OR DELETE ON {$table} FOR EACH ROW EXECUTE FUNCTION finance_reject_mutation()");
             }

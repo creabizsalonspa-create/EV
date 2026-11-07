@@ -1,12 +1,27 @@
 <?php
 
 use App\Http\Controllers\AccountController as A;
+use App\Http\Controllers\ChargerDiagnosticLogController;
+use App\Http\Controllers\ChargerFirmwareController;
+use App\Http\Controllers\ChargerIngressController;
+use App\Http\Controllers\ChargingReviewController;
+use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
+use App\Http\Controllers\OcpiProtocolCredentialsController;
+use App\Http\Controllers\OcpiProtocolRecordsController;
+use App\Http\Controllers\OcpiRoamingProtocolController;
+use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PlatformController as P;
+use App\Http\Controllers\RecurringPaymentController;
+use App\Http\Controllers\RemoteSessionAuthorizationController;
+use App\Http\Controllers\ReservationLifecycleController;
+use App\Http\Controllers\RiderSourceController;
+use App\Http\Controllers\RoamingOrderController;
 use App\Http\Controllers\SimulationController as S;
 use App\Http\Controllers\SupportController as T;
+use App\Http\Controllers\VehicleBatteryController;
 use App\Models\Station;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +41,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('/profile', [A::class, 'profile']);
         Route::get('/vehicles', [P::class, 'vehicles']);
         Route::post('/vehicles', [P::class, 'createVehicle']);
+        Route::post('/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
         Route::post('/stations', [P::class, 'createStation']);
         Route::get('/vendor/stations', function (Request $r) {
             abort_unless($r->user()->role === 'vendor', 403);
@@ -56,3 +72,65 @@ Route::prefix('v1')->group(function () {
 });
 
 Route::post('/internal/csms/events', [CsmsSessionController::class, 'event'])->middleware('throttle:csms-events');
+
+Route::post('/payments/mock/webhook', [PaymentGatewayController::class, 'webhook'])->middleware('throttle:platform-api');
+
+Route::post('/payments/stripe-test/webhook', [PaymentGatewayController::class, 'stripeWebhook'])->middleware('throttle:platform-api');
+
+require __DIR__.'/subscription_webhooks.php';
+
+Route::get('/v1/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');
+
+Route::post('/v1/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+
+Route::post('/v1/charging-sessions/{session}/reconcile', [CsmsSessionController::class, 'reconcile'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+
+Route::post('/v1/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+Route::post('/v1/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+
+Route::post('/internal/charger-ingress/authenticate', [ChargerIngressController::class, 'authenticate'])->middleware('throttle:charger-admission');
+
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/charging_operations.php');
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/rider_access.php');
+Route::post('/internal/rider-oauth/token', [RiderSourceController::class, 'token'])->middleware('throttle:charger-admission');
+Route::post('/internal/rider-authorize', [RiderSourceController::class, 'authorize'])->middleware('throttle:charger-admission');
+
+require __DIR__.'/subscription_credit_webhooks.php';
+
+Route::post('/payment-enrollments/stripe-test/webhook', [RecurringPaymentController::class, 'webhook'])->middleware('throttle:platform-api');
+
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/favorites.php');
+
+require __DIR__.'/payout_webhooks.php';
+require __DIR__.'/external_dispute_webhooks.php';
+
+Route::prefix('v1')->group(__DIR__.'/discovery.php');
+
+require __DIR__.'/campaign_delivery.php';
+
+require __DIR__.'/corporate_hosted_webhook.php';
+
+Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationController::class)->middleware('throttle:charger-admission');
+
+Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->whereNumber('operation')->middleware('throttle:30,1');
+
+Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
+    Route::post('2.2.1/commands/{key}', [OcpiRoamingProtocolController::class, 'callback'])->whereUuid('key');
+    Route::get('2.2.1/tokens', [OcpiRoamingProtocolController::class, 'tokens']);
+    Route::get('2.2.1/tokens/{country}/{party}/{uid}', [OcpiRoamingProtocolController::class, 'token']);
+    Route::post('2.2.1/tokens/{uid}/authorize', [OcpiRoamingProtocolController::class, 'authorize']);
+    Route::match(['GET', 'PUT', 'PATCH'], '2.2.1/sessions/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'session']);
+    Route::post('2.2.1/cdrs', [OcpiProtocolRecordsController::class, 'cdr']);
+    Route::get('2.2.1/cdrs/{external}', [OcpiProtocolRecordsController::class, 'cdr']);
+    Route::get('versions', [OcpiProtocolCredentialsController::class, 'handle']);
+    Route::get('2.2.1', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'details');
+    Route::match(['GET', 'POST', 'PUT', 'DELETE'], '2.2.1/credentials', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');
+});
+
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1/roaming')->group(__DIR__.'/roaming_orders.php');
+Route::get('v1/ocpi/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+// Expiring source-only upload capability; never a browser account or configurable remote URL.
+Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->whereNumber('operation')->middleware('throttle:30,1');
+
+Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
+Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');

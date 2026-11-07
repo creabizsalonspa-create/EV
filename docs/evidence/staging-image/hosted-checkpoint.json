@@ -1,0 +1,1059 @@
+{
+  "source_sha": "cbed3209abe71577e2f401e71a41f50c98f8a5bc",
+  "pr": "https://github.com/creabizsalonspa-create/EV/pull/17",
+  "required_checks": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T06:47:19Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423/job/122672599555",
+      "name": "business-platform",
+      "startedAt": "2026-10-28T06:40:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T06:47:08Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685/job/122672580310",
+      "name": "business-platform",
+      "startedAt": "2026-10-28T06:40:35Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T06:42:57Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423/job/122672599613",
+      "name": "finance-postgres",
+      "startedAt": "2026-10-28T06:40:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T06:42:26Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685/job/122672580351",
+      "name": "finance-postgres",
+      "startedAt": "2026-10-28T06:40:35Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T06:41:55Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423/job/122672599304",
+      "name": "connector-postgres",
+      "startedAt": "2026-10-28T06:40:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T06:41:55Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685/job/122672580379",
+      "name": "connector-postgres",
+      "startedAt": "2026-10-28T06:40:35Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T06:42:13Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423/job/122672599593",
+      "name": "staging-image",
+      "startedAt": "2026-10-28T06:40:38Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T06:41:54Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685/job/122672579997",
+      "name": "staging-image",
+      "startedAt": "2026-10-28T06:40:35Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    }
+  ],
+  "successful_exact_source_runs": [
+    {
+      "conclusion": "success",
+      "databaseId": 40645291685,
+      "headSha": "cbed3209abe71577e2f401e71a41f50c98f8a5bc",
+      "jobs": [
+        {
+          "completedAt": "2026-10-28T06:41:54Z",
+          "conclusion": "success",
+          "databaseId": 122672579997,
+          "name": "staging-image",
+          "startedAt": "2026-10-28T06:40:35Z",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Seed synthetic build-context exclusion canaries",
+              "number": 3,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Build pinned staging runtime and verify offline image boundaries",
+              "number": 4,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership",
+              "number": 5,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685/job/122672579997"
+        },
+        {
+          "completedAt": "2026-10-28T06:47:08Z",
+          "conclusion": "success",
+          "databaseId": 122672580310,
+          "name": "business-platform",
+          "startedAt": "2026-10-28T06:40:35Z",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/setup-node@v4",
+              "number": 3,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/setup",
+              "number": 4,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/php /usr/bin/composer validate --strict",
+              "number": 5,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/php vendor/bin/pint --test",
+              "number": 6,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Check reproducible42-category coverage",
+              "number": 7,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/php artisan test --compact",
+              "number": 8,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm ci",
+              "number": 9,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npx playwright install --with-deps chromium",
+              "number": 10,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/start",
+              "number": 11,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:e2e",
+              "number": 12,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:frontend",
+              "number": 13,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:nearby",
+              "number": 14,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:maps",
+              "number": 15,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:localization",
+              "number": 16,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:web-session",
+              "number": 17,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/csms-setup",
+              "number": 18,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/csms-start",
+              "number": 19,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:ocpp",
+              "number": 20,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/charging-setup",
+              "number": 21,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/charging-bridge-setup",
+              "number": 22,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run node tests/charging-session.cjs",
+              "number": 23,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run node tests/charging-business.cjs",
+              "number": 24,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run node tests/charging-client.cjs",
+              "number": 25,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify continuous source ingestion and restart",
+              "number": 26,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:vendor",
+              "number": 27,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming",
+              "number": 28,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:ocpi-provisioning",
+              "number": 29,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Financial browser workflows",
+              "number": 30,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4",
+              "number": 31,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:invoices",
+              "number": 32,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:tariffs",
+              "number": 33,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:managed-gate",
+              "number": 34,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:connectors",
+              "number": 35,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:reservation-lifecycle",
+              "number": 36,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:command-recovery",
+              "number": 37,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Charger admission and no-source operational recovery",
+              "number": 38,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Canonical non-default OCPP source targets",
+              "number": 39,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Customer favorites with paced synthetic authentication",
+              "number": 40,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Retain customer-favorites browser evidence",
+              "number": 41,
+              "status": "completed"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Run docker logs --tail 100 ev-business-api",
+              "number": 42,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/setup-node@v4",
+              "number": 83,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 84,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 85,
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685/job/122672580310"
+        },
+        {
+          "completedAt": "2026-10-28T06:42:26Z",
+          "conclusion": "success",
+          "databaseId": 122672580351,
+          "name": "finance-postgres",
+          "startedAt": "2026-10-28T06:40:35Z",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/setup",
+              "number": 3,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run services/business-api/tests/Postgres/run-finance",
+              "number": 4,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4",
+              "number": 5,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685/job/122672580351"
+        },
+        {
+          "completedAt": "2026-10-28T06:41:55Z",
+          "conclusion": "success",
+          "databaseId": 122672580379,
+          "name": "connector-postgres",
+          "startedAt": "2026-10-28T06:40:35Z",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/setup",
+              "number": 3,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run services/business-api/tests/Postgres/run-connectors",
+              "number": 4,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 8,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 9,
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685/job/122672580379"
+        }
+      ],
+      "name": "Platform validation",
+      "status": "completed",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645291685",
+      "artifacts": [
+        {
+          "id": 12797417297,
+          "name": "customer-favorites-browser",
+          "size_in_bytes": 702927,
+          "digest": "sha256:596878482238291957865fc202109a44d62047b92af15d0213033027e92bc4f3",
+          "expired": false
+        },
+        {
+          "id": 12797254107,
+          "name": "finance-browser-evidence",
+          "size_in_bytes": 423344,
+          "digest": "sha256:8dfc7b949d759c2a00b277224539f9639429a266b4581f5531f1b4f106780cff",
+          "expired": false
+        },
+        {
+          "id": 12796739614,
+          "name": "postgres-finance-evidence",
+          "size_in_bytes": 5660,
+          "digest": "sha256:1ac09fc75842f6d11d52d7ec5fd7f1fde8d606f5c2af93caf9f77a535b92faee",
+          "expired": false
+        }
+      ]
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 40645297423,
+      "headSha": "cbed3209abe71577e2f401e71a41f50c98f8a5bc",
+      "jobs": [
+        {
+          "completedAt": "2026-10-28T06:41:55Z",
+          "conclusion": "success",
+          "databaseId": 122672599304,
+          "name": "connector-postgres",
+          "startedAt": "2026-10-28T06:40:38Z",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/setup",
+              "number": 3,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run services/business-api/tests/Postgres/run-connectors",
+              "number": 4,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 8,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 9,
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423/job/122672599304"
+        },
+        {
+          "completedAt": "2026-10-28T06:47:19Z",
+          "conclusion": "success",
+          "databaseId": 122672599555,
+          "name": "business-platform",
+          "startedAt": "2026-10-28T06:40:38Z",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/setup-node@v4",
+              "number": 3,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/setup",
+              "number": 4,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/php /usr/bin/composer validate --strict",
+              "number": 5,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/php vendor/bin/pint --test",
+              "number": 6,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Check reproducible42-category coverage",
+              "number": 7,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/php artisan test --compact",
+              "number": 8,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm ci",
+              "number": 9,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npx playwright install --with-deps chromium",
+              "number": 10,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/start",
+              "number": 11,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:e2e",
+              "number": 12,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:frontend",
+              "number": 13,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:nearby",
+              "number": 14,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:maps",
+              "number": 15,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:localization",
+              "number": 16,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:web-session",
+              "number": 17,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/csms-setup",
+              "number": 18,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/csms-start",
+              "number": 19,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:ocpp",
+              "number": 20,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/charging-setup",
+              "number": 21,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/charging-bridge-setup",
+              "number": 22,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run node tests/charging-session.cjs",
+              "number": 23,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run node tests/charging-business.cjs",
+              "number": 24,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run node tests/charging-client.cjs",
+              "number": 25,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify continuous source ingestion and restart",
+              "number": 26,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:vendor",
+              "number": 27,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run EV_ROAMING_VERIFY_RATE_LIMIT=1 npm run test:roaming",
+              "number": 28,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:ocpi-provisioning",
+              "number": 29,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Financial browser workflows",
+              "number": 30,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4",
+              "number": 31,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:invoices",
+              "number": 32,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:tariffs",
+              "number": 33,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:managed-gate",
+              "number": 34,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:connectors",
+              "number": 35,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:reservation-lifecycle",
+              "number": 36,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run npm run test:command-recovery",
+              "number": 37,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Charger admission and no-source operational recovery",
+              "number": 38,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Canonical non-default OCPP source targets",
+              "number": 39,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Customer favorites with paced synthetic authentication",
+              "number": 40,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Retain customer-favorites browser evidence",
+              "number": 41,
+              "status": "completed"
+            },
+            {
+              "conclusion": "skipped",
+              "name": "Run docker logs --tail 100 ev-business-api",
+              "number": 42,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/setup-node@v4",
+              "number": 83,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 84,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 85,
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423/job/122672599555"
+        },
+        {
+          "completedAt": "2026-10-28T06:42:13Z",
+          "conclusion": "success",
+          "databaseId": 122672599593,
+          "name": "staging-image",
+          "startedAt": "2026-10-28T06:40:38Z",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Seed synthetic build-context exclusion canaries",
+              "number": 3,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Build pinned staging runtime and verify offline image boundaries",
+              "number": 4,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership",
+              "number": 5,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423/job/122672599593"
+        },
+        {
+          "completedAt": "2026-10-28T06:42:57Z",
+          "conclusion": "success",
+          "databaseId": 122672599613,
+          "name": "finance-postgres",
+          "startedAt": "2026-10-28T06:40:38Z",
+          "status": "completed",
+          "steps": [
+            {
+              "conclusion": "success",
+              "name": "Set up job",
+              "number": 1,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/checkout@v4",
+              "number": 2,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run ./scripts/setup",
+              "number": 3,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run services/business-api/tests/Postgres/run-finance",
+              "number": 4,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Run actions/upload-artifact@v4",
+              "number": 5,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Post Run actions/checkout@v4",
+              "number": 10,
+              "status": "completed"
+            },
+            {
+              "conclusion": "success",
+              "name": "Complete job",
+              "number": 11,
+              "status": "completed"
+            }
+          ],
+          "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423/job/122672599613"
+        }
+      ],
+      "name": "Platform validation",
+      "status": "completed",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40645297423",
+      "artifacts": [
+        {
+          "id": 12797945639,
+          "name": "customer-favorites-browser",
+          "size_in_bytes": 700730,
+          "digest": "sha256:e02ab60e2941972ee8f55a700a0bed4fad6565ebfd44d1b01174aa6fff111e94",
+          "expired": false
+        },
+        {
+          "id": 12797675158,
+          "name": "postgres-finance-evidence",
+          "size_in_bytes": 5658,
+          "digest": "sha256:86b7be31148155010dc96d48e573b7a1b66d2b7e482ec9cf3f7de0440ea50a34",
+          "expired": false
+        },
+        {
+          "id": 12797209420,
+          "name": "finance-browser-evidence",
+          "size_in_bytes": 421477,
+          "digest": "sha256:e296eee8899cb7680058a2e79894e805516ae4e38b4fd4d903715f7c47cc3edf",
+          "expired": false
+        }
+      ]
+    }
+  ],
+  "staging_runtime_proof": [
+    {
+      "run_id": "40645291685",
+      "job_id": 122672579997,
+      "image_id": "sha256:93bf7f218d4de3defd19ff19872b17dc087cf3cacd8fcc5d2a16803d36a60b02",
+      "offline_worker_asset_data_audit": true,
+      "postgres17_migrations": true,
+      "apache_catalog_map_security_cookie_checks": true,
+      "fresh_private_volume_worker_write": true,
+      "log_source": "GitHub completed-job logs API",
+      "log_sha256": "b9493f23365c358d192ab42fcdb92193e5cd8314f2c2d0118d000d931f34cdc0"
+    },
+    {
+      "run_id": "40645297423",
+      "job_id": 122672599593,
+      "image_id": "sha256:39c2751d1aa0801f7588a7ac6899c623c86378585d2115de81f387dc04f5f539",
+      "offline_worker_asset_data_audit": true,
+      "postgres17_migrations": true,
+      "apache_catalog_map_security_cookie_checks": true,
+      "fresh_private_volume_worker_write": true,
+      "log_source": "GitHub completed-job logs API",
+      "log_sha256": "32cdad2cbbe7a68f1958b140c3a0f8a084957d1908466610829a6d2894e0d95f"
+    }
+  ],
+  "application_source_unchanged_from": "e9420176fe82494a2cf43f5bb9809acb90291c54",
+  "native_validation_evidence": "docs/evidence/customer-discovery/hosted-checkpoint.json",
+  "native_validation_scope": "No application files changed; native workflow path filters correctly did not trigger. Previous exact application Android/iOS evidence is retained, not counted as a new run.",
+  "external_acceptance": {
+    "deployed_staging": false,
+    "production": false,
+    "physical_charger": false,
+    "live_psp": false,
+    "live_ocpi_partner": false,
+    "app_store": false
+  },
+  "integrated_sha": "6a9b4046914111c760625bac016f9b7d26e2a6a5",
+  "merge_tree_matches_tested_source": true
+}

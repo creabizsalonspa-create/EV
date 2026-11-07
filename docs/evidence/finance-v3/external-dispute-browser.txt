@@ -1,0 +1,1 @@
+PASS actual Laravel provider dispute history: customer/vendor/admin authorization, foreign404, no provider references, admin-only evidence controls, EN/AR RTL, light/dark390/768/1440, logout cleanup. Ingestion uses CLI HTTP fakes; no merchant or card-network verification.

@@ -1,8 +1,12 @@
 <?php
 
+use App\Http\Controllers\FinanceController;
 use App\Models\Finance\Invoice;
+use App\Models\Station;
+use App\Models\User;
 use App\Services\Finance\FinanceService;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 require dirname(__DIR__, 2).'/vendor/autoload.php';
@@ -23,12 +27,19 @@ if (! is_file($gate)) {
     exit(2);
 }
 try {
-    $service = app(FinanceService::class);
-    $invoice = Invoice::findOrFail((int) $invoiceId);
-    if ($operation === 'payment') {
-        $service->pay($invoice, (int) $actorId, 100, 'concurrent-shared-key');
+    if ($operation === 'tariff') {
+        $actor = User::findOrFail((int) $actorId);
+        $request = Request::create('/', 'POST', ['rate_minor_per_kwh' => 250, 'tax_bps' => 500, 'commission_bps' => 0, 'idempotency_key' => 'concurrent-tariff-key', 'expected_minor_units' => 2, 'expected_currency' => 'AED']);
+        $request->setUserResolver(fn () => $actor);
+        app(FinanceController::class)->createTariff($request, Station::findOrFail((int) $invoiceId));
     } else {
-        $service->refund($invoice, (int) $actorId, 100, 'concurrent-shared-key', 'Concurrent simulation refund');
+        $service = app(FinanceService::class);
+        $invoice = Invoice::findOrFail((int) $invoiceId);
+        if ($operation === 'payment') {
+            $service->pay($invoice, (int) $actorId, 100, 'concurrent-shared-key');
+        } else {
+            $service->refund($invoice, (int) $actorId, 100, 'concurrent-shared-key', 'Concurrent simulation refund');
+        }
     }
     echo '201';
 } catch (HttpException $exception) {

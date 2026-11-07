@@ -1,0 +1,1 @@
+PASS: explicit 429 honors bounded Retry-After once with an immutable identical payload; repeated/invalid limits fail; uncertain transport and 503 commands are never replayed. Server budgets are unchanged.

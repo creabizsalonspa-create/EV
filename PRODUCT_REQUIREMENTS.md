@@ -1,5 +1,10 @@
 # Crea-Biz EV Charging Aggregator & Management System — Complete Product Requirements
 
+## Active ownership — final owner directive, 28 October 2026 (Dubai)
+
+Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.
+
+
 ## 1. Scope
 Develop a complete commercial SaaS/mobility ecosystem with both **direct management of authorized physical charging stations via OCPP** and **aggregation of third-party charging networks via OCPI and authorized operator APIs**. Initial market: UAE (seven emirates); expansion-ready for GCC/international markets. The owner explicitly requires the **full platform**, not an MVP-only deliverable.
 

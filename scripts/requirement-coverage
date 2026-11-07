@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Reproduce explicit PRD coverage; pending/failed evidence never earns test credit."""
+import argparse
+from fractions import Fraction
+import json
+from pathlib import Path
+import re
+
+root = Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--check', action='store_true', help='Reject stale generated coverage without writing')
+parser.add_argument('--inventory', type=Path, default=root / 'docs/evidence/requirements/inventory.json', help='Audit a proposed inventory without changing the canonical file')
+args = parser.parse_args()
+inventory = json.loads(args.inventory.read_text())
+assert inventory['method']['category_weight'] == '1/42'
+assert inventory['method']['subfeature_weight'] == 'equal within each category'
+expected = {f'{section}.{i}' for section, count in [(2,10),(3,8),(4,6),(5,4),(6,5),(7,4),(8,1),(9,4)] for i in range(1,count+1)}
+categories = inventory['categories']
+assert len(categories) == 42 and {c['prd'] for c in categories} == expected, 'All42 original categories are required'
+acceptances = inventory['production_acceptance'] or {}
+assert isinstance(acceptances, dict), 'Production acceptance requires explicit per-atom signed-off evidence'
+checkpoints = inventory['checkpoints']
+for name, checkpoint in checkpoints.items():
+    assert re.fullmatch('[0-9a-f]{40}', checkpoint['source_sha']), name
+    assert checkpoint['test_result'] in ['passed', 'pending', 'failed', 'not_run'], name
+    if checkpoint['merge_sha']:
+        assert checkpoint['test_result'] == 'passed' and re.fullmatch('[0-9a-f]{40}', checkpoint['merge_sha']), name
+    if checkpoint['test_result'] == 'passed':
+        evidence = root / checkpoint['evidence']
+        assert evidence.is_file(), f'{name}: passing evidence is required'
+        record = json.loads(evidence.read_text())
+        assert record['source_sha'] == checkpoint['source_sha'], f'{name}: wrong source evidence'
+        if checkpoint['merge_sha']:
+            assert record.get('integrated_sha') == checkpoint['merge_sha'], f'{name}: wrong merged evidence'
+stages = ['coded', 'tested', 'merged', 'production_accepted']
+sums = {stage: Fraction(0) for stage in stages}
+seen = set()
+report = []
+for category in categories:
+    atoms = category['atoms']
+    assert atoms and category['implemented_code_scope'] and category['remaining_scope']
+    counts = {stage: 0 for stage in stages}
+    detailed = []
+    for atom in atoms:
+        assert atom['id'] not in seen and atom['id'].startswith(category['prd']+'.')
+        seen.add(atom['id'])
+        assert type(atom['coded']) is bool and atom['software_atom']
+        checkpoint = checkpoints[atom['checkpoint']] if atom['checkpoint'] else None
+        assert atom['coded'] or checkpoint is None
+        flags = {'coded': atom['coded'], 'tested': bool(atom['coded'] and checkpoint and checkpoint['test_result'] == 'passed'), 'merged': bool(atom['coded'] and checkpoint and checkpoint['test_result'] == 'passed' and checkpoint['merge_sha']), 'production_accepted': False}
+        if atom['id'] in acceptances:
+            acceptance = acceptances[atom['id']]
+            assert flags['merged'], 'Production acceptance requires tested, merged software'
+            assert all(acceptance.get(k) for k in ['evidence', 'accepted_by', 'accepted_at', 'environment']), 'Production acceptance requires evidence, reviewer, date and environment'
+            evidence = root / acceptance['evidence']
+            assert evidence.resolve().is_relative_to(root) and evidence.is_file(), 'Production acceptance requires repository evidence'
+            accepted = json.loads(evidence.read_text())
+            assert accepted['atom_id'] == atom['id'] and accepted['source_sha'] == checkpoint['source_sha'], 'Production acceptance source mismatch'
+            assert all(accepted[k] == acceptance[k] for k in ['accepted_by', 'accepted_at', 'environment']) and accepted.get('approval_reference'), 'Production acceptance requires an explicit approval reference'
+            flags['production_accepted'] = True
+        assert int(flags['coded']) >= int(flags['tested']) >= int(flags['merged']) >= int(flags['production_accepted'])
+        for stage in stages:
+            counts[stage] += int(flags[stage])
+        detailed.append({**atom, 'stages': flags})
+    for stage in stages:
+        sums[stage] += Fraction(counts[stage], len(atoms)) / 42
+    report.append({'prd':category['prd'], 'requirement':category['requirement'], 'atoms':len(atoms), 'counts':counts, 'details':detailed})
+assert set(acceptances).issubset(seen), 'Unknown production acceptance atom'
+percent = lambda value: f'{float(value*100):.2f}'
+output = {'method':inventory['method'], 'category_count':42, 'atom_count':len(seen), 'checkpoints':checkpoints, 'weighted_percent':{stage:percent(value) for stage,value in sums.items()}, 'exact_weighted_fractions':{stage:str(value) for stage,value in sums.items()}, 'categories':report}
+lines = ['# Weighted requirement coverage', '', 'Generated by `python3 scripts/requirement-coverage`. Inventory: `docs/evidence/requirements/inventory.json`.', '', 'Each original PRD category has weight1/42. Its explicitly named software atoms share that category weight equally. For each stage: `100 × sum(category stage-complete atoms / category total atoms) /42`. Stages are separate; they are never added together. Pending, failed, missing or wrong-source evidence earns no tested/merged credit. No credit is based on commits, lines or test counts.', '', inventory['method']['caveat'], '', '| Stage | Weighted coverage |', '|---|---:|']
+for stage in stages:
+    lines.append(f'| {stage} | {percent(sums[stage])}% |')
+lines += ['', f'Production acceptance: {percent(sums["production_accepted"])}% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.', '', '| PRD | Requirement | Atoms | Coded | Tested | Merged | Production accepted |', '|---|---|---:|---:|---:|---:|---:|']
+for c in report:
+    lines.append('| '+ ' | '.join([c['prd'],c['requirement'],str(c['atoms']),*[f"{c['counts'][stage]}/{c['atoms']}" for stage in stages]])+' |')
+lines += ['', '## Auditable subfeature checklist', '', 'C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomplete at that stage. The main42-row tracker retains implementation/test pointers and remaining scope.']
+for c in report:
+    lines += ['',f"### {c['prd']} {c['requirement']}", '']
+    for atom in c['details']:
+        letters=''.join(letter for letter,stage in zip('CTMP',stages) if atom['stages'][stage]) or '—'
+        lines.append(f"- `{atom['id']}` [{letters}] {atom['software_atom']} (evidence: {atom['checkpoint'] or 'none'}).")
+rendered={root/'docs/evidence/requirements/coverage.json':json.dumps(output,indent=2,ensure_ascii=False)+'\n',root/'docs/REQUIREMENT_COVERAGE.md':'\n'.join(lines)+'\n'}
+for path,text in rendered.items():
+    if args.check:
+        assert path.is_file() and path.read_text()==text, f'Stale coverage: {path.relative_to(root)}; rerun generator'
+    else:
+        path.write_text(text)
+print(json.dumps({'categories':42,'atoms':len(seen),'weighted_percent':output['weighted_percent'],'generated_files_current':True},indent=2))

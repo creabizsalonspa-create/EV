@@ -1,0 +1,77 @@
+
+## 31 October 2026 — finance v4 candidate and full-project takeover
+
+Owner restores Agent1 full-project responsibility while Agent2 is unavailable. Preserve and verify PR23 first, then integrate this candidate and continue cross-platform parity. The historical split below is superseded.
+
+Candidate branch: `development/finance-commercial-v4`, based on verified PR22 merge `70ac899`. Adds tenant-scoped financial analytics, exact currency-separated source comparisons, private CSV/Arabic management PDF, noncash points and paid-cycle equivalents; paid-package campaign lifecycle, moderation, signed server delivery and immutable audit; null-safe financial audit timestamp guards. No real-money movement or human-ad-impression acceptance.
+
+Verified local combined Laravel: 378 tests / 8678 assertions; Pint:347 files; refreshed connected analytics and campaign browsers pass EN/AR RTL light/dark responsive checks. Prior-to-PR22-refresh PostgreSQL financial:251 tests/7346 assertions; process concurrency:62 tests/801 assertions. Exact combined-head PostgreSQL remains a CI gate. Composer strict validation/audit and coverage check pass. Evidence: `docs/evidence/finance-v4`.
+
+Coverage remains coded52.25%, tested/merged52.06%, production0%; 42 categories/312 atoms unchanged. No candidate credit before verified integration.
+
+Next: verify and merge PR23, incorporate its additive evidence UI safely, push finance candidate and pass all CI; then implement native financial analytics/campaign parity, remaining hosted checkout and charging/roaming requirements. External acceptance still needs hardware, merchant/bank/network access, signing and legal approvals. This is an interim checkpoint, not final delivery.
+
+# Active Agent 1 finance-only continuation — 28 October2026 (Dubai)
+
+The latest owner directive restores Agent1 financial/commercial/backend/web/Admin ownership; Agent2 owns Flutter, EV/OCPP/OCPI, discovery, infrastructure and integration. Earlier temporary sole-Agent2 and integration-session records below are historical. No native/EV work is reapplied on this financial branch.
+
+Current branch: `development/finance-commercial-v4`, safely refreshed to integrated PR22 `70ac899` after inspecting all remote heads and PRs18–22. PR18 is merged at95a3dae; PR19/20/21/22 are merged. Preserve Agent2's native parity and current consent-version contract; do not recreate those modules or merge Agent2 PRs independently.
+
+Current substantial candidate: financial source analytics/period comparisons/current corporate aging/paid-cycle equivalents/noncash reporting/private Arabic PDF+CSV exports; paid vendor-package advertising campaign governance/quotas/signed-publisher attribution/vendor+Admin web controls; additive audit-date integrity hardening. Existing immutable journals, subscription gateway/renewals/recovery and charging source remain unchanged. See FINANCIAL_ANALYTICS.md, COMMERCIAL_CAMPAIGNS.md and FINANCIAL_AUDIT_HARDENING.md.
+
+Focused implementation and connected browser checks passed. Final combined exact-source counts, source commit, financial PR and mandatory CI must be recorded before calling the batch ready for integration. No full-platform release or external production acceptance is claimed. Existing42-category/312-subfeature weights and merged coverage are unchanged for this unmerged candidate; recalculate only from actual verified merged evidence.
+
+Remaining financial software: PSP/customer refund orchestration and canonical chargeback postings; subscription proration/grace/usage/eligibility and notification delivery policies; corporate PSP collection/automated cycles/negotiated contracts; coupons/referrals/partner promotions and actual authorized sponsored placement consumers; tax-inclusive/exclusive effective rules and legally approved invoice/retention configuration; broader accounting/analytics, independent security/restore and production acceptance. Mock/provider HTTP contracts and publisher attestations do not prove human ad exposure, real merchant/bank money or tax legality.
+
+Next: finish this batch's combined accounting/PostgreSQL/concurrency/browser regressions, push a coherent finance PR to `development/fullstack-continuation` for Agent2 integration, then continue the next independent financial batch. Never touch Agent2's active native/EV/discovery modules. Prior interrupted native/OCPI follow-up source is preserved in local Git stash and must not be blindly reapplied over mergedPR20–22.
+
+---
+
+# Verified full-stack checkpoint — 28 October 2026
+
+PR20 is verified/merged at **222a211fe81b25621ef67b03b2efe8326ef518f2**, exactly matching tested source **5ce44db2044ce0144650ef291b0db01b1706000d**. All ten current exact-source checks passed: two full Laravel/OCPP/OCPI/browser matrices, financial/connector PostgreSQL and staging-image matrices, Android build/nine real-Laravel native suites, and iOS build/actual simulator UI. New noncash points/reward runtime assertions and all GPS/maps/favorites/Keychain/Arabic pricing/private-PDF assertions passed. Artifacts/logs and earlier real failures/corrections: docs/evidence/native-loyalty/hosted-checkpoint.json. PR18 and PR19 remain preserved; no original branch was overwritten or force-pushed.
+
+Implemented this continuation: foreground consented native GPS, bounded server-only address/routing adapters, ordered charging-stop routes/web/native navigation, native read-only points/tiers/ledger/reward/request history, session privacy fences and payout/loyalty downgrade history guards. CI now paces all five finance browsers and all eleven post-finance operational suites in fresh authentication windows; no production limit or assertion was weakened. Laravel345/8438; Flutter135 pass/ten explicit live-only skips and clean analysis; financial PostgreSQL220/7118 plus58 races/758; connector PostgreSQL54/814 plus14 races/197; three orchestration unit guards passed. Local missing PHP→CSMS network attachment was repaired with charging-setup, preserving keys/data; affected/remaining local charger/OCPP/favorite tests passed.
+
+Fixed42 categories/312 atoms/weights: coded52.25%, tested/merged52.06%, production0.00%. Exact baseline improvement1.5495086923658352 percentage points comes from PR18 tiers/points/rewards/payout software and PR19 routes/navigation. PR20 read-only native parity completes no broader remaining atom; no artificial percentage increase. Physical GPS, live routing/PSP/bank/roaming/reward/charger, legal, signing/store and production acceptance remain unverified. The full original platform remains unfinished.
+
+Temporary full Agent2 ownership remains effective while Agent1 is unavailable. Continue canonical native financial actions/private documents/corporate/payout/dispute parity, unified authorized partner discovery/maps/favorites, reviews/moderation, remaining production OCPP/OCPI, vendor/Admin/security and release software. Do not recreate merged modules or financial ledgers. Native earning/reconciliation/redemption must preserve server economics and durable operation identity/unknown-outcome recovery; never generate replacement attempts after an uncertain write without authoritative resolution. Keep live banking/stored value and unauthorized partner control disabled. Historical records below retain their original source/status and are superseded by this checkpoint.
+
+# Active Agent 1 financial continuation — 28 October 2026 (Dubai)
+
+**IN_PROGRESS. This is not the final platform release.** The owner's new finance/commercial/enterprise directive restores Agent 1 ownership, superseding historical sole-Agent-2 assignments. Agent 2 retains charging, fleet operations, canonical Flutter and integration ownership.
+
+## Source and preservation
+
+Branch `development/finance-commercial-v3` was safely refreshed from its original6388642 base to integrated PR17 `6a9b404` after inspecting newer PRs14–17. PRs4/7/8/9/10/12 are merged foundations, not missing work. All remote heads and recent PRs were inspected before branching. No force push or direct integration-branch write is authorized or used.
+
+Pending source from old finance-v2 was preserved in Git stash before creating this branch. Its obsolete recurring implementation was **not** reapplied: the integrated hosted mandates/recurring/dunning architecture remains canonical. The unpublished payout/documents foundations were selectively restored and extended against the current source. Prior synthetic local SQLite data was backed up outside the repository; a separate fresh synthetic database avoids collision with that unpublished recurring schema. No production database was modified.
+
+## Current development slice
+
+- Vendor payout-provider accounts: encrypted references, explicit vendor consent/revocation, admin verification, hosted Stripe TEST recipient onboarding, distinct maker/checker approval, durable attempts/leases, same-attempt retry, uncertain-result holds, signed events/read-only reconciliation, post-dispatch refund debt and immutable audit. Mock bank movements remain simulations; production mutations are disabled.
+- External charging-payment disputes: signed TEST events bound through authoritative provider observations, canonical case settlement holds, private deadline/history/exception views, encrypted text evidence with bounded idempotent retries, read-only polling, and protection against manually releasing provider holds or refunding active disputed funds.
+- Corporate financial agreements: explicit acceptance, driver-owned invoice allocations, cost-center claims, manager review, immutable consolidated statements, private CSV and atomic mock collection through existing invoice journals. Current owner is rechecked after locking, credit-note allocations are customer-safe and CSV formulas are neutralized.
+- Private financial documents: actual PDF/CSV for charging/subscription invoices/credits, vendor settlement statements and corporate statements. Encrypted private storage and immutable snapshots/hashes, effective issuer versions, exact currency precision, embedded licensed Arabic fonts, jurisdiction checks, current-source state separate from historic document status. Legal issuer/tax approval remains unverified.
+- Connected EN/AR financial web workflows use existing theme tokens, tenant authorization and responsive layouts. Canonical native source is unchanged; integration contracts live in module documentation.
+- Non-cash loyalty: versioned earning rules and Silver/Gold/Platinum thresholds, canonical paid-invoice qualification, immutable points/allocations, refund/chargeback reversals, expiration, inventory and abuse limits, customer redemption and audited manual fulfillment/rejection. Connected EN/AR customer/Admin screens pass. These are non-transferable promotional points, never a payment instrument or wallet. Production mutations remain disabled.
+
+## Verification and known corrections
+
+Final refreshed-base local verification: **331 Laravel tests/8320 assertions; PostgreSQL financial214/7057; complete independent-process suite58/758; Pint318files; Composer strict validation and audit pass**. All five connected module browsers pass (loyalty, payout/documents, corporate, external dispute history, isolated evidence mutation/retry). Original grouped migration/function-repeat/test-worker failures were fixed without weakening invariants. Fresh locked-owner corporate authorization is covered by actual PostgreSQL lock-wait/owner-transfer regressions. The stored encrypted dispute evidence can now be explicitly retried after reload using its original server-owned provider identity; no client replacement payload/key is accepted. A server lease/deadline can still reject the action safely.
+
+Evidence: `docs/evidence/finance-v3`. Tests use synthetic local identities, mock payouts/collection and explicit provider HTTP fakes. Actual PDF bytes/hashes/access and EN/AR Light/Dark responsive screenshots were tested. Real merchant sandbox, bank transfer, hardware, country tax certification and complete-platform verification remain unverified. CI for the new finance PR must pass before integration. Published tested finance source: `6910a14bae2235b0c0bb92a83c9b5813360f3599`, [PR18](https://github.com/creabizsalonspa-create/EV/pull/18). Both complete hosted runs40646899693/40646963156 passed all four jobs at that source (platform/browser, finance PostgreSQL, connector PostgreSQL and staging image). Document localization follow-up `b831aa0` has a targeted connected browser pass and explicit Arabic source/status assertions; its finance/connector/staging jobs passed while platform validation remains in progress at this record. Three additional stored-evidence API regressions verify exact original PSP payload/key reuse, confirmed replay, foreign scope/role, active lease, prohibited replacement payload and expired retention/state. Latest local full suite now **334/8345**, targeted disputes15/103; these new tests require exact-head hosted validation. Latest-head checks must be read independently.
+
+Weighted requirement tracker remains **50.51% tested and merged across312 atoms/42categories**, with0.00% production accepted. No credit is added for this unmerged candidate and no requirements/weights are removed.
+
+## Remaining independently executable software
+
+Complete chargeback accounting through the canonical ledger, subscription-provider disputes; corporate PSP collection and automatic cycles, negotiated price/commission contracts, correction/rebill and delegated finance roles; subscription eligibility/usage enforcement, immediate paid proration and agreed grace policies; tax-inclusive/exclusive effective rules and legal numbering configuration; loyalty automation/partner fulfillment, referrals/coupons/promotions, advertising billing, wider financial reporting and operational release/security/restore tests. Existing merged recurring enrollment/collection must not be rebuilt.
+
+## External gates
+
+Authorized merchant/connected-account sandbox credentials and callback delivery; approved funding/bank destination and production payout authorization; country-specific legal/tax/contract validation and independent security/operational acceptance. These are separate from missing software above. No wallet/stored-value authorization exists.
+
+## Exact continuation
+
+Fetch all heads, inspect this branch/finance PR and newest integration checkpoint. Preserve verified work, rebase/merge safely only after inspecting differences, run combined Laravel/PostgreSQL races and connected browsers, fix failures, then push a substantial verified milestone and open/update a PR targeting `development/fullstack-continuation`. Agent 2 integrates it. Never push directly to that branch. Continue remaining financial requirements in priority order; no work continues when the active session ends.

@@ -78,6 +78,10 @@ class SimulatedCharger {
     this.name = name;
     this.pending = new Map();
     this.commands = [];
+    this.acceptSafeReset = false;
+    this.firmwareHandler = null;
+    this.configurationHandler = null;
+    this.diagnosticHandler = null;
   }
   async connect() {
     this.socket = new WebSocket(
@@ -89,6 +93,62 @@ class SimulatedCharger {
       if (m[0] === 2) {
         this.commands.push({ action: m[2], payload: m[3] });
         if (
+          ["GetDiagnostics", "GetLog"].includes(m[2]) &&
+          this.diagnosticHandler
+        ) {
+          Promise.resolve()
+            .then(() => this.diagnosticHandler(m[3], m[2]))
+            .then((reply) => this.socket.send(JSON.stringify([3, m[1], reply])))
+            .catch(() =>
+              this.socket.send(
+                JSON.stringify([
+                  4,
+                  m[1],
+                  "GenericError",
+                  "Synthetic diagnostic request unavailable",
+                  {},
+                ]),
+              ),
+            );
+        } else if (
+          ["GetConfiguration", "GetVariables"].includes(m[2]) &&
+          this.configurationHandler
+        ) {
+          Promise.resolve()
+            .then(() => this.configurationHandler(m[3], m[2]))
+            .then((reply) => this.socket.send(JSON.stringify([3, m[1], reply])))
+            .catch(() =>
+              this.socket.send(
+                JSON.stringify([
+                  4,
+                  m[1],
+                  "GenericError",
+                  "Synthetic settings read unavailable",
+                  {},
+                ]),
+              ),
+            );
+        } else if (m[2] === "Reset" && this.acceptSafeReset) {
+          assert(["Soft", "OnIdle"].includes(m[3].type), "Unsafe reset mode");
+          this.socket.send(JSON.stringify([3, m[1], { status: "Accepted" }]));
+        } else if (
+          ["SignedUpdateFirmware", "UpdateFirmware"].includes(m[2]) &&
+          this.firmwareHandler
+        ) {
+          Promise.resolve(this.firmwareHandler(m[3], m[2]))
+            .then((reply) => this.socket.send(JSON.stringify([3, m[1], reply])))
+            .catch(() =>
+              this.socket.send(
+                JSON.stringify([
+                  4,
+                  m[1],
+                  "GenericError",
+                  "Synthetic signed firmware handling failed",
+                  {},
+                ]),
+              ),
+            );
+        } else if (
           [
             "RemoteStartTransaction",
             "RequestStartTransaction",
@@ -140,6 +200,24 @@ class SimulatedCharger {
       );
     });
   }
+  async reconnect() {
+    // isOnline=false can precede the upstream socket-registry cleanup. Retry
+    // only connection handshakes; never resend protocol commands/transactions.
+    const deadline = Date.now() + 12000;
+    let last;
+    do {
+      try {
+        await this.connect();
+        return;
+      } catch (error) {
+        last = error;
+        if (!error.message.includes("handshake rejected")) throw error;
+        this.socket.close();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    } while (Date.now() < deadline);
+    throw new Error("Simulator reconnect did not converge: " + last.message);
+  }
   call(action, payload, id = randomUUID()) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -178,12 +256,12 @@ class SimulatedCharger {
     assert.equal(result.status, "Accepted");
     return result;
   }
-  status(status = "Available") {
+  status(status = "Available", connector = 1, evse = 1) {
     return this.call(
       "StatusNotification",
       this.version === "1.6"
         ? {
-            connectorId: 1,
+            connectorId: connector,
             errorCode: status === "Faulted" ? "PowerSwitchFailure" : "NoError",
             status,
             timestamp: new Date().toISOString(),
@@ -191,8 +269,8 @@ class SimulatedCharger {
         : {
             timestamp: new Date().toISOString(),
             connectorStatus: status,
-            evseId: 1,
-            connectorId: 1,
+            evseId: evse,
+            connectorId: connector,
           },
     );
   }

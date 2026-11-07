@@ -2,18 +2,36 @@
 
 namespace App\Models;
 
+use App\Services\Ocpi\PartnerClient;
 use Illuminate\Database\Eloquent\Model;
 
 class OcpiProvider extends Model
 {
     protected $guarded = ['id'];
 
-    protected $hidden = ['connection_key', 'endpoints'];
+    protected $appends = ['readable_modules', 'commands_enabled', 'billing_eligible'];
 
-    protected $attributes = ['authorized' => false, 'evidence' => 'UNVERIFIED'];
+    public function getReadableModulesAttribute(): array
+    {
+        return $this->authorized && $this->version === '2.2.1' ? array_values(array_filter(PartnerClient::MODULES, fn ($m) => is_string($this->endpoints[$m] ?? null))) : [];
+    }
+
+    public function getCommandsEnabledAttribute(): bool
+    {
+        return false;
+    }
+
+    public function getBillingEligibleAttribute(): bool
+    {
+        return false;
+    }
+
+    protected $hidden = ['connection_key', 'endpoints', 'authorization_revision'];
+
+    protected $attributes = ['authorized' => false, 'evidence' => 'UNVERIFIED', 'authorization_revision' => 0];
 
     protected function casts(): array
     {
-        return ['authorized' => 'boolean', 'endpoints' => 'array', 'negotiated_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime'];
+        return ['authorization_revision' => 'integer', 'authorized' => 'boolean', 'endpoints' => 'array', 'negotiated_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime'];
     }
 }

@@ -1,0 +1,55 @@
+{
+  "base_merge": "70ac899ab9e6f98d8a5c36a4d98885da0c0f307a",
+  "branch": "development/native-dispute-evidence",
+  "status": "local checkpoint; exact-source hosted verification and merge pending",
+  "results": {
+    "laravel": "353 tests/8497 assertions",
+    "evidence_backend": "6 tests/47 assertions",
+    "financial_postgres": "228 tests/7177 assertions;58 concurrency tests/758 assertions",
+    "flutter": "184 passes/13 explicit live-only skips before final captured-funds guard; final9 dispute tests pass separately",
+    "native_actual_laravel": "customer upload/replay/hash, vendor reply/read, changed payload conflict, foreign denial, unchanged canonical captured/refunded funds passed",
+    "browser": "customer lost-ack committed upload/replay creates exactly1 row, verified download/hash, vendor/Admin review, foreign denial, EN/AR RTL and Light/Dark390px passed",
+    "style": "333 files passed",
+    "orchestration": "4 tests passed; financial windows6+7+4, native windows9+9+8+8; unchanged production limits"
+  },
+  "files_sha256": {
+    "backend_full": "5183ab5af6f21360895216315805b0593b9569b90d7b68f67c3d79049f56c3c7",
+    "backend_focus": "d463dd7455998b5ec7b24debaf3c3bd4728eed2df50222912a89c10ebf600555",
+    "postgres": "819d68655aa2a292b21f4f119dbed7d4f54005c7a80b0ddf682c505cc9a121e5",
+    "flutter_full_before_last_guard": "528404b036210200b9bff29a8730c686646fec885ff025685543c41e57f73104",
+    "native_real_api": "e5b7483e02ecd56c732ec5a87547ab0df7222103551df93df752a823f3d1a4d4",
+    "browser": "692bfb13e3a51823d5e14352ed822c4b31d2387f2e1541642dd0b31d82c5b5e2",
+    "orchestration": "96a3dd034a7373327b25b13c272ecf1fe9133cf61ce592313c12a609a3ca1617",
+    "style": "71d41a6e7db11b86e51c3976061d4403bfcae418344428c8a9e81140d5bdca30"
+  },
+  "privacy": "Encrypted private files, immutable metadata,4MiB/file20/case, explicit consent, same-file re-selection and original encrypted native operation identity. No original filenames, storage paths or private provider identities exposed.",
+  "acceptance": "Internal case review only, provider_submitted=false; no card-network submission, real refund, physical-device, live PSP, legal or store acceptance. Required iOS runtime assertion added but hosted verification pending.",
+  "coverage": {
+    "categories": 42,
+    "atoms": 312,
+    "coded": "52.25",
+    "tested": "52.06",
+    "merged": "52.06",
+    "production_accepted": "0.00"
+  },
+  "remaining": "Hosted charging/subscription checkout/SCA and return recovery; provider file submission/history; payout return/exception handling and full original product.",
+  "session_security_followup": {
+    "reproduced": "Leaving enrollment during a secure-storage write dispatched one POST after disposal; paused-store regression expected0, observed1.",
+    "correction": "Disposed actions stop before dispatch and retain durable recovery intent. All nine financial operation callsites capture an authenticated-session fence; secure restore/prepare fails closed if the account context changes, even while a route remains mounted. Native HTTP requests abort before attaching current cookies/CSRF/JSON/multipart data when identity changes during openUrl.",
+    "validation": "Final full Flutter190 passed/13 deliberate live-only skips and clean analysis;51 affected financial tests plus8 private transport tests pass.",
+    "logs_sha256": {
+      "red": "9e3d783fc5060d72a6f235436955c8037cded7552931edc38644430673021dcf",
+      "financial_green": "c3bec2f9b15547e4ab64f21b54799bc23657dd796e8afa73878e6459ab107d47",
+      "transport_green": "a4666e3d0e05698e13f3005fd76b8a6ad8067f495226c0efe5b212594f89a658",
+      "full_final": "7a127633d889a4edd332a4bf335dd7608cb68450c13623d0960838a33561032b",
+      "analysis_final": "3681fd8626f51b5ca956134df7d258babeb6cdb8a67fff7dc66a2decdda8de04"
+    }
+  },
+  "ios_navigation_correction": {
+    "failed_source": "33cd1dd7a4d9009bf209614adc0395dca0f45d14",
+    "job": "https://github.com/creabizsalonspa-create/EV/actions/runs/40688659097/job/122817514847",
+    "failure": "StateError: No element at native_flow_test.dart1192, after explicit subscription enrollment passed. The test looked up Workspace using a finder that excludes its offstage home route.",
+    "correction": "Push the evidence screen using the active SubscriptionActionView context. Preserve the entire consent/file/multipart/runtime assertion sequence and all original markers; exact-source iOS rerun is required.",
+    "log_sha256": "f81bcf680009a8b379bfc728c1dcde67852e0c98558c8a12bf4b9cbe3d66acfd"
+  }
+}

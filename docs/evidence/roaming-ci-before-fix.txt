@@ -1,0 +1,19 @@
+business-platform	Run npm run test:roaming	﻿2026-10-27T09:51:46.2120684Z ##[group]Run npm run test:roaming
+business-platform	Run npm run test:roaming	2026-10-27T09:51:46.2121034Z [36;1mnpm run test:roaming[0m
+business-platform	Run npm run test:roaming	2026-10-27T09:51:46.2185479Z shell: /usr/bin/bash -e {0}
+business-platform	Run npm run test:roaming	2026-10-27T09:51:46.2185809Z ##[endgroup]
+business-platform	Run npm run test:roaming	2026-10-27T09:51:46.3204992Z 
+business-platform	Run npm run test:roaming	2026-10-27T09:51:46.3205315Z > test:roaming
+business-platform	Run npm run test:roaming	2026-10-27T09:51:46.3205865Z > node tests/roaming-workspace.cjs
+business-platform	Run npm run test:roaming	2026-10-27T09:51:46.3206176Z 
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7725681Z locator.waitFor: Timeout 15000ms exceeded.
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7726320Z Call log:
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7727328Z   - waiting for locator('#roaming-operations').getByRole('heading', { name: 'Synthetic owner 940b5611', exact: true }) to be visible
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7728524Z 
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7728909Z     at /home/runner/work/EV/EV/tests/roaming-workspace.cjs:54:8 {
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7729506Z   log: [
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7730488Z     "  - waiting for locator('#roaming-operations').getByRole('heading', { name: 'Synthetic owner 940b5611', exact: true }) to be visible"
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7731497Z   ],
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7731872Z   name: 'TimeoutError'
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7732216Z }
+business-platform	Run npm run test:roaming	2026-10-27T09:52:03.7958966Z ##[error]Process completed with exit code 1.

@@ -2,11 +2,15 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ChargerCommandController;
+use App\Http\Controllers\ChargingReviewController;
+use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\PlatformController as P;
+use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\SupportController;
+use App\Http\Controllers\VehicleBatteryController;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -28,6 +32,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/stations', [P::class, 'createStation']);
     Route::get('/api/vehicles', [P::class, 'vehicles']);
     Route::post('/api/vehicles', [P::class, 'createVehicle']);
+    Route::post('/api/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
     Route::get('/api/reservations', [P::class, 'reservations']);
     Route::post('/api/reservations', [P::class, 'reserve']);
     Route::delete('/api/reservations/{reservation}', [P::class, 'cancel']);
@@ -98,4 +103,35 @@ require __DIR__.'/ocpi.php';
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start']);
     Route::post('/api/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop']);
+    Route::post('/api/charging-sessions/{session}/reconcile', [CsmsSessionController::class, 'reconcile']);
 });
+
+Route::get('/api/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');
+
+Route::post('/api/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/charging_operations.php');
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/rider_access.php');
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/favorites.php');
+
+Route::prefix('api')->group(__DIR__.'/discovery.php');
+
+// A return URL is navigation only, never evidence of payment or authorization.
+Route::get('/payments/hosted-return', fn () => response()->view('payments.hosted-return')->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"));
+Route::get('/payments/hosted-simulation/{checkout}', function (string $checkout) {
+    abort_unless(app()->environment('local', 'testing') && config('payments.provider') === 'mock', 404);
+
+    return response()->view('payments.hosted-return', ['simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+})->whereNumber('checkout')->middleware('auth');
+
+// Server-selected corporate family; query parameters never choose an API or prove payment.
+Route::get('/payments/corporate-hosted-return', fn () => response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate'])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer'));
+Route::get('/payments/corporate-hosted-simulation/{checkout}', function (string $checkout) {
+    abort_unless(app()->environment('local', 'testing') && config('payments.provider') === 'mock', 404);
+
+    return response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate', 'simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer');
+})->whereNumber('checkout')->middleware('auth');
+
+Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
+Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');

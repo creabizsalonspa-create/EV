@@ -1,0 +1,1 @@
+PASS: actual Laravel vendor creates EVSEs and immutable connector maps; customer explicitly selects resources, parallel EVSE slots succeed, sibling connector conflict, cancellation releases capacity; Arabic phone layout and logout remove actions. Simulation only.

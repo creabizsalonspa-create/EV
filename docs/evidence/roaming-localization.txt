@@ -1,0 +1,10 @@
+
+> test:localization
+> node tests/localization.cjs
+
+PASS: web resource/interpolation parity; persistent EN/AR and RTL, preserved form fields and user-content text, translated dynamic provenance, mobile width, localized recovery validation, storage-denied fallback; zero page errors.
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

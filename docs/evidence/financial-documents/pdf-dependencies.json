@@ -1,0 +1,272 @@
+[
+  {
+    "name": "tecnickcom/tc-lib-barcode",
+    "version": "2.17.2",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-barcode.git",
+      "reference": "b6c42dd1ca3cae0ddadfe29640d6018d48082054"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-barcode/legacy.zip/b6c42dd1ca3cae0ddadfe29640d6018d48082054",
+      "reference": "b6c42dd1ca3cae0ddadfe29640d6018d48082054",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-color",
+    "version": "3.0.13",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-color.git",
+      "reference": "076424ab943b43c2830c2e278d5510c52b9ab904"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-color/legacy.zip/076424ab943b43c2830c2e278d5510c52b9ab904",
+      "reference": "076424ab943b43c2830c2e278d5510c52b9ab904",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-file",
+    "version": "3.9.9",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-file.git",
+      "reference": "973e4b9b13dc3cd910f4f6aeb996ed92250f4218"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-file/legacy.zip/973e4b9b13dc3cd910f4f6aeb996ed92250f4218",
+      "reference": "973e4b9b13dc3cd910f4f6aeb996ed92250f4218",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf",
+    "version": "8.82.2",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf.git",
+      "reference": "81d1ed0dd17f16fbfc3746d5cd2b2711ac1afbda"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf/legacy.zip/81d1ed0dd17f16fbfc3746d5cd2b2711ac1afbda",
+      "reference": "81d1ed0dd17f16fbfc3746d5cd2b2711ac1afbda",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf-encrypt",
+    "version": "2.12.1",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf-encrypt.git",
+      "reference": "1aca6aab0dc4b34621c8b6256258e247a486a06b"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf-encrypt/legacy.zip/1aca6aab0dc4b34621c8b6256258e247a486a06b",
+      "reference": "1aca6aab0dc4b34621c8b6256258e247a486a06b",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf-filter",
+    "version": "2.11.8",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf-filter.git",
+      "reference": "84e490e0590174930e86955372d753abe356850c"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf-filter/legacy.zip/84e490e0590174930e86955372d753abe356850c",
+      "reference": "84e490e0590174930e86955372d753abe356850c",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf-font",
+    "version": "4.6.2",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf-font.git",
+      "reference": "668d73e853c6027afd9cdaae8ea042957ba11e08"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf-font/legacy.zip/668d73e853c6027afd9cdaae8ea042957ba11e08",
+      "reference": "668d73e853c6027afd9cdaae8ea042957ba11e08",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf-graph",
+    "version": "2.18.6",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf-graph.git",
+      "reference": "602d8593a4b368e744da430c7fc716eb25b4beaa"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf-graph/legacy.zip/602d8593a4b368e744da430c7fc716eb25b4beaa",
+      "reference": "602d8593a4b368e744da430c7fc716eb25b4beaa",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf-image",
+    "version": "3.15.2",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf-image.git",
+      "reference": "da7d69e084a692cb55bbab3b27e66d31bf5edc50"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf-image/legacy.zip/da7d69e084a692cb55bbab3b27e66d31bf5edc50",
+      "reference": "da7d69e084a692cb55bbab3b27e66d31bf5edc50",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf-page",
+    "version": "4.18.0",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf-page.git",
+      "reference": "49b70ca9b909454ad7f83a8df1150be65fe1b5ef"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf-page/legacy.zip/49b70ca9b909454ad7f83a8df1150be65fe1b5ef",
+      "reference": "49b70ca9b909454ad7f83a8df1150be65fe1b5ef",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf-parser",
+    "version": "3.16.6",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf-parser.git",
+      "reference": "35f317cfca78bf986f6d9b5058b951de30b3413d"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf-parser/legacy.zip/35f317cfca78bf986f6d9b5058b951de30b3413d",
+      "reference": "35f317cfca78bf986f6d9b5058b951de30b3413d",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-pdf-sign",
+    "version": "2.0.9",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-pdf-sign.git",
+      "reference": "614c001b885b04045935cd18860bdd0e174eada0"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-pdf-sign/legacy.zip/614c001b885b04045935cd18860bdd0e174eada0",
+      "reference": "614c001b885b04045935cd18860bdd0e174eada0",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-unicode",
+    "version": "3.2.2",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-unicode.git",
+      "reference": "fe78012e28bb6a6cc1e7401d8b0dd6b1be0706c9"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-unicode/legacy.zip/fe78012e28bb6a6cc1e7401d8b0dd6b1be0706c9",
+      "reference": "fe78012e28bb6a6cc1e7401d8b0dd6b1be0706c9",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tc-lib-unicode-data",
+    "version": "3.1.2",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/tc-lib-unicode-data.git",
+      "reference": "b9b5b2fe8c9db2408b99f15d46b6e8031f73fb0d"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/tc-lib-unicode-data/legacy.zip/b9b5b2fe8c9db2408b99f15d46b6e8031f73fb0d",
+      "reference": "b9b5b2fe8c9db2408b99f15d46b6e8031f73fb0d",
+      "shasum": ""
+    }
+  },
+  {
+    "name": "tecnickcom/tcpdf",
+    "version": "7.0.20",
+    "license": [
+      "LGPL-3.0-or-later"
+    ],
+    "source": {
+      "type": "git",
+      "url": "https://github.com/tecnickcom/TCPDF.git",
+      "reference": "c8834161b905b21bd8dcc0df6284e0132c5efa05"
+    },
+    "dist": {
+      "type": "zip",
+      "url": "https://codeload.github.com/tecnickcom/TCPDF/legacy.zip/c8834161b905b21bd8dcc0df6284e0132c5efa05",
+      "reference": "c8834161b905b21bd8dcc0df6284e0132c5efa05",
+      "shasum": ""
+    }
+  }
+]

@@ -1,0 +1,10 @@
+
+> test:ocpi-provisioning
+> node tests/ocpi-provisioning.cjs
+
+PASS: actual Laravel admin-only safe connection options and paginated vendor selection; EN/AR provider registration against server-only synthetic metadata; revoked default, committed lost-ack recovery without replay, existing operations survive selector failure, no credentials exposed and no external requests.
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

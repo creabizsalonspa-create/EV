@@ -1,0 +1,7 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/invoice_history_test.dart
+00:00 +0: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:02 +1: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:02 +2: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invoice history keeps filters through pagination failure/retry and clears on expiry
+00:03 +3: /workspace/EV/apps/mobile/test/invoice_history_test.dart: existing invoice detail uses GET and shows only receipt amounts, times and literal refund reason
+00:03 +4: /workspace/EV/apps/mobile/test/invoice_history_test.dart: invalid calendar and reversed date filters are rejected without a request
+00:04 +5: All tests passed!

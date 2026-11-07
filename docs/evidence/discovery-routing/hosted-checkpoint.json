@@ -1,0 +1,218 @@
+{
+  "source_sha": "b336f4162946ab6413ce8288d12fca90121b91f3",
+  "integrated_sha": "d846de0bdcd6346578d8ffa1959807fcbd8762a6",
+  "pr": "https://github.com/creabizsalonspa-create/EV/pull/19",
+  "merge_tree_equals_tested_source": true,
+  "checks": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:00:37Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659687748/job/122719300309",
+      "name": "native (ubuntu-latest)",
+      "startedAt": "2026-10-28T08:50:30Z",
+      "status": "COMPLETED",
+      "workflowName": "Native client validation (unverified until run)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T08:59:00Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659687775/job/122719300862",
+      "name": "business-platform",
+      "startedAt": "2026-10-28T08:50:30Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T08:59:27Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659680113/job/122719274814",
+      "name": "business-platform",
+      "startedAt": "2026-10-28T08:50:26Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T09:05:23Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659687748/job/122719300709",
+      "name": "native (macos-15)",
+      "startedAt": "2026-10-28T08:50:31Z",
+      "status": "COMPLETED",
+      "workflowName": "Native client validation (unverified until run)"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T08:52:59Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659687775/job/122719301132",
+      "name": "finance-postgres",
+      "startedAt": "2026-10-28T08:50:30Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T08:52:59Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659680113/job/122719274857",
+      "name": "finance-postgres",
+      "startedAt": "2026-10-28T08:50:26Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T08:51:53Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659687775/job/122719301097",
+      "name": "connector-postgres",
+      "startedAt": "2026-10-28T08:50:30Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T08:51:56Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659680113/job/122719274413",
+      "name": "connector-postgres",
+      "startedAt": "2026-10-28T08:50:26Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T08:52:09Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659687775/job/122719301272",
+      "name": "staging-image",
+      "startedAt": "2026-10-28T08:50:30Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-28T08:51:47Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659680113/job/122719274921",
+      "name": "staging-image",
+      "startedAt": "2026-10-28T08:50:26Z",
+      "status": "COMPLETED",
+      "workflowName": "Platform validation"
+    }
+  ],
+  "runs": [
+    {
+      "id": 40659680113,
+      "head_sha": "b336f4162946ab6413ce8288d12fca90121b91f3",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659680113"
+    },
+    {
+      "id": 40659687748,
+      "head_sha": "b336f4162946ab6413ce8288d12fca90121b91f3",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659687748"
+    },
+    {
+      "id": 40659687775,
+      "head_sha": "b336f4162946ab6413ce8288d12fca90121b91f3",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40659687775"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 12803940938,
+      "platform": "android",
+      "zip_bytes": 94586742,
+      "zip_sha256": "9472c5c9db020ff6b91126d32350ccb391e30e4c9e00f53cc34d1d9cea868c3a"
+    },
+    {
+      "id": 12803054376,
+      "platform": "ios",
+      "zip_bytes": 66421043,
+      "zip_sha256": "c75169e357ebef5edcac8e540afe152b4e34e390ec2231bd2bb071e4162bfbe4"
+    }
+  ],
+  "ios_actual_artifact_privacy": {
+    "verified": true,
+    "bundle": "com.creabiz.creabizEv",
+    "version": "0.1.0",
+    "foreground_only": true,
+    "localized_privacy": [
+      "en",
+      "ar"
+    ]
+  },
+  "ios_runtime_markers": [
+    "DEVICE: clearing isolated Keychain entry",
+    "DEVICE: validating fixture TLS before UI",
+    "DEVICE: fixture TLS ready",
+    "DEVICE: customer authenticated",
+    "DEVICE: read-only partner pagination verified",
+    "DEVICE: customer favorites and private catalog status verified",
+    "DEVICE: consented one-shot GPS and sourced charging-stop route verified; synthetic platform/provider",
+    "DEVICE: customer map privacy consent navigation verified; no external tiles",
+    "DEVICE: scoped read-only invoice history verified",
+    "DEVICE: versioned saved mandate revocation verified; no external PSP",
+    "DEVICE: Keychain session restored",
+    "DEVICE: vendor authenticated after secure logout",
+    "DEVICE: exact Arabic vendor pricing verified",
+    "DEVICE: native vendor onboarding and private PDF preview verified"
+  ],
+  "ios_job_log_sha256": "8760542098606ae698188b63dbc3ed13948cf0dc74b7f5ef00f366dd4fc4dba9",
+  "android_job_log_sha256": "221623bf7950b652ae09e20d6bfd942cab86620e5d520c3ff43d7ad3c58ac39a",
+  "local_log_hashes": {
+    "native-connected": {
+      "bytes": 21814,
+      "sha256": "18d8a73097c8021efe5937d027c29634cb22d7e4b69c0646c83de86082010d2e"
+    },
+    "final-all-laravel": {
+      "bytes": 30872,
+      "sha256": "259c956337a0f8b5ee2d5f90b8487c681e21b2015ec67d318bd1db7da52fd179"
+    },
+    "final-all-flutter": {
+      "bytes": 26878,
+      "sha256": "7c6bea84a12cf2cbf4c8e88dc430a7f226d553bc707e51ab0b4633a5161b2e0f"
+    },
+    "finance-postgres": {
+      "bytes": 25982,
+      "sha256": "eab9cb22f57d26485160ce2b467e954ae738cc1749711cf22e0e7eda1cb88a6e"
+    },
+    "connector-postgres": {
+      "bytes": 8419,
+      "sha256": "c59b932841272d73a2df98ba3b12a20a3ca4b230f7c3af8944f668c97c28fe57"
+    }
+  },
+  "laravel": {
+    "passed": 345,
+    "assertions": 8438
+  },
+  "flutter": {
+    "passed": 128,
+    "explicit_live_only_skips": 9,
+    "analysis": "clean"
+  },
+  "postgres": {
+    "financial_tests": 220,
+    "financial_assertions": 7118,
+    "financial_races": 58,
+    "financial_race_assertions": 758,
+    "connector_tests": 54,
+    "connector_assertions": 814,
+    "connector_races": 14,
+    "connector_race_assertions": 197
+  },
+  "acceptance_boundary": "Synthetic location/provider/TLS/UI fixtures; real Laravel/PostgreSQL and compiled Android/iOS artifacts. No physical GPS, real charger, live merchant/bank/roaming/routing provider, signing/store, legal or production acceptance."
+}

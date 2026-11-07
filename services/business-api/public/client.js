@@ -8,27 +8,57 @@ class ApiError extends Error {
         this.errors = errors;
     }
 }
+class SessionChangedError extends Error {
+    constructor() {
+        super("The account context changed.");
+        this.name = "SessionChangedError";
+    }
+}
 class EvApi {
     constructor(token) {
         this.token = token;
+        this.sessionEpoch = 0;
+    }
+    invalidateSession() {
+        return ++this.sessionEpoch;
     }
     async request(path, method = "GET", data, signal) {
+        const epoch = this.sessionEpoch;
+        const publicRead =
+            method === "GET" &&
+            ["stations", "regions", "roaming/locations"].includes(
+                path.split("?")[0],
+            );
+        const current = () => {
+            if (!publicRead && epoch !== this.sessionEpoch)
+                throw new SessionChangedError();
+        };
+        const multipart =
+            typeof FormData !== "undefined" && data instanceof FormData;
         const timeout = AbortSignal.timeout(20000);
         let response;
         try {
             response = await fetch("/api/" + path, {
                 method,
                 credentials: "same-origin",
+                ...(multipart ? { redirect: "error" } : {}),
                 cache: "no-store",
                 headers: {
                     Accept: "application/json",
-                    "Content-Type": "application/json",
+                    ...(multipart
+                        ? {}
+                        : { "Content-Type": "application/json" }),
                     "X-CSRF-TOKEN": this.token,
                 },
-                body: data ? JSON.stringify(data) : undefined,
+                body: multipart
+                    ? data
+                    : data
+                      ? JSON.stringify(data)
+                      : undefined,
                 signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
             });
         } catch (error) {
+            current();
             if (signal?.aborted) throw error;
             throw new ApiError(
                 navigator.onLine
@@ -36,16 +66,19 @@ class EvApi {
                     : "You are offline. Reconnect to refresh your account.",
             );
         }
+        current();
         if (response.status === 204) return null;
         let result;
         try {
             result = await response.json();
         } catch {
+            current();
             throw new ApiError(
                 "The service returned an unreadable response. Please try again later.",
                 response.status,
             );
         }
+        current();
         if (!response.ok) {
             const message =
                 response.status === 401
@@ -54,8 +87,8 @@ class EvApi {
                       ? "Your security session expired. Reload this page before trying again."
                       : response.status === 429
                         ? "Too many requests. Please wait before trying again."
-                        : result.message || "Request failed. Please retry.";
-            throw new ApiError(message, response.status, result.errors);
+                        : result?.message || "Request failed. Please retry.";
+            throw new ApiError(message, response.status, result?.errors);
         }
         return result;
     }

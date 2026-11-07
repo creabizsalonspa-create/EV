@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../services/csms"
-docker compose up -d
+docker compose up -d --build
 for attempt in {1..60}; do
   if curl --fail --silent http://127.0.0.1:8080/docs/json > /tmp/ev-csms-readiness.json; then
     python3 - <<'PY'

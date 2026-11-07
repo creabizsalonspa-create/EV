@@ -43,6 +43,7 @@ async function metadata(body) {
     "SampledValues",
     "ChargingStations",
     "Connectors",
+    "OCPPMessages",
     "StatusNotifications",
   ])
     if (!source.tables.some((t) => t.table.name === name)) {

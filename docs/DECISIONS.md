@@ -26,3 +26,6 @@ Web localization binds only declared UI resources/attributes. It never scans/rep
 
 9. Universal continuation supersedes permanent account-specific ownership. Use full remote-head fetches and verified development integration; preserve current frontend as the canonical apps/mobile client and retire duplicate experimental drafts only after verified backup. Backend session APIs remain compatible; optional bearer v1 and new domain routes are additive.
 10. Source meter reconciliation is separate from transport acknowledgment. The local signed event bridge finalizes only correlated cumulative source end readings and appends one simulated invoice. It never treats submitted as accepted or counts duplicate periodic meter rows as extra energy. Production/hardware ingestion and a continuously running source adapter remain separate gates.
+
+## Customer maps candidate
+Self-host Leaflet1.9.4 (BSD2, official npm archive integrity and selected-file hashes retained), with lock-pinned flutter_map8.3.2 (BSD3) and latlong2 0.9.1 for native. Use explicit-consent public OSM raster tiles with attribution and HTTP-aware caching. Do not use Nominatim autocomplete or invent route/time estimates. Current-page canonical maps are partial discovery functionality, not whole-network/hardware acceptance. See CUSTOMER_DISCOVERY_MAPS.md.

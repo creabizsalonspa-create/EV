@@ -1,0 +1,70 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 747B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/php:8.5-cli-bookworm@sha256:d4f6e10eb393de7e3a7a88e8b88e139072dd3ae297f6a5dada8257e6fe32c585
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [stage-0 1/2] FROM docker.io/library/php:8.5-cli-bookworm@sha256:d4f6e10eb393de7e3a7a88e8b88e139072dd3ae297f6a5dada8257e6fe32c585
+#4 DONE 0.0s
+
+#5 [stage-0 2/2] RUN --mount=type=secret,id=host_ca,target=/tmp/host-ca.pem cp /tmp/host-ca.pem /etc/ssl/certs/ca-certificates.crt && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && apt-get update && apt-get install -y --no-install-recommends libpq-dev && rm -rf /var/lib/apt/lists/* && mkdir /tmp/pdo-pgsql && tar -xJf /usr/src/php.tar.xz --wildcards --strip-components=3 -C /tmp/pdo-pgsql '*/ext/pdo_pgsql/*' && cd /tmp/pdo-pgsql && phpize && ./configure --with-pdo-pgsql=/usr && make -j2 && make install && docker-php-ext-enable pdo_pgsql && cd / && rm -rf /tmp/pdo-pgsql
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 writing image sha256:876d47406faf4e10e91b2bb81ca81945f6931648bb9df29c5c6f70a4123849bd done
+#6 naming to docker.io/library/ev-finance-pg-tests:ev-finance-tests-12578-357173 done
+#6 DONE 0.0s
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+.................                                                 17 / 17 (100%)
+
+Time: 00:02.076, Memory: 48.50 MB
+
+Finance (Tests\Feature\Finance)
+ ✔ Integer rounding tariff snapshot and invoice are immutable and reconcile
+ ✔ Database rejects direct financial record mutation
+ ✔ Legacy session does not pick up a new tariff retroactively
+ ✔ Partial payments idempotency credit notes and full refund reconcile
+ ✔ Overpayment overrefund and idempotency payload mismatch are rejected
+ ✔ Unfinished or inconsistent sessions cannot be invoiced
+ ✔ Finance http authorization and tenant scope
+ ✔ Invoice history filters preserve tenant scope and validate dates and literal prefix
+ ✔ Only vendor owner or admin can publish tariff and vendor cannot set commission
+ ✔ Vendor pricing retains admin commission and publish retries are payload bound
+ ✔ Pricing station selector is role scoped and requires matching currency configuration
+ ✔ Numeric form tariffs keep integer contract and snapshot comparisons
+ ✔ Money allocator has no negative or lost minor units
+ ✔ Production never processes simulated money
+
+Finance Money (Tests\Unit\FinanceMoney)
+ ✔ Every small refund preserves units component bounds and full reversal
+ ✔ Money math uses half up rounding and rejects overflow
+ ✔ Invalid components are rejected
+
+OK (17 tests, 5051 assertions)
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+...                                                                 3 / 3 (100%)
+
+Time: 00:06.724, Memory: 42.50 MB
+
+Finance Concurrency (Tests\Postgres\FinanceConcurrency)
+ ✔ Concurrent tariff retries publish once and keep commission policy
+ ✔ Cross invoice payment key race returns conflict without double posting
+ ✔ Cross invoice refund key race returns conflict without double refund
+
+OK (3 tests, 39 assertions)

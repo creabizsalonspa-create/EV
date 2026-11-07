@@ -1,0 +1,54 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+..........................                                        26 / 26 (100%)
+
+Time: 00:52.638, Memory: 48.50 MB
+
+Charger Admission Concurrency (Tests\Postgres\ChargerAdmissionConcurrency)
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #0
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #1
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #2
+
+Charging Expiry Concurrency (Tests\Postgres\ChargingExpiryConcurrency)
+ ✔ Concurrent expiry workers close once without faking source end
+
+Command Reconciliation Concurrency (Tests\Postgres\CommandReconciliationConcurrency)
+ ✔ Concurrent source recovery records one observation without device or financial mutation
+
+Connector Reservation Concurrency (Tests\Postgres\ConnectorReservationConcurrency)
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #0
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #1
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #2
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #3
+
+Finance Concurrency (Tests\Postgres\FinanceConcurrency)
+ ✔ Concurrent tariff retries publish once and keep commission policy
+ ✔ Cross invoice payment key race returns conflict without double posting
+ ✔ Cross invoice refund key race returns conflict without double refund
+
+Gateway Concurrency (Tests\Postgres\GatewayConcurrency)
+ ✔ Simultaneous capture retries post exactly once
+ ✔ Competing authorizations cannot double capture invoice
+ ✔ Simultaneous signed webhook retries commit one event and one payment
+
+Reservation Lifecycle Concurrency (Tests\Postgres\ReservationLifecycleConcurrency)
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #0
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #1
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #2
+
+Settlement Concurrency (Tests\Postgres\SettlementConcurrency)
+ ✔ Concurrent drafts cannot reserve the same payable twice
+ ✔ Concurrent identical draft retries return one settlement
+
+Subscription Concurrency (Tests\Postgres\SubscriptionConcurrency)
+ ✔ Racing enrollment same key returns one subscription and invoice
+ ✔ Racing distinct enrollment keys cannot create two active subscriptions
+ ✔ Racing mock payment replays post one receipt and balanced journal
+ ✔ Racing distinct payment keys cannot double charge invoice
+ ✔ Racing due renewals issue one cycle without capturing money
+ ✔ Racing gateway captures share single receipt and payment journal
+
+OK (26 tests, 335 assertions)

@@ -1,4 +1,172 @@
 window.EV_MESSAGES = {
+    "Roaming credential state superseded": {
+        en: "Enrollment replaced",
+        ar: "تم استبدال التسجيل",
+    },
+    "Roaming credential state awaiting_registration": {
+        en: "Awaiting approved partner enrollment",
+        ar: "في انتظار تسجيل الشريك المعتمد",
+    },
+    "Roaming credential state awaiting_peer": {
+        en: "Awaiting approved partner enrollment",
+        ar: "في انتظار تسجيل الشريك المعتمد",
+    },
+    "Roaming credential state enrollment_expired": {
+        en: "Enrollment window expired",
+        ar: "انتهت مهلة التسجيل",
+    },
+    "Roaming credentials prepare_incoming": {
+        en: "Prepare incoming enrollment",
+        ar: "تهيئة تسجيل الشريك الوارد",
+    },
+    "Roaming credential action prepare_incoming": {
+        en: "Prepared incoming enrollment",
+        ar: "تمت تهيئة التسجيل الوارد",
+    },
+    "Roaming credential action peer_register": {
+        en: "Peer enrolled",
+        ar: "تم تسجيل الشريك",
+    },
+    "Roaming enrollment expires": {
+        en: "Enrollment expires (UTC)",
+        ar: "تنتهي مهلة التسجيل (UTC)",
+    },
+
+    "Roaming credential state active": {
+        en: "Credentials active",
+        ar: "بيانات الاعتماد نشطة",
+    },
+    "Roaming credential state not_exchanged": {
+        en: "Credentials not exchanged",
+        ar: "لم يتم تبادل بيانات الاعتماد",
+    },
+    "Roaming credential state dispatching": {
+        en: "Exchange awaiting acknowledgement",
+        ar: "تبادل البيانات في انتظار التأكيد",
+    },
+    "Roaming credential state acknowledged": {
+        en: "Exchange acknowledged",
+        ar: "تم تأكيد التبادل",
+    },
+    "Roaming credential state outcome_unknown": {
+        en: "Exchange outcome uncertain",
+        ar: "نتيجة التبادل غير مؤكدة",
+    },
+    "Roaming credential state revoked": {
+        en: "Credentials revoked",
+        ar: "تم إلغاء بيانات الاعتماد",
+    },
+    "Roaming credential state unregistered": {
+        en: "Credentials unregistered",
+        ar: "تم إلغاء تسجيل بيانات الاعتماد",
+    },
+    "Roaming credential state configuration_changed": {
+        en: "Configuration requires review",
+        ar: "تتطلب التهيئة مراجعة",
+    },
+    "Roaming credential state ownership_changed": {
+        en: "Ownership requires review",
+        ar: "تتطلب الملكية مراجعة",
+    },
+    "Roaming credential action register": { en: "Registration", ar: "التسجيل" },
+    "Roaming credential action rotate": {
+        en: "Credential rotation",
+        ar: "تدوير بيانات الاعتماد",
+    },
+    "Roaming credential action unregister": {
+        en: "Deregistration",
+        ar: "إلغاء التسجيل",
+    },
+    "Roaming credential action peer_rotate": {
+        en: "Peer rotated credentials",
+        ar: "قام الشريك بتدوير بيانات الاعتماد",
+    },
+    "Roaming credential action peer_revoke": {
+        en: "Peer revoked credentials",
+        ar: "قام الشريك بإلغاء بيانات الاعتماد",
+    },
+
+    "Roaming credentials": {
+        en: "Partner credentials",
+        ar: "بيانات اعتماد الشريك",
+    },
+    "Roaming credentials disclaimer": {
+        en: "Tokens stay on the server. Exchange is one-shot; uncertain outcomes require partner reconciliation. This does not enable charging or billing.",
+        ar: "تبقى الرموز على الخادم. يتم التبادل مرة واحدة؛ تتطلب النتائج غير المؤكدة مطابقة مع الشريك. لا يمنح هذا صلاحية الشحن أو الفوترة.",
+    },
+    "Roaming credentials unavailable": {
+        en: "Approved managed credentials configuration unavailable.",
+        ar: "تهيئة بيانات الاعتماد المُدارة المعتمدة غير متاحة.",
+    },
+    "Roaming managed credentials configured": {
+        en: "Managed credentials configuration approved.",
+        ar: "تهيئة بيانات الاعتماد المُدارة معتمدة.",
+    },
+    "Roaming credentials reason": {
+        en: "Operator approval note",
+        ar: "ملاحظة اعتماد المشغّل",
+    },
+    "Roaming credentials register": {
+        en: "Exchange partner credentials",
+        ar: "تبادل بيانات اعتماد الشريك",
+    },
+    "Roaming credentials rotate": {
+        en: "Rotate partner credentials",
+        ar: "تدوير بيانات اعتماد الشريك",
+    },
+    "Roaming credentials unregister": {
+        en: "Unregister partner credentials",
+        ar: "إلغاء تسجيل بيانات اعتماد الشريك",
+    },
+    "Roaming credentials uncertain": {
+        en: "Outcome uncertain. No automatic retry; refresh the recorded operation before further action.",
+        ar: "النتيجة غير مؤكدة. لن تتكرر العملية تلقائيًا؛ حدّث سجل العملية قبل أي إجراء آخر.",
+    },
+
+    "Automatic fault monitoring": {
+        en: "Automatic fault monitoring",
+        ar: "المراقبة التلقائية لأعطال الشاحن",
+    },
+    "Fault monitor caught up": {
+        en: "Fault monitor caught up",
+        ar: "اكتملت متابعة أحداث المصدر عند آخر فحص",
+    },
+    "Fault monitor catching up": {
+        en: "Fault monitor catching up",
+        ar: "جارٍ استكمال سجل المصدر",
+    },
+    "Fault monitor awaiting source": {
+        en: "Fault monitor awaiting source",
+        ar: "في انتظار تسجيل المصدر",
+    },
+    "Fault monitor requires review": {
+        en: "Fault monitor requires review",
+        ar: "تتطلب مراقبة المصدر مراجعة",
+    },
+    "Fault monitor not observed": {
+        en: "Fault monitor not observed",
+        ar: "لم تُرصد المراقبة التلقائية",
+    },
+
+    "Find a place to recharge": {
+        en: "Find a place to recharge",
+        ar: "ابحث عن مكان للشحن",
+    },
+    "No saved stations yet": {
+        en: "No saved stations yet.",
+        ar: "لا توجد محطات محفوظة بعد.",
+    },
+    "Saved stations": { en: "Saved stations", ar: "المحطات المحفوظة" },
+    "All stations": { en: "All stations", ar: "جميع المحطات" },
+    "Save station": { en: "Save station", ar: "حفظ المحطة" },
+    "Remove saved station": {
+        en: "Remove saved station",
+        ar: "إزالة المحطة المحفوظة",
+    },
+    "Favorite update unconfirmed": {
+        en: "Preference update could not be confirmed. Refresh before trying again. Saving does not verify availability or enable charging.",
+        ar: "تعذر تأكيد تحديث التفضيل. حدّث قبل المحاولة مجددًا. الحفظ لا يؤكد التوفر ولا يتيح الشحن.",
+    },
     "Crea-Biz EV": {
         en: "Crea-Biz EV",
         ar: "كريا بيز للشحن",
@@ -785,5 +953,1891 @@ window.EV_MESSAGES = {
     "Email not verified / البريد غير مؤكد": {
         en: "Email not verified",
         ar: "البريد غير مؤكد",
+    },
+    "Charger command history": {
+        en: "Charger command history",
+        ar: "سجل أوامر الشواحن",
+    },
+    "Command history disclaimer": {
+        en: "Command history disclaimer",
+        ar: "نتائج نقل أوامر المحاكاة المسجلة فقط. الإقرار لا يثبت جلسة شحن أو طاقة مسلّمة أو دفعاً.",
+    },
+    "Refresh command history": {
+        en: "Refresh command history",
+        ar: "تحديث سجل الأوامر",
+    },
+    "Loading command history…": {
+        en: "Loading command history…",
+        ar: "جارٍ تحميل سجل الأوامر…",
+    },
+    "Command #{id}": {
+        en: "Command #{id}",
+        ar: "الأمر #{id}",
+    },
+    "Station #{id}": {
+        en: "Station #{id}",
+        ar: "المحطة #{id}",
+    },
+    "Command action: {action}": {
+        en: "Command action: {action}",
+        ar: "إجراء الأمر: {action}",
+    },
+    "Transport status: {status}": {
+        en: "Transport status: {status}",
+        ar: "حالة النقل: {status}",
+    },
+    "No recorded commands.": {
+        en: "No recorded commands.",
+        ar: "لا توجد أوامر مسجلة.",
+    },
+    "Page {page} of {last} · {total} commands": {
+        en: "Page {page} of {last} · {total} commands",
+        ar: "الصفحة {page} من {last} · {total} أمر",
+    },
+    start: {
+        en: "start",
+        ar: "بدء",
+    },
+    stop: {
+        en: "stop",
+        ar: "إيقاف",
+    },
+    sent: {
+        en: "sent",
+        ar: "أُرسل",
+    },
+    failed: {
+        en: "failed",
+        ar: "فشل",
+    },
+    submitted: {
+        en: "Submitted to transport",
+        ar: "قُدم للنقل",
+    },
+    rejected: {
+        en: "Rejected by transport",
+        ar: "رفضه النقل",
+    },
+    outcome_unknown: {
+        en: "Outcome unknown",
+        ar: "النتيجة غير معروفة",
+    },
+    dispatching: {
+        en: "Dispatching",
+        ar: "جارٍ الإرسال",
+    },
+    "Request CSMS simulator start": {
+        en: "Request CSMS simulator start",
+        ar: "طلب بدء محاكاة CSMS",
+    },
+    "Request CSMS stop": {
+        en: "Request CSMS stop",
+        ar: "طلب إيقاف CSMS",
+    },
+    "Source controls disclaimer": {
+        en: "Source controls disclaimer",
+        ar: "قراءات المصدر معتمدة. حالات الانتظار والإيقاف تتطلب تأكيد المصدر. محاكاة فقط؛ لا يوجد شحن فعلي أو دفع.",
+    },
+    expired_unstarted: {
+        en: "Expired before charging started",
+        ar: "انتهى الحجز قبل بدء الشحن",
+    },
+    pending_start: {
+        en: "Waiting for source start",
+        ar: "بانتظار بدء المصدر",
+    },
+    stopping: {
+        en: "Waiting for source stop",
+        ar: "بانتظار إيقاف المصدر",
+    },
+    "View simulated invoice": {
+        en: "View simulated invoice",
+        ar: "عرض فاتورة المحاكاة",
+    },
+    "Invoice simulation disclaimer": {
+        en: "Invoice simulation disclaimer",
+        ar: "مستند ومحاسبة للمحاكاة فقط. ليست فاتورة ضريبية قانونية أو دفعاً فعلياً.",
+    },
+    "{label}: {amount} minor units {currency}": {
+        en: "{label}: {amount} minor units {currency}",
+        ar: "{label}: {amount} وحدة نقدية صغرى {currency}",
+    },
+    Subtotal: {
+        en: "Subtotal",
+        ar: "المجموع الفرعي",
+    },
+    Tax: {
+        en: "Tax",
+        ar: "الضريبة",
+    },
+    Total: {
+        en: "Total",
+        ar: "الإجمالي",
+    },
+    "Simulated collected": {
+        en: "Simulated collected",
+        ar: "المحصّل بالمحاكاة",
+    },
+    "Simulated refunded": {
+        en: "Simulated refunded",
+        ar: "المسترد بالمحاكاة",
+    },
+    "Amount due": {
+        en: "Amount due",
+        ar: "المبلغ المستحق",
+    },
+    "Ledger balanced": {
+        en: "Ledger balanced",
+        ar: "دفتر الحسابات متوازن",
+    },
+    "Ledger needs reconciliation": {
+        en: "Ledger needs reconciliation",
+        ar: "دفتر الحسابات يتطلب تسوية",
+    },
+    "Refresh sessions": {
+        en: "Refresh sessions",
+        ar: "تحديث الجلسات",
+    },
+    "Unsupported finance evidence.": {
+        en: "Unsupported finance evidence.",
+        ar: "بيانات المحاسبة غير مدعومة.",
+    },
+    "Company workspace": {
+        en: "Company workspace",
+        ar: "مساحة الشركة",
+    },
+    "Company details": {
+        en: "Company details",
+        ar: "تفاصيل الشركة",
+    },
+    "Company workflow disclaimer": {
+        en: "Company workflow disclaimer",
+        ar: "إجراءات مراجعة داخلية فقط؛ لا تثبت اعتماداً قانونياً أو جاهزية شاحن فعلي.",
+    },
+    "Company status: {status}": {
+        en: "Company status: {status}",
+        ar: "حالة الشركة: {status}",
+    },
+    "License expiry: {date}": {
+        en: "License expiry: {date}",
+        ar: "انتهاء الترخيص: {date}",
+    },
+    "Refresh company": {
+        en: "Refresh company",
+        ar: "تحديث الشركة",
+    },
+    "Edit company": {
+        en: "Edit company",
+        ar: "تعديل الشركة",
+    },
+    "Legal name": {
+        en: "Legal name",
+        ar: "الاسم القانوني",
+    },
+    "License expiry": {
+        en: "License expiry",
+        ar: "انتهاء الترخيص",
+    },
+    "Upload private evidence": {
+        en: "Upload private evidence",
+        ar: "رفع مستندات خاصة",
+    },
+    "Document kind": {
+        en: "Document kind",
+        ar: "نوع المستند",
+    },
+    "Evidence file": {
+        en: "Evidence file",
+        ar: "ملف المستند",
+    },
+    "Trade license": {
+        en: "Trade license",
+        ar: "الرخصة التجارية",
+    },
+    Identity: {
+        en: "Identity",
+        ar: "الهوية",
+    },
+    Agreement: {
+        en: "Agreement",
+        ar: "الاتفاقية",
+    },
+    "Submit for internal review": {
+        en: "Submit for internal review",
+        ar: "إرسال للمراجعة الداخلية",
+    },
+    "Internal review decision": {
+        en: "Internal review decision",
+        ar: "قرار المراجعة الداخلية",
+    },
+    Decision: {
+        en: "Decision",
+        ar: "القرار",
+    },
+    "Review reason": {
+        en: "Review reason",
+        ar: "سبب القرار",
+    },
+    Approve: {
+        en: "Approve",
+        ar: "موافقة داخلية",
+    },
+    Reject: {
+        en: "Reject",
+        ar: "رفض",
+    },
+    "Request changes": {
+        en: "Request changes",
+        ar: "طلب تعديلات",
+    },
+    Suspend: {
+        en: "Suspend",
+        ar: "تعليق",
+    },
+    "Private documents": {
+        en: "Private documents",
+        ar: "المستندات الخاصة",
+    },
+    "Review history": {
+        en: "Review history",
+        ar: "سجل المراجعة",
+    },
+    "Review transition: {from} → {to}": {
+        en: "Review transition: {from} → {to}",
+        ar: "انتقال المراجعة: {from} ← {to}",
+    },
+    "Company staff": {
+        en: "Company staff",
+        ar: "فريق الشركة",
+    },
+    "Invite company staff": {
+        en: "Invite company staff",
+        ar: "دعوة عضو لفريق الشركة",
+    },
+    "Staff access": {
+        en: "Staff access",
+        ar: "صلاحيات الفريق",
+    },
+    "Read company and inventory": {
+        en: "Read company and inventory",
+        ar: "قراءة الشركة والمخزون",
+    },
+    "Read and manage inventory": {
+        en: "Read and manage inventory",
+        ar: "قراءة المخزون وإدارته",
+    },
+    "Member #{id}: {status}": {
+        en: "Member #{id}: {status}",
+        ar: "العضو #{id}: {status}",
+    },
+    "Revoke access": {
+        en: "Revoke access",
+        ar: "إلغاء الوصول",
+    },
+    "Revoke company access?": {
+        en: "Revoke company access?",
+        ar: "إلغاء الوصول إلى الشركة؟",
+    },
+    "Company inventory": {
+        en: "Company inventory",
+        ar: "مخزون الشركة",
+    },
+    "Inventory metadata disclaimer": {
+        en: "Inventory metadata disclaimer",
+        ar: "بيانات مخزون غير مرتبطة بالتحكم الفعلي. التوفر غير معروف؛ الصيانة هنا لا تتحكم بعد في الحجوزات القديمة.",
+    },
+    "Create site": {
+        en: "Create site",
+        ar: "إنشاء موقع",
+    },
+    "Site name": {
+        en: "Site name",
+        ar: "اسم الموقع",
+    },
+    Address: {
+        en: "Address",
+        ar: "العنوان",
+    },
+    "Inventory access is not granted.": {
+        en: "Inventory access is not granted.",
+        ar: "لا توجد صلاحية لعرض المخزون.",
+    },
+    "Open chargers": {
+        en: "Open chargers",
+        ar: "عرض الشواحن",
+    },
+    "Create charger": {
+        en: "Create charger",
+        ar: "إنشاء شاحن",
+    },
+    "Asset reference": {
+        en: "Asset reference",
+        ar: "مرجع الأصل",
+    },
+    Manufacturer: {
+        en: "Manufacturer",
+        ar: "الشركة المصنعة",
+    },
+    Model: {
+        en: "Model",
+        ar: "الطراز",
+    },
+    "OCPP protocol": {
+        en: "OCPP protocol",
+        ar: "بروتوكول OCPP",
+    },
+    "Inventory source": {
+        en: "Inventory source",
+        ar: "مصدر المخزون",
+    },
+    Simulator: {
+        en: "Simulator",
+        ar: "محاكي",
+    },
+    "Direct unverified": {
+        en: "Direct unverified",
+        ar: "ربط مباشر غير متحقق",
+    },
+    "Partner unverified": {
+        en: "Partner unverified",
+        ar: "شريك غير متحقق",
+    },
+    "Open connectors": {
+        en: "Open connectors",
+        ar: "عرض الموصلات",
+    },
+    "Create connector": {
+        en: "Create connector",
+        ar: "إنشاء موصل",
+    },
+    "Connector number": {
+        en: "Connector number",
+        ar: "رقم الموصل",
+    },
+    "Connector type": {
+        en: "Connector type",
+        ar: "نوع الموصل",
+    },
+    "Maximum power kW": {
+        en: "Maximum power kW",
+        ar: "القدرة القصوى بالكيلوواط",
+    },
+    "Connector #{id} · {type} · {power} kW": {
+        en: "Connector #{id} · {type} · {power} kW",
+        ar: "الموصل #{id} · {type} · {power} كيلوواط",
+    },
+    "Maintenance blocked": {
+        en: "Maintenance blocked",
+        ar: "الصيانة محظورة تشغيلياً",
+    },
+    "Maintenance not blocked": {
+        en: "Maintenance not blocked",
+        ar: "لا يوجد حظر صيانة",
+    },
+    "Set maintenance": {
+        en: "Set maintenance",
+        ar: "تعيين الصيانة",
+    },
+    "Maintenance state": {
+        en: "Maintenance state",
+        ar: "حالة الصيانة",
+    },
+    "Maintenance reason": {
+        en: "Maintenance reason",
+        ar: "سبب الصيانة",
+    },
+    Block: {
+        en: "Block",
+        ar: "حظر",
+    },
+    Unblock: {
+        en: "Unblock",
+        ar: "رفع الحظر",
+    },
+    "Refresh companies": {
+        en: "Refresh companies",
+        ar: "تحديث الشركات",
+    },
+    "Apply as a company": {
+        en: "Apply as a company",
+        ar: "تقديم طلب شركة",
+    },
+    "Trade license number": {
+        en: "Trade license number",
+        ar: "رقم الرخصة التجارية",
+    },
+    "Your companies": {
+        en: "Your companies",
+        ar: "شركاتك",
+    },
+    "Staff invitations": {
+        en: "Staff invitations",
+        ar: "دعوات الفريق",
+    },
+    "Company #{id}": {
+        en: "Company #{id}",
+        ar: "الشركة #{id}",
+    },
+    "Accept staff invitation": {
+        en: "Accept staff invitation",
+        ar: "قبول دعوة الفريق",
+    },
+    "Accept these company permissions?": {
+        en: "Accept these company permissions?",
+        ar: "قبول صلاحيات الشركة التالية؟",
+    },
+    "Page {page} of {last} · {total} records": {
+        en: "Page {page} of {last} · {total} records",
+        ar: "الصفحة {page} من {last} · {total} سجل",
+    },
+    "No records.": {
+        en: "No records.",
+        ar: "لا توجد سجلات.",
+    },
+    Save: {
+        en: "Save",
+        ar: "حفظ",
+    },
+    "Choose a PDF, JPEG or PNG up to 5 MiB.": {
+        en: "Choose a PDF, JPEG or PNG up to 5 MiB.",
+        ar: "اختر ملف PDF أو JPEG أو PNG بحجم لا يتجاوز 5 ميبيبايت.",
+    },
+    "Read company": {
+        en: "Read company",
+        ar: "قراءة الشركة",
+    },
+    "Read inventory": {
+        en: "Read inventory",
+        ar: "قراءة المخزون",
+    },
+    "Manage inventory": {
+        en: "Manage inventory",
+        ar: "إدارة المخزون",
+    },
+    "{kind} · {type} · {size} bytes": {
+        en: "{kind} · {type} · {size} bytes",
+        ar: "{kind} · {type} · {size} بايت",
+    },
+    "company.status.draft": {
+        en: "Draft application",
+        ar: "طلب مسودة",
+    },
+    "company.status.submitted": {
+        en: "Submitted for internal review",
+        ar: "مقدم للمراجعة الداخلية",
+    },
+    "company.status.approved": {
+        en: "Internally approved",
+        ar: "موافق عليه داخلياً",
+    },
+    "company.status.rejected": {
+        en: "Application rejected",
+        ar: "طلب مرفوض",
+    },
+    "company.status.changes_requested": {
+        en: "Changes requested",
+        ar: "تعديلات مطلوبة",
+    },
+    "company.status.suspended": {
+        en: "Internally suspended",
+        ar: "معلق داخلياً",
+    },
+    "company.status.unknown": {
+        en: "Unknown state; refresh",
+        ar: "حالة غير معروفة؛ حدّث",
+    },
+    "Choose at least one staff permission.": {
+        en: "Choose at least one staff permission.",
+        ar: "اختر صلاحية واحدة على الأقل للفريق.",
+    },
+    "Replacement trade license number": {
+        en: "Replacement trade license number",
+        ar: "رقم الرخصة التجارية البديل",
+    },
+    "Company workspace could not load. Refresh to retry.": {
+        en: "Company workspace could not load. Refresh to retry.",
+        ar: "تعذر تحميل مساحة الشركة. حدّث لإعادة المحاولة.",
+    },
+    "Configure a region before applying.": {
+        en: "Configure a region before applying.",
+        ar: "يجب إعداد منطقة قبل تقديم الطلب.",
+    },
+    "Private evidence download failed.": {
+        en: "Private evidence download failed.",
+        ar: "تعذر تنزيل المستند الخاص.",
+    },
+    "Roaming discovery": { en: "Partner locations", ar: "مواقع شبكات التجوال" },
+    "Roaming disclaimer": {
+        en: "Partner-reported locations are unverified. Availability is unknown; reservations, remote charging and payments are unavailable here.",
+        ar: "المواقع واردة من الشريك وغير متحقق منها. التوافر غير معروف؛ الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.",
+    },
+    "Roaming coordinates": { en: "Coordinates:", ar: "الإحداثيات:" },
+    "Roaming source updated": {
+        en: "Source updated (UTC):",
+        ar: "تحديث المصدر (UTC):",
+    },
+    "Roaming received": { en: "Received (UTC):", ar: "تاريخ الاستلام (UTC):" },
+    "Roaming EVSE": { en: "EVSE:", ar: "نقطة الشحن:" },
+    "Roaming reported status": {
+        en: "Partner-reported status:",
+        ar: "الحالة حسب الشريك:",
+    },
+    "Roaming connector": { en: "Connector:", ar: "الموصل:" },
+    "Roaming unknown availability": {
+        en: "Live availability is unknown.",
+        ar: "التوافر المباشر غير معروف.",
+    },
+    "No published roaming locations": {
+        en: "No published partner locations.",
+        ar: "لا توجد مواقع منشورة للشركاء.",
+    },
+    "Roaming load failed": {
+        en: "Unable to load partner data. Please retry.",
+        ar: "تعذر تحميل بيانات الشريك. يرجى المحاولة مجدداً.",
+    },
+    "Page {page} of {last} · {total} records": {
+        en: "Page {page} of {last} · {total} records",
+        ar: "الصفحة {page} من {last} · {total} سجل",
+    },
+    "Roaming operations": { en: "Roaming operations", ar: "إدارة التجوال" },
+    "Roaming operator disclaimer": {
+        en: "Unverified partner records. Reported tariffs and costs are informational and cannot create charges, invoices or settlements. Connections must be provisioned securely by an administrator.",
+        ar: "سجلات شريك غير متحقق منها. التعرفات والتكاليف للمعلومات ولا تنشئ رسوماً أو فواتير أو تسويات. يجب على المسؤول إعداد الاتصالات بشكل آمن.",
+    },
+    "Roaming authorized": {
+        en: "Connection authorized; partner acceptance remains unverified.",
+        ar: "الاتصال مصرح به؛ قبول الشريك لم يتم التحقق منه.",
+    },
+    "Roaming revoked": {
+        en: "Connection authorization revoked.",
+        ar: "تم سحب تصريح الاتصال.",
+    },
+    "Roaming protocol": {
+        en: "Negotiated version:",
+        ar: "الإصدار المتفاوض عليه:",
+    },
+    "Roaming last sync": {
+        en: "Last received data (UTC):",
+        ar: "آخر بيانات مستلمة (UTC):",
+    },
+    "Roaming locations": { en: "Locations", ar: "المواقع" },
+    "Roaming tariffs": { en: "Reported tariffs", ar: "التعرفات الواردة" },
+    "Roaming sessions": { en: "Reported sessions", ar: "الجلسات الواردة" },
+    "Roaming cdrs": { en: "Charge detail records", ar: "سجلات تفاصيل الشحن" },
+    "Roaming negotiate": {
+        en: "Negotiate connection",
+        ar: "التفاوض على الاتصال",
+    },
+    "Roaming synchronize": {
+        en: "Fetch partner records",
+        ar: "جلب سجلات الشريك",
+    },
+    "Roaming external confirmation": {
+        en: "Contact the configured authorized partner now? This reads partner data and does not send charging commands.",
+        ar: "هل تريد الاتصال بالشريك المصرح به الآن؟ هذه العملية تقرأ البيانات ولا ترسل أوامر شحن.",
+    },
+    "Roaming authorization confirmation": {
+        en: "Change this connection authorization? Revocation immediately removes its locations from public discovery.",
+        ar: "هل تريد تغيير تصريح الاتصال؟ سحب التصريح يزيل مواقعه فوراً من الاكتشاف العام.",
+    },
+    "Roaming revoke": { en: "Revoke authorization", ar: "سحب التصريح" },
+    "Roaming authorize": { en: "Authorize connection", ar: "تصريح الاتصال" },
+    "No roaming providers": {
+        en: "No roaming providers assigned.",
+        ar: "لم يتم تعيين مزودي تجوال.",
+    },
+    "No roaming records": {
+        en: "No received records in this module.",
+        ar: "لا توجد سجلات مستلمة في هذا القسم.",
+    },
+    "Roaming price component": { en: "Price component:", ar: "مكون السعر:" },
+    "Roaming unit price": {
+        en: "Reported unit price:",
+        ar: "سعر الوحدة الوارد:",
+    },
+    "Roaming step size": { en: "Billing increment:", ar: "وحدة احتساب السعر:" },
+    "Roaming VAT": { en: "Reported VAT (%):", ar: "الضريبة الواردة (%):" },
+    "Roaming start time": { en: "Started (UTC):", ar: "البداية (UTC):" },
+    "Roaming end time": { en: "Ended (UTC):", ar: "النهاية (UTC):" },
+    "Roaming energy": {
+        en: "Reported energy (kWh):",
+        ar: "الطاقة الواردة (ك.و.س):",
+    },
+    "Roaming location": { en: "Location reference:", ar: "مرجع الموقع:" },
+    "Roaming net cost": {
+        en: "Reported cost excluding VAT:",
+        ar: "التكلفة الواردة دون ضريبة:",
+    },
+    "Partner session and CDR agree": {
+        en: "Partner session and CDR agree",
+        ar: "تتطابق جلسة الشريك وسجل تفاصيل الشحن",
+    },
+    "Partner reconciliation requires review": {
+        en: "Partner reconciliation requires review",
+        ar: "تتطلب مطابقة سجلات الشريك المراجعة",
+    },
+    "Source comparison does not authorize billing": {
+        en: "Source comparison does not authorize billing",
+        ar: "لا تمنح مقارنة المصدر تصريحاً بالفوترة",
+    },
+    "Partner authorization or negotiation is required": {
+        en: "Partner authorization or negotiation is required",
+        ar: "يلزم تصريح الشريك والتفاوض معه",
+    },
+    "Credit record needs separate review": {
+        en: "Credit record needs separate review",
+        ar: "يتطلب سجل الرصيد مراجعة منفصلة",
+    },
+    "CDR has no session reference": {
+        en: "CDR has no session reference",
+        ar: "لا يتضمن سجل الشحن مرجع جلسة",
+    },
+    "Referenced partner session has not been received": {
+        en: "Referenced partner session has not been received",
+        ar: "لم تُستلم جلسة الشريك المشار إليها",
+    },
+    "Partner session is not completed": {
+        en: "Partner session is not completed",
+        ar: "جلسة الشريك غير مكتملة",
+    },
+    "Energy precision needs review": {
+        en: "Energy precision needs review",
+        ar: "تتطلب دقة الطاقة المراجعة",
+    },
+    "Session and CDR energy differ": {
+        en: "Session and CDR energy differ",
+        ar: "تختلف طاقة الجلسة وسجل الشحن",
+    },
+    "Partner history exceeds automatic comparison limit": {
+        en: "Partner history exceeds automatic comparison limit",
+        ar: "يتجاوز سجل الشريك حد المقارنة التلقائية",
+    },
+    "Partner history contains unlinked CDRs": {
+        en: "Partner history contains unlinked CDRs",
+        ar: "يتضمن سجل الشريك سجلات شحن غير مرتبطة",
+    },
+    "Multiple CDRs claim the same session": {
+        en: "Multiple CDRs claim the same session",
+        ar: "تشير سجلات شحن متعددة إلى الجلسة نفسها",
+    },
+    "Session and CDR currencies differ": {
+        en: "Session and CDR currencies differ",
+        ar: "تختلف عملة الجلسة وسجل الشحن",
+    },
+    "Session and CDR locations differ": {
+        en: "Session and CDR locations differ",
+        ar: "يختلف موقع الجلسة وسجل الشحن",
+    },
+    "Session and CDR EVSEs differ": {
+        en: "Session and CDR EVSEs differ",
+        ar: "تختلف وحدة شحن الجلسة وسجل الشحن",
+    },
+    "Session and CDR connectors differ": {
+        en: "Session and CDR connectors differ",
+        ar: "يختلف موصل الجلسة وسجل الشحن",
+    },
+    "Session and CDR start times differ": {
+        en: "Session and CDR start times differ",
+        ar: "يختلف وقت بدء الجلسة وسجل الشحن",
+    },
+    "Session and CDR end times differ": {
+        en: "Session and CDR end times differ",
+        ar: "يختلف وقت انتهاء الجلسة وسجل الشحن",
+    },
+    "Net cost is missing or needs precision review": {
+        en: "Net cost is missing or needs precision review",
+        ar: "التكلفة الصافية مفقودة أو تتطلب مراجعة الدقة",
+    },
+    "Gross cost is missing or needs precision review": {
+        en: "Gross cost is missing or needs precision review",
+        ar: "التكلفة الإجمالية مفقودة أو تتطلب مراجعة الدقة",
+    },
+    "Session and CDR net costs differ": {
+        en: "Session and CDR net costs differ",
+        ar: "تختلف التكلفة الصافية للجلسة وسجل الشحن",
+    },
+    "Session and CDR gross costs differ": {
+        en: "Session and CDR gross costs differ",
+        ar: "تختلف التكلفة الإجمالية للجلسة وسجل الشحن",
+    },
+    "Source fields require review": {
+        en: "Source fields require review",
+        ar: "تتطلب حقول المصدر المراجعة",
+    },
+    "No saved partner locations": {
+        en: "No saved partner locations",
+        ar: "لا توجد مواقع شركاء محفوظة",
+    },
+    "No matching partner locations": {
+        en: "No matching partner locations",
+        ar: "لا توجد مواقع شركاء مطابقة",
+    },
+    "All connectors": { en: "All connectors", ar: "كل الموصلات" },
+    "Country code (e.g. ARE)": {
+        en: "Country code (e.g. ARE)",
+        ar: "رمز الدولة (مثلاً ARE)",
+    },
+    "Search partner locations": {
+        en: "Search partner locations",
+        ar: "البحث في مواقع الشركاء",
+    },
+    "All partner locations": {
+        en: "All partner locations",
+        ar: "كل مواقع الشركاء",
+    },
+    "Saved partner locations": {
+        en: "Saved partner locations",
+        ar: "مواقع الشركاء المحفوظة",
+    },
+    "Remove saved partner location": {
+        en: "Remove saved partner location",
+        ar: "إزالة موقع الشريك المحفوظ",
+    },
+    "Save partner location": {
+        en: "Save partner location",
+        ar: "حفظ موقع الشريك",
+    },
+    "Saved partner location is unavailable": {
+        en: "Saved partner location is unavailable",
+        ar: "موقع الشريك المحفوظ غير متاح",
+    },
+    "Saved location update uncertain. Refresh to check.": {
+        en: "Saved location update uncertain. Refresh to check.",
+        ar: "نتيجة تحديث الموقع المحفوظ غير مؤكدة. حدّث للتحقق.",
+    },
+    "Transaction update interval (seconds)": {
+        en: "Transaction update interval (seconds)",
+        ar: "فاصل تحديث المعاملة (ثوانٍ)",
+    },
+    "Connector count": { en: "Connector count", ar: "عدد الموصلات" },
+    "Meter sample interval (seconds)": {
+        en: "Meter sample interval (seconds)",
+        ar: "فاصل عينات العداد (ثوانٍ)",
+    },
+    "Heartbeat interval (seconds)": {
+        en: "Heartbeat interval (seconds)",
+        ar: "فاصل النبضات (ثوانٍ)",
+    },
+    "Outcome uncertain": { en: "Outcome uncertain", ar: "النتيجة غير مؤكدة" },
+    "Invalid device value": {
+        en: "Invalid device value",
+        ar: "قيمة الشاحن غير صالحة",
+    },
+    "Not supported": { en: "Not supported", ar: "غير مدعوم" },
+    Observed: { en: "Observed", ar: "مرصود" },
+    "Invalid device reply": {
+        en: "Invalid device reply",
+        ar: "رد الشاحن غير صالح",
+    },
+    "Read was not sent": {
+        en: "Read was not sent",
+        ar: "لم يُرسل طلب القراءة",
+    },
+    "Device rejected the read": {
+        en: "Device rejected the read",
+        ar: "رفض الشاحن القراءة",
+    },
+    "Awaiting device reply": {
+        en: "Awaiting device reply",
+        ar: "بانتظار رد الشاحن",
+    },
+    "Device reply observed": {
+        en: "Device reply observed",
+        ar: "تم رصد رد الشاحن",
+    },
+    "Read unavailable. Refresh source history before another action.": {
+        en: "Read unavailable. Refresh source history before another action.",
+        ar: "القراءة غير متاحة. حدّث سجل المصدر قبل إجراء آخر.",
+    },
+    "Resolve previous settings read": {
+        en: "Resolve the previous request before a new read. No automatic retry.",
+        ar: "احسم الطلب السابق قبل قراءة جديدة. لا توجد إعادة تلقائية.",
+    },
+    "No settings reads yet.": {
+        en: "No settings reads yet.",
+        ar: "لا توجد قراءات إعدادات بعد.",
+    },
+    "Check device reply": { en: "Check device reply", ar: "فحص رد الشاحن" },
+    "Refresh source history": {
+        en: "Refresh source history",
+        ar: "تحديث سجل المصدر",
+    },
+    "Resolve read request": {
+        en: "Resolve read request",
+        ar: "حسم طلب القراءة",
+    },
+    "Read device settings": {
+        en: "Read device settings",
+        ar: "قراءة إعدادات الشاحن",
+    },
+    "Settings read disclaimer": {
+        en: "Explicit read requests only. Device settings and charging state are unchanged. Simulator evidence is not physical acceptance.",
+        ar: "طلبات قراءة صريحة فقط. لا تتغير إعدادات الشاحن أو حالة الشحن. دليل المحاكي ليس قبولاً للأجهزة الفعلية.",
+    },
+    "Device operating settings": {
+        en: "Device operating settings",
+        ar: "إعدادات تشغيل الشاحن",
+    },
+    "Settings reading": { en: "{field}: {value}", ar: "{field}: {value}" },
+    "Roaming gross cost": {
+        en: "Reported cost including VAT:",
+        ar: "التكلفة الواردة مع الضريبة:",
+    },
+    "Invoice history": { en: "Invoice history", ar: "سجل الفواتير" },
+    "Invoice number prefix": {
+        en: "Invoice number prefix",
+        ar: "بداية رقم الفاتورة",
+    },
+    "Invoice from UTC": { en: "From date (UTC)", ar: "من تاريخ (UTC)" },
+    "Invoice through UTC": { en: "Through date (UTC)", ar: "حتى تاريخ (UTC)" },
+    "No matching invoices": {
+        en: "No invoices match these filters.",
+        ar: "لا توجد فواتير تطابق هذه المرشحات.",
+    },
+    "View invoice": { en: "View invoice", ar: "عرض الفاتورة" },
+    "Invoice details": { en: "Invoice details", ar: "تفاصيل الفاتورة" },
+    "Invoice history load failed": {
+        en: "Unable to load invoice history. Please retry.",
+        ar: "تعذر تحميل سجل الفواتير. يرجى المحاولة مجدداً.",
+    },
+    "Allocation disclaimer": {
+        en: "Simulated allocations before any refunds; these are not settled or payable balances.",
+        ar: "توزيعات تجريبية قبل أي مبالغ مستردة؛ ليست أرصدة مسواة أو مستحقة الدفع.",
+    },
+    "Simulated commission allocation": {
+        en: "Simulated commission allocation",
+        ar: "توزيع العمولة التجريبي",
+    },
+    "Simulated vendor allocation": {
+        en: "Simulated vendor allocation",
+        ar: "توزيع المورد التجريبي",
+    },
+    "Simulated collections": {
+        en: "Simulated collections",
+        ar: "التحصيلات التجريبية",
+    },
+    "Simulated refunds": {
+        en: "Simulated refunds",
+        ar: "المبالغ المستردة التجريبية",
+    },
+    "No recorded transactions": {
+        en: "No transactions recorded.",
+        ar: "لا توجد معاملات مسجلة.",
+    },
+    "Loading…": { en: "Loading…", ar: "جارٍ التحميل…" },
+    Retry: { en: "Retry", ar: "إعادة المحاولة" },
+    Previous: { en: "Previous", ar: "السابق" },
+    Next: { en: "Next", ar: "التالي" },
+    Refresh: { en: "Refresh", ar: "تحديث" },
+    Search: { en: "Search", ar: "بحث" },
+    "Open company": { en: "Open company", ar: "فتح الشركة" },
+    "Simulated pricing": { en: "Simulated pricing", ar: "التسعير التجريبي" },
+    "Tariff disclaimer": {
+        en: "Pricing is limited to simulator stations. Real charging and payments are not enabled.",
+        ar: "التسعير متاح للمحطات التجريبية فقط. الشحن الفعلي والمدفوعات غير مفعلة.",
+    },
+    "Tariff snapshot disclaimer": {
+        en: "New versions apply at session start. Existing session quotes and invoices stay unchanged.",
+        ar: "تسري الإصدارات الجديدة عند بدء الجلسة. تظل أسعار الجلسات والفواتير السابقة دون تغيير.",
+    },
+    "Manage pricing": { en: "Manage pricing", ar: "إدارة التسعير" },
+    "No pricing stations": {
+        en: "No owned simulator stations available for pricing.",
+        ar: "لا توجد محطات تجريبية تابعة لك متاحة للتسعير.",
+    },
+    "Pricing load failed": {
+        en: "Unable to load pricing. Please retry.",
+        ar: "تعذر تحميل التسعير. يرجى المحاولة مجدداً.",
+    },
+    "Refresh pricing history": {
+        en: "Refresh pricing history",
+        ar: "تحديث سجل التسعير",
+    },
+    "Publish pricing version": {
+        en: "Publish pricing version",
+        ar: "نشر إصدار التسعير",
+    },
+    "Price per kWh": { en: "Price per kWh", ar: "السعر لكل كيلوواط ساعة" },
+    "Tax percentage": { en: "Tax (%) · 0–100", ar: "الضريبة (%) · ٠–١٠٠" },
+    "Commission percentage": {
+        en: "Commission (%) · 0–100",
+        ar: "العمولة (%) · ٠–١٠٠",
+    },
+    "Commission policy retained": {
+        en: "The administrator commission policy is retained automatically.",
+        ar: "يتم الاحتفاظ تلقائياً بسياسة العمولة التي حددها المسؤول.",
+    },
+    "Invalid exact price": {
+        en: "Use an exact non-negative price within the displayed limits and currency precision.",
+        ar: "أدخل سعراً دقيقاً غير سالب ضمن الحدود والدقة العشرية المعروضة للعملة.",
+    },
+    "Pricing rejected; correct or wait": {
+        en: "Publishing was rejected. Correct the values or wait before trying again.",
+        ar: "تم رفض النشر. صحح القيم أو انتظر قبل المحاولة مجدداً.",
+    },
+    "Pricing outcome uncertain": {
+        en: "Refresh pricing history before submitting again. The previous version may already have been saved.",
+        ar: "حدّث سجل التسعير قبل الإرسال مجدداً. قد يكون الإصدار السابق قد حُفظ بالفعل.",
+    },
+    "Pricing region missing": {
+        en: "Configure the matching country/currency before publishing pricing.",
+        ar: "يجب إعداد الدولة والعملة المتطابقتين قبل نشر التسعير.",
+    },
+    "No pricing versions": {
+        en: "No pricing versions published.",
+        ar: "لم يتم نشر إصدارات تسعير.",
+    },
+    "Pricing version {id}": {
+        en: "Pricing version {id}",
+        ar: "إصدار التسعير {id}",
+    },
+    "Pricing percentages": {
+        en: "Tax: {tax}% · Commission: {commission}%",
+        ar: "الضريبة: {tax}% · العمولة: {commission}%",
+    },
+    "Pricing maximum": {
+        en: "Maximum price: {amount} {currency} per kWh",
+        ar: "الحد الأقصى للسعر: {amount} {currency} لكل كيلوواط ساعة",
+    },
+    "Managed reservations unavailable": {
+        en: "Reservations and new starts are temporarily unavailable for this managed simulator.",
+        ar: "الحجوزات وبدء الجلسات الجديدة غير متاحة مؤقتاً لهذه المحطة التجريبية المُدارة.",
+    },
+    "Catalog station link": {
+        en: "Catalog station (optional)",
+        ar: "محطة الدليل (اختياري)",
+    },
+    "No catalog link": { en: "No catalog link", ar: "دون ربط بمحطة الدليل" },
+    "Search owned catalog stations": {
+        en: "Search your catalog stations",
+        ar: "البحث في محطات الدليل التابعة لك",
+    },
+    "Search catalog choices": {
+        en: "Search station choices",
+        ar: "البحث في خيارات المحطات",
+    },
+    "Previous catalog choices": {
+        en: "Previous station choices",
+        ar: "خيارات المحطات السابقة",
+    },
+    "Next catalog choices": {
+        en: "Next station choices",
+        ar: "خيارات المحطات التالية",
+    },
+    "Catalog choices unavailable": {
+        en: "Unable to load station choices. Retry or create an unlinked inventory site.",
+        ar: "تعذر تحميل خيارات المحطات. أعد المحاولة أو أنشئ موقع مخزون غير مرتبط.",
+    },
+    "Catalog link gate notice": {
+        en: "Linking enforces company approval, current license and connector maintenance for new bookings/starts. Configure exactly one matching simulator connector first. Parallel connector targets require explicit mapping and remain unavailable. Active sessions can still stop.",
+        ar: "يطبق الربط شروط اعتماد الشركة وسريان الترخيص وصيانة الموصل على الحجوزات وبدء الجلسات الجديدة. يجب إعداد موصل تجريبي واحد مطابق. الأهداف المتوازية تحتاج ربطاً صريحاً وغير متاحة حالياً. يمكن إيقاف الجلسات النشطة.",
+    },
+    "Start admission blocked": {
+        en: "This start has not been dispatched because admission is unavailable. Refresh or cancel the undispatched reservation.",
+        ar: "لم يتم إرسال طلب البدء لأن شروط السماح غير متاحة. حدّث الحالة أو ألغِ الحجز الذي لم يُرسل طلبه.",
+    },
+    "Cancel undispatched start": {
+        en: "Cancel undispatched start",
+        ar: "إلغاء طلب البدء غير المرسل",
+    },
+    "Cancel undispatched consent": {
+        en: "Cancel this reservation and its start only if dispatch has not begun? Dispatched or uncertain commands require reconciliation.",
+        ar: "هل تريد إلغاء الحجز وطلب البدء إذا لم يبدأ الإرسال؟ الأوامر المرسلة أو غير المؤكدة تتطلب المطابقة.",
+    },
+    "Retry sign out": { en: "Retry sign out", ar: "إعادة محاولة تسجيل الخروج" },
+    "Signed out.": { en: "Signed out.", ar: "تم تسجيل الخروج." },
+    "Sign-out could not be confirmed. Reconnect and retry.": {
+        en: "Sign-out could not be confirmed. Reconnect and retry.",
+        ar: "تعذر تأكيد تسجيل الخروج. أعد الاتصال ثم حاول مجدداً.",
+    },
+    "Register roaming provider": {
+        en: "Register roaming provider",
+        ar: "تسجيل مزوّد تجوال",
+    },
+    "Roaming registration disclaimer": {
+        en: "Only approved server connections can be assigned. Credentials and endpoint configuration stay on the server. Registration starts revoked and makes no partner request.",
+        ar: "يمكن إسناد اتصالات الخادم المعتمدة فقط. تبقى بيانات الاعتماد وإعدادات الاتصال على الخادم. يبدأ التسجيل دون تفويض ولا يُرسل طلباً للشريك.",
+    },
+    "No approved roaming connections": {
+        en: "No unassigned validated server connection is available. An operator must provision approved connection metadata and credentials securely before registration.",
+        ar: "لا يوجد اتصال خادم صالح وغير مسند. يجب إعداد بيانات الاتصال المعتمدة وبيانات الاعتماد بأمان قبل التسجيل.",
+    },
+    "Approved connection": { en: "Approved connection", ar: "الاتصال المعتمد" },
+    "Provider vendor": { en: "Provider vendor", ar: "مشغّل المزوّد" },
+    "Search provider vendors": {
+        en: "Search provider vendors",
+        ar: "البحث عن مشغّلي المزوّدين",
+    },
+    "Provider name": { en: "Provider name", ar: "اسم المزوّد" },
+    "No provider vendors": {
+        en: "No vendors match this search.",
+        ar: "لا يوجد مشغّلون مطابقون للبحث.",
+    },
+    "Roaming registration confirmation": {
+        en: "Register this provider with the selected vendor and approved connection? It remains revoked until separately authorized. No partner request will be made.",
+        ar: "هل تريد تسجيل المزوّد للمشغّل والاتصال المعتمد المحددين؟ سيبقى دون تفويض حتى إجازته بشكل منفصل. لن يُرسل طلب للشريك.",
+    },
+    "Roaming registration uncertain": {
+        en: "Registration was not confirmed. Refresh providers before trying again; it may already have been saved.",
+        ar: "لم يتم تأكيد التسجيل. حدّث المزوّدين قبل المحاولة مجدداً؛ ربما حُفظ التسجيل بالفعل.",
+    },
+    "Roaming registration unavailable": {
+        en: "Connection registration options could not be loaded. Existing provider operations remain available.",
+        ar: "تعذر تحميل خيارات تسجيل الاتصال. تظل عمليات المزوّدين الحالية متاحة.",
+    },
+    "Choose connector": { en: "Choose connector", ar: "اختيار الموصل" },
+    "Connector choice disclaimer": {
+        en: "Simulated inventory. Connectors on one EVSE share capacity; availability is not live.",
+        ar: "مخزون تجريبي. تتشارك موصلات وحدة EVSE الواحدة السعة؛ التوافر غير مباشر.",
+    },
+    "EVSE {evse} \u00b7 Connector {connector}": {
+        en: "EVSE {evse} \u00b7 Connector {connector}",
+        ar: "وحدة EVSE {evse} · الموصل {connector}",
+    },
+    "Connector currently unavailable": {
+        en: "This simulator connector cannot accept new reservations.",
+        ar: "هذا الموصل التجريبي لا يقبل حجوزات جديدة.",
+    },
+    "Sign in to reserve connector": {
+        en: "Sign in as a customer to reserve this simulator connector.",
+        ar: "سجّل الدخول كعميل لحجز هذا الموصل التجريبي.",
+    },
+    "Canonical EVSE mapping": {
+        en: "Canonical EVSE mapping",
+        ar: "ربط وحدات EVSE المعتمد",
+    },
+    "Canonical mapping disclaimer": {
+        en: "Mapping identity is immutable. Current legacy bookings and unresolved sessions must finish before activation. Simulators only; no hardware command is sent.",
+        ar: "هوية الربط غير قابلة للتعديل. يجب انتهاء الحجوزات القديمة والجلسات غير المحسومة قبل التفعيل. محاكاة فقط؛ لا يُرسل أمر لجهاز فعلي.",
+    },
+    "Create EVSE": { en: "Create EVSE", ar: "إنشاء وحدة EVSE" },
+    "EVSE number": { en: "EVSE number", ar: "رقم وحدة EVSE" },
+    "Simulator mode": { en: "Simulator mode", ar: "نمط المحاكاة" },
+    "Application simulator": {
+        en: "Application simulator",
+        ar: "محاكاة التطبيق",
+    },
+    "CSMS simulator": { en: "CSMS simulator", ar: "محاكاة CSMS" },
+    "Provisioned source binding ID": {
+        en: "Provisioned source binding ID (CSMS only)",
+        ar: "معرّف اتصال المصدر المُجهّز (CSMS فقط)",
+    },
+    "Source EVSE number": {
+        en: "Source EVSE number (0 for OCPP 1.6)",
+        ar: "رقم EVSE في المصدر (0 لبروتوكول OCPP 1.6)",
+    },
+    "Provisioned simulator sources": {
+        en: "Provisioned simulator sources",
+        ar: "مصادر المحاكاة المُجهّزة",
+    },
+    "EVSE {number}": { en: "EVSE {number}", ar: "وحدة EVSE {number}" },
+    "Map connector": { en: "Map connector", ar: "ربط الموصل" },
+    "Connector already mapped": {
+        en: "Connector already mapped",
+        ar: "الموصل مربوط بالفعل",
+    },
+    "Source connector number": {
+        en: "Source connector number",
+        ar: "رقم الموصل في المصدر",
+    },
+    "Mapping outcome unconfirmed": {
+        en: "The mapping may have been saved. Refresh authoritative records before submitting again.",
+        ar: "ربما حُفظ الربط. حدّث السجلات المعتمدة قبل إعادة الإرسال.",
+    },
+    "Mapped connector capabilities": {
+        en: "Mapped connectors · choose a connector for capabilities",
+        ar: "موصلات معتمدة · اختر موصلاً لعرض مواصفاته",
+    },
+    "Check in": { en: "Check in", ar: "تسجيل الوصول" },
+    "Arrival confirmation": {
+        en: "Record your arrival for this reservation? This is self-reported, does not verify physical presence, extend the slot or start charging.",
+        ar: "هل تريد تسجيل وصولك لهذا الحجز؟ هذا إبلاغ ذاتي لا يثبت الوجود الفعلي ولا يمدد الموعد ولا يبدأ الشحن.",
+    },
+    "Self-reported arrival · {time}": {
+        en: "Self-reported arrival recorded · {time}",
+        ar: "سُجل الوصول بإبلاغ ذاتي · {time}",
+    },
+    expired_unused: {
+        en: "Reservation window ended without a linked charging session",
+        ar: "انتهى موعد الحجز دون جلسة شحن مرتبطة",
+    },
+    source_observed: {
+        en: "Source outcome observed",
+        ar: "رُصدت النتيجة في المصدر",
+    },
+    "Start transport · {status}": {
+        en: "Start transport · {status}",
+        ar: "نقل طلب البدء · {status}",
+    },
+    "Stop transport · {status}": {
+        en: "Stop transport · {status}",
+        ar: "نقل طلب الإيقاف · {status}",
+    },
+    "Source outcome disclaimer": {
+        en: "Authenticated simulator evidence shows the requested state. This does not prove command acceptance or physical charging.",
+        ar: "تُظهر أدلة المحاكي الموثّقة الحالة المطلوبة. هذا لا يثبت قبول الأمر أو الشحن الفعلي.",
+    },
+    "Reconcile received evidence": {
+        en: "Reconcile received evidence",
+        ar: "مطابقة الأدلة المستلمة",
+    },
+    "Source evidence reconciled": {
+        en: "Source evidence reconciled. No command sent.",
+        ar: "تمت مطابقة أدلة المصدر. لم يُرسل أمر.",
+    },
+    "No new applied source evidence": {
+        en: "No new applied source evidence. No command sent.",
+        ar: "لا توجد أدلة مصدر مطبقة جديدة. لم يُرسل أمر.",
+    },
+    "Secure charger admission": {
+        en: "Secure charger admission",
+        ar: "قبول الشاحن الآمن",
+    },
+    "Admission disclaimer": {
+        en: "Admission credentials only. Upstream CSMS registration and physical charging are not verified.",
+        ar: "بيانات قبول الاتصال فقط. لم يُتحقق من تسجيل CSMS أو الشحن الفعلي.",
+    },
+    "Refresh admission": { en: "Refresh admission", ar: "تحديث القبول" },
+    "Prepare identity": { en: "Prepare identity", ar: "إعداد الهوية" },
+    "Charger identity": { en: "Charger identity", ar: "هوية الشاحن" },
+    "Certificate SHA-256 (optional)": {
+        en: "Certificate SHA-256 (optional)",
+        ar: "بصمة الشهادة SHA-256 (اختياري)",
+    },
+    "Credential version: {version}": {
+        en: "Credential version: {version}",
+        ar: "إصدار بيانات الدخول: {version}",
+    },
+    "Admission enabled": { en: "Admission enabled", ar: "قبول الاتصال مفعّل" },
+    "Admission disabled": {
+        en: "Admission disabled",
+        ar: "قبول الاتصال معطّل",
+    },
+    "Admission rotation": {
+        en: "Invalidate the old credential and display a new secret once for 30 seconds? A lost reply requires refresh and a new explicit rotation.",
+        ar: "هل تريد إبطال بيانات الدخول السابقة وإظهار سر جديد مرة واحدة لمدة 30 ثانية؟ عند فقد الرد يلزم التحديث والتدوير مجدداً بشكل صريح.",
+    },
+    "Admission revocation": {
+        en: "Deny new connections and disconnect at the next ingress recheck? This does not stop physical charging.",
+        ar: "هل تريد منع الاتصالات الجديدة وإغلاق الاتصال عند فحص البوابة التالي؟ هذا لا يوقف الشحن الفعلي.",
+    },
+    "Issue / rotate credential": {
+        en: "Issue / rotate credential",
+        ar: "إصدار / تدوير بيانات الدخول",
+    },
+    "Revoke credential": { en: "Revoke credential", ar: "إبطال بيانات الدخول" },
+    "One-time credential notice": {
+        en: "Save this secret securely now. It is shown once for 30 seconds and is never saved in browser storage.",
+        ar: "احفظ السر بأمان الآن. يظهر مرة واحدة لمدة 30 ثانية ولا يُحفظ في تخزين المتصفح.",
+    },
+    "One-time charger secret": {
+        en: "One-time charger secret",
+        ar: "سر الشاحن لمرة واحدة",
+    },
+    "Hide secret": { en: "Hide secret", ar: "إخفاء السر" },
+    "Credential hidden": {
+        en: "Credential hidden",
+        ar: "تم إخفاء بيانات الدخول",
+    },
+    "Admission outcome unconfirmed": {
+        en: "Outcome unconfirmed. Refresh before any further credential operation.",
+        ar: "النتيجة غير مؤكدة. حدّث البيانات قبل أي عملية أخرى لبيانات الدخول.",
+    },
+    "Operational recovery": {
+        en: "Operational recovery",
+        ar: "الاسترداد التشغيلي",
+    },
+    "Operational recovery disclaimer": {
+        en: "No-source evidence requires investigation. These controls never resend a command or force capacity release. Only authenticated source transitions can finalize a session. Hardware charging is not verified.",
+        ar: "يتطلب غياب أدلة المصدر التحقيق. لا تعيد هذه الأدوات إرسال الأوامر ولا تفرض تحرير السعة. انتقالات المصدر الموثقة فقط تنهي الجلسة. لم يُتحقق من الشحن الفعلي.",
+    },
+    "Operator recovery note": {
+        en: "Operator recovery note",
+        ar: "ملاحظة الاسترداد التشغيلي",
+    },
+    "Recovery case: {state}": {
+        en: "Recovery case: {state}",
+        ar: "حالة الاسترداد: {state}",
+    },
+    "Open recovery case": { en: "Open recovery case", ar: "فتح حالة استرداد" },
+    "Save recovery review": {
+        en: "Save recovery review",
+        ar: "حفظ مراجعة الاسترداد",
+    },
+    "Inspect authenticated simulator source": {
+        en: "Inspect authenticated simulator source",
+        ar: "فحص مصدر المحاكي الموثق",
+    },
+    "Recovery outcome unconfirmed": {
+        en: "Outcome unconfirmed. Refresh this case before another operation.",
+        ar: "النتيجة غير مؤكدة. حدّث الحالة قبل عملية أخرى.",
+    },
+    "recovery.open": { en: "Open", ar: "مفتوحة" },
+    "recovery.investigating": { en: "Investigating", ar: "قيد التحقيق" },
+    "recovery.awaiting_source": {
+        en: "Awaiting source evidence",
+        ar: "بانتظار أدلة المصدر",
+    },
+    "recovery.source_observed": {
+        en: "Source evidence observed",
+        ar: "رُصدت أدلة المصدر",
+    },
+    "recovery.resolved": {
+        en: "Resolved with source evidence",
+        ar: "عولجت بأدلة المصدر",
+    },
+    "Credential history": { en: "Credential history", ar: "سجل بيانات الدخول" },
+    "System operation": { en: "System operation", ar: "عملية نظام" },
+    "Operator action": { en: "Operator action", ar: "إجراء مشغّل" },
+    "admission.state.prepared": {
+        en: "Credential not issued",
+        ar: "بيانات الدخول غير مُصدرة",
+    },
+    "admission.state.active": {
+        en: "Credential valid",
+        ar: "بيانات الدخول صالحة",
+    },
+    "admission.state.expiring": {
+        en: "Credential expires within seven days; renewal required",
+        ar: "تنتهي بيانات الدخول خلال سبعة أيام؛ يلزم تجديدها",
+    },
+    "admission.state.expired": {
+        en: "Credential expired; admission denied",
+        ar: "انتهت بيانات الدخول؛ الاتصال غير مسموح",
+    },
+    "admission.state.revoked": {
+        en: "Credential revoked",
+        ar: "أُبطلت بيانات الدخول",
+    },
+    "admission.state.disabled": {
+        en: "Credential disabled",
+        ar: "بيانات الدخول معطّلة",
+    },
+    "admission.event.prepared": {
+        en: "Charger identity prepared",
+        ar: "أُعدّت هوية الشاحن",
+    },
+    "admission.event.rotated": {
+        en: "Credential issued or rotated",
+        ar: "أُصدرت بيانات الدخول أو دُوّرت",
+    },
+    "admission.event.revoked": {
+        en: "Credential revoked",
+        ar: "أُبطلت بيانات الدخول",
+    },
+    "Source diagnostics": { en: "Source diagnostics", ar: "تشخيص المصدر" },
+    "Cancel firmware before dispatch": {
+        en: "Cancel firmware before dispatch",
+        ar: "إلغاء البرنامج الثابت قبل الإرسال",
+    },
+    "Signed firmware releases": {
+        en: "Signed firmware releases",
+        ar: "إصدارات البرامج الثابتة الموقعة",
+    },
+    "Signed firmware operations": {
+        en: "Signed firmware operations",
+        ar: "عمليات البرامج الثابتة الموقعة",
+    },
+    "Signed firmware disclaimer": {
+        en: "Local simulator only. Admin approves server-provisioned artifacts after byte, signature, certificate pin and validity checks. Only compatible signed releases can be requested. No unsigned fallback or automatic retry. Starts stay blocked until correlated terminal source evidence and fresh idle state are reviewed. Source reports do not prove physical installation.",
+        ar: "للمحاكاة المحلية فقط. يعتمد المسؤول ملفات معدة على الخادم بعد فحص المحتوى والتوقيع وبصمة الشهادة وصلاحيتها. تُطلب الإصدارات الموقعة المتوافقة فقط. لا يوجد بديل غير موقع أو إعادة تلقائية. يبقى الشحن محظوراً حتى مراجعة تقرير مصدر نهائي مرتبط وحالة خمول حديثة. لا تثبت تقارير المصدر التثبيت الفعلي.",
+    },
+    "Approve configured firmware": {
+        en: "Approve configured firmware",
+        ar: "اعتماد برنامج ثابت مهيأ",
+    },
+    "Configured signed release": {
+        en: "Configured signed release",
+        ar: "الإصدار الموقع المهيأ",
+    },
+    "Approved signed release": {
+        en: "Approved signed release",
+        ar: "الإصدار الموقع المعتمد",
+    },
+    "Revoke signed release": {
+        en: "Revoke signed release",
+        ar: "إبطال الإصدار الموقع",
+    },
+    "Firmware release revoked": { en: "Release revoked", ar: "الإصدار مبطل" },
+    "Request signed firmware": {
+        en: "Request signed firmware",
+        ar: "طلب برنامج ثابت موقع",
+    },
+    "No compatible signed firmware": {
+        en: "No compatible approved signed release is available. Server artifact provisioning and Admin approval are required.",
+        ar: "لا يوجد إصدار موقع معتمد ومتوافق. يلزم إعداد الملف على الخادم واعتماد المسؤول.",
+    },
+    "Review firmware source evidence": {
+        en: "Review firmware source evidence",
+        ar: "مراجعة دليل مصدر البرنامج الثابت",
+    },
+    "Safe reset operations": {
+        en: "Safe reset operations",
+        ar: "عمليات إعادة التشغيل الآمنة",
+    },
+    "Safe reset disclaimer": {
+        en: "Local simulator only. Uses Soft (1.6) or OnIdle (2.0.1). Active sessions and current bookings block resets. A transport receipt does not prove execution. New starts remain blocked until an operator reviews fresh idle source evidence. No automatic retry or session closure.",
+        ar: "للمحاكاة المحلية فقط. يستخدم Soft أو OnIdle. تمنع الجلسات والحجوزات الحالية إعادة التشغيل. لا يثبت إيصال النقل التنفيذ. يبقى بدء الشحن محظوراً حتى مراجعة دليل مصدر حديث وخامل. لا توجد إعادة تلقائية أو إغلاق للجلسات.",
+    },
+    "Request safe reset": {
+        en: "Request safe reset",
+        ar: "طلب إعادة تشغيل آمنة",
+    },
+    "Reset reason": {
+        en: "Reset reason (at least 10 characters)",
+        ar: "سبب إعادة التشغيل (١٠ أحرف على الأقل)",
+    },
+    "Review source after reset": {
+        en: "Review source after reset",
+        ar: "مراجعة المصدر بعد إعادة التشغيل",
+    },
+    "Reset source reviewed": {
+        en: "Fresh idle source reviewed; physical reset execution remains unverified",
+        ar: "تمت مراجعة مصدر حديث وخامل؛ يبقى تنفيذ إعادة التشغيل الفعلي غير مثبت",
+    },
+    "Card source authorization": {
+        en: "Card/token authorization; simulated source evidence only",
+        ar: "التفويض ببطاقة أو رمز؛ دليل مصدر محاكاة فقط",
+    },
+    "Awaiting rider transaction": {
+        en: "Authorization recorded; awaiting a source transaction. Capacity stays reserved until reconciled.",
+        ar: "تم تسجيل التفويض؛ بانتظار معاملة المصدر. تبقى السعة محجوزة حتى تسوية الحالة.",
+    },
+    "Rider access tokens": {
+        en: "Charging cards & tokens",
+        ar: "بطاقات ورموز الشحن",
+    },
+    "Rider access unavailable": {
+        en: "Charging access records are unavailable. Refresh this section to retry.",
+        ar: "سجلات وصول الشحن غير متاحة. حدّث هذا القسم لإعادة المحاولة.",
+    },
+    "Rider access disclaimer": {
+        en: "Register a card identifier or virtual token, request operator approval, and book the charger before use. Test-source authorization is not physical card or hardware acceptance.",
+        ar: "سجل معرّف بطاقة أو رمزاً افتراضياً واطلب موافقة المشغل واحجز الشاحن قبل الاستخدام. تفويض مصدر الاختبار ليس قبولاً للبطاقة أو الأجهزة الفعلية.",
+    },
+    "Register rider token": {
+        en: "Register charging access",
+        ar: "تسجيل وصول الشحن",
+    },
+    "Token label": { en: "Label", ar: "الاسم" },
+    "Token type": { en: "Identifier type", ar: "نوع المعرّف" },
+    "Virtual token": { en: "Virtual token", ar: "رمز افتراضي" },
+    "Card identifier (optional for virtual)": {
+        en: "Card identifier (leave empty for a generated virtual token)",
+        ar: "معرّف البطاقة (اتركه فارغاً لإنشاء رمز افتراضي)",
+    },
+    "Token expiry UTC": {
+        en: "Token expiry UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "انتهاء الرمز UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "One-time rider identifier": {
+        en: "One-time identifier",
+        ar: "المعرّف المعروض مرة واحدة",
+    },
+    "Rider identifier privacy": {
+        en: "Keep this identifier private. It is not saved in browser storage and cannot be shown again after hiding or leaving this page.",
+        ar: "احتفظ بالمعرّف بشكل خاص. لا يحفظ في تخزين المتصفح ولا يمكن عرضه مجدداً بعد إخفائه أو مغادرة الصفحة.",
+    },
+    "Show identifier": { en: "Show identifier", ar: "عرض المعرّف" },
+    "Hide identifier": { en: "Hide identifier", ar: "إخفاء المعرّف" },
+    "Station approvals": { en: "Station approvals", ar: "موافقات المحطات" },
+    "Withdraw station approval": {
+        en: "Withdraw station approval",
+        ar: "سحب موافقة المحطة",
+    },
+    "Station search": { en: "Station name", ar: "اسم المحطة" },
+    "Search stations": { en: "Search stations", ar: "بحث المحطات" },
+    "Request station approval": {
+        en: "Request station approval",
+        ar: "طلب موافقة المحطة",
+    },
+    "Rider token revoked": { en: "Revoked", ar: "مبطل" },
+    "Rider token expired": { en: "Expired", ar: "منتهي الصلاحية" },
+    "Operator approval required": {
+        en: "Operator approval and a current reservation are required",
+        ar: "تلزم موافقة المشغل وحجز حالي",
+    },
+    "Revoke rider token": { en: "Revoke token", ar: "إبطال الرمز" },
+    "Change token expiry": { en: "Change expiry", ar: "تغيير الانتهاء" },
+    "Revoke rider token confirmation": {
+        en: "Revoke this identifier and all its station approvals? Active sessions will not be forcibly stopped.",
+        ar: "إبطال هذا المعرّف وجميع موافقات محطاته؟ لن يتم إيقاف الجلسات النشطة قسراً.",
+    },
+    "Rider authorization requests": {
+        en: "Charging access requests",
+        ar: "طلبات وصول الشحن",
+    },
+    "Rider approval disclaimer": {
+        en: "Review the masked identifier and expiry. Approval is station-specific; source provisioning and a current reservation are also required. No hardware command is sent by approval.",
+        ar: "راجع المعرّف المقنّع والانتهاء. الموافقة خاصة بالمحطة ويلزم إعداد المصدر وحجز حالي أيضاً. لا تُرسل الموافقة أمراً للأجهزة.",
+    },
+    "Review rider approval": {
+        en: "Review access request",
+        ar: "مراجعة طلب الوصول",
+    },
+    "Approval decision": { en: "Decision", ar: "القرار" },
+    "Approval expiry UTC": {
+        en: "Approval expiry UTC",
+        ar: "انتهاء الموافقة UTC",
+    },
+    "Provision rider source": {
+        en: "Provision test-source authorization",
+        ar: "إعداد تفويض مصدر الاختبار",
+    },
+    "Scheduled maintenance": {
+        en: "Scheduled maintenance",
+        ar: "الصيانة المجدولة",
+    },
+    "Schedule maintenance": { en: "Schedule maintenance", ar: "جدولة الصيانة" },
+    "Scheduled maintenance disclaimer": {
+        en: "UTC intervals block new bookings and starts only. Existing reservations must be resolved first. Active sessions are not stopped, and physical maintenance readiness is not verified.",
+        ar: "فترات UTC تمنع الحجوزات والبدء الجديد فقط. يجب معالجة الحجوزات الحالية أولاً. لا تتوقف الجلسات النشطة ولا يُتحقق من جاهزية الصيانة الفعلية.",
+    },
+    "Maintenance starts (UTC ISO)": {
+        en: "Starts UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "البداية UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "Maintenance ends (UTC ISO)": {
+        en: "Ends UTC (YYYY-MM-DDTHH:mm:ssZ)",
+        ar: "النهاية UTC (YYYY-MM-DDTHH:mm:ssZ)",
+    },
+    "Maintenance cancelled": {
+        en: "Maintenance cancelled",
+        ar: "أُلغيت الصيانة",
+    },
+    "Cancel maintenance": { en: "Cancel maintenance", ar: "إلغاء الصيانة" },
+    "Cancel scheduled maintenance confirmation": {
+        en: "Cancel this admission block? This does not send a charger command or verify physical readiness.",
+        ar: "هل تريد إلغاء منع القبول؟ لا يُرسل أمر للشاحن ولا يتم التحقق من الجاهزية الفعلية.",
+    },
+    "Fault alerts": { en: "Fault alerts", ar: "تنبيهات الأعطال" },
+    "Inspect source faults": {
+        en: "Inspect source faults",
+        ar: "فحص أعطال المصدر",
+    },
+    "Inspect older source faults": {
+        en: "Inspect older source faults",
+        ar: "فحص أعطال مصدر أقدم",
+    },
+    "Fault acknowledgment disclaimer": {
+        en: "Acknowledgment records review only. Source recovery is historical evidence, not physical repair, connector availability or release of charging capacity.",
+        ar: "الإقرار يسجل المراجعة فقط. تعافي المصدر دليل تاريخي وليس إصلاحاً فعلياً أو توفر الموصل أو تحرير سعة الشحن.",
+    },
+    "Acknowledge fault": { en: "Acknowledge fault", ar: "الإقرار بالعطل" },
+    "Fault acknowledged": { en: "Fault acknowledged", ar: "تم الإقرار بالعطل" },
+    "Recovery source observed": {
+        en: "Recovery source observed",
+        ar: "رُصد دليل تعافٍ من المصدر",
+    },
+    "No recovery source observed": {
+        en: "No recovery source observed",
+        ar: "لم يُرصد دليل تعافٍ من المصدر",
+    },
+    "Source diagnostics disclaimer": {
+        en: "Authenticated simulator source only. Status history is not connector availability or physical acceptance. Refresh explicitly; no command is sent.",
+        ar: "مصدر محاكي موثق فقط. سجل الحالة ليس توفر الموصل أو قبول الأجهزة الفعلية. حدّث صراحة؛ لا تُرسل أوامر.",
+    },
+    "Source registered": { en: "Source registered", ar: "المصدر مسجل" },
+    "Source not observed": { en: "Source not observed", ar: "لم يُرصد المصدر" },
+    "Source reports online": {
+        en: "Source reports online",
+        ar: "المصدر يبلغ عن الاتصال",
+    },
+    "Source reports offline": {
+        en: "Source reports offline",
+        ar: "المصدر يبلغ عن انقطاع الاتصال",
+    },
+    "Recent source message": {
+        en: "Recent source message",
+        ar: "رسالة مصدر حديثة",
+    },
+    "No recent source message": {
+        en: "No recent source message",
+        ar: "لا توجد رسالة مصدر حديثة",
+    },
+    "Source diagnostics unavailable": {
+        en: "Source diagnostics unavailable",
+        ar: "تشخيص المصدر غير متاح",
+    },
+    "admission.event.expired": {
+        en: "Expired credential disabled by system",
+        ar: "أعطّل النظام بيانات الدخول المنتهية",
+    },
+    "Repair work orders": { en: "Repair work orders", ar: "أوامر الإصلاح" },
+    "Repair documentation does not release charging capacity or verify physical repair.":
+        {
+            en: "Repair documentation does not release charging capacity or verify physical repair.",
+            ar: "توثيق الإصلاح لا يحرر سعة الشحن ولا يثبت الإصلاح الفعلي.",
+        },
+    "Repair update uncertain. Resolve the original request before another update.":
+        {
+            en: "Repair update uncertain. Resolve the original request before another update.",
+            ar: "تحديث الإصلاح غير مؤكد. تحقّق من الطلب الأصلي قبل تحديث آخر.",
+        },
+    "Resolve original repair update": {
+        en: "Resolve original repair update",
+        ar: "تحقق من تحديث الإصلاح الأصلي",
+    },
+    "Fault alert number": { en: "Fault alert number", ar: "رقم تنبيه العطل" },
+    "Open repair work order": {
+        en: "Open repair work order",
+        ar: "فتح أمر إصلاح",
+    },
+    "Repair open": { en: "Repair open", ar: "الإصلاح مفتوح" },
+    "Repair in progress": {
+        en: "Repair in progress",
+        ar: "الإصلاح قيد التنفيذ",
+    },
+    "Repair awaiting review": {
+        en: "Repair awaiting review",
+        ar: "الإصلاح بانتظار المراجعة",
+    },
+    "Repair review closed": {
+        en: "Repair review closed",
+        ar: "أُغلقت مراجعة الإصلاح",
+    },
+    "Repair state unavailable": {
+        en: "Repair state unavailable",
+        ar: "حالة الإصلاح غير متاحة",
+    },
+    "Source recovery observed": {
+        en: "Source recovery observed",
+        ar: "تم رصد تعافي المصدر",
+    },
+    "Source recovery not observed": {
+        en: "Source recovery not observed",
+        ar: "لم يُرصد تعافي المصدر",
+    },
+    "Repair history": { en: "Repair history", ar: "سجل الإصلاح" },
+    "Begin repair": { en: "Begin repair", ar: "بدء الإصلاح" },
+    "Submit repair review": {
+        en: "Submit repair review",
+        ar: "إرسال الإصلاح للمراجعة",
+    },
+    "Reopen repair": { en: "Reopen repair", ar: "إعادة فتح الإصلاح" },
+    "Continue repair": { en: "Continue repair", ar: "متابعة الإصلاح" },
+    "Close repair review": {
+        en: "Close repair review",
+        ar: "إغلاق مراجعة الإصلاح",
+    },
+    "Clear pending form after reviewing repair history": {
+        en: "Clear pending form after reviewing repair history",
+        ar: "مسح النموذج المعلق بعد مراجعة سجل الإصلاح",
+    },
+    "Diagnostic files": { en: "Diagnostic files", ar: "ملفات التشخيص" },
+    "Diagnostic files privacy notice": {
+        en: "Private simulator logs. Uploads expire after 15 minutes; stored content after 24 hours. OCPP 1.6 upload-status notifications have no request ID and remain unattributed. Exported files remain under your device control.",
+        ar: "سجلات محاكي خاصة. تنتهي صلاحية الرفع بعد ١٥ دقيقة والمحتوى المخزن بعد ٢٤ ساعة. إشعارات رفع OCPP 1.6 بلا معرّف طلب وتبقى غير منسوبة. الملفات المصدرة تحت تحكم جهازك.",
+    },
+    "Refresh diagnostic history": {
+        en: "Refresh diagnostic history",
+        ar: "تحديث سجل التشخيص",
+    },
+    "Diagnostic request outcome unknown. Review history or resolve the original identity. No automatic redispatch.":
+        {
+            en: "Diagnostic request outcome unknown. Review history or resolve the original identity. No automatic redispatch.",
+            ar: "نتيجة طلب التشخيص غير معلومة. راجع السجل أو تحقق من المعرّف الأصلي. لا إعادة إرسال تلقائية.",
+        },
+    "Resolve diagnostic request": {
+        en: "Resolve diagnostic request",
+        ar: "التحقق من طلب التشخيص",
+    },
+    "Clear pending form after reviewing history": {
+        en: "Clear pending form after reviewing history",
+        ar: "مسح النموذج المعلق بعد مراجعة السجل",
+    },
+    "Request diagnostic file": {
+        en: "Request diagnostic file",
+        ar: "طلب ملف تشخيص",
+    },
+    "Diagnostic reason": { en: "Diagnostic reason", ar: "سبب التشخيص" },
+    "Diagnostic request recorded": {
+        en: "Diagnostic request recorded",
+        ar: "تم تسجيل طلب التشخيص",
+    },
+    "Diagnostic delivery pending": {
+        en: "Diagnostic delivery pending",
+        ar: "بانتظار نتيجة إرسال التشخيص",
+    },
+    "Diagnostic source transport submitted": {
+        en: "Diagnostic source transport submitted",
+        ar: "تم إرسال طلب التشخيص للمصدر",
+    },
+    "Diagnostic delivery unknown": {
+        en: "Diagnostic delivery unknown",
+        ar: "نتيجة إرسال التشخيص غير معلومة",
+    },
+    "Diagnostic not dispatched": {
+        en: "Diagnostic not dispatched",
+        ar: "لم يُرسل طلب التشخيص",
+    },
+    "Diagnostic device rejected": {
+        en: "Diagnostic device rejected",
+        ar: "رفض الجهاز التشخيص",
+    },
+    "Diagnostic source review required": {
+        en: "Diagnostic source review required",
+        ar: "تلزم مراجعة مصدر التشخيص",
+    },
+    "Diagnostic upload expired": {
+        en: "Diagnostic upload expired",
+        ar: "انتهت صلاحية رفع التشخيص",
+    },
+    "Diagnostic upload revoked and content removed": {
+        en: "Diagnostic upload revoked and content removed",
+        ar: "أُلغيت صلاحية رفع التشخيص وحُذف المحتوى",
+    },
+    "Canonical diagnostic acceptance observed": {
+        en: "Canonical diagnostic acceptance observed",
+        ar: "تم رصد قبول التشخيص من المصدر",
+    },
+    "Diagnostic file received": {
+        en: "Diagnostic file received",
+        ar: "تم استلام ملف التشخيص",
+    },
+    "Download private diagnostic file": {
+        en: "Download private diagnostic file",
+        ar: "تنزيل ملف التشخيص الخاص",
+    },
+    "Inspect diagnostic source": {
+        en: "Inspect diagnostic source",
+        ar: "فحص مصدر التشخيص",
+    },
+    "Revoke diagnostic upload and remove file": {
+        en: "Revoke diagnostic upload and remove file",
+        ar: "إلغاء صلاحية رفع التشخيص وحذف الملف",
+    },
+    "Diagnostic device uploading": {
+        en: "Diagnostic device uploading",
+        ar: "الجهاز يرفع التشخيص",
+    },
+    "Diagnostic source uploaded": {
+        en: "Diagnostic source uploaded",
+        ar: "أبلغ المصدر عن رفع التشخيص",
+    },
+    "Diagnostic source upload failed": {
+        en: "Diagnostic source upload failed",
+        ar: "أبلغ المصدر عن فشل رفع التشخيص",
+    },
+    "Legacy diagnostic status is unattributed": {
+        en: "Legacy diagnostic status is unattributed",
+        ar: "حالة التشخيص القديمة غير منسوبة",
+    },
+    "Repair work order (optional)": {
+        en: "Repair work order (optional)",
+        ar: "أمر الإصلاح (اختياري)",
+    },
+    "Repair work order #{id}": {
+        en: "Repair work order #{id}",
+        ar: "أمر الإصلاح رقم {id}",
+    },
+    "Charging operational analytics": {
+        en: "Charging operational analytics",
+        ar: "تحليلات تشغيل الشحن",
+    },
+    "Operational analytics source notice": {
+        en: "Simulator source observations. Missing telemetry is unknown, not uptime or physical availability. Energy covers sessions ending in the period; busy time covers observed intervals across current EVSE inventory. Power is a session interval average, not simultaneous site demand. Invoice references are not cash or settlement.",
+        ar: "ملاحظات محاكي المصدر. غياب القياسات مجهول وليس وقت تشغيل أو توفر فعلياً. الطاقة للجلسات المنتهية في الفترة، والانشغال للفترة المرصودة ضمن مخزون EVSE الحالي. القدرة متوسط فترة جلسة وليست طلب الموقع المتزامن. الفواتير ليست مقبوضات أو تسويات.",
+    },
+    "Site number (optional)": {
+        en: "Site number (optional)",
+        ar: "رقم الموقع (اختياري)",
+    },
+    "Mapped EVSEs": { en: "Mapped EVSEs", ar: "وحدات EVSE المرتبطة" },
+    "Source starts": { en: "Source starts", ar: "بدايات المصدر" },
+    "Completed source sessions": {
+        en: "Completed source sessions",
+        ar: "جلسات المصدر المكتملة",
+    },
+    "Awaiting source start at snapshot": {
+        en: "Awaiting source start at snapshot",
+        ar: "بانتظار بداية المصدر وقت اللقطة",
+    },
+    "Completed energy (Wh)": {
+        en: "Completed energy (Wh)",
+        ar: "الطاقة المكتملة (واط ساعة)",
+    },
+    "Observed EVSE busy seconds": {
+        en: "Observed EVSE busy seconds",
+        ar: "ثواني انشغال EVSE المرصودة",
+    },
+    "Current EVSE window seconds": {
+        en: "Current EVSE window seconds",
+        ar: "ثواني الفترة لوحدات EVSE الحالية",
+    },
+    "Fresh status evidence seconds": {
+        en: "Fresh status evidence seconds",
+        ar: "ثواني دليل الحالة الحديث",
+    },
+    "Unknown connector seconds": {
+        en: "Unknown connector seconds",
+        ar: "ثواني الموصل المجهولة",
+    },
+    "Reported fault seconds": {
+        en: "Reported fault seconds",
+        ar: "ثواني الأعطال المبلغ عنها",
+    },
+    "Maximum observed session interval average (W)": {
+        en: "Maximum observed session interval average (W)",
+        ar: "أقصى متوسط فترة جلسة مرصودة (واط)",
+    },
+    "Sessions requiring review": {
+        en: "Sessions requiring review",
+        ar: "جلسات تحتاج مراجعة",
+    },
+    "Operational metric: {label} \u2014 {value}": {
+        en: "Operational metric: {label} — {value}",
+        ar: "مقياس التشغيل: {label} — {value}",
+    },
+    "Invoice references, not cash or settlements": {
+        en: "Invoice references, not cash or settlements",
+        ar: "فواتير مرجعية وليست مقبوضات أو تسويات",
+    },
+    "Operational report unavailable. Apply filters to retry.": {
+        en: "Operational report unavailable. Apply filters to retry.",
+        ar: "تقرير التشغيل غير متاح. طبّق المرشحات لإعادة المحاولة.",
+    },
+    "Apply and refresh": { en: "Apply and refresh", ar: "تطبيق وتحديث" },
+    "From (UTC)": { en: "From (UTC)", ar: "من (UTC)" },
+    "To (UTC)": { en: "To (UTC)", ar: "إلى (UTC)" },
+    "Download report CSV": {
+        en: "Download report CSV",
+        ar: "تنزيل التقرير CSV",
+    },
+    "Download report PDF": {
+        en: "Download report PDF",
+        ar: "تنزيل التقرير PDF",
+    },
+    "Invoiced amount": { en: "Invoiced amount", ar: "المبلغ المفوتر" },
+    "Vendor allocated amount": {
+        en: "Vendor allocated amount",
+        ar: "المبلغ المخصص للمورد",
+    },
+    "Sandbox roaming activity": {
+        en: "Sandbox roaming activity",
+        ar: "نشاط التجوال التجريبي",
+    },
+    "Sandbox roaming warning": {
+        en: "Sandbox partner evidence is unverified. Command acceptance does not prove charging started or stopped. No invoice or payment is created. Live charging requires an approved partner agreement.",
+        ar: "تجربة مع شريك غير متحقق منه. قبول الأمر لا يثبت بدء الشحن أو إيقافه. لا تُنشأ فاتورة ولا تُحصّل دفعة. يتطلب الشحن الحقيقي اتفاق شريك معتمدًا.",
+    },
+    "Sandbox response uncertain": {
+        en: "Response uncertain. Review history or retry the same request only. Do not create a replacement attempt.",
+        ar: "الاستجابة غير مؤكدة. راجع السجل أو أعد نفس الطلب فقط. لا تبدأ محاولة بديلة.",
+    },
+    "Retry same sandbox request": {
+        en: "Retry same sandbox request",
+        ar: "إعادة نفس الطلب التجريبي",
+    },
+    "Review sandbox history": {
+        en: "Review sandbox history",
+        ar: "مراجعة سجل التجوال التجريبي",
+    },
+    "Sandbox order state": {
+        en: "Sandbox order state",
+        ar: "حالة الطلب التجريبي",
+    },
+    "Sandbox token state": {
+        en: "Sandbox token state",
+        ar: "حالة رمز التفويض التجريبي",
+    },
+    "Sandbox reported energy Wh": {
+        en: "Sandbox reported energy Wh",
+        ar: "الطاقة المبلّغ عنها بالواط ساعة",
+    },
+    "Sandbox source observed": {
+        en: "Sandbox source observed",
+        ar: "وقت رصد مصدر الشريك",
+    },
+    "Sandbox reconciliation": {
+        en: "Sandbox reconciliation",
+        ar: "مطابقة بيانات الشريك",
+    },
+    "Sandbox reported cost": {
+        en: "Partner-reported cost — not an invoice",
+        ar: "تكلفة الشريك المبلّغ عنها — ليست فاتورة",
+    },
+    "Refresh sandbox source": {
+        en: "Refresh sandbox source",
+        ar: "تحديث بيانات المصدر التجريبي",
+    },
+    "Request sandbox stop": {
+        en: "Request sandbox stop",
+        ar: "طلب إيقاف تجريبي",
+    },
+    "Sandbox stop confirmation": {
+        en: "Request a stop for this sandbox session only? Command acceptance does not prove charging stopped. Wait for source evidence.",
+        ar: "إرسال طلب إيقاف لهذه الجلسة التجريبية فقط؟ قبول الأمر لا يثبت توقف الشحن. انتظر حالة المصدر.",
+    },
+    "Revoke sandbox authority": {
+        en: "Revoke sandbox authority",
+        ar: "إلغاء التفويض التجريبي",
+    },
+    "Sandbox revoke confirmation": {
+        en: "Revoke authority for new requests? This does not stop active charging. Request a stop and check the source separately.",
+        ar: "إلغاء التفويض لطلبات جديدة؟ هذا لا يوقف جلسة شحن نشطة. استخدم طلب الإيقاف وتحقق من المصدر بصورة منفصلة.",
+    },
+    "Sandbox explicit consent": {
+        en: "I consent to this location, connector and tariff for this sandbox attempt only. There is no payment or invoice, and physical charging is unverified.",
+        ar: "أوافق على هذا الموقع والموصل والتعرفة لهذه التجربة فقط. لا توجد دفعة أو فاتورة، ولا يُستنتج شحن فعلي.",
+    },
+    "Start sandbox roaming": {
+        en: "Start sandbox roaming",
+        ar: "بدء التجوال التجريبي",
+    },
+    "No approved sandbox offers": {
+        en: "No fresh approved sandbox offers are available for this location.",
+        ar: "لا توجد عروض تجريبية حديثة ومعتمدة لهذا الموقع.",
+    },
+    "Sandbox offer limit reached": {
+        en: "The offer limit was reached. Other offers may be omitted.",
+        ar: "عُرض الحد الأقصى للعروض. قد توجد عروض أخرى غير معروضة.",
+    },
+    "No sandbox activity": {
+        en: "No sandbox activity",
+        ar: "لا يوجد نشاط تجوال تجريبي.",
+    },
+    "Sandbox activity unavailable": {
+        en: "Sandbox activity unavailable. No new charging request was sent.",
+        ar: "النشاط التجريبي غير متاح. لم يُرسل طلب شحن جديد.",
+    },
+    "View sandbox offers": {
+        en: "View sandbox offers",
+        ar: "عرض عروض التجوال التجريبي",
+    },
+    "per kWh": { en: "per kWh", ar: "لكل كيلوواط ساعة" },
+    "per charging hour": { en: "per charging hour", ar: "لكل ساعة شحن" },
+    "per parking hour": { en: "per parking hour", ar: "لكل ساعة وقوف" },
+    "per session": { en: "per session", ar: "لكل جلسة" },
+    "Unit unavailable": { en: "Unit unavailable", ar: "الوحدة غير متاحة" },
+    "Reported tariff": { en: "Reported tariff", ar: "التعرفة المبلّغ عنها" },
+    "Billing step": { en: "Billing step", ar: "خطوة احتساب التعرفة" },
+    "VAT percent": { en: "VAT percent", ar: "نسبة ضريبة القيمة المضافة" },
+    "Not reported": { en: "Not reported", ar: "غير مبلّغ عنه" },
+    session: { en: "session", ar: "جلسة" },
+    seconds: { en: "seconds", ar: "ثوانٍ" },
+    "Moderated charging feedback": {
+        en: "Moderated charging feedback",
+        ar: "ملاحظات الشحن المعتمدة",
+    },
+    "Feedback report window": {
+        en: "Currently published feedback only, by creation date of its current revision within the UTC window. Physical charging is unverified. No identities or private comments are included.",
+        ar: "الملاحظات المنشورة حالياً فقط، حسب تاريخ إنشاء النسخة الحالية ضمن الفترة بالتوقيت العالمي. لا يُستنتج تحقق من الشحن الفعلي. لا تتضمن هوية أو نصوصاً خاصة.",
+    },
+    "Observed simulator feedback": {
+        en: "Observed simulator feedback",
+        ar: "ملاحظات محاكاة مرصودة من المصدر",
+    },
+    "App-only simulator feedback": {
+        en: "App-only simulator feedback",
+        ar: "ملاحظات محاكاة التطبيق فقط",
+    },
+    "Feedback totals: {count} ratings \u00b7 {sum} points \u00b7 site {site}": {
+        en: "Feedback totals: {count} ratings · {sum} points · site {site}",
+        ar: "إجمالي الملاحظات: {count} تقييمات · {sum} نقاط · الموقع {site}",
+    },
+    "No approved feedback in report window": {
+        en: "No approved feedback in report window",
+        ar: "لا توجد ملاحظات معتمدة ضمن فترة التقرير",
     },
 };

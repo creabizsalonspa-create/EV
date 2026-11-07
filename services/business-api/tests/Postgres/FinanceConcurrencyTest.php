@@ -5,6 +5,7 @@ namespace Tests\Postgres;
 use App\Models\ChargingSession;
 use App\Models\Finance\Payment;
 use App\Models\Finance\Refund;
+use App\Models\Finance\TariffVersion;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
@@ -53,10 +54,10 @@ class FinanceConcurrencyTest extends TestCase
 
     private function race(string $operation, array $invoices, int $actorId): void
     {
-        // The delay holds both distinct-invoice transactions after their initial
-        // idempotency lookup, making the unique-key race reproducible.
-        DB::unprepared("CREATE FUNCTION finance_test_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.kind IN ('payment','refund') THEN PERFORM pg_sleep(1); END IF; RETURN NEW; END; $$");
-        DB::unprepared('CREATE TRIGGER finance_test_delay BEFORE INSERT ON finance_journals FOR EACH ROW EXECUTE FUNCTION finance_test_delay()');
+        // Delay insertion after initial lookup; a shared station lock must serialize tariff retries.
+        $table = $operation === 'tariff' ? 'finance_tariff_versions' : 'finance_journals';
+        DB::unprepared('CREATE FUNCTION finance_test_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1); RETURN NEW; END; $$');
+        DB::unprepared('CREATE TRIGGER finance_test_delay BEFORE INSERT ON '.$table.' FOR EACH ROW EXECUTE FUNCTION finance_test_delay()');
         $directory = sys_get_temp_dir().'/finance-race-'.bin2hex(random_bytes(8));
         mkdir($directory, 0700);
         $gate = $directory.'/start';
@@ -86,7 +87,7 @@ class FinanceConcurrencyTest extends TestCase
             }
             $workers = [];
             sort($statuses);
-            $this->assertSame(['201', '409'], $statuses, 'Exactly one operation may post; the conflicting invoice must receive a typed conflict.');
+            $this->assertSame($operation === 'tariff' ? ['201', '201'] : ['201', '409'], $statuses, 'Idempotent tariff retries must both resolve; conflicting cross-invoice postings must reject one actor.');
         } finally {
             foreach ($workers as [$process, $pipes]) {
                 proc_terminate($process);
@@ -101,9 +102,22 @@ class FinanceConcurrencyTest extends TestCase
                 unlink($file);
             }
             rmdir($directory);
-            DB::unprepared('DROP TRIGGER IF EXISTS finance_test_delay ON finance_journals');
+            DB::unprepared('DROP TRIGGER IF EXISTS finance_test_delay ON '.$table);
             DB::unprepared('DROP FUNCTION IF EXISTS finance_test_delay()');
         }
+    }
+
+    public function test_concurrent_tariff_retries_publish_once_and_keep_commission_policy(): void
+    {
+        [$vendor] = $this->invoices();
+        $station = Station::where('vendor_id', $vendor->id)->sole();
+        TariffVersion::create(['station_id' => $station->id, 'created_by' => $vendor->id, 'rate_minor_per_kwh' => 100, 'tax_bps' => 500, 'commission_bps' => 1000, 'currency' => 'AED', 'minor_units' => 2, 'effective_from' => now()->subMinute()]);
+        $this->race('tariff', [$station, $station], $vendor->id);
+        $this->assertSame(2, TariffVersion::count());
+        $published = TariffVersion::orderByDesc('id')->firstOrFail();
+        $this->assertSame(1000, $published->commission_bps);
+        $this->assertSame(250, $published->rate_minor_per_kwh);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'finance.simulated_tariff_published')->count());
     }
 
     public function test_cross_invoice_payment_key_race_returns_conflict_without_double_posting(): void

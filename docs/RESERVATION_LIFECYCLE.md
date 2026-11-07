@@ -1,0 +1,13 @@
+# Reservation arrival and unused expiry
+
+A customer may explicitly self-report arrival from 15 minutes before the confirmed slot until its end. POST `/api/reservations/{id}/check-in` (and `/api/v1/...`) accepts only `self_reported_arrival: true`; identity and time come from the authenticated server. It returns 201 initially and 200 on a matching repeat, with the original `checked_in_at`, `evidence: SELF_REPORTED` and `physical_presence_verified: false`. Other customers receive 404. Closed slots cannot gain a first arrival. `can_check_in` is a server hint and never replaces transactional validation. Repeating an existing report remains idempotent after cancellation.
+
+Customer web and canonical Flutter client `apps/mobile` show explicit consent, translated English/Arabic text, safe error/loading states and an authoritative record refresh. Neither client starts charging, extends capacity, proves GPS/physical presence or charges a fee through check-in. No geolocation is requested or accepted as proof.
+
+`php artisan reservations:expire-unused --limit=100` scans bounded past simulator windows without *any* linked session. Scheduled execution runs every minute with an overlap lock and fair ID cursor. Optional `--reservation=id` is for targeted operational inspection; it cannot combine with `--scheduled`. Station then reservation locks recheck all state. Uncorrelated non-cancelled legacy commands prevent expiry and require reconciliation. Existing linked pending/uncertain/active/stopped sessions remain under their existing lifecycle rules.
+
+An eligible booking becomes `expired_unused` with a unique immutable operational event and null system actor. It does not produce source-ended evidence, a device command, invoice, refund, penalty or payment. Existing known-unsent CSMS expiry is separate and preserved. The migration refuses a non-testing rollback containing lifecycle evidence; coordinate code/schema rollback without discarding operational history.
+
+PostgreSQL tests use independent PHP processes with barriers and a delayed insert to prove simultaneous arrival is idempotent, simultaneous expiry emits one event, and arrival/cancel serializes without resurrecting a booking or producing charging/finance records. The existing connector races remain in the same dedicated CI job. Real-Laravel browser and native API tests exercise consent, server-derived state, replay and scoping; widget tests cover disposal, expired authentication, lost acknowledgements and Arabic RTL at 390px.
+
+Actual hardware reservations, physical arrival verification, no-show penalties and partner roaming are not established by this simulator business workflow. Full product delivery remains in progress.

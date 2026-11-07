@@ -1,0 +1,139 @@
+{
+  "source": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+  "merge": "70ac899ab9e6f98d8a5c36a4d98885da0c0f307a",
+  "pr": 22,
+  "source_and_merge_trees_identical": true,
+  "checks": [
+    {
+      "id": 122802414373,
+      "name": "business-platform",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684236183/job/122802414373"
+    },
+    {
+      "id": 122802414071,
+      "name": "finance-postgres",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684236183/job/122802414071"
+    },
+    {
+      "id": 122802414016,
+      "name": "staging-image",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684236183/job/122802414016"
+    },
+    {
+      "id": 122802413991,
+      "name": "native (ubuntu-latest)",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684236156/job/122802413991"
+    },
+    {
+      "id": 122802413782,
+      "name": "connector-postgres",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684236183/job/122802413782"
+    },
+    {
+      "id": 122802413666,
+      "name": "native (macos-15)",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684236156/job/122802413666"
+    },
+    {
+      "id": 122802387658,
+      "name": "staging-image",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684228282/job/122802387658"
+    },
+    {
+      "id": 122802387519,
+      "name": "business-platform",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684228282/job/122802387519"
+    },
+    {
+      "id": 122802387459,
+      "name": "connector-postgres",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684228282/job/122802387459"
+    },
+    {
+      "id": 122802387148,
+      "name": "finance-postgres",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684228282/job/122802387148"
+    },
+    {
+      "id": 122802386492,
+      "name": "native (macos-15)",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684228146/job/122802386492"
+    },
+    {
+      "id": 122802386312,
+      "name": "native (ubuntu-latest)",
+      "head_sha": "c0658cc33152f9c8094ca27f0bfa0d38e799202d",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40684228146/job/122802386312"
+    }
+  ],
+  "ios": [
+    {
+      "job": 122802413666,
+      "logs_sha256": "51f88f09cddef24cdaaabcb409ba2eecb2d8ea5db42bd2b57d19b5a5fa0f695a",
+      "required_markers": [
+        "DEVICE: Keychain session restored",
+        "DEVICE: exact Arabic vendor pricing verified",
+        "DEVICE: native vendor onboarding and private PDF preview verified",
+        "DEVICE: customer favorites and private catalog status verified",
+        "DEVICE: customer map privacy consent navigation verified; no external tiles",
+        "DEVICE: consented one-shot GPS and sourced charging-stop route verified; synthetic platform/provider",
+        "DEVICE: scoped noncash native loyalty evidence verified; synthetic economics",
+        "DEVICE: private financial PDF and durable operation storage verified; synthetic document",
+        "DEVICE: explicit native subscription enrollment verified; synthetic test billing"
+      ],
+      "runtime_passed": true
+    },
+    {
+      "job": 122802386492,
+      "logs_sha256": "19158458bcdb40b79fefbfcfb3d460a6dde1f4aa2ba2d6426ffffd4ba5d5d6e1",
+      "required_markers": [
+        "DEVICE: Keychain session restored",
+        "DEVICE: exact Arabic vendor pricing verified",
+        "DEVICE: native vendor onboarding and private PDF preview verified",
+        "DEVICE: customer favorites and private catalog status verified",
+        "DEVICE: customer map privacy consent navigation verified; no external tiles",
+        "DEVICE: consented one-shot GPS and sourced charging-stop route verified; synthetic platform/provider",
+        "DEVICE: scoped noncash native loyalty evidence verified; synthetic economics",
+        "DEVICE: private financial PDF and durable operation storage verified; synthetic document",
+        "DEVICE: explicit native subscription enrollment verified; synthetic test billing"
+      ],
+      "runtime_passed": true
+    }
+  ],
+  "local_results": {
+    "laravel": "347 tests/8450 assertions",
+    "flutter": "175 passed/12 deliberate live-only skips",
+    "analysis": "clean",
+    "pint": "329 files"
+  },
+  "coverage": {
+    "coded": "52.25",
+    "tested": "52.06",
+    "merged": "52.06",
+    "production_accepted": "0.00"
+  },
+  "acceptance": "Both Android debug builds, real-Laravel native suites, iOS builds and synthetic simulator runtimes passed. No live payments, physical hardware, live OCPI, legal or store acceptance."
+}

@@ -1,0 +1,94 @@
+{
+  "branch": "development/corporate-hosted-collection",
+  "base_merge_sha": "f2fe9d8b2a69b1c3054551152d0eb2dc2a1efd80",
+  "status": "local_passed_hosted_pending",
+  "tests": {
+    "laravel": {
+      "passed": 448,
+      "assertions": 9215
+    },
+    "flutter": {
+      "passed": 221,
+      "explicit_fixture_skips": 16
+    },
+    "focused_native": 30,
+    "actual_laravel_native_corporate": 1,
+    "financial_postgresql": {
+      "passed": 312,
+      "assertions": 7851
+    },
+    "financial_process_races": {
+      "passed": 71,
+      "assertions": 922
+    },
+    "corporate_postgresql": {
+      "passed": 21,
+      "assertions": 196
+    },
+    "corporate_process_races": {
+      "passed": 3,
+      "assertions": 42
+    },
+    "php_style_files": 378,
+    "coverage_integrity_tests": 5
+  },
+  "browser": [
+    "Actual Laravel committed-but-lost creation ACK/reload/replay",
+    "Explicit local mock authorization/capture and atomic allocation to two original invoices",
+    "Duplicate capture/receipt, driver/Admin capture denial and tenant isolation",
+    "Private inert corporate return with server-selected family and no query success proof",
+    "EN/AR Light/Dark responsive statement review and return screenshots",
+    "Original charging/customer/vendor subscription hosted browser regression retained"
+  ],
+  "source_file_sha256": {
+    ".github/workflows/finance-commercial.yml": "8c4609ab267bf408640d394326502133c79e3a14d398e53b309805c1fdc8140e",
+    ".github/workflows/mobile.yml": "51d67d5d034643f65243fa2bf4d59fdd9c975fc77f92f2adf4bff2b8fe6d0777",
+    "apps/mobile/integration_test/native_flow_test.dart": "bbbd1992703bdc4461f9d57f2c94b2fd47e4a2985e2cb696e2b3ca5326c78644",
+    "apps/mobile/lib/corporate_billing.dart": "7518e1b1740ca1db4b844026500652654260c70fb7585a9c6b7be8304ab065c8",
+    "apps/mobile/lib/hosted_checkout.dart": "6f46725917a8ccca6cac018d0b745a13951eaffada8754a9cabc7aabb2d90988",
+    "apps/mobile/test/corporate_hosted_checkout_test.dart": "6815d5845467cfdd02db7231e4414251ccc3bf5a5bc52a2f6b060970d87ccd89",
+    "apps/mobile/test/live_corporate_hosted_checkout_test.dart": "3b81df195fb81b50c0b440fe1efe71cd38e5620ee9c9f5006e94c7f12b348344",
+    "package.json": "4a8a343aacf7b66755587ee67de06595b005fbeaf84e6d333dadf29a5a1620f2",
+    "services/business-api/.env.example": "5d4c125968069607758e7cbe438a6f678c4b79322256a7da92e3d19c39cc6fb4",
+    "services/business-api/app/Console/Commands/ReconcileCorporateHosted.php": "343ae8b1a4903c91bd0b061ac76a28b87f208c1590a0f8e922058cebfb5b01cb",
+    "services/business-api/app/Http/Controllers/CorporateHostedCheckoutController.php": "29685a35fefda87814b93c3cf3b640077f02dcc572e08f7caec3791ecb33a866",
+    "services/business-api/app/Http/Middleware/SecurityHeaders.php": "0b54eb6804f5e3dabbc103668f037502a673ed8056681d2a29c45ad5b1f5a7a2",
+    "services/business-api/app/Services/Commercial/CorporateBilling.php": "3e5ca8939f234d590405a473f059337dc7216302de0c93831eb88cbd8f76b3f1",
+    "services/business-api/app/Services/Commercial/Payments/CorporateHostedCollection.php": "8af08f4a44ee59f0723e7ae9ab278b22c70dd93c03d422b30a89be5cdccb0e3f",
+    "services/business-api/app/Services/Commercial/Payments/GatewayService.php": "59ee9f5c96b9febc17643f8ed494d427b2b7fc3158610ac6c144cddd9e89dc96",
+    "services/business-api/app/Services/Commercial/Payouts/PayoutService.php": "cf208c5e80a4c831db016fb626e6289a67625ed7355d4ed4e9da786b1ec3fe4f",
+    "services/business-api/app/Services/Commercial/SettlementService.php": "4c2492a7a1a4c8ec4c2bafbd9bf5f0a209a374b67b5e23d6660aecd1cf60b87f",
+    "services/business-api/app/Services/Finance/FinanceService.php": "937ee41d954a9915b277907fa3445c6eaaa2c82229a26bcfdd61c2c2a5f55354",
+    "services/business-api/config/payments.php": "5a8419e785ec445f8b6fa03ab5f37e0508246ab30ac28a3e3a9f7e2d866dd037",
+    "services/business-api/database/migrations/2026_11_07_000001_create_corporate_hosted_collections.php": "0d9ba737d933b3c8a9754d96b4e64af42b15e360d3006ed7809f705882dd0fae",
+    "services/business-api/public/corporate-billing.js": "f22c36e9e27b96a2e6f88451030a99d506f0d9027ca2d99545063994aebfe131",
+    "services/business-api/public/hosted-checkout.css": "d02f204ea9aec9bda6b854e0dfbc0aefe22b188906906ec008153464731c23ff",
+    "services/business-api/public/hosted-checkout.js": "9c9f57a8182af25bf7618df1ff9e4fe821f0933c277c79dfeb1a798427eb05f9",
+    "services/business-api/public/hosted-return.js": "df94d6f5334c43bcfdf507ea36b3088f76328be8a57b26f6f8f886c44eb5f11b",
+    "services/business-api/public/platform.css": "58b9f41c49cae02a16ee20e9f3a05c1ebfb195d5c1726ff3908d467d806e1641",
+    "services/business-api/resources/views/payments/hosted-return.blade.php": "943fc690da6d5b6a3c15ffb86e616a3909c0eb8c38b0d85637d02d333070f987",
+    "services/business-api/routes/api.php": "c5850207412d7d3c088ab139e283d5bcef1e0b9584d9ce00d2776c760d011236",
+    "services/business-api/routes/corporate_hosted_checkout.php": "6822e776679c1011215ee732e31c0a2af8e52852293c239a30778cdab055a27d",
+    "services/business-api/routes/corporate_hosted_webhook.php": "f32a010053a95420c574743b5e06dac99cfb9771e2e26b267a5267951a9d6390",
+    "services/business-api/routes/finance.php": "759524bca96644246bfb915c6488da0dbc0406bb9ba6ee8577b1145cc5f895c9",
+    "services/business-api/routes/web.php": "fa81e67ab7e19365087ddddc3533ec3578cc75dced3ddb3d3ff3ac1ee518b456",
+    "services/business-api/tests/Feature/CorporateHostedCollectionTest.php": "bfa19a94b3dee43496caa51eb2ee5ee1c16b56a6b78e2d8b8aec6c7ec220359d",
+    "services/business-api/tests/Feature/HostedCheckoutPageTest.php": "f3ee026c4c676bf63c44002d3f5158d2eb3288cf869603e2eeffc6437960a261",
+    "services/business-api/tests/Fixtures/corporate-billing.php": "9d6d2f072963f7c0756e004c55c396c67ab15804fa7f2f3c966a20786085506d",
+    "services/business-api/tests/Fixtures/corporate-hosted-browser.php": "a5f24bb9ea029f385d3e7188689ad0d1452ddb1b6a4b589d6db19bc447e34055",
+    "services/business-api/tests/Fixtures/corporate-hosted.php": "5533765965dd9bbd59f6fac68f1d3f80a2fa48e9351cebba0e0e8a03bce57a19",
+    "services/business-api/tests/Postgres/CorporateHostedConcurrencyTest.php": "e7d4f862a5b30dd3c55b428a432a8cbe06a9b50b0ed59a07e6e363966aa8c526",
+    "services/business-api/tests/Postgres/run-corporate-hosted": "9bf9ef576b354a64ecf7deedc6803edb8f1f47473cb87f1c83af0d9522ac93db",
+    "services/business-api/tests/Postgres/run-finance": "90794ece12a0b80753d9919ffb54e8bc89ee826940d98fb66b264a2c86f880ee",
+    "services/business-api/tests/Support/corporate-hosted-worker.php": "712f1779600b2877ed52147a5839237c037422136235a503ffb2613272af691e",
+    "tests/corporate-hosted.cjs": "22037e24baa0f61e5bf38af2a35126159570cf22c00380e7db2c90b8f2791a66",
+    "tests/native-connected.cjs": "dbce2c325fb516fbcb2c4f1f8977723ce7a31501037c6508388653bb9c756811",
+    "tests/native-corporate-hosted.cjs": "0693070fd9e22edeec45a2d18142dddc46bf94b6464f4336d151f2bcd44311e0"
+  },
+  "limitations": [
+    "Exact-head hosted Android/iOS/platform checks pending; corporate iOS runtime assertions not executed locally",
+    "Statement-level provider refund/dispute allocation remains unfinished software; local credits blocked and Stripe corporate settlements/payouts held",
+    "No live PSP/SCA challenge, bank, charger, partner, legal, signing or store acceptance",
+    "Fixed42/312 coverage unchanged52.25coded/52.06tested-and-merged/0production"
+  ]
+}

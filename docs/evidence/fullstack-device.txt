@@ -1,0 +1,8 @@
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T09:19:26.2955330Z DEVICE: clearing isolated Keychain entry
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T09:19:26.3062300Z DEVICE: validating fixture TLS before UI
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T09:19:26.3186490Z DEVICE: fixture TLS ready
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T09:19:26.3448340Z DEVICE: customer authenticated
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T09:19:26.3476040Z DEVICE: Keychain session restored
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T09:19:26.3625490Z DEVICE: vendor authenticated after secure logout
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T09:19:26.3673650Z 00:16 +1: (tearDownAll)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T09:19:26.4143500Z 00:28 +1: All tests passed!

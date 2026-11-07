@@ -2,9 +2,169 @@ name: Native client validation
 on:
   workflow_dispatch:
   push:
-    paths: ["apps/mobile/**", ".github/workflows/mobile.yml"]
+    paths:
+      [
+        "apps/mobile/**",
+        ".github/workflows/mobile.yml",
+        "tests/native-inventory.cjs",
+        "tests/native-topology.cjs",
+        "tests/native-charger-operations.cjs",
+        "tests/native-payment-recovery.cjs",
+        "tests/native-recurring-payments.cjs",
+        "tests/native-vendor-onboarding.cjs",
+        "services/business-api/tests/Fixtures/native-vendor-onboarding.php",
+        "infra/php/uploads.ini",
+        "scripts/start",
+        "services/business-api/tests/Fixtures/recurring-payments.php",
+        "services/business-api/routes/recurring_payments.php",
+        "tests/native-subscription-dunning.cjs",
+        "tests/native-connected.cjs",
+        "tests/native-ocpi-operations.cjs",
+        "tests/native-ocpi-credentials.cjs",
+        "tests/native-ocpi-incoming.cjs",
+        "tests/native-sandbox-roaming.cjs",
+        "tests/native-charging-reviews.cjs",
+        "tests/charging-reviews.cjs",
+        "tests/sandbox-roaming.cjs",
+        "tests/helpers/ocpi-credentials-local.cjs",
+        "services/business-api/app/Services/Ocpi/**",
+        "services/business-api/app/Http/Controllers/Ocpi*",
+        "services/business-api/routes/ocpi.php",
+        "services/business-api/config/ocpi.php",
+        "services/business-api/tests/Fixtures/ocpi-credentials.php",
+        "services/business-api/app/Models/OcpiProvider.php",
+        "services/business-api/tests/Fixtures/roaming-workspace.php",
+        "tests/native-loyalty.cjs",
+        "tests/native-financial-operations.cjs",
+        "tests/native-commercial-parity.cjs",
+        "tests/native-case-evidence.cjs",
+        "tests/native-hosted-checkout.cjs",
+        "tests/native-corporate-hosted.cjs",
+        "services/business-api/tests/Fixtures/corporate-hosted*.php",
+        "services/business-api/app/Services/Commercial/Payments/CorporateHostedCollection.php",
+        "services/business-api/app/Http/Controllers/CorporateHostedCheckoutController.php",
+        "services/business-api/routes/corporate_hosted*.php",
+        "services/business-api/tests/Fixtures/hosted.php",
+        "services/business-api/tests/Fixtures/hosted-browser.php",
+        "services/business-api/routes/hosted_checkout.php",
+        "services/business-api/app/Services/Commercial/Payments/HostedCheckout.php",
+        "services/business-api/app/Services/Commercial/Payments/StripeSandboxProvider.php",
+        "services/business-api/app/Http/Controllers/HostedCheckoutController.php",
+        "tests/native-financial-analytics.cjs",
+        "services/business-api/tests/Fixtures/native-financial-analytics.php",
+        "services/business-api/tests/Fixtures/payment-case-evidence.php",
+        "services/business-api/app/Http/Controllers/PaymentCaseEvidenceController.php",
+        "services/business-api/database/migrations/2026_11_04_000001_create_gateway_case_evidence.php",
+        "services/business-api/routes/payments.php",
+        "services/business-api/tests/Fixtures/native-commercial-parity.php",
+        "services/business-api/tests/Fixtures/native-financial-operations.php",
+        "services/business-api/tests/Fixtures/native-loyalty.php",
+        "services/business-api/routes/loyalty.php",
+        "services/business-api/tests/Fixtures/subscription-dunning.php",
+        "services/business-api/tests/Fixtures/payment-recovery-native.php",
+        "services/business-api/tests/Fixtures/charger-operations.php",
+        "services/business-api/app/Http/Controllers/ChargerAdmissionController.php",
+        "services/business-api/app/Http/Controllers/ChargingOperationsController.php",
+        "tests/native-reservation-lifecycle.cjs",
+        "services/business-api/tests/Fixtures/reservation-lifecycle.php",
+        "services/business-api/app/Services/Charging/**",
+        "services/business-api/tests/Fixtures/canonical-topology.php",
+        "services/business-api/app/Http/Controllers/ConnectorTopologyController.php",
+        "services/business-api/tests/Fixtures/native-inventory.php",
+        "services/business-api/app/Http/Controllers/VendorOpsController.php",
+        "services/business-api/app/Http/Controllers/PlatformController.php",
+        "services/business-api/app/Http/Controllers/StationFavoriteController.php",
+        "services/business-api/app/Http/Controllers/DiscoveryLookupController.php",
+        "services/business-api/app/Providers/DiscoveryServiceProvider.php",
+        "services/business-api/config/discovery.php",
+        "services/business-api/routes/discovery.php",
+        "services/business-api/app/Services/Discovery/**",
+        "services/business-api/routes/favorites.php",
+        "services/business-api/app/Services/VendorOps/**",
+        "services/business-api/routes/vendor_ops.php",
+      ]
   pull_request:
-    paths: ["apps/mobile/**", ".github/workflows/mobile.yml"]
+    paths:
+      [
+        "apps/mobile/**",
+        ".github/workflows/mobile.yml",
+        "tests/native-inventory.cjs",
+        "tests/native-topology.cjs",
+        "tests/native-charger-operations.cjs",
+        "tests/native-payment-recovery.cjs",
+        "tests/native-recurring-payments.cjs",
+        "tests/native-vendor-onboarding.cjs",
+        "services/business-api/tests/Fixtures/native-vendor-onboarding.php",
+        "infra/php/uploads.ini",
+        "scripts/start",
+        "services/business-api/tests/Fixtures/recurring-payments.php",
+        "services/business-api/routes/recurring_payments.php",
+        "tests/native-subscription-dunning.cjs",
+        "tests/native-connected.cjs",
+        "tests/native-ocpi-operations.cjs",
+        "tests/native-ocpi-credentials.cjs",
+        "tests/native-ocpi-incoming.cjs",
+        "tests/native-sandbox-roaming.cjs",
+        "tests/native-charging-reviews.cjs",
+        "tests/charging-reviews.cjs",
+        "tests/sandbox-roaming.cjs",
+        "tests/helpers/ocpi-credentials-local.cjs",
+        "services/business-api/app/Services/Ocpi/**",
+        "services/business-api/app/Http/Controllers/Ocpi*",
+        "services/business-api/routes/ocpi.php",
+        "services/business-api/config/ocpi.php",
+        "services/business-api/tests/Fixtures/ocpi-credentials.php",
+        "services/business-api/app/Models/OcpiProvider.php",
+        "services/business-api/tests/Fixtures/roaming-workspace.php",
+        "tests/native-loyalty.cjs",
+        "tests/native-financial-operations.cjs",
+        "tests/native-commercial-parity.cjs",
+        "tests/native-case-evidence.cjs",
+        "tests/native-hosted-checkout.cjs",
+        "tests/native-corporate-hosted.cjs",
+        "services/business-api/tests/Fixtures/corporate-hosted*.php",
+        "services/business-api/app/Services/Commercial/Payments/CorporateHostedCollection.php",
+        "services/business-api/app/Http/Controllers/CorporateHostedCheckoutController.php",
+        "services/business-api/routes/corporate_hosted*.php",
+        "services/business-api/tests/Fixtures/hosted.php",
+        "services/business-api/tests/Fixtures/hosted-browser.php",
+        "services/business-api/routes/hosted_checkout.php",
+        "services/business-api/app/Services/Commercial/Payments/HostedCheckout.php",
+        "services/business-api/app/Services/Commercial/Payments/StripeSandboxProvider.php",
+        "services/business-api/app/Http/Controllers/HostedCheckoutController.php",
+        "tests/native-financial-analytics.cjs",
+        "services/business-api/tests/Fixtures/native-financial-analytics.php",
+        "services/business-api/tests/Fixtures/payment-case-evidence.php",
+        "services/business-api/app/Http/Controllers/PaymentCaseEvidenceController.php",
+        "services/business-api/database/migrations/2026_11_04_000001_create_gateway_case_evidence.php",
+        "services/business-api/routes/payments.php",
+        "services/business-api/tests/Fixtures/native-commercial-parity.php",
+        "services/business-api/tests/Fixtures/native-financial-operations.php",
+        "services/business-api/tests/Fixtures/native-loyalty.php",
+        "services/business-api/routes/loyalty.php",
+        "services/business-api/tests/Fixtures/subscription-dunning.php",
+        "services/business-api/tests/Fixtures/payment-recovery-native.php",
+        "services/business-api/tests/Fixtures/charger-operations.php",
+        "services/business-api/app/Http/Controllers/ChargerAdmissionController.php",
+        "services/business-api/app/Http/Controllers/ChargingOperationsController.php",
+        "tests/native-reservation-lifecycle.cjs",
+        "services/business-api/tests/Fixtures/reservation-lifecycle.php",
+        "services/business-api/app/Services/Charging/**",
+        "services/business-api/tests/Fixtures/canonical-topology.php",
+        "services/business-api/app/Http/Controllers/ConnectorTopologyController.php",
+        "services/business-api/tests/Fixtures/native-inventory.php",
+        "services/business-api/app/Http/Controllers/VendorOpsController.php",
+        "services/business-api/app/Http/Controllers/PlatformController.php",
+        "services/business-api/app/Http/Controllers/StationFavoriteController.php",
+        "services/business-api/app/Http/Controllers/DiscoveryLookupController.php",
+        "services/business-api/app/Providers/DiscoveryServiceProvider.php",
+        "services/business-api/config/discovery.php",
+        "services/business-api/routes/discovery.php",
+        "services/business-api/app/Services/Discovery/**",
+        "services/business-api/routes/favorites.php",
+        "services/business-api/app/Services/VendorOps/**",
+        "services/business-api/routes/vendor_ops.php",
+      ]
 permissions:
   contents: read
 jobs:
@@ -12,21 +172,38 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select supported Xcode 16.4
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test -d /Applications/Xcode_16.4.app/Contents/Developer
+          export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
       - uses: actions/setup-java@v4
         if: runner.os == 'Linux'
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/**/*.gradle*
+            apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
       - name: Install pinned official Flutter source
         shell: bash
         run: |
           git clone --depth 1 --branch 3.35.7 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = adc901062556672b4138e18a4dc62a4be8f4b3c2
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-flutter-3.35.7-pub-${{ hashFiles('apps/mobile/pubspec.lock') }}
+          restore-keys: ${{ runner.os }}-flutter-3.35.7-pub-
       - run: flutter --version
       - name: Validate native source and tests
         shell: bash
@@ -41,12 +218,36 @@ jobs:
           PY
             exit 1
           fi
-      - run: flutter build apk --debug
+      - name: Verify explicit local demo bootstrap and debug transport boundaries
+        run: |
+          python3 -B apps/mobile/tool/local_demo_config_test.py
+          cd apps/mobile
+          flutter test test/local_demo_build_test.dart --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true
+      - name: Verify foreground-only native privacy configuration
+        run: python3 -B apps/mobile/tool/foreground_location_config_test.py
+      - name: Verify native PDF artifact security boundaries
+        run: python3 -B apps/mobile/tool/test_pdfium_assets.py
+      - run: flutter build apk --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true
         if: runner.os == 'Linux'
         working-directory: apps/mobile
-      - run: flutter build ios --simulator --no-codesign
+      - name: Verify actual merged Android foreground location permissions
+        if: runner.os == 'Linux'
+        working-directory: apps/mobile
+        run: python3 tool/check-foreground-location-build.py android
+      - name: Verify native inventory against local Laravel
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ./scripts/setup
+          ./scripts/start
+          node tests/native-connected.cjs
+      - run: flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000 --dart-define=EV_LOCAL_DEMO=true
         if: runner.os == 'macOS'
         working-directory: apps/mobile
+      - name: Verify bundled iOS foreground privacy permissions and localizations
+        if: runner.os == 'macOS'
+        working-directory: apps/mobile
+        run: python3 tool/check-foreground-location-build.py ios
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
@@ -62,13 +263,45 @@ jobs:
           name: creabiz-ios-simulator
           path: ${{ runner.temp }}/creabiz-ios-simulator.tar.gz
           if-no-files-found: error
-      - name: Run native UI integration on iOS simulator (synthetic TLS fixtures)
-        timeout-minutes: 15
+      - name: Create and boot an isolated iPhone simulator
+        timeout-minutes: 8
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          device_id=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for group in d["devices"].values() for v in group if v["name"].startswith("iPhone")))')
-          xcrun simctl boot "$device_id" || xcrun simctl bootstatus "$device_id" -b
+          xcodebuild -version
+          xcrun simctl list runtimes
+          xcrun simctl list runtimes --json | python3 -c 'import json,sys; assert any(r["identifier"]=="com.apple.CoreSimulator.SimRuntime.iOS-18-5" and r["isAvailable"] for r in json.load(sys.stdin)["runtimes"]), "Required iOS 18.5 runtime is missing"'
+          device_id=$(xcrun simctl create "CreaBiz-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" com.apple.CoreSimulator.SimDeviceType.iPhone-16 com.apple.CoreSimulator.SimRuntime.iOS-18-5)
+          echo "EV_IOS_DEVICE_ID=$device_id" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device_id"
           xcrun simctl bootstatus "$device_id" -b
-          cd apps/mobile
-          flutter test integration_test/native_flow_test.dart -d "$device_id" --reporter expanded
+      - name: Verify simulator startup recovery guards
+        run: python3 -B -m unittest discover -s apps/mobile/tool -p '*_test.py'
+      - name: Run native UI integration on iOS simulator (synthetic TLS fixtures)
+        timeout-minutes: 28
+        if: runner.os == 'macOS'
+        working-directory: apps/mobile
+        run: python3 tool/test-ios-ci
+      - name: Capture simulator failure state
+        if: failure() && runner.os == 'macOS' && env.EV_IOS_DEVICE_ID != ''
+        shell: bash
+        run: |
+          xcrun simctl io "$EV_IOS_DEVICE_ID" screenshot "$RUNNER_TEMP/ios-failure.png" || true
+          xcrun simctl spawn "$EV_IOS_DEVICE_ID" log show --last 20m --style compact --predicate 'process == "Runner"' > "$RUNNER_TEMP/ios-runner.log" 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'macOS'
+        with:
+          name: creabiz-ios-ui-diagnostics
+          path: |
+            ${{ runner.temp }}/native-device*.log
+            ${{ runner.temp }}/ios-attempt-*.png
+            ${{ runner.temp }}/ios-attempt-*.log
+            ${{ runner.temp }}/ios-failure.png
+            ${{ runner.temp }}/ios-runner.log
+          if-no-files-found: warn
+      - name: Remove this run's simulator
+        if: always() && runner.os == 'macOS' && env.EV_IOS_DEVICE_ID != ''
+        shell: bash
+        run: |
+          xcrun simctl shutdown "$EV_IOS_DEVICE_ID" || true
+          xcrun simctl delete "$EV_IOS_DEVICE_ID"

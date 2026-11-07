@@ -1,5 +1,7 @@
 # Exact continuation instructions
 
+> Historical checkpoint content follows. Current branch, canonical apps/mobile client, toolchain and verified evidence are in UNIVERSAL_CONTINUATION.md, PROGRESS.md and QA_REPORT.md. Retired parallel app/package paths below must not be recreated.
+
 The complete commercial platform remains the objective. Resume existing work; do not recreate the repository, discard changes, reduce scope to an MVP or request approval after each module. No task is configured to keep running automatically after its session ends.
 
 ## Resume prompt

@@ -1,0 +1,11 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/payment_recovery_test.dart
+00:00 +0: unsupported server precision fails closed without displaying a misleading amount
+00:01 +1: empty subscription notices do not use the payment-recovery empty label
+00:01 +2: subscription reminders render authoritative recovery hold and offer no collection action
+00:01 +3: payment recovery translations have parity
+00:01 +4: scoped list paginates and history performs no financial write
+00:01 +5: status inspection requires confirmation and lost response never replays
+00:02 +6: expired authentication clears rows and invokes session invalidation
+00:02 +7: Arabic layout is RTL at mobile width without overflow
+00:02 +8: late responses after route disposal are ignored
+00:02 +9: All tests passed!

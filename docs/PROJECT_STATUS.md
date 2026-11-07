@@ -1,5 +1,7 @@
 # Project status
 
+> Historical checkpoint content follows. Current branch, canonical apps/mobile client, toolchain and verified evidence are in UNIVERSAL_CONTINUATION.md, PROGRESS.md and QA_REPORT.md. Retired parallel app/package paths below must not be recreated.
+
 Updated 2026-10-27. **The complete commercial platform is not ready for final acceptance.** The owner's full scope remains mandatory; this checkpoint does not redefine it as an MVP.
 
 The authoritative scope is [PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md), [AGENTS.md](../AGENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md) and [ACCEPTANCE_TESTS.md](ACCEPTANCE_TESTS.md), together with [OWNER_DIRECTIVE.md](OWNER_DIRECTIVE.md), the latest preserved owner directive. The original feasibility PDF is retained in `reference/`; its earlier MVP timetable does not override the owner's later full-platform instruction.

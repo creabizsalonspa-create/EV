@@ -1,0 +1,4 @@
+> test:commercial
+> node tests/commercial-workspace.cjs
+
+PASS actual Laravel financial workspace: checkout authorization/capture, refund request/review, subscription gateway capture/entitlement, immutable subscription credit/refund and entitlement revocation, recovery queue privacy, dispute resolution, settlement approval/test payout, CSV download, both themes three widths RTL and logout privacy. MOCK payments only.

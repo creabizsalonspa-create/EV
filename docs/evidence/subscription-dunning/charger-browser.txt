@@ -1,0 +1,1 @@
+PASS real Laravel EN/AR390px charger identity preparation, one-time secret/hide/revoke, no browser credential storage, unknown-command case/source absence/audit; no resend, forced capacity release or physical acceptance.

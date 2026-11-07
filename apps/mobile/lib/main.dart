@@ -2,12 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
 import 'catalog.dart';
+import 'connector_choices.dart';
+import 'reservation_arrival.dart';
+import 'roaming.dart';
+import 'ocpi_operations.dart';
+import 'invoice_history.dart';
+import 'payment_recovery.dart';
+import 'loyalty.dart';
+import 'financial_documents.dart';
+import 'financial_analytics.dart';
+import 'hosted_checkout.dart';
+import 'refund_requests.dart';
+import 'vendor_finance.dart';
+import 'corporate_billing.dart';
+import 'recurring_payments.dart';
+import 'subscriptions.dart';
+import 'payment_cases.dart';
+import 'tariffs.dart';
 import 'preferences.dart';
 import 'strings.dart';
 import 'support.dart';
 import 'fleet.dart';
 import 'sessions.dart';
+import 'vendor_inventory.dart';
+import 'vendor_company.dart' show registerVendorDocumentLicenses;
 import 'session_vault.dart';
+import 'rider_access.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +49,7 @@ class _EvAppState extends State<EvApp> {
   @override
   void initState() {
     super.initState();
+    registerVendorDocumentLicenses();
     preferences = widget.preferences ?? AppPreferences(DevicePreferenceStore());
     if (!preferences.ready) preferences.load();
   }
@@ -38,6 +59,18 @@ class _EvAppState extends State<EvApp> {
     animation: preferences,
     builder: (context, _) => MaterialApp(
       title: 'Crea-Biz EV',
+      builder:
+          const bool.fromEnvironment('EV_LOCAL_DEMO') &&
+              !const bool.fromEnvironment('dart.vm.product') &&
+              !const bool.fromEnvironment('dart.vm.profile')
+          ? (context, child) => Column(
+              children: [
+                const LocalDemoNotice(),
+                Expanded(child: child ?? const SizedBox.shrink()),
+              ],
+            )
+          : null,
+
       themeMode: preferences.theme,
       locale: preferences.locale,
       supportedLocales: const [Locale('en'), Locale('ar')],
@@ -78,6 +111,25 @@ class _EvAppState extends State<EvApp> {
     if (widget.preferences == null) preferences.dispose();
     super.dispose();
   }
+}
+
+/// Visible on every route in explicitly compiled local demo builds only.
+class LocalDemoNotice extends StatelessWidget {
+  const LocalDemoNotice({super.key});
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.tertiaryContainer,
+    child: SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Text(
+          EvStrings.of(context).t('localDemoNotice'),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    ),
+  );
 }
 
 class Workspace extends StatefulWidget {
@@ -312,6 +364,24 @@ class _WorkspaceState extends State<Workspace> {
       });
   }
 
+  void chooseConnectors(Station station) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConnectorChoicesView(
+          station: station,
+          loader: (page) async => ApiPage.fromJson(
+            await api!.request(
+              'stations/${station.id}/connectors',
+              query: {'page': '$page'},
+            ),
+            (v) => v,
+          ),
+          onReserve: reserve,
+        ),
+      ),
+    );
+  }
+
   Future<void> reserve(Station station) async {
     final date = await showDatePicker(
       context: context,
@@ -342,7 +412,7 @@ class _WorkspaceState extends State<Workspace> {
       builder: (context) => AlertDialog(
         title: Text(s.t('reserveConfirm')),
         content: Text(
-          '${station.name}\n${slot.toIso8601String()}\n${s.t('reservationTerms')}',
+          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${s.t('reservationTerms')}',
         ),
         actions: [
           TextButton(
@@ -363,14 +433,24 @@ class _WorkspaceState extends State<Workspace> {
         method: 'POST',
         body: {
           'station_id': station.id,
+          if (station.mappingId != null)
+            'connector_mapping_id': station.mappingId,
           'starts_at': slot.toIso8601String().replaceFirst('.000Z', 'Z'),
           'idempotency_key':
               'mobile-${DateTime.now().microsecondsSinceEpoch}-${station.id}',
         },
       );
-      if (mounted) setState(() => tab = 1);
+      if (mounted) {
+        setState(() => tab = 1);
+        if (station.mappingId != null && Navigator.of(context).canPop())
+          Navigator.of(context).pop();
+      }
       await load();
     });
+    if (mounted && station.mappingId != null && error != null)
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.t(error!))));
   }
 
   Future<void> recovery() async {
@@ -424,6 +504,20 @@ class _WorkspaceState extends State<Workspace> {
                   'time': row['starts_at'],
                 }),
               ),
+            if (tab == 1 && row['checked_in_at'] != null)
+              Text(
+                '${arrivalText(context, 'reported')} · ${row['checked_in_at']}',
+              ),
+            if (tab == 1 &&
+                account?.role == 'customer' &&
+                row['can_check_in'] == true)
+              ReservationArrivalButton(
+                api: api!,
+                reservationId: id as int,
+                disabled: busy,
+                onChanged: () => perform(() => load(page: recordPage)),
+                onExpired: expiredSession,
+              ),
             if (tab == 2)
               Text(
                 s.t('energy', {
@@ -431,6 +525,27 @@ class _WorkspaceState extends State<Workspace> {
                   'total': row['total_minor'] ?? s.t('pending'),
                   'currency': row['currency'],
                 }),
+              ),
+            if (tab == 3 && row['can_simulate_battery'] == true)
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () => perform(() async {
+                        await api!.request(
+                          'vehicles/$id/battery-simulation',
+                          method: 'POST',
+                          body: {
+                            'operation_key': operationKey(),
+                            'battery_percent': 15,
+                          },
+                        );
+                        if (mounted) setState(() => message = 'saved');
+                      }),
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'ar'
+                      ? 'محاكاة تنبيه بطارية منخفضة 15٪'
+                      : 'Simulate low battery alert: 15%',
+                ),
               ),
             if (tab == 3)
               Text(
@@ -460,13 +575,19 @@ class _WorkspaceState extends State<Workspace> {
                         ? null
                         : () => perform(() async {
                             await api!.request(
-                              'reservations/$id/simulate-start',
+                              'reservations/$id/${row['csms_bound'] == true ? 'csms-start' : 'simulate-start'}',
                               method: 'POST',
                             );
                             if (mounted) setState(() => tab = 2);
                             await load();
                           }),
-                    child: Text(s.t('startSimulator')),
+                    child: Text(
+                      s.t(
+                        row['csms_bound'] == true
+                            ? 'startCsms'
+                            : 'startSimulator',
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -695,6 +816,13 @@ class _WorkspaceState extends State<Workspace> {
                   ),
                 const SizedBox(height: 16),
                 TextButton(
+                  onPressed: () => showLicensePage(
+                    context: context,
+                    applicationName: 'Crea-Biz EV',
+                  ),
+                  child: Text(t.t('licenses')),
+                ),
+                TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: Text(t.t('close')),
                 ),
@@ -752,8 +880,71 @@ class _WorkspaceState extends State<Workspace> {
             children: [
               CatalogView(
                 key: catalogKey,
-                loader: (filter, page) =>
-                    api!.catalog(filter: filter, page: page),
+                discoveryApi: api,
+                onChooseConnectors: chooseConnectors,
+                onFavorite: (station, desired) =>
+                    api!.setFavorite(station.id, desired),
+                onExpired: expiredSession,
+                onFavorites: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (routeContext) => Scaffold(
+                        appBar: AppBar(
+                          title: Text(
+                            EvStrings.of(routeContext).t('savedStations'),
+                          ),
+                        ),
+                        body: CatalogView(
+                          discoveryApi: api,
+                          savedOnly: true,
+                          loader: (_, page) => api!.favorites(page: page),
+                          customer: true,
+                          onExpired: expiredSession,
+                          onFavorite: (station, desired) =>
+                              api!.setFavorite(station.id, desired),
+                          onChooseConnectors: (station) {
+                            Navigator.of(routeContext).pop();
+                            chooseConnectors(station);
+                          },
+                          onReserve: (station) async {
+                            Navigator.of(routeContext).pop();
+                            await reserve(station);
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                  if (mounted && account?.role == 'customer')
+                    await catalogKey.currentState?.refresh();
+                },
+                onRoaming: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => RoamingView(
+                      api: account?.role == 'customer' ? api : null,
+                      accountId: account?.id,
+                      onExpired: expiredSession,
+                      queryLoader: (filters, page) async {
+                        final data = await api!.request(
+                          'roaming/locations',
+                          query: {...filters, 'page': '$page'},
+                        );
+                        return ApiPage.fromJson(data, RoamingLocation.fromJson);
+                      },
+                      loader: (page) async {
+                        final data = await api!.request(
+                          'roaming/locations',
+                          query: {'page': '$page'},
+                        );
+                        return ApiPage.fromJson(data, RoamingLocation.fromJson);
+                      },
+                    ),
+                  ),
+                ),
+                loader: (filter, page) => api!.catalog(
+                  filter: filter,
+                  page: page,
+                  includeFavorites: account?.role == 'customer',
+                ),
                 customer: account!.role == 'customer',
                 busy: busy,
                 onReserve: reserve,
@@ -806,9 +997,171 @@ class _WorkspaceState extends State<Workspace> {
           if (signedIn)
             PopupMenuButton<String>(
               tooltip: s.t('account'),
-              onSelected: (value) {
+              onSelected: (value) async {
                 if (value == 'profile') {
                   profile();
+                } else if (value == 'ocpiOperations') {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => OcpiOperationsView(
+                        api: api!,
+                        admin: account?.role == 'admin',
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'inventory') {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => VendorInventoryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                  if (mounted && account != null)
+                    await perform(() async {
+                      final current = await api!.request('me');
+                      if (mounted)
+                        setState(
+                          () => account = Account.fromJson(
+                            Map<String, dynamic>.from(current as Map),
+                          ),
+                        );
+                    });
+                } else if (value == 'tariffs') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => TariffWorkspaceView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'hostedPayments') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => HostedCheckoutView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'financialAnalytics') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => FinancialAnalyticsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'riderAccess') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          RiderAccessView(api: api!, onExpired: expiredSession),
+                    ),
+                  );
+                } else if (value == 'paymentCases') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PaymentCasesView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'subscriptions') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => SubscriptionsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'recurringPayments') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => RecurringPaymentsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'subscriptionNotices') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PaymentRecoveryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                        subscriptionNotices: true,
+                      ),
+                    ),
+                  );
+                } else if (value == 'paymentRecovery') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PaymentRecoveryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'corporateBilling') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => CorporateBillingView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'vendorFinance') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => VendorFinanceView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'refundRequests') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => RefundRequestsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                        role: account!.role,
+                      ),
+                    ),
+                  );
+                } else if (value == 'financialDocuments') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => FinancialDocumentsView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
+                } else if (value == 'loyalty') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          LoyaltyView(api: api!, onExpired: expiredSession),
+                    ),
+                  );
+                } else if (value == 'invoices') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => InvoiceHistoryView(
+                        api: api!,
+                        onExpired: expiredSession,
+                      ),
+                    ),
+                  );
                 } else if (value == 'verify') {
                   perform(() async {
                     await api!.request(
@@ -846,6 +1199,99 @@ class _WorkspaceState extends State<Workspace> {
                 }
               },
               itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'inventory',
+                  enabled: !busy,
+                  child: Text(inventoryText(context, 'companies')),
+                ),
+                if (account!.role == 'vendor')
+                  PopupMenuItem(
+                    value: 'tariffs',
+                    enabled: !busy,
+                    child: Text(s.t('pricing')),
+                  ),
+                PopupMenuItem(
+                  value: 'hostedPayments',
+                  enabled: !busy,
+                  child: Text(hostedText(context, 'history')),
+                ),
+                PopupMenuItem(
+                  value: 'financialAnalytics',
+                  enabled: !busy,
+                  child: Text(analyticsText(context, 'title')),
+                ),
+                PopupMenuItem(
+                  value: 'paymentCases',
+                  enabled: !busy,
+                  child: Text(caseText(context, 'title')),
+                ),
+                PopupMenuItem(
+                  value: 'subscriptions',
+                  enabled: !busy,
+                  child: Text(subscriptionText(context, 'title')),
+                ),
+                PopupMenuItem(
+                  value: 'recurringPayments',
+                  enabled: !busy,
+                  child: Text(
+                    Localizations.localeOf(context).languageCode == 'ar'
+                        ? recurringAr['title']!
+                        : recurringEn['title']!,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'subscriptionNotices',
+                  enabled: !busy,
+                  child: Text(recoveryText(context, 'notices')),
+                ),
+                PopupMenuItem(
+                  value: 'paymentRecovery',
+                  enabled: !busy,
+                  child: Text(recoveryText(context, 'title')),
+                ),
+                PopupMenuItem(
+                  value: 'invoices',
+                  enabled: !busy,
+                  child: Text(s.t('invoiceHistory')),
+                ),
+                PopupMenuItem(
+                  value: 'corporateBilling',
+                  enabled: !busy,
+                  child: Text(corporateText(context, 'title')),
+                ),
+                if (account!.role == 'vendor')
+                  PopupMenuItem(
+                    value: 'vendorFinance',
+                    enabled: !busy,
+                    child: Text(vendorFinanceText(context, 'title')),
+                  ),
+                PopupMenuItem(
+                  value: 'refundRequests',
+                  enabled: !busy,
+                  child: Text(refundText(context, 'title')),
+                ),
+                PopupMenuItem(
+                  value: 'financialDocuments',
+                  enabled: !busy,
+                  child: Text(financialText(context, 'title')),
+                ),
+                PopupMenuItem(
+                  value: 'loyalty',
+                  enabled: !busy,
+                  child: Text(loyaltyText(context, 'title')),
+                ),
+                if (['vendor', 'admin'].contains(account?.role))
+                  PopupMenuItem(
+                    value: 'ocpiOperations',
+                    enabled: !busy,
+                    child: Text(partnerOperationsTitle(context)),
+                  ),
+                if (account?.role == 'customer')
+                  PopupMenuItem(
+                    value: 'riderAccess',
+                    enabled: !busy,
+                    child: Text(riderTitle(context)),
+                  ),
                 PopupMenuItem(
                   value: 'profile',
                   enabled: !busy,

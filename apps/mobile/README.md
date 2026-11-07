@@ -50,3 +50,25 @@ That test rejects non-loopback destinations, creates synthetic users/26 stations
 Still unfinished: fleet consolidated billing/reporting, maps/authorized availability, full vendor inventory/staff/KYC and all commerce/loyalty/analytics integrations, deep links, push delivery, approved branding, comprehensive accessibility/performance/device QA, release signing and stores. Backend-dependent gaps are documented in docs/API.md rather than implemented as fake successes.
 
 Persistence is opt-in and disabled on plaintext debug origins. It preserves server cookie expiry, capped at 24 hours per saved snapshot; Laravel expiry/revocation remains authoritative. No password, CSRF token or cached account is stored. Android backups are disabled to avoid restoring encrypted preferences without their device key. A locked/unavailable vault never falls back to plaintext. Logout must delete the local saved credential before reporting success. Physical Android/iOS acceptance and deployed HTTPS QA remain required.
+
+Integrated CSMS routing uses backend csms_bound/csms_linked metadata. Linked sessions never expose manual meter edits; stopping waits for authoritative source end. Stopped records can open a read-only simulated invoice showing actual minor-unit accounting and reconciliation labels. All finance remains simulated. Current tests/builds: docs/QA_REPORT.md.
+
+## Partner location discovery
+
+Open **Partner locations** from the signed-in Discover screen. This separate paginated catalog uses the existing cookie API `/api/roaming/locations`; it does not replace owned simulator stations. It displays source/receipt UTC timestamps, coordinates and partner-reported EVSE/connector information in English/Arabic with RTL. Availability remains unknown and no booking, charging or payment controls are offered. Capability flags are validated before rendering. Empty, loading, retry and disposed-route behavior are tested in `test/roaming_test.dart`; the synthetic on-device TLS fixture additionally opens the route and changes pages. No real roaming network is configured by these fixtures. Operator OCPI and company/KYC screens remain web workflows pending native implementation.
+
+## Company inventory and maintenance
+
+Account → Company inventory is available to customer-role authorized staff and vendor owners. Existing paginated company/site/charger/connector scopes and maintenance APIs are used; controls are permission hints, never authorization. Maintenance requires a reason/confirmation, refreshes authoritative data and does not replay uncertain updates. Read-only staff cannot modify inventory. Live availability stays unknown. Full company/KYC/staff and inventory creation/provisioning remain unfinished.
+
+Run `flutter test test/vendor_inventory_test.dart` for isolated UX/security-state cases. From repository root with the pinned Flutter/tool-cache environment, `node tests/native-inventory.cjs` creates isolated synthetic local SQLite identities and runs an opted-in actual Laravel native-client test. It writes generated test credentials only to a temporary mode-0600 file and removes that input after the run; synthetic business/audit evidence stays in the local database. It does not use live credentials, connect chargers or write finance records. The default Flutter suite explicitly skips this live-only test when no isolated fixture is supplied.
+
+### CI local demo installation
+
+New local-demo debug/simulator builds compile `EV_API_BASE_URL=http://127.0.0.1:8000` and `EV_LOCAL_DEMO=true`. A visible English/Arabic notice requires synthetic accounts. Older CI artifacts built without the service-origin define cannot log in; do not describe those as connected builds.
+
+Run the existing Laravel development service on the computer's loopback port8000, or establish an authorized tunnel forwarding that computer's port8000 to the workspace service. Android requires `adb reverse tcp:8000 tcp:8000` followed by `adb install -r app-debug.apk`. The iOS simulator uses the Mac's loopback; extract the simulator archive and use `xcrun simctl install booted Runner.app`. These steps require the corresponding authorized device/simulator tools; no public staging deployment is inferred.
+
+Android permits debug cleartext only for exact localhost/127.0.0.1; other hosts retain TLS. iOS uses a separate debug plist with a local-network exception and identical privacy values. Profile/Release retain the original plist and the existing Dart HTTPS guard. Real device/release builds still need a reachable authorized HTTPS origin and signing. Do not enter production credentials into a local demo.
+
+Connecting the app to the API does not make a charger online. Charging operations additionally require an owned online CSMS simulator, the existing supervised workers and a valid current booking. Preserve those gates during demonstrations; this build change does not establish hardware or live-payment acceptance.

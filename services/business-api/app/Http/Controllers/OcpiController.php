@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
@@ -27,7 +28,7 @@ class OcpiController extends Controller
     {
         abort_unless(in_array($r->user()->role, ['vendor', 'admin']), 403);
 
-        return OcpiProvider::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id))->paginate(25);
+        return OcpiProvider::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id))->orderByDesc('id')->paginate(25);
     }
 
     public function create(Request $r, PartnerClient $client)
@@ -41,7 +42,7 @@ class OcpiController extends Controller
             $provider = OcpiProvider::create($v);
             if ($provider->authorized) {
                 try {
-                    $client->connection($provider);
+                    $client->connection($provider, true);
                 } catch (OcpiException $e) {
                     abort(422, $e->getMessage());
                 }
@@ -58,15 +59,21 @@ class OcpiController extends Controller
 
         return DB::transaction(function () use ($r, $provider, $v, $client) {
             $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $exhausted = $provider->authorization_revision >= PHP_INT_MAX;
+            // Revocation must remain available at the terminal generation.
+            // Reauthorization is permanently blocked, so that generation cannot recur.
+            abort_if($v['authorized'] && $exhausted, 409, 'Operator authorization revision is exhausted.');
             $provider->authorized = $v['authorized'];
             if ($provider->authorized) {
                 try {
-                    $client->connection($provider);
+                    $client->connection($provider, true);
                 } catch (OcpiException $e) {
                     abort(422, $e->getMessage());
                 }
             }
-            $provider->fill(['version' => null, 'endpoints' => null, 'negotiated_at' => null])->save();
+            $provider->fill(['version' => null, 'endpoints' => null, 'negotiated_at' => null, 'authorization_revision' => $exhausted ? PHP_INT_MAX : (int) $provider->authorization_revision + 1])->save();
+            DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->where('action', 'prepare_incoming')->where('state', 'awaiting_peer')->update(['state' => 'revoked', 'completed_at' => now(), 'updated_at' => now()]);
+            DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->update(['state' => 'revoked', 'local_token_digest' => null, 'updated_at' => now()]);
             $this->audit($r, $provider->authorized ? 'ocpi.provider_authorized' : 'ocpi.provider_revoked', $provider->id);
 
             return response()->json($provider);
@@ -82,7 +89,7 @@ class OcpiController extends Controller
             abort(409, $e->getMessage());
         }$this->audit($r, 'ocpi.version_negotiated', $provider->id);
 
-        return response()->json(['version' => '2.2.1', 'readable_modules' => array_keys($endpoints), 'commands_enabled' => false, 'evidence' => 'CONTRACT_UNVERIFIED']);
+        return response()->json(['version' => '2.2.1', 'readable_modules' => array_values(array_intersect(PartnerClient::MODULES, array_keys($endpoints))), 'commands_enabled' => false, 'evidence' => 'CONTRACT_UNVERIFIED']);
     }
 
     public function sync(Request $r, OcpiProvider $provider, string $module, PartnerClient $client, RecordSynchronizer $sync)
@@ -100,16 +107,25 @@ class OcpiController extends Controller
         return response()->json(['counts' => $counts, 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'remote_control' => false, 'billing_eligible' => false]);
     }
 
-    public function records(Request $r, OcpiProvider $provider, string $module)
+    public function records(Request $r, OcpiProvider $provider, string $module, CdrReconciler $reconciler)
     {
         $this->owner($r, $provider);
         abort_unless(in_array($module, PartnerClient::MODULES, true), 404);
 
-        return OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', $module)->orderByDesc('id')->paginate(25);
+        return OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', $module)->orderByDesc('id')->paginate(25)->through(function ($record) use ($provider, $module, $reconciler) {
+            return $record->toArray() + ($module === 'cdrs' ? ['reconciliation' => $reconciler->inspect($provider, $record)] : []);
+        });
     }
 
-    public function locations()
+    public function locations(Request $request)
     {
-        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))->orderByDesc('id')->paginate(25)->through(fn ($r) => ['id' => $r->id, 'provider_id' => $r->ocpi_provider_id, 'location' => $r->normalized, 'received_at' => $r->received_at, 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'availability' => 'unknown', 'remote_control' => false, 'reservable' => false]);
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'country' => 'nullable|string|regex:/^[A-Z]{3}$/D', 'connector_standard' => 'nullable|string|max:64']);
+        $text = trim($v['q'] ?? '');
+
+        return OcpiRecord::where('module', 'locations')->where('normalized->publish', true)->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
+            ->when($text !== '', fn ($q) => $q->where(fn ($q) => $q->whereLike('normalized->name', '%'.$text.'%')->orWhereLike('normalized->city', '%'.$text.'%')->orWhereLike('normalized->address', '%'.$text.'%')))
+            ->when(! empty($v['country']), fn ($q) => $q->where('normalized->country', $v['country']))
+            ->when(! empty($v['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $v['connector_standard']))
+            ->orderByDesc('id')->paginate(25)->withQueryString()->through(fn ($r) => ['id' => $r->id, 'provider_id' => $r->ocpi_provider_id, 'location' => $r->normalized, 'received_at' => $r->received_at, 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'availability' => 'unknown', 'remote_control' => false, 'reservable' => false]);
     }
 }

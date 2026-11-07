@@ -1,0 +1,11 @@
+{
+  "categories": 42,
+  "atoms": 312,
+  "weighted_percent": {
+    "coded": "50.70",
+    "tested": "50.51",
+    "merged": "50.51",
+    "production_accepted": "0.00"
+  },
+  "generated_files_current": true
+}

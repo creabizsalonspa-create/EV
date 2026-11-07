@@ -1,0 +1,29 @@
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+...........                                                       11 / 11 (100%)
+
+Time: 00:24.875, Memory: 46.50 MB
+
+Charger Admission Concurrency (Tests\Postgres\ChargerAdmissionConcurrency)
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #0
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #1
+ ✔ Concurrent credential rotation and recovery opening are serialized with data set #2
+
+Command Reconciliation Concurrency (Tests\Postgres\CommandReconciliationConcurrency)
+ ✔ Concurrent source recovery records one observation without device or financial mutation
+
+Connector Reservation Concurrency (Tests\Postgres\ConnectorReservationConcurrency)
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #0
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #1
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #2
+ ✔ Concurrent reservations share evse capacity and replay safely with data set #3
+
+Reservation Lifecycle Concurrency (Tests\Postgres\ReservationLifecycleConcurrency)
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #0
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #1
+ ✔ Simultaneous lifecycle requests are scoped idempotent and do not create charging with data set #2
+
+OK (11 tests, 152 assertions)

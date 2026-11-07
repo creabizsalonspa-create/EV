@@ -1,0 +1,108 @@
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	﻿2026-10-27T11:36:20.7314780Z ##[group]Run python3 tool/test-ios-ci
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:36:20.7315970Z [36;1mpython3 tool/test-ios-ci[0m
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:36:22.7653400Z shell: /bin/bash -e {0}
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:36:22.7653830Z env:
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:36:22.7654410Z   EV_IOS_DEVICE_ID: B34C2F57-B98B-4C84-96E2-3170887BA2DB
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:36:22.7654810Z ##[endgroup]
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:44.4709410Z Simulator UI launch/test exceeded 11 minutes; collecting diagnostics.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8540190Z            	<string>23F81a</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8542070Z            	<key>DTPlatformName</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8542830Z            	<string>iphonesimulator</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8543330Z            	<key>DTPlatformVersion</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8543960Z            	<string>26.5</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8544330Z            	<key>DTSDKBuild</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8545250Z            	<string>23F81a</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8548270Z            	<key>DTSDKName</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8548580Z            	<string>iphonesimulator26.5</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8552980Z            	<key>DTXcode</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8553310Z            	<string>2660</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8553980Z            	<key>DTXcodeBuild</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8554480Z            	<string>17F113</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8555170Z            	<key>LSRequiresIPhoneOS</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8555610Z            	<true/>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8555880Z            	<key>MinimumOSVersion</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8556360Z            	<string>13.0</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8557190Z            	<key>NSBonjourServices</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8560960Z            	<array>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8561440Z            		<string>_dartVmService._tcp</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8562110Z            	</array>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8562680Z            	<key>NSLocalNetworkUsageDescription</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8563690Z            	<string>Allow Flutter tools on your computer to connect and debug your application. This prompt will not appear on release builds.</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8564920Z            	<key>UIApplicationSupportsIndirectInputEvents</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8565430Z            	<true/>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8566580Z            	<key>UIDeviceFamily</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8575650Z            	<array>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8576270Z            		<integer>1</integer>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8576910Z            		<integer>2</integer>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8577340Z            	</array>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8577920Z            	<key>UILaunchStoryboardName</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8578790Z            	<string>LaunchScreen</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8579270Z            	<key>UIMainStoryboardFile</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8581510Z            	<string>Main</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8584930Z            	<key>UISupportedInterfaceOrientations</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8585730Z            	<array>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8596460Z            		<string>UIInterfaceOrientationPortrait</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8603210Z            		<string>UIInterfaceOrientationLandscapeLeft</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8605290Z            		<string>UIInterfaceOrientationLandscapeRight</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8606980Z            	</array>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8607980Z            	<key>UISupportedInterfaceOrientations~ipad</key>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8609210Z            	<array>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8614450Z            		<string>UIInterfaceOrientationPortrait</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8615130Z            		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8619340Z            		<string>UIInterfaceOrientationLandscapeLeft</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8621360Z            		<string>UIInterfaceOrientationLandscapeRight</string>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8624250Z            	</array>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8625650Z            </dict>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8625980Z            </plist>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8825740Z [  +10 ms] executing: /usr/bin/arch -arm64e xcrun simctl launch B34C2F57-B98B-4C84-96E2-3170887BA2DB com.creabiz.creabizEv --enable-dart-profiling --disable-vm-service-publication --enable-checked-mode --verify-entry-points
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8871460Z [   +4 ms] executing: /usr/bin/arch -arm64e xcrun simctl spawn B34C2F57-B98B-4C84-96E2-3170887BA2DB log stream --style json --predicate eventType = logEvent AND processImagePath ENDSWITH "Runner" AND (senderImagePath ENDSWITH "/Flutter" OR senderImagePath ENDSWITH "/libswiftCore.dylib" OR processImageUUID == senderImageUUID) AND NOT(eventMessage CONTAINS ": could not find icon for representation -> com.apple.") AND NOT(eventMessage BEGINSWITH "assertion failed: ") AND NOT(eventMessage CONTAINS " libxpc.dylib ")
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8878440Z [+6905 ms] com.creabiz.creabizEv: 17224
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8886460Z [   +2 ms] Waiting for VM Service port to be available...
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8891380Z [+421906 ms] Running 4 shutdown hooks
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8892000Z [  +14 ms] test 0: cleaning up...
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.8892690Z [        ] test 0: ensuring test device is terminated.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9180700Z [   +5 ms] executing: /usr/bin/arch -arm64e xcrun simctl terminate B34C2F57-B98B-4C84-96E2-3170887BA2DB com.creabiz.creabizEv
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9184340Z No tests ran.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9185650Z [ +151 ms] test package returned with exit code 1
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9188020Z [  +32 ms] Runtime for phase TestRunner: Wall-clock: 0:09:42.995130; combined: 0:09:42.995287.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9190210Z [        ] Runtime for phase Compile: Wall-clock: 0:00:00.000000; combined: 0:00:00.000000.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9191800Z [        ] Runtime for phase Run: Wall-clock: 0:09:40.041939; combined: 0:00:00.000000.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9194030Z [        ] Runtime for phase CoverageTotal: Wall-clock: 0:00:00.000000; combined: 0:00:00.000000.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9196080Z [        ] Runtime for phase CoverageCollect: Wall-clock: 0:00:00.000000; combined: 0:00:00.000000.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9198350Z [        ] Runtime for phase CoverageParseJson: Wall-clock: 0:00:00.000000; combined: 0:00:00.000000.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9200850Z [        ] Runtime for phase CoverageAddHitmap: Wall-clock: 0:00:00.000000; combined: 0:00:00.000000.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9202730Z [        ] Runtime for phase CoverageDataCollect: Wall-clock: 0:00:00.000000; combined: 0:00:00.000000.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9205650Z [        ] Runtime for phase WatcherFinishedTest: Wall-clock: 0:00:00.000000; combined: 0:00:00.000000.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9209380Z [  +20 ms] "flutter test" took 609,479ms.
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9211170Z [  +26 ms] 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9212050Z            #0      throwToolExit (package:flutter_tools/src/base/common.dart:34:3)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9214100Z            #1      TestCommand.runCommand (package:flutter_tools/src/commands/test.dart:714:7)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9216110Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9219450Z            #2      FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1581:27)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9224180Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9224840Z            #3      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9227020Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9230100Z            #4      CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9230640Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9237510Z            #5      FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:503:9)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9238290Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9240280Z            #6      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9245460Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9252220Z            #7      FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:438:5)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9254230Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9255840Z            #8      run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:98:11)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9258850Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9261360Z            #9      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9269740Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9270760Z            #10     main (package:flutter_tools/executable.dart:101:3)
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9272030Z            <asynchronous suspension>
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9272510Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9272510Z 
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9272600Z [  +26 ms] Running 4 shutdown hooks
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9273610Z [   +1 ms] Shutdown hooks complete
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9274880Z [  +21 ms] Error waiting for a debug connection: The log reader failed unexpectedly
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9276340Z [  +13 ms] test 0: error caught during test; sending to test framework
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9277130Z [  +21 ms] test 0: waiting for controller sink to close
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9277860Z [  +33 ms] test 0: finished
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:45.9278250Z [  +56 ms] exiting with code 1
+native (macos-latest)	Run native UI integration on iOS simulator (synthetic TLS fixtures)	2026-10-27T11:47:46.1114160Z ##[error]Process completed with exit code 124.

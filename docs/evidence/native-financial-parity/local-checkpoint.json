@@ -1,0 +1,88 @@
+{
+  "base": "e983b7fe672e51b0512f1d1820eaf203e148d716",
+  "branch": "development/native-financial-parity",
+  "status": "locally verified checkpoint; hosted exact-source Android/iOS and merge pending",
+  "results": {
+    "laravel": {
+      "tests": 346,
+      "assertions": 8449
+    },
+    "flutter_full_before_final_guard": {
+      "passed": 171,
+      "explicit_live_only_skips": 12
+    },
+    "final_subscriptions": {
+      "passed": 9
+    },
+    "financial_postgres": {
+      "tests": 221,
+      "assertions": 7129
+    },
+    "financial_postgres_concurrency": {
+      "tests": 58,
+      "assertions": 758
+    },
+    "actual_laravel_native": "passed five-login company/private-document/subscription lifecycle and foreign-access suite",
+    "payout_browser": "passed; local mock flag restored disabled",
+    "corporate_browser": "passed; existing canonical mock company receipt and private CSV",
+    "pint": "329 files passed",
+    "analysis": "clean"
+  },
+  "safety_corrections": [
+    "stale screen retains original operation identity after another screen confirms",
+    "deep immutable intent snapshot before asynchronous secure storage",
+    "different plan cannot relabel/replay an older pending enrollment",
+    "unpaid subscription cannot schedule period-end cancellation",
+    "invoice scrolling retains existing ledger and expired-session assertions"
+  ],
+  "ci_changes": [
+    "new actual-Laravel suite in fourth fresh authentication window; no changed production limits",
+    "required real iOS synthetic subscription enrollment marker; existing markers retained"
+  ],
+  "acceptance": "No live money, bank, company credit, physical charger, live OCPI, legal document or app-store acceptance",
+  "coverage": {
+    "categories": 42,
+    "atoms": 312,
+    "coded": "52.25",
+    "tested": "52.06",
+    "merged": "52.06",
+    "production_accepted": "0.00"
+  },
+  "logs_sha256": {
+    "laravel": "a91155beadca638d8eb417a550fdd6db2cf0864bfb4572ffc964e42372052e29",
+    "flutter_full_before_final_plan_guard": "01990b4367bd4a968fcdd75b49608ace618ff9ec8c5902c44eb6d38f0ff07886",
+    "final_subscription_guard": "5c7d4109ef091d7d87f45ced557d1183d532d637aba8a43b507d60207e6fb0a3",
+    "analysis": "47de49902b8c645059612131d1fcdcc035371af96b869255223431b009055b81",
+    "postgres": "a0d7e2faddb5b2de4c59bba8e4d8dc77ac122a0a089ebe7ceaae8424ae3fbf31",
+    "payout_browser": "fead844a18ae580c17db94c0c434d30bca4f944ae308243fa5324449b9e75de5",
+    "corporate_browser": "493795b8ee9f25ec6cbb2a5944dc93fcaafe2779ef1eee25331d8ca8ff7d52a6",
+    "native_actual_laravel": "246e646ab21b9b46460485e7ba67b306891a60f3c19faa6f437508051f91fe3e",
+    "pint": "9788acea8fed07321a2e3001e5c5a5f4b420f04798c1ae5a7aa11afa84720e89"
+  },
+  "followup": {
+    "source_before_fix": "f32b170cbd49847c9f9d699b6fec705162bc1760",
+    "hosted_failure": "https://github.com/creabizsalonspa-create/EV/actions/runs/40683087958",
+    "diagnosis": "LoyaltyEconomicsTest::additionalInvoice selected random days, allowing two synthetic reservations to collide under the production uniqueness constraint. Fixture now allocates the next hourly slot; no production rule changed.",
+    "regression": "Frozen-clock regression failed before fix and passes after; complete LoyaltyEconomicsTest14 tests/82 assertions passed.",
+    "native_notifications": "Subscription reminders link to the exact subscription and private subscription invoice. Opening routes never initiates collection.",
+    "focused_flutter": "19 payment-recovery/subscription tests passed; clean analysis",
+    "log_sha256": {
+      "fixture_red": "36f593b79335606a4348e7d311182bc6258ff7b6ed0cab106aef043e8ec3a483",
+      "fixture_green": "fa51788618c166f74b274a13e995596fb0ecac9b4c83a8118fc2413b7481fc23",
+      "native_links": "982164c97d7028b5aa451951a4c3964256c26354dc464c13ba9eef5fb2432777",
+      "native_links_analysis": "309b184d8d8cab63cc84993f5f1f7fceb1239dc2b268441c260b9bc25e2b6a66"
+    }
+  },
+  "durability_followup": {
+    "regression": "A stale retry kept its original key in memory after another screen confirmed, but failed to persist it again when storage was empty. Frozen restart regression reproduced null durable state. The retry now persists the original identity before dispatch and never overwrites a newer pending intent.",
+    "focused_validation": "39 financial-operation/subscription/vendor/corporate tests passed, including secure re-persistence failure and newer-intent protection;17 operation tests total.",
+    "ocpp": "Both1.6 and2.0.1 synthetic boot/heartbeat/status passed",
+    "ocpi": "Actual Laravel safe OCPI connection options/registration/vendor selection/lost-ack recovery/EN-AR themes/secret privacy passed against server-only synthetic metadata; no external partner request.",
+    "logs_sha256": {
+      "durability_red": "5da409b0291dd6faa8604e9e7927c0f9240029f21cc28a18d2b871ad3a9c0467",
+      "durability_green": "d36de4e31c027a6d5c2649f598873aad3b5d5fe61494605e77823d7da5212547",
+      "ocpp": "fd0b34a267cc58286eb475778a2e95774c81e6e1fe84bfd6c7ee5981d3501628",
+      "ocpi": "122597d58a9d7b164272a7ae8daa6555a00cc18fdbe4d5b5712a6c97ecb336f0"
+    }
+  }
+}

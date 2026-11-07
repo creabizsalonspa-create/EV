@@ -1,0 +1,2 @@
+# Preserve the exact official archive bytes, including BSD license line endings.
+* -text -eol

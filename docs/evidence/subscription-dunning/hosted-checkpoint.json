@@ -1,0 +1,159 @@
+{
+  "tested_head": "a3536d7f2c68ac05e116a04cd46df5ceaf76a605",
+  "implementation_commit": "eae79cb41677056890d33625d0c2700bcf94bcf4",
+  "merged_pr": 10,
+  "integration_commit": "e2f60f8854f2efd285864d764827865ed8191e81",
+  "integration_tree_matches_tested_head": true,
+  "recorded_at_utc": "2026-10-28T00:30:46.219037+00:00",
+  "check_runs": [
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606263349/job/122546399414"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606263349/job/122546399355"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606263446/job/122546399173"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606263349/job/122546398964"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606263446/job/122546398897"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606257887/job/122546380694"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606257893/job/122546380564"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606257893/job/122546380559"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606257893/job/122546380323"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/creabizsalonspa-create/EV/actions/runs/40606257887/job/122546380221"
+    }
+  ],
+  "primary_native_run": 40606257887,
+  "primary_artifacts": [
+    {
+      "digest": "sha256:47a63e923add39e312c7780a67aa61fac108acc12493a9191970025b55dae966",
+      "expired": false,
+      "id": 12782060664,
+      "name": "creabiz-android-debug",
+      "size_in_bytes": 76649178
+    },
+    {
+      "digest": "sha256:cb49c3f6b90d7ad3d6ee0da53afd7125fc864f39b5ff6081ff75807b9cf68052",
+      "expired": false,
+      "id": 12781110531,
+      "name": "creabiz-ios-simulator",
+      "size_in_bytes": 50392671
+    },
+    {
+      "digest": "sha256:1f84380fb82fc525dff9450a3a0e76800c5d277aa706187142d529cf2d716981",
+      "expired": false,
+      "id": 12780773944,
+      "name": "creabiz-ios-ui-diagnostics",
+      "size_in_bytes": 288780
+    }
+  ],
+  "recovered_native_run": 40606263446,
+  "recovered_artifacts": [
+    {
+      "digest": "sha256:998faace44aeb837184e8a68dcf0dd7145922e61dfe04c53873673a29b492b5d",
+      "expired": false,
+      "id": 12782210090,
+      "name": "creabiz-android-debug",
+      "size_in_bytes": 76649176
+    },
+    {
+      "digest": "sha256:45d5e8717fd87a5aef4e717a790864873d9baa35613ba50f23debe3b1551ec51",
+      "expired": false,
+      "id": 12781555345,
+      "name": "creabiz-ios-simulator",
+      "size_in_bytes": 50392759
+    },
+    {
+      "digest": "sha256:e06d41c59518e362891f35b70dc517cb0c25f5e311281f4c7930e2776863d89d",
+      "expired": false,
+      "id": 12781284012,
+      "name": "creabiz-ios-ui-diagnostics",
+      "size_in_bytes": 3282797
+    }
+  ],
+  "ios_startup_recovery": {
+    "run": 40606263446,
+    "attempts": 2,
+    "first_pre_dart_recovery_allowed": true,
+    "second_verified_complete": true
+  },
+  "laravel": {
+    "passed": 231,
+    "assertions": 7233
+  },
+  "postgres_financial": {
+    "passed": 126,
+    "assertions": 6164
+  },
+  "postgres_all_process_races": {
+    "passed": 32,
+    "assertions": 417
+  },
+  "postgres_connector_core": {
+    "passed": 42,
+    "assertions": 620
+  },
+  "postgres_connector_race_subset": {
+    "passed": 12,
+    "assertions": 166
+  },
+  "flutter_unit_widget": {
+    "passed": 80,
+    "default_live_only_skips": 7
+  },
+  "connected_native_fixture_suites": 6,
+  "separate_local_generic_native_smoke": 1,
+  "ios_startup_guard_units": 3,
+  "acceptance": {
+    "software_complete": false,
+    "physical_hardware": false,
+    "live_psp": false,
+    "live_ocpi_partner": false,
+    "signed_store_release": false
+  },
+  "artifact_note": "GitHub artifact archive digests, not release signing or downloaded APK binary attestations."
+}

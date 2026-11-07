@@ -1,0 +1,40 @@
+{
+  "integrated_base": "6d995d2806a688f8f92c094f671b2ebd1d3567ad",
+  "safe_base_merge": "b91c8563dce42d78866a9371fbe89ef1c33b0189",
+  "native_vendor_verified_source": "ae8a10f3bb3758efb072bcea73fe0688197e6e53",
+  "laravel": {
+    "passed": 258,
+    "assertions": 7563
+  },
+  "finance_postgres": {
+    "passed": 146,
+    "assertions": 6381
+  },
+  "finance_process_races": {
+    "passed": 41,
+    "assertions": 539
+  },
+  "connector_postgres": {
+    "passed": 49,
+    "assertions": 733
+  },
+  "connector_process_races": {
+    "passed": 14,
+    "assertions": 197
+  },
+  "flutter": {
+    "passed": 104,
+    "deliberate_live_only_skips": 9,
+    "analysis": "clean"
+  },
+  "browser": [
+    "nearby catalog",
+    "existing frontend",
+    "EN/AR localization"
+  ],
+  "coverage_evidence_guards": {
+    "passed": 5
+  },
+  "hosted_exact_source": "pending; required after integration",
+  "external_acceptance": false
+}

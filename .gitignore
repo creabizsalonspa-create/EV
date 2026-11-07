@@ -8,3 +8,9 @@ test-results/
 .dart_tool/
 **/.dart_tool/
 **/build/
+
+/services/charger-ingress/.env
+services/csms/rider/runtime/*
+!services/csms/rider/runtime/.gitkeep
+
+/services/business-api/storage/framework/csms-fault-worker.lock

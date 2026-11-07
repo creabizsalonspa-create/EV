@@ -1,0 +1,29 @@
+
+  ⨯
+  ────────────────────────────────────────────────────────────────────────────  
+   FAILED  Tests\Feature\FinancialAuditIntegrityTest > financial audit dates…   
+  SQL NULL bypassed immutable dates in: commercial_settlements
+Failed asserting that two arrays are identical.
+  -Array &0 []
+  +Array &0 [
+  +    0 => 'commercial_settlements',
+  +]
+  
+
+  at tests/Feature/FinancialAuditIntegrityTest.php:60
+     56▕             }
+     57▕             $this->assertNotNull($before);
+     58▕             $this->assertSame($before, DB::table($table)->find($id)->created_at);
+     59▕         }
+  ➜  60▕         $this->assertSame([], $unguarded, 'SQL NULL bypassed immutable dates in: '.implode(', ', $unguarded));
+     61▕     }
+     62▕ 
+     63▕     public function test_new_payout_accounts_require_a_real_creation_date(): void
+     64▕     {
+
+  1   tests/Feature/FinancialAuditIntegrityTest.php:60
+
+
+  Tests:    1 failed (15 assertions)
+  Duration: 0.39s
+

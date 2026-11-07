@@ -1,0 +1,194 @@
+{
+  "finance_pr": 4,
+  "finance_head": "7de6c4ebf2af9985c2df9d9e78e7bf51927499fc",
+  "identical_source_files": [
+    {
+      "path": "services/business-api/app/Console/Commands/RenewSubscriptions.php",
+      "blob": "400f6d8237c98f7e548870709c80bf4565db49c2"
+    },
+    {
+      "path": "services/business-api/app/Http/Controllers/CommercialFinanceController.php",
+      "blob": "acec5e64b0a092c147c799f663ed6493001ca5ba"
+    },
+    {
+      "path": "services/business-api/app/Http/Controllers/FinanceController.php",
+      "blob": "1663fa8f4a4fdfa0dc5ac47ae4888767f339625d"
+    },
+    {
+      "path": "services/business-api/app/Http/Controllers/PaymentGatewayController.php",
+      "blob": "133bbc2aedd2c8b3f09978d7eedd4bc1254bdff2"
+    },
+    {
+      "path": "services/business-api/app/Http/Controllers/SettlementController.php",
+      "blob": "3af44a50013b2e7d246f1f13645afbf9aecac671"
+    },
+    {
+      "path": "services/business-api/app/Http/Controllers/SubscriptionController.php",
+      "blob": "012491ab49a5812632c605ad290361ffad25d6e0"
+    },
+    {
+      "path": "services/business-api/app/Http/Controllers/SubscriptionGatewayController.php",
+      "blob": "6b01edeb06a019c7e81484df7a48f31fe62a2d36"
+    },
+    {
+      "path": "services/business-api/app/Services/Commercial/Payments/GatewayService.php",
+      "blob": "6d585d124ff4ecb9f35e6f2f8da3f86f3ff82eda"
+    },
+    {
+      "path": "services/business-api/app/Services/Commercial/Payments/MockPaymentProvider.php",
+      "blob": "e893d9b8dd649b6808f97deef785fa3c842535f5"
+    },
+    {
+      "path": "services/business-api/app/Services/Commercial/Payments/PaymentProvider.php",
+      "blob": "d317d789759d58c07465b3d4c558d8ee7e0dce1a"
+    },
+    {
+      "path": "services/business-api/app/Services/Commercial/Payments/StripeSandboxProvider.php",
+      "blob": "1cf1daf7a098ad1c60397c16b312650887f23bce"
+    },
+    {
+      "path": "services/business-api/app/Services/Commercial/SettlementService.php",
+      "blob": "f59f1a2bf7ebb8aab01357ff6a9e3f707af7a2f4"
+    },
+    {
+      "path": "services/business-api/app/Services/Commercial/SubscriptionGateway.php",
+      "blob": "2bf4649f9ac718ff084947b4eae933c9ba16f7cb"
+    },
+    {
+      "path": "services/business-api/app/Services/Commercial/SubscriptionService.php",
+      "blob": "3ba245010dd898d65d16f1a3a59cbc8c65c38f57"
+    },
+    {
+      "path": "services/business-api/config/payments.php",
+      "blob": "a415177d0c4b2a488a608c498593a8c3ebbecdc4"
+    },
+    {
+      "path": "services/business-api/database/migrations/2026_10_28_100001_create_gateway_workflows.php",
+      "blob": "f3a7c82c136dd5b37403f27727c37577bf268f1c"
+    },
+    {
+      "path": "services/business-api/database/migrations/2026_10_28_110001_create_subscription_billing.php",
+      "blob": "dbf2300d1c7d0a9cb38c6adb90c535d26fb93403"
+    },
+    {
+      "path": "services/business-api/database/migrations/2026_10_28_120001_create_commercial_settlements.php",
+      "blob": "5ca696057ee13ab9aa986cdc3777e0a5073836d8"
+    },
+    {
+      "path": "services/business-api/database/migrations/2026_10_28_120002_snapshot_adjustment_precision.php",
+      "blob": "7373ad875142aac05a9381e9578f308d9fbed6a6"
+    },
+    {
+      "path": "services/business-api/database/migrations/2026_10_28_130001_create_finance_refund_requests.php",
+      "blob": "651ef74ba72cc6684e2a23b6d947d471d9dd5fe6"
+    },
+    {
+      "path": "services/business-api/database/migrations/2026_10_28_140001_create_subscription_gateway.php",
+      "blob": "20568f3a990babb00e2af97b2b92181de7ee9564"
+    },
+    {
+      "path": "services/business-api/public/commercial.js",
+      "blob": "962c9f2d3f279e397514bea3326de63ef595a7d6"
+    },
+    {
+      "path": "services/business-api/public/platform.css",
+      "blob": "88698c115fcad46ccc59961aac0fc5d7318c263c"
+    },
+    {
+      "path": "services/business-api/public/platform.js",
+      "blob": "49818a401e68e4c3af193b9b7d9180a0116adcca"
+    },
+    {
+      "path": "services/business-api/resources/views/platform.blade.php",
+      "blob": "eb413b028476b6ed6aa52b3a954631c5c15b480d"
+    },
+    {
+      "path": "services/business-api/routes/api.php",
+      "blob": "9aeb34b9f9c0d030620d7e6eea00ae0b83f609bb"
+    },
+    {
+      "path": "services/business-api/routes/commercial_finance.php",
+      "blob": "8f9a2a22733d1dba9a7c29eec7c3b2c578866f9f"
+    },
+    {
+      "path": "services/business-api/routes/finance.php",
+      "blob": "17789ad9600be53fa2f3d81682a39d2254e75738"
+    },
+    {
+      "path": "services/business-api/routes/payments.php",
+      "blob": "7bdd5d669e83e577d00941e88fd88f13c555a2ee"
+    },
+    {
+      "path": "services/business-api/routes/settlements.php",
+      "blob": "15b1ff1784a893563c8ce817bacc2bf0e184a5a6"
+    },
+    {
+      "path": "services/business-api/routes/subscription_gateway.php",
+      "blob": "998cd94f45d320d7289fcc57febf61f7a5db25f5"
+    },
+    {
+      "path": "services/business-api/routes/subscription_webhooks.php",
+      "blob": "8c2c38761d6e352aa393c65e0583c3996c408be9"
+    },
+    {
+      "path": "services/business-api/routes/subscriptions.php",
+      "blob": "a54df6f850a39ccfa497ac25110c9e62bf786469"
+    },
+    {
+      "path": "services/business-api/tests/Feature/CommercialFinanceTest.php",
+      "blob": "798cd9cc721cd228591d668c1f866e7310f367e2"
+    },
+    {
+      "path": "services/business-api/tests/Feature/PaymentGatewayTest.php",
+      "blob": "c783a76419578696fe0699121697f43955540a20"
+    },
+    {
+      "path": "services/business-api/tests/Feature/SettlementTest.php",
+      "blob": "8777818b1e80729d9adc80a856d3f48f5cc1a3b9"
+    },
+    {
+      "path": "services/business-api/tests/Feature/StripeSandboxTest.php",
+      "blob": "105c861d5f992dc1ea5bcc911e90b76307af79e1"
+    },
+    {
+      "path": "services/business-api/tests/Feature/SubscriptionGatewayTest.php",
+      "blob": "2498e93622274e31b744e97930673994cea19fde"
+    },
+    {
+      "path": "services/business-api/tests/Feature/SubscriptionTest.php",
+      "blob": "d6c0b50ffc47f7469ff044d7a93fd8acf3928181"
+    },
+    {
+      "path": "services/business-api/tests/Postgres/GatewayConcurrencyTest.php",
+      "blob": "34db357e455b5c49ec04873e18ad0a6cd0185f9b"
+    },
+    {
+      "path": "services/business-api/tests/Postgres/SettlementConcurrencyTest.php",
+      "blob": "c62db40f71b0d608a1f2851658a5fe3e38781fcb"
+    },
+    {
+      "path": "services/business-api/tests/Postgres/SubscriptionConcurrencyTest.php",
+      "blob": "25769539f84899728d2050dcf058de63fdae729d"
+    },
+    {
+      "path": "services/business-api/tests/Postgres/run-finance",
+      "blob": "f90cb56e48e5a8afbe28acf60721b0a322ba3e5d"
+    },
+    {
+      "path": "services/business-api/tests/Support/gateway-concurrency-worker.php",
+      "blob": "5fffa2ede9e852b503a7e4708f12d572708097b7"
+    },
+    {
+      "path": "services/business-api/tests/Support/settlement-concurrency-worker.php",
+      "blob": "7d1e4893714e80f99767ab6584db509303b47deb"
+    },
+    {
+      "path": "services/business-api/tests/Support/subscription-concurrency-worker.php",
+      "blob": "6a92d5fd5bbe3fe7107a96a61e2765f91faeb988"
+    },
+    {
+      "path": "tests/commercial-workspace.cjs",
+      "blob": "2367c7138addaeadfabae8d2e97b603e22b1c31c"
+    }
+  ]
+}

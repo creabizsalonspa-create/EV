@@ -1,0 +1,3 @@
+* * * * *  php artisan commercial:reconcile-payments --limit=100  Next Due: 23 seconds from now
+  * * * * *  php artisan reservations:expire-unused --limit=100 --scheduled  Next Due: 23 seconds from now
+  * * * * *  php artisan csms:expire-unsent --limit=100 --scheduled  Next Due: 23 seconds from now

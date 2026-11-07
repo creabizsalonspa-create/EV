@@ -1,0 +1,172 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 747B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/php:8.5-cli-bookworm@sha256:d4f6e10eb393de7e3a7a88e8b88e139072dd3ae297f6a5dada8257e6fe32c585
+#2 DONE 0.6s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [stage-0 1/2] FROM docker.io/library/php:8.5-cli-bookworm@sha256:d4f6e10eb393de7e3a7a88e8b88e139072dd3ae297f6a5dada8257e6fe32c585
+#4 DONE 0.0s
+
+#5 [stage-0 2/2] RUN --mount=type=secret,id=host_ca,target=/tmp/host-ca.pem cp /tmp/host-ca.pem /etc/ssl/certs/ca-certificates.crt && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && apt-get update && apt-get install -y --no-install-recommends libpq-dev && rm -rf /var/lib/apt/lists/* && mkdir /tmp/pdo-pgsql && tar -xJf /usr/src/php.tar.xz --wildcards --strip-components=3 -C /tmp/pdo-pgsql '*/ext/pdo_pgsql/*' && cd /tmp/pdo-pgsql && phpize && ./configure --with-pdo-pgsql=/usr && make -j2 && make install && docker-php-ext-enable pdo_pgsql && cd / && rm -rf /tmp/pdo-pgsql
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 writing image sha256:96430bcc2c589a5c195329b41794850e8c21f6f8c73cd18f99c3841175d95290 done
+#6 naming to docker.io/library/ev-finance-pg-tests:ev-finance-tests-16907-640613 done
+#6 DONE 0.0s
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+................................................................. 65 / 85 ( 76%)
+....................                                              85 / 85 (100%)
+
+Time: 00:06.639, Memory: 60.50 MB
+
+Commercial Finance (Tests\Feature\CommercialFinance)
+ ✔ Customer request vendor review credit note and private report
+ ✔ Rejection releases reserved amount and validation
+ ✔ External provider invoice cannot use ledger only simulation after config switch
+ ✔ Native and cookie clients share financial records and report filters
+
+Finance (Tests\Feature\Finance)
+ ✔ Integer rounding tariff snapshot and invoice are immutable and reconcile
+ ✔ Database rejects direct financial record mutation
+ ✔ Legacy session does not pick up a new tariff retroactively
+ ✔ Partial payments idempotency credit notes and full refund reconcile
+ ✔ Overpayment overrefund and idempotency payload mismatch are rejected
+ ✔ Unfinished or inconsistent sessions cannot be invoiced
+ ✔ Finance http authorization and tenant scope
+ ✔ Invoice history filters preserve tenant scope and validate dates and literal prefix
+ ✔ Only vendor owner or admin can publish tariff and vendor cannot set commission
+ ✔ Vendor pricing retains admin commission and publish retries are payload bound
+ ✔ Pricing station selector is role scoped and requires matching currency configuration
+ ✔ Numeric form tariffs keep integer contract and snapshot comparisons
+ ✔ Money allocator has no negative or lost minor units
+ ✔ Production never processes simulated money
+
+Finance Money (Tests\Unit\FinanceMoney)
+ ✔ Every small refund preserves units component bounds and full reversal
+ ✔ Money math uses half up rounding and rejects overflow
+ ✔ Invalid components are rejected
+
+Managed Charging Gate (Tests\Feature\ManagedChargingGate)
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #0
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #1
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #2
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #3
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #4
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #5
+ ✔ Unavailable or ambiguous inventory is not bookable and leaks no private reasons with data set #6
+ ✔ Maintenance blocks new admission but preserves replay and safe stop
+ ✔ Provably undispatched start can cancel without faking source end and releases binding
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #0
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #1
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #2
+ ✔ Admitted or uncertain start cannot be cancelled as undispatched with data set #3
+ ✔ Bound admission and dispatch recheck company policy window and target
+
+Payment Gateway (Tests\Feature\PaymentGateway)
+ ✔ Checkout authorize capture replay refund reconcile and exact ledger
+ ✔ Failed authorizations expiry cancel and competing checkout balance
+ ✔ Signed webhooks exact replay conflicts and invalid signatures
+ ✔ Customer cases admin approval credit notes replays and tenant isolation
+ ✔ Production and unconfigured provider fail closed and raw card fields are not accepted
+
+Settlement (Tests\Feature\Settlement)
+ ✔ Full capture commission reservation approval and payout simulation reconcile
+ ✔ Unpaid partial and unmatured invoices are not payable
+ ✔ Refund after reservation blocks approval and rejection releases revised funds
+ ✔ Post settlement refund debt is carried forward and offset against next earnings
+ ✔ Tenant isolation currency and admin adjustment dual control
+ ✔ Statements return configured three digit precision and reject mixed history
+ ✔ Precision migration backfills existing adjustments without changing economics
+ ✔ Precision backfill rejects ambiguous currency before schema change
+ ✔ Simulated payout is disabled in production
+ ✔ Pending refund or dispute holds earnings and approved settlement can be rejected
+
+Stripe Sandbox (Tests\Feature\StripeSandbox)
+ ✔ Stripe manual authorization capture refund and signed callback use immutable ledger
+ ✔ Signed provider capture can recover a lost response once without another network call
+ ✔ Live secret and live webhook are rejected without network calls
+ ✔ Provider declines action required unconfirmed refunds and unexpected live response
+ ✔ Cancellation and transport uncertainty do not invent success
+
+Subscription (Tests\Feature\Subscription)
+ ✔ Enrollment payment entitlements and replays are connected
+ ✔ Payment failure retry and period expiry never grant unpaid features
+ ✔ Upgrades and downgrades are scheduled with frozen current cycle prices
+ ✔ Cancellation resume and due command do not charge or reenable cancelled subscription
+ ✔ Tenant isolation and audience apply to every subscription operation
+ ✔ Plan versioning retirement and validation preserve historical terms
+ ✔ Database guards invoice receipt plan and event immutability
+ ✔ Yearly billing leap day and production mock guard
+ ✔ Month end anniversary is restored after short months
+
+Subscription Gateway (Tests\Feature\SubscriptionGateway)
+ ✔ Stripe contract capture uses shared invoice receipt ledger and entitlements once
+ ✔ Signed webhook recovers capture without second external call and rejects conflicts
+ ✔ Invalid signatures stale events wrong amount currency and live mode cannot post receipts
+ ✔ Declined and action required authorizations never grant features
+ ✔ Tenant checks and outstanding gateway guards prevent mixed mock double settlement
+ ✔ Timeout retries keep provider capture key and do not double post
+ ✔ Reconciliation compares provider currency capture and refund amounts
+ ✔ Mock provider reuses same subscription settlement and production rejects every provider
+ ✔ Out of order events do not downgrade capture and gateway evidence is immutable
+
+Vendor Ops (Tests\Feature\VendorOps)
+ ✔ Catalog station picker is scoped to company writers and unlinked owned simulators
+ ✔ Onboarding requires private documents and explicit admin review
+ ✔ Kyc documents are not public or visible to other tenants or staff
+ ✔ Staff requires consent scope and cannot grant itself permissions
+ ✔ Inventory hierarchy is tenant scoped and does not enable live control
+ ✔ Unapproved or suspended company cannot create inventory
+ ✔ Company edits are locked after submission and expired license blocks inventory
+ ✔ Reinviting revoked staff requires fresh acceptance before new scope
+ ✔ Arbitrary files and invalid permissions are rejected
+ ✔ Client capabilities follow staff consent and revocation without private evidence
+ ✔ Expired approved license can be corrected only after audited review request
+ ✔ License operational gate uses the configured country calendar boundary
+
+OK (85 tests, 5758 assertions)
+PHPUnit 11.5.57 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.5.12
+Configuration: /app/services/business-api/phpunit.xml
+
+..............                                                    14 / 14 (100%)
+
+Time: 00:20.891, Memory: 46.50 MB
+
+Finance Concurrency (Tests\Postgres\FinanceConcurrency)
+ ✔ Concurrent tariff retries publish once and keep commission policy
+ ✔ Cross invoice payment key race returns conflict without double posting
+ ✔ Cross invoice refund key race returns conflict without double refund
+
+Gateway Concurrency (Tests\Postgres\GatewayConcurrency)
+ ✔ Simultaneous capture retries post exactly once
+ ✔ Competing authorizations cannot double capture invoice
+ ✔ Simultaneous signed webhook retries commit one event and one payment
+
+Settlement Concurrency (Tests\Postgres\SettlementConcurrency)
+ ✔ Concurrent drafts cannot reserve the same payable twice
+ ✔ Concurrent identical draft retries return one settlement
+
+Subscription Concurrency (Tests\Postgres\SubscriptionConcurrency)
+ ✔ Racing enrollment same key returns one subscription and invoice
+ ✔ Racing distinct enrollment keys cannot create two active subscriptions
+ ✔ Racing mock payment replays post one receipt and balanced journal
+ ✔ Racing distinct payment keys cannot double charge invoice
+ ✔ Racing due renewals issue one cycle without capturing money
+ ✔ Racing gateway captures share single receipt and payment journal
+
+OK (14 tests, 168 assertions)

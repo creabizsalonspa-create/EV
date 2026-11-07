@@ -47,6 +47,9 @@ void main() {
           connector: 'Type2',
           country: 'ae',
           minimumPower: 22,
+          latitude: 25.2,
+          longitude: 55.3,
+          radiusKm: 10,
         );
         final page = await api.catalog(filter: filter, page: 2);
         expect(page.current, 2);
@@ -56,6 +59,9 @@ void main() {
           'connector_type': 'Type2',
           'country': 'AE',
           'min_power_kw': '22',
+          'latitude': '25.2',
+          'longitude': '55.3',
+          'radius_km': '10.0',
           'page': '2',
         });
       } finally {

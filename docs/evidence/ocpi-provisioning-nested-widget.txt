@@ -1,0 +1,11 @@
+00:00 +0: loading /workspace/EV/apps/mobile/test/vendor_inventory_test.dart
+00:00 +0: inventory translation contracts match
+00:00 +1: company pagination and hierarchy use scoped APIs without hardware commands
+00:02 +2: maintenance requires a reason and confirmation, then refreshes authoritative state
+00:03 +3: lost acknowledgement never replays a maintenance update and requires refresh
+00:04 +4: read-only staff cannot change maintenance and revoked scope clears private rows
+00:04 +5: Arabic narrow layout keeps literal data and blocks unapproved release
+00:04 +6: disposed scope ignores a pending response
+00:04 +7: expired authentication clears inventory and calls session handler
+00:04 +8: nested authentication expiry returns to the public root without reloading removed scopes
+00:06 +9: All tests passed!

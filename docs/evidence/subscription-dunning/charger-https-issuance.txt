@@ -1,0 +1,12 @@
+PASS  Tests\Feature\ChargerAdmissionTest
+  ✓ production credential disclosure requires https before rotating any… 0.74s
+  ✓ signed tls admission rotation revocation and no credential disclosu… 0.07s
+  ✓ signed tls admission rotation revocation and no credential disclosu… 0.05s
+  ✓ replayed or spoofed ingress tls protocol and expiry are rejected     0.03s
+  ✓ certificate pin current company approval and owner scope are enforc… 0.04s
+  ✓ production fails closed for plaintext or nondurable replay cache     0.03s
+  ✓ inventory staff cannot disclose or rotate owner credentials and ide… 0.04s
+  ✓ dedicated identity budget is enforced and recovers after window      0.07s
+
+  Tests:    8 passed (171 assertions)
+  Duration: 1.14s

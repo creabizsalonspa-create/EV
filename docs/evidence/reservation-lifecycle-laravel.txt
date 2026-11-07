@@ -1,0 +1,233 @@
+
+   PASS  Tests\Unit\ExampleTest
+  ✓ that true is true
+
+   PASS  Tests\Unit\FinanceMoneyTest
+  ✓ every small refund preserves units component bounds and full revers… 0.03s  
+  ✓ money math uses half up rounding and rejects overflow
+  ✓ invalid components are rejected
+
+   PASS  Tests\Feature\AccountTest
+  ✓ recovery is non enumerating and reset token is single use            1.38s  
+  ✓ reset rejects wrong user and weak or expired token                   0.46s  
+  ✓ profile cannot update role or another account                        0.03s  
+  ✓ security headers and private api cache policy                        0.08s  
+
+   PASS  Tests\Feature\ChargerCommandTest
+  ✓ only admin can bind and only owning vendor can queue idempotent com… 0.08s  
+  ✓ http submission does not claim charger acceptance and is not replay… 0.07s  
+  ✓ timeout requires reconciliation and never automatic retry            0.03s  
+  ✓ negative dispatch confirmation is rejected without replay            0.03s  
+  ✓ production guard rejects dev token dispatch                          0.03s  
+
+   PASS  Tests\Feature\CommercialFinanceTest
+  ✓ customer request vendor review credit note and private report        0.28s  
+  ✓ rejection releases reserved amount and validation                    0.04s  
+  ✓ external provider invoice cannot use ledger only simulation after c… 0.06s  
+  ✓ native and cookie clients share financial records and report filter… 0.23s  
+
+   PASS  Tests\Feature\ConnectorTopologyTest
+  ✓ parallel evse bookings shared connector capacity and payload bound…  0.14s  
+  ✓ public choices do not leak sources or maintenance reasons and scope… 0.10s  
+  ✓ application sessions are parallel across evses but unresolved prior… 0.12s  
+  ✓ csms dispatch targets selected source and parallel evses with data…  0.15s  
+  ✓ csms dispatch targets selected source and parallel evses with data…  0.13s  
+  ✓ source inbox requires the exact canonical target before accepting e… 0.07s  
+  ✓ activation preserves legacy bookings and rejects uncorrelated outbo… 0.18s  
+  ✓ multiple charge points use their own source binding not first stati… 0.19s  
+  ✓ catalog filters use actual mapped connector capabilities             0.07s  
+
+   PASS  Tests\Feature\CsmsSessionBridgeTest
+  ✓ correlated source meters finalize one invoice and replay cannot dou… 0.20s  
+  ✓ signature replay window binding and transaction conflicts are rejec… 0.08s  
+  ✓ only owner can start and legacy mutation cannot override csms energ… 0.07s  
+  ✓ missing start future meter stale order and unknown start are not in… 0.12s  
+  ✓ disabled or production bridge never accepts events                   0.03s  
+
+   PASS  Tests\Feature\EmailVerificationTest
+  ✓ registration does not accept verification claims and send requires…  0.04s  
+  ✓ signed verification is idempotent audited and preserves role         0.03s  
+  ✓ guests and other accounts cannot consume a verification link         0.03s  
+  ✓ tampered unsigned and wrong email links are rejected                 0.04s  
+  ✓ expired link does not verify and resend produces a working link      0.05s  
+  ✓ resend budget is per actor and independent of catalog                0.05s  
+
+   PASS  Tests\Feature\EnterpriseTest
+  ✓ only admin can configure regions and commerce stays disabled         0.14s  
+  ✓ invitation requires recipient acceptance and tenant privacy          0.08s  
+  ✓ vehicle assignment requires own vehicle and same fleet cost center…  0.05s  
+  ✓ invites do not disclose whether email exists                         0.02s  
+
+   PASS  Tests\Feature\ExampleTest
+  ✓ the application returns a successful response                        0.02s  
+
+   PASS  Tests\Feature\FinanceTest
+  ✓ integer rounding tariff snapshot and invoice are immutable and reco… 0.04s  
+  ✓ database rejects direct financial record mutation                    0.08s  
+  ✓ legacy session does not pick up a new tariff retroactively           0.03s  
+  ✓ partial payments idempotency credit notes and full refund reconcile  0.05s  
+  ✓ overpayment overrefund and idempotency payload mismatch are rejecte… 0.06s  
+  ✓ unfinished or inconsistent sessions cannot be invoiced               0.03s  
+  ✓ finance http authorization and tenant scope                          0.09s  
+  ✓ invoice history filters preserve tenant scope and validate dates an… 0.09s  
+  ✓ only vendor owner or admin can publish tariff and vendor cannot set… 0.04s  
+  ✓ vendor pricing retains admin commission and publish retries are pay… 0.13s  
+  ✓ pricing station selector is role scoped and requires matching curre… 0.09s  
+  ✓ numeric form tariffs keep integer contract and snapshot comparisons  0.06s  
+  ✓ money allocator has no negative or lost minor units                  0.01s  
+  ✓ production never processes simulated money                           0.13s  
+
+   PASS  Tests\Feature\ManagedChargingGateTest
+  ✓ unavailable or ambiguous inventory is not bookable and leaks no pri… 0.10s  
+  ✓ unavailable or ambiguous inventory is not bookable and leaks no pri… 0.09s  
+  ✓ unavailable or ambiguous inventory is not bookable and leaks no pri… 0.04s  
+  ✓ unavailable or ambiguous inventory is not bookable and leaks no pri… 0.04s  
+  ✓ unavailable or ambiguous inventory is not bookable and leaks no pri… 0.07s  
+  ✓ unavailable or ambiguous inventory is not bookable and leaks no pri… 0.09s  
+  ✓ unavailable or ambiguous inventory is not bookable and leaks no pri… 0.12s  
+  ✓ maintenance blocks new admission but preserves replay and safe stop  0.15s  
+  ✓ provably undispatched start can cancel without faking source end an… 0.11s  
+  ✓ admitted or uncertain start cannot be cancelled as undispatched wit… 0.17s  
+  ✓ admitted or uncertain start cannot be cancelled as undispatched wit… 0.12s  
+  ✓ admitted or uncertain start cannot be cancelled as undispatched wit… 0.11s  
+  ✓ admitted or uncertain start cannot be cancelled as undispatched wit… 0.04s  
+  ✓ bound admission and dispatch recheck company policy window and targ… 0.07s  
+  ✓ expiry is exactly at window end idempotent audited and releases bin… 0.16s  
+  ✓ expiry never closes admitted or unknown dispatch with data set #0    0.10s  
+  ✓ expiry never closes admitted or unknown dispatch with data set #1    0.08s  
+  ✓ expiry never closes admitted or unknown dispatch with data set #2    0.12s  
+  ✓ expiry never closes admitted or unknown dispatch with data set #3    0.17s  
+  ✓ expiry preserves contradictory observed state for reconciliation wi… 0.17s  
+  ✓ expiry preserves contradictory observed state for reconciliation wi… 0.08s  
+  ✓ expiry preserves contradictory observed state for reconciliation wi… 0.05s  
+  ✓ expiry preserves contradictory observed state for reconciliation wi… 0.15s  
+  ✓ expiry preserves contradictory observed state for reconciliation wi… 0.04s  
+  ✓ expiry command validation feature gate and scheduler registration    0.16s  
+  ✓ bounded scheduled scan advances past reconciliation records and res… 0.11s  
+
+   PASS  Tests\Feature\MobileAuthTest
+  ✓ native tokens authenticate expire and revoke without role escalatio… 0.09s  
+  ✓ admin native login is denied and token caps are enforced             0.05s  
+  ✓ expired native token is rejected                                     0.04s  
+  ✓ native vehicle tenant isolation                                      0.04s  
+
+   PASS  Tests\Feature\OcpiIntegrationTest
+  ✓ negotiation sends ocpi token header and selects sender capabilities… 0.04s  
+  ✓ endpoint origin escape is rejected before forwarding credentials     0.03s  
+  ✓ redirects are not followed and invalid credentials are not exposed   0.03s  
+  ✓ unauthorized provider and unnegotiated module never send requests    0.04s  
+  ✓ pagination loop and cross origin next link are rejected              0.02s  
+  ✓ normalized catalog deduplicates retains truth labels and encrypts r… 0.04s  
+  ✓ same timestamp conflict rolls back whole batch and stale updates ar… 0.04s  
+  ✓ final cdr is immutable and has no billing eligibility                0.04s  
+  ✓ tariff and session normalization validate currency and preserve dec… 0.09s  
+  ✓ provider owner scope and non admin configuration are enforced        0.07s  
+  ✓ full owner sync paginates and hides unpublished or revoked location… 0.42s  
+  ✓ source subsecond updates are not truncated into conflicting replays  0.10s  
+  ✓ malformed or future records never create a partial batch             0.04s  
+  ✓ ocpi error envelope is not ingested and repeated pages do not escap… 0.02s  
+
+   PASS  Tests\Feature\OcpiProvisioningTest
+  ✓ only admin can read connection and vendor selectors without secrets… 0.15s  
+  ✓ vendor selector is paginated searchable and excludes other roles an… 0.08s  
+  ✓ admin can register only server configured connections and role vali… 0.13s  
+
+   PASS  Tests\Feature\PaymentGatewayTest
+  ✓ checkout authorize capture replay refund reconcile and exact ledger  0.17s  
+  ✓ failed authorizations expiry cancel and competing checkout balance   0.29s  
+  ✓ signed webhooks exact replay conflicts and invalid signatures        0.12s  
+  ✓ customer cases admin approval credit notes replays and tenant isola… 0.16s  
+  ✓ production and unconfigured provider fail closed and raw card field… 0.11s  
+
+   PASS  Tests\Feature\PlatformTest
+  ✓ registration cannot grant vendor or admin                            0.05s  
+  ✓ invalid login and guest operations are rejected                      0.27s  
+  ✓ discovery has no live or control claims                              0.05s  
+  ✓ booking is idempotent and prevents conflicting slot                  0.04s  
+  ✓ idempotency key cannot change payload                                0.04s  
+  ✓ customer and vendor tenant isolation                                 0.12s  
+  ✓ half hour window and country validation                              0.05s  
+  ✓ vehicle records are private                                          0.04s  
+  ✓ vendor creation is audited and cannot claim hardware integration     0.06s  
+
+   PASS  Tests\Feature\ReservationLifecycleTest
+  ✓ check in is scoped explicit self reported server timed and idempote… 0.12s  
+  ✓ unused window expiry is exact retains arrival and never creates ses… 0.04s  
+  ✓ unused window expiry is exact retains arrival and never creates ses… 0.04s  
+  ✓ existing session any state and uncorrelated commands require separa… 0.05s  
+  ✓ scheduled scan is bounded and resumes past reconciliation records    0.05s  
+
+   PASS  Tests\Feature\SettlementTest
+  ✓ full capture commission reservation approval and payout simulation…  0.24s  
+  ✓ unpaid partial and unmatured invoices are not payable                0.14s  
+  ✓ refund after reservation blocks approval and rejection releases rev… 0.13s  
+  ✓ post settlement refund debt is carried forward and offset against n… 0.10s  
+  ✓ tenant isolation currency and admin adjustment dual control          0.18s  
+  ✓ statements return configured three digit precision and reject mixed… 0.07s  
+  ✓ precision migration backfills existing adjustments without changing… 0.10s  
+  ✓ precision backfill rejects ambiguous currency before schema change   0.05s  
+  ✓ simulated payout is disabled in production                           0.08s  
+  ✓ pending refund or dispute holds earnings and approved settlement ca… 0.19s  
+
+   PASS  Tests\Feature\SimulationTest
+  ✓ start meter stop are authorized idempotent and reconcile integer mi… 0.14s  
+  ✓ another tenant cannot control or view a session                      0.05s  
+  ✓ cancelled or out of window reservations cannot start                 0.08s  
+
+   PASS  Tests\Feature\SourceConsumerTest
+  ✓ source authentication signed delivery restart cursor and final reco… 0.26s  
+  ✓ ambiguous source identity is rejected without advancing business st… 0.04s  
+  ✓ meter units are exact and unsupported precision is not rounded       0.03s  
+
+   PASS  Tests\Feature\StripeSandboxTest
+  ✓ stripe manual authorization capture refund and signed callback use…  0.17s  
+  ✓ signed provider capture can recover a lost response once without an… 0.57s  
+  ✓ live secret and live webhook are rejected without network calls      0.21s  
+  ✓ provider declines action required unconfirmed refunds and unexpecte… 0.06s  
+  ✓ cancellation and transport uncertainty do not invent success         0.04s  
+
+   PASS  Tests\Feature\SubscriptionGatewayTest
+  ✓ stripe contract capture uses shared invoice receipt ledger and enti… 0.19s  
+  ✓ signed webhook recovers capture without second external call and re… 0.10s  
+  ✓ invalid signatures stale events wrong amount currency and live mode… 0.05s  
+  ✓ declined and action required authorizations never grant features     0.08s  
+  ✓ tenant checks and outstanding gateway guards prevent mixed mock dou… 0.18s  
+  ✓ timeout retries keep provider capture key and do not double post     0.08s  
+  ✓ reconciliation compares provider currency capture and refund amount… 0.07s  
+  ✓ mock provider reuses same subscription settlement and production re… 0.04s  
+  ✓ out of order events do not downgrade capture and gateway evidence i… 0.10s  
+
+   PASS  Tests\Feature\SubscriptionTest
+  ✓ enrollment payment entitlements and replays are connected            0.15s  
+  ✓ payment failure retry and period expiry never grant unpaid features  0.06s  
+  ✓ upgrades and downgrades are scheduled with frozen current cycle pri… 0.08s  
+  ✓ cancellation resume and due command do not charge or reenable cance… 0.08s  
+  ✓ tenant isolation and audience apply to every subscription operation  0.06s  
+  ✓ plan versioning retirement and validation preserve historical terms  0.11s  
+  ✓ database guards invoice receipt plan and event immutability          0.06s  
+  ✓ yearly billing leap day and production mock guard                    0.07s  
+  ✓ month end anniversary is restored after short months                 0.15s  
+
+   PASS  Tests\Feature\SupportTest
+  ✓ catalog traffic does not consume support rate limit                  0.36s  
+  ✓ support rate limit still rejects excess requests                     0.13s  
+  ✓ ticket and internal notes are private and notifications are scoped   0.08s  
+  ✓ resolution close and reopen have explicit transition rules           0.09s  
+
+   PASS  Tests\Feature\VendorOpsTest
+  ✓ catalog station picker is scoped to company writers and unlinked ow… 0.21s  
+  ✓ onboarding requires private documents and explicit admin review      0.16s  
+  ✓ kyc documents are not public or visible to other tenants or staff    0.07s  
+  ✓ staff requires consent scope and cannot grant itself permissions     0.16s  
+  ✓ inventory hierarchy is tenant scoped and does not enable live contr… 0.06s  
+  ✓ unapproved or suspended company cannot create inventory              0.08s  
+  ✓ company edits are locked after submission and expired license block… 0.11s  
+  ✓ reinviting revoked staff requires fresh acceptance before new scope  0.07s  
+  ✓ arbitrary files and invalid permissions are rejected                 0.04s  
+  ✓ client capabilities follow staff consent and revocation without pri… 0.09s  
+  ✓ expired approved license can be corrected only after audited review… 0.09s  
+  ✓ license operational gate uses the configured country calendar bound… 0.07s  
+
+  Tests:    177 passed (6554 assertions)
+  Duration: 19.02s
+

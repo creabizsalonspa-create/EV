@@ -1,0 +1,2 @@
+Source: https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md
+Read on 2026-10-27. Official image inventory lists Xcode 16.4 (16F6) at /Applications/Xcode_16.4.app and installed iOS 18.5 simulators including iPhone 16. This is documentation evidence for selecting the pin, not execution proof. Hosted CI must verify availability/build/launch.

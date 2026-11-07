@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3 - <<'PY'
+from pathlib import Path
+import secrets,os
+p=Path('services/business-api/.env')
+lines=p.read_text().splitlines(); values=dict(line.split('=',1) for line in lines if '=' in line and not line.startswith('#'))
+if values.get('APP_ENV','').strip('\"\'')!='local':raise SystemExit('Local simulator ingress setup only; production setup is an operator task.')
+key=values.get('CSMS_INGRESS_AUTH_SECRET') or secrets.token_hex(32)
+assert len(key)>=32
+updates={'CSMS_INGRESS_AUTH_SECRET':key,'CSMS_INGRESS_AUTH_ENABLED':'true','CSMS_INGRESS_ALLOW_LOCAL_HTTP':'true'}
+p.write_text('\n'.join(line for line in lines if line.split('=',1)[0] not in updates)+'\n'+'\n'.join(k+'='+v for k,v in updates.items())+'\n');os.chmod(p,0o600)
+out=Path('services/charger-ingress/.env');out.write_text(key+'\n');os.chmod(out,0o600)
+print('Local signed ingress enabled; existing credentials preserved. No secrets printed.')
+PY

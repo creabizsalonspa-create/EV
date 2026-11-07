@@ -1,0 +1,6 @@
+Historical duplicate run40526771011, application source8e5454c.
+Android debug and unsigned iOS simulator builds passed; iPhone test supervisor timed out after11 minutes.
+No Dart device phase started. Flutter waited for VM-service port; log reader reported failure during supervisor shutdown. No tests ran in that device job, so it is not counted as a pass.
+Diagnostics downloaded and inspected: native-device.log, ios-runner.log, ios-failure.png. No permission dialog or application assertion was identified.
+Identical-source PR run40526762395 passed all native phases. Fresh checkpointff086b0 run40528029448 passed Android/iOS,63 unit/widgets per runner,3 Linux actual-Laravel cases and the full iPhone TLS/Keychain/RTL scenario.
+Current application code did not change between8e5454c andff086b0; the latter corrected the managed-gate browser selector. No speculative production/native security change, skipped assertion or weakened timeout was introduced to hide the launch failure. Preserve the existing fresh run-owned device,11-minute supervisor and retained diagnostics. Intermittent hosted launch/debug transport remains an infrastructure limitation to monitor.

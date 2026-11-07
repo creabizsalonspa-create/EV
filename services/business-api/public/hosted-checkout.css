@@ -1,0 +1,44 @@
+.hosted-return main {
+    display: block;
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: 1rem;
+}
+.hosted-return header {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+}
+.hosted-return h1 {
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    flex: 1 1 12rem;
+    margin: 0;
+}
+.hosted-return label {
+    margin: 0;
+}
+.hosted-return select {
+    max-width: 100%;
+}
+.hosted-return .finance-panel {
+    margin-block: 1rem;
+}
+.hosted-return #return-consent {
+    width: auto;
+    inline-size: auto;
+    margin-inline-end: 0.5rem;
+}
+.hosted-return p {
+    overflow-wrap: anywhere;
+}
+.hosted-return .finance-panel > button {
+    margin-inline-end: 0.5rem;
+    margin-block: 0.25rem;
+}
