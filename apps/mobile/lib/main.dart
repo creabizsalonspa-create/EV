@@ -1,3 +1,4 @@
+import 'vendor_feedback_analytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
@@ -1010,6 +1011,12 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'vendorFeedbackAnalytics') {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => VendorFeedbackAnalyticsView(
+                      api: api!, onExpired: expiredSession,
+                    ),
+                  ));
                 } else if (value == 'inventory') {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1199,6 +1206,14 @@ class _WorkspaceState extends State<Workspace> {
                 }
               },
               itemBuilder: (_) => [
+                if (account!.role == 'vendor')
+                  PopupMenuItem(
+                    value: 'vendorFeedbackAnalytics',
+                    enabled: !busy,
+                    child: Text(Localizations.localeOf(context).languageCode == 'ar'
+                        ? 'تحليلات ملاحظات العملاء'
+                        : 'Customer feedback analytics'),
+                  ),
                 PopupMenuItem(
                   value: 'inventory',
                   enabled: !busy,
