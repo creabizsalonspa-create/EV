@@ -200,3 +200,48 @@ test('previous verified rollback is not reaccepted with broken HTTP readiness',(
   assert.equal(recovery.main(cli(file),deps),2);
   assert.equal(deps.state.up,0);
 }));
+
+test('old image tag retarget between manual recovery checks refuses any Compose mutation',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir),original=deps.run;
+  let checks=0;
+  deps.run=(cmd,args,opts)=>{
+    const raw=original(cmd,args,opts);
+    if(args[0]==='image'&&args[2]===oldRef&&++checks===2){
+      const items=JSON.parse(raw);items[0].Id=NEW;return JSON.stringify(items);
+    }
+    return raw;
+  };
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+  assert.ok(!fs.readFileSync(file,'utf8').includes('MANUAL_ROLLBACK_STARTED'));
+}));
+test('old tag retarget after manual Compose recover marks reconciliation instead of acceptance',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir),original=deps.run;
+  let checks=0;
+  deps.run=(cmd,args,opts)=>{
+    const raw=original(cmd,args,opts);
+    if(args[0]==='image'&&args[2]===oldRef&&++checks>=3){
+      const items=JSON.parse(raw);items[0].Id=NEW;return JSON.stringify(items);
+    }
+    return raw;
+  };
+  assert.equal(recovery.main(cli(file),deps),3);
+  assert.equal(deps.state.up,1);
+  const event=fs.readFileSync(file,'utf8');
+  assert.ok(event.includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.ok(!event.includes('MANUAL_ROLLBACK_VERIFIED'));
+}));
+test('previously verified manual recovery still detects later retargeted old image',()=>temp(dir=>{
+  const file=setup(dir,['RELEASE_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir),original=deps.run;
+  deps.state.tag='old';deps.state.appUnhealthy=false;
+  let checks=0;
+  deps.run=(cmd,args,opts)=>{
+    const raw=original(cmd,args,opts);
+    if(args[0]==='image'&&args[2]===oldRef&&++checks===2){
+      const items=JSON.parse(raw);items[0].Id=NEW;return JSON.stringify(items);
+    }
+    return raw;
+  };
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+}));
