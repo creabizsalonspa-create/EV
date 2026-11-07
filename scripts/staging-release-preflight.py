@@ -107,6 +107,7 @@ def extract_services(compose):
         found = re.fullmatch(r'  ([a-z][a-z0-9-]*):\s*', line)
         if found:
             current = found.group(1)
+            require(current not in services, 'Duplicate staging service entry')
             services[current] = []
         elif current:
             services[current].append(line)
@@ -126,6 +127,13 @@ def check_policy(root):
             'Invalid anchored staging environment')
     require(not re.search(r'^  (ports|network_mode|privileged|extra_hosts):',
                           anchor, re.M), 'Shared application anchor exposes host settings')
+    environment = anchor.split('  environment:\n', 1)
+    require(len(environment) == 2,
+            'Shared application anchor must define an environment section')
+    environment_body = environment[1].split('\n  ', 1)[0]
+    keys = re.findall(r'^    ([A-Z][A-Z0-9_]*):', environment_body, re.M)
+    require(keys and len(keys) == len(set(keys)),
+            'Duplicate or missing anchored application environment keys')
     for field in ("SESSION_ENCRYPT: 'true'", "SESSION_SECURE_COOKIE: 'true'",
                   'DB_CONNECTION: pgsql', 'DB_HOST: database'):
         require(field in anchor, 'Required isolation or secure session field missing')

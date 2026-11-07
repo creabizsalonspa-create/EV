@@ -120,6 +120,27 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaises(p.PreflightError):
                 p.check_policy(root)
 
+    def test_duplicate_compose_services_and_environment_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            stage = root/'infra/staging'
+            stage.mkdir(parents=True)
+            source = (ROOT/'infra/staging'/'compose.yaml').read_text()
+            for name in ('Caddyfile', 'Dockerfile'):
+                (stage/name).write_text((ROOT/'infra/staging'/name).read_text())
+            for mutated in (
+                source.replace('    APP_ENV: staging',
+                    '    APP_ENV: staging\n    APP_ENV: production'),
+                source.replace("    CSMS_SIMULATOR_ENABLED: 'false'",
+                    "    CSMS_SIMULATOR_ENABLED: 'false'\n    CSMS_SIMULATOR_ENABLED: 'true'"),
+                source.replace('  gateway:\n    image:',
+                    '  application:\n    <<: *application\n  gateway:\n    image:'),
+            ):
+                with self.subTest(sample=mutated[:50]):
+                    (stage/'compose.yaml').write_text(mutated)
+                    with self.assertRaises(p.PreflightError):
+                        p.check_policy(root)
+
     def test_service_override_and_public_gateway_ports_cannot_bypass_anchor_policy(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
