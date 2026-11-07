@@ -48,6 +48,7 @@ class AdminSecondFactorController extends Controller
         $account = $this->account($request);
         $input = $request->validate(['password' => 'required|string|max:128']);
         if (! Hash::check($input['password'], $account->password)) {
+            $this->audit($account, 'admin.second_factor.enrollment_password_denied');
             throw ValidationException::withMessages(['password' => 'Unable to verify account credentials.']);
         }
         abort_if(DB::table('admin_second_factors')->where('user_id', $account->id)->exists(), 409, 'Authenticator is already enrolled.');
@@ -81,6 +82,7 @@ class AdminSecondFactorController extends Controller
         $secret = Crypt::decryptString($pending['encrypted_secret']);
         $step = AdminTotp::matchingStep($secret, $code, now()->timestamp);
         if ($step === null) {
+            $this->audit($account, 'admin.second_factor.enrollment_code_denied');
             throw ValidationException::withMessages(['code' => 'Invalid or expired authenticator code.']);
         }
 
@@ -138,7 +140,9 @@ class AdminSecondFactorController extends Controller
             $secret = Crypt::decryptString($record->encrypted_secret);
             $step = AdminTotp::matchingStep($secret, $code, now()->timestamp, (int) $record->last_accepted_step);
             if ($step === null) {
-                throw ValidationException::withMessages(['code' => 'Invalid, expired or already used authenticator code.']);
+                // An exception here would roll back a failure audit written
+                // inside this transaction. Report denial after it returns.
+                return null;
             }
 
             DB::table('admin_second_factors')->where('user_id', $account->id)
@@ -148,6 +152,12 @@ class AdminSecondFactorController extends Controller
             return $record->encrypted_secret;
         });
 
+        if (! is_string($encrypted)) {
+            $this->audit($account, 'admin.second_factor.verify_denied');
+            throw ValidationException::withMessages([
+                'code' => 'Invalid, expired or already used authenticator code.',
+            ]);
+        }
         $this->grant($request, $account, $encrypted);
 
         return response()->json(['verified' => true, 'enrolled' => true])
@@ -168,7 +178,7 @@ class AdminSecondFactorController extends Controller
                 ->where('code_digest', $digest)
                 ->whereNull('used_at')->lockForUpdate()->first();
             if (! $record) {
-                throw ValidationException::withMessages(['recovery_code' => 'Invalid or already used recovery code.']);
+                return null;
             }
 
             $encrypted = DB::table('admin_second_factors')
@@ -182,6 +192,13 @@ class AdminSecondFactorController extends Controller
 
             return $encrypted;
         });
+
+        if (! is_string($encrypted)) {
+            $this->audit($account, 'admin.second_factor.recovery_denied');
+            throw ValidationException::withMessages([
+                'recovery_code' => 'Invalid or already used recovery code.',
+            ]);
+        }
 
         // A recovered session is purpose-limited: it MUST NOT unlock Admin
         // APIs until a fresh authenticator challenge succeeds.
@@ -213,6 +230,7 @@ class AdminSecondFactorController extends Controller
         );
         $input = $request->validate(['password' => 'required|string|max:128']);
         if (! Hash::check($input['password'], $account->password)) {
+            $this->audit($account, 'admin.second_factor.recovery_reset_password_denied');
             throw ValidationException::withMessages(['password' => 'Unable to verify account credentials.']);
         }
 

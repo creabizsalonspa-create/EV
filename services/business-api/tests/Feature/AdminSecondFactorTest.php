@@ -64,6 +64,106 @@ class AdminSecondFactorTest extends TestCase
         $this->assertStringNotContainsString($secret, json_encode($row));
     }
 
+    public function test_failed_enrollment_totp_and_recovery_attempts_are_audited_without_secrets(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk();
+        $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'incorrect-private-password',
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.second_factor.enrollment_password_denied',
+            'subject' => (string) $admin->id,
+        ]);
+
+        $secret = $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'password',
+        ])->assertOk()->json('secret');
+        $invalid = collect(['000000', '111111', '222222', '333333', '444444'])
+            ->first(fn ($candidate) =>
+                AdminTotp::matchingStep($secret, $candidate, now()->timestamp) === null);
+        $this->assertNotNull($invalid);
+        $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => $invalid,
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.second_factor.enrollment_code_denied',
+        ]);
+        $this->assertDatabaseCount('admin_second_factors', 0);
+
+        $valid = AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30));
+        $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => $valid,
+        ])->assertOk();
+        $acceptedStep = DB::table('admin_second_factors')
+            ->where('user_id', $admin->id)->value('last_accepted_step');
+
+        $this->postJson('/api/logout')->assertNoContent();
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk();
+        $this->postJson('/api/admin/second-factor/verify', [
+            'code' => $valid,
+        ])->assertUnprocessable();
+        $this->postJson('/api/admin/second-factor/recover', [
+            'recovery_code' => str_repeat('0', 20),
+        ])->assertUnprocessable();
+        $this->assertSame($acceptedStep,
+            DB::table('admin_second_factors')
+                ->where('user_id', $admin->id)->value('last_accepted_step'));
+
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.second_factor.verify_denied',
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.second_factor.recovery_denied',
+        ]);
+        $audit = DB::table('audit_events')->get()->toJson();
+        $this->assertStringNotContainsString($secret, $audit);
+        $this->assertStringNotContainsString('incorrect-private-password', $audit);
+        $this->assertStringNotContainsString(str_repeat('0', 20), $audit);
+        $this->getJson('/api/admin/overview')->assertForbidden();
+    }
+
+    public function test_failed_recovery_reset_password_is_audited_without_changing_factor(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk();
+        $secret = $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'password',
+        ])->assertOk()->json('secret');
+        $codes = $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk()->json('recovery_codes');
+
+        $this->postJson('/api/logout')->assertNoContent();
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk();
+        $this->postJson('/api/admin/second-factor/recover', [
+            'recovery_code' => $codes[0],
+        ])->assertOk();
+        $this->postJson('/api/admin/second-factor/reset-after-recovery', [
+            'password' => 'bad-password',
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.second_factor.recovery_reset_password_denied',
+        ]);
+        $this->assertDatabaseCount('admin_second_factors', 1);
+        $this->getJson('/api/admin/overview')->assertForbidden();
+        $this->assertStringNotContainsString($codes[0],
+            DB::table('audit_events')->get()->toJson());
+    }
+
     public function test_new_login_requires_fresh_single_use_totp_and_rejects_replay(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
