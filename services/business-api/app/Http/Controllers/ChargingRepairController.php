@@ -55,6 +55,13 @@ class ChargingRepairController extends Controller
             'w.created_at', 'w.updated_at', 'o.evse_number', 'o.connector_number',
             'a.recovery_observation_id')
             ->orderByDesc('w.id')->paginate(25, ['*'], 'page', $page)->toArray();
+        if ($focusPage !== null) {
+            // Read-committed insertion between the count and page query
+            // must not claim that the requested order was actually shown.
+            abort_unless(collect($rows['data'])->contains(
+                fn ($row) => (int) data_get($row, 'id') === $focus
+            ), 409, 'Repair list changed while resolving the notification. Retry.');
+        }
 
         return $this->reply($rows + ['focus_page' => $focusPage, 'can_manage' => $r->user()->role === 'admin' || $r->user()->id === $company->owner_id, 'commands_sent' => false, 'capacity_changed' => false, 'physical_repair_verified' => false]);
     }

@@ -57,7 +57,7 @@ class _RepairsState extends State<ChargerRepairsView> {
       generation++;
       data = null;
       pending = null;
-      alert.clear();
+      alert.text = widget.initialAlertId?.toString() ?? '';
       page = 1;
       initialFocusPending = true;
       load();
