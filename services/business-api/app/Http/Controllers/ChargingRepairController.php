@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\InboxNotification;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FaultMonitor;
@@ -88,6 +89,29 @@ class ChargingRepairController extends Controller
             }
             DB::table('charging_repair_events')->insert(['order_id' => $id, 'actor_id' => $r->user()->id, 'request_key' => $v['request_key'], 'payload_hash' => $hash, 'state' => $v['state'], 'version' => $version, 'note_ciphertext' => Crypt::encryptString($v['note']), 'created_at' => now()]);
             app(VendorAccess::class)->audit($r->user(), 'charging_repair.'.$v['state'], $id);
+            // The existing repair event (unique actor/request key) and owner
+            // notice are in one transaction. A replay returns above without
+            // another message. Notes remain encrypted, never exposed here.
+            if ($r->user()->id !== $company->owner_id
+                && in_array($v['state'], ['review', 'closed'], true)) {
+                InboxNotification::create([
+                    'user_id' => $company->owner_id,
+                    'kind' => $v['state'] === 'review'
+                        ? 'charging.repair.review_requested.simulated'
+                        : 'charging.repair.review_closed.simulated',
+                    'metadata' => [
+                        'source' => 'simulator',
+                        'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                        'physical_verification' => false,
+                        'company_id' => $company->id,
+                        'charger_id' => $charger->id,
+                        'station_id' => $locked->station_id,
+                        'alert_id' => $alert->id,
+                        'repair_order_id' => $id,
+                        'review_only' => true,
+                    ],
+                ]);
+            }
 
             return $this->reply(['id' => $id, 'version' => $version, 'state' => $v['state'], 'replayed' => false, 'capacity_changed' => false, 'commands_sent' => false]);
         }, 3);

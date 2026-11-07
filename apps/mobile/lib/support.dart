@@ -36,6 +36,14 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
       return strings.t('simulatedFaultReminder', {
         'station': id('station_id'),
       });
+    case 'charging.repair.review_requested.simulated':
+      return strings.t('simulatedRepairReviewRequested', {
+        'station': id('station_id'),
+      });
+    case 'charging.repair.review_closed.simulated':
+      return strings.t('simulatedRepairReviewClosed', {
+        'station': id('station_id'),
+      });
     case 'charging.monitor.requires_review.simulated':
       return strings.t('simulatedMonitorReview', {'station': id('station_id')});
     case 'charging.monitor.resumed.simulated':
@@ -85,7 +93,9 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
 Map<String, int>? simulatedFaultTarget(Map<String, dynamic> row) {
   if (row['kind'] != 'charging.fault.simulated' &&
       row['kind'] != 'charging.fault.recovered.simulated' &&
-      row['kind'] != 'charging.fault.reminder.simulated') {
+      row['kind'] != 'charging.fault.reminder.simulated' &&
+      row['kind'] != 'charging.repair.review_requested.simulated' &&
+      row['kind'] != 'charging.repair.review_closed.simulated') {
     return null;
   }
   final details = row['metadata'];

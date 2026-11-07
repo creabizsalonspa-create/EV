@@ -1068,6 +1068,41 @@ void main() {
     }), isNull);
   });
 
+  test('repair review notices navigate only to source-scoped read-only diagnostics', () {
+    final en = EvStrings(const Locale('en'));
+    final ar = EvStrings(const Locale('ar'));
+    for (final kind in [
+      'charging.repair.review_requested.simulated',
+      'charging.repair.review_closed.simulated',
+    ]) {
+      final notice = {
+        'kind': kind,
+        'metadata': {
+          'source': 'simulator',
+          'physical_verification': false,
+          'company_id': 5,
+          'charger_id': 7,
+          'alert_id': 9,
+          'station_id': 17,
+          'repair_order_id': 22,
+          'review_only': true,
+        },
+      };
+      expect(inboxNotificationTitle(notice, en), contains('station #17'));
+      expect(inboxNotificationTitle(notice, ar), contains('المحطة #17'));
+      expect(simulatedFaultTarget(notice), {
+        'company_id': 5, 'charger_id': 7, 'alert_id': 9,
+      });
+      expect(simulatedFaultTarget({
+        ...notice,
+        'metadata': {
+          ...notice['metadata'] as Map<String, dynamic>,
+          'physical_verification': true,
+        },
+      }), isNull);
+    }
+  });
+
   test('only verified simulator source metadata can link operational review', () {
     final complete = {
       'kind': 'charging.fault.simulated',

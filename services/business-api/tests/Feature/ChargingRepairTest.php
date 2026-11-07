@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Station;
+use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
@@ -94,6 +95,80 @@ class ChargingRepairTest extends TestCase
         $this->getJson($url)->assertOk()->assertJsonCount(0, 'data');
         $this->getJson($url.'/1/history')->assertNotFound();
         $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertNotFound();
+    }
+
+    public function test_admin_repair_review_and_source_based_closure_notify_owner_once(): void
+    {
+        [$owner, $company, $charger, $url, $alert, $binding] = $this->repairFixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $outsider = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($admin);
+
+        $open = $this->intent($alert, 0, 'open');
+        $this->postJson($url, $open)->assertOk();
+        $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertOk();
+        $review = $this->intent($alert, 2, 'review');
+        $this->postJson($url, $review)->assertOk();
+        $this->postJson($url, $review)->assertOk()->assertJsonPath('replayed', true);
+        $note = InboxNotification::where('kind', 'charging.repair.review_requested.simulated')
+            ->firstOrFail();
+        $this->assertSame($owner->id, $note->user_id);
+        $this->assertSame($company->id, $note->metadata['company_id']);
+        $this->assertSame($charger->id, $note->metadata['charger_id']);
+        $this->assertSame($alert, $note->metadata['alert_id']);
+        $this->assertSame('simulator', $note->metadata['source']);
+        $this->assertFalse($note->metadata['physical_verification']);
+        $this->assertStringNotContainsString($review['note'], json_encode($note->metadata));
+        $this->assertDatabaseCount('inbox_notifications', 1);
+
+        // A case cannot be closed merely by an operator assertion.
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [[
+                'id' => 11, 'evseId' => 1, 'connectorId' => 1,
+                'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                'timestamp' => now()->toISOString(),
+            ]],
+        ]);
+        $close = $this->intent($alert, 3, 'closed');
+        $this->postJson($url, $close)->assertOk();
+        $this->postJson($url, $close)->assertOk()->assertJsonPath('replayed', true);
+        $closed = InboxNotification::where('kind', 'charging.repair.review_closed.simulated')
+            ->firstOrFail();
+        $this->assertSame($owner->id, $closed->user_id);
+        $this->assertFalse($closed->metadata['physical_verification']);
+        $this->assertTrue($closed->metadata['review_only']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->actingAs($owner)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 2);
+        $this->actingAs($outsider)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_owner_repair_updates_do_not_generate_self_notices(): void
+    {
+        [$owner, , , $url, $alert, $binding] = $this->repairFixture();
+        $this->actingAs($owner);
+        foreach ([
+            [0, 'open'], [1, 'in_progress'], [2, 'review'],
+        ] as [$version, $state]) {
+            $this->postJson($url, $this->intent($alert, $version, $state))->assertOk();
+        }
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [[
+                'id' => 11, 'evseId' => 1, 'connectorId' => 1,
+                'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                'timestamp' => now()->toISOString(),
+            ]],
+        ]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertOk();
+        $this->assertDatabaseCount('inbox_notifications', 0);
     }
 
     public function test_native_admin_uses_same_version_and_source_guards(): void
