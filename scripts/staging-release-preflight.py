@@ -130,7 +130,7 @@ def check_policy(root):
     environment = anchor.split('  environment:\n', 1)
     require(len(environment) == 2,
             'Shared application anchor must define an environment section')
-    environment_body = environment[1].split('\n  ', 1)[0]
+    environment_body = re.split(r'\n  (?=[a-z])', environment[1], maxsplit=1)[0]
     keys = re.findall(r'^    ([A-Z][A-Z0-9_]*):', environment_body, re.M)
     require(keys and len(keys) == len(set(keys)),
             'Duplicate or missing anchored application environment keys')
