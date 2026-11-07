@@ -122,6 +122,18 @@ def audit_manifest(
               "compiled_backup_exclusions_verified": True,
               "remote_cleartext_disabled": True}
     if mode == "release":
+        # BuildType can accidentally be configured as debuggable/testOnly even
+        # when its name is release and it has a non-debug signing certificate.
+        for unsafe_attribute in ("debuggable", "testOnly"):
+            if re.search(
+                r"android:" + unsafe_attribute +
+                r"[^\\n]*\\(type 0x12\\)0x(?:ffffffff|1)\\b",
+                manifest,
+                flags=re.IGNORECASE,
+            ):
+                raise AuditError(
+                    "Distribution APK enables Android " + unsafe_attribute
+                )
         if package.endswith((".dev", ".debug", ".test")):
             raise AuditError("Distribution APK uses a nonproduction package ID")
         if not expected_signer_sha256 or \
