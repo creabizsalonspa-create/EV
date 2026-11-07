@@ -195,6 +195,18 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#station-map").isVisible(), true);
     await page.getByRole("button", { name: "إظهار المواقع المحملة على الخريطة" }).click();
     await page.getByText("لا توجد إحداثيات صالحة للمواقع المحملة على الخريطة.", { exact: true }).waitFor();
+    const requestsBeforeMapClick = partnerQueries.length;
+    await page.locator("#station-map").click({ position: { x: 120, y: 95 } });
+    await page.getByRole("button", { name: "البحث عن شركاء قرب النقطة المحددة" }).waitFor();
+    assert.equal(partnerQueries.length, requestsBeforeMapClick, "Map click must not silently disclose coordinates to partner API");
+    const clickedMapQuery = page.waitForRequest((r) => {
+      const url = new URL(r.url());
+      return url.pathname === "/api/roaming/locations" && url.searchParams.has("latitude");
+    });
+    await page.getByRole("button", { name: "البحث عن شركاء قرب النقطة المحددة" }).click();
+    const mapSelectionUri = new URL((await clickedMapQuery).url());
+    assert.notEqual(mapSelectionUri.searchParams.get("latitude"), "25.200000");
+    assert.equal(mapSelectionUri.searchParams.get("radius_km"), "25");
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
       await page.evaluate(
