@@ -88,5 +88,34 @@ class CoverageEvidenceTest(unittest.TestCase):
         self.rejected(self.inventory, 'Original atom IDs/order changed')
 
 
+    def reject_modified_hosted_check(self, mutate, message):
+        evidence_path = ROOT / 'docs/evidence/integration-coverage/pr43-hosted-checkpoint.json'
+        proof = json.loads(evidence_path.read_text())
+        mutate(proof)
+        with tempfile.TemporaryDirectory(dir=ROOT / 'docs/evidence/requirements') as directory:
+            temporary_proof = Path(directory) / 'synthetic-hosted-proof.json'
+            temporary_proof.write_text(json.dumps(proof))
+            self.inventory['checkpoints']['pr43']['evidence'] = str(temporary_proof.relative_to(ROOT))
+            self.rejected(self.inventory, message)
+
+    def test_queued_job_cannot_be_passing_coverage_evidence(self):
+        self.reject_modified_hosted_check(
+            lambda proof: proof['required_checks'][0].update(status='queued', conclusion=None),
+            'mandatory CI checks must be successful',
+        )
+
+    def test_missing_hosted_job_list_cannot_be_passing_coverage_evidence(self):
+        self.reject_modified_hosted_check(
+            lambda proof: proof.update(required_checks=[]),
+            'mandatory CI checks must be recorded',
+        )
+
+    def test_fabricated_hosted_job_url_is_rejected(self):
+        self.reject_modified_hosted_check(
+            lambda proof: proof['required_checks'][0].update(details_url='https://example.com/not-a-github-job'),
+            'source-linked CI job URL required',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
