@@ -71,7 +71,7 @@ function mock(envFile) {
     }
     throw Error('Unexpected Docker command');
   }
-  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock'),preflight:()=>({ok:true,errors:[]})};
+  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock'),preflight:()=>({ok:true,errors:[]}),effectiveConfig:()=>true};
 }
 const argv=(mode,journal)=>[mode,'--candidate-tag','new','--source-sha',SHA,
   ...(mode==='apply'?['--journal',journal,'--approval','APPLY_PRIVATE_STAGING_'+SHA.slice(0,12)]:[])];
@@ -217,4 +217,12 @@ test('isolated payment/charger configuration rejection blocks Docker before stag
   assert.equal(release.main(argv('apply',path.join(dir,'blocked.jsonl')),deps),2);
   assert.equal(deps.state.commands.length,0);
   assert.equal(deps.state.mutations,0);
+}));
+
+test('resolved Compose isolation rejection stops staging before any Docker operation',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  deps.effectiveConfig=()=>false;
+  assert.equal(release.main(argv('apply',path.join(dir,'effective-blocked.jsonl')),deps),2);
+  assert.equal(deps.state.mutations,0);
+  assert.equal(deps.state.commands.length,0);
 }));
