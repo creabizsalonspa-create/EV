@@ -597,15 +597,39 @@ try{
     assert.equal(z.code,401);
   });
   let adminLinkedSession;
-  await check('Admin binds approved, token-matched source exactly to the booking',async()=>{
-    const z=await request('POST',bindPath,{sourceSessionId:String(adminOcppSession._id)},false,
-      {authorization:adminBearer});
-    assert.equal(z.code,200);
-    assert.equal(z.body.status,'Success');
-    assert.equal(z.body.data.energyKwh,5);
-    assert.equal(z.body.data.financialSettlement,'not_collected');
-    adminLinkedSession=await ChargingSessionModel.findById(z.body.data.sessionId);
+  await check('twelve concurrent source-binding calls create exactly one booking session',async()=>{
+    const replies=await Promise.all(Array.from({length:12},()=>request('POST',bindPath,
+      {sourceSessionId:String(adminOcppSession._id)},false,
+      {authorization:adminBearer})));
+    assert.ok(replies.some(z=>z.code===200));
+    assert.equal(replies.every(z=>[200,409].includes(z.code)),true);
+    assert.equal(await ChargingSessionModel.countDocuments({
+      bookingId:adminBooking._id,sourceType:'ocpp'}),1);
+    const good=replies.filter(z=>z.code===200);
+    assert.ok(good.every(z=>z.body.data.energyKwh===5));
+    assert.ok(good.every(z=>z.body.data.financialSettlement==='not_collected'));
+    adminLinkedSession=await ChargingSessionModel.findOne({
+      bookingId:adminBooking._id,sourceType:'ocpp'});
     assert.equal(adminLinkedSession.sourceSessionId,String(adminOcppSession._id));
+  });
+  await check('repeated binding is idempotent and does not create another source',async()=>{
+    const z=await request('POST',bindPath,{sourceSessionId:String(adminOcppSession._id)},
+      false,{authorization:adminBearer});
+    assert.equal(z.code,200);
+    assert.equal(String(z.body.data.sessionId),String(adminLinkedSession._id));
+    assert.equal(await ChargingSessionModel.countDocuments({
+      bookingId:adminBooking._id,sourceType:'ocpp'}),1);
+  });
+  await check('a second source record cannot overwrite a booking already bound to OCPP',async()=>{
+    const other={...adminOcppSession,_id:new mongoose.Types.ObjectId(),
+      transactionId:88771,startedAt:new Date(Date.now()),createdAt:new Date()};
+    await db.collection('ocpp_sessions').insertOne(other);
+    const z=await request('POST',bindPath,{sourceSessionId:String(other._id)},
+      false,{authorization:adminBearer});
+    assert.equal(z.code,409);
+    const existing=await ChargingSessionModel.findOne({bookingId:adminBooking._id,
+      sourceType:'ocpp'});
+    assert.equal(existing.sourceSessionId,String(adminOcppSession._id));
   });
   await check('Admin-linked OCPP session blocks QR rescan on station details',async()=>{
     const z=await request('GET','/api/v1/ChargingStation/'+adminBooking._id,undefined,true);
