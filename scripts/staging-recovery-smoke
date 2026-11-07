@@ -324,11 +324,11 @@ if (!chmod($p, 0600)) exit(1);
 '
 # Recheck exact on-disk bytes immediately before and after the isolated
 # database restore; the recovery proof must describe the consumed archive.
-python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
 [[ "$(query "$target_db" "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" == 0 ]] || {
   echo 'Laravel target became nonempty before isolated restore.' >&2
   exit 1
 }
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
 restore_started_epoch=$(date -u +%s)
 docker exec -i "$target_db" pg_restore -U ev_recovery_review -d ev_recovery_review \
   --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
