@@ -58,6 +58,38 @@ class NotificationCenterTest extends TestCase
         $this->getJson('/api/support')->assertOk();
     }
 
+    public function test_private_notification_routes_disable_browser_and_proxy_caching(): void
+    {
+        $user = User::factory()->create();
+        $note = $this->makeNotification($user);
+        $this->actingAs($user);
+
+        foreach ([
+            '/api/notifications',
+            '/api/v1/notifications',
+            '/api/notifications/summary',
+            '/api/v1/notifications/summary',
+        ] as $url) {
+            $this->getJson($url)->assertOk()
+                ->assertHeader('Cache-Control', 'private, no-store');
+        }
+        $this->postJson('/api/notifications/'.$note->id.'/read')
+            ->assertOk()->assertHeader('Cache-Control', 'private, no-store');
+        $this->postJson('/api/v1/notifications/'.$note->id.'/unread')
+            ->assertOk()->assertHeader('Cache-Control', 'private, no-store');
+        $this->postJson('/api/notifications/read-through', [
+            'through_id' => $note->id,
+        ])->assertOk()->assertHeader('Cache-Control', 'private, no-store');
+    }
+
+    public function test_bulk_cutoff_rejects_unrepresentable_large_database_ids(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $this->postJson('/api/notifications/read-through', [
+            'through_id' => '9223372036854775808',
+        ])->assertUnprocessable();
+    }
+
     public function test_anonymous_access_and_invalid_cutoff_are_rejected(): void
     {
         $this->getJson('/api/v1/notifications/summary')->assertUnauthorized();

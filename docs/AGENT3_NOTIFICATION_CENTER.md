@@ -105,3 +105,7 @@ A driver's new vehicle assignment and an actual cost-center update now generate 
 ### Accurate invitation withdrawal vs active membership revocation
 
 Canceling an *unaccepted* fleet invitation now emits `fleet.invitation.withdrawn` and audits `fleet.invitation_withdrawn`, whereas revoking an *active* membership emits `fleet.membership.revoked`, removes associated fleet-vehicle assignments and audits `fleet.revoked`. Repeated cancellation is idempotent. The restored state remains `revoked` internally so the owner may explicitly re-invite later; neither the client nor audit trail falsely claims active fleet access existed. Web and Flutter show separate localized labels, with backend and native coverage for withdrawal/reinvite/accept/revoke.
+
+### Privacy-sensitive response caching and cutoff input bounds
+
+Notification list, unread/category summary, individual read/unread and bulk-read endpoints now explicitly set `Cache-Control: private, no-store` for account-specific responses. Bulk-read `through_id` is bounded to JavaScript's exact integer range (`1..9007199254740991`), rejecting larger out-of-range inputs rather than risking a PostgreSQL cast or cross-client precision error. Backend tests cover all endpoint cache headers and an oversized cutoff. These are in-app state controls only, not external delivery/read receipts.

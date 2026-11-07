@@ -48,7 +48,7 @@ class NotificationCenterController extends Controller
             'latest_id' => (int) $snapshot->latest_id,
             'unread_by_category' => $totals,
             'in_app_only' => true,
-        ]);
+        ])->header('Cache-Control', 'private, no-store');
     }
 
     /**
@@ -59,7 +59,7 @@ class NotificationCenterController extends Controller
     public function readThrough(Request $request): JsonResponse
     {
         $v = $request->validate([
-            'through_id' => 'required|integer|min:1',
+            'through_id' => 'required|integer|min:1|max:9007199254740991',
         ]);
 
         return DB::transaction(function () use ($request, $v): JsonResponse {
@@ -81,7 +81,7 @@ class NotificationCenterController extends Controller
                 'through_id' => (int) $v['through_id'],
                 'remaining_unread' => (clone $scope)->whereNull('read_at')->count(),
                 'in_app_only' => true,
-            ]);
+            ])->header('Cache-Control', 'private, no-store');
         });
     }
     /** Reopens only the caller's in-app read state; does not change the event. */
@@ -108,7 +108,7 @@ class NotificationCenterController extends Controller
             return response()->json(
                 InboxNotification::query()->whereKey($notification->id)
                     ->where('user_id', $request->user()->id)->firstOrFail()
-            );
+            )->header('Cache-Control', 'private, no-store');
         });
     }
 

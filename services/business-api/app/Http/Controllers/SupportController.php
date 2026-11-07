@@ -92,10 +92,12 @@ class SupportController extends Controller
             'category' => 'sometimes|in:support,vehicle,charging,fleet',
         ]);
 
-        return InboxNotification::where('user_id', $r->user()->id)
+        $page = InboxNotification::where('user_id', $r->user()->id)
             ->when($r->boolean('unread_only'), fn ($q) => $q->whereNull('read_at'))
             ->when(isset($filters['category']), fn ($q) => $q->where('kind', 'like', $filters['category'].'.%'))
             ->orderByDesc('id')->paginate(25);
+
+        return response()->json($page)->header('Cache-Control', 'private, no-store');
     }
 
     public function read(Request $r, InboxNotification $notification)
@@ -117,8 +119,9 @@ class SupportController extends Controller
                 ]);
             }
 
-            return InboxNotification::whereKey($notification->id)
-                ->where('user_id', $r->user()->id)->firstOrFail();
+            return response()->json(InboxNotification::whereKey($notification->id)
+                ->where('user_id', $r->user()->id)->firstOrFail())
+                ->header('Cache-Control', 'private, no-store');
         });
     }
 }
