@@ -3242,6 +3242,32 @@ window.createVendorWorkspace = ({
             epoch,
         );
     }
+    // Read-only path to the existing authorized vendor fault alert UI.
+    // Never acknowledge the alert, release capacity or send charger commands.
+    async function openFaultNotice(companyId, chargerId, alertId) {
+        if (![companyId, chargerId, alertId].every(
+            (id) => Number.isSafeInteger(id) && id > 0,
+        )) throw new Error("Invalid simulator fault navigation target.");
+        const epoch = generation;
+        if (!valid(epoch)) return;
+        const company = await api(base + "companies/" + companyId);
+        if (!valid(epoch)) return;
+        await detail(company);
+        if (!valid(epoch)) return;
+        const host = root.querySelector("[data-company-detail]");
+        if (!host || !host.isConnected) return;
+        const pane = document.createElement("section");
+        pane.dataset.notificationFaultReview = String(alertId);
+        host.append(pane);
+        await faultAlerts(company, { id: chargerId }, pane, epoch);
+        if (!valid(epoch) || !pane.isConnected) return;
+        const found = Array.from(pane.querySelectorAll("[data-fault-alert]")).find(
+            (node) => Number(node.dataset.faultAlert) === alertId,
+        );
+        if (found) found.scrollIntoView({ block: "center", behavior: "smooth" });
+        else pane.append(ui("p", "Fault alert not on this page. Use Next to review older alerts."));
+    }
+
     async function setActor(user) {
         clear();
         if (!user) return;
@@ -3387,5 +3413,5 @@ window.createVendorWorkspace = ({
             }
         }
     }
-    return { clear, setActor };
+    return { clear, setActor, openFaultNotice };
 };

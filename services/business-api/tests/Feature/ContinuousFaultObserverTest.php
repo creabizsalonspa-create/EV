@@ -86,6 +86,10 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertSame('simulator', $notification->metadata['source']);
         $this->assertSame('SIMULATED_SOURCE_OBSERVED', $notification->metadata['evidence']);
         $this->assertSame($f['station']->id, $notification->metadata['station_id']);
+        $this->assertSame($f['company']->id, $notification->metadata['company_id']);
+        $this->assertSame($f['charger']->id, $notification->metadata['charger_id']);
+        $this->assertSame($f['company']->id, $recovered->metadata['company_id']);
+        $this->assertSame($f['charger']->id, $recovered->metadata['charger_id']);
         $this->assertSame(false, $notification->metadata['physical_verification']);
         $this->actingAs($f['owner'])->getJson('/api/v1/notifications/summary')
             ->assertOk()->assertJsonPath('unread_count', 2);

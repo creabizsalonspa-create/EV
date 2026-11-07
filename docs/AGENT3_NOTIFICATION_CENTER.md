@@ -109,3 +109,7 @@ Canceling an *unaccepted* fleet invitation now emits `fleet.invitation.withdrawn
 ### Privacy-sensitive response caching and cutoff input bounds
 
 Notification list, unread/category summary, individual read/unread and bulk-read endpoints now explicitly set `Cache-Control: private, no-store` for account-specific responses. Bulk-read `through_id` is bounded to JavaScript's exact integer range (`1..9007199254740991`), rejecting larger out-of-range inputs rather than risking a PostgreSQL cast or cross-client precision error. Backend tests cover all endpoint cache headers and an oversized cutoff. These are in-app state controls only, not external delivery/read receipts.
+
+### Source-observed fault inbox to authorized operational review
+
+Each new source-observed simulator charger-fault/recovery notice now stores internal `company_id` and `charger_id` alongside its already-present station/alert IDs. Those IDs are obtained from an ownership-checked locked binding, not caller input, and the persisted notice remains vendor-owner scoped. On web, an explicit **Review simulated charger fault** action appears only for consistent simulator provenance and numeric IDs. It opens the existing Vendor Operations fault-alert view, whose company and charger API performs all normal access checks. If the alert is on an older page, users are directed to the pre-existing pagination. The action does not acknowledge, repair, release, authorize or send commands.

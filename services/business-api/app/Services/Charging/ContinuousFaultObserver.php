@@ -70,11 +70,11 @@ class ContinuousFaultObserver
             $state = $sourceId === null ? 'not_observed' : (count($events) > 100 ? 'catching_up' : 'caught_up');
             $events = array_slice($events, 0, 100);
 
-            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId) {
+            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId) {
                 // The source observation, fault alert and vendor-only in-app
                 // notification commit atomically under the verified ownership lock.
                 // Historical replay never emits a second notification.
-                $notify = function (int $alertId, string $kind) use ($current, $ownerId): void {
+                $notify = function (int $alertId, string $kind) use ($current, $ownerId, $companyId): void {
                     InboxNotification::create([
                         'user_id' => $ownerId,
                         'kind' => $kind,
@@ -82,6 +82,8 @@ class ContinuousFaultObserver
                             'source' => 'simulator',
                             'evidence' => 'SIMULATED_SOURCE_OBSERVED',
                             'station_id' => $current->station_id,
+                            'company_id' => $companyId,
+                            'charger_id' => $current->vendor_charger_id,
                             'alert_id' => $alertId,
                             'physical_verification' => false,
                         ],

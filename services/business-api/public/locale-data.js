@@ -1,4 +1,13 @@
 window.EV_MESSAGES = {
+    "Review simulated charger fault": {
+        en: "Review simulated charger fault",
+        ar: "مراجعة عطل شاحن تجريبي",
+    },
+    "Fault alert not on this page. Use Next to review older alerts.": {
+        en: "Fault alert not on this page. Use Next to review older alerts.",
+        ar: "التنبيه غير موجود في هذه الصفحة. استخدم التالي لمراجعة التنبيهات السابقة.",
+    },
+
     "Fleet invitation withdrawn · fleet #{id}": {
         en: "Fleet invitation withdrawn · fleet #{id}",
         ar: "تم سحب دعوة الأسطول · الأسطول #{id}",
