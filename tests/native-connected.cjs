@@ -25,6 +25,7 @@ const { spawnSync } = require("node:child_process");
       "native-ocpi-credentials",
       "native-ocpi-incoming",
     ], // 9 identities including private saved-location redaction; no live partner requests
+    ["native-charging-reviews"], // five private synthetic identities; independent auth window
     ["native-sandbox-roaming"], // own auth window; sandbox only, no limiter bypass
     ["native-financial-analytics"], // 3 logins, separate unchanged authentication window
   ];
