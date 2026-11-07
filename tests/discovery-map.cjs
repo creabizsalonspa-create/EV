@@ -251,6 +251,16 @@ const assert = require("node:assert/strict");
     const mapSelectionUri = new URL((await clickedMapQuery).url());
     assert.notEqual(mapSelectionUri.searchParams.get("latitude"), "25.200000");
     assert.equal(mapSelectionUri.searchParams.get("radius_km"), "25");
+    // Web Mercator stops at +/-85.0511. Valid polar GPS coordinates must
+    // remain usable for list search without corrupting the Leaflet map.
+    const queriesBeforePolarGps = partnerQueries.length;
+    await context.setGeolocation({ latitude: 89.99, longitude: 10 });
+    await page.locator("#location-consent").check();
+    await page.getByRole("button", { name: "استخدام موقعي مرة واحدة" }).click();
+    await page.waitForFunction(() =>
+      document.querySelector("#filters [name=latitude]").value === "89.990000");
+    await page.getByText("خط العرض المحدد خارج نطاق عرض الخريطة. يبقى البحث القريب في القائمة متاحاً.", { exact: true }).waitFor();
+    assert.equal(partnerQueries.length, queriesBeforePolarGps, "Polar GPS must not auto-disclose coordinates to partner API");
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
       await page.evaluate(

@@ -102,7 +102,7 @@ final class PartnerLocationDiscoveryController extends Controller
         // The final ID key also stabilizes ties in distance.
         $now = now()->getTimestamp();
 
-        return $query->orderByDesc('ocpi_records.id')->paginate(25)->appends($filters)
+        $page = $query->orderByDesc('ocpi_records.id')->paginate(25)->appends($filters)
             ->through(function (OcpiRecord $record) use ($nearby, $now) {
                 $sourceSeconds = $record->source_updated_at?->getTimestamp();
                 $age = $sourceSeconds === null || $sourceSeconds > $now
@@ -138,5 +138,9 @@ final class PartnerLocationDiscoveryController extends Controller
                     ] : []),
                 ];
             });
+
+        // Exact latitude/longitude searches in GET URLs must not be retained
+        // in shared/proxy or browser caches, regardless of login state.
+        return response()->json($page)->header('Cache-Control', 'private, no-store');
     }
 }

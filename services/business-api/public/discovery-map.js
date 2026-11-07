@@ -100,6 +100,14 @@
         Math.abs(+s.latitude) <= 85.05112878 &&
         Math.abs(+s.longitude) <= 180;
     function select(lat, lng) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
+            Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+            setStatus(
+                "Coordinates are invalid. Enter a bounded location manually.",
+                "الإحداثيات غير صالحة. أدخل موقعاً صحيحاً يدوياً.",
+            );
+            return;
+        }
         selectedCentre = { latitude: lat, longitude: lng };
         searchPartners.hidden = false;
         const form = document.getElementById("filters");
@@ -114,7 +122,18 @@
         );
         if (map) {
             if (picked) picked.remove();
-            picked = L.circleMarker([lat, lng], { radius: 9 }).addTo(map);
+            picked = null;
+            if (Math.abs(lat) <= 85.05112878) {
+                picked = L.circleMarker([lat, lng], { radius: 9 }).addTo(map);
+            } else {
+                // Leaflet Web Mercator cannot render polar coordinates. Keep
+                // the valid polar search centre in the form and list API,
+                // but never project it as a misleading map marker at zero.
+                setStatus(
+                    "Selected latitude is outside this map's display range. Nearby list search remains available.",
+                    "خط العرض المحدد خارج نطاق عرض الخريطة. يبقى البحث القريب في القائمة متاحاً.",
+                );
+            }
         }
     }
 

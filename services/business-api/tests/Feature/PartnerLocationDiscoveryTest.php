@@ -95,7 +95,7 @@ class PartnerLocationDiscoveryTest extends TestCase
         $near = $this->location($provider, 'near', 25.201, 55.3);
         $this->location($provider, 'outside', 25.7, 55.3);
         $response = $this->getJson('/api/roaming/locations?latitude=25.2&longitude=55.3&radius_km=30');
-        $response->assertOk()->assertJsonCount(2, 'data')
+        $response->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.id', $near->id)
             ->assertJsonPath('data.1.id', $far->id)
             ->assertJsonPath('data.0.distance_basis', 'great_circle')
