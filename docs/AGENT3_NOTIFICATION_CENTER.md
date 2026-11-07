@@ -235,3 +235,7 @@ The inbox scope now evaluates current Admin authorization via an `EXISTS` predic
 ### Monotonic source-recovery timestamp gate
 
 Admin fault-escalation closure now requires recovered simulator status evidence to be strictly later than the original fault in **both** source event ID and observed timestamp, with the recovery timestamp no later than the current time. Invalid or future-dated source observations cannot close an escalation, even if they have a higher source event ID and matching connector identity. The existing guard still verifies source generation, binding and status. Tests include late-ID/earlier-time and future-time negative controls, followed by valid source recovery with exactly one closure notice. This never proves a physical repair or changes charging capacity.
+
+### Durable incident closure when an on-call Admin is temporarily demoted
+
+The escalation event is historically assigned to the Admin who received it. If the recipient loses the Admin role before the simulator fault is acknowledged or source-recovered, the durable escalation row **and its matching closure inbox notice** still commit atomically. The account-scoped inbox's authoritative role predicate prevents access to either while demoted, and they reappear together only if the recipient is formally reauthorized. This avoids a misleading unresolved historical incident after later role restoration. The system remains in-app only, with no physical-repair assertion and no external notification delivery.

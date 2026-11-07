@@ -300,6 +300,46 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_escalation_closure_is_retained_during_admin_demotion_but_stays_private(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        $initial = InboxNotification::where('kind',
+            'charging.fault.escalated.simulated')->firstOrFail()->id;
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $closure = InboxNotification::where('kind',
+            'charging.fault.escalation_closed.simulated')->firstOrFail();
+        $this->assertSame($admin->id, $closure->user_id);
+        $this->assertSame('operator_acknowledged', $closure->metadata['resolution_source']);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
+            $this->actingAs($admin)->getJson($prefix.'?category=charging')
+                ->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($prefix.'/summary')->assertOk()
+                ->assertJsonPath('unread_count', 0);
+            $this->postJson($prefix.'/'.$closure->id.'/read')->assertNotFound();
+            $this->postJson($prefix.'/'.$initial.'/read')->assertNotFound();
+        }
+        $this->assertNull($closure->fresh()->read_at);
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'admin']);
+        $this->actingAs($admin)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 2);
+        $this->postJson('/api/notifications/'.$closure->id.'/read')->assertOk();
+        $this->assertNotNull($closure->fresh()->read_at);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_demoted_admin_cannot_read_closure_escalation_or_mutate_its_receipt(): void
     {
         $f = $this->fixture();

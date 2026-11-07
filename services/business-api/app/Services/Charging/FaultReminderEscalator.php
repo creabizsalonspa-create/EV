@@ -170,27 +170,28 @@ class FaultReminderEscalator
                         ->where('alert_id', $alert->id)->whereNull('resolved_at')
                         ->update(['resolved_at' => now(), 'resolution_source' => $resolution]);
                     if ($updated === 1) {
-                        $admin = DB::table('users')->where('id', $prior->admin_user_id)
-                            ->where('role', 'admin')->lockForUpdate()->first();
-                        if ($admin) {
-                            InboxNotification::create([
-                                'user_id' => $prior->admin_user_id,
-                                'kind' => 'charging.fault.escalation_closed.simulated',
-                                'metadata' => [
-                                    'source' => 'simulator',
-                                    'evidence' => $resolution === 'source_recovered'
-                                        ? 'SIMULATED_SOURCE_OBSERVED'
-                                        : 'SIMULATED_OPERATOR_ACKNOWLEDGED',
-                                    'physical_verification' => false,
-                                    'company_id' => $company->id,
-                                    'station_id' => $station->id,
-                                    'charger_id' => $charger->id,
-                                    'alert_id' => $alert->id,
-                                    'admin_escalation_only' => true,
-                                    'resolution_source' => $resolution,
-                                ],
-                            ]);
-                        }
+                        // The prior escalation is a durable incident assigned
+                        // to its original Admin recipient. Preserve a matching
+                        // closure even if the role was revoked in the interim.
+                        // The inbox visibility SQL hides both events until
+                        // the recipient's CURRENT Admin role is restored.
+                        InboxNotification::create([
+                            'user_id' => $prior->admin_user_id,
+                            'kind' => 'charging.fault.escalation_closed.simulated',
+                            'metadata' => [
+                                'source' => 'simulator',
+                                'evidence' => $resolution === 'source_recovered'
+                                    ? 'SIMULATED_SOURCE_OBSERVED'
+                                    : 'SIMULATED_OPERATOR_ACKNOWLEDGED',
+                                'physical_verification' => false,
+                                'company_id' => $company->id,
+                                'station_id' => $station->id,
+                                'charger_id' => $charger->id,
+                                'alert_id' => $alert->id,
+                                'admin_escalation_only' => true,
+                                'resolution_source' => $resolution,
+                            ],
+                        ]);
                     }
                     return ['reminded' => false, 'escalated' => false,
                         'closed' => $updated === 1];
