@@ -1423,14 +1423,21 @@ async function refreshInbox() {
             };
             row.append(review);
         }
-        if (!m.read_at) {
-            const b = ui("button", "Mark read");
+        if (Number.isSafeInteger(m.id) && m.id > 0) {
+            const markRead = !m.read_at;
+            const b = ui("button", markRead ? "Mark read" : "Mark unread");
+            b.type = "button";
             b.onclick = async () => {
+                if (session !== client.sessionEpoch || account !== user?.id) return;
+                b.disabled = true;
                 try {
-                    await api("notifications/" + m.id + "/read", "POST");
+                    await api("notifications/" + m.id + (markRead ? "/read" : "/unread"), "POST");
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
                     await refreshInbox();
-                } catch (e) {
-                    notice(e);
+                } catch (error) {
+                    if (session === client.sessionEpoch && account === user?.id) notice(error);
+                } finally {
+                    b.disabled = false;
                 }
             };
             row.append(b);

@@ -143,6 +143,32 @@ class SupportViewState extends State<SupportView> {
     }
   }
 
+  Future<void> markNotification(int id, {required bool read}) async {
+    if (!notifications || loading || id <= 0) return;
+    final request = ++generation;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      await widget.api.request(
+        'notifications/$id/${read ? 'read' : 'unread'}',
+        method: 'POST',
+      );
+      if (mounted && request == generation) await load(page: data?.current ?? 1);
+    } catch (e) {
+      if (mounted && request == generation) {
+        if (e is ApiException && [401, 419].contains(e.status)) {
+          widget.onSessionExpired();
+        }
+        setState(() {
+          error = e;
+          loading = false;
+        });
+      }
+    }
+  }
+
   Future<void> open(int id) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -331,30 +357,17 @@ class SupportViewState extends State<SupportView> {
                                 s.t('ticket', {'id': row['support_ticket_id']}),
                               ),
                             ),
-                          if (row['read_at'] == null)
+                          if (row['id'] is int)
                             TextButton(
                               onPressed: loading
                                   ? null
-                                  : () async {
-                                      setState(() => loading = true);
-                                      try {
-                                        await widget.api.request(
-                                          'notifications/${row['id']}/read',
-                                          method: 'POST',
-                                        );
-                                        await refresh();
-                                      } catch (e) {
-                                        if (e is ApiException &&
-                                            [401, 419].contains(e.status))
-                                          widget.onSessionExpired();
-                                        if (mounted)
-                                          setState(() {
-                                            error = e;
-                                            loading = false;
-                                          });
-                                      }
-                                    },
-                              child: Text(s.t('markRead')),
+                                  : () => markNotification(
+                                      row['id'] as int,
+                                      read: row['read_at'] == null,
+                                    ),
+                              child: Text(s.t(
+                                row['read_at'] == null ? 'markRead' : 'markUnread',
+                              )),
                             ),
                         ],
                       ),

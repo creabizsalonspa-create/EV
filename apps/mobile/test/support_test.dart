@@ -74,6 +74,10 @@ class SupportFixture extends FixtureApi {
       read = true;
       return {};
     }
+    if (path == 'notifications/2/unread') {
+      read = false;
+      return {};
+    }
     final items = path == 'notifications'
         ? [
             {
@@ -468,6 +472,24 @@ void main() {
     expect(find.text('Fleet access revoked · fleet #31'), findsOneWidget);
     expect(find.textContaining('Ticket #'), findsNothing);
   });
+  testWidgets('explicit unread reversal restores the same notification', (tester) async {
+    final api = SupportFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mark as read'));
+    await tester.pumpAndSettle();
+    expect(api.read, true);
+    await tester.tap(find.text('Mark as unread'));
+    await tester.pumpAndSettle();
+    expect(api.read, false);
+    expect(find.text('Unread'), findsOneWidget);
+  });
+
   testWidgets(
     'battery notification labels simulation without a support ticket link',
     (tester) async {

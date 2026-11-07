@@ -234,6 +234,28 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonPath('total', 1)->assertJsonCount(0, 'data');
     }
 
+    public function test_unread_reversal_is_account_scoped_idempotent_and_does_not_duplicate_events(): void
+    {
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+        $note = $this->makeNotification($owner);
+        $foreign = $this->makeNotification($other);
+
+        $this->actingAs($owner)->postJson('/api/notifications/'.$note->id.'/read')
+            ->assertOk()->assertJsonPath('id', $note->id);
+        $this->postJson('/api/v1/notifications/'.$note->id.'/unread')
+            ->assertOk()->assertJsonPath('id', $note->id)->assertJsonPath('read_at', null);
+        $this->postJson('/api/notifications/'.$note->id.'/unread')
+            ->assertOk()->assertJsonPath('read_at', null);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->getJson('/api/notifications/summary')->assertOk()->assertJsonPath('unread_count', 1);
+        $this->postJson('/api/notifications/'.$foreign->id.'/unread')->assertNotFound();
+        $this->assertNull($foreign->fresh()->read_at);
+        $this->assertSame(1, DB::table('audit_events')->where('actor_id', $owner->id)
+            ->where('action', 'notifications.unread_one')
+            ->where('subject', (string) $note->id)->count());
+    }
+
     public function test_single_read_acknowledgement_is_audited_once_and_owner_scoped(): void
     {
         $owner = User::factory()->create();

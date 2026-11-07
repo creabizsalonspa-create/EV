@@ -63,6 +63,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/fleet-invitations/{invitation}/accept', [E::class, 'accept']);
         Route::get('/notifications', [T::class, 'notifications']);
         Route::post('/notifications/{notification}/read', [T::class, 'read']);
+        Route::post('/notifications/{notification}/unread', [NotificationCenterController::class, 'markUnread']);
         Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
         Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
     });
@@ -81,6 +82,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'throttle:notification-write'])->group(function () {
         Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
         Route::post('/notifications/{notification}/read', [T::class, 'read']);
+        Route::post('/notifications/{notification}/unread', [NotificationCenterController::class, 'markUnread']);
     });
 });
 

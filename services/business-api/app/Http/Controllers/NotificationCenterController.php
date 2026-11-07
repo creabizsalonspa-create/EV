@@ -63,4 +63,32 @@ class NotificationCenterController extends Controller
             ]);
         });
     }
+    /** Reopens only the caller's in-app read state; does not change the event. */
+    public function markUnread(Request $request, InboxNotification $notification): JsonResponse
+    {
+        abort_unless($notification->user_id === $request->user()->id, 404);
+
+        return DB::transaction(function () use ($request, $notification): JsonResponse {
+            $updated = InboxNotification::query()
+                ->whereKey($notification->id)
+                ->where('user_id', $request->user()->id)
+                ->whereNotNull('read_at')
+                ->update(['read_at' => null]);
+
+            if ($updated > 0) {
+                DB::table('audit_events')->insert([
+                    'actor_id' => $request->user()->id,
+                    'action' => 'notifications.unread_one',
+                    'subject' => (string) $notification->id,
+                    'created_at' => now(),
+                ]);
+            }
+
+            return response()->json(
+                InboxNotification::query()->whereKey($notification->id)
+                    ->where('user_id', $request->user()->id)->firstOrFail()
+            );
+        });
+    }
+
 }

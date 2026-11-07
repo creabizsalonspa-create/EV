@@ -1,4 +1,6 @@
 window.EV_MESSAGES = {
+    "Mark unread": { en: "Mark unread", ar: "تحديد كغير مقروء" },
+
     "Review fleet invitation": { en: "Review fleet invitation", ar: "مراجعة دعوة الأسطول" },
 
     "Notification pages": { en: "Notification pages", ar: "صفحات الإشعارات" },

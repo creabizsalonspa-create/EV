@@ -73,3 +73,7 @@ In addition to the session epoch guard, the browser inbox now increments an `inb
 ### Independent authenticated notification traffic budget
 
 The browser inbox no longer spends support-ticket rate-limit capacity. Session-authenticated `GET /api/notifications` and `/summary` use a dedicated **120/minute per-account notification-read** limiter; `POST /api/notifications/read-through` and individual read actions use a separate **30/minute notification-write** limiter. Support ticket reads/writes keep their existing **30/minute** allowance. The canonical `/api/v1` endpoints remain under their pre-existing `platform-api` limiter, preserving existing native API throttling. Tests issue 70 actual inbox read requests, then confirm support creation still works; another test confirms the 31st notification-write returns 429 while the read and support routes remain available.
+
+## Explicit unread-state reversal
+
+New account-scoped `POST /api[/v1]/notifications/{notification}/unread` reverses an earlier local read acknowledgement without recreating or resending an event. The update is atomic, idempotent and audits exactly one real transition. Both web and Flutter expose localized Mark unread controls; existing support/charging/fleet events and external delivery states do not change. Backend tests cover cross-account 404, stable record count and single audit; native widget tests cover read→unread round trips.
