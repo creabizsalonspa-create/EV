@@ -16,13 +16,23 @@ def require(condition, error):
         raise EvidenceError(error)
 
 def read_proof(path):
-    path = Path(path)
-    require(not path.is_symlink(), 'Recovery evidence must not be a symlink')
-    info = path.stat()
-    require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 65536,
-            'Recovery evidence must be a bounded regular file')
+    # Read and validate through the SAME no-follow descriptor. A prior
+    # is_symlink()/stat() check is vulnerable to path replacement before read.
+    require(hasattr(os, 'O_NOFOLLOW'), 'Secure evidence reads unavailable')
+    flags = os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) | os.O_NOFOLLOW
     try:
-        result = json.loads(path.read_text(encoding='utf-8'))
+        fd = os.open(path, flags)
+    except OSError:
+        raise EvidenceError('Recovery evidence cannot be opened safely') from None
+    with os.fdopen(fd, 'rb') as proof:
+        info = os.fstat(proof.fileno())
+        require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 65536,
+                'Recovery evidence must be a bounded regular file')
+        payload = proof.read(65537)
+        require(len(payload) == info.st_size and len(payload) <= 65536,
+                'Recovery evidence changed size while reading')
+    try:
+        result = json.loads(payload.decode('utf-8'))
     except (ValueError, UnicodeError):
         raise EvidenceError('Recovery evidence must be valid JSON') from None
     require(type(result) is dict, 'Recovery evidence must be a JSON object')
