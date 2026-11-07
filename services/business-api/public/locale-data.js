@@ -1479,6 +1479,26 @@ window.EV_MESSAGES = {
         en: "Configured provider (not operator-certified):",
         ar: "مقدم الخدمة المُسجل (دون اعتماد من المشغل):",
     },
+    "Maximum reported source age (hours, not live)": {
+        en: "Reported source updated within (hours, 1–168; not live)",
+        ar: "آخر تحديث مبلغ عنه من الشريك (بالساعات، 1–168؛ ليس حالة مباشرة)",
+    },
+    "Roaming receipt age": {
+        en: "Our last receipt age (not live):",
+        ar: "الوقت منذ الاستلام (ليس حالة مباشرة):",
+    },
+    "Roaming partner clock ahead warning": {
+        en: "Warning: partner's reported timestamp is in the future; freshness cannot be confirmed.",
+        ar: "تحذير: طابع وقت الشريك في المستقبل؛ لا يمكن تأكيد حداثة البيانات.",
+    },
+    "Partner-reported EVSE state (unverified, not live)": {
+        en: "Partner-reported EVSE status (unverified, not live)",
+        ar: "حالة نقطة الشحن حسب الشريك (غير مؤكدة وليست مباشرة)",
+    },
+    "Any partner-reported state": {
+        en: "All reported states (not live)",
+        ar: "جميع الحالات المبلغ عنها (ليست مباشرة)",
+    },
     "Roaming coordinates": { en: "Coordinates:", ar: "الإحداثيات:" },
     "Roaming straight-line distance": {
         en: "Straight-line distance (not driving distance):",

@@ -13,6 +13,7 @@ const assert = require("node:assert/strict");
         const page = await browser.newPage();
         const errors = [];
         const urls = [];
+        let futureClock = false;
         page.on("pageerror", (e) => errors.push(e.message));
         await page.route("**/api/roaming/locations*", (route) => {
             const uri = new URL(route.request().url());
@@ -33,7 +34,10 @@ const assert = require("node:assert/strict");
                             source_timestamp_evidence: "PARTNER_REPORTED_ONLY",
                             received_at: "2026-11-07T12:00:00Z",
                             source_updated_at: "2026-11-07T10:00:00Z",
-                            reported_source_age_minutes: 120,
+                            reported_source_age_minutes: futureClock ? null : 120,
+                            source_clock_evidence: futureClock ? "PARTNER_CLOCK_AHEAD" : "PARTNER_REPORTED_TIME",
+                            received_age_minutes: 1,
+                            received_timestamp_evidence: "LOCAL_INGESTION_TIME",
                             ...(nearby
                                 ? { distance_km: 1.234, distance_basis: "great_circle" }
                                 : {}),
@@ -67,6 +71,10 @@ const assert = require("node:assert/strict");
         assert.equal(await root.getByText("1.23 km").count(), 0);
         assert.equal(await root.getByRole("button", { name: "Request charge" }).count(), 0);
 
+        const reportedStatus = root.locator("[name=reported_evse_status]");
+        await reportedStatus.selectOption("AVAILABLE");
+        const maxAge = root.locator("[name=max_source_age_hours]");
+        await maxAge.fill("6");
         const lat = root.locator("[name=latitude]");
         const lng = root.locator("[name=longitude]");
         const radius = root.locator("[name=radius_km]");
@@ -87,6 +95,9 @@ const assert = require("node:assert/strict");
         assert.equal(queried.searchParams.get("latitude"), "25.2");
         assert.equal(queried.searchParams.get("longitude"), "55.3");
         assert.equal(queried.searchParams.get("radius_km"), "10");
+        assert.equal(queried.searchParams.get("max_source_age_hours"), "6");
+        assert.equal(queried.searchParams.get("reported_evse_status"), "AVAILABLE");
+        await root.getByText("1 min · not live availability", { exact: true }).waitFor();
         assert.equal(await root.locator("form").count(), 1);
         assert.equal(await root.locator('button[data-command="remote-start"]').count(), 0);
         await root.getByText("Configured provider (not operator-certified):", { exact: true }).waitFor();
@@ -97,9 +108,13 @@ const assert = require("node:assert/strict");
         assert.equal(providerUri.searchParams.get("provider"), "Network_50%!");
         assert.equal(providerUri.searchParams.get("radius_km"), "10");
 
+        futureClock = true;
+        await root.getByRole("button", { name: "Refresh", exact: true }).click();
+        await root.getByText("Warning: partner's reported timestamp is in the future; freshness cannot be confirmed.", { exact: true }).waitFor();
         await page.locator("#language").click();
         await root.getByText("المسافة بخط مستقيم (ليست مسافة قيادة):", { exact: true }).waitFor();
         await root.getByText("مقدم الخدمة المُسجل (دون اعتماد من المشغل):", { exact: true }).waitFor();
+        await root.getByText("تحذير: طابع وقت الشريك في المستقبل؛ لا يمكن تأكيد حداثة البيانات.", { exact: true }).waitFor();
         assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
         assert.deepEqual(errors, []);
         console.log("PASS synthetic partner nearby: grouped coordinates, kilometer-only distance, explicit source age, Arabic RTL and no charger-control path.");

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Discovery\PartnerCatalogGeo;
+use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -21,6 +22,8 @@ final class PartnerLocationDiscoveryController extends Controller
             'country' => 'nullable|string|regex:/^[A-Z]{3}$/D',
             'connector_standard' => 'nullable|string|max:64',
             'provider' => 'nullable|string|max:80',
+            'max_source_age_hours' => 'nullable|integer|between:1,168',
+            'reported_evse_status' => 'nullable|string|in:AVAILABLE,BLOCKED,CHARGING,INOPERATIVE,OUTOFORDER,PLANNED,REMOVED,RESERVED,UNKNOWN',
             'latitude' => 'required_with:longitude,radius_km|numeric|between:-90,90',
             'longitude' => 'required_with:latitude,radius_km|numeric|between:-180,180',
             'radius_km' => 'required_with:latitude,longitude|numeric|between:1,200',
@@ -60,6 +63,25 @@ final class PartnerLocationDiscoveryController extends Controller
                     }
                 });
             })
+            ->when(isset($filters['max_source_age_hours']), function ($q) use ($filters) {
+                // A source update timestamp is not telemetry, occupancy or
+                // charging authority. Do not accept future clocks as fresh.
+                $current = now();
+                $q->whereBetween('source_updated_at', [
+                    $current->copy()->subHours((int) $filters['max_source_age_hours']),
+                    $current,
+                ]);
+            })
+            ->when(! empty($filters['reported_evse_status']), function ($q) use ($filters) {
+                // These are the partner's *reported* EVSE states. This query
+                // never converts AVAILABLE into live charging availability.
+                $sql = match (DB::connection()->getDriverName()) {
+                    'sqlite' => "EXISTS (SELECT 1 FROM json_each(ocpi_records.normalized, '$.evses') evse WHERE json_extract(evse.value, '$.reported_status') = ?)",
+                    'pgsql' => "EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(ocpi_records.normalized::jsonb->'evses', '[]'::jsonb)) AS evse(value) WHERE evse.value->>'reported_status' = ?)",
+                    default => throw new \LogicException('Unsupported partner EVSE state search database.'),
+                };
+                $q->whereRaw($sql, [$filters['reported_evse_status']]);
+            })
             ->when(! empty($filters['country']), fn ($q) => $q->where('normalized->country', $filters['country']))
             ->when(! empty($filters['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $filters['connector_standard']));
 
@@ -82,20 +104,30 @@ final class PartnerLocationDiscoveryController extends Controller
 
         return $query->orderByDesc('ocpi_records.id')->paginate(25)->appends($filters)
             ->through(function (OcpiRecord $record) use ($nearby, $now) {
-                $age = $record->source_updated_at
-                    ? max(0, $now - $record->source_updated_at->getTimestamp())
-                    : null;
+                $sourceSeconds = $record->source_updated_at?->getTimestamp();
+                $age = $sourceSeconds === null || $sourceSeconds > $now
+                    ? null
+                    : intdiv($now - $sourceSeconds, 60);
+                $receivedSeconds = $record->received_at?->getTimestamp();
+                $receiptAge = $receivedSeconds === null || $receivedSeconds > $now
+                    ? null
+                    : intdiv($now - $receivedSeconds, 60);
 
                 return [
                     'id' => $record->id,
                     'provider_id' => $record->ocpi_provider_id,
                     'provider_label' => $record->provider_label,
                     'provider_label_evidence' => 'PROVIDER_CONFIGURED_UNVERIFIED',
-                    'location' => $record->normalized,
+                    'location' => PublicPartnerLocation::project($record->normalized ?? []),
                     'received_at' => $record->received_at,
+                    'received_age_minutes' => $receiptAge,
+                    'received_timestamp_evidence' => 'LOCAL_INGESTION_TIME',
                     'source_updated_at' => $record->source_updated_at,
-                    'reported_source_age_minutes' => $age === null ? null : intdiv($age, 60),
+                    'reported_source_age_minutes' => $age,
                     'source_timestamp_evidence' => 'PARTNER_REPORTED_ONLY',
+                    'source_clock_evidence' => $sourceSeconds === null
+                        ? 'SOURCE_TIMESTAMP_UNKNOWN'
+                        : ($sourceSeconds > $now ? 'PARTNER_CLOCK_AHEAD' : 'PARTNER_REPORTED_TIME'),
                     'evidence' => 'PARTNER_REPORTED_UNVERIFIED',
                     'availability' => 'unknown',
                     'remote_control' => false,

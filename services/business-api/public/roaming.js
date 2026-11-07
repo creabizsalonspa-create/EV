@@ -112,6 +112,10 @@ window.createRoamingWorkspace = ({
             line(card, "Roaming straight-line distance", `${Number(metadata.distance_km).toFixed(2)} km`);
         if (Number.isSafeInteger(metadata?.reported_source_age_minutes) && metadata.reported_source_age_minutes >= 0)
             line(card, "Roaming partner source age", `${metadata.reported_source_age_minutes} min · not live availability`);
+        if (metadata?.source_clock_evidence === "PARTNER_CLOCK_AHEAD")
+            card.append(ui("p", "Roaming partner clock ahead warning"));
+        if (Number.isSafeInteger(metadata?.received_age_minutes) && metadata.received_age_minutes >= 0)
+            line(card, "Roaming receipt age", String(metadata.received_age_minutes) + " min · not live availability");
         for (const evse of item.evses || []) {
             const group = document.createElement("div");
             line(group, "Roaming EVSE", evse.uid);
@@ -161,11 +165,28 @@ window.createRoamingWorkspace = ({
         }
         connector.value = catalogFilters.connector_standard || "";
         field("Connector", connector);
+        const reportedStatus = document.createElement("select");
+        reportedStatus.name = "reported_evse_status";
+        for (const state of ["", "AVAILABLE", "BLOCKED", "CHARGING", "INOPERATIVE", "OUTOFORDER", "PLANNED", "REMOVED", "RESERVED", "UNKNOWN"]) {
+            const option = ui("option", state || "Any partner-reported state");
+            option.value = state;
+            reportedStatus.append(option);
+        }
+        reportedStatus.value = catalogFilters.reported_evse_status || "";
+        field("Partner-reported EVSE state (unverified, not live)", reportedStatus);
         const provider = document.createElement("input");
         provider.name = "partner_provider";
         provider.maxLength = 80;
         provider.value = catalogFilters.provider || "";
         field("Partner network label (unverified)", provider);
+        const maxSourceAge = document.createElement("input");
+        maxSourceAge.name = "max_source_age_hours";
+        maxSourceAge.type = "number";
+        maxSourceAge.step = "1";
+        maxSourceAge.min = "1";
+        maxSourceAge.max = "168";
+        maxSourceAge.value = catalogFilters.max_source_age_hours || "";
+        field("Maximum reported source age (hours, not live)", maxSourceAge);
         // Optional coordinates are a single grouped filter. They never request device location.
         const latitude = document.createElement("input");
         const longitude = document.createElement("input");
@@ -204,7 +225,9 @@ window.createRoamingWorkspace = ({
                 ...(connector.value
                     ? { connector_standard: connector.value }
                     : {}),
+                ...(reportedStatus.value ? { reported_evse_status: reportedStatus.value } : {}),
                 ...(provider.value.trim() ? { provider: provider.value.trim() } : {}),
+                ...(maxSourceAge.value.trim() ? { max_source_age_hours: maxSourceAge.value.trim() } : {}),
                 ...(nearby.every(input => input.value.trim() !== "") ? {
                     latitude: latitude.value,
                     longitude: longitude.value,

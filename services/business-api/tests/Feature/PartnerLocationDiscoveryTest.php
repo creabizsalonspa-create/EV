@@ -207,6 +207,111 @@ class PartnerLocationDiscoveryTest extends TestCase
             ->assertUnprocessable();
     }
 
+    public function test_public_projection_cannot_reveal_future_sensitive_normalized_fields(): void
+    {
+        $provider = $this->provider();
+        $record = $this->location($provider, 'projection', 25.2, 55.3);
+        $normalized = $record->normalized;
+        $normalized['private_contract'] = 'NEVER_PUBLISH_PARTNER_CONTRACT';
+        $normalized['billing_eligible'] = true;
+        $normalized['remote_control'] = true;
+        $normalized['reservable'] = true;
+        $normalized['evses'] = [[
+            'uid' => 'evse-1',
+            'reported_status' => 'AVAILABLE',
+            'operator_secret' => 'NEVER_PUBLISH_EVSE_SECRET',
+            'connectors' => [[
+                'id' => 'connector-1',
+                'standard' => 'IEC_62196_T2_COMBO',
+                'private_token' => 'NEVER_PUBLISH_CONNECTOR_TOKEN',
+            ]],
+        ]];
+        $record->normalized = $normalized;
+        $record->save();
+
+        $response = $this->getJson('/api/roaming/locations')->assertOk();
+        $response->assertJsonPath('data.0.location.evses.0.uid', 'evse-1')
+            ->assertJsonPath('data.0.location.evses.0.connectors.0.standard', 'IEC_62196_T2_COMBO')
+            ->assertJsonPath('data.0.location.remote_control', false)
+            ->assertJsonPath('data.0.location.reservable', false)
+            ->assertJsonPath('data.0.location.availability', 'unknown')
+            ->assertJsonMissingPath('data.0.location.private_contract')
+            ->assertJsonMissingPath('data.0.location.billing_eligible')
+            ->assertJsonMissingPath('data.0.location.evses.0.operator_secret')
+            ->assertJsonMissingPath('data.0.location.evses.0.connectors.0.private_token');
+        $response->assertDontSee('NEVER_PUBLISH_');
+    }
+
+    public function test_source_age_filter_rejects_stale_future_and_invalid_values(): void
+    {
+        $provider = $this->provider();
+        $recent = $this->location($provider, 'recent', 25.2, 55.3);
+        $old = $this->location($provider, 'old', 25.2, 55.3);
+        $old->source_updated_at = now()->subHours(26);
+        $old->save();
+        $future = $this->location($provider, 'future', 25.2, 55.3);
+        $future->source_updated_at = now()->addMinutes(2);
+        $future->save();
+
+        $response = $this->getJson('/api/roaming/locations?max_source_age_hours=6');
+        $response->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $recent->id)
+            ->assertJsonPath('data.0.reported_source_age_minutes', 180)
+            ->assertJsonPath('data.0.source_clock_evidence', 'PARTNER_REPORTED_TIME')
+            ->assertJsonPath('data.0.received_timestamp_evidence', 'LOCAL_INGESTION_TIME')
+            ->assertJsonPath('data.0.availability', 'unknown')
+            ->assertJsonPath('data.0.remote_control', false);
+
+        $this->getJson('/api/roaming/locations?provider=Synthetic&max_source_age_hours=6&latitude=25.2&longitude=55.3&radius_km=5')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $recent->id);
+
+        foreach (['0', '169', '1.5', 'NaN'] as $invalid) {
+            $this->getJson('/api/roaming/locations?max_source_age_hours='.$invalid)->assertUnprocessable();
+        }
+
+        $unfiltered = $this->getJson('/api/roaming/locations')->assertOk();
+        $ahead = collect($unfiltered->json('data'))->firstWhere('id', $future->id);
+        $this->assertNull($ahead['reported_source_age_minutes']);
+        $this->assertSame('PARTNER_CLOCK_AHEAD', $ahead['source_clock_evidence']);
+        $this->assertSame('unknown', $ahead['availability']);
+    }
+
+    public function test_reported_evse_state_filter_is_explicitly_unverified_and_composes_with_other_filters(): void
+    {
+        $provider = $this->provider();
+        $available = $this->location($provider, 'available-report', 25.2, 55.3);
+        $charging = $this->location($provider, 'charging-report', 25.21, 55.3);
+        $hidden = $this->location($provider, 'hidden-report', 25.2, 55.3, false);
+        foreach ([
+            [$available, 'AVAILABLE'], [$charging, 'CHARGING'], [$hidden, 'AVAILABLE'],
+        ] as [$record, $state]) {
+            $normalized = $record->normalized;
+            $normalized['evses'] = [[
+                'uid' => 'test-evse',
+                'reported_status' => $state,
+                'connectors' => [['id' => 'c1', 'standard' => 'IEC_62196_T2_COMBO']],
+            ]];
+            $record->normalized = $normalized;
+            $record->save();
+        }
+        $response = $this->getJson('/api/roaming/locations?reported_evse_status=AVAILABLE&provider=Synthetic&country=ARE&latitude=25.2&longitude=55.3&radius_km=5');
+        $response->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $available->id)
+            ->assertJsonPath('data.0.location.evses.0.reported_status', 'AVAILABLE')
+            ->assertJsonPath('data.0.location.availability', 'unknown')
+            ->assertJsonPath('data.0.availability', 'unknown')
+            ->assertJsonPath('data.0.remote_control', false)
+            ->assertJsonPath('data.0.reservable', false);
+        $this->assertStringContainsString('reported_evse_status=AVAILABLE', $response->json('first_page_url'));
+        $this->getJson('/api/roaming/locations?reported_evse_status=CHARGING')
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $charging->id);
+        $this->getJson('/api/roaming/locations?reported_evse_status=AVAILABLE%27%20OR%201%3D1')
+            ->assertUnprocessable();
+        $this->getJson('/api/roaming/locations?reported_evse_status=available')
+            ->assertUnprocessable();
+    }
+
     public function test_no_unverified_partner_is_published_by_nearby_search(): void
     {
         $revoked = $this->provider(false);

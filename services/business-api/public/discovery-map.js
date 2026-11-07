@@ -190,6 +190,13 @@
                         `اسم مقدم الخدمة المُسجل (غير مؤكد): ${label}`,
                     ));
                 }
+                if (row.source_clock_evidence === "PARTNER_CLOCK_AHEAD") {
+                    popup.append(make(
+                        "p",
+                        "Partner's reported timestamp is in the future; freshness unknown.",
+                        "طابع وقت الشريك في المستقبل؛ حداثة البيانات غير معروفة.",
+                    ));
+                }
                 const age = Number.isSafeInteger(row.reported_source_age_minutes) &&
                     row.reported_source_age_minutes >= 0
                     ? row.reported_source_age_minutes : null;
