@@ -103,13 +103,21 @@ def verify_workflow_reference(workflow, source_sha):
     """Fail closed on bundled provenance claims without implying signed GitHub attestation."""
     expected = {'provider', 'repository', 'workflow_name', 'run_id', 'head_sha',
                 'android', 'ios', 'snapshot_authenticated'}
-    if not isinstance(workflow, dict) or set(workflow) != expected:
+    identified = {'workflow_id', 'workflow_path'}
+    # Earlier developer bundles carry only the workflow name; they remain
+    # verifiable but newer imports must bind the reviewed workflow identity.
+    if not isinstance(workflow, dict) or set(workflow) not in (expected, expected | identified):
         raise BundleError('Invalid optional workflow evidence schema')
     if workflow['provider'] != 'github_actions' or workflow['repository'] != 'creabizsalonspa-create/EV' or \
             workflow['workflow_name'] != 'Hasone customer development builds' or \
             type(workflow['run_id']) is not int or workflow['run_id'] <= 0 or \
             workflow['head_sha'] != source_sha or workflow['snapshot_authenticated'] is not False:
         raise BundleError('Unverifiable workflow provenance or false authentication claim')
+    if identified <= set(workflow) and (
+            type(workflow['workflow_id']) is not int or
+            workflow['workflow_id'] != 410027022 or
+            workflow['workflow_path'] != '.github/workflows/hasone-customer.yml'):
+        raise BundleError('Wrong GitHub mobile workflow identity')
     ids = set()
     for role in ('android', 'ios'):
         data = workflow[role]

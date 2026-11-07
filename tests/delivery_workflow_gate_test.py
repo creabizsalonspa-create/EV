@@ -42,6 +42,7 @@ class VerifiedWorkflowHandoffTests(unittest.TestCase):
         self.run = {
             'id': RUN_ID, 'name': 'Hasone customer development builds', 'status': 'completed',
             'conclusion': 'success', 'event': 'pull_request', 'head_sha': SHA,
+            'workflow_id': 410027022, 'path': '.github/workflows/hasone-customer.yml',
             'head_branch': 'development/fullstack-continuation',
             'repository': {'full_name': REPO, 'id': REPO_ID},
             'head_repository': {'full_name': REPO, 'id': REPO_ID},
@@ -86,6 +87,8 @@ class VerifiedWorkflowHandoffTests(unittest.TestCase):
         self.assertEqual(manifest['acceptance']['production_accepted'], False)
         proof = manifest['workflow_evidence']
         self.assertEqual(proof['run_id'], RUN_ID)
+        self.assertEqual(proof['workflow_id'], 410027022)
+        self.assertEqual(proof['workflow_path'], '.github/workflows/hasone-customer.yml')
         self.assertEqual(proof['head_sha'], SHA)
         self.assertEqual(proof['android']['artifact_id'], 13569331617)
         self.assertEqual(proof['ios']['artifact_id'], 13565252105)
@@ -105,6 +108,25 @@ class VerifiedWorkflowHandoffTests(unittest.TestCase):
             test_run = dict(self.run, status=status, conclusion=conclusion, name=name)
             with self.assertRaises(BundleError):
                 verify_workflow(test_run, self.listing, SHA, RUN_ID, self.android, self.ios)
+
+    def test_name_matching_but_wrong_workflow_id_or_file_is_rejected(self):
+        for update in ({'workflow_id': 0}, {'workflow_id': 1},
+                       {'workflow_id': True}, {'path': '.github/workflows/ci.yml'},
+                       {'path': None}):
+            with self.assertRaises(BundleError):
+                verify_workflow(dict(self.run, **update), self.listing,
+                                SHA, RUN_ID, self.android, self.ios)
+
+    def test_bundle_rejects_forged_workflow_identity(self):
+        run, artifacts = self.snapshots()
+        bundle = self.root / 'bundle'
+        package_from_workflow(bundle, SHA, RUN_ID, run, artifacts, self.android, self.ios)
+        manifest_path = bundle / 'manifest.json'
+        manifest = json.loads(manifest_path.read_text('utf-8'))
+        manifest['workflow_evidence']['workflow_path'] = '.github/workflows/ci.yml'
+        manifest_path.write_text(json.dumps(manifest))
+        with self.assertRaises(BundleError):
+            verify(bundle, SHA)
 
     def test_reject_source_from_different_repository_or_event(self):
         for value in ('outsider/fork', 'creabizsalonspa-create/Other'):

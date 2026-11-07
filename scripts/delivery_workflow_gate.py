@@ -15,6 +15,8 @@ from delivery_bundle import BundleError, checksum
 
 REPOSITORY = 'creabizsalonspa-create/EV'
 WORKFLOW = 'Hasone customer development builds'
+WORKFLOW_ID = 410027022
+WORKFLOW_PATH = '.github/workflows/hasone-customer.yml'
 SHA40 = re.compile(r'^[0-9a-f]{40}$')
 SHA256 = re.compile(r'^sha256:([0-9a-f]{64})$')
 ARTIFACTS = {
@@ -43,6 +45,9 @@ def verify_workflow(run, artifact_listing, source_sha, run_id, android_file, ios
         raise BundleError('GitHub workflow run ID mismatch')
     if run.get('status') != 'completed' or run.get('conclusion') != 'success' or run.get('name') != WORKFLOW:
         raise BundleError('Workflow is not the successful reviewed development build')
+    if type(run.get('workflow_id')) is not int or run['workflow_id'] != WORKFLOW_ID or \
+            run.get('path') != WORKFLOW_PATH:
+        raise BundleError('Workflow ID or source path differs from reviewed mobile build workflow')
     if run.get('event') not in ('push', 'pull_request', 'workflow_dispatch'):
         raise BundleError('Unexpected GitHub workflow trigger')
     if run.get('head_sha') != source_sha:
@@ -113,6 +118,8 @@ def package_from_workflow(output, source_sha, run_id, run_file, artifacts_file, 
         'provider': 'github_actions',
         'repository': REPOSITORY,
         'workflow_name': WORKFLOW,
+        'workflow_id': WORKFLOW_ID,
+        'workflow_path': WORKFLOW_PATH,
         'run_id': run_id,
         'head_sha': source_sha,
         'android': {'artifact_id': proven['android_artifact_id'],

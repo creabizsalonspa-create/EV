@@ -15,6 +15,8 @@ gh api 'repos/creabizsalonspa-create/EV/actions/runs/42348377299/artifacts?per_p
   > artifacts/delivery/workflow-evidence/artifacts.json
 ```
 
+The API run must also identify the exact reviewed mobile workflow **ID `410027022`** and **path `.github/workflows/hasone-customer.yml`**, not merely a matching human-readable name. These fields were verified against GitHub's successful run `42348377299`. A recreated workflow with another ID requires new independent approval.
+
 The run must report `status=completed`, `conclusion=success`, the exact expected workflow name, an authorized first-party repository and head repository, and `head_sha=7e1b225e5add58da8a87e64d52292b76c5e99af5`. Each artifact must report that same run ID, branch, repository IDs and source SHA, must be unexpired, and must contain the actual GitHub-published SHA-256 digest. Archived/downloaded bytes must match their exact published size and digest. A manual source label alone cannot override any of these conditions.
 
 ## 2. Offline verified import — real successful development reference build
@@ -45,6 +47,8 @@ python3 scripts/delivery_bundle.py verify \
 If either artifact comes from another GitHub run, has expired, comes from a fork, has a changed head source, no successful CI conclusion, an unsupported trigger, or bytes differing from its own published artifact metadata, **the gate fails** and creates no customer bundle.
 
 ### Provenance travels with the delivery bundle
+
+New workflow-imported bundles also carry the reviewed workflow ID and YAML path; prior development bundles without these two optional fields continue to verify under the original schema. A mismatched or partially specified pair is rejected.
 
 The verified, private `manifest.json` now contains an optional `workflow_evidence` record for workflow-imported development builds: exact GitHub repository, successful workflow name and run ID, exact source SHA, both artifact IDs, and the **original outer ZIP SHA-256 digests** checked before import. The normal generic bundler remains backwards compatible and does not claim a GitHub run it never verified.
 
