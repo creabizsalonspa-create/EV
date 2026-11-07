@@ -285,7 +285,7 @@ try{
     date:'2026-11-10',time:'12:00 PM',slotStart:'12:00 PM',slotEnd:'01:00 PM',
     totalAmount:63,isPaid:true,paymentStatus:'paid',hasArrived:true,status:'Upcoming',
     ocppTokenHash:tokenHash});
-  await NearestStationModel.findByIdAndUpdate(station._id,{$set:{ocppChargerId:chargerId}});
+  await db.collection('ocpp_chargers').insertOne({stationId:String(station._id),chargerId,enabled:true,online:false});
   const linked=await ChargingSessionModel.create({userId:user._id,bookingId:approvedBooking._id,
     stationId:station._id,sourceType:'ocpp',sourceSessionId:String(sourceDoc._id),
     sourceChargerId:chargerId,sourceTransactionId:id,status:'NotStarted'});
