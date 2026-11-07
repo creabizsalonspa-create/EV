@@ -41,7 +41,20 @@ class MobileReleaseSigningTest(unittest.TestCase):
                 self.assertIn('if (!file(releaseStoreFile!!).isFile)', config)
                 for task in ('assembleRelease', 'bundleRelease', 'packageRelease'):
                     self.assertIn(f'"{task}"', config)
-                self.assertIn('dependsOn(verifyReleaseSigning)', config)
+                if prefix == "HASONE":
+                    self.assertIn(
+                        'tasks.register("verifyReleaseMapsApiKey")', config
+                    )
+                    self.assertIn(
+                        'dependsOn(verifyReleaseSigning, verifyReleaseMapsApiKey)',
+                        config,
+                    )
+                    self.assertIn(
+                        'manifestPlaceholders["mapsApiKey"] = mapsApiKey ?: ""',
+                        config,
+                    )
+                else:
+                    self.assertIn('dependsOn(verifyReleaseSigning)', config)
 
     def test_android_apps_deny_cloud_and_device_transfer_of_credentials(self):
         for app in ("mobile", "hasone-customer"):
