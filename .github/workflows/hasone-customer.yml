@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   native:
+    timeout-minutes: 90
     # Keep these check contexts distinct from apps/mobile's native jobs.
     # Both suites are required when a PR changes both app trees.
     name: hasone-native (${{ matrix.os }})
