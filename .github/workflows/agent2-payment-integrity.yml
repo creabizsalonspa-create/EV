@@ -1,17 +1,17 @@
-name: Agent 2 payment integrity
+name: Agent 2 EV integration validations
 on:
   push:
     paths:
-      - "integrations/hasone-express/**"
-      - "tools/agent2/stage_payment_safety.py"
-      - ".github/workflows/agent2-payment-integrity.yml"
+      - 'integrations/hasone-express/**'
+      - 'tools/agent2/**'
+      - '.github/workflows/agent2-payment-integrity.yml'
   pull_request:
     paths:
-      - "integrations/hasone-express/**"
-      - "tools/agent2/stage_payment_safety.py"
-      - ".github/workflows/agent2-payment-integrity.yml"
+      - 'integrations/hasone-express/**'
+      - 'tools/agent2/**'
+      - '.github/workflows/agent2-payment-integrity.yml'
 jobs:
-  settlement-guards:
+  integration-guards:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,7 +20,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify settlement guard syntax
-        run: node --check integrations/hasone-express/paymentIntegrity.mjs
-      - name: Verify 13 settlement and ownership cases
-        run: node --test integrations/hasone-express/tests/paymentIntegrity.test.mjs
+      - name: Check Node modules and staging HTTP smoke syntax
+        run: |
+          node --check integrations/hasone-express/paymentIntegrity.mjs
+          node --check integrations/hasone-express/ocppSourceEvidence.mjs
+          node --check integrations/hasone-express/adminOcppBooking.js
+          node --check tools/agent2/test_staged_payment_routes.mjs
+          node --check tools/agent2/run_isolated_backend_demo.mjs
+          node --check tools/agent2/secure_live_mongo_snapshot.mjs
+          node --check tools/agent2/live-demo-readiness.mjs
+      - name: Run pure payment and OCPP source evidence regression tests
+        run: node --test integrations/hasone-express/tests/*.test.mjs
+      - name: Check Python staging scripts compile
+        run: |
+          python3 -m py_compile tools/agent2/stage_payment_safety.py
+          python3 -m py_compile tools/agent2/stage_booking_slot_uniqueness.py
+          python3 -m py_compile tools/agent2/stage_charging_source_safety.py
+          python3 -m py_compile tools/agent2/stage_ocpp201_token_binding.py
+          python3 -m py_compile tools/agent2/stage_ocpp_customer_status.py
+          python3 -m py_compile tools/agent2/stage_admin_ocpp_binding.py
