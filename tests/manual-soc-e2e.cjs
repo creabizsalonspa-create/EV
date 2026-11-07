@@ -55,10 +55,50 @@ if (!['127.0.0.1','localhost','::1','[::1]'].includes(target.hostname) ||
     assert.match(panel,/CUSTOMER_MANUAL_SELF_REPORT/);
     assert.ok(observed.some(r => r.status === 201 && r.source === 'CUSTOMER_MANUAL_SELF_REPORT'));
     assert.ok(observed.some(r => r.status === 200 && r.source === 'CUSTOMER_MANUAL_SELF_REPORT'));
+    // Verify that switching to a second vehicle with a delayed GET removes
+    // the previous form immediately. A detached old form cannot submit its
+    // percentage against the newly selected vehicle.
+    const root=page.locator('#vehicle-manual-soc');
+    await page.locator('#vehicle-create input[name=name]').fill('Other Electric Vehicle');
+    const adding=page.waitForResponse(r=>
+      new URL(r.url()).pathname==='/api/vehicles' && r.request().method()==='POST',{timeout:20000});
+    await page.locator('#vehicle-create button').click();
+    assert.equal((await adding).status(),201);
+    const oldForm=await root.locator('form.vehicle-manual-soc-form').elementHandle();
+    assert.ok(oldForm);
+    await oldForm.evaluate(el => el.querySelector('[name=battery_percent]').value='60');
+    let release, seen, writesAfterSwitch=0;
+    const pending=new Promise(resolve=>{release=resolve;});
+    const interceptStarted=new Promise(resolve=>{seen=resolve;});
+    page.on('request',req=>{
+      if(req.method()==='POST'&&new URL(req.url()).pathname.endsWith('/manual-soc'))writesAfterSwitch++;
+    });
+    await page.route('**/api/vehicles/*/manual-soc',async route=>{
+      if(route.request().method()==='GET'){
+        seen();
+        await pending;
+      }
+      await route.continue();
+    });
+    try{
+      const switchButton=root.getByRole('button',{name:'Report battery for Other Electric Vehicle'});
+      await switchButton.waitFor({timeout:20000});
+      await switchButton.click();
+      await interceptStarted;
+      assert.equal(await root.locator('[data-manual-soc-panel]').count(),0,
+        'The previous vehicle editor must close before new GET completes');
+      await oldForm.evaluate(el=>el.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+      assert.equal(writesAfterSwitch,0,'Detached form must not post to the next vehicle');
+    }finally{release();}
+    await root.locator('[data-manual-soc-panel]').waitFor({timeout:20000});
+    await page.unroute('**/api/vehicles/*/manual-soc');
+    await root.getByText('No report yet.').waitFor({timeout:20000});
+    assert.doesNotMatch(await root.locator('[data-manual-soc-panel]').innerText(),
+      /Latest self-reported battery: 47%/);
     assert.deepEqual(errors,[], 'Uncaught page errors');
     await page.locator('#logout').click();
     await page.locator('#signed').waitFor({state:'hidden',timeout:20000});
-    console.log('PASS: localhost registration -> garage -> manual SOC -> sourced history -> logout; no browser errors.');
+    console.log('PASS: source-qualified SOC, two vehicles, delayed GET, stale-form isolation, and logout.');
   } finally {
     await browser.close();
   }
