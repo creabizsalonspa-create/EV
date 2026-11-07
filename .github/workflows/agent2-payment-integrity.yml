@@ -43,3 +43,4 @@ jobs:
           python3 -m py_compile tools/agent2/stage_ocpp_customer_summary.py
           python3 -m py_compile tools/agent2/stage_ocpp_charging_station_screen.py
           python3 -m py_compile tools/agent2/stage_ocpp_qr_safety.py
+          python3 -m py_compile tools/agent2/stage_next_ocpp_report_page.py
