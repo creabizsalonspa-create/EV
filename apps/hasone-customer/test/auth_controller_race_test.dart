@@ -25,6 +25,22 @@ class _MemoryVault implements TokenVault {
   }
 }
 
+/// Simulates a profile cache write that fails after an earlier account's
+/// secure bearer has already been committed. Another login may finish first.
+class _DelayedFailingUserCache extends SharedPrefs {
+  _DelayedFailingUserCache(TokenVault vault) : super(vault: vault);
+
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<void> saveUser(Map<String, dynamic> user) async {
+    if (!started.isCompleted) started.complete();
+    await release.future;
+    throw StateError('outdated synthetic profile write failed');
+  }
+}
+
 /// No live HTTP, credentials, payment or charger access. The response is
 /// released only after another controller has explicitly logged out.
 class _HeldAuthenticationNetwork extends NetworkClient {
@@ -93,6 +109,64 @@ void main() {
         reason: 'Secure vault must not retain a partial login');
     expect(auth.user.value, isNull);
     expect(feedback.single, contains('Sign-in unavailable'));
+  });
+
+  test('old cache failure cannot delete a newer successful login', () async {
+    final vault = _MemoryVault();
+    final oldCache = _DelayedFailingUserCache(vault);
+    final oldNetwork = _HeldAuthenticationNetwork();
+    final currentNetwork = _HeldAuthenticationNetwork();
+    final older = AuthController(
+      client: oldNetwork,
+      prefs: oldCache,
+      authFeedback: (_, __) {},
+    );
+    final current = AuthController(
+      client: currentNetwork,
+      prefs: SharedPrefs(vault: vault),
+      authFeedback: (_, __) {},
+    );
+
+    final obsolete = older.login('old@example.test', 'synthetic-only');
+    expect(await oldNetwork.requested.future, '/api/v1/Login');
+    oldNetwork.response.complete(NetworkResponse(
+      isSuccess: true,
+      statusCode: 200,
+      responseData: {
+        'token': 'old-account-bearer',
+        'name': 'Prior User',
+        'email': 'old@example.test',
+        'userId': '1',
+      },
+    ));
+    await oldCache.started.future;
+
+    // The next login supersedes the earlier attempt while its profile write
+    // remains suspended. Its token must survive the older failure.
+    final replacement = current.login('new@example.test', 'synthetic-only');
+    expect(await currentNetwork.requested.future, '/api/v1/Login');
+    currentNetwork.response.complete(NetworkResponse(
+      isSuccess: true,
+      statusCode: 200,
+      responseData: {
+        'token': 'new-account-bearer',
+        'name': 'Latest User',
+        'email': 'new@example.test',
+        'userId': '2',
+      },
+    ));
+
+    try {
+      expect(await replacement, isTrue);
+      oldCache.release.complete();
+      expect(await obsolete, isFalse);
+      expect(Session.accessToken, 'new-account-bearer');
+      expect(vault.value, 'new-account-bearer');
+      expect(older.user.value, isNull);
+      expect(current.user.value, isNotNull);
+    } finally {
+      if (!oldCache.release.isCompleted) oldCache.release.complete();
+    }
   });
 
   test('late successful login after explicit logout never republishes token',
