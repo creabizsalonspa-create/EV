@@ -1,5 +1,7 @@
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/vehicle_model_catalog.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +13,8 @@ class _ModelsApi extends EvApi {
   final writes = <Map<String, dynamic>>[];
   int? selectedModel;
   final catalogQueries = <Map<String, String>>[];
+  final requestPaths = <String>[];
+  Completer<void>? holdVehicle12;
 
   final model = <String, dynamic>{
     'id': 4, 'make': 'Test brand', 'model': 'Demo E', 'variant': null,
@@ -25,6 +29,13 @@ class _ModelsApi extends EvApi {
     'model':'Second compatible',
     'source_url':'https://example.com/catalog/second',
   };
+  Map<String,dynamic> get type2Model => {
+    ...model,
+    'id':6,
+    'model':'Type2 compatible',
+    'connector_type':'Type2',
+    'source_url':'https://example.com/catalog/type2',
+  };
 
   @override
   Future<dynamic> request(String path, {
@@ -32,7 +43,16 @@ class _ModelsApi extends EvApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    requestPaths.add('$method $path');
+    if (path == 'vehicles/13/model' && method == 'GET') {
+      return {
+        'vehicle_id': 13, 'vehicle_connector_type': 'Type2',
+        'model_id': null, 'model': null, 'published': false,
+        'does_not_override_connector': true,
+      };
+    }
     if (path == 'vehicles/12/model' && method == 'GET') {
+      if (holdVehicle12 != null) await holdVehicle12!.future;
       return {
         'vehicle_id': 12, 'vehicle_connector_type': 'CCS2',
         'model_id': selectedModel, 'model': selectedModel == null
@@ -48,10 +68,22 @@ class _ModelsApi extends EvApi {
       final visible = forAdmin ? <Map<String,dynamic>>[]
           : query['connector_type'] == 'CCS2'
               ? <Map<String,dynamic>>[model, secondModel]
-              : <Map<String,dynamic>>[];
+              : query['connector_type'] == 'Type2'
+                  ? <Map<String,dynamic>>[type2Model]
+                  : <Map<String,dynamic>>[];
       return {
         'current_page': 1, 'last_page': 1, 'total': visible.length,
         'data': visible,
+      };
+    }
+    if (path == 'vehicles/13/model' && method == 'PUT') {
+      final payload = Map<String, dynamic>.from(body!);
+      writes.add(payload);
+      return {
+        'vehicle_id': 13, 'model_id': payload['model_id'],
+        'vehicle_connector_type': 'Type2',
+        'does_not_override_connector': true,
+        'model': payload['model_id'] == null ? null : type2Model,
       };
     }
     if (path == 'vehicles/12/model' && method == 'PUT') {
@@ -157,4 +189,37 @@ void main() {
       api.close();
     }
   });
+  testWidgets('reused native model picker resets connector and ignores former vehicle GET',
+      (tester) async {
+    final api = _ModelsApi()..holdVehicle12 = Completer<void>();
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleModelAssociationView(
+        api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+      )));
+      await tester.pump();
+      expect(api.requestPaths, contains('GET vehicles/12/model'));
+      await tester.pumpWidget(MaterialApp(home: VehicleModelAssociationView(
+        api: api, vehicleId: 13, vehicleConnector: 'Type2', onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(api.requestPaths, contains('GET vehicles/13/model'));
+      expect(api.catalogQueries.last['connector_type'], 'Type2');
+      expect(find.textContaining('Test brand Type2 compatible'), findsWidgets);
+      api.holdVehicle12!.complete();
+      await tester.pumpAndSettle();
+      expect(api.catalogQueries.last['connector_type'], 'Type2',
+        reason: 'Old model GET must not trigger a stale connector query');
+      expect(find.textContaining('Test brand Type2 compatible'), findsWidgets);
+      await tester.ensureVisible(find.byKey(const Key('model-link-save')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('model-link-save')));
+      await tester.pumpAndSettle();
+      expect(api.requestPaths.last, 'PUT vehicles/13/model');
+      expect(api.writes.last['model_id'], 6);
+    } finally {
+      if (!(api.holdVehicle12?.isCompleted ?? true)) api.holdVehicle12!.complete();
+      api.close();
+    }
+  });
+
 }
