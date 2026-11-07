@@ -7,6 +7,7 @@ To cancel a bounded set, an operator must explicitly supply --apply and an
 Actions-write GH_TOKEN/GITHUB_TOKEN. Do not run --apply in pull_request CI.
 """
 import argparse
+from collections import Counter
 import json
 import os
 import sys
@@ -228,6 +229,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--apply", action="store_true",
                    help="Explicitly cancel only revalidated superseded queued runs")
+    p.add_argument("--summary-only", action="store_true",
+                   help="Display aggregate reasons and a short sample, not all queued run IDs")
     p.add_argument("--max-cancel", type=int, default=10)
     p.add_argument("--page-limit", type=int, default=MAX_PAGE_COUNT)
     args = p.parse_args(argv)
@@ -246,6 +249,11 @@ def main(argv=None):
             report["cancelled_ids"] = cancelled
             report["skipped_on_recheck"] = skipped
             report["cancellation_errors"] = errors
+        if args.summary_only:
+            report["candidate_reasons"] = dict(sorted(Counter(
+                item["reason"] for item in report["candidates"]).items()))
+            report["sample_candidates"] = report["candidates"][:5]
+            del report["candidates"]
         print(json.dumps(report, indent=2, sort_keys=True))
         return 3 if args.apply and report.get("cancellation_errors") else 0
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError,
