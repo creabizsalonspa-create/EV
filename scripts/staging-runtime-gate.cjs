@@ -121,7 +121,9 @@ function localDockerSnapshot(env = process.env, runner = execFileSync) {
     throw Error('Docker context is not a local Unix socket');
   }
   return runner('docker', ['compose', '--project-name', PROJECT, '-f',
-    path.resolve(__dirname, '../infra/staging/compose.yaml'), 'ps', '--all', '--format', 'json'],
+    path.resolve(__dirname, '../infra/staging/compose.yaml'),
+    '--env-file', path.resolve(__dirname, '../infra/staging/.env'),
+    'ps', '--all', '--format', 'json'],
     { encoding: 'utf8', timeout: 10000, maxBuffer: MAX_SNAPSHOT_BYTES });
 }
 
