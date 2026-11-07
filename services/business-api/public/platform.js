@@ -77,6 +77,7 @@ function clearIdentity() {
 function clearPrivateViews() {
     riderWorkspace.clear();
     vendorWorkspace.clear();
+    privacyWorkspace.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
     invoiceHistory.clear();
@@ -241,6 +242,7 @@ async function identity() {
         await support();
     }
     await vendorWorkspace.setActor(user);
+    await privacyWorkspace.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
     await chargingReviews.setActor(user);
@@ -1140,6 +1142,12 @@ el("station-form").onsubmit = async (e) => {
         notice(e);
     }
 };
+const privacyWorkspace = createPrivacyWorkspace({
+    selfRoot: el("privacy-self"),
+    adminRoot: el("privacy-admin"),
+    api,
+    actor: () => user,
+});
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),
     api,
