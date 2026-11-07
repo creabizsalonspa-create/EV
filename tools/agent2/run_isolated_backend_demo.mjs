@@ -777,12 +777,40 @@ try{
       transactionId:valid.transactionId,meterStop:8000,
       timestamp:new Date().toISOString(),reason:'EVDisconnected'});
   });
+  await check('unrelated valid first-charger transaction cannot be bound to second-charger booking',async()=>{
+    const otherToken='agent2-unrelated-first-charger-token';
+    await db.collection('ocpp_access_tokens').insertOne({
+      chargerId:multiPrimary,tokenHash:createHash('sha256').update(otherToken).digest('hex'),
+      enabled:true,expiresAt:new Date(Date.now()+3600000)
+    });
+    const started=await handle({chargerId:multiPrimary},'ocpp1.6','StartTransaction',{
+      connectorId:1,meterStart:2000,idTag:otherToken,timestamp:new Date().toISOString()});
+    assert.equal(started.idTagInfo.status,'Accepted');
+    await handle({chargerId:multiPrimary},'ocpp1.6','StopTransaction',{
+      transactionId:started.transactionId,meterStop:5000,
+      timestamp:new Date().toISOString(),reason:'EVDisconnected'});
+    const wrongSource=await db.collection('ocpp_sessions').findOne({
+      chargerId:multiPrimary,transactionId:started.transactionId});
+    const denied=await request('POST',
+      '/api/v1/admin/bookings/'+multiBooking._id+'/ocpp/bind-source',
+      {sourceSessionId:String(wrongSource._id)},false,{authorization:adminBearer});
+    assert.notEqual(denied.code,200);
+    assert.equal(await ChargingSessionModel.countDocuments({bookingId:multiBooking._id,sourceType:'ocpp'}),0);
+  });
+  await check('pinned booking cannot request another charger authorization',async()=>{
+    const response=await request('POST',multiIssue,{chargerId:multiPrimary},
+      false,{authorization:adminBearer});
+    assert.equal(response.code,409);
+    const saved=await BookingModel.findById(multiBooking._id);
+    assert.equal(saved.ocppChargerId,multiSecond);
+  });
   await check('station source picker includes both chargers but not private tokens',async()=>{
     const response=await request('GET',
       '/api/v1/admin/stations/'+multiStation._id+'/ocpp/booking-sources',
       undefined,false,{authorization:adminBearer});
     assert.equal(response.code,200);
     assert.equal(response.body.data.sessions.some(x=>x.chargerId===multiSecond),true);
+    assert.equal(response.body.data.sessions.some(x=>x.chargerId===multiPrimary),true);
     assert.equal(JSON.stringify(response.body).includes('idTagHash'),false);
   });
   await check('booking binds only to its pinned physical charger source',async()=>{
