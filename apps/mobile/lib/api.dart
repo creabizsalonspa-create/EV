@@ -198,12 +198,16 @@ class EvApi {
 
   Future<Account?> restoreSession() async {
     if (!canRemember) return null;
+    // A logout, new sign-in or app shutdown can invalidate a vault read while
+    // secure storage is still responding. Never rehydrate stale credentials.
+    final restoreEpoch = _epoch;
     String? raw;
     try {
       raw = await _vaultOperation(() => vault!.read(base.origin));
     } catch (_) {
       throw const SessionStorageException();
     }
+    if (restoreEpoch != _epoch) return null;
     if (raw == null) return null;
     final now = DateTime.now().toUtc();
     try {
@@ -236,23 +240,32 @@ class EvApi {
         _cookies[cookie.name] = cookie;
       }
     } catch (_) {
+      // Do not delete a newer login's credentials on a stale restore.
+      if (restoreEpoch != _epoch) return null;
       await forgetSession();
       _cookies.clear();
       _csrf = null;
       return null;
     }
+    if (restoreEpoch != _epoch) return null;
     try {
       final current = Account.fromJson(
         Map<String, dynamic>.from(await request('me') as Map),
       );
+      if (restoreEpoch != _epoch) return null;
       if (!['customer', 'vendor'].contains(current.role)) {
         await signOut();
         return null;
       }
       await csrf();
+      if (restoreEpoch != _epoch) return null;
       await rememberSession();
+      // An explicit forgetSession() between a save and response must not
+      // surface the previously authenticated account to the UI.
+      if (restoreEpoch != _epoch) return null;
       return current;
     } on ApiException catch (e) {
+      if (restoreEpoch != _epoch) return null;
       _cookies.clear();
       _csrf = null;
       if ([401, 419].contains(e.status)) return null;
