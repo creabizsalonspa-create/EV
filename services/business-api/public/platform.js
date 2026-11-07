@@ -1537,6 +1537,18 @@ async function refreshInbox() {
                         ? ui("p", "Unacknowledged simulated charger fault reminder · station #{id}", {
                             id: m.metadata?.station_id ?? "?",
                         })
+                    : m.kind === "charging.repair.opened.simulated"
+                        ? ui("p", "Simulated charger repair opened · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.repair.work_started.simulated"
+                        ? ui("p", "Simulated charger repair work started · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.repair.reopened.simulated"
+                        ? ui("p", "Simulated charger repair reopened · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
                     : m.kind === "charging.repair.review_requested.simulated"
                         ? ui("p", "Simulated charger repair review requested · station #{id}", {
                             id: m.metadata?.station_id ?? "?",
@@ -1601,6 +1613,9 @@ async function refreshInbox() {
         }
         if (["charging.fault.simulated", "charging.fault.recovered.simulated",
              "charging.fault.reminder.simulated",
+             "charging.repair.opened.simulated",
+             "charging.repair.work_started.simulated",
+             "charging.repair.reopened.simulated",
              "charging.repair.review_requested.simulated",
              "charging.repair.review_closed.simulated"].includes(m.kind)) {
             const meta = m.metadata;

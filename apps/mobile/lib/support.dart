@@ -36,6 +36,18 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
       return strings.t('simulatedFaultReminder', {
         'station': id('station_id'),
       });
+    case 'charging.repair.opened.simulated':
+      return strings.t('simulatedRepairOpened', {
+        'station': id('station_id'),
+      });
+    case 'charging.repair.work_started.simulated':
+      return strings.t('simulatedRepairStarted', {
+        'station': id('station_id'),
+      });
+    case 'charging.repair.reopened.simulated':
+      return strings.t('simulatedRepairReopened', {
+        'station': id('station_id'),
+      });
     case 'charging.repair.review_requested.simulated':
       return strings.t('simulatedRepairReviewRequested', {
         'station': id('station_id'),
@@ -94,6 +106,9 @@ Map<String, int>? simulatedFaultTarget(Map<String, dynamic> row) {
   if (row['kind'] != 'charging.fault.simulated' &&
       row['kind'] != 'charging.fault.recovered.simulated' &&
       row['kind'] != 'charging.fault.reminder.simulated' &&
+      row['kind'] != 'charging.repair.opened.simulated' &&
+      row['kind'] != 'charging.repair.work_started.simulated' &&
+      row['kind'] != 'charging.repair.reopened.simulated' &&
       row['kind'] != 'charging.repair.review_requested.simulated' &&
       row['kind'] != 'charging.repair.review_closed.simulated') {
     return null;

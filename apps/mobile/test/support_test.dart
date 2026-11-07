@@ -1078,6 +1078,9 @@ void main() {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));
     for (final kind in [
+      'charging.repair.opened.simulated',
+      'charging.repair.work_started.simulated',
+      'charging.repair.reopened.simulated',
       'charging.repair.review_requested.simulated',
       'charging.repair.review_closed.simulated',
     ]) {

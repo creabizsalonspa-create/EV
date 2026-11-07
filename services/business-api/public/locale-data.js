@@ -119,6 +119,18 @@ window.EV_MESSAGES = {
     "Support notifications": { en: "Support notifications", ar: "إشعارات الدعم" },
     "Vehicle notifications": { en: "Vehicle notifications", ar: "إشعارات المركبة" },
     "Charging notifications": { en: "Charging notifications", ar: "إشعارات الشحن" },
+    "Simulated charger repair opened · station #{id}": {
+        en: "Simulated charger repair opened · station #{id}",
+        ar: "فُتح طلب إصلاح الشاحن التجريبي · المحطة #{id}",
+    },
+    "Simulated charger repair work started · station #{id}": {
+        en: "Simulated charger repair work started · station #{id}",
+        ar: "بدأت أعمال إصلاح الشاحن التجريبي · المحطة #{id}",
+    },
+    "Simulated charger repair reopened · station #{id}": {
+        en: "Simulated charger repair reopened · station #{id}",
+        ar: "أُعيد فتح مراجعة إصلاح الشاحن التجريبي · المحطة #{id}",
+    },
     "Simulated charger repair review requested · station #{id}": {
         en: "Simulated charger repair review requested · station #{id}",
         ar: "مطلوب مراجعة إصلاح الشاحن التجريبي · المحطة #{id}",

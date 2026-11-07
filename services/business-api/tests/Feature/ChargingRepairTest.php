@@ -119,11 +119,13 @@ class ChargingRepairTest extends TestCase
         $this->assertSame('simulator', $note->metadata['source']);
         $this->assertFalse($note->metadata['physical_verification']);
         $this->assertStringNotContainsString($review['note'], json_encode($note->metadata));
-        $this->assertDatabaseCount('inbox_notifications', 1);
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.repair.opened.simulated')->count());
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.repair.work_started.simulated')->count());
 
         // A case cannot be closed merely by an operator assertion.
         $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
-        $this->assertDatabaseCount('inbox_notifications', 1);
+        $this->assertDatabaseCount('inbox_notifications', 3);
         app(FaultMonitor::class)->ingest($binding, [
             'source_generation' => FaultMonitor::generation($binding),
             'events' => [[
@@ -140,9 +142,13 @@ class ChargingRepairTest extends TestCase
         $this->assertSame($owner->id, $closed->user_id);
         $this->assertFalse($closed->metadata['physical_verification']);
         $this->assertTrue($closed->metadata['review_only']);
-        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->assertDatabaseCount('inbox_notifications', 4);
+        $this->postJson($url, $this->intent($alert, 4, 'open'))
+            ->assertOk()->assertJsonPath('state', 'open');
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.repair.reopened.simulated')->count());
+        $this->assertDatabaseCount('inbox_notifications', 5);
         $this->actingAs($owner)->getJson('/api/notifications?category=charging')
-            ->assertOk()->assertJsonPath('total', 2);
+            ->assertOk()->assertJsonPath('total', 5);
         $this->actingAs($outsider)->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 0);
         $this->assertDatabaseCount('charger_commands', 0);

@@ -92,13 +92,18 @@ class ChargingRepairController extends Controller
             // The existing repair event (unique actor/request key) and owner
             // notice are in one transaction. A replay returns above without
             // another message. Notes remain encrypted, never exposed here.
-            if ($r->user()->id !== $company->owner_id
-                && in_array($v['state'], ['review', 'closed'], true)) {
+            if ($r->user()->id !== $company->owner_id) {
+                $kind = match ($v['state']) {
+                    'open' => $order
+                        ? 'charging.repair.reopened.simulated'
+                        : 'charging.repair.opened.simulated',
+                    'in_progress' => 'charging.repair.work_started.simulated',
+                    'review' => 'charging.repair.review_requested.simulated',
+                    'closed' => 'charging.repair.review_closed.simulated',
+                };
                 InboxNotification::create([
                     'user_id' => $company->owner_id,
-                    'kind' => $v['state'] === 'review'
-                        ? 'charging.repair.review_requested.simulated'
-                        : 'charging.repair.review_closed.simulated',
+                    'kind' => $kind,
                     'metadata' => [
                         'source' => 'simulator',
                         'evidence' => 'SIMULATED_SOURCE_OBSERVED',
