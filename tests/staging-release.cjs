@@ -42,8 +42,9 @@ function mock(envFile) {
     state.commands.push([command,...args]);
     assert.equal(command,'docker');
     if(args[0]==='context'){
+      if(args[1]==='show') return state.remoteContext?'production-remote\n':'default\n';
       assert.equal(args[1],'inspect');
-      return state.remoteContext?'tcp://unknown:2375\n':'unix:///var/run/docker.sock\n';
+      return 'unix:///var/run/docker.sock\n';
     }
     if(args[0]==='image'){
       assert.deepEqual(args.slice(0,2),['image','inspect']);
