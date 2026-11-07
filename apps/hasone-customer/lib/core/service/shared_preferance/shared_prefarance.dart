@@ -119,6 +119,21 @@ class SharedPrefs {
     return jsonDecode(saved) as Map<String, dynamic>;
   }
 
+  /// Only apply an old logout if its original identity remains active.
+  /// The check and generation invalidation are synchronous; newer logins
+  /// cannot be erased by a late network response from a prior account.
+  Future<bool> clearIfCurrent({
+    required int expectedGeneration,
+    required String? expectedToken,
+  }) async {
+    if (_generation != expectedGeneration ||
+        Session.accessToken != expectedToken) return false;
+    final deletion = clear();
+    final clearingGeneration = _generation;
+    await deletion;
+    return _generation == clearingGeneration && Session.accessToken == null;
+  }
+
   Future<void> clear() {
     // Invalidate all pending reads/writes immediately, before waiting for the
     // platform vault. Never report a new session as logged out later.
