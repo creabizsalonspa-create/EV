@@ -74,22 +74,19 @@ export const GetChargingSummaryService = async (user_id, sessionId) => {
 
 '''
     source=source[:start]+replacement+source[stop:]
-    # A booked session must never initiate a second payment via the legacy
-    # extension flow until a real source-bound settlement policy is implemented.
+    # The source-backed payment policy must be implemented in the canonical ledger.
     paystart=source.find('export const PayChargingSessionService = async (user_id, sessionId, body = {}) => {')
     payend=source.find('export const ',paystart+12)
     if paystart<0:
         raise RuntimeError('Extension payment handler moved')
-    existing=source[paystart:payend if payend>paystart else len(source)]
-    marker='  try {\n'
-    if existing.count(marker)!=1:
-        raise RuntimeError('Cannot safely locate extension payment entry')
-    existing=existing.replace(marker,'''  // A separate metered invoice may overlap a prepaid booking: fail closed.
-  // Settling must be designed against the canonical OCPP booking ledger first.
-  return {status:"fail",message:"Metered charging payment reconciliation is not enabled."};
-  try {
-''',1)
-    source=source[:paystart]+existing+source[payend if payend>paystart else len(source):]
+    if payend<0:
+        raise RuntimeError('Unable to verify extension payment function boundary')
+    source=source[:paystart]+'''export const PayChargingSessionService = async () => ({
+  status:"fail",
+  message:"Metered charging payment reconciliation is not enabled.",
+});
+
+'''+source[payend:]
     file.write_text(source,encoding='utf8')
     print('STAGED_OCPP_CUSTOMER_SUMMARY_SOURCE_BACKED; no production changes')
 
