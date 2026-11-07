@@ -45,7 +45,8 @@ async function inspect(options,deps={}){
       roles.real_money_moved!==false || roles.production_accepted!==false ||
       roles.results?.length!==3 ||
       roles.results.some((x,i)=>x.role!==ROLES[i] || x.authenticated!==true ||
-        x.post_logout_denied!==true || x.admin_authorized!==(x.role==='admin'))) {
+        x.read_only_features_verified!==true || x.post_logout_denied!==true ||
+        x.admin_authorized!==(x.role==='admin'))) {
       throw Error('Synthetic browser session or RBAC check failed');
     }
     // Detect a charger transition/command while browser testing was in progress.
