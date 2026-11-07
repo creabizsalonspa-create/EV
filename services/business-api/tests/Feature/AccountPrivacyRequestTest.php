@@ -107,6 +107,38 @@ class AccountPrivacyRequestTest extends TestCase
             ->assertDontSee('Verified request origin');
     }
 
+    public function test_opening_private_admin_request_queue_is_audited_without_plaintext_details(): void
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $reason = 'Sensitive user request reference SECRET-CUSTOMER-872.';
+        $this->actingAs($customer)->postJson(
+            '/api/account/privacy-requests', $this->submit('access', $reason)
+        )->assertCreated();
+        $this->getJson('/api/admin/privacy-requests')->assertForbidden();
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'admin.private_list.privacy_viewed')->count());
+
+        $this->actingAs($admin)->getJson(
+            '/api/admin/privacy-requests?user_id='.$customer->id
+        )->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.details', $reason);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.private_list.privacy_viewed',
+            'subject' => 'user:'.$customer->id,
+        ]);
+        $events = DB::table('audit_events')
+            ->where('action', 'admin.private_list.privacy_viewed')->get();
+        $this->assertCount(1, $events);
+        $this->assertStringNotContainsString($reason, $events->toJson());
+
+        $this->getJson('/api/admin/privacy-requests?status=malformed')
+            ->assertUnprocessable();
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'admin.private_list.privacy_viewed')->count());
+    }
+
     public function test_admin_review_transitions_are_version_bound_and_do_not_auto_erase(): void
     {
         $user = User::factory()->create(['role' => 'customer']);

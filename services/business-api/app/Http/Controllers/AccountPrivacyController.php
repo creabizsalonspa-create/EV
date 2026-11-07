@@ -76,7 +76,7 @@ class AccountPrivacyController extends Controller
 
     public function adminIndex(Request $request)
     {
-        $this->admin($request);
+        $actor = $this->admin($request);
         $filters = $request->validate([
             'status' => 'sometimes|required|in:pending,reviewing,blocked_external,closed_review',
             'kind' => 'sometimes|required|in:access,correction,erasure',
@@ -96,7 +96,7 @@ class AccountPrivacyController extends Controller
         $actors = User::whereIn('id', $page->getCollection()->pluck('user_id'))
             ->get(['id', 'name', 'email', 'account_status'])->keyBy('id');
 
-        return response()->json($page->through(function (AccountPrivacyRequest $case) use ($actors) {
+        $view = $page->through(function (AccountPrivacyRequest $case) use ($actors) {
             $owner = $actors->get($case->user_id);
             return [
                 'id' => $case->id,
@@ -115,7 +115,19 @@ class AccountPrivacyController extends Controller
                 'manual_processing_required' => true,
                 'automated_erasure_performed' => false,
             ];
-        }))->header('Cache-Control', 'no-store, private');
+        });
+
+        // Decrypting private request details is a privileged data access.
+        // Audit who viewed the queue, not the customer's plaintext reason.
+        DB::table('audit_events')->insert([
+            'actor_id' => $actor->id,
+            'action' => 'admin.private_list.privacy_viewed',
+            'subject' => isset($filters['user_id'])
+                ? 'user:'.$filters['user_id'] : 'all',
+            'created_at' => now(),
+        ]);
+
+        return response()->json($view)->header('Cache-Control', 'no-store, private');
     }
 
     /**
