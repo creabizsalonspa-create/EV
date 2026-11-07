@@ -48,6 +48,8 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>We need your location to find nearest charging stations.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>We need camera access to scan QR codes and payment cards.</string>
+	<string>Use the camera to scan charging-station QR codes and take profile photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a profile photo from your photo library when you update your account.</string>
 </dict>
 </plist>
