@@ -111,7 +111,9 @@ class SharedPrefs {
       if (generation != _generation || _blocked) return;
       final prefs = await SharedPreferences.getInstance();
       if (generation != _generation || _blocked ||
-          prefs.containsKey(_kBlocked)) return;
+          prefs.containsKey(_kBlocked)) {
+        return;
+      }
       await prefs.setString(_kUser, jsonEncode(user));
     });
   }
@@ -154,7 +156,9 @@ class SharedPrefs {
     required String? expectedToken,
   }) async {
     if (_generation != expectedGeneration ||
-        Session.accessToken != expectedToken) return false;
+        Session.accessToken != expectedToken) {
+      return false;
+    }
     final deletion = clear();
     final clearingGeneration = _generation;
     await deletion;
