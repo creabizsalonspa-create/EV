@@ -160,6 +160,19 @@
                     "Partner reported (unverified). Live availability unknown. No booking or remote control.",
                     "بيانات الشريك غير متحقق منها. التوفر المباشر غير معروف. لا حجز أو تحكم عن بُعد.",
                 ));
+                const age = Number.isSafeInteger(row.reported_source_age_minutes) &&
+                    row.reported_source_age_minutes >= 0
+                    ? row.reported_source_age_minutes : null;
+                const stale = age !== null && age >= 1440;
+                popup.append(make(
+                    "p",
+                    age === null
+                        ? "Partner source age unknown; live status unverified."
+                        : `Partner source age: ${age} min${stale ? " (older than 24 hours)" : ""}; live status unverified.`,
+                    age === null
+                        ? "عمر سجل الشريك غير معروف؛ الحالة المباشرة غير مؤكدة."
+                        : `عمر سجل الشريك: ${age} دقيقة${stale ? " (أكثر من 24 ساعة)" : ""}؛ الحالة المباشرة غير مؤكدة.`,
+                ));
                 const jump = make("button", "View partner location in list", "عرض موقع الشريك في القائمة");
                 jump.type = "button";
                 jump.onclick = () => {
