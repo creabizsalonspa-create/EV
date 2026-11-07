@@ -146,7 +146,7 @@ class QueueTriageTest(unittest.TestCase):
         r = run()
         report = {"queue_scan_truncated": False,
                   "candidates": [{"id": 1, "reason": "superseded_feature_push",
-                                  "sha": SHA_A, "event": "push"}]}
+                                  "sha": SHA_A, "event": "push", "branch": BRANCH}]}
         class Fake:
             token, repo = "synthetic", REPO
             posted = False
@@ -172,7 +172,7 @@ class QueueTriageTest(unittest.TestCase):
         r = run()
         report = {"queue_scan_truncated": False,
                   "candidates": [{"id": 1, "reason": "superseded_feature_push",
-                                  "sha": SHA_A, "event": "push"}]}
+                                  "sha": SHA_A, "event": "push", "branch": BRANCH}]}
         class Fake:
             token, repo = "synthetic", REPO
             posted = False
@@ -200,9 +200,9 @@ class QueueTriageTest(unittest.TestCase):
         r1, r2 = run(1), run(2)
         report = {"queue_scan_truncated": False, "candidates": [
             {"id": 1, "reason": "superseded_feature_push",
-             "sha": SHA_A, "event": "push"},
+             "sha": SHA_A, "event": "push", "branch": BRANCH},
             {"id": 2, "reason": "superseded_feature_push",
-             "sha": SHA_A, "event": "push"},
+             "sha": SHA_A, "event": "push", "branch": BRANCH},
         ]}
         class Fake:
             token, repo = "synthetic", REPO
@@ -414,6 +414,73 @@ class QueueTriageTest(unittest.TestCase):
         rows, incomplete = github.queued_pages()
         self.assertTrue(incomplete)
         self.assertEqual(1000, len(rows))
+
+
+    def test_operator_cancellation_never_rescans_all_queued_runs(self):
+        target = run(id=4)
+        report = {"queue_scan_truncated": False, "candidates": [{
+            "id": 4, "reason": "superseded_feature_push",
+            "sha": SHA_A, "event": "push", "branch": BRANCH,
+        }]}
+        class Fake:
+            token, repo = "synthetic", REPO
+            posts = []
+            def pages(self, suffix, key):
+                if not suffix.startswith("/pulls?"):
+                    raise AssertionError("Must not download the entire queue per run")
+                return [pr()], False
+            def queued_pages(self):
+                raise AssertionError("Per-run rescan is prohibitively expensive")
+            def request(self, suffix, method="GET"):
+                if method == "GET":
+                    self.assert_equal = True
+                    return target
+                self.posts.append(suffix)
+                return 202
+        api = Fake()
+        done, skipped, errors = triage.cancel_candidates(api, report, 1)
+        self.assertEqual([4], done)
+        self.assertEqual([], skipped)
+        self.assertEqual([], errors)
+        self.assertEqual(["/actions/runs/4/cancel"], api.posts)
+
+    def test_current_head_push_duplicate_is_never_cancelled_automatically(self):
+        report = {"queue_scan_truncated": False, "candidates": [{
+            "id": 4, "reason": "duplicate_feature_push_with_pr_event",
+            "sha": SHA_B, "event": "push", "branch": BRANCH,
+        }]}
+        class Fake:
+            token, repo = "synthetic", REPO
+            def pages(self, *args):
+                raise AssertionError("Duplicate push must be kept")
+            def request(self, *args, **kwargs):
+                raise AssertionError("Duplicate push must be kept")
+        done, skipped, errors = triage.cancel_candidates(Fake(), report, 1)
+        self.assertEqual([], done)
+        self.assertEqual([4], skipped)
+        self.assertEqual([], errors)
+
+    def test_run_is_never_cancelled_after_branch_change(self):
+        run_before = run(id=4)
+        moved = dict(run_before, head_branch="development/moved")
+        report = {"queue_scan_truncated": False, "candidates": [{
+            "id": 4, "reason": "superseded_feature_push",
+            "sha": SHA_A, "event": "push", "branch": BRANCH,
+        }]}
+        class Fake:
+            token, repo = "synthetic", REPO
+            read_count = 0
+            def pages(self, suffix, key):
+                return [pr()], False
+            def request(self, suffix, method="GET"):
+                if method != "GET":
+                    raise AssertionError("Stale run must not be cancelled")
+                self.read_count += 1
+                return run_before if self.read_count == 1 else moved
+        done, skipped, errors = triage.cancel_candidates(Fake(), report, 1)
+        self.assertEqual([], done)
+        self.assertEqual([4], skipped)
+        self.assertEqual([], errors)
 
 
 if __name__ == "__main__":
