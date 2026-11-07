@@ -179,8 +179,10 @@ test('journal cannot overwrite previous release evidence or escape private direc
   assert.equal(release.main(argv('apply',file),deps),2);
   const copied=fs.readFileSync(file,'utf8');
   assert.equal(copied.split('\n').filter(Boolean).length,3);
-  const outside=path.join(dir,'..','public-evidence.jsonl');
-  assert.throws(()=>release.outputJournal(outside));
+  const publicDir=path.join(dir,'nonprivate');
+  fs.mkdirSync(publicDir,{mode:0o755});
+  fs.chmodSync(publicDir,0o755);
+  assert.throws(()=>release.outputJournal(path.join(publicDir,'public-evidence.jsonl')));
 }));
 test('running image validation checks actual immutable ID, not only tag',()=>sandbox((dir,envFile)=>{
   const deps=mock(envFile),run=deps.run;
