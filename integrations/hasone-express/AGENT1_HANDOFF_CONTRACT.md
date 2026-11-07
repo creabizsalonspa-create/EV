@@ -33,6 +33,7 @@ Customer JWT required unless marked public:
 | GET | /api/v1/payment/status/booking/:id | JWT and record-ownership enforced |
 | POST | /api/v1/admin/bookings/:id/ocpp/issue-token | AdminAuth: create one scoped, expiring charger token for paid+arrived booking |
 | POST | /api/v1/admin/bookings/:id/ocpp/bind-source | AdminAuth: bind exact OCPP source transaction after verification |
+| POST | /api/v1/admin/bookings/:id/ocpp/finalize-source | AdminAuth: change booking to Completed only after verified stopped source and calculated-unpaid invoice |
 | GET | /api/v1/admin/ocpp/booking-sessions | AdminAuth: linked OCPP kWh and calculated but unpaid AED report |
 
 **Server-generated test data:** The isolated suite seeds a dummy paid+arrived booking
@@ -119,3 +120,7 @@ commands to the connected physical charger.
 
 **Current status:** This is an isolated integration implementation, not a deployed
 release or complete production acceptance.
+
+### Booking completion rule
+
+The authorized Admin finalize endpoint rejects an active OCPP session or missing meter/tariff proof. After an OCPP source-confirmed stop it updates only the **operational** booking status to `Completed`; `paymentStatus` remains `not_collected` for the metered session, and a repeated finalize is idempotent. Flutter should refresh booking history from the backend instead of inferring completion from client timers.
