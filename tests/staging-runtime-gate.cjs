@@ -99,6 +99,9 @@ test('live mode refuses remote default host and uses read-only commands on local
   assert.equal(parseSnapshot(text).length,5);
   assert.equal(calls.length,3);
   assert.deepEqual(calls[2].slice(-4), ['ps','--all','--format','json']);
+  assert.ok(calls[2].includes('--env-file'));
+  assert.match(calls[2][calls[2].indexOf('--env-file')+1], /infra\/staging\/\.env$/);
+  assert.ok(calls[2].every(a => a !== 'production' && a !== 'up' && a !== 'down'));
 });
 test('CLI accepts only explicit live or snapshot', () => {
   assert.deepEqual(parseArgs(['--live']),{mode:'live'});
