@@ -14,6 +14,7 @@ class AtomicTokenCollection {
     && !Object.hasOwn(x,'consumedAt') && x.expiresAt>q.expiresAt.$gt);
   if(!row)return null;
   Object.assign(row,u.$set);
+  for(const key of Object.keys(u.$unset||{}))delete row[key];
   return {...row};
  }
 }
@@ -29,6 +30,7 @@ test('valid start consumes credential and stores hash, never the raw token',asyn
  assert.equal(x.tokenHash,hashOcppToken(raw));
  assert.equal(c.rows[0].enabled,false);
  assert.deepEqual(c.rows[0].consumedAt,now);
+ assert.equal(c.rows[0].expiresAt,undefined);
  assert.equal(JSON.stringify(c.rows).includes(raw),false);
 });
 test('32 concurrent physical starts consume a credential exactly once',async()=>{
