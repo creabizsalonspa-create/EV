@@ -15,7 +15,7 @@ if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
   echo 'A complete Git commit ID is required for image provenance.' >&2
   exit 2
 fi
-if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
   echo 'Build requires clean tracked source; never label dirty files as a committed revision.' >&2
   exit 2
 fi
