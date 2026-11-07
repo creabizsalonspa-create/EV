@@ -136,6 +136,12 @@ const assert = require("node:assert/strict");
     assert.match(await partnerPopup.locator("a").getAttribute("href"), /destination=25.21%2C55.31/);
     await partnerPopup.getByRole("button", { name: "View partner location in list" }).click();
     assert.equal(await page.locator("[data-partner-location-id='19']").count(), 1);
+    // Identity/session reset removes every old map marker immediately.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
+    assert.equal(await page.locator(".partner-map-pin").count(), 0);
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator(".partner-map-pin").waitFor();
     showPartner = false;
     await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
     await page.getByText("No published partner locations.", { exact: true }).waitFor();
