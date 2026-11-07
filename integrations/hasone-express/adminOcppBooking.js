@@ -216,3 +216,66 @@ export async function AdminFinalizeBookingOcppSource(req,res){
   return fail(res,503,'Source-backed booking completion unavailable');
  }
 }
+
+
+/**
+ * GET /admin/bookings/:id/ocpp/operations
+ * Read-only workflow state for the authenticated Admin frontend.
+ * Never reveals the raw one-time OCPP authorization token or its hash.
+ */
+export async function AdminGetBookingOcppOperations(req,res){
+ res.set('Cache-Control','no-store');
+ if(!mongoose.isValidObjectId(req.params.id))
+  return fail(res,400,'Invalid booking identifier');
+ try{
+  const booking=await BookingModel.findById(req.params.id);
+  if(!booking)return fail(res,404,'Booking not found');
+  const charger=await chargerFor(booking);
+  const authorized=validHash(booking.ocppTokenHash);
+  const eligible=booking.isPaid===true && booking.hasArrived===true;
+  const record=await ChargingSessionModel.findOne({
+    bookingId:booking._id,userId:booking.userId,sourceType:'ocpp'
+  });
+  let proof=null;
+  if(record && charger && mongoose.isValidObjectId(record.sourceSessionId)
+      && record.sourceChargerId===charger.chargerId && authorized){
+   const session=await mongoose.connection.db.collection('ocpp_sessions').findOne({
+     _id:new mongoose.Types.ObjectId(record.sourceSessionId),
+     chargerId:charger.chargerId
+   });
+   proof=verifyOcppSource(session,{
+     sourceId:record.sourceSessionId,chargerId:charger.chargerId,
+     transactionId:record.sourceTransactionId,tokenHash:booking.ocppTokenHash
+   });
+  }
+  const ready=!!(proof?.sourceVerified && proof?.meterVerified
+      && proof?.sessionEnded && proof.totalFils!==null
+      && proof.billingStatus==='calculated_unpaid');
+  const canIssue=eligible && booking.status==='Upcoming' && !!charger && !authorized;
+  return res.status(200).json({status:'Success',data:{
+    bookingId:String(booking._id),stationId:String(booking.stationId),
+    bookingStatus:booking.status,bookingPrepaymentRecorded:!!booking.isPaid,
+    arrivalRecorded:!!booking.hasArrived,approvedChargerId:charger?.chargerId??null,
+    authorizationIssued:authorized,
+    tokenIssuedAt:booking.ocppTokenIssuedAt??null,
+    tokenExpiresAt:booking.ocppTokenIssuedAt
+      ? new Date(new Date(booking.ocppTokenIssuedAt).getTime()+20*60000):null,
+    sourceSessionId:record?.sourceSessionId||null,
+    sourceTransactionId:record?.sourceTransactionId||null,
+    sourceVerified:proof?.sourceVerified===true,
+    meterVerified:proof?.meterVerified===true,
+    sourceEnded:proof?.sessionEnded===true,
+    energyKwh:proof?.meterVerified?proof.energyKwh:null,
+    calculatedUnpaidAed:proof?.totalFils===null||!proof?null:proof.totalFils/100,
+    paymentStatus:proof?.sourceVerified?'not_collected':null,
+    canIssueToken:canIssue,
+    canBindSource:eligible && !!charger && authorized &&
+       (booking.status==='Upcoming'||booking.status==='Completed') &&
+       !record?.sourceSessionId,
+    canFinalizeSource:ready && booking.status==='Upcoming',
+    needsPaymentReconciliation:ready,
+  }});
+ }catch{
+  return fail(res,503,'Booking OCPP operations unavailable');
+ }
+}
