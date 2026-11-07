@@ -77,6 +77,7 @@ class MobileReleaseSigningTest(unittest.TestCase):
                 application = manifest.find("application")
                 self.assertIsNotNone(application)
                 self.assertEqual("false", application.get(ns + "allowBackup"))
+                self.assertEqual("false", application.get(ns + "usesCleartextTraffic"))
                 self.assertEqual(
                     "@xml/ev_backup_rules",
                     application.get(ns + "fullBackupContent"),
