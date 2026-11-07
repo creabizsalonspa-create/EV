@@ -159,6 +159,22 @@ def check_policy(root):
         {'build', 'image', 'env_file', 'environment', 'volumes', 'depends_on', 'restart'})
     require_exact_mounts(anchor, 2,
                          ['private-storage:/var/www/html/storage/app/private'])
+    build = anchor.split('  build:\n', 1)
+    require(len(build) == 2, 'Missing reviewed staging build definition')
+    build_body = build[1].split('\n  image:', 1)[0].strip('\n')
+    require(build_body == (
+        '    context: ../..\n'
+        '    dockerfile: infra/staging/Dockerfile\n'
+        '    secrets:\n'
+        '      - ev_ca_bundle'
+    ), 'Staging build context, Dockerfile or secrets changed')
+    image_lines = re.findall(r'^  image: (.+)$', anchor, re.M)
+    require(image_lines == ['creabiz-ev-business:${EV_IMAGE_TAG:-local}'],
+            'Staging application image tag source changed')
+    env_file = anchor.split('  env_file:\n', 1)
+    require(len(env_file) == 2 and
+            env_file[1].split('\n  environment:', 1)[0].strip() == '- .env',
+            'Staging application must read only the reviewed env file')
     environment = anchor.split('  environment:\n', 1)
     require(len(environment) == 2,
             'Shared application anchor must define an environment section')
@@ -206,8 +222,11 @@ def check_policy(root):
     require(not re.search(r'^    (ports|network_mode|privileged|extra_hosts):',
                           database, re.M),
             'Database must not expose host network or privileged settings')
-    require(POSTGRES_IMAGE in database, 'Postgres must use pinned reviewed image')
+    require(re.findall(r'^    image: (.+)$', database, re.M)
+            == [POSTGRES_IMAGE], 'Postgres must use pinned reviewed image')
     gateway = services['gateway']
+    require(re.findall(r'^    image: (.+)$', gateway, re.M)
+            == ['caddy:2-alpine'], 'Staging gateway image changed')
     require(not re.search(r'^    (network_mode|privileged|extra_hosts):',
                           gateway, re.M),
             'Staging gateway cannot use privileged host networking')

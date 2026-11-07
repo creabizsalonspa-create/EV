@@ -120,6 +120,36 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaises(p.PreflightError):
                 p.check_policy(root)
 
+    def test_staging_rejects_unreviewed_build_context_and_image_sources(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            stage = root/'infra/staging'
+            stage.mkdir(parents=True)
+            source = (ROOT/'infra/staging'/'compose.yaml').read_text()
+            for name in ('Caddyfile', 'Dockerfile'):
+                (stage/name).write_text((ROOT/'infra/staging'/name).read_text())
+            mutations = (
+                source.replace('    context: ../..',
+                    '    context: /'),
+                source.replace('    dockerfile: infra/staging/Dockerfile',
+                    '    dockerfile: /tmp/unknown.Dockerfile'),
+                source.replace('      - ev_ca_bundle',
+                    '      - unrelated_build_secret'),
+                source.replace('  env_file:\n    - .env',
+                    '  env_file:\n    - .env\n    - .env.override'),
+                source.replace('  image: creabiz-ev-business:',
+                    '  image: random-application:'),
+                source.replace('    image: caddy:2-alpine',
+                    '    image: caddy:unreviewed'),
+                source.replace('    image: postgres:17-alpine@sha256:',
+                    '    image: postgres:17-alpine-unpinned@sha256:'),
+            )
+            for i, changed in enumerate(mutations):
+                with self.subTest(candidate=i):
+                    (stage/'compose.yaml').write_text(changed)
+                    with self.assertRaises(p.PreflightError):
+                        p.check_policy(root)
+
     def test_staging_rejects_unreviewed_host_mounts_and_privileged_settings(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
