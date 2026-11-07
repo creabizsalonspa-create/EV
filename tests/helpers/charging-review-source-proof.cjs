@@ -41,6 +41,18 @@ module.exports = async (fixture, clients) => {
     assert.equal(visible.groups[0].count, 1);
     assert.equal(visible.groups[1].count, 0);
     assert.equal(visible.physical_charging_verified, false);
+    const report = await clients.vendor.request(
+      `vendor-ops/companies/${fixture.company_id}/operational-analytics`,
+    );
+    assert.equal(report.feedback_physical_charging_verified, false);
+    assert.equal(report.feedback_groups.length, 1);
+    assert.equal(
+      report.feedback_groups[0].evidence,
+      "SIMULATED_SOURCE_OBSERVED",
+    );
+    assert.equal(report.feedback_groups[0].ratings, 1);
+    assert.equal(report.feedback_groups[0].rating_sum, 4);
+    assert(!JSON.stringify(report).includes(body.body));
     assert(!JSON.stringify(visible).includes("session_id"));
     assert(!JSON.stringify(visible).includes("user_id"));
     await clients.customer.request(`charging-reviews/${row.id}`, "DELETE", {

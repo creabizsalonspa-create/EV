@@ -206,6 +206,7 @@ class OperationalAnalytics
                 $ratings = $this->add(0, (int) $g->ratings);
                 $sum = $this->add(0, (int) $g->rating_sum);
                 abort_unless($sum >= $ratings && $sum <= $ratings * 5, 409, 'Invalid feedback aggregate.');
+
                 return ['site_id' => $siteByStation[$g->station_id]->id, 'evidence' => $g->evidence, 'ratings' => $ratings, 'rating_sum' => $sum];
             })->all();
 
@@ -226,7 +227,9 @@ class OperationalAnalytics
         fputcsv($f, ['CURRENT_PUBLIC_SIMULATOR_FEEDBACK_NOT_PHYSICAL_VERIFICATION'], ',', '"', '');
         if ($report['feedback_groups']) {
             fputcsv($f, array_keys($report['feedback_groups'][0]), ',', '"', '');
-            foreach ($report['feedback_groups'] as $row) fputcsv($f, array_values($row), ',', '"', '');
+            foreach ($report['feedback_groups'] as $row) {
+                fputcsv($f, array_values($row), ',', '"', '');
+            }
         }
         fputcsv($f, ['INVOICES_NOT_CASH_OR_SETTLEMENT'], ',', '"', '');
         if ($report['invoice_facts']) {
