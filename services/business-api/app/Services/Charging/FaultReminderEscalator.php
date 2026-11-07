@@ -3,6 +3,7 @@
 namespace App\Services\Charging;
 
 use App\Models\InboxNotification;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -92,7 +93,7 @@ class FaultReminderEscalator
                 $observation = DB::table('charging_status_observations')
                     ->where('id', $alert->observation_id)->first();
                 if (! $observation || $observation->binding_id !== $binding->id
-                    || $observation->occurred_at > $cutoff
+                    || CarbonImmutable::parse($observation->occurred_at)->greaterThan($cutoff)
                     || ! hash_equals(
                         FaultMonitor::generation($binding),
                         (string) $observation->source_generation

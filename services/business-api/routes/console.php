@@ -162,5 +162,7 @@ Artisan::command('notifications:remind-faults {--limit=50} {--after=0} {--older-
 })->purpose('Bounded, owner-only, simulator in-app fault reminders; never hardware/external delivery');
 
 Schedule::command('csms:expire-diagnostic-files --limit=100')->everyTenMinutes()->withoutOverlapping();
-Schedule::command('notifications:remind-faults --limit=50 --older-than=15')
-    ->everyTenMinutes()->withoutOverlapping();
+if (app()->environment(['local', 'testing'])) {
+    Schedule::command('notifications:remind-faults --limit=50 --older-than=15')
+        ->everyTenMinutes()->withoutOverlapping();
+}
