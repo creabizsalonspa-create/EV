@@ -172,6 +172,76 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('inbox_notifications', 0);
     }
 
+    public function test_station_transfer_during_source_read_cannot_emit_notice_to_previous_vendor(): void
+    {
+        $f = $this->fixture();
+        $nextOwner = User::factory()->create(['role' => 'vendor']);
+        Http::fake(function () use ($f, $nextOwner) {
+            // Simulate authorization changing while the authenticated source
+            // HTTP request is in flight. No old-owner notice may be persisted.
+            Station::whereKey($f['station']->id)
+                ->update(['vendor_id' => $nextOwner->id]);
+
+            return Http::response([
+                'data' => [
+                    'ChargingStations' => [
+                        ['id' => 42, 'protocol' => $f['protocol']],
+                    ],
+                ],
+            ]);
+        });
+
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Source event accepted after station transfer');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+
+        $this->assertDatabaseCount('charging_fault_cursors', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+    }
+
+    public function test_reassigned_charger_binding_during_source_read_cannot_emit_old_notice(): void
+    {
+        $f = $this->fixture();
+        $second = VendorCharger::create([
+            'company_id' => $f['company']->id,
+            'site_id' => VendorSite::where('company_id', $f['company']->id)->firstOrFail()->id,
+            'asset_reference' => 'REASSIGNED-SIMULATOR',
+            'manufacturer' => 'Synthetic',
+            'model' => 'Fixture',
+            'source' => 'simulator',
+            'ocpp_protocol' => $f['protocol'],
+        ]);
+        Http::fake(function () use ($f, $second) {
+            DB::table('csms_bindings')->where('id', $f['binding'])
+                ->update(['vendor_charger_id' => $second->id]);
+
+            return Http::response([
+                'data' => [
+                    'ChargingStations' => [
+                        ['id' => 42, 'protocol' => $f['protocol']],
+                    ],
+                ],
+            ]);
+        });
+
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Stale source mapping accepted');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+
+        $this->assertDatabaseCount('charging_fault_cursors', 0);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+    }
+
     public function test_disabled_or_production_worker_cannot_read_source(): void
     {
         $f = $this->fixture();

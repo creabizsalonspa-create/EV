@@ -157,3 +157,7 @@ An inbox-originated `ChargingOperationsView(focusCommandId: ...)` now issues onl
 ### Vendor reassignment isolation for archived source fault metrics
 
 A new dashboard safety check scopes simulator fault/monitor counts through the currently valid station↔vendor-company↔site↔charger↔CSMS binding graph, including matching simulator source and OCPP protocol. Legacy or transferred stations without an intact mapping do not expose a previous vendor's archived alert counts to a new station owner. An Admin view likewise counts only currently coherent mappings rather than misattributing historical records. Laravel regression tests create separate legitimate vendor mappings, verify each tenant's own counters, transfer a station to a different vendor without changing the prior company ownership, and require all invalidated counts to disappear. No historical source records are deleted or rewritten.
+
+### Simulator source ownership race regression
+
+Two additional observer feature tests simulate station ownership transfer and the reassignment of the canonical charger binding **during the pending source HTTP call**. Both must fail closed with HTTP 409 and leave the source cursor, observations, fault alerts and vendor inbox empty. These tests protect against sending a fault notice to a previous vendor after station or charger mapping changes; they do not grant physical charger authority or trigger any control commands.
