@@ -114,7 +114,9 @@ class SharedPrefs {
           prefs.containsKey(_kBlocked)) {
         return;
       }
-      await prefs.setString(_kUser, jsonEncode(user));
+      if (!await prefs.setString(_kUser, jsonEncode(user))) {
+        throw StateError('Unable to persist the on-device account profile');
+      }
     });
   }
 
