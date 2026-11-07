@@ -57,7 +57,12 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business.get('restored_http_catalog') == '200 and empty' and
             business.get('external_acceptance') == 'not tested' and
             business.get('laravel_encrypted_record_restored') is True and
-            business.get('synthetic_private_file_restored') is True,
+            business.get('synthetic_private_file_restored') is True and
+            business.get('post_snapshot_write_excluded') is True and
+            business.get('archive_tamper_rejected') is True and
+            business.get('private_archive_tamper_rejected') is True and
+            business.get('queue_worker_started') is True and
+            business.get('scheduler_bootstrapped') is True,
             'Business recovery readiness boundary invalid')
     require(valid_hash(csms.get('database_archive_sha256'), 64) and
             valid_hash(csms.get('synthetic_geospatial_data_md5'), 32),
@@ -70,7 +75,8 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             csms.get('post_snapshot_write_excluded') is True and
             csms.get('real_citrineos_schema_restored') is False and
             csms.get('rabbitmq_broker_restored') is False and
-            csms.get('physical_charger_or_money') is False,
+            csms.get('physical_charger_or_money') is False and
+            csms.get('archive_tamper_rejected') is True,
             'PostGIS recovery or external acceptance boundary invalid')
     return {
         'status': 'PASS',

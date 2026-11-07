@@ -53,6 +53,8 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
             "source_fingerprint",
             "restored_fingerprint",
             "post_snapshot_write_excluded",
+            "tampered-csms.dump",
+            "archive_tamper_rejected",
             "real_citrineos_schema_restored': False",
             "rabbitmq_broker_restored': False",
         ):

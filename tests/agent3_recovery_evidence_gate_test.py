@@ -27,6 +27,12 @@ def evidence():
         'external_acceptance': 'not tested',
         'laravel_encrypted_record_restored': True,
         'synthetic_private_file_restored': True,
+        'post_snapshot_write_excluded': True,
+        'archive_tamper_rejected': True,
+        'archive_tamper_rejected': True,
+        'private_archive_tamper_rejected': True,
+        'queue_worker_started': True,
+        'scheduler_bootstrapped': True,
     }
     csms = {
         **PROVENANCE, 'status': 'PASS',
@@ -56,7 +62,13 @@ class GateTest(unittest.TestCase):
             ('dump_sha256','invalid'),('synthetic_private_archive_sha256',None),
             ('migration_history_md5','wrong'),('laravel_migration_rows',True),
             ('laravel_migration_rows',0),('laravel_encrypted_record_restored',False),
-            ('synthetic_private_file_restored',False),('external_acceptance','yes'),
+            ('synthetic_private_file_restored',False),
+            ('post_snapshot_write_excluded',False),
+            ('archive_tamper_rejected',False),
+            ('archive_tamper_rejected',False),
+            ('private_archive_tamper_rejected',False),
+            ('queue_worker_started',False),
+            ('scheduler_bootstrapped',False),('external_acceptance','yes'),
         ]
         for field,value in cases:
             with self.subTest(field=field,value=value):
