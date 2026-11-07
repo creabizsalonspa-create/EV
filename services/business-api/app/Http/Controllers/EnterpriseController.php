@@ -146,9 +146,10 @@ class EnterpriseController extends Controller
         abort_unless($membership->fleet_id === $fleet->id, 404);
 
         return DB::transaction(function () use ($r, $membership, $fleet) {
-            $membership = FleetMember::whereKey($membership->id)->lockForUpdate()->firstOrFail();
+            // Use the same Fleet -> membership lock order as invitation.
             $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
             abort_unless($current->owner_id === $r->user()->id, 404);
+            $membership = FleetMember::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             if ($membership->status !== 'revoked') {
                 $membership->update(['status' => 'revoked']);
                 FleetVehicle::where('fleet_id', $fleet->id)
@@ -162,7 +163,7 @@ class EnterpriseController extends Controller
             }
 
             return response()->noContent();
-        });
+        }, 3);
     }
 
     public function costCenter(Request $r, Fleet $fleet)

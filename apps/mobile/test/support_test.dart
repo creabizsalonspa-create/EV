@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/support.dart';
+import 'package:creabiz_ev/strings.dart';
 import 'test_support.dart';
 
 class SupportFixture extends FixtureApi {
@@ -219,6 +220,39 @@ class PendingSupport extends FixtureApi {
 }
 
 void main() {
+  test('localized titles are safe for incomplete simulator/fleet metadata', () {
+    final en = EvStrings(const Locale('en'));
+    final ar = EvStrings(const Locale('ar'));
+    expect(
+      inboxNotificationTitle({
+        'kind': 'vehicle.battery.simulated',
+        'metadata': {'vehicle_id': 3, 'battery_percent': 15},
+      }, en),
+      'Simulated low battery · #3 · 15%',
+    );
+    expect(
+      inboxNotificationTitle({
+        'kind': 'charging.fault.recovered.simulated',
+        'metadata': null,
+      }, en),
+      'Simulator source reported recovery · station #?',
+    );
+    expect(
+      inboxNotificationTitle({
+        'kind': 'fleet.invitation',
+        'metadata': {'fleet_id': 31},
+      }, ar),
+      contains('الأسطول #31'),
+    );
+    expect(
+      inboxNotificationTitle({
+        'kind': 'fleet.membership.revoked',
+        'metadata': {'fleet_id': 'not-a-valid-id'},
+      }, en),
+      'Fleet access revoked · fleet #?',
+    );
+  });
+
   testWidgets('disposed support requests cannot expire a later screen', (
     tester,
   ) async {

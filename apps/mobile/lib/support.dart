@@ -2,6 +2,47 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 
+/// Presentation-only: all values are text, never an authorization or charging
+/// command. Unknown or malformed event metadata cannot crash the inbox.
+String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
+  final data = row['metadata'];
+  final metadata = data is Map ? data : const <String, Object>{};
+  Object id(String key) {
+    final value = metadata[key];
+    return value is int && value > 0 ? value : '?';
+  }
+
+  switch (row['kind']) {
+    case 'charging.fault.simulated':
+      return strings.t('simulatedFaultAlert', {
+        'station': id('station_id'),
+      });
+    case 'charging.fault.recovered.simulated':
+      return strings.t('simulatedRecoveryAlert', {
+        'station': id('station_id'),
+      });
+    case 'fleet.invitation':
+      return strings.t('fleetInvitationAlert', {'fleet': id('fleet_id')});
+    case 'fleet.invitation.accepted':
+      return strings.t('fleetAcceptedAlert', {'fleet': id('fleet_id')});
+    case 'fleet.membership.revoked':
+      return strings.t('fleetRevokedAlert', {'fleet': id('fleet_id')});
+    case 'vehicle.battery.simulated':
+      final percent = metadata['battery_percent'];
+      return strings.t('simulatedBatteryAlert', {
+        'vehicle': id('vehicle_id'),
+        'percent': percent is int && percent >= 0 && percent <= 100
+            ? percent
+            : '?',
+      });
+    case 'support.reply':
+      return strings.t('supportReply');
+    default:
+      return strings.t('supportStatus');
+  }
+}
+
+
 class SupportView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onSessionExpired;
@@ -246,43 +287,7 @@ class SupportViewState extends State<SupportView> {
                   children: [
                     if (notifications) ...[
                       Text(
-                        row['kind'] == 'charging.fault.simulated'
-                            ? s.t('simulatedFaultAlert', {
-                                'station': row['metadata'] is Map
-                                    ? (row['metadata'] as Map)['station_id'] ?? '?'
-                                    : '?',
-                              })
-                            : row['kind'] == 'charging.fault.recovered.simulated'
-                                ? s.t('simulatedRecoveryAlert', {
-                                    'station': row['metadata'] is Map
-                                        ? (row['metadata'] as Map)['station_id'] ?? '?'
-                                        : '?',
-                                  })
-                                : row['kind'] == 'fleet.invitation'
-                                    ? s.t('fleetInvitationAlert', {
-                                        'fleet': row['metadata'] is Map
-                                            ? (row['metadata'] as Map)['fleet_id'] ?? '?'
-                                            : '?',
-                                      })
-                                    : row['kind'] == 'fleet.invitation.accepted'
-                                        ? s.t('fleetAcceptedAlert', {
-                                            'fleet': row['metadata'] is Map
-                                                ? (row['metadata'] as Map)['fleet_id'] ?? '?'
-                                                : '?',
-                                          })
-                                        : row['kind'] == 'fleet.membership.revoked'
-                                            ? s.t('fleetRevokedAlert', {
-                                                'fleet': row['metadata'] is Map
-                                                    ? (row['metadata'] as Map)['fleet_id'] ?? '?'
-                                                    : '?',
-                                              })
-                            : row['kind'] == 'vehicle.battery.simulated'
-                                ? '${Localizations.localeOf(context).languageCode == 'ar' ? 'محاكاة بطارية منخفضة' : 'Simulated low battery'} · #${row['metadata'] is Map ? row['metadata']['vehicle_id'] ?? '?' : '?'} · ${row['metadata'] is Map ? row['metadata']['battery_percent'] ?? '?' : '?'}%'
-                                : s.t(
-                                    row['kind'] == 'support.reply'
-                                        ? 'supportReply'
-                                        : 'supportStatus',
-                                  ),
+                        inboxNotificationTitle(row, s),
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       Text(s.t(row['read_at'] == null ? 'unread' : 'read')),
