@@ -1,3 +1,5 @@
+import {canonicalBookingDay} from './reservationCapacityAudit.mjs';
+import {stationCalendarIssue} from './reservationCalendarPolicy.mjs';
 import {normalizeResourceScope} from './ocppResourceScope.mjs';
 /** Existing Express booking compatibility; never reprices or refunds a booking. */
 const empty=value=>value===null || value===undefined || value==='';
@@ -28,12 +30,13 @@ function duration(start,end){
 }
 export function rescheduleSelection(booking,body,station){
  if(!body || typeof body!=='object' || Array.isArray(body) ||
-    !text(body.date) || !text(body.time) || !station || station.status==='Unavailable')
+    !canonicalBookingDay(body.date) || !text(body.time) || !station || station.status==='Unavailable')
    return null;
  const start=body.slotStart??booking.slotStart,end=body.slotEnd??booking.slotEnd;
  if(!text(start) || !text(end) || body.time!==start ||
     !Array.isArray(station.slots) ||
     !station.slots.some(slot=>slot.startTime===start && slot.endTime===end))return null;
+ if(stationCalendarIssue(station,{date:body.date,slotStart:start,slotEnd:end}))return null;
  const previous=duration(booking.slotStart,booking.slotEnd),next=duration(start,end);
  // A different duration needs canonical re-quotation/payment recovery. Preserve
  // the recorded prepayment and quote rather than inventing new financial rules.

@@ -19,7 +19,7 @@ export async function relayAdminRequest(request,{apiUrl,uiUrl,adminToken}){
    url.pathname==='/api/v1/admin/bookings' ||
    /^\/api\/v1\/admin\/ocpp\/charging-history(?:\/[a-f0-9]{24})?$/i.test(url.pathname) ||
    /^\/api\/v1\/admin\/bookings\/[a-f0-9]{24}\/ocpp\/operations$/i.test(url.pathname) ||
-   /^\/api\/v1\/admin\/stations\/[a-f0-9]{24}\/ocpp\/(booking-sources|start-exceptions)$/i.test(url.pathname));
+   /^\/api\/v1\/admin\/stations\/[a-f0-9]{24}\/ocpp\/(booking-sources|start-exceptions|reservation-readiness)$/i.test(url.pathname));
  const post=request.method==='POST' &&
    /^\/api\/v1\/admin\/bookings\/[a-f0-9]{24}\/ocpp\/(issue-token|bind-source|finalize-source)$/i.test(url.pathname);
  if(!get && !post)throw Error('Non-test Admin operation blocked');

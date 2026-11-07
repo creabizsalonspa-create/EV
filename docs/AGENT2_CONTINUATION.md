@@ -16,6 +16,36 @@ disaster recovery belong to Agent 3; unrelated product features belong to Agent 
 Use current PRs before changing shared files. Never force-push or merge unverified
 source.
 
+## Current calendar and capacity preflight continuation
+
+The staged CreateBooking and reschedule paths require complete ISO calendar days
+and reject impossible dates, overlapping/overnight static station slot calendars,
+and unresolved legacy day labels. Native creation, date-slot requests and
+rescheduling serialize the selected year/month/day independently from display
+labels. Uncertain creation outcomes are explained, pending requests are not
+replayed, and disposed booking screens cannot navigate on late receipts.
+
+The protected Admin reservation-readiness endpoint and dialog perform bounded
+read-only review of calendars, wildcard legacy occupancy, shared-EVSE conflicts
+and protected authorization/payment/session records. Scope pins do not count as
+independent capacity allocation. Incomplete scans cannot clear the preflight;
+indexChangeAllowed remains false. The existing station-wide unique index stays.
+
+Verified:122 Node guards;13 callback HTTP checks;133 backend/OCPP;13 mocked and11
+actual-API Chrome checks; Next TypeScript/production build pass. Backend with
+browser or native reports134 checks. Native39 tests pass with2 default opt-in
+skips; both actual API tests pass separately (history and real booking creation/
+duplicate denial). Changed native files analyze cleanly. Evidence is in
+`docs/evidence/agent2-reservation-calendar/validation.json` and the companion PR70
+calendar evidence. Tested file blobs and published source trees match.
+
+This is static-calendar protection and migration preflight, not a transactional
+independent-resource scheduler. Concurrent calendar edits/resource allocation,
+explicit capacity migration, calendar-time-zone expiry and paid reschedule/refund
+workflow still require canonical scheduling/finance integration. Paired backend
+and mobile release plus resolution of ambiguous legacy records is mandatory;
+never guess missing years or deploy the new date client by itself.
+
 ## Current connector-scope continuation
 
 Explicit protocol-specific resource scope now passes from Admin issuance/reissue

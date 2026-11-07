@@ -1,3 +1,4 @@
+import {guardReservationCalendar} from './reservationCalendarGuard.js';
 import BookingModel from '../models/BookingModel.js';
 import ChargingSessionModel from '../models/ChargingSessionModel.js';
 import NearestStationModel from '../models/NearestStationModel.js';
@@ -17,6 +18,8 @@ export async function safeRescheduleBooking(userId,bookingId,body){
   const station=await NearestStationModel.findById(booking.stationId);
   const selected=rescheduleSelection(booking,body,station);
   if(!selected)return fail('Choose an available station slot with the same duration and matching start time. A changed quote requires separate review.');
+  const calendar=await guardReservationCalendar(station,selected,{skipBookingId:booking._id});
+  if(!calendar.ok)return fail(calendar.message);
   const conflict=await BookingModel.exists({_id:{$ne:booking._id},stationId:booking.stationId,
     date:selected.date,slotStart:selected.slotStart,slotEnd:selected.slotEnd,
     status:{$ne:'Cancelled'}});

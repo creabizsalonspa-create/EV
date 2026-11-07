@@ -222,17 +222,17 @@ try{
      {startTime:'02:00 PM',endTime:'02:30 PM'}]});
  let mutationNumber=0;
  const mutationFixture=overrides=>BookingModel.create({userId:user._id,
-   stationId:mutationStation._id,date:'mutation-date-'+(++mutationNumber),
+   stationId:mutationStation._id,date:new Date(Date.UTC(2031,0,++mutationNumber)).toISOString().slice(0,10),
    time:'11:00 AM',slotStart:'11:00 AM',slotEnd:'12:00 PM',status:'Upcoming',
    isPaid:false,hasArrived:false,totalAmount:63,...overrides});
  const mutationBody=date=>({date,time:'12:00 PM',slotStart:'12:00 PM',slotEnd:'01:00 PM'});
  const mutationPath=(row,action)=>'/api/v1/Bookings/'+row._id+'/'+action;
  await check('unused unpaid booking reschedules with its original quote and exact slot',async()=>{
    const row=await mutationFixture({});
-   const result=await request('PUT',mutationPath(row,'reschedule'),mutationBody('reschedule-ok'),true);
+   const result=await request('PUT',mutationPath(row,'reschedule'),mutationBody('2031-04-01'),true);
    assert.equal(result.code,200);assert.equal(result.body.data.time,'12:00 PM');
    const stored=await BookingModel.findById(row._id);
-   assert.equal(stored.date,'reschedule-ok');assert.equal(stored.totalAmount,63);
+   assert.equal(stored.date,'2031-04-01');assert.equal(stored.totalAmount,63);
    assert.equal(stored.isPaid,false);
  });
  await check('paid, arrived, pinned and uncertain-token bookings cannot release inventory',async()=>{
@@ -240,7 +240,7 @@ try{
        {ocppTokenHash:'a'.repeat(64)},{ocppTokenIssuedAt:new Date()}]){
      const row=await mutationFixture(fields);
      for(const action of ['reschedule','cancel']){
-       const result=await request('PUT',mutationPath(row,action),mutationBody('blocked-edit'),true);
+       const result=await request('PUT',mutationPath(row,action),mutationBody('2031-04-03'),true);
        assert.equal(result.code,400);
      }
      const stored=await BookingModel.findById(row._id);
@@ -253,20 +253,20 @@ try{
    const linked=await ChargingSessionModel.create({userId:user._id,bookingId:row._id,
      stationId:mutationStation._id,status:'NotStarted'});
    for(const action of ['reschedule','cancel'])
-     assert.equal((await request('PUT',mutationPath(row,action),mutationBody('linked-edit'),true)).code,400);
+     assert.equal((await request('PUT',mutationPath(row,action),mutationBody('2031-04-03'),true)).code,400);
    assert.equal((await BookingModel.findById(row._id)).status,'Upcoming');
    assert.ok(await ChargingSessionModel.findById(linked._id));
  });
  await check('mismatched display time, changed duration and unavailable station preserve booking',async()=>{
    const row=await mutationFixture({});
-   for(const body of [{...mutationBody('bad-time'),time:'03:00 PM'},
-       {date:'bad-duration',time:'02:00 PM',slotStart:'02:00 PM',slotEnd:'02:30 PM'},
+   for(const body of [{...mutationBody('2031-04-03'),time:'03:00 PM'},
+       {date:'2031-04-03',time:'02:00 PM',slotStart:'02:00 PM',slotEnd:'02:30 PM'},
        {...mutationBody('bad-date'),date:{$ne:'x'}}]){
      assert.equal((await request('PUT',mutationPath(row,'reschedule'),body,true)).code,400);
    }
    await NearestStationModel.updateOne({_id:mutationStation._id},{$set:{status:'Unavailable'}});
    try{
-     assert.equal((await request('PUT',mutationPath(row,'reschedule'),mutationBody('unavailable'),true)).code,400);
+     assert.equal((await request('PUT',mutationPath(row,'reschedule'),mutationBody('2031-04-03'),true)).code,400);
    }finally{
      await NearestStationModel.updateOne({_id:mutationStation._id},{$set:{status:'Available'}});
    }
@@ -275,17 +275,17 @@ try{
  await check('foreign booking mutations fail without changing owner or slot',async()=>{
    const row=await mutationFixture({userId:new mongoose.Types.ObjectId()});
    for(const action of ['reschedule','cancel'])
-     assert.equal((await request('PUT',mutationPath(row,action),mutationBody('foreign-edit'),true)).code,400);
+     assert.equal((await request('PUT',mutationPath(row,action),mutationBody('2031-04-03'),true)).code,400);
    assert.equal((await BookingModel.findById(row._id)).date,row.date);
  });
  await check('concurrent reschedules into one slot retain atomic station uniqueness',async()=>{
    const rows=await Promise.all([mutationFixture({}),mutationFixture({})]);
    const responses=await Promise.all(rows.map(row=>request('PUT',mutationPath(row,'reschedule'),
-     mutationBody('one-target-slot'),true)));
+     mutationBody('2031-04-02'),true)));
    assert.equal(responses.filter(r=>r.code===200).length,1);
    assert.equal(responses.filter(r=>r.code===400).length,1);
    assert.equal(await BookingModel.countDocuments({stationId:mutationStation._id,
-     date:'one-target-slot',slotStart:'12:00 PM',status:'Upcoming'}),1);
+     date:'2031-04-02',slotStart:'12:00 PM',status:'Upcoming'}),1);
  });
  await check('late payment/arrival authorization wins against a stale customer cancellation',async()=>{
    const row=await mutationFixture({});
@@ -306,6 +306,51 @@ try{
    const stored=await BookingModel.findById(row._id);
    assert.equal(stored.status,'Upcoming');assert.equal(stored.isPaid,true);
    assert.equal(stored.ocppTokenHash,'b'.repeat(64));
+ });
+ await check('booking calendar dates cannot omit year or normalize an impossible day',async()=>{
+   for(const date of ['08 Nov, Sun','2026-02-30','2026-13-01']){
+     const response=await request('POST','/api/v1/Bookings',{stationId:String(station._id),
+       date,slotStart:'12:00 PM',slotEnd:'01:00 PM'},true);
+     assert.equal(response.code,400);
+     assert.equal(await BookingModel.countDocuments({stationId:station._id,date}),0);
+   }
+ });
+ await check('overlapping station slot definitions cannot bypass exact-slot exclusivity',async()=>{
+   const site=await NearestStationModel.create({name:'Overlap Safety Test',address:'Loopback',
+     status:'Available',latitude:25.7,longitude:55.9,pricePerHourValue:60,
+     slots:[{startTime:'12:00 PM',endTime:'01:00 PM'},{startTime:'12:30 PM',endTime:'01:30 PM'}]});
+   const responses=await Promise.all(site.slots.map(slot=>request('POST','/api/v1/Bookings',{
+     stationId:String(site._id),date:'2032-01-01',slotStart:slot.startTime,slotEnd:slot.endTime},true)));
+   assert.equal(responses.every(r=>r.code===400),true);
+   assert.equal(await BookingModel.countDocuments({stationId:site._id}),0);
+   await NearestStationModel.updateOne({_id:site._id},{$set:{slots:[
+     {startTime:'12:00 PM',endTime:'01:00 PM'},{startTime:'01:00 PM',endTime:'02:00 PM'}]}});
+   assert.equal((await request('POST','/api/v1/Bookings',{stationId:String(site._id),
+     date:'2032-01-01',slotStart:'12:00 PM',slotEnd:'01:00 PM'},true)).code,200);
+ });
+ await check('unresolved legacy date cannot silently collide with a new year-qualified reservation',async()=>{
+   const site=await NearestStationModel.create({name:'Legacy Day Test',address:'Loopback',
+     status:'Available',latitude:25.7,longitude:55.9,pricePerHourValue:60,
+     slots:[{startTime:'12:00 PM',endTime:'01:00 PM'}]});
+   const legacy=await BookingModel.create({userId:user._id,stationId:site._id,
+     date:'08 Nov, Sun',time:'12:00 PM',slotStart:'12:00 PM',slotEnd:'01:00 PM',status:'Upcoming'});
+   const body={stationId:String(site._id),date:'2032-11-08',slotStart:'12:00 PM',slotEnd:'01:00 PM'};
+   assert.equal((await request('POST','/api/v1/Bookings',body,true)).code,400);
+   assert.equal(await BookingModel.countDocuments({stationId:site._id}),1);
+   // Explicit synthetic operator resolution; the guard never guesses the year.
+   await BookingModel.updateOne({_id:legacy._id},{$set:{date:'2032-11-09'}});
+   assert.equal((await request('POST','/api/v1/Bookings',body,true)).code,200);
+ });
+ await check('capacity preflight requires Admin role and accepts no query override',async()=>{
+   const path='/api/v1/admin/stations/'+station._id+'/ocpp/reservation-readiness';
+   assert.equal((await request('GET',path,undefined,false)).code,401);
+   assert.equal((await request('GET',path,undefined,true)).code,401);
+   const allowed=await request('GET',path,undefined,false,{authorization:adminBearer});
+   assert.equal(allowed.code,200);assert.equal(allowed.body.data.readOnly,true);
+   assert.equal(allowed.body.data.indexChangeAllowed,false);
+   assert.equal(allowed.body.data.legacyStationIndexPresent,true);
+   assert.equal(/ocppTokenHash|secretHash|userId/.test(JSON.stringify(allowed.body)),false);
+   assert.equal((await request('GET',path+'?limit=0',undefined,false,{authorization:adminBearer})).code,400);
  });
  await check('authenticated booking payment options hide card vault',async()=>{
   const r=await request('GET','/api/v1/Bookings/'+booking._id+'/payment',undefined,true);

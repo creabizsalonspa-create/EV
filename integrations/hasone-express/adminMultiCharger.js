@@ -6,6 +6,9 @@
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import Station from '../models/NearestStationModel.js';
+import BookingModel from '../models/BookingModel.js';
+import ChargingSessionModel from '../models/ChargingSessionModel.js';
+import {auditReservationCapacity} from '../utils/reservationCapacityAudit.mjs';
 import {auditConsumedStarts} from '../utils/ocppStartAudit.mjs';
 
 const chargerTable=()=>mongoose.connection.db.collection('ocpp_chargers');
@@ -153,4 +156,26 @@ export async function AdminListStationOcppStartExceptions(req,res){
   }catch{
     return fail(res,503,'Charger authorization exception report unavailable');
   }
+}
+
+/** Read-only reservation migration readiness; never creates/drops any index. */
+export async function AdminStationReservationReadiness(req,res){
+ res.set('Cache-Control','private, no-store');
+ try{
+  if(Object.keys(req.query||{}).length)return fail(res,400,'Reservation preflight accepts no query overrides');
+  const station=await stationFrom(req,res);if(!station)return;
+  const rows=await BookingModel.find({stationId:station._id,status:{$in:['Upcoming','Completed']}})
+    .sort({_id:1}).limit(1001).select('_id stationId date time slotStart slotEnd hasArrived isPaid ocppTokenHash '+
+      'ocppTokenIssuedAt ocppChargerId ocppResourceScope reservationCapacityVersion reservedOcppChargerId').lean();
+  const chargers=await chargerTable().find({stationId:String(station._id)})
+    .project({chargerId:1,stationId:1,protocol:1}).limit(128).toArray();
+  const linked=await ChargingSessionModel.find({bookingId:{$in:rows.map(r=>r._id)}})
+    .select('bookingId').limit(1001).lean();
+  const linkedIds=new Set(linked.map(r=>String(r.bookingId)));
+  const indexes=await BookingModel.collection.indexes();
+  const report=auditReservationCapacity(rows.map(r=>({...r,sessionLinked:linkedIds.has(String(r._id))})),
+    chargers,{truncated:rows.length>1000||linked.length>1000});
+  report.legacyStationIndexPresent=indexes.some(i=>i.name==='uniq_active_station_date_slot'&&i.unique===true);
+  return res.json({status:'Success',data:{stationId:String(station._id),...report}});
+ }catch{return fail(res,503,'Reservation capacity preflight unavailable');}
 }

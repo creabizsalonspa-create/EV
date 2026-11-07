@@ -26,6 +26,8 @@ type OpState={
   canBindSource:boolean;canFinalizeSource:boolean;
   needsPaymentReconciliation:boolean;
 };
+type CapacityReport={readOnly:boolean;indexChangeAllowed:boolean;complete:boolean;scanned:number;
+  issueCount:number;collisionCount:number;authorizationReviewCount:number;preflightClear:boolean};
 type StartExceptionReport={
   scanned:number;hasMore:boolean;nextCursor:string|null;
   orphanCount:number;matchedSourceCount:number;withinGracePeriodCount:number;
@@ -73,6 +75,10 @@ export default function OcppBookingWorkflow({
   const [startAudit,setStartAudit]=useState<StartExceptionReport|null>(null);
   const [auditLoading,setAuditLoading]=useState(false);
   const auditVersion=useRef(0);
+  const capacityVersion=useRef(0);
+  const [capacity,setCapacity]=useState<CapacityReport|null>(null);
+  const [capacityLoading,setCapacityLoading]=useState(false);
+  useEffect(()=>()=>{capacityVersion.current++;},[]);
   const secretGeneration=useRef(0);
   const [secret,setSecret]=useState("");
   const [showSecret,setShowSecret]=useState(false);
@@ -133,6 +139,7 @@ export default function OcppBookingWorkflow({
     setStartAudit(null);
     auditVersion.current++;
     setAuditLoading(false);
+    capacityVersion.current++;setCapacity(null);setCapacityLoading(false);
     if(refreshOnClose)void onUpdated();
     setRefreshOnClose(false);
   }
@@ -155,6 +162,22 @@ export default function OcppBookingWorkflow({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[open,working]);
+
+  async function readCapacity(){
+    if(!state||capacityLoading||working)return;
+    const version=++capacityVersion.current;
+    setCapacityLoading(true);setError("");
+    try{
+      const response=await api.get("/admin/stations/"+state.stationId+"/ocpp/reservation-readiness");
+      const report=response.data?.data as CapacityReport|undefined;
+      if(response.data?.status!=="Success"||report?.readOnly!==true||
+         report.indexChangeAllowed!==false||typeof report.complete!=="boolean"||
+         ![report.scanned,report.issueCount,report.collisionCount,report.authorizationReviewCount]
+           .every(v=>Number.isInteger(v)&&v>=0))throw new Error("Invalid reservation preflight");
+      if(version===capacityVersion.current)setCapacity(report);
+    }catch(e){if(version===capacityVersion.current)setError(errorText(e));}
+    finally{if(version===capacityVersion.current)setCapacityLoading(false);}
+  }
 
   async function perform(
     path:"issue-token"|"reissue-token"|"bind-source"|"finalize-source",
@@ -329,6 +352,23 @@ export default function OcppBookingWorkflow({
                         <div className="text-sm font-semibold mt-1">{value}</div>
                       </div>)}
                   </div>
+
+                  <section className={"space-y-3 rounded-xl border p-4 "+surface}>
+                    <h3 className="font-bold">Reservation capacity preflight</h3>
+                    <p className={"text-xs "+muted}>Read-only calendar and resource review. This report does not enable index changes or parallel reservations.</p>
+                    <button type="button" onClick={()=>void readCapacity()}
+                      disabled={working||capacityLoading}
+                      className="rounded-lg border px-4 py-2 text-sm disabled:opacity-40">
+                      {capacityLoading?"Reviewing…":"Review reservation capacity"}
+                    </button>
+                    {capacity&&<div aria-label="Reservation capacity preflight report" className="text-sm space-y-1">
+                      <p>{capacity.complete?"Bounded scan complete":"Incomplete scan: more operator review required"}</p>
+                      <p>Scanned bookings: {capacity.scanned}</p>
+                      <p>Calendar issues: {capacity.issueCount} · Overlaps: {capacity.collisionCount}</p>
+                      <p>Protected bookings requiring review: {capacity.authorizationReviewCount}</p>
+                      <p>No indexes changed. Existing station-wide exclusivity remains in place.</p>
+                    </div>}
+                  </section>
 
                   <section className={"space-y-3 rounded-xl border p-4 "+surface}>
                     <h3 className="font-bold flex items-center gap-2"><LockKeyhole size={16}/> 1. Authorize charger token</h3>

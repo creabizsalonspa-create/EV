@@ -67,6 +67,12 @@ export async function runActualAdminBrowser({
      const value=await page.$eval('select[aria-label="Select booking charger"]',x=>x.value);
      assert.equal(value,chargerId);
    });
+   await step('Admin sees read-only reservation preflight without changing indexes',async()=>{
+     await click(page,'Review reservation capacity');
+     await page.waitForSelector('[aria-label="Reservation capacity preflight report"]');
+     const report=await page.$eval('[aria-label="Reservation capacity preflight report"]',x=>x.textContent);
+     assert.ok(report.includes('No indexes changed'));
+   });
    await step('operator explicitly scopes the credential to connector one',async()=>{
      await page.click('input[aria-label="Limit authorization to connector"]');
      await page.type('input[aria-label="Booking connector ID"]','1');

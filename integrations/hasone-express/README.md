@@ -1,3 +1,26 @@
+## Explicit booking calendars and read-only capacity preflight
+
+The staged API accepts full `YYYY-MM-DD` calendar identity, rejects impossible
+calendar days and overlapping/overnight static station slot definitions, and
+blocks unresolved legacy day labels instead of guessing their year. Customer
+creation/rescheduling and slot queries use the same year-qualified date. Prices,
+prepayments and authorization/source receipts are preserved.
+
+AdminAuth `GET /admin/stations/:id/ocpp/reservation-readiness` returns bounded
+non-mutating calendar/resource findings, preserving wildcard legacy station
+occupancy and shared-EVSE exclusivity. Scope identity is not allocation evidence.
+No request creates/drops indexes. Incomplete scans and protected records cannot
+clear preflight. This does not implement the future transactional resource
+scheduler; concurrent calendar edits, independent resource capacity and the
+explicit migration remain pending.
+
+Evidence: `docs/evidence/agent2-reservation-calendar/validation.json`. Current
+validation:122 guards,13 callbacks,133 backend/OCPP,13 mocked Chrome,11 actual-API
+Chrome, Next TypeScript/build; backend plus browser/native134. Companion native39
+tests and2 separately passed actual-API tests cover year-preserving booking and
+private scoped history. Required hosted/native/Agent4 gates remain separate.
+Release paired backend/mobile only after ambiguous legacy records are reviewed.
+
 ## Connector-scoped authorization and source verification
 
 Admin may supply `resourceScope:{protocol,connectorId,evseId}` when issuing a

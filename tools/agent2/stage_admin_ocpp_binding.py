@@ -42,6 +42,10 @@ def patch(root):
     binding_audit_source=integration/'ocppSourceBindingIndexAudit.mjs'
     start_audit_source=integration/'ocppStartAudit.mjs'
     token_source=integration/'ocppBookingToken.mjs'
+    capacity_source=integration/'reservationCapacityAudit.mjs'
+    capacity_helper=root/'src/utils/reservationCapacityAudit.mjs'
+    if not capacity_source.is_file() or capacity_helper.exists():
+        raise RuntimeError('Capacity audit source missing or already staged')
     if not all(p.is_file() for p in (source,multi_source,helper_source,migration_source,reissue_source,binding_audit_source,start_audit_source,token_source)):
         raise RuntimeError('Missing vetted multi-charger integration source')
     r,b,s=(f.read_text(encoding='utf8') for f in (routes,booking,session))
@@ -54,7 +58,7 @@ import { AdminIssueBookingOcppToken, AdminBindBookingOcppSource, AdminListLinked
         '''import { AdminAuth } from "../middlewares/adminAuth.js";
 import {
   AdminListStationOcppChargers, AdminProvisionStationOcppCharger,
-  AdminListStationOcppBookingSources, AdminListStationOcppStartExceptions,
+  AdminListStationOcppBookingSources, AdminListStationOcppStartExceptions, AdminStationReservationReadiness,
 } from "../controllers/adminMultiCharger.js";''',
         'multi-charger imports')
     r=once(r, '// Bookings & Reviews (read-only)',
@@ -71,6 +75,7 @@ router.get("/admin/stations/:id/ocpp/chargers", AdminAuth, AdminListStationOcppC
 router.post("/admin/stations/:id/ocpp/chargers", AdminAuth, AdminProvisionStationOcppCharger);
 router.get("/admin/stations/:id/ocpp/booking-sources", AdminAuth, AdminListStationOcppBookingSources);
 router.get("/admin/stations/:id/ocpp/start-exceptions", AdminAuth, AdminListStationOcppStartExceptions);
+router.get("/admin/stations/:id/ocpp/reservation-readiness", AdminAuth, AdminStationReservationReadiness);
 
 // Bookings & Reviews (read-only)''','Admin OCPP route placement')
     b=once(b,'const BookingModel = mongoose.model("Booking", BookingSchema);',
@@ -117,6 +122,7 @@ const ChargingSessionModel = mongoose.model("ChargingSession", ChargingSessionSc
     binding_audit_helper.write_text(binding_audit_source.read_text(encoding='utf8'),encoding='utf8')
     start_audit_helper.write_text(start_audit_source.read_text(encoding='utf8'),encoding='utf8')
     token_helper.write_text(token_source.read_text(encoding='utf8'),encoding='utf8')
+    capacity_helper.write_text(capacity_source.read_text(encoding='utf8'),encoding='utf8')
     print('STAGED_ADMIN_OCPP_BINDING_PATCHED; production not modified')
 
 if __name__=='__main__':
