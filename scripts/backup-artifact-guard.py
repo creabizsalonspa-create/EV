@@ -14,8 +14,12 @@ def require(ok, reason):
 @contextmanager
 def open_regular_archive(path):
     """Open a bounded regular archive without following a swapped symlink."""
-    require(hasattr(os, 'O_NOFOLLOW'), 'No-follow archive reads unavailable')
-    flags = os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) | os.O_NOFOLLOW
+    require(hasattr(os, 'O_NOFOLLOW') and hasattr(os, 'O_NONBLOCK'),
+            'Secure nonblocking archive reads unavailable')
+    # Opening a FIFO for reading blocks *before* fstat can reject its type.
+    # Nonblocking open is ignored for regular files but prevents this DoS.
+    flags = (os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) |
+             os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         fd = os.open(path, flags)
     except OSError as error:

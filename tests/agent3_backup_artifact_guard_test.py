@@ -124,6 +124,25 @@ class ArchiveTests(unittest.TestCase):
                 with self.assertRaises(guard.ArchiveError):
                     guard.inspect(dump, private)
 
+    def test_named_pipe_cannot_stall_archive_or_hmac_key_reader(self):
+        import os
+        if not hasattr(os, 'mkfifo'):
+            self.skipTest('FIFO creation requires POSIX')
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pipe = root/'unexpected.dump'
+            os.mkfifo(pipe, 0o600)
+            with self.assertRaises(guard.ArchiveError):
+                guard.fingerprint(pipe, b'PGDMP')
+            with self.assertRaises(guard.ArchiveError):
+                guard.read_auth_key(pipe)
+            db = root/'db.dump'
+            sample_db(db)
+            self.assertEqual(guard.main([
+                'check', '--pg-dump', str(db),
+                '--manifest', str(pipe),
+            ]), 1)
+
     def test_regular_archives_are_read_using_no_follow_file_descriptors(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

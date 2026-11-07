@@ -43,8 +43,11 @@ def read_strict_json(payload):
 def read_proof(path):
     # Read and validate through the SAME no-follow descriptor. A prior
     # is_symlink()/stat() check is vulnerable to path replacement before read.
-    require(hasattr(os, 'O_NOFOLLOW'), 'Secure evidence reads unavailable')
-    flags = os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) | os.O_NOFOLLOW
+    require(hasattr(os, 'O_NOFOLLOW') and hasattr(os, 'O_NONBLOCK'),
+            'Secure nonblocking evidence reads unavailable')
+    # FIFO paths must not be able to block before the regular-file fstat.
+    flags = (os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) |
+             os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         fd = os.open(path, flags)
     except OSError:

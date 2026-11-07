@@ -133,3 +133,7 @@ The hosted `staging-image` job now runs the entire `agent3_*_test.py` Python neg
 ### Strict untrusted Docker inspection boundary
 
 The disposable network/container inspector treats Docker's JSON output as an untrusted payload. Parsing now rejects duplicate JSON object keys at any nesting level, non-standard NaN/Infinity numeric constants, deeply nested input that exhausts JSON parsing recursion, and oversized messages. Error paths deliberately report only a constant or minimal error category, never the supplied JSON body or embedded `Config.Env` secrets. These controls are validated with synthetic duplicate, malformed, non-finite, and secret-carrying fixtures; they do not constitute a live Docker restore or production environment acceptance.
+
+### Blocking device and FIFO rejection
+
+The archive, local HMAC-key, backup-manifest, and combined synthetic recovery-evidence readers use a Linux/POSIX nonblocking no-follow file descriptor before their regular-file `fstat` checks. Opening an unexpected FIFO can otherwise wait indefinitely for a writer *before* the existing type filter executes. New tests create a local named pipe with no writer and require immediate rejection by each reader, without starting Docker or contacting any external service. This is a denial-of-service safety control for synthetic review tooling; production restore acceptance is unchanged.

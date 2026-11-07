@@ -163,6 +163,16 @@ class GateTest(unittest.TestCase):
             path.write_text('{"status":"PASS","metadata":{"numbers":[1,2,3]}}')
             self.assertEqual(gate.read_proof(path)['status'], 'PASS')
 
+    def test_named_pipe_evidence_is_rejected_without_waiting_for_a_writer(self):
+        import os
+        if not hasattr(os, 'mkfifo'):
+            self.skipTest('FIFO creation requires POSIX')
+        with tempfile.TemporaryDirectory() as d:
+            pipe = Path(d)/'fake-proof.json'
+            os.mkfifo(pipe, 0o600)
+            with self.assertRaises(gate.EvidenceError):
+                gate.read_proof(pipe)
+
     def test_bounded_json_and_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             file=Path(d)/'proof.json'
