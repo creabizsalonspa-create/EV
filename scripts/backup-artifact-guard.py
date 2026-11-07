@@ -148,11 +148,13 @@ def main(argv=None):
                 f.write('\n')
             os.replace(tmp,args.manifest)
         else:
-            require(not args.manifest.is_symlink(), 'Manifest symlink denied')
-            info=args.manifest.stat()
-            require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 65536,
-                    'Manifest invalid size/type')
-            saved=json.loads(args.manifest.read_text())
+            with open_regular_archive(args.manifest) as proof:
+                info = os.fstat(proof.fileno())
+                require(info.st_size <= 65536, 'Manifest invalid size/type')
+                payload = proof.read(65537)
+                require(len(payload) == info.st_size and len(payload) <= 65536,
+                        'Manifest size changed during read')
+                saved = json.loads(payload.decode('utf-8'))
             require(saved == inspect(args.pg_dump,args.private_tar),
                     'Backup bytes differ from integrity record')
     except (OSError, ValueError, ArchiveError) as exc:
