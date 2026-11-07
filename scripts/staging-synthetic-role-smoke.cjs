@@ -30,19 +30,29 @@ function load(file) {
 }
 function readCookies(jar, headers) {
   const list=headers['set-cookie']||[];
+  if(!Array.isArray(list) || list.length>16 || jar.size>8)throw Error('Excessive cookies');
   for(const raw of list) {
+    if(typeof raw!=='string')throw Error('Invalid cookie');
     const first=raw.split(';')[0];
     const i=first.indexOf('=');
     if(i<1)continue;
     const name=first.slice(0,i),value=first.slice(i+1);
     if(!/^[A-Za-z0-9_-]+$/.test(name) || value.length>4096)throw Error('Invalid cookie');
     jar.set(name,value);
+    if(jar.size>8)throw Error('Excessive cookie jar');
   }
 }
 function jsonRequest(route, method='GET', payload=undefined,jar=new Map(),client=http) {
-  if(!['/api/csrf','/api/login','/api/me','/api/admin/overview','/api/logout'].includes(route) ||
-    (method!=='GET'&&method!=='POST'))throw Error('Unsupported synthetic route');
+  const allowed={
+    '/api/csrf':'GET','/api/login':'POST','/api/me':'GET',
+    '/api/admin/overview':'GET','/api/logout':'POST',
+  };
+  if(allowed[route]!==method || !jar || !(jar instanceof Map))throw Error('Unsupported synthetic route');
+  if((method==='GET' && payload!==undefined) || (method==='POST' && route!=='/api/login' && payload!==undefined)){
+    throw Error('Unexpected synthetic HTTP payload');
+  }
   const body=payload===undefined?null:JSON.stringify(payload);
+  if(body!==null && Buffer.byteLength(body)>8192)throw Error('Synthetic login payload too large');
   const headers={Accept:'application/json','Cache-Control':'no-store'};
   if(body!==null){headers['Content-Type']='application/json';headers['Content-Length']=Buffer.byteLength(body);}
   const cookies=[...jar].filter(([k])=>k!=='__csrf_token');
