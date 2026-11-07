@@ -116,7 +116,25 @@ class SharedPrefs {
       return prefs.getString(_kUser);
     });
     if (generation != _generation || _blocked || saved == null) return null;
-    return jsonDecode(saved) as Map<String, dynamic>;
+    try {
+      // Profiles are display hints, never the authoritative account. Corrupt
+      // or unexpectedly large cached JSON must not crash app startup.
+      if (saved.length > 32768) throw const FormatException('Invalid profile');
+      final decoded = jsonDecode(saved);
+      if (decoded is! Map<String, dynamic>) throw const FormatException();
+      return decoded;
+    } catch (_) {
+      await _ordered(() async {
+        if (generation != _generation || _blocked) return;
+        final prefs = await SharedPreferences.getInstance();
+        // Another user may have replaced the cache while JSON was parsed.
+        if (generation == _generation && !_blocked &&
+            prefs.getString(_kUser) == saved) {
+          await prefs.remove(_kUser);
+        }
+      });
+      return null;
+    }
   }
 
   /// Only apply an old logout if its original identity remains active.
