@@ -13,6 +13,10 @@ g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
 S = 'a' * 64
 T = 'b' * 64
+C1 = 'c' * 64
+C2 = 'd' * 64
+C3 = 'e' * 64
+C4 = 'f' * 64
 
 
 def network(identifier):
@@ -52,6 +56,20 @@ class RecoveryIsolationTests(unittest.TestCase):
             g.validate_networks([network(S), network(S)], S, T)
         with self.assertRaises(g.IsolationError):
             g.validate_networks([network(S), network(T)], S, S)
+        owned = [network(S), network(T)]
+        owned[0]['Containers'] = {C1: {'Name': 'source'}}
+        owned[1]['Containers'] = {C2: {'Name': 'target'}}
+        g.validate_networks(owned, S, T, [C1], [C2])
+        for bad_source, bad_target in (
+            ([C1], [C1]), ([C1], [C3]), ([C1, C3], [C2]),
+            (['invalid'], [C2]), ([], [C2]),
+        ):
+            with self.subTest(expected=(bad_source, bad_target)):
+                with self.assertRaises(g.IsolationError):
+                    g.validate_networks(owned, S, T, bad_source, bad_target)
+        owned[0]['Containers'][C3] = {'Name': 'intruder'}
+        with self.assertRaises(g.IsolationError):
+            g.validate_networks(owned, S, T, [C1], [C2])
 
     def test_disposable_containers_do_not_share_network_or_volume(self):
         rows = [container('source-db', S, 'private-source'),
@@ -73,6 +91,11 @@ class RecoveryIsolationTests(unittest.TestCase):
             ('HostConfig.PidMode', 'host'),
             ('HostConfig.IpcMode', 'host'),
             ('HostConfig.UsernsMode', 'host'),
+            ('HostConfig.CgroupnsMode', 'host'),
+            ('HostConfig.UTSMode', 'host'),
+            ('HostConfig.SecurityOpt', ['seccomp=unconfined']),
+            ('HostConfig.DeviceRequests', [{'Driver': 'nvidia'}]),
+            ('HostConfig.DeviceCgroupRules', ['a *:* rwm']),
             ('NetworkSettings.Networks', {'x': {'NetworkID': T}}),
             ('NetworkSettings.Ports', {'5432/tcp': [{'HostPort': '5432'}]}),
             ('NetworkSettings.Ports', ['malformed-list']),

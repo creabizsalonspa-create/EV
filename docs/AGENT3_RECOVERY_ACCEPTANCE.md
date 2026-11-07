@@ -105,3 +105,7 @@ Each *synthetic-only* disposable restore now generates a fresh random 32-byte ke
 ### Reviewed container volume destinations
 
 The disposable recovery runtime inspector rejects missing, extra, read-only or bind-mounted Docker volumes and requires exactly one writable local Docker volume at the expected location for each run-owned container. The database role is limited to `/var/lib/postgresql/data`; the Laravel application role is limited to `/var/www/html/storage/app/private`. Distinct source and target volume IDs remain mandatory. Unexpected image-declared additional volumes fail closed. No existing production volume is examined, mounted or modified by the unit tests.
+
+### Post-start isolation and network membership
+
+The disposable restore runner now rechecks internal Docker network membership after creating database containers and, for Laravel, after each application is started. Only the exact run-owned container IDs may be attached; an unrecognized peer or missing expected container blocks restoration. The same guard rejects host cgroup/UTS namespace sharing, custom security overrides, GPU/device requests and device cgroup rules. This is a synthetic environment control, not approval for production network access, data restoration or hardware operations.

@@ -63,6 +63,10 @@ source_db=$(docker run -d --name "$review_id-source-db" --network "$source_net" 
   --env-file "$scratch/source.env" "$image")
 target_db=$(docker run -d --name "$review_id-target-db" --network "$target_net" \
   --env-file "$scratch/target.env" "$image")
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --target-container "$target_db"
 docker inspect "$source_db" "$target_db" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
     --source-network "$source_net" --target-network "$target_net" \
@@ -149,6 +153,10 @@ docker exec -i "$target_db" pg_restore -U ev_csms_recovery -d ev_csms_recovery \
   --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
 # Re-verify Docker runtime after restore in case networking or mounts changed.
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --target-container "$target_db"
 docker inspect "$source_db" "$target_db" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
     --source-network "$source_net" --target-network "$target_net" \

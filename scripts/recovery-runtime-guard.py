@@ -27,12 +27,23 @@ def read_inspect(stream):
     return parsed
 
 
-def validate_networks(rows, source, target):
+def validate_networks(rows, source, target, source_members=None, target_members=None):
     require(isinstance(source, str) and isinstance(target, str) and
             source != target and len(source) >= 12 and len(target) >= 12,
             'Distinct Docker network identifiers required')
     require(len(rows) == 2, 'Two recovery networks required')
     ids = set()
+    expected = {source: source_members, target: target_members}
+    members_requested = source_members is not None or target_members is not None
+    if members_requested:
+        require(isinstance(source_members, list) and isinstance(target_members, list)
+                and all(isinstance(value, str) and len(value) == 64
+                        and all(ch in '0123456789abcdef' for ch in value)
+                        for value in source_members + target_members)
+                and len(source_members) <= 2 and len(target_members) <= 2
+                and len(set(source_members + target_members)) ==
+                    len(source_members) + len(target_members),
+                'Review expected run-owned Docker container IDs')
     for row in rows:
         require(isinstance(row, dict), 'Malformed Docker network inspection')
         identifier = row.get('Id')
@@ -43,9 +54,14 @@ def validate_networks(rows, source, target):
                 row.get('Driver') == 'bridge' and
                 row.get('Ingress') is not True and
                 row.get('Attachable') is not True and
-                row.get('Scope') == 'local' and
-                row.get('Containers') in ({}, None),
-                'Recovery network is non-isolated or already occupied')
+                row.get('Scope') == 'local',
+                'Recovery network is not an isolated local bridge')
+        attached = row.get('Containers')
+        require(isinstance(attached, dict),
+                'Recovery network membership unavailable')
+        desired = expected[identifier] if members_requested else []
+        require(set(attached) == set(desired),
+                'Unreviewed container attached to disposable recovery network')
     require(ids == {source, target}, 'Missing isolated recovery network')
 
 
@@ -95,8 +111,14 @@ def validate_containers(rows, source, target, source_names, target_names):
                 'Recovery container has host access or elevated privileges')
         require(host.get('PidMode') not in ('host',) and
                 host.get('IpcMode') not in ('host',) and
-                host.get('UsernsMode') not in ('host',),
+                host.get('UsernsMode') not in ('host',) and
+                host.get('CgroupnsMode') not in ('host',) and
+                host.get('UTSMode') not in ('host',),
                 'Recovery container shares host namespaces')
+        require(host.get('SecurityOpt') in (None, []) and
+                host.get('DeviceRequests') in (None, []) and
+                host.get('DeviceCgroupRules') in (None, []),
+                'Recovery container has non-reviewed security or device privileges')
         # The script owns each container name: database and application
         # mounts have distinct, reviewed destinations. A changed image with
         # additional VOLUME directives must fail before data restoration.
@@ -131,11 +153,14 @@ def main(argv=None, input_stream=None):
     parser.add_argument('--target-network', required=True)
     parser.add_argument('--source-name', action='append', default=[])
     parser.add_argument('--target-name', action='append', default=[])
+    parser.add_argument('--source-container', action='append')
+    parser.add_argument('--target-container', action='append')
     args = parser.parse_args(argv)
     try:
         inspected = read_inspect(input_stream or sys.stdin.buffer)
         if args.check == 'networks':
-            validate_networks(inspected, args.source_network, args.target_network)
+            validate_networks(inspected, args.source_network, args.target_network,
+                              args.source_container, args.target_container)
         else:
             validate_containers(inspected, args.source_network,
                                 args.target_network, args.source_name, args.target_name)

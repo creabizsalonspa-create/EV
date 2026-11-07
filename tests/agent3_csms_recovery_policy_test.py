@@ -73,6 +73,12 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
         self.assertIn("destination = '/var/lib/postgresql/data'", guard)
         self.assertIn("mount.get('Destination') == destination", guard)
 
+    def test_network_inspection_detects_unreviewed_container_peers(self):
+        code = self.source
+        self.assertEqual(code.count('recovery-runtime-guard.py" networks'), 3)
+        self.assertIn('--source-container "$source_db"', code)
+        self.assertIn('--target-container "$target_db"', code)
+
     def test_timing_span_covers_dump_restore_and_geospatial_checks(self):
         code = self.source
         self.assertLess(code.index('snapshot_started_epoch=$(date -u +%s)'),

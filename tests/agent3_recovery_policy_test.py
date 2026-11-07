@@ -124,6 +124,14 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertIn('len(mounts) == 1', guard)
         self.assertIn("mount.get('RW') is True", guard)
 
+    def test_all_disposable_network_members_are_checked_before_restore(self):
+        code = self.source
+        self.assertEqual(code.count('recovery-runtime-guard.py" networks'), 4)
+        self.assertIn('--source-container "$source_app"', code)
+        self.assertIn('--target-container "$target_app"', code)
+        self.assertIn('--source-container "$source_db"', code)
+        self.assertIn('--target-container "$target_db"', code)
+
     def test_timed_recovery_proof_covers_private_snapshot_and_laravel_boot(self):
         code = self.source
         self.assertIn('drill_started_epoch=$(date -u +%s)', code)

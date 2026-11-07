@@ -107,6 +107,10 @@ source_db=$(docker run -d --name "$review_id-db-source" --network "$source_net" 
   --env-file "$scratch/source-database.env" "$postgres_image")
 target_db=$(docker run -d --name "$review_id-db-target" --network "$target_net" \
   --env-file "$scratch/target-database.env" "$postgres_image")
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --target-container "$target_db"
 docker inspect "$source_db" "$target_db" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
     --source-network "$source_net" --target-network "$target_net" \
@@ -143,6 +147,11 @@ source_app=$(docker run -d --name "$review_id-app-source" --network "$source_net
   --env-file "$scratch/source-application.env" \
   --mount type=volume,target=/var/www/html/storage/app/private "$image")
 wait_for_app "$source_app"
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --source-container "$source_app" \
+    --target-container "$target_db"
 docker exec --user www-data "$source_app" php artisan migrate --force --no-interaction
 
 # A durable synthetic marker proves that data, not just empty schema, survives restore.
@@ -259,6 +268,11 @@ target_app=$(docker run -d --name "$review_id-app-target" --network "$target_net
   --env-file "$scratch/target-application.env" \
   --mount type=volume,target=/var/www/html/storage/app/private "$image")
 wait_for_app "$target_app"
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --source-container "$source_app" \
+    --target-container "$target_db" --target-container "$target_app"
 # Recheck source/target isolation and distinct private volumes before extraction.
 docker inspect "$source_db" "$source_app" "$target_db" "$target_app" |
   python3 "$root/scripts/recovery-runtime-guard.py" containers \
