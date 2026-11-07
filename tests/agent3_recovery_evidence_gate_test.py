@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('recover_gate',
@@ -107,6 +108,35 @@ class GateTest(unittest.TestCase):
             link.symlink_to(file)
             with self.assertRaises(gate.EvidenceError):
                 gate.read_proof(link)
+
+    def test_symlink_substituted_at_open_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            candidate = root / 'proof.json'
+            original = root / 'original.json'
+            candidate.write_text('{"status":"PASS"}')
+            real_open = gate.os.open
+            swapped = False
+
+            def swap_before_open(path, flags, *args, **kwargs):
+                nonlocal swapped
+                if str(path) == str(candidate) and not swapped:
+                    candidate.rename(original)
+                    candidate.symlink_to(original)
+                    swapped = True
+                return real_open(path, flags, *args, **kwargs)
+
+            with patch.object(gate.os, 'open', side_effect=swap_before_open):
+                with self.assertRaises(gate.EvidenceError):
+                    gate.read_proof(candidate)
+            self.assertTrue(swapped)
+
+    def test_oversized_proof_is_rejected_without_parsing(self):
+        with tempfile.TemporaryDirectory() as d:
+            proof = Path(d) / 'huge.json'
+            proof.write_bytes(b'{' + b' ' * 65536 + b'}')
+            with self.assertRaises(gate.EvidenceError):
+                gate.read_proof(proof)
 
     def test_failing_rerun_removes_old_pass(self):
         with tempfile.TemporaryDirectory() as d:
