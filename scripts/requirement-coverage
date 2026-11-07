@@ -17,6 +17,23 @@ assert inventory['method']['subfeature_weight'] == 'equal within each category'
 expected = {f'{section}.{i}' for section, count in [(2,10),(3,8),(4,6),(5,4),(6,5),(7,4),(8,1),(9,4)] for i in range(1,count+1)}
 categories = inventory['categories']
 assert len(categories) == 42 and {c['prd'] for c in categories} == expected, 'All42 original categories are required'
+# Lock the original inventory's per-category denominators. Equal category weights
+# make moving a single atom change percentages even if the total remains 312.
+original_atom_counts = {
+    '2': [9, 7, 9, 8, 6, 7, 9, 10, 7, 8],
+    '3': [8, 8, 6, 8, 9, 6, 7, 6],
+    '4': [7, 7, 9, 6, 7, 6],
+    '5': [6, 11, 8, 5],
+    '6': [6, 4, 8, 8, 3],
+    '7': [10, 7, 9, 2],
+    '8': [8],
+    '9': [13, 10, 8, 6],
+}
+original_atom_counts = {
+    f'{section}.{i}': count
+    for section, counts in original_atom_counts.items()
+    for i, count in enumerate(counts, start=1)
+}
 acceptances = inventory['production_acceptance'] or {}
 assert isinstance(acceptances, dict), 'Production acceptance requires explicit per-atom signed-off evidence'
 checkpoints = inventory['checkpoints']
@@ -39,11 +56,13 @@ seen = set()
 report = []
 for category in categories:
     atoms = category['atoms']
-    assert atoms and category['implemented_code_scope'] and category['remaining_scope']
+    assert len(atoms) == original_atom_counts[category['prd']], 'Original category atom count changed'
+    assert category['implemented_code_scope'] and category['remaining_scope']
     counts = {stage: 0 for stage in stages}
     detailed = []
-    for atom in atoms:
-        assert atom['id'] not in seen and atom['id'].startswith(category['prd']+'.')
+    for ordinal, atom in enumerate(atoms, start=1):
+        assert atom['id'] == f"{category['prd']}.{ordinal}", 'Original atom IDs/order changed'
+        assert atom['id'] not in seen
         seen.add(atom['id'])
         assert type(atom['coded']) is bool and atom['software_atom']
         checkpoint = checkpoints[atom['checkpoint']] if atom['checkpoint'] else None
