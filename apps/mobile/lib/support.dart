@@ -3,6 +3,7 @@ import 'api.dart';
 import 'strings.dart';
 import 'fleet.dart';
 import 'charger_diagnostics.dart';
+import 'charging_operations.dart';
 
 /// Presentation-only: all values are text, never an authorization or charging
 /// command. Unknown or malformed event metadata cannot crash the inbox.
@@ -27,6 +28,10 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
       return strings.t('simulatedMonitorReview', {'station': id('station_id')});
     case 'charging.monitor.resumed.simulated':
       return strings.t('simulatedMonitorCaughtUp', {'station': id('station_id')});
+    case 'charging.operational_case.opened':
+      return strings.t('chargingOperationalCaseOpened', {'station': id('station_id')});
+    case 'charging.operational_case.source_observed':
+      return strings.t('chargingOperationalSourceObserved', {'station': id('station_id')});
     case 'fleet.invitation':
       return strings.t('fleetInvitationAlert', {'fleet': id('fleet_id')});
     case 'fleet.invitation.accepted':
@@ -98,6 +103,22 @@ Map<String, int>? simulatedMonitorTarget(Map<String, dynamic> row) {
     return null;
   }
   return {'company_id': company, 'charger_id': charger};
+}
+
+/// Owner-authorized operational review target. Never treats source evidence as
+/// physical hardware acceptance or a charging command.
+int? operationalCaseTarget(Map<String, dynamic> notice) {
+  if (notice['kind'] != 'charging.operational_case.opened' &&
+      notice['kind'] != 'charging.operational_case.source_observed') {
+    return null;
+  }
+  final metadata = notice['metadata'];
+  if (metadata is! Map || metadata['physical_verification'] != false) {
+    return null;
+  }
+  final id = metadata['command_id'];
+  final caseId = metadata['case_id'];
+  return id is int && id > 0 && caseId is int && caseId > 0 ? id : null;
 }
 
 class SupportView extends StatefulWidget {
@@ -418,6 +439,27 @@ class SupportViewState extends State<SupportView> {
                                       if (mounted) await refresh();
                                     },
                               child: Text(s.t('reviewFleetInvitation')),
+                            ),
+                          if (operationalCaseTarget(row) != null)
+                            TextButton(
+                              key: const Key('review-operational-case'),
+                              onPressed: loading
+                                  ? null
+                                  : () async {
+                                      final commandId = operationalCaseTarget(row);
+                                      if (commandId == null) return;
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => ChargingOperationsView(
+                                            api: widget.api,
+                                            onExpired: widget.onSessionExpired,
+                                            focusCommandId: commandId,
+                                          ),
+                                        ),
+                                      );
+                                      if (mounted) await refresh();
+                                    },
+                              child: Text(s.t('reviewOperationalCase')),
                             ),
                           if (simulatedMonitorTarget(row) != null)
                             TextButton(

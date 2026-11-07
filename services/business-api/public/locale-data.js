@@ -1,4 +1,17 @@
 window.EV_MESSAGES = {
+    "Charging command requires operator recovery · station #{id}": {
+        en: "Charging command requires operator recovery · station #{id}",
+        ar: "يتطلب أمر الشحن استرداداً تشغيلياً · المحطة #{id}",
+    },
+    "Charging command source evidence recorded · station #{id}": {
+        en: "Charging command source evidence recorded · station #{id}",
+        ar: "تم تسجيل دليل مصدر أمر الشحن · المحطة #{id}",
+    },
+    "Review charging recovery case": {
+        en: "Review charging recovery case",
+        ar: "مراجعة حالة استرداد الشحن",
+    },
+
     "Review simulator source monitor": {
         en: "Review simulator source monitor",
         ar: "مراجعة مراقبة مصدر المحاكاة",

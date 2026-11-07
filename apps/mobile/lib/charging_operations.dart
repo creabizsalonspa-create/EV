@@ -65,10 +65,12 @@ const opsAr = {
 class ChargingOperationsView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
+  final int? focusCommandId;
   const ChargingOperationsView({
     super.key,
     required this.api,
     required this.onExpired,
+    this.focusCommandId,
   });
   @override
   State<ChargingOperationsView> createState() => _OperationsState();
@@ -77,7 +79,9 @@ class ChargingOperationsView extends StatefulWidget {
 class _OperationsState extends State<ChargingOperationsView> {
   ApiPage<Map<String, dynamic>>? data;
   Map<String, dynamic>? dashboard;
-  Object? error;
+  Map<String, dynamic>? focusedCase;
+  Object? error, focusError;
+  bool focusBusy = false;
   bool busy = false;
   int generation = 0;
   String t(String k) => opsText(context, k);
@@ -85,6 +89,34 @@ class _OperationsState extends State<ChargingOperationsView> {
   void initState() {
     super.initState();
     load();
+    if (widget.focusCommandId != null) loadFocusedCase();
+  }
+
+  Future<void> loadFocusedCase() async {
+    final id = widget.focusCommandId;
+    if (id == null || id <= 0) return;
+    setState(() {
+      focusBusy = true;
+      focusError = null;
+    });
+    try {
+      final result = await widget.api.request('charging-operations/$id/case');
+      if (!mounted) return;
+      if (result is! Map || result['command'] is! Map || result['case'] is! Map ||
+          result['command']['id'] != id) {
+        throw const FormatException('Operational case unavailable');
+      }
+      setState(() => focusedCase = Map<String, dynamic>.from(result));
+    } catch (e) {
+      if (!mounted) return;
+      if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
+      setState(() {
+        focusError = e;
+        focusedCase = null;
+      });
+    } finally {
+      if (mounted) setState(() => focusBusy = false);
+    }
   }
 
   void fail(Object e) {
@@ -187,6 +219,43 @@ class _OperationsState extends State<ChargingOperationsView> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(t('notice')),
+          if (widget.focusCommandId != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(s.t('recoveryFocusedCommand', {'id': widget.focusCommandId!})),
+                    if (focusBusy) const LinearProgressIndicator(),
+                    if (focusError != null) Text(s.t(errorKey(focusError!))),
+                    if (focusedCase != null) ...[
+                      Text(s.t('recoveryFocusedState', {
+                        'state': focusedCase!['case']['state'] ?? 'unknown',
+                      })),
+                      Text(t('evidenceNotice')),
+                      TextButton(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => _CaseHistory(
+                              api: widget.api,
+                              id: widget.focusCommandId!,
+                              onExpired: widget.onExpired,
+                            ),
+                          ),
+                        ),
+                        child: Text(t('history')),
+                      ),
+                    ],
+                    TextButton(
+                      onPressed: focusBusy ? null : loadFocusedCase,
+                      child: Text(t('refresh')),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           if (dashboard != null) ...[
             Text(t('dashboard'), style: Theme.of(context).textTheme.titleMedium),
             Text('${t('activeSessions')}: ${dashboard!['active_session_count']}'),

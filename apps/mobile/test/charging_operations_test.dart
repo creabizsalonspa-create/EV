@@ -90,6 +90,17 @@ void main() {
       expect(find.text('Awaiting source evidence'), findsWidgets);
     },
   );
+  testWidgets('focused recovery case is read-only until an explicit operator action', (t) async {
+    final api = OpsApi();
+    await t.pumpWidget(MaterialApp(
+      home: ChargingOperationsView(
+        api: api, onExpired: () {}, focusCommandId: 7,
+      ),
+    ));
+    await t.pumpAndSettle();
+    expect(find.text('Recovery notification · command #7'), findsOneWidget);
+    expect(api.writes, 0);
+  });
   testWidgets('lost case response is not automatically replayed', (t) async {
     final api = OpsApi()..lost = true;
     await t.pumpWidget(

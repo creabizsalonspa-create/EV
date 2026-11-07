@@ -1411,10 +1411,18 @@ async function refreshInbox() {
                     ? ui("p", "Simulator source reported recovery · station #{id}", {
                         id: m.metadata?.station_id ?? "?",
                     })
-                    : m.kind === "charging.monitor.requires_review.simulated"
-                        ? ui("p", "Simulator charger monitor requires review · station #{id}", {
+                    : m.kind === "charging.operational_case.opened"
+                        ? ui("p", "Charging command requires operator recovery · station #{id}", {
                             id: m.metadata?.station_id ?? "?",
                         })
+                        : m.kind === "charging.operational_case.source_observed"
+                            ? ui("p", "Charging command source evidence recorded · station #{id}", {
+                                id: m.metadata?.station_id ?? "?",
+                            })
+                            : m.kind === "charging.monitor.requires_review.simulated"
+                                ? ui("p", "Simulator charger monitor requires review · station #{id}", {
+                                    id: m.metadata?.station_id ?? "?",
+                                })
                         : m.kind === "charging.monitor.resumed.simulated"
                             ? ui("p", "Simulator charger monitor caught up · station #{id}", {
                                 id: m.metadata?.station_id ?? "?",
@@ -1495,6 +1503,49 @@ async function refreshInbox() {
                         await vendorWorkspace.openMonitorNotice(meta.company_id, meta.charger_id);
                         if (session !== client.sessionEpoch || account !== user?.id) return;
                         el("vendor-operations").scrollIntoView({
+                            behavior: "smooth", block: "center",
+                        });
+                    } catch (error) {
+                        if (session === client.sessionEpoch && account === user?.id)
+                            notice(error);
+                    } finally {
+                        review.disabled = false;
+                    }
+                };
+                row.append(review);
+            }
+        }
+        if (["charging.operational_case.opened",
+             "charging.operational_case.source_observed"].includes(m.kind)) {
+            const meta = m.metadata;
+            if (meta?.physical_verification === false &&
+                Number.isSafeInteger(meta.command_id) && meta.command_id > 0 &&
+                Number.isSafeInteger(meta.case_id) && meta.case_id > 0 &&
+                ["vendor", "admin"].includes(user?.role)) {
+                const review = ui("button", "Review charging recovery case");
+                review.type = "button";
+                review.onclick = async () => {
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    review.disabled = true;
+                    try {
+                        const actor = user;
+                        commandRequest?.abort();
+                        const request = new AbortController();
+                        commandRequest = request;
+                        const list = el("command-list");
+                        list.replaceChildren();
+                        const card = document.createElement("article");
+                        list.append(card);
+                        card.append(ui("h3", "Command #{id}", { id: meta.command_id }));
+                        // Reads the existing owner-authorized case endpoint.
+                        // Any subsequent review or source-inspect action needs
+                        // a separate explicit operator form/button interaction.
+                        await openOperationalCase(
+                            { id: meta.command_id }, card, actor, request.signal,
+                        );
+                        if (session !== client.sessionEpoch ||
+                            account !== user?.id || request.signal.aborted) return;
+                        el("command-history").scrollIntoView({
                             behavior: "smooth", block: "center",
                         });
                     } catch (error) {
