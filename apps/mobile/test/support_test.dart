@@ -227,6 +227,69 @@ class FaultFixture extends FixtureApi {
   }
 }
 
+class OperationalNoticeFixture extends FixtureApi {
+  final List<String> calls = [];
+  int writes = 0;
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    calls.add(path);
+    if (method != 'GET') writes++;
+    if (path == 'notifications/summary') {
+      return {'unread_count': 1, 'latest_id': 55, 'in_app_only': true};
+    }
+    if (path == 'notifications') {
+      return {
+        'data': [
+          {
+            'id': 55,
+            'kind': 'charging.operational_case.opened',
+            'read_at': null,
+            'support_ticket_id': null,
+            'metadata': {
+              'station_id': 2,
+              'command_id': 7,
+              'case_id': 8,
+              'physical_verification': false,
+            },
+          },
+        ],
+        'current_page': 1, 'last_page': 1, 'total': 1,
+      };
+    }
+    if (path == 'charging-operations/dashboard') {
+      return {
+        'active_session_count': 1,
+        'missing_recent_evidence_count': 1,
+        'unresolved_case_count': 1,
+        'command_counts': {'outcome_unknown': 1},
+      };
+    }
+    if (path == 'charging-operations') {
+      return {
+        'data': <Map<String, dynamic>>[],
+        'current_page': 1, 'last_page': 1, 'total': 0,
+      };
+    }
+    if (path == 'charging-operations/7/case') {
+      return {
+        'case': {'id': 8, 'state': 'open'},
+        'command': {'id': 7, 'status': 'outcome_unknown'},
+        'source_observed': false,
+        'physical_charging_verified': false,
+        'events': {'data': <Map<String, dynamic>>[],
+                   'current_page': 1, 'last_page': 1, 'total': 0},
+      };
+    }
+    throw StateError('Unexpected operational notice route: $path');
+  }
+}
+
 class FleetFixture extends FixtureApi {
   int acceptRequests = 0;
   @override
@@ -290,6 +353,51 @@ class PendingSupport extends FixtureApi {
 }
 
 void main() {
+  test('operational notice deep-link requires a trustworthy local command reference', () {
+    final valid = {
+      'kind': 'charging.operational_case.opened',
+      'metadata': {
+        'command_id': 7,
+        'case_id': 8,
+        'physical_verification': false,
+      },
+    };
+    expect(operationalCaseTarget(valid), 7);
+    expect(operationalCaseTarget({
+      ...valid,
+      'metadata': {
+        ...valid['metadata'] as Map<String, dynamic>,
+        'case_id': 0,
+      },
+    }), isNull);
+    expect(operationalCaseTarget({
+      ...valid,
+      'metadata': {
+        ...valid['metadata'] as Map<String, dynamic>,
+        'physical_verification': true,
+      },
+    }), isNull);
+    expect(operationalCaseTarget({'kind': 'support.reply'}), isNull);
+  });
+
+  testWidgets('operational notice opens exact authorized case without mutation', (t) async {
+    final api = OperationalNoticeFixture();
+    addTearDown(api.close);
+    await t.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('support-notifications')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const Key('review-operational-case')), findsOneWidget);
+    await t.tap(find.byKey(const Key('review-operational-case')));
+    await t.pumpAndSettle();
+    expect(find.text('Recovery notification · command #7'), findsOneWidget);
+    expect(find.text('Recorded case state: open'), findsOneWidget);
+    expect(api.calls, contains('charging-operations/7/case'));
+    expect(api.writes, 0);
+  });
+
   test('monitor review and source catch-up are distinct from physical repair', () {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));

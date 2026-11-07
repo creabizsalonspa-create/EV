@@ -7,6 +7,7 @@ import 'test_support.dart';
 class OpsApi extends FixtureApi {
   int writes = 0;
   bool open = false, proof = false, lost = false;
+  int focusedReads = 0;
   @override
   Future<dynamic> request(
     String path, {
@@ -20,6 +21,17 @@ class OpsApi extends FixtureApi {
         'active_session_count': 3,
         'missing_recent_evidence_count': 2,
         'unresolved_case_count': 1,
+      };
+    }
+    if (path == 'charging-operations/7/case' && method == 'GET') {
+      focusedReads++;
+      return {
+        'command': {'id': 7, 'status': 'outcome_unknown'},
+        'case': {'id': 8, 'state': 'awaiting_source'},
+        'source_observed': false,
+        'physical_charging_verified': false,
+        'events': {'data': <Map<String, dynamic>>[], 'current_page': 1,
+                   'last_page': 1, 'total': 0},
       };
     }
     if (method != 'GET') {
@@ -99,6 +111,8 @@ void main() {
     ));
     await t.pumpAndSettle();
     expect(find.text('Recovery notification · command #7'), findsOneWidget);
+    expect(find.text('Recorded case state: awaiting_source'), findsOneWidget);
+    expect(api.focusedReads, 1);
     expect(api.writes, 0);
   });
   testWidgets('lost case response is not automatically replayed', (t) async {

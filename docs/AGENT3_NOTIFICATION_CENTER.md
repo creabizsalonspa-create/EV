@@ -137,3 +137,7 @@ Agent 3 added two **vendor-owned in-app status signals** to the existing `Chargi
 ### Operator recovery inbox actions in web and Flutter
 
 The two operational case notice kinds now have localized EN/AR titles in both clients. A notice with an integer command ID, valid case ID and explicit `physical_verification=false` can open the existing authorization-enforced operator recovery panel. Web uses the existing `openOperationalCase` read path against that specific command; Flutter `ChargingOperationsView` supports `focusCommandId` and fetches the current case through its normal authenticated GET endpoint, displaying its state and history without issuing a POST. Further inspection, state edits and physical operations remain separate manual controls, not automatic notification behavior. Native widget tests assert no writes during focused-case opening.
+
+### Focused read-only native regression evidence
+
+Flutter fixture coverage now verifies that opening an operational case notice issues a GET for the *exact referenced command* (`charging-operations/7/case`), renders its returned status, and sends **zero write requests**. It also checks invalid case IDs, non-physical provenance mismatches and unrelated notification kinds cannot form a deep-link target. The operational recovery widget fixture independently checks the focused case GET request and read-only state display. Native test execution on the exact pushed revision remains pending hosted CI; fixtures alone are not build acceptance.
