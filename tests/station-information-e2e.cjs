@@ -79,6 +79,14 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   await page.waitForFunction(n=>document.querySelector('#station-information-vendor form h3')?.textContent?.includes(n),secondName,{timeout:20000});
   await picker.selectOption(String(station.id));
   await page.waitForFunction(n=>document.querySelector('#station-information-vendor form h3')?.textContent?.includes(n),name,{timeout:20000});
+  // Retain the detached old form handle to simulate an already queued submit.
+  // Even an explicitly dispatched stale DOM event must not write to station B.
+  const staleForm=await form.elementHandle();
+  let unsafeWrites=0;
+  page.on('request',req=>{
+    if(req.method()==='PUT' && new URL(req.url()).pathname==='/api/stations/'+second.id+'/information')
+      unsafeWrites++;
+  });
   let release, seen;
   const paused=new Promise(resolve=>{release=resolve;});
   const requestStarted=new Promise(resolve=>{seen=resolve;});
@@ -96,6 +104,8 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
     await requestStarted;
     assert.equal(await form.count(),0,'Old station editor must be removed while next station GET is pending');
     assert.equal(intercepted,1,'Second station load should be held by the test');
+    await staleForm.evaluate(el=>el.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+    assert.equal(unsafeWrites,0,'Detached old form must never PUT to newly selected station');
   } finally {
     // Let the intercepted request finish before unregistering the route;
     // unregistering a still-paused handler can complete it twice.
