@@ -70,5 +70,23 @@ class CoverageEvidenceTest(unittest.TestCase):
         self.rejected(self.inventory, 'Original 312 requirement atoms are mandatory')
 
 
+    def test_category_rebalance_cannot_change_weighted_denominators(self):
+        # Move an item while retaining 312 distinct IDs. Total-size checks
+        # alone permit such a change to category weights.
+        moved = self.inventory['categories'][0]['atoms'].pop()
+        moved['id'] = '2.2.8'
+        self.inventory['categories'][1]['atoms'].append(moved)
+        self.rejected(self.inventory, 'Original category atom count changed')
+
+    def test_original_atom_identifier_cannot_be_renumbered(self):
+        self.inventory['categories'][0]['atoms'][0]['id'] = '2.1.99'
+        self.rejected(self.inventory, 'Original atom IDs/order changed')
+
+    def test_atom_reordering_requires_explicit_inventory_review(self):
+        atoms = self.inventory['categories'][0]['atoms']
+        atoms[0], atoms[1] = atoms[1], atoms[0]
+        self.rejected(self.inventory, 'Original atom IDs/order changed')
+
+
 if __name__ == '__main__':
     unittest.main()
