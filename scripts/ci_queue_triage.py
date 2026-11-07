@@ -10,6 +10,7 @@ import argparse
 from collections import Counter
 import json
 import os
+import re
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -158,14 +159,80 @@ class Github:
         return out, True
 
 
+    def queued_pages(self, limit=MAX_PAGE_COUNT):
+        """Recover older queued runs hidden behind GitHub's 1,000-result cap.
+
+        Never authorize cancellation if result IDs, pagination totals or
+        creation timestamps cannot be reconciled to a fresh API count.
+        """
+        source = "/actions/runs?status=queued"
+        latest, incomplete = self.pages(source, "workflow_runs", limit=limit)
+        if not incomplete:
+            return latest, False
+        if not latest:
+            return [], True
+
+        by_id = {}
+        for item in latest:
+            if not _int(item.get("id")):
+                return latest, True
+            by_id[item["id"]] = item
+        if len(by_id) != len(latest):
+            return latest, True
+
+        def oldest(items):
+            stamps = [item.get("created_at") for item in items]
+            if any(not isinstance(x, str) or
+                   not re.fullmatch(
+                       r"[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+                       r"[0-9]{2}:[0-9]{2}:[0-9]{2}Z", x)
+                   for x in stamps):
+                return None
+            return min(stamps)
+
+        cutoff = oldest(latest)
+        if cutoff is None:
+            return latest, True
+        # Include the cutoff second twice and deduplicate by run ID to avoid
+        # dropping runs that share a timestamp at the pagination boundary.
+        for _ in range(20):
+            older, still_incomplete = self.pages(
+                source + "&created=1970-01-01T00:00:00Z.." + cutoff,
+                "workflow_runs", limit=limit)
+            if not older:
+                return list(by_id.values()), True
+            old_cutoff = oldest(older)
+            if old_cutoff is None:
+                return list(by_id.values()), True
+            for run in older:
+                if not _int(run.get("id")):
+                    return list(by_id.values()), True
+                by_id[run["id"]] = run
+            if not still_incomplete:
+                break
+            if old_cutoff >= cutoff:
+                return list(by_id.values()), True
+            cutoff = old_cutoff
+        else:
+            return list(by_id.values()), True
+
+        # Other agents may push/cancel work during scanning; never authorize
+        # action using a partial or temporally inconsistent API snapshot.
+        final = self.request(source + "&per_page=1")
+        reported = final.get("total_count")
+        result = list(by_id.values())
+        if type(reported) is not int or reported != len(result):
+            return result, True
+        return result, False
+
+
 def inspect(github, page_limit=MAX_PAGE_COUNT):
     # Never claim an exhaustive audit if GitHub pagination was truncated.
     prs, prs_truncated = github.pages("/pulls?state=open", "pull_requests",
                                        limit=page_limit)
     # GitHub's PR list returns a JSON array rather than a named collection.
     # This is handled by Github.pages below without weakening validation.
-    runs, runs_truncated = github.pages("/actions/runs?status=queued",
-                                         "workflow_runs", limit=page_limit)
+    runs, runs_truncated = github.queued_pages(limit=page_limit)
     if prs_truncated:
         raise ValueError("Open PR enumeration truncated; refuse stale-run decisions")
     heads, by_number, paired = build_context(prs, runs, github.repo)
@@ -207,8 +274,7 @@ def cancel_candidates(github, report, max_cancel):
             prs, truncated = github.pages("/pulls?state=open", "pull_requests")
             if truncated:
                 raise ValueError("PR inventory truncated before cancellation")
-            queued, queue_truncated = github.pages("/actions/runs?status=queued",
-                                                    "workflow_runs")
+            queued, queue_truncated = github.queued_pages()
             if queue_truncated:
                 raise ValueError("Queued runs exceeded safe scan limit")
             heads, by_number, paired = build_context(prs, queued, github.repo)
