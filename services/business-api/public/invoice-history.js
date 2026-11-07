@@ -171,6 +171,93 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                 raw("h4", invoice.number),
                 ui("p", "Invoice simulation disclaimer"),
             );
+            const evidence = document.createElement("div");
+            evidence.dataset.chargingSourceEvidence = "";
+            button(target, "Charging source evidence", async () => {
+                evidence.replaceChildren(ui("p", "Loading…"));
+                try {
+                    const p = await api(
+                        `finance/invoices/${id}/source-evidence`,
+                        "GET",
+                        undefined,
+                        request.signal,
+                    );
+                    if (epoch !== generation || version !== detailVersion)
+                        return;
+                    if (
+                        p.schema_version !== 1 ||
+                        p.invoice_id !== id ||
+                        p.evidence !== "SIMULATED_ONLY" ||
+                        p.physical_charging_verified !== false ||
+                        p.financial_records_changed !== false ||
+                        p.payment_authority !== false ||
+                        p.charging_command_authority !== false ||
+                        !Number.isSafeInteger(p.energy_wh) ||
+                        p.energy_wh < 0 ||
+                        ![
+                            "APP_SIMULATION",
+                            "OCPP_SIMULATOR",
+                            "OCPI_SANDBOX",
+                        ].includes(p.kind) ||
+                        typeof p.source_verified !== "boolean" ||
+                        ![
+                            "verified_simulated",
+                            "not_source_verified",
+                            "requires_review",
+                        ].includes(p.status) ||
+                        p.source_verified !==
+                            (p.status === "verified_simulated") ||
+                        !p.proofs ||
+                        Array.isArray(p.proofs) ||
+                        typeof p.proofs !== "object"
+                    )
+                        throw new Error("Unsupported evidence");
+                    const keys =
+                        p.kind === "OCPI_SANDBOX"
+                            ? ["session_sha256", "cdr_sha256"]
+                            : ["start_sha256", "end_sha256"];
+                    if (
+                        p.source_verified
+                            ? p.kind === "APP_SIMULATION" ||
+                              (p.kind === "OCPI_SANDBOX"
+                                  ? p.protocol !== "OCPI 2.2.1"
+                                  : !["OCPP 1.6", "OCPP 2.0.1"].includes(
+                                        p.protocol,
+                                    )) ||
+                              Object.keys(p.proofs).length !== 2 ||
+                              !keys.every(
+                                  (k) =>
+                                      typeof p.proofs[k] === "string" &&
+                                      /^[a-f0-9]{64}$/.test(p.proofs[k]),
+                              )
+                            : Object.keys(p.proofs).length !== 0
+                    )
+                        throw new Error("Unsupported evidence");
+                    evidence.replaceChildren(
+                        ui(
+                            "p",
+                            p.source_verified
+                                ? "Source receipts match this simulated invoice"
+                                : p.status === "requires_review"
+                                  ? "Source evidence requires review"
+                                  : "Application simulation without source verification",
+                        ),
+                        ui("p", "Source evidence disclaimer"),
+                        raw("p", `${p.energy_wh} Wh`),
+                    );
+                    if (p.source_verified) {
+                        evidence.append(raw("p", p.protocol));
+                        for (const hash of Object.values(p.proofs))
+                            evidence.append(raw("p", hash));
+                    }
+                } catch {
+                    if (epoch === generation && version === detailVersion)
+                        evidence.replaceChildren(
+                            ui("p", "Charging evidence unavailable"),
+                        );
+                }
+            });
+            target.append(evidence);
             for (const [label, value] of [
                 ["Subtotal", invoice.subtotal_minor],
                 ["Tax", invoice.tax_minor],

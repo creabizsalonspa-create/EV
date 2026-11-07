@@ -792,3 +792,8 @@ form label {
     margin-inline: 0;
     accent-color: var(--accent);
 }
+
+[data-charging-source-evidence] {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}

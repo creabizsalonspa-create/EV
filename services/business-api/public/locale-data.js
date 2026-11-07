@@ -2840,6 +2840,36 @@ window.EV_MESSAGES = {
         en: "No approved feedback in report window",
         ar: "لا توجد ملاحظات معتمدة ضمن فترة التقرير",
     },
-    "View simulated roaming invoice": {en: "View simulated roaming invoice", ar: "عرض فاتورة التجوال التجريبية"},
-    "Review simulated roaming invoice": {en: "Review simulated roaming invoice", ar: "مراجعة فاتورة التجوال التجريبية"},
+    "View simulated roaming invoice": {
+        en: "View simulated roaming invoice",
+        ar: "عرض فاتورة التجوال التجريبية",
+    },
+    "Review simulated roaming invoice": {
+        en: "Review simulated roaming invoice",
+        ar: "مراجعة فاتورة التجوال التجريبية",
+    },
+    "Charging source evidence": {
+        en: "Charging source evidence",
+        ar: "أدلة مصدر الشحن",
+    },
+    "Source receipts match this simulated invoice": {
+        en: "Source receipts match this simulated invoice",
+        ar: "تطابق إيصالات المصدر هذه الفاتورة التجريبية",
+    },
+    "Source evidence requires review": {
+        en: "Source evidence requires review",
+        ar: "تتطلب أدلة المصدر المراجعة",
+    },
+    "Application simulation without source verification": {
+        en: "Application simulation without source verification",
+        ar: "محاكاة التطبيق دون تحقق من المصدر",
+    },
+    "Source evidence disclaimer": {
+        en: "Recorded simulation evidence only. This does not verify physical charging, payment or command authority.",
+        ar: "أدلة محاكاة مسجلة فقط. لا تثبت الشحن الفعلي أو الدفع أو صلاحية الأوامر.",
+    },
+    "Charging evidence unavailable": {
+        en: "Charging evidence could not be verified. Retry safely.",
+        ar: "تعذر التحقق من أدلة الشحن. أعد المحاولة بأمان.",
+    },
 };
