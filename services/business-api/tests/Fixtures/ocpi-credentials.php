@@ -46,6 +46,7 @@ if (in_array($argv[3] ?? '', ['roaming', 'roaming-billing'], true)) {
     if (($argv[3] ?? '') === 'roaming-billing') {
         abort_unless(config('ocpi.test_billing_enabled'), 403);
         $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Synthetic TEST merchant '.$run, 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC-ONLY', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
+        DB::table('regions')->insertOrIgnore(['country' => 'NL', 'currency' => 'EUR', 'minor_units' => 2, 'timezone' => 'Europe/Amsterdam', 'commerce_enabled' => false, 'created_at' => now(), 'updated_at' => now()]);
         $extra['company_id'] = $company->id;
     }
     $extra += ['driver' => $driver->email, 'other' => $other->email, 'location_id' => OcpiRecord::where('ocpi_provider_id', $p->id)->where('module', 'locations')->firstOrFail()->id];

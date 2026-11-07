@@ -45,6 +45,10 @@ class TestInvoiceLineage
         foreach (['revision' => [1, 2147483647], 'company_id' => [1, 2147483647], 'minor_units' => [0, 3], 'rate_minor_per_kwh' => [1, 1000000], 'tax_bps' => [0, 10000], 'commission_bps' => [0, 10000]] as $k => [$min,$max]) {
             abort_unless(is_int($policy[$k]) && $policy[$k] >= $min && $policy[$k] <= $max, 409, 'Invalid approved TEST pricing policy.');
         }
+        // Match canonical regional precision before a preview or ledger write. No
+        // fallback exponent and no silent conversion of partner amounts.
+        $region = DB::table('regions')->where('country', $policy['country'])->lockForUpdate()->first();
+        abort_unless($region && $region->currency === $policy['currency'] && (int) $region->minor_units === $policy['minor_units'], 409, 'Configure matching regional currency and precision before TEST billing.');
         $company = VendorCompany::findOrFail($policy['company_id']);
         abort_unless($company->owner_id === $provider->owner_id, 409, 'Approved merchant company changed.');
         app(VendorAccess::class)->operational($company);
@@ -69,7 +73,7 @@ class TestInvoiceLineage
         $start = CarbonImmutable::parse($session->normalized['start_date_time']);
         $end = CarbonImmutable::parse($session->normalized['end_date_time']);
         abort_unless($end->gt($start) && $end->lte(now()->addSeconds(5)) && $start->diffInHours($end) <= 48, 409, 'Source transaction times require review.');
-        $facts = ['provider_name' => $provider->name, 'location_name' => $target['location_name'], 'order_id' => $order->id, 'provider_id' => $provider->id, 'vendor_id' => $provider->owner_id, 'country' => $policy['country'], 'currency' => $policy['currency'], 'minor_units' => $policy['minor_units'], 'rate_minor_per_kwh' => $policy['rate_minor_per_kwh'], 'tax_bps' => $policy['tax_bps'], 'commission_bps' => $policy['commission_bps'], 'energy_wh' => (int) $order->energy_wh, 'subtotal_minor' => $subtotal, 'tax_minor' => $tax, 'total_minor' => $total, 'started_at' => $start->toISOString(), 'stopped_at' => $end->toISOString(), 'policy_hash' => hash('sha256', json_encode([$policy, $company->updated_at?->toISOString()], JSON_THROW_ON_ERROR)), 'source_session_hash' => $session->content_hash, 'source_cdr_hash' => $cdr->content_hash, 'source_session_record_id' => $session->id, 'source_cdr_record_id' => $cdr->id, 'provider_revision' => $provider->authorization_revision, 'credential_generation' => $link->generation];
+        $facts = ['provider_name' => $provider->name, 'location_name' => $target['location_name'], 'order_id' => $order->id, 'provider_id' => $provider->id, 'vendor_id' => $provider->owner_id, 'country' => $policy['country'], 'currency' => $policy['currency'], 'minor_units' => $policy['minor_units'], 'rate_minor_per_kwh' => $policy['rate_minor_per_kwh'], 'tax_bps' => $policy['tax_bps'], 'commission_bps' => $policy['commission_bps'], 'energy_wh' => (int) $order->energy_wh, 'subtotal_minor' => $subtotal, 'tax_minor' => $tax, 'total_minor' => $total, 'started_at' => $start->toISOString(), 'stopped_at' => $end->toISOString(), 'policy_hash' => hash('sha256', json_encode([$policy, $company->updated_at?->toISOString(), $region->currency, (int) $region->minor_units, $region->updated_at], JSON_THROW_ON_ERROR)), 'source_session_hash' => $session->content_hash, 'source_cdr_hash' => $cdr->content_hash, 'source_session_record_id' => $session->id, 'source_cdr_record_id' => $cdr->id, 'provider_revision' => $provider->authorization_revision, 'credential_generation' => $link->generation];
 
         return $facts;
     }

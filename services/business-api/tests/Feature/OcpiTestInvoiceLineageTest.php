@@ -3,38 +3,17 @@
 namespace Tests\Feature;
 
 use App\Models\User;
-use App\Models\VendorOps\VendorCompany;
 use App\Services\Ocpi\TestInvoiceLineage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Tests\Support\CreatesSandboxRoaming;
+use PHPUnit\Framework\Attributes\TestWith;
+use Tests\Support\CreatesBillableSandboxRoaming;
 use Tests\TestCase;
 
 class OcpiTestInvoiceLineageTest extends TestCase
 {
-    use CreatesSandboxRoaming, RefreshDatabase;
-
-    private function billable(): array
-    {
-        [$owner,$driver,$other,$p,$location] = $this->fixture();
-        [$id] = $this->start($driver, $location);
-        $order = DB::table('ocpi_roaming_orders')->find($id);
-        $token = $this->writes[0]['body'];
-        $session = $this->sourceSessionFixture($p, $order, $token, 'COMPLETED');
-        $session['id'] = 'BILL-'.$id;
-        $session['kwh'] = '1.0';
-        $session['total_cost'] = ['excl_vat' => '0.25'];
-        $session['last_updated'] = now()->addSecond()->toISOString();
-        $this->withHeaders($this->peer())->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/'.$session['id'], $session)->assertCreated();
-        $cdr = ['country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'CDR-'.$id, 'session_id' => $session['id'], 'last_updated' => $session['last_updated'], 'start_date_time' => $session['start_date_time'], 'end_date_time' => $session['end_date_time'], 'currency' => 'EUR', 'total_energy' => '1.0', 'total_time' => '0.001', 'total_cost' => $session['total_cost'], 'cdr_location' => ['id' => 'L1', 'evse_uid' => 'E1', 'connector_id' => '1'], 'cdr_token' => $session['cdr_token'], 'authorization_reference' => $order->authorization_reference];
-        $this->postJson('/api/roaming-protocol/2.2.1/cdrs', $cdr)->assertCreated();
-        $this->withHeaders(['Authorization' => ''])->postJson('/api/roaming/sandbox-orders/'.$id.'/reconcile')->assertOk()->assertJsonPath('state', 'source_completed')->assertJsonPath('reconciliation_state', 'source_consistent');
-        $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Synthetic approved TEST merchant', 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC-ONLY', 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
-        config(['ocpi.test_billing_enabled' => true, 'ocpi.connections.roaming.test_billing_contract' => ['reference' => 'isolated_billing_v1', 'revision' => 1, 'command_contract' => 'isolated_contract_v1', 'company_id' => $company->id, 'country' => 'NL', 'currency' => 'EUR', 'minor_units' => 2, 'rate_minor_per_kwh' => 25, 'tax_bps' => 0, 'commission_bps' => 1000]]);
-
-        return [$owner, $driver, $other, $p, $company, $id, $session];
-    }
+    use CreatesBillableSandboxRoaming, RefreshDatabase;
 
     private function accept(int $id): array
     {
@@ -126,5 +105,73 @@ class OcpiTestInvoiceLineageTest extends TestCase
         $this->postJson($path.'/test-invoice-resolve', $next + ['cancel_unissued' => true])->assertOk()->assertJsonPath('state', 'issued')->assertJsonPath('invoice_id', $invoice['id'])->assertJsonPath('financial_records_changed', false);
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('finance_journals', 1);
+    }
+
+    public function test_region_currency_and_precision_changes_block_new_consent_without_rewriting_issued_history(): void
+    {
+        [,,,,,$id] = $this->billable();
+        $v = $this->accept($id);
+        $path = '/api/roaming/sandbox-orders/'.$id;
+        foreach ([['currency' => 'USD'], ['minor_units' => 3]] as $change) {
+            DB::table('regions')->where('country', 'NL')->update($change);
+            $this->getJson($path.'/test-invoice-preview')->assertConflict();
+            $this->postJson($path.'/test-invoice', $v)->assertConflict();
+            DB::table('regions')->where('country', 'NL')->update(['currency' => 'EUR', 'minor_units' => 2]);
+        }
+        DB::table('regions')->where('country', 'NL')->update(['updated_at' => now()->addSecond()]);
+        $this->postJson($path.'/test-invoice', $v)->assertConflict();
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $v = $this->accept($id);
+        $invoice = $this->postJson($path.'/test-invoice', $v)->assertOk()->json('invoice');
+        DB::table('regions')->where('country', 'NL')->delete();
+        $this->postJson($path.'/test-invoice', $v)->assertOk()->assertJsonPath('invoice.id', $invoice['id'])->assertJsonPath('invoice.minor_units', 2);
+        $this->getJson($path.'/test-invoice-preview')->assertConflict();
+        $this->assertDatabaseCount('finance_journals', 1);
+    }
+
+    #[TestWith(['JPY', 0, '25', 25])]
+    #[TestWith(['KWD', 3, '0.125', 125])]
+    public function test_zero_and_three_decimal_source_currencies_use_exact_regional_minor_units(string $currency, int $units, string $rate, int $minor): void
+    {
+        [,,,,,$id] = $this->billable($currency, $units, $rate, $minor);
+        $path = '/api/roaming/sandbox-orders/'.$id;
+        $p = $this->getJson($path.'/test-invoice-preview')->assertOk()->assertJsonPath('total_minor', $minor)->assertJsonPath('minor_units', $units)->json();
+        $v = ['request_key' => (string) Str::uuid(), 'preview_token' => $p['preview_token'], 'terms_version' => TestInvoiceLineage::TERMS, 'consent' => true, 'expected_total_minor' => $minor, 'expected_currency' => $currency, 'expected_minor_units' => $units, 'expected_energy_wh' => 1000];
+        $this->postJson($path.'/test-invoice', $v)->assertOk()->assertJsonPath('invoice.currency', $currency)->assertJsonPath('invoice.minor_units', $units)->assertJsonPath('invoice.total_minor', $minor)->assertJsonPath('ledger_balanced', true);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_partner_cost_requiring_minor_unit_rounding_is_not_a_billable_source(): void
+    {
+        [,,,,,$id] = $this->billable(sourceCost: '0.251');
+        $this->getJson('/api/roaming/sandbox-orders/'.$id.'/test-invoice-preview')->assertConflict();
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
+    public function test_additive_lineage_migration_preserves_exact_active_evse_predicate_and_schema_round_trip(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->assertStringContainsString('WHERE', DB::table('pg_indexes')->where('tablename', 'charging_sessions')->where('indexname', 'charging_active_evse')->value('indexdef'));
+
+            return;
+        }
+        $expected = "CREATE UNIQUE INDEX charging_active_evse ON charging_sessions (charging_evse_id) WHERE charging_evse_id IS NOT NULL AND status IN ('pending_start','charging','stopping')";
+        $index = fn () => DB::table('sqlite_master')->where('name', 'charging_active_evse')->value('sql');
+        $this->assertSame($expected, $index());
+        $migration = require database_path('migrations/2026_11_10_000002_add_ocpi_test_invoice_lineage.php');
+        $migration->down();
+        $this->assertSame($expected, $index());
+        $migration->up();
+        $this->assertSame($expected, $index());
+        DB::statement('DROP INDEX charging_active_evse');
+        DB::statement('CREATE UNIQUE INDEX charging_active_evse ON charging_sessions (charging_evse_id)');
+        $repair = require database_path('migrations/2026_11_10_000004_restore_sqlite_charging_capacity_index.php');
+        $repair->up();
+        $this->assertSame($expected, $index());
+        $repair->down();
+        $this->assertSame($expected, $index());
+        $this->assertSame(2, DB::table('sqlite_master')->where('type', 'trigger')->whereIn('name', ['charging_source_insert', 'charging_source_update'])->count());
     }
 }

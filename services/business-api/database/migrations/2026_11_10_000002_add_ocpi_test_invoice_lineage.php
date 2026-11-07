@@ -11,10 +11,10 @@ return new class extends Migration
     {
         // Partner sessions use canonical charging/finance records without inventing
         // a local reservation, station, capacity claim or second financial ledger.
-        Schema::table('charging_sessions', function (Blueprint $t) {
+        $this->preserveSqliteDefinitions(fn () => Schema::table('charging_sessions', function (Blueprint $t) {
             $t->foreignId('reservation_id')->nullable()->change();
             $t->foreignId('roaming_order_id')->nullable()->unique()->constrained('ocpi_roaming_orders')->restrictOnDelete();
-        });
+        }));
         Schema::create('ocpi_test_invoice_receipts', function (Blueprint $t) {
             $t->id();
             $t->foreignId('order_id')->unique()->constrained('ocpi_roaming_orders')->restrictOnDelete();
@@ -53,10 +53,25 @@ return new class extends Migration
         } elseif (DB::getDriverName() === 'pgsql') {
             DB::statement('ALTER TABLE charging_sessions DROP CONSTRAINT IF EXISTS charging_source_exclusive');
         }
-        Schema::table('charging_sessions', fn (Blueprint $t) => $t->dropConstrainedForeignId('roaming_order_id'));
+        Schema::table('charging_sessions', fn (Blueprint $t) => $t->dropUnique(['roaming_order_id']));
+        $this->preserveSqliteDefinitions(fn () => Schema::table('charging_sessions', fn (Blueprint $t) => $t->dropConstrainedForeignId('roaming_order_id')));
         // Used roaming sessions must be retained; no downgrade fabricates reservations.
         if (! DB::table('charging_sessions')->whereNull('reservation_id')->exists()) {
-            Schema::table('charging_sessions', fn (Blueprint $t) => $t->foreignId('reservation_id')->nullable(false)->change());
+            $this->preserveSqliteDefinitions(fn () => Schema::table('charging_sessions', fn (Blueprint $t) => $t->foreignId('reservation_id')->nullable(false)->change()));
+        }
+    }
+
+    /** SQLite rebuilds must retain partial uniqueness and existing triggers exactly. */
+    private function preserveSqliteDefinitions(callable $change): void
+    {
+        $definitions = DB::getDriverName() === 'sqlite'
+            ? DB::select("SELECT name, type, sql FROM sqlite_master WHERE tbl_name = 'charging_sessions' AND type IN ('index','trigger') AND sql IS NOT NULL")
+            : [];
+        $change();
+        foreach ($definitions as $definition) {
+            $name = '"'.str_replace('"', '""', $definition->name).'"';
+            DB::statement('DROP '.strtoupper($definition->type).' IF EXISTS '.$name);
+            DB::statement($definition->sql);
         }
     }
 };
