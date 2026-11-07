@@ -19,7 +19,7 @@ try {
 if (
   base.protocol !== "http:" ||
   base.hostname !== "127.0.0.1" ||
-  !/^\\d{1,5}$/.test(base.port) ||
+  !/^[0-9]{1,5}$/.test(base.port) ||
   Number(base.port) < 1024 ||
   Number(base.port) > 65535 ||
   base.pathname !== "/" ||
