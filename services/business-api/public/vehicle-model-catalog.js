@@ -154,6 +154,22 @@
         select.append(option);
       }
       panel.append(select);
+      const reference = document.createElement("a");
+      reference.target = "_blank";
+      reference.rel = "noopener noreferrer";
+      reference.setAttribute("aria-label", "Admin-provided model reference / مرجع الطراز من الإدارة");
+      const showReference = () => {
+        const model = models.find(m => String(m.id) === select.value);
+        const url = typeof model?.source_url === "string" &&
+          model.source_url.startsWith("https://") ? model.source_url : "";
+        reference.hidden = !url;
+        reference.href = url || "#";
+        reference.textContent = url
+          ? (isAr() ? "المرجع المقدم من الإدارة: " : "Admin-provided reference: ") + url : "";
+      };
+      select.onchange = showReference;
+      showReference();
+      panel.append(reference);
       if (!models.length) panel.append(tr("No compatible published models on this page.",
         "لا توجد طرازات منشورة متوافقة في هذه الصفحة.", "p"));
       const save = button("Link selected model", "ربط الطراز المحدد", async () => {

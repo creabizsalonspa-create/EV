@@ -147,6 +147,13 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
               )).toList(),
               onChanged:busy || saving ? null : (v)=>setState(()=>selectedId=v),
             ),
+          if (selectedId != null)
+            for (final choice in choices)
+              if (choice['id'] == selectedId && choice['source_url'] is String)
+                SelectableText(
+                  t('Admin-provided reference: ', 'المرجع المقدم من الإدارة: ') +
+                  choice['source_url'].toString(),
+                ),
           FilledButton(
             key:const Key('model-link-save'),
             onPressed:busy || saving || selectedId==null
