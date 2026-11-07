@@ -349,6 +349,71 @@ void main() {
     }
   });
 
+  test('failed secure deletion after server 401 never claims token erased', () async {
+    final server = await HttpServer.bindSecure(
+      InternetAddress.loopbackIPv4,
+      0,
+      fixtureServerContext(usePkcs12: true),
+    );
+    final subscription = server.listen((req) async {
+      req.response.headers.contentType = ContentType.json;
+      if (req.uri.path == '/api/csrf') {
+        req.response.cookies.add(
+          Cookie('session', 'synthetic-session')
+            ..secure = true
+            ..httpOnly = true
+            ..expires = DateTime.now().toUtc().add(
+              const Duration(minutes: 30),
+            )
+            ..path = '/',
+        );
+        req.response.write(jsonEncode({'token': 'synthetic-csrf'}));
+      } else if (req.uri.path == '/api/login') {
+        req.response.write(jsonEncode({
+          'id': 7, 'name': 'Signed-in vendor', 'role': 'vendor',
+        }));
+      } else if (req.uri.path == '/api/me') {
+        req.response.statusCode = 401;
+        req.response.write(jsonEncode({'message': 'Expired'}));
+      } else {
+        req.response.statusCode = 404;
+        req.response.write('{}');
+      }
+      await req.response.close();
+    });
+    final base = Uri.parse('https://127.0.0.1:${server.port}');
+    final vault = MemoryVault();
+    final api = EvApi(
+      base,
+      http: HttpClient(context: fixtureClientContext()),
+      vault: vault,
+    );
+    try {
+      await api.signIn('synthetic@example.test', 'never-persist-password');
+      expect(await api.rememberSession(), isTrue);
+      final encryptedSnapshot = vault.entries[base.origin];
+      expect(encryptedSnapshot, isNotNull);
+      vault.failDelete = true;
+      await expectLater(
+        api.request('me'),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 401)),
+      );
+      // The remote account is rejected, but the device vault may still hold
+      // the rejected cookie. Flagging it forgotten would be misleading.
+      expect(api.remembered, isTrue);
+      expect(vault.entries[base.origin], encryptedSnapshot);
+      vault.failDelete = false;
+      await api.forgetSession();
+      expect(vault.entries, isEmpty);
+      expect(api.remembered, isFalse);
+    } finally {
+      vault.failDelete = false;
+      api.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
   test('plaintext origins never persist credentials', () async {
     final vault = MemoryVault();
     final api = EvApi(Uri.parse('http://127.0.0.1:8000'), vault: vault);
