@@ -83,6 +83,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
       await widget.api.request('privacy-requests', method: 'POST', body: {...pendingBody!, 'idempotency_key':pendingId});
       if (!mounted || ticket != generation || !fence()) return;
       newRequest();
+      if (mounted) setState(() => sending = false);
       await refresh(1);
       if (mounted) setState(() => success = t('Request recorded for review.', 'تم تسجيل الطلب للمراجعة.'));
     } catch (e) {
@@ -119,7 +120,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
       if (success != null) Semantics(liveRegion: true, child: Text(success!, key: const Key('privacy-success'))),
       const SizedBox(height: 12),
       DropdownButtonFormField<String>(
-        key: const Key('privacy-kind'), initialValue: kind,
+        key: ValueKey('privacy-kind-' + kind), initialValue: kind,
         decoration: InputDecoration(labelText: t('Request type', 'نوع الطلب')),
         items: [
           DropdownMenuItem(value: 'data_access', child: Text(t('Personal data access', 'الوصول للبيانات الشخصية'))),
