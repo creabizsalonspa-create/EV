@@ -67,7 +67,22 @@ class MobileReleaseSigningTest(unittest.TestCase):
                         config,
                     )
                 else:
-                    self.assertIn('dependsOn(verifyReleaseSigning)', config)
+                    self.assertIn(
+                        'providers.gradleProperty("EV_ANDROID_APPLICATION_ID")',
+                        config,
+                    )
+                    self.assertIn(
+                        'tasks.register("verifyReleaseApplicationId")', config
+                    )
+                    for disallowed in ("dev", "test", "debug"):
+                        self.assertIn(
+                            f'!identifier.endsWith(".{disallowed}", ignoreCase = true)',
+                            config,
+                        )
+                    self.assertIn(
+                        'dependsOn(verifyReleaseSigning, verifyReleaseApplicationId)',
+                        config,
+                    )
 
     def test_android_apps_deny_cloud_and_device_transfer_of_credentials(self):
         for app in ("mobile", "hasone-customer"):
@@ -306,12 +321,24 @@ class MobileReleaseSigningTest(unittest.TestCase):
             gradle,
         )
         self.assertIn('applicationIdSuffix = ".dev"', gradle)
+        ev = PROJECTS["EV"].read_text()
+        self.assertIn(
+            'applicationId = approvedEvApplicationId?.takeIf { it.isNotBlank() }',
+            ev,
+        )
+        self.assertIn('applicationIdSuffix = ".dev"', ev)
 
     def test_app_identity_is_not_silently_rebranded(self):
+        ev = PROJECTS["EV"].read_text()
         self.assertIn(
-            'applicationId = "com.creabiz.creabiz_ev"',
-            PROJECTS["EV"].read_text(),
+            'val defaultEvApplicationId = "com.creabiz.creabiz_ev"',
+            ev,
         )
+        self.assertIn(
+            'applicationId = approvedEvApplicationId?.takeIf { it.isNotBlank() }',
+            ev,
+        )
+        self.assertIn('?: defaultEvApplicationId', ev)
         hasone = PROJECTS["HASONE"].read_text()
         self.assertIn(
             'val defaultApplicationId = "com.creabiz.hasone.customer.dev"',
