@@ -29,6 +29,10 @@ jobs:
           node --check integrations/hasone-express/paymentIntegrity.mjs
           node --check integrations/hasone-express/ocppSourceEvidence.mjs
           node --check integrations/hasone-express/adminOcppBooking.js
+          node --check integrations/hasone-express/adminMultiCharger.js
+          node --check integrations/hasone-express/ocppMultiCharger.mjs
+          node --check integrations/hasone-express/migrateChargerStationIndex.mjs
+          node --check tools/agent2/test_next_admin_multicharger_browser.mjs
           node --check tools/agent2/test_staged_payment_routes.mjs
           node --check tools/agent2/run_isolated_backend_demo.mjs
           node --check tools/agent2/secure_live_mongo_snapshot.mjs
