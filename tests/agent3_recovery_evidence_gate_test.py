@@ -26,9 +26,9 @@ def evidence():
         'restored_http_catalog': '200 and empty',
         'external_acceptance': 'not tested',
         'laravel_encrypted_record_restored': True,
+        'wrong_laravel_key_rejected': True,
         'synthetic_private_file_restored': True,
         'post_snapshot_write_excluded': True,
-        'archive_tamper_rejected': True,
         'archive_tamper_rejected': True,
         'private_archive_tamper_rejected': True,
         'queue_worker_started': True,
@@ -45,6 +45,7 @@ def evidence():
         'real_citrineos_schema_restored': False,
         'rabbitmq_broker_restored': False,
         'physical_charger_or_money': False,
+        'archive_tamper_rejected': True,
     }
     return business, csms
 
@@ -62,9 +63,9 @@ class GateTest(unittest.TestCase):
             ('dump_sha256','invalid'),('synthetic_private_archive_sha256',None),
             ('migration_history_md5','wrong'),('laravel_migration_rows',True),
             ('laravel_migration_rows',0),('laravel_encrypted_record_restored',False),
+            ('wrong_laravel_key_rejected',False),
             ('synthetic_private_file_restored',False),
             ('post_snapshot_write_excluded',False),
-            ('archive_tamper_rejected',False),
             ('archive_tamper_rejected',False),
             ('private_archive_tamper_rejected',False),
             ('queue_worker_started',False),
@@ -87,6 +88,7 @@ class GateTest(unittest.TestCase):
             ('post_snapshot_write_excluded',False),
             ('real_citrineos_schema_restored',True),('rabbitmq_broker_restored',True),
             ('physical_charger_or_money',True),
+            ('archive_tamper_rejected',False),
         ]
         for field,value in cases:
             with self.subTest(field=field,value=value):

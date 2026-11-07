@@ -57,6 +57,7 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business.get('restored_http_catalog') == '200 and empty' and
             business.get('external_acceptance') == 'not tested' and
             business.get('laravel_encrypted_record_restored') is True and
+            business.get('wrong_laravel_key_rejected') is True and
             business.get('synthetic_private_file_restored') is True and
             business.get('post_snapshot_write_excluded') is True and
             business.get('archive_tamper_rejected') is True and

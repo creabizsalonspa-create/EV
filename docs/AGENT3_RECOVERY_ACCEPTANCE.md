@@ -69,3 +69,7 @@ The private gzip-tar guard now reads **every member's decompressed bytes**, vali
 ### Corrected gzip footer validation (confirmed locally)
 
 The first full-member-reading implementation was not sufficient to reject a gzip stream missing its last eight bytes, because Python's tar iterator can stop at tar end-of-archive markers without consuming the gzip CRC/ISIZE trailer. The guard now independently consumes the entire gzip stream under a bounded expanded-wire limit and requires complete checksum/trailer verification. Local synthetic tests have confirmed that normal archives verify while both truncated and deliberately corrupted gzip trailers are rejected. The tests were performed without production backups or hardware; hosted exact-commit Docker restore still requires CI.
+
+### Key-continuity negative control and corrected acceptance fixture
+
+The isolated restored Laravel application now proves that preserved source `APP_KEY` decrypts synthetic ciphertext and an independent valid 32-byte key cannot. The false-key check constructs a disposable Encrypter and does **not** rotate or expose the restored application's APP_KEY. The combined recovery-evidence gate requires `wrong_laravel_key_rejected=true`. Its CSMS positive-test fixture was corrected to contain the already-required `archive_tamper_rejected=true` field; duplicate business-field entries were also removed. Negative tests now cover both fields explicitly. These gates remain synthetic-only and are not physical/production acceptance.

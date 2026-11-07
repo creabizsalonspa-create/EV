@@ -247,7 +247,20 @@ if (!is_string($ciphertext) || !hash_equals(
 )) {
     throw new RuntimeException('Recovered APP_KEY could not decrypt source data.');
 }
-echo "Recovered Laravel encrypted record: PASS\n";
+// A syntactically valid but unrelated key must fail authentication/decryption.
+// This never rotates the recovered Laravel application's actual encryption key.
+$acceptedWrongKey = false;
+try {
+    $unrelated = new \Illuminate\Encryption\Encrypter(random_bytes(32), config('app.cipher'));
+    $unrelated->decryptString($ciphertext);
+    $acceptedWrongKey = true;
+} catch (\Illuminate\Contracts\Encryption\DecryptException) {
+    // Expected: source data cannot be decrypted by an unrelated key.
+}
+if ($acceptedWrongKey) {
+    throw new RuntimeException('Recovered Laravel ciphertext accepted an unrelated key.');
+}
+echo "Recovered Laravel encrypted record and wrong-key refusal: PASS\n";
 PHP_DECRYPT
 docker exec -i --user www-data "$target_app" php <<'PHP_HTTP'
 <?php
@@ -277,6 +290,7 @@ record = {
     'workflow_run_id': os.environ.get('GITHUB_RUN_ID', 'local-unverified'),
     'workflow_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT', 'local-unverified'),
     'laravel_encrypted_record_restored': True,
+    'wrong_laravel_key_rejected': True,
     'synthetic_private_file_restored': True,
     'post_snapshot_write_excluded': True,
     'archive_tamper_rejected': True,

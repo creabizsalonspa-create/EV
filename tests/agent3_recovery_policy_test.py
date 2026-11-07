@@ -69,6 +69,7 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
             "synthetic_private_archive_sha256",
             "PHP_ENCRYPT",
             "PHP_DECRYPT",
+            "acceptedWrongKey",
             "Crypt::encryptString",
             "Crypt::decryptString",
             "Recovered APP_KEY could not decrypt source data.",
