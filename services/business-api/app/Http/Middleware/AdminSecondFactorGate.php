@@ -37,11 +37,17 @@ class AdminSecondFactorGate
         return is_string($encrypted) && hash_equals(hash('sha256', $encrypted), $proof);
     }
 
+    public static function required(): bool
+    {
+        // Existing local/synthetic CI is kept compatible. Production and
+        // staging cannot opt out through an environment flag.
+        return ! app()->environment(['local', 'testing'])
+            || config('admin_security.enforce_in_local_tests', false);
+    }
+
     public function handle(Request $request, Closure $next): Response
     {
-        // Legacy tests keep their established auth fixtures; production/staging
-        // Admin requests always require enrollment + an actual TOTP challenge.
-        if (app()->environment('testing') && ! config('admin_security.force_in_tests', false)) {
+        if (! self::required()) {
             return $next($request);
         }
 
