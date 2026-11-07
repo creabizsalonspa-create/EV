@@ -55,3 +55,16 @@ To isolate the underlying causes, Agent 9 temporarily registered the four SQLite
 - Ran **read-only** `composer audit --locked --format=json` using Composer 2.11.1 and PHP 8.4.24 in the disposable checkout: exit 0, **0 advisory packages** reported. This is a point-in-time advisory lookup, not a claim of code security or complete supply-chain review.
 - Ran **read-only** `npm audit --json` against the checked-in Node dependency tree: exit 0 and **0 vulnerabilities** (including 0 critical/high/moderate/low/info) reported at the time of execution.
 - **Deployment compatibility caution:** the checked-in PHP manifest declares `php: ^8.2`, but the locked `symfony/clock`, `symfony/css-selector`, `symfony/event-dispatcher`, `symfony/string`, `symfony/translation`, `symfony/yaml` and other resolved packages require PHP >=8.4.1. Composer install with the host's default PHP 8.2.33 fails on the exact lockfile. The separate PHP 8.4.24 binary succeeded. Agent 4 and canonical backend owner must choose and verify a supported deployment/runtime version before release; **no change to runtime defaults, dependencies or production hosting was made**.
+
+## One-command disposable QA runner
+
+Agent 9 added `scripts/agent9-isolated-security-qa.cjs` to make the HTTP/Chromium security smoke repeatable without a deployed app. It **requires an explicit existing checkout under `/tmp`**, an absolute PHP >=8.4.1 binary, installed Laravel vendor dependencies and Playwright Chromium. It rejects symlinks whose actual source escapes the disposable checkout, unsafe paths, missing or unknown arguments, and never forwards the operator's database, session, mail, PSP, or charger environment. It starts the PHP built-in server directly on a random `127.0.0.1` high port with a generated one-off APP_KEY, `:memory:` SQLite and array sessions, executes the seven HTTP + four Chromium security tests, and terminates the server in a `finally` block. No production resources are used.
+
+```sh
+node scripts/agent9-isolated-security-qa.cjs \
+  --isolated-root=/tmp/ev-agent9-qa-20261107 \
+  --php-bin=/opt/cpanel/ea-php84/root/usr/bin/php
+node --test tests/agent9-runner-guard.test.cjs
+```
+
+**Exact-source verified commit `760b6431870041861efb3df01aecf087ec6fa2f9`**: source syntax passed; runner launched a disposable Laravel instance and completed **7/7 real HTTP + 4/4 real headless Chromium tests**; process terminated. New target guard rejected **11 unsafe runner invocations** (one full test group passed). `git diff --check` clean. The source contained the earlier six-route anonymous CSMS mutation test and SQLite-only catalog fixture; those were separately tested at commit `b259782` (**21 tests/202 assertions passed**) and `330db463` (**15 tests/127 assertions passed**). Full Feature suite on committed original finance migration remains **553 tests, 5525 assertions and 1 error**, solely the SQLite precision-trigger rebuild case. Agent 1 owns that outstanding canonical migration fix.
