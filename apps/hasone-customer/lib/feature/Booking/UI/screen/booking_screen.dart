@@ -1,4 +1,5 @@
 import 'dart:ui';
+import '../../history/source_history_screen.dart';
 
 import 'package:evcharg/app/resource.dart';
 import 'package:evcharg/app/widget_button.dart';
@@ -254,6 +255,15 @@ class _BookingScreenState extends State<BookingScreen> {
                 ),
               ),
             ],
+          ),
+
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton.icon(
+              icon: const Icon(Icons.history),
+              label: const Text('Charging history / \u0633\u062c\u0644 \u0627\u0644\u0634\u062d\u0646'),
+              onPressed: () => Get.to(() => const SourceHistoryScreen()),
+            ),
           ),
 
           // ── Active filter chip ──
