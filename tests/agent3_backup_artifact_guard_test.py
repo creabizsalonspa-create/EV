@@ -105,6 +105,39 @@ class ArchiveTests(unittest.TestCase):
                 with self.assertRaises(guard.ArchiveError):
                     guard.inspect(dump, private)
 
+    def test_private_archive_symlink_is_rejected_before_tar_parsing(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            archive = root / 'private.tar.gz'
+            sample_tar(archive)
+            link = root / 'swapped.tar.gz'
+            link.symlink_to(archive)
+            with self.assertRaises(guard.ArchiveError):
+                guard.safe_tar(link)
+
+    def test_private_archive_symlink_swap_before_gzip_trailer_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            archive = root / 'private.tar.gz'
+            replacement = root / 'original.tar.gz'
+            sample_tar(archive)
+            original_open = guard.open_regular_archive
+            opens = 0
+
+            def replace_before_second_open(path):
+                nonlocal opens
+                opens += 1
+                if opens == 2:
+                    archive.rename(replacement)
+                    archive.symlink_to(replacement)
+                return original_open(path)
+
+            with patch.object(guard, 'open_regular_archive',
+                              side_effect=replace_before_second_open):
+                with self.assertRaises(guard.ArchiveError):
+                    guard.safe_tar(archive)
+            self.assertEqual(opens, 2)
+
     def test_regular_private_archive_remains_accepted(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d); dump = root/'db.dump'; private = root/'private.tar.gz'
