@@ -206,7 +206,7 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
     return {"repository": repo, "target": target, "audited_prs": len(results),
             "ready_for_manual_review": sum(r["status"] == "candidate_for_manual_review"
                                             for r in results), "prs": results,
-            "shared_file_conflicts": conflicts,
+            "shared_file_overlaps": conflicts,
             "merge_executed": False}
 
 
