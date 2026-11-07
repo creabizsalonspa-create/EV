@@ -26,7 +26,7 @@ class PaymentProviderSecretSafetyTest extends TestCase
         ] as $unacceptable) {
             config(['payments.stripe_test_secret' => $unacceptable]);
             try {
-                (new StripeSandboxProvider)->readHostedPayment('cs_test_agent9_synthetic');
+                (new StripeSandboxProvider)->readHostedPayment('cs_test_agent9synthetic');
                 $this->fail('Test adapter accepted a disallowed provider key');
             } catch (HttpException $e) {
                 $this->assertSame(503, $e->getStatusCode());
