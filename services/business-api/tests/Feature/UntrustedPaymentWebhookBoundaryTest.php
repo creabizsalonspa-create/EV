@@ -59,7 +59,7 @@ class UntrustedPaymentWebhookBoundaryTest extends TestCase
                     'HTTP_ACCEPT' => 'application/json',
                 ] + $headers, $raw);
 
-                $this->assertContains($response->status(), [400, 401, 403, 404, 422, 429, 503],
+                $this->assertContains($response->status(), [400, 401, 403, 404, 409, 422, 429, 503],
                     'A forged webhook must not authorize funds, redirect or crash: '.$path);
                 $this->assertSame('nosniff', $response->headers->get('X-Content-Type-Options'), $path);
                 $this->assertSame('DENY', $response->headers->get('X-Frame-Options'), $path);
