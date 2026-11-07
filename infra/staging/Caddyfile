@@ -1,8 +1,12 @@
 {
-    email {$ACME_EMAIL}
+    # This private, loopback-only staging gateway has no public ACME challenge ports.
+    # Never attempt to issue a public TLS certificate for a non-reachable private tunnel.
     admin off
 }
 {$STAGING_HOST} {
+    # Local Caddy CA. Operators must separately trust the reviewed PUBLIC root cert
+    # on the private test device. Never export or distribute the issuer private key.
+    tls internal
     encode zstd gzip
     reverse_proxy application:80
     header {
