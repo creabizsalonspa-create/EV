@@ -29,5 +29,7 @@ test('no unreviewed catch-all public hostname or admin endpoint',()=>{
   const s=read();
   assert.equal((s.match(/\breverse_proxy\b/g)||[]).length,1);
   assert.doesNotMatch(s,/\badmin\s+(?!off\b)/);
-  assert.doesNotMatch(s,/\b(?:tls\s+internal|:443\s*\{|http:\/\/)\b/);
+  assert.match(s,/\btls\s+internal\b/);
+  assert.doesNotMatch(s,/\bemail\s+\{\$ACME_EMAIL\}/);
+  assert.doesNotMatch(s,/:443\s*\{|http:\/\//);
 });
