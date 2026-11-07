@@ -138,7 +138,7 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("[data-partner-location-id='19']").count(), 1);
     showPartner = false;
     await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
-    await page.getByText("No published roaming locations", { exact: true }).waitFor();
+    await page.getByText("No published partner locations.", { exact: true }).waitFor();
     assert.equal(await page.locator(".partner-map-pin").count(), 0);
     await page.locator("#language").click();
     assert.match(
