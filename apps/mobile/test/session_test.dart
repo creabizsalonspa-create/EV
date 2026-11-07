@@ -12,8 +12,18 @@ class MemoryVault implements SessionVault {
   bool failWrite = false;
   int writes = 0;
   Future<void>? deleteWait;
+  Future<void>? readWait;
+  Completer<void>? readStarted;
   @override
-  Future<String?> read(String origin) async => entries[origin];
+  Future<String?> read(String origin) async {
+    // Simulate a platform read that captured an old credential before logout.
+    final captured = entries[origin];
+    if (readStarted != null && !readStarted!.isCompleted) {
+      readStarted!.complete();
+    }
+    if (readWait != null) await readWait;
+    return captured;
+  }
   @override
   Future<void> write(String origin, String value) async {
     entries[origin] = value;
@@ -97,6 +107,44 @@ class ObservedResponse extends Stream<List<int>> implements HttpClientResponse {
 }
 
 void main() {
+  test('in-flight secure storage restore cannot undo forgetSession', () async {
+    final origin = Uri.parse('https://example.test');
+    final vault = MemoryVault();
+    final release = Completer<void>();
+    final started = Completer<void>();
+    vault.readWait = release.future;
+    vault.readStarted = started;
+    final now = DateTime.now().toUtc();
+    final expiry = now.add(const Duration(minutes: 25));
+    vault.entries[origin.origin] = jsonEncode({
+      'version': 1,
+      'origin': origin.origin,
+      'saved_at': now.toIso8601String(),
+      'expires': expiry.toIso8601String(),
+      'cookies': [
+        'session=stale; Path=/; Secure; HttpOnly; '
+            'Expires=${HttpDate.format(expiry)}',
+      ],
+    });
+    final api = EvApi(origin, vault: vault);
+    try {
+      final pendingRestore = api.restoreSession();
+      await started.future;
+      // Forget increments the identity epoch before the serialized vault
+      // deletion completes. The late read must never make a network request
+      // using the stale session or show a restored account.
+      final forget = api.forgetSession();
+      release.complete();
+      expect(await pendingRestore, isNull);
+      await forget;
+      expect(vault.entries, isEmpty);
+      expect(api.remembered, isFalse);
+    } finally {
+      if (!release.isCompleted) release.complete();
+      api.close();
+    }
+  });
+
   test('plaintext origins never persist credentials', () async {
     final vault = MemoryVault();
     final api = EvApi(Uri.parse('http://127.0.0.1:8000'), vault: vault);
