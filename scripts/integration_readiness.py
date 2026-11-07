@@ -34,7 +34,29 @@ def required_checks(paths):
     return required
 
 
-def assess(pr, check_runs, paths, parents=None, target=TARGET):
+def action_workflow_run_id(details_url, repo=REPOSITORY):
+    """Only accept GitHub Actions job links for this exact repository."""
+    if not isinstance(details_url, str):
+        return None
+    pattern = (r"https://github\\.com/" + re.escape(repo) +
+               r"/actions/runs/([1-9][0-9]*)/job/[1-9][0-9]*")
+    match = re.fullmatch(pattern, details_url)
+    return int(match.group(1)) if match else None
+
+
+def verified_pr_event_ids(workflows, number, head):
+    """A push check can be linked to a PR: the run's event must also be PR."""
+    return {run["id"] for run in workflows
+            if type(run.get("id")) is int and run["id"] > 0
+            and run.get("event") == "pull_request"
+            and run.get("head_sha") == head
+            and isinstance(run.get("pull_requests"), list)
+            and any(isinstance(link, dict) and link.get("number") == number
+                    for link in run["pull_requests"])}
+
+
+def assess(pr, check_runs, paths, parents=None, target=TARGET,
+           pr_event_run_ids=None, repo=REPOSITORY):
     """Pure, deliberately conservative eligibility evaluation."""
     parents = parents or {}
     number = pr["number"]
@@ -54,16 +76,24 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
         reasons.append("conflict_or_mergeability_unknown")
     if not paths:
         reasons.append("missing_changed_file_inventory")
-    # GitHub may return both push and PR check suites for the same commit.
-    # Only checks associated with THIS open PR can satisfy its merge gate.
-    # Unassociated push runs must not conceal absent PR validation or block
-    # a clean PR because a separate push run was superseded/cancelled.
-    relevant = [r for r in check_runs
-                if isinstance(r.get("pull_requests"), list)
-                and any(isinstance(link, dict) and link.get("number") == number
-                        for link in r["pull_requests"])]
-    if not relevant:
+    # The check-runs API lists PUSH jobs associated with open PRs, too.
+    # Association alone does not prove a pull_request-triggered workflow.
+    # Require the job URL to belong to a verified pull_request workflow run
+    # for this exact PR and head; unknown run provenance must fail closed.
+    if pr_event_run_ids is None:
+        reasons.append("missing_pr_event_workflow_inventory")
+    approved = {x for x in (pr_event_run_ids or ())
+                if type(x) is int and x > 0}
+    linked = [r for r in check_runs
+              if isinstance(r.get("pull_requests"), list)
+              and any(isinstance(link, dict) and link.get("number") == number
+                      for link in r["pull_requests"])]
+    relevant = [r for r in linked
+                if action_workflow_run_id(r.get("details_url"), repo) in approved]
+    if not linked:
         reasons.append("no_pr_associated_exact_head_checks")
+    if not relevant:
+        reasons.append("no_pr_event_exact_head_checks")
     if len(check_runs) >= CHECK_LIMIT:
         reasons.append("check_run_limit_requires_review")
     names = {r.get("name") for r in relevant}
@@ -95,7 +125,8 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
         "base": base, "dependency_pr": dependency, "draft": bool(pr.get("draft")),
         "mergeable": pr.get("mergeable"), "changed_file_count": len(paths),
         "check_count": len(relevant), "ignored_unassociated_checks":
-            len(check_runs) - len(relevant), "missing_required": missing,
+            len(check_runs) - len(linked), "ignored_non_pr_event_checks":
+            len(linked) - len(relevant), "missing_required": missing,
         "status": "candidate_for_manual_review" if not reasons else "blocked",
         "blockers": reasons,
         "merge_executed": False,
@@ -182,7 +213,16 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
         changed_by_pr[number] = paths
         checks = github.pages("/commits/" + before["head"]["sha"] +
                               "/check-runs", key="check_runs")
-        evaluated = assess(before, checks, paths, parents=parents, target=target)
+        # Independently attest the GitHub Actions run event. A push run
+        # can contain pull_requests=[...] but must NEVER validate PR CI.
+        workflows = github.pages(
+            "/actions/runs?head_sha=" + before["head"]["sha"] +
+            "&event=pull_request", key="workflow_runs")
+        pr_event_ids = verified_pr_event_ids(
+            workflows, number, before["head"]["sha"])
+        evaluated = assess(before, checks, paths, parents=parents,
+                           target=target, pr_event_run_ids=pr_event_ids,
+                           repo=repo)
         # Guard against moving heads while reading separate API resources.
         after = github.get("/pulls/" + str(number))
         if (after["head"]["sha"] != before["head"]["sha"]
