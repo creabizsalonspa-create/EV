@@ -88,3 +88,20 @@ frontend passed TypeScript and a full production Webpack build, including the
 new `/ocpp-sessions` route and sidebar navigation. The existing admin token
 interceptor is reused; there is no embedded API secret or browser-side payment
 collection. The page is staging-only, not deployed or public.
+
+## Booking-to-charger operations interface (staging only)
+
+Added `AdminGetBookingOcppOperations`, a protected read-only endpoint
+for the existing Next Admin Bookings workflow. The new
+`integrations/hasone-next-admin/OcppBookingWorkflow.tsx` renders an
+Admin-authenticated three-stage operator dialog (issue a scoped/expiring
+token → select and bind approved station OCPP source → finalize after proven
+metered stop). It never remotely activates charging. The token is held in
+volatile component state and no localStorage, logs, URLs or API polling
+responses contain raw authorization credentials.
+
+Use `tools/agent2/stage_next_ocpp_booking_workflow.py` on a disposable
+copy of the owner's Next Admin source. The workflow is **not deployed**.
+The isolated backend now passes **60/60** checks; Next Admin TypeScript
+and Next.js Webpack production compilation pass. The financial amounts shown
+remain *calculated but not collected*.
