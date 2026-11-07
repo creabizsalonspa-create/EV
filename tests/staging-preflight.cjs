@@ -104,3 +104,46 @@ test('matching inherited Compose binding does not fail review', () => withEnv(so
     else process.env.STAGING_BIND_IP = original;
   }
 }));
+
+test('Laravel database URL override is forbidden even with Compose DB_HOST pinned', () => {
+  for (const name of ['DB_URL','DATABASE_URL']) {
+    const errors=checkValues({...defaults,[name]:'postgresql://customer-production.example.org/app'});
+    assert.ok(errors.some(x=>x.startsWith(name+':')),name);
+    assert.equal(JSON.stringify(errors).includes('customer-production.example.org'),false);
+  }
+});
+test('wrong database service or real payment provider cannot enter synthetic staging', () => {
+  for (const [key,value] of [['DB_CONNECTION','mysql'],['DB_HOST','prod-db.example.org'],
+    ['DB_DATABASE','customer_live'],['PAYMENT_PROVIDER','stripe'],['MAIL_MAILER','smtp']]) {
+    assert.ok(checkValues({...defaults,[key]:value}).some(x=>x.startsWith(key+':')),key);
+  }
+});
+test('all remote charger, partner and collection switches fail closed', () => {
+  const flags=['SUBSCRIPTION_COLLECTION_ENABLED','PAYMENT_RECOVERY_PROVIDER_POLL',
+    'PAYOUT_TEST_ENABLED','OCPI_TEST_COMMANDS_ENABLED',
+    'CSMS_COMMAND_WORKER_ENABLED','CSMS_REMOTE_AUTHORIZATION_ENABLED',
+    'CSMS_SESSION_BRIDGE_ENABLED','CSMS_INGRESS_AUTH_ENABLED',
+    'CSMS_INGRESS_ALLOW_LOCAL_HTTP','CSMS_RIDER_AUTH_ENABLED',
+    'CSMS_SAFE_RESET_ENABLED','CSMS_SIGNED_FIRMWARE_ENABLED',
+    'CSMS_FIRMWARE_ENABLED','CSMS_DIAGNOSTIC_LOGS_ENABLED',
+    'CSMS_FAULT_WORKER_ENABLED','CSMS_CONFIGURATION_READ_ENABLED',
+    'COMMERCIAL_CAMPAIGNS_ENABLED','DISCOVERY_GEOCODING_ENABLED',
+    'DISCOVERY_ROUTING_ENABLED','EV_BATTERY_SIMULATOR_ENABLED'];
+  for(const name of flags){
+    assert.ok(checkValues({...defaults,[name]:'true'}).some(x=>x.startsWith(name+':')),name);
+    assert.ok(checkValues({...defaults,[name]:'$'+'{EXTERNAL_FLAG}'}).some(x=>x.startsWith(name+':')),name);
+    assert.ok(!checkValues({...defaults,[name]:'false'}).some(x=>x.startsWith(name+':')),name);
+  }
+});
+test('OCPI partner credentials and live PSP keys are barred without disclosure', () => {
+  for (const name of ['OCPI_CONNECTIONS_JSON','OCPI_LOCAL_CREDENTIALS_JSON']) {
+    assert.ok(checkValues({...defaults,[name]:'{"partner":"live"}'}).some(x=>x.startsWith(name+':')),name);
+    assert.ok(!checkValues({...defaults,[name]:'{}'}).some(x=>x.startsWith(name+':')),name);
+  }
+  for (const name of ['STRIPE_SECRET','STRIPE_LIVE_SECRET','STRIPE_SECRET_KEY',
+    'PAYPAL_CLIENT_SECRET','AWS_SECRET_ACCESS_KEY']){
+    const errors=checkValues({...defaults,[name]:'very_private_not_for_staging'});
+    assert.ok(errors.some(x=>x.startsWith(name+':')));
+    assert.equal(JSON.stringify(errors).includes('very_private_not_for_staging'),false);
+  }
+});
