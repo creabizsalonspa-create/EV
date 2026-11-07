@@ -29,6 +29,8 @@ jobs:
         run: python3 -B -m unittest discover -s tests -p ci_trigger_test.py
       - name: Verify ten-agent integration merge-readiness guard
         run: python3 -B -m unittest discover -s tests -p integration_readiness_test.py
+      - name: Verify cross-agent source and finance PR merge prerequisites
+        run: python3 -B -m unittest discover -s tests -p integration_dependencies_test.py
       - name: Verify queued Actions cancellation safety controls
         run: python3 -B -m unittest discover -s tests -p ci_queue_triage_test.py
       - run: ./scripts/setup
