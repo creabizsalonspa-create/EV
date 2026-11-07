@@ -135,7 +135,8 @@ async function main() {
     LOG_CHANNEL: "stderr",
   };
   const server = spawn(php, ["-S", "127.0.0.1:" + port, "-t", serveFrom, router], {
-    cwd: business, env, stdio: ["ignore", "pipe", "pipe"],
+    // Laravel's built-in-server router resolves public/index.php from cwd.
+    cwd: serveFrom, env, stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
   function append(buffer) {
