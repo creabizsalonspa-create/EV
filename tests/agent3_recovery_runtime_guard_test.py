@@ -183,7 +183,7 @@ class RecoveryIsolationTests(unittest.TestCase):
 
     def test_cli_never_prints_inspect_environment_fields(self):
         rows = [container('source-db', S, 'one'), container('target-db', T, 'two')]
-        rows[0]['Config'] = {'Env': ['DB_PASSWORD=SUPER_SECRET_DO_NOT_PRINT']}
+        rows[0]['Config']['Env'] = ['DB_PASSWORD=SUPER_SECRET_DO_NOT_PRINT']
         good = io.BytesIO(json.dumps(rows).encode())
         self.assertEqual(g.main(['containers', '--source-network', S,
                                  '--target-network', T, '--source-name', 'source-db',
