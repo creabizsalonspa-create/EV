@@ -159,8 +159,7 @@ class AdminAccountDirectoryController extends Controller
     public function moderationHistory(Request $request, User $target)
     {
         $this->requireActiveAdmin($request);
-
-        return DB::table('admin_account_moderations')
+        $history = DB::table('admin_account_moderations')
             ->where('target_user_id', $target->id)
             ->orderByDesc('id')
             ->paginate(25)
@@ -172,5 +171,15 @@ class AdminAccountDirectoryController extends Controller
                 'reason' => Crypt::decryptString($event->reason_encrypted),
                 'created_at' => $event->created_at,
             ]);
+
+        // The private reason is for authorized reviewers, not audit logs.
+        DB::table('audit_events')->insert([
+            'actor_id' => $request->user()->id,
+            'action' => 'admin.private_history.account_viewed',
+            'subject' => (string) $target->id,
+            'created_at' => now(),
+        ]);
+
+        return response()->json($history)->header('Cache-Control', 'no-store, private');
     }
 }

@@ -131,14 +131,22 @@ class AccountPrivacyController extends Controller
             ->orderByDesc('id')
             ->paginate(25);
 
-        return response()->json($page->through(fn ($event) => [
+        $history = $page->through(fn ($event) => [
             'id' => (int) $event->id,
             'reviewer_id' => (int) $event->reviewer_id,
             'from_status' => $event->from_status,
             'to_status' => $event->to_status,
             'note' => Crypt::decryptString($event->note_encrypted),
             'created_at' => $event->created_at,
-        ]))->header('Cache-Control', 'no-store, private');
+        ]);
+        DB::table('audit_events')->insert([
+            'actor_id' => $request->user()->id,
+            'action' => 'admin.private_history.privacy_viewed',
+            'subject' => (string) $privacyCase->id,
+            'created_at' => now(),
+        ]);
+
+        return response()->json($history)->header('Cache-Control', 'no-store, private');
     }
 
     public function review(Request $request, AccountPrivacyRequest $privacyCase)

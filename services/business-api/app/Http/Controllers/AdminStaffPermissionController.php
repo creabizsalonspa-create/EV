@@ -195,8 +195,7 @@ class AdminStaffPermissionController extends Controller
     public function revocations(Request $request, VendorCompanyStaff $membership)
     {
         $this->activeAdmin($request);
-
-        return response()->json(DB::table('admin_permission_revocations')
+        $history = DB::table('admin_permission_revocations')
             ->where('membership_id', $membership->id)
             ->orderByDesc('id')
             ->paginate(25)
@@ -207,6 +206,15 @@ class AdminStaffPermissionController extends Controller
                 'action' => $entry->action,
                 'reason' => Crypt::decryptString($entry->reason_encrypted),
                 'created_at' => $entry->created_at,
-            ]))->header('Cache-Control', 'no-store, private');
+            ]);
+
+        DB::table('audit_events')->insert([
+            'actor_id' => $request->user()->id,
+            'action' => 'admin.private_history.staff_viewed',
+            'subject' => (string) $membership->id,
+            'created_at' => now(),
+        ]);
+
+        return response()->json($history)->header('Cache-Control', 'no-store, private');
     }
 }
