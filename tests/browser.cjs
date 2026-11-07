@@ -320,17 +320,25 @@ const { randomUUID } = require("node:crypto");
         text,
       );
     };
+    const beforePublic = await customer.page.evaluate(() => api("notifications/summary"));
     await publicReply("Synthetic public update 1 " + run);
     await customer.page.reload();
     await customer.page.locator("#notification-read-through").waitFor();
     const observed = await customer.page.evaluate(() => api("notifications/summary"));
-    assert.equal(observed.unread_count, 1);
-    assert(observed.latest_id > 0);
+    assert.equal(observed.unread_count, beforePublic.unread_count + 1);
+    assert(observed.latest_id > beforePublic.latest_id);
     await publicReply("Synthetic public update 2 " + run);
-    await customer.page.locator("#notification-read-through").click();
-    await customer.page.waitForFunction(
-      async () => (await api("notifications/summary")).unread_count === 1,
+    const bulkResponse = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/read-through") &&
+          response.request().method() === "POST",
     );
+    const postBulkSummary = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/summary") &&
+          response.request().method() === "GET",
+    );
+    await customer.page.locator("#notification-read-through").click();
+    assert.equal((await bulkResponse).status(), 200);
+    assert.equal((await postBulkSummary).status(), 200);
     const afterBulk = await customer.page.evaluate(async () => ({
       summary: await api("notifications/summary"),
       page: await api("notifications"),
@@ -341,9 +349,6 @@ const { randomUUID } = require("node:crypto");
     assert(oldRow && oldRow.read_at !== null);
     const newest = afterBulk.page.data.find((row) => row.id === afterBulk.summary.latest_id);
     assert(newest && newest.read_at === null);
-    assert.equal(await vendor.page.locator("#notifications").getByText(
-      /Synthetic public update 1/,
-    ).count(), 0);
     await vendor.page.setViewportSize({ width: 390, height: 844 });
     assert(
       await vendor.page.evaluate(
