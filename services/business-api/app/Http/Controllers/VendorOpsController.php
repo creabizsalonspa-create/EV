@@ -27,7 +27,7 @@ class VendorOpsController extends Controller
 
     public function companies(Request $r)
     {
-        return VendorCompany::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id)->orWhereIn('id', VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'active')->select('company_id')))->orderByDesc('id')->paginate(25)->through(fn ($company) => $company->toArray() + ['capabilities' => $this->access->capabilities($r->user(), $company)]);
+        return VendorCompany::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id)->orWhereIn('id', VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'active')->whereNull('admin_revoked_at')->select('company_id')))->orderByDesc('id')->paginate(25)->through(fn ($company) => $company->toArray() + ['capabilities' => $this->access->capabilities($r->user(), $company)]);
     }
 
     public function createCompany(Request $r)
@@ -135,7 +135,20 @@ class VendorOpsController extends Controller
             'image/png' => 'png','image/jpeg' => 'jpg',default => 'pdf'
         };
 
-        return response(Crypt::decryptString(Storage::disk('local')->get($document->getRawOriginal('storage_path'))), 200, ['Content-Type' => $document->mime_type, 'Content-Disposition' => 'attachment; filename="kyc-document-'.$document->id.'.'.$extension.'"', 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'no-store, private']);
+        $contents = Crypt::decryptString(
+            Storage::disk('local')->get($document->getRawOriginal('storage_path'))
+        );
+        // Log only a successful authorized access, without storage paths,
+        // plaintext document contents, trade-license IDs or download URLs.
+        // Fail closed if the compliance audit cannot be recorded.
+        $this->access->audit($r->user(), 'document.downloaded', $document->id);
+
+        return response($contents, 200, [
+            'Content-Type' => $document->mime_type,
+            'Content-Disposition' => 'attachment; filename="kyc-document-'.$document->id.'.'.$extension.'"',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'no-store, private',
+        ]);
     }
 
     public function submit(Request $r, VendorCompany $company)
@@ -165,13 +178,40 @@ class VendorOpsController extends Controller
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended', 'changes_requested'], 'suspended' => ['approved', 'changes_requested']];
             abort_unless(in_array($v['status'], $allowed[$c->status]), 409, 'Invalid review transition.');
+            $owner = null;
             if ($v['status'] === 'approved') {
+                // Review UI checks are advisory. Enforce these invariants
+                // again under locks for direct API requests and stale queues.
+                $owner = User::whereKey($c->owner_id)->lockForUpdate()->firstOrFail();
+                abort_unless($owner->account_status === 'active', 409, 'Owner account is suspended.');
                 abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
-            }VendorCompanyReview::create(['company_id' => $c->id, 'reviewer_id' => $r->user()->id, 'from_status' => $c->status, 'to_status' => $v['status'], 'reason' => $v['reason'], 'created_at' => now()]);
-            $c->update(['status' => $v['status'], 'review_reason' => $v['reason'], 'reviewed_by' => $r->user()->id, 'reviewed_at' => now()]);
-            if ($v['status'] === 'approved') {
-                User::whereKey($c->owner_id)->where('role', 'customer')->update(['role' => 'vendor']);
-            }$this->access->audit($r->user(), 'company.'.$v['status'], $c->id);
+                abort_unless(
+                    VendorKycDocument::where('company_id', $c->id)
+                        ->where('kind', 'trade_license')->exists(),
+                    422, 'Trade-license evidence is required for approval.'
+                );
+            }
+            VendorCompanyReview::create([
+                'company_id' => $c->id,
+                'reviewer_id' => $r->user()->id,
+                'from_status' => $c->status,
+                'to_status' => $v['status'],
+                'reason' => $v['reason'],
+                'created_at' => now(),
+            ]);
+            $c->update([
+                'status' => $v['status'],
+                'review_reason' => $v['reason'],
+                'reviewed_by' => $r->user()->id,
+                'reviewed_at' => now(),
+            ]);
+            if ($owner && $owner->role === 'customer') {
+                // Eloquent fires the role-change security epoch hook; a raw
+                // UPDATE would let a prior customer session gain vendor rights.
+                $owner->role = 'vendor';
+                $owner->save();
+            }
+            $this->access->audit($r->user(), 'company.'.$v['status'], $c->id);
 
             return response()->json($c->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $c)]);
         });
@@ -196,6 +236,8 @@ class VendorOpsController extends Controller
                 if (! $existing) {
                     VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $u->id, 'permissions' => array_values(array_unique($v['permissions']))]);
                 } elseif ($existing->status === 'revoked') {
+                    abort_if($existing->admin_revoked_at !== null, 409,
+                        'Staff access is under an administrator security hold.');
                     $existing->update(['status' => 'invited', 'permissions' => array_values(array_unique($v['permissions'])), 'invitation_version' => $existing->invitation_version + 1, 'accepted_at' => null]);
                 }$this->access->audit($r->user(), 'staff.invited', $company->id);
             });
@@ -204,9 +246,64 @@ class VendorOpsController extends Controller
         return response()->json(['message' => 'Invitation recorded if the account is eligible.'], 202);
     }
 
+    /**
+     * A scope update never silently grants a new capability. Revoking the
+     * active grant into 'invited' denies all staff access until the staff
+     * member consents to the new version of the permission set.
+     */
+    public function updateStaffPermissions(Request $r, VendorCompany $company, VendorCompanyStaff $membership)
+    {
+        $this->access->owner($r->user(), $company);
+        abort_unless($membership->company_id === $company->id, 404);
+        $v = $r->validate([
+            'expected_version' => 'required|integer|min:1',
+            'permissions' => 'required|array|min:1|max:3',
+            'permissions.*' => ['required', 'distinct', Rule::in(VendorAccess::PERMISSIONS)],
+        ]);
+        $desired = array_values($v['permissions']);
+
+        return DB::transaction(function () use ($r, $company, $membership, $v, $desired) {
+            VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $grant = VendorCompanyStaff::whereKey($membership->id)
+                ->where('company_id', $company->id)
+                ->lockForUpdate()->firstOrFail();
+            abort_if($grant->admin_revoked_at !== null, 409,
+                'Staff access is under an administrator security hold.');
+            abort_unless(in_array($grant->status, ['active', 'invited'], true), 409,
+                'A revoked membership must be re-invited.');
+            abort_unless($grant->invitation_version === (int) $v['expected_version'], 409,
+                'Staff permissions changed. Refresh before editing.');
+
+            $oldScopes = array_values($grant->permissions ?? []);
+            sort($oldScopes);
+            $newScopes = $desired;
+            sort($newScopes);
+            abort_if($oldScopes === $newScopes, 422,
+                'Choose a different permission set.');
+
+            // A former active grant is immediately denied by VendorAccess;
+            // a new invitation_version prevents stale acceptance replay.
+            $grant->update([
+                'permissions' => $desired,
+                'status' => 'invited',
+                'accepted_at' => null,
+                'invitation_version' => $grant->invitation_version + 1,
+            ]);
+            $this->access->audit($r->user(), 'staff.permissions_changed', $grant->id);
+
+            return response()->json([
+                'id' => $grant->id,
+                'status' => 'invited',
+                'permissions' => $grant->permissions,
+                'invitation_version' => $grant->invitation_version,
+                'requires_acceptance' => true,
+            ])->header('Cache-Control', 'no-store, private');
+        });
+    }
+
     public function invitations(Request $r)
     {
-        $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->paginate(25);
+        $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->whereNull('admin_revoked_at')->paginate(25);
         $companies = VendorCompany::whereIn('id', $page->getCollection()->pluck('company_id'))->get(['id', 'legal_name', 'country'])->keyBy('id');
 
         return $page->through(fn ($membership) => $membership->toArray() + ['company' => $companies->get($membership->company_id)]);
@@ -220,6 +317,7 @@ class VendorOpsController extends Controller
         return DB::transaction(function () use ($r, $membership, $v) {
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             abort_unless(in_array($m->status, ['invited', 'active']), 409);
+            abort_if($m->admin_revoked_at !== null, 409, 'Staff access is under an administrator security hold.');
             abort_unless($m->invitation_version === (int) $v['expected_version'], 409, 'Invitation scopes changed; refresh and consent again.');
             if ($m->status === 'active') {
                 return $m;

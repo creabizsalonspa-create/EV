@@ -36,8 +36,9 @@ class PlatformController extends Controller
         $u = User::create(['name' => $v['name'], 'email' => $v['email'], 'password' => Hash::make($v['password'])]);
         $u->locale = $v['locale'] ?? 'en';
         $u->save();
-        Auth::login($u);
+        Auth::guard('web')->login($u);
         $r->session()->regenerate();
+        $r->session()->put('account_auth_epoch', (int) $u->auth_epoch);
 
         return response()->json($u, 201);
     }
@@ -45,17 +46,30 @@ class PlatformController extends Controller
     public function login(Request $r)
     {
         $v = $r->validate(['email' => 'required|email', 'password' => 'required|string']);
-        if (! Auth::attempt($v)) {
+        // Browser sign-in must always target the session guard, even after
+        // an earlier Sanctum request changed the default guard in a
+        // long-running worker or multi-request test process.
+        $web = Auth::guard('web');
+        if (! $web->attempt($v)) {
+            throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
+        }
+        if ($web->user()->account_status !== 'active') {
+            // Do not allow a suspended account to create a fresh browser
+            // session. The same generic response avoids enumerating status.
+            $web->logout();
+            $r->session()->invalidate();
+            $r->session()->regenerateToken();
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
         }
         $r->session()->regenerate();
+        $r->session()->put('account_auth_epoch', (int) $web->user()->auth_epoch);
 
-        return response()->json($r->user());
+        return response()->json($web->user());
     }
 
     public function logout(Request $r)
     {
-        Auth::logout();
+        Auth::guard('web')->logout();
         $r->session()->invalidate();
         $r->session()->regenerateToken();
 

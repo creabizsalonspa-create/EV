@@ -92,8 +92,31 @@ class VendorOpsTest extends TestCase
         $d = VendorKycDocument::first();
         $this->assertStringNotContainsString('Private file', Storage::disk('local')->get($d->getRawOriginal('storage_path')));
         $this->get('/api/vendor-ops/companies/'.$c->id.'/documents/'.$d->id)->assertOk()->assertContent("%PDF-1.4\nPrivate file")->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $owner->id,
+            'action' => 'vendor_ops.document.downloaded',
+            'subject' => (string) $d->id,
+        ]);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'vendor_ops.document.downloaded')->count());
+        $this->actingAs($other)
+            ->get('/api/vendor-ops/companies/'.$c->id.'/documents/'.$d->id)
+            ->assertNotFound();
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'vendor_ops.document.downloaded')->count());
         $this->actingAs($other)->getJson('/api/vendor-ops/companies/'.$c->id.'/documents')->assertNotFound();
         $this->get('/api/vendor-ops/companies/'.$otherCompany->id.'/documents/'.$d->id)->assertNotFound();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)
+            ->get('/api/vendor-ops/companies/'.$c->id.'/documents/'.$d->id)
+            ->assertOk()->assertContent("%PDF-1.4\nPrivate file");
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'vendor_ops.document.downloaded',
+            'subject' => (string) $d->id,
+        ]);
+        $this->assertSame(2, DB::table('audit_events')
+            ->where('action', 'vendor_ops.document.downloaded')->count());
         VendorCompanyStaff::create(['company_id' => $c->id, 'user_id' => $staff->id, 'permissions' => ['company.read', 'inventory.read'], 'status' => 'active']);
         $this->actingAs($staff)->getJson('/api/vendor-ops/companies/'.$c->id)->assertOk()->assertJsonMissingPath('trade_license_number');
         $this->getJson('/api/vendor-ops/companies/'.$c->id.'/documents')->assertNotFound();
@@ -117,6 +140,136 @@ class VendorOpsTest extends TestCase
         $this->actingAs($owner)->deleteJson('/api/vendor-ops/companies/'.$c->id.'/staff/'.$m->id)->assertNoContent();
         $this->actingAs($reader)->getJson('/api/vendor-ops/companies/'.$c->id.'/sites')->assertNotFound();
         $this->postJson('/api/vendor-ops/staff-invitations/'.$m->id.'/accept', ['expected_version' => $m->fresh()->invitation_version])->assertConflict();
+    }
+
+    public function test_owner_permission_edit_revokes_active_scope_until_staff_accepts_current_version(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $staff = User::factory()->create(['role' => 'customer']);
+        $company = $this->company($owner);
+        $base = '/api/vendor-ops/companies/'.$company->id;
+        $grant = VendorCompanyStaff::create([
+            'company_id' => $company->id,
+            'user_id' => $staff->id,
+            'permissions' => ['inventory.read'],
+            'status' => 'active',
+            'invitation_version' => 1,
+            'accepted_at' => now(),
+        ]);
+        $edit = $base.'/staff/'.$grant->id.'/permissions';
+        $sites = $base.'/sites';
+
+        $this->actingAs($staff)->getJson($sites)->assertOk();
+        $this->postJson($sites, [])->assertNotFound();
+
+        $this->actingAs($owner)->patchJson($edit, [
+            'expected_version' => 1,
+            'permissions' => ['inventory.read', 'inventory.write'],
+        ])->assertOk()
+            ->assertJsonPath('status', 'invited')
+            ->assertJsonPath('requires_acceptance', true)
+            ->assertJsonPath('invitation_version', 2)
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $grant->id,
+            'status' => 'invited',
+            'invitation_version' => 2,
+            'accepted_at' => null,
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $owner->id,
+            'action' => 'vendor_ops.staff.permissions_changed',
+            'subject' => (string) $grant->id,
+        ]);
+
+        $this->actingAs($staff)->getJson($sites)->assertNotFound();
+        $this->patchJson($base.'/staff/'.$grant->id.'/permissions', [
+            'expected_version' => 2, 'permissions' => ['company.read'],
+        ])->assertNotFound();
+        $this->postJson('/api/vendor-ops/staff-invitations/'.$grant->id.'/accept', [
+            'expected_version' => 1,
+        ])->assertStatus(409);
+        $this->postJson('/api/vendor-ops/staff-invitations/'.$grant->id.'/accept', [
+            'expected_version' => 2,
+        ])->assertOk()->assertJsonPath('status', 'active')
+            ->assertJsonPath('permissions.1', 'inventory.write');
+        $this->getJson($sites)->assertOk();
+        $this->postJson($sites, [])->assertUnprocessable();
+    }
+
+    public function test_permission_edit_rejects_stale_cross_tenant_and_admin_hold_bypasses(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $staff = User::factory()->create(['role' => 'customer']);
+        $company = $this->company($owner);
+        $foreign = $this->company($other);
+        $grant = VendorCompanyStaff::create([
+            'company_id' => $company->id,
+            'user_id' => $staff->id,
+            'permissions' => ['company.read'],
+            'status' => 'active',
+            'invitation_version' => 3,
+        ]);
+        $url = '/api/vendor-ops/companies/'.$company->id.'/staff/'.$grant->id.'/permissions';
+        $request = ['expected_version' => 3, 'permissions' => ['inventory.write']];
+
+        $this->patchJson($url, $request)->assertUnauthorized();
+        $this->actingAs($staff)->patchJson($url, $request)->assertNotFound();
+        $this->actingAs($other)->patchJson($url, $request)->assertNotFound();
+        $this->actingAs($owner)->patchJson(
+            '/api/vendor-ops/companies/'.$foreign->id.'/staff/'.$grant->id.'/permissions',
+            $request
+        )->assertNotFound();
+        $this->patchJson($url, ['expected_version' => 2, 'permissions' => ['inventory.write']])
+            ->assertStatus(409);
+        $this->patchJson($url, ['expected_version' => 3, 'permissions' => ['admin']])
+            ->assertUnprocessable();
+        $this->patchJson($url, ['expected_version' => 3, 'permissions' => ['company.read', 'company.read']])
+            ->assertUnprocessable();
+        $this->patchJson($url, ['expected_version' => 3, 'permissions' => ['company.read']])
+            ->assertUnprocessable();
+        $this->assertDatabaseCount('audit_events', 0);
+
+        $grant->forceFill(['admin_revoked_at' => now()])->save();
+        $this->patchJson($url, $request)->assertStatus(409);
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $grant->id,
+            'status' => 'active',
+            'invitation_version' => 3,
+        ]);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
+
+    public function test_invited_staff_scope_changes_require_acceptance_and_revoked_must_reinvite(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $staff = User::factory()->create(['role' => 'customer']);
+        $company = $this->company($owner);
+        $grant = VendorCompanyStaff::create([
+            'company_id' => $company->id,
+            'user_id' => $staff->id,
+            'status' => 'invited',
+            'permissions' => ['company.read'],
+            'invitation_version' => 5,
+        ]);
+        $edit = '/api/vendor-ops/companies/'.$company->id.'/staff/'.$grant->id.'/permissions';
+        $this->actingAs($owner)->patchJson($edit, [
+            'expected_version' => 5, 'permissions' => ['inventory.read'],
+        ])->assertOk()->assertJsonPath('invitation_version', 6);
+        $this->actingAs($staff)->postJson('/api/vendor-ops/staff-invitations/'.$grant->id.'/accept', [
+            'expected_version' => 5,
+        ])->assertStatus(409);
+        $this->postJson('/api/vendor-ops/staff-invitations/'.$grant->id.'/accept', [
+            'expected_version' => 6,
+        ])->assertOk()->assertJsonPath('permissions.0', 'inventory.read');
+
+        $this->actingAs($owner)->deleteJson(
+            '/api/vendor-ops/companies/'.$company->id.'/staff/'.$grant->id
+        )->assertNoContent();
+        $this->patchJson($edit, [
+            'expected_version' => 7, 'permissions' => ['company.read'],
+        ])->assertStatus(409);
     }
 
     public function test_inventory_hierarchy_is_tenant_scoped_and_does_not_enable_live_control(): void

@@ -26,6 +26,7 @@ Route::post('/companies/{company}/staff', [V::class, 'invite']);
 Route::get('/staff-invitations', [V::class, 'invitations']);
 Route::post('/staff-invitations/{membership}/accept', [V::class, 'accept']);
 Route::delete('/companies/{company}/staff/{membership}', [V::class, 'revoke']);
+Route::patch('/companies/{company}/staff/{membership}/permissions', [V::class, 'updateStaffPermissions']);
 Route::get('/companies/{company}/catalog-stations', [V::class, 'catalogStations']);
 Route::get('/companies/{company}/sites', [V::class, 'sites']);
 Route::post('/companies/{company}/sites', [V::class, 'createSite']);

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AccountStatusGate;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -15,6 +16,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
+        // A suspended identity is never authorized by an old browser session
+        // or a lingering Sanctum token. Authentication is still responsible
+        // for deciding whether an identity exists.
+        $middleware->web(append: [AccountStatusGate::class]);
+        $middleware->api(append: [AccountStatusGate::class]);
         $middleware->redirectGuestsTo(fn (Request $request) => $request->routeIs('verification.verify') ? '/?verification=signin' : '/');
         //
     })

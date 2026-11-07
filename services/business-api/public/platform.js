@@ -166,6 +166,12 @@ function renderIdentity() {
                   : "Driver workspace"
             : "Your charging companion",
     );
+    window.EvAdminAccounts?.setActor(user, api);
+    window.EvAdminKycQueue?.setActor(user, api);
+    window.EvAdminStaffPermissions?.setActor(user, api);
+    window.EvAdminAuditTrail?.setActor(user, api);
+    window.EvPrivacyRequests?.setSelfActor(user, api);
+    window.EvPrivacyRequests?.setAdminActor(user, api);
 }
 
 function node(tag, text) {

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController as A;
+use App\Http\Controllers\AccountPrivacyController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerIngressController;
@@ -34,6 +35,10 @@ Route::prefix('v1')->group(function () {
     Route::get('/stations', [P::class, 'stations'])->middleware('throttle:catalog');
     Route::get('/regions', [E::class, 'regions'])->middleware('throttle:catalog');
     Route::middleware(['auth:sanctum', 'throttle:platform-api'])->group(function () {
+        // Inherit the central native Admin bearer-token guard from PR #76:
+        // never declare these routes in a separately unguarded v1 group.
+        Route::get('/privacy-requests', [AccountPrivacyController::class, 'mine']);
+        Route::post('/privacy-requests', [AccountPrivacyController::class, 'submit']);
         Route::group([], __DIR__.'/finance.php');
         Route::prefix('vendor-ops')->group(__DIR__.'/vendor_ops.php');
         Route::get('/me', fn (Request $r) => response()->json($r->user()));

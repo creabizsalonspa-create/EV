@@ -1,6 +1,11 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AccountPrivacyController;
+use App\Http\Controllers\AdminAccountDirectoryController;
+use App\Http\Controllers\AdminAuditTrailController;
+use App\Http\Controllers\AdminKycQueueController;
+use App\Http\Controllers\AdminStaffPermissionController;
 use App\Http\Controllers\ChargerCommandController;
 use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
@@ -50,6 +55,21 @@ Route::get('/api/admin/overview', function (Request $r) {
 
     return response()->json(['users' => User::count(), 'stations' => Station::count(), 'reservations' => Reservation::count(), 'simulations' => ChargingSession::count(), 'audit_events' => DB::table('audit_events')->orderByDesc('id')->limit(50)->get()]);
 })->middleware(['auth', 'throttle:platform-api']);
+
+Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/account/privacy-requests', [AccountPrivacyController::class, 'mine'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/account/privacy-requests', [AccountPrivacyController::class, 'submit'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/privacy-requests', [AccountPrivacyController::class, 'adminIndex'])->middleware(['auth', 'throttle:platform-api']);
+Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacyController::class, 'review'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/privacy-requests/{privacyCase}/reviews', [AccountPrivacyController::class, 'adminHistory'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/kyc-queue', [AdminKycQueueController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/permission-grants', [AdminStaffPermissionController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/admin/permission-grants/{membership}/revoke', [AdminStaffPermissionController::class, 'revoke'])->middleware(['auth', 'throttle:authentication']);
+Route::post('/api/admin/permission-grants/{membership}/release', [AdminStaffPermissionController::class, 'release'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/permission-grants/{membership}/revocations', [AdminStaffPermissionController::class, 'revocations'])->middleware(['auth', 'throttle:platform-api']);
+Route::patch('/api/admin/accounts/{target}/moderate', [AdminAccountDirectoryController::class, 'moderate'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/accounts/{target}/moderations', [AdminAccountDirectoryController::class, 'moderationHistory'])->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/regions', [EnterpriseController::class, 'regions'])->middleware('throttle:catalog');
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
