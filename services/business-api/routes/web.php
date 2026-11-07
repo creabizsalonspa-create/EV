@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AdminAccountDirectoryController;
+use App\Http\Controllers\AdminAuditTrailController;
 use App\Http\Controllers\AdminKycQueueController;
 use App\Http\Controllers\AdminStaffPermissionController;
 use App\Http\Controllers\ChargerCommandController;
@@ -55,6 +56,7 @@ Route::get('/api/admin/overview', function (Request $r) {
 })->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/kyc-queue', [AdminKycQueueController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/admin/permission-grants', [AdminStaffPermissionController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/admin/permission-grants/{membership}/revoke', [AdminStaffPermissionController::class, 'revoke'])->middleware(['auth', 'throttle:authentication']);
