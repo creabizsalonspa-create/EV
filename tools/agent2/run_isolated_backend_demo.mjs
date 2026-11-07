@@ -9,7 +9,6 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {mkdtempSync,mkdirSync,rmSync,existsSync,writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {createServer} from 'node:net';
 import {pathToFileURL} from 'node:url';
@@ -43,7 +42,8 @@ async function freePort(){
  const s=createServer();await new Promise(resolveListen=>s.listen(0,'127.0.0.1',resolveListen));
  const port=s.address().port;await new Promise(done=>s.close(done));return port;
 }
-const data=mkdtempSync(join(tmpdir(),'agent2-isolated-mongo-'));
+// Keep disposable databases on the staged filesystem; system /tmp may be a small mount.
+const data=mkdtempSync(join(source,'.agent2-isolated-mongo-'));
 const mongoPort=await freePort();
 const uri='mongodb://127.0.0.1:'+mongoPort+'/agent2_demo_ephemeral';
 const mongod=spawn('mongod',['--dbpath',data,'--port',String(mongoPort),'--bind_ip','127.0.0.1',
@@ -108,7 +108,7 @@ try{
     ...(body===undefined?{}:{body:JSON.stringify(body)}),
     redirect:'manual'});
   let json=null;const bodyText=await res.text();try{json=JSON.parse(bodyText);}catch{}
-  return {code:res.status,body:json,text:bodyText};
+  return {code:res.status,body:json,text:bodyText,cacheControl:res.headers.get('cache-control')};
  }
  async function check(label,fn){await fn();passed++;console.log('PASS '+label);}
  await check('history cursor indexes preserve existing source-binding uniqueness',async()=>{
@@ -517,7 +517,7 @@ try{
     date:'2026-11-10',time:'12:00 PM',slotStart:'12:00 PM',slotEnd:'01:00 PM',
     totalAmount:63,isPaid:true,paymentStatus:'paid',hasArrived:true,status:'Upcoming',
     ocppTokenHash:tokenHash});
-  await db.collection('ocpp_chargers').insertOne({stationId:String(station._id),chargerId,enabled:true,online:false});
+  await db.collection('ocpp_chargers').insertOne({stationId:String(station._id),chargerId,protocol:'ocpp2.0.1',enabled:true,online:false});
   const linked=await ChargingSessionModel.create({userId:user._id,bookingId:approvedBooking._id,
     stationId:station._id,sourceType:'ocpp',sourceSessionId:String(sourceDoc._id),
     sourceChargerId:chargerId,sourceTransactionId:id,status:'NotStarted'});
@@ -1487,6 +1487,103 @@ try{
       assert.equal((await request('GET',historyPath+suffix,undefined,true)).code,400);
     }
     assert.equal((await request('GET',historyPath+'/bad',undefined,true)).code,400);
+  });
+  const customerChoiceStation=await NearestStationModel.create({name:'Customer choice only',address:'Loopback',
+    status:'Available',latitude:25.8,longitude:55.8,pricePerHourValue:60,taxPercent:5,
+    slots:[{startTime:'10:00 AM',endTime:'11:00 AM'}]});
+  const choiceA='agent2-choice-a',choiceB='agent2-choice-b',choiceDisabled='agent2-choice-disabled';
+  await db.collection('ocpp_chargers').insertMany([
+    {stationId:String(customerChoiceStation._id),chargerId:choiceA,protocol:'ocpp1.6',enabled:true,passwordHash:'private'},
+    {stationId:String(customerChoiceStation._id),chargerId:choiceB,protocol:'ocpp2.0.1',enabled:true},
+    {stationId:String(customerChoiceStation._id),chargerId:choiceDisabled,protocol:'ocpp1.6',enabled:false},
+  ]);
+  const choiceBody={stationId:String(customerChoiceStation._id),date:'2033-03-01',slotStart:'10:00 AM',slotEnd:'11:00 AM'};
+  const choiceUrl='/api/v1/stations/'+customerChoiceStation._id+'/reservation-chargers';
+  let customerChoiceBooking;
+  await check('reservation charger list requires customer authentication and rejects query overrides',async()=>{
+    assert.equal((await request('GET',choiceUrl)).code,401);
+    assert.equal((await request('GET',choiceUrl+'?stationId=other',undefined,true)).code,400);
+    assert.equal((await request('GET','/api/v1/stations/not-an-id/reservation-chargers',undefined,true)).code,400);
+  });
+  await check('reservation charger list exposes only approved identity with no availability or independent capacity claim',async()=>{
+    const z=await request('GET',choiceUrl,undefined,true);assert.equal(z.code,200);
+    assert.equal(z.body.data.readOnly,true);assert.equal(z.body.data.reservationScope,'station');
+    assert.equal(z.body.data.independentCapacity,false);assert.equal(z.body.data.hardwareAvailability,'unverified');
+    assert.deepEqual(z.body.data.choices,[{chargerId:choiceA,protocol:'ocpp1.6'},{chargerId:choiceB,protocol:'ocpp2.0.1'}]);
+    assert.equal(JSON.stringify(z.body).includes('password'),false);
+    assert.match(z.cacheControl,/no-store/);
+  });
+  await check('unknown legacy charger protocol blocks catalog and booking until explicit operator correction',async()=>{
+    await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$unset:{protocol:''}});
+    assert.equal((await request('GET',choiceUrl,undefined,true)).code,409);
+    const denied=await request('POST','/api/v1/Bookings',{...choiceBody,reservedChargerId:choiceA},true);
+    assert.equal(denied.code,400);assert.match(denied.body.message,/operator review/);
+    await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$set:{protocol:'ocpp2.0.1'}});
+  });
+  await check('multi-charger reservation rejects missing, foreign, disabled or coerced customer choice',async()=>{
+    for(const reservedChargerId of [undefined,'foreign',choiceDisabled,{$ne:null}]){
+      const z=await request('POST','/api/v1/Bookings',{...choiceBody,...(reservedChargerId===undefined?{}:{reservedChargerId})},true);
+      assert.equal(z.code,400);
+    }
+    assert.equal(await BookingModel.countDocuments({stationId:customerChoiceStation._id}),0);
+  });
+  await check('customer reserves chosen charger without granting token, control or fabricated connector capabilities',async()=>{
+    const z=await request('POST','/api/v1/Bookings',{...choiceBody,reservedChargerId:choiceB,chargerType:'fake 999kW'},true);
+    assert.equal(z.code,200);assert.equal(z.body.data.reservedChargerId,choiceB);
+    customerChoiceBooking=await BookingModel.findById(z.body.data.bookingId);
+    assert.equal(customerChoiceBooking.reservedChargerId,choiceB);
+    assert.equal(customerChoiceBooking.ocppChargerId,'');assert.ok(!customerChoiceBooking.ocppTokenHash);
+    assert.equal(customerChoiceBooking.isPaid,false);assert.equal(customerChoiceBooking.connectorType,'Not verified');
+    assert.equal(customerChoiceBooking.energyKwh,'Not measured');assert.equal(customerChoiceBooking.chargerType,'Approved charger');
+  });
+  await check('independent charger choices still share exactly one station-wide concurrent slot',async()=>{
+    const results=await Promise.all(Array.from({length:8},(_,i)=>request('POST','/api/v1/Bookings',
+      {...choiceBody,date:'2033-03-05',reservedChargerId:i%2?choiceA:choiceB},true)));
+    assert.equal(results.filter(z=>z.code===200).length,1);
+    assert.equal(await BookingModel.countDocuments({stationId:customerChoiceStation._id,date:'2033-03-05'}),1);
+  });
+  await check('unpaid chosen charger can reschedule or cancel while disabled charger cannot be silently substituted',async()=>{
+    const created=await request('POST','/api/v1/Bookings',{...choiceBody,date:'2033-03-06',reservedChargerId:choiceB},true);
+    const id=created.body.data.bookingId;
+    await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$set:{enabled:false}});
+    const denied=await request('PUT','/api/v1/Bookings/'+id+'/reschedule',
+      {date:'2033-03-07',time:'10:00 AM',slotStart:'10:00 AM',slotEnd:'11:00 AM'},true);
+    assert.equal(denied.code,400);
+    assert.match(denied.body.message,/Selected charger needs operator review/);
+    await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$set:{enabled:true}});
+    const moved=await request('PUT','/api/v1/Bookings/'+id+'/reschedule',
+      {date:'2033-03-07',time:'10:00 AM',slotStart:'10:00 AM',slotEnd:'11:00 AM'},true);
+    assert.equal(moved.code,200);
+    assert.equal((await BookingModel.findById(id)).reservedChargerId,choiceB);
+    assert.equal((await request('PUT','/api/v1/Bookings/'+id+'/cancel',{},true)).code,200);
+    assert.equal((await BookingModel.findById(id)).reservedChargerId,choiceB);
+  });
+  await check('Admin cannot redirect customer charger choice and matching authorization retains it',async()=>{
+    await BookingModel.updateOne({_id:customerChoiceBooking._id},{$set:{isPaid:true,hasArrived:true}});
+    const path='/api/v1/admin/bookings/'+customerChoiceBooking._id+'/ocpp/';
+    const wrong=await request('POST',path+'issue-token',{chargerId:choiceA},false,{authorization:adminBearer});
+    assert.equal(wrong.code,409);
+    assert.ok(!(await BookingModel.findById(customerChoiceBooking._id)).ocppTokenHash);
+    const issued=await request('POST',path+'issue-token',{},false,{authorization:adminBearer});
+    assert.equal(issued.code,201);assert.equal(issued.body.data.chargerId,choiceB);
+    const op=await request('GET',path+'operations',undefined,false,{authorization:adminBearer});
+    assert.equal(op.body.data.reservedChargerId,choiceB);assert.equal(op.body.data.selectedChargerId,choiceB);
+    const tx='customer-choice-'+Date.now();
+    await db.collection('ocpp_tariffs').insertOne({chargerId:choiceB,enabled:true,rateFilsPerKwh:100,vatPercent:5});
+    await handle({chargerId:choiceB},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Started',seqNo:0,transactionInfo:{transactionId:tx},idToken:{idToken:issued.body.data.oneTimeToken,type:'Central'},
+      evse:{id:1,connectorId:1},timestamp:new Date().toISOString(),meterValue:meter(1000)});
+    const observed=await db.collection('ocpp_sessions').findOne({chargerId:choiceB,transactionId:tx});
+    assert.ok(observed);
+    const linked=await request('POST',path+'bind-source',{sourceSessionId:String(observed._id)},false,{authorization:adminBearer});
+    assert.equal(linked.code,200);
+    const statusUrl='/api/v1/ChargingSession/'+linked.body.data.sessionId+'/status';
+    assert.equal((await request('GET',statusUrl,undefined,true)).body.data.sourceVerified,true);
+    await BookingModel.updateOne({_id:customerChoiceBooking._id},{$set:{reservedChargerId:choiceA}});
+    assert.equal((await request('GET',statusUrl,undefined,true)).body.data.sourceVerified,false);
+    const history=await request('GET','/api/v1/ChargingSession/history/'+linked.body.data.sessionId,undefined,true);
+    assert.equal(history.body.data.sourceVerified,false);
+    await BookingModel.updateOne({_id:customerChoiceBooking._id},{$set:{reservedChargerId:choiceB}});
   });
   for(const protocol of ['ocpp1.6','ocpp2.0.1']){
     const scopedCharger='resource-scope-'+protocol.replaceAll('.','-');

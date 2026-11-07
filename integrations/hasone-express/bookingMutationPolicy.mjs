@@ -15,6 +15,7 @@ export function bookingMutationFilter(booking,{hasSession=false}={}){
  // overwrite the other's authoritative state after an asynchronous read.
  return {_id:booking._id,userId:booking.userId,status:'Upcoming',
    date:booking.date,time:booking.time,slotStart:booking.slotStart,slotEnd:booking.slotEnd,
+   reservedChargerId:booking.reservedChargerId||{$in:['',null]},
    isPaid:booking.isPaid,hasArrived:{$ne:true},ocppResourceScope:booking.ocppResourceScope??null,
    ocppTokenHash:{$in:['',null]},ocppChargerId:{$in:['',null]},ocppTokenIssuedAt:null};
 }

@@ -73,7 +73,7 @@ const readCustomerOcppSource = async (user_id, session) => {
     chargerId:session.sourceChargerId,
     enabled:true,
   });
-  if (!charger) return null;
+  if (!charger || (booking.reservedChargerId && booking.reservedChargerId!==session.sourceChargerId)) return null;
   // Multi-charger stations require a pinned booking-to-charger assignment.
   // Old single-charger bookings retain a safe backward-compatible lookup.
   if (booking.ocppChargerId) {

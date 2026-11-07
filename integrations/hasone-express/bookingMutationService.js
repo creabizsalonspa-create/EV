@@ -1,3 +1,4 @@
+import {resolveReservationCharger} from "../controllers/reservationChargers.js";
 import {guardReservationCalendar} from './reservationCalendarGuard.js';
 import BookingModel from '../models/BookingModel.js';
 import ChargingSessionModel from '../models/ChargingSessionModel.js';
@@ -16,6 +17,10 @@ export async function safeRescheduleBooking(userId,bookingId,body){
   const {booking,filter}=await mutableBooking(userId,bookingId);
   if(!filter)return fail('Only unused unpaid bookings can be rescheduled here. Paid, arrived or authorized bookings require operator review.');
   const station=await NearestStationModel.findById(booking.stationId);
+  if(booking.reservedChargerId){
+    const charger=await resolveReservationCharger(booking.stationId,booking.reservedChargerId);
+    if(!charger.ok)return fail('Selected charger needs operator review before rescheduling.');
+  }
   const selected=rescheduleSelection(booking,body,station);
   if(!selected)return fail('Choose an available station slot with the same duration and matching start time. A changed quote requires separate review.');
   const calendar=await guardReservationCalendar(station,selected,{skipBookingId:booking._id});

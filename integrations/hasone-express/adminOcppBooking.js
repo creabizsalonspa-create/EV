@@ -19,7 +19,7 @@ const chargersFor=async booking=>mongoose.connection.db.collection('ocpp_charger
   .find({stationId:String(booking.stationId),enabled:true})
   .sort({chargerId:1}).toArray();
 const chargerSelection=async (booking, requestedId='')=>chooseBookingCharger({
-  bookedChargerId:booking.ocppChargerId||'',requestChargerId:requestedId,
+  bookedChargerId:booking.ocppChargerId||'',reservedChargerId:booking.reservedChargerId||'',requestChargerId:requestedId,
   chargers:await chargersFor(booking)
 });
 const chargerFor=async booking=>(await chargerSelection(booking)).charger;
@@ -73,6 +73,7 @@ export async function AdminIssueBookingOcppToken(req,res){
     ocppTokenHash:{$in:['',null]},
     ocppChargerId:{$in:['',null,charger.chargerId]},
     ocppResourceScope:booking.ocppResourceScope??null,
+    reservedChargerId:booking.reservedChargerId||{$in:['',null]},
   },{$set:{ocppTokenHash:tokenHash,ocppTokenIssuedAt:issuedAt,
            ocppChargerId:charger.chargerId,ocppResourceScope:resource.scope}},{returnDocument:'after'});
   if(!updated)return fail(res,409,'Booking token already issued or booking status changed');
@@ -134,6 +135,7 @@ export async function AdminReissueExpiredBookingOcppToken(req,res){
     _id:booking._id,ocppTokenHash:oldHash,ocppTokenIssuedAt:oldIssuedAt,
     ocppResourceScope:booking.ocppResourceScope??null,
     ocppChargerId:charger.chargerId,isPaid:true,hasArrived:true,status:'Upcoming',
+    reservedChargerId:booking.reservedChargerId||{$in:['',null]},
   },{$set:{ocppTokenHash:newHash,ocppTokenIssuedAt:now,ocppResourceScope:resource.scope}},{returnDocument:'after'});
   if(!changed)return fail(res,409,'Booking authorization was changed by another operator');
   const tokenTable=mongoose.connection.db.collection('ocpp_access_tokens');
@@ -383,8 +385,9 @@ export async function AdminGetBookingOcppOperations(req,res){
     bookingId:String(booking._id),stationId:String(booking.stationId),
     bookingStatus:booking.status,bookingPrepaymentRecorded:!!booking.isPaid,
     arrivalRecorded:!!booking.hasArrived,approvedChargerId:charger?.chargerId??null,
-    selectedChargerId:booking.ocppChargerId||null,
-    requiresChargerSelection:!booking.ocppChargerId && selection.choices.length>1,
+    selectedChargerId:booking.ocppChargerId||booking.reservedChargerId||null,
+    reservedChargerId:booking.reservedChargerId||null,
+    requiresChargerSelection:!booking.ocppChargerId && !booking.reservedChargerId && selection.choices.length>1,
     approvedChargers:selection.choices.map(c=>({
       chargerId:c.chargerId,protocol:c.protocol||'ocpp1.6',
       online:!!c.online && !!c.lastSeenAt &&

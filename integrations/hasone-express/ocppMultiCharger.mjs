@@ -5,10 +5,14 @@
  * Once a booking has a source-bound charger the assignment is immutable.
  */
 const safeChargerId = id=>typeof id==="string" && /^[A-Za-z0-9_-]{1,64}$/.test(id);
-export function chooseBookingCharger({bookedChargerId="",requestChargerId="",chargers=[]}={}){
+export function chooseBookingCharger({bookedChargerId="",reservedChargerId="",requestChargerId="",chargers=[]}={}){
   const active=chargers.filter(c=>c?.enabled===true && safeChargerId(c.chargerId));
   const unique=new Map(active.map(c=>[c.chargerId,c]));
   const choices=[...unique.values()].sort((a,b)=>a.chargerId.localeCompare(b.chargerId));
+  if(reservedChargerId && (!safeChargerId(reservedChargerId)||
+      (bookedChargerId && bookedChargerId!==reservedChargerId)))
+    return {charger:null,reason:"reservation_charger_mismatch",choices};
+  bookedChargerId=bookedChargerId||reservedChargerId;
   if(bookedChargerId && !safeChargerId(bookedChargerId))
     return {charger:null,reason:"invalid_existing_booking_charger",choices};
   if(requestChargerId && !safeChargerId(requestChargerId))
@@ -26,7 +30,7 @@ export function chooseBookingCharger({bookedChargerId="",requestChargerId="",cha
 }
 export function sourceMatchesBookingCharger({booking,chargerId,chargers}){
   const result=chooseBookingCharger({
-    bookedChargerId:booking?.ocppChargerId||"",chargers
+    bookedChargerId:booking?.ocppChargerId||"",reservedChargerId:booking?.reservedChargerId||"",chargers
   });
   return result.charger?.chargerId===chargerId;
 }

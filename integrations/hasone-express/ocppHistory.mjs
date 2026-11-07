@@ -16,7 +16,7 @@ export function parseHistoryPage(query={}){
 export function presentOcppHistory({link,booking,charger,source}){
  if(!link || !booking || String(link.bookingId)!==String(booking._id) ||
    String(link.userId)!==String(booking.userId))return null;
- const mapped=!!charger && String(charger.stationId)===String(booking.stationId) &&
+ const mapped=(!booking.reservedChargerId||booking.reservedChargerId===booking.ocppChargerId) && !!charger && String(charger.stationId)===String(booking.stationId) &&
    charger.chargerId===booking.ocppChargerId &&
    link.sourceChargerId===booking.ocppChargerId;
  const proof=mapped && booking.isPaid===true && booking.hasArrived===true

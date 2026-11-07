@@ -7,6 +7,42 @@ or stop merely because one commit or CI run exists. Do not infer production,
 physical charger or merchant acceptance. Agent 4 alone owns final integration
 and authoritative whole-product coverage.
 
+## Explicit customer charger choice checkpoint
+
+The protected reservation-chargers API exposes only approved physical identity
+and protocol, with bounded/redacted output and explicit unknown hardware
+availability/station-wide capacity. Customers choose a charger in the station
+screen and send reservedChargerId; the receipt must match before navigation.
+A multi-charger station cannot silently select its first charger. Unknown
+protocol records require explicit operator correction, never metadata guessing.
+
+The customer choice is stored separately from the later authorization pin.
+Admin issuance/reissue, source binding and customer status/history enforce the
+selected physical identity. Unused unpaid cancel/reschedule preserve it; a
+disabled selected charger cannot be substituted during reschedule. Eight
+concurrent choices for different chargers still produce exactly one station slot.
+Selected-charger receipts do not invent connector specifications or metered energy.
+
+Verified:130 Node guards,13 callback checks,143 backend/OCPP;13 mocked Chrome,
+12 actual-API Chrome; Next TypeScript/production build. Backend plus browser or
+actual native reports144. Flutter58 pass/4 default opt-in skips; seven actual
+API/native checks pass separately. Six changed native files analyze cleanly;
+the existing mixed-case booking model filename has one inherited naming info.
+No errors/warnings or analysis suppression added.
+
+Latest isolated PR78 combination at961bba2 passes77 tests/4 explicit skips and
+targeted analysis clean. All113 source/config blobs match the tested combination.
+Combined app tree346c2c09f1f25bb8a374109f582ea4e68089fa26. No branch merge.
+The test runner now keeps disposable Mongo data on its staged filesystem,
+preserving Mongo's free-space checks and avoiding a small system temp mount.
+
+Evidence is in the companion charger-choice validation.json. Paired backend
+and mobile release plus approved charger protocol metadata are required.
+Next: ongoing source-qualified connector fault presentation and canonical
+independent-resource capacity/connector selection/expiry/paid reschedule.
+Full original atom credit and production acceptance remain unclaimed.
+Required hosted/native gates and Agent4 integration remain outstanding.
+
 ## Source-ended interruption review checkpoint
 
 Customer charging status now says Ended at source rather than implying charging
