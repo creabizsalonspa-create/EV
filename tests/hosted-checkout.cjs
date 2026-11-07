@@ -223,12 +223,19 @@ const { chromium } = require("playwright"),
       1050,
     );
     const ret = await customer.context().newPage();
-    await ret.goto(
+    const returnPageResponse = await ret.goto(
       base +
         "/payments/hosted-return?hosted_reference=" +
         h.reference +
         "&success=paid",
     );
+    assert.equal(returnPageResponse.status(), 200);
+    const returnHeaders = returnPageResponse.headers();
+    assert(returnHeaders["content-security-policy"].includes("base-uri 'none'"));
+    assert(returnHeaders["content-security-policy"].includes("frame-ancestors 'none'"));
+    assert.equal(returnHeaders["referrer-policy"], "no-referrer");
+    assert.match(returnHeaders["cache-control"], /no-store/);
+    assert.equal(returnHeaders["x-frame-options"], "DENY");
     await ret
       .getByText("Captured in TEST accounting", { exact: true })
       .waitFor();
