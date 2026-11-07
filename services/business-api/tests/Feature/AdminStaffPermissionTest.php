@@ -206,6 +206,36 @@ class AdminStaffPermissionTest extends TestCase
             ->assertJsonPath('data.1.action', 'revoked');
     }
 
+    public function test_admin_can_lock_owner_revoked_membership_before_reinvitation(): void
+    {
+        [$admin, $owner, $staff, $company, $member] = $this->fixture();
+        $this->actingAs($owner)->deleteJson(
+            '/api/vendor-ops/companies/'.$company->id.'/staff/'.$member->id
+        )->assertNoContent();
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $member->id, 'status' => 'revoked', 'invitation_version' => 2,
+        ]);
+
+        $this->actingAs($admin)->postJson(
+            '/api/admin/permission-grants/'.$member->id.'/revoke',
+            $this->payload(1)
+        )->assertStatus(409);
+        $this->postJson('/api/admin/permission-grants/'.$member->id.'/revoke',
+            $this->payload(2, 'Independent urgent incident review of revoked staff'))
+            ->assertOk()->assertJsonPath('status', 'revoked')
+            ->assertJsonPath('invitation_version', 3)
+            ->assertJsonPath('admin_emergency_hold', true);
+        $this->actingAs($owner)->postJson(
+            '/api/vendor-ops/companies/'.$company->id.'/staff',
+            ['email' => $staff->email, 'permissions' => ['company.read']]
+        )->assertStatus(409);
+        $this->actingAs($admin)->getJson(
+            '/api/admin/permission-grants/'.$member->id.'/revocations'
+        )->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.action', 'revoked')
+            ->assertJsonPath('data.0.replaced_version', 2);
+    }
+
     public function test_release_is_version_bound_and_non_admin_cannot_erase_security_hold(): void
     {
         [$admin, $owner, , , $member] = $this->fixture('invited');

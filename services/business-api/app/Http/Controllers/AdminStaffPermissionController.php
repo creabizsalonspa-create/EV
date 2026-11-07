@@ -98,8 +98,12 @@ class AdminStaffPermissionController extends Controller
         return DB::transaction(function () use ($actor, $membership, $input) {
             $locked = VendorCompanyStaff::whereKey($membership->id)
                 ->lockForUpdate()->firstOrFail();
-            abort_unless(in_array($locked->status, ['active', 'invited'], true),
-                409, 'Membership is not active or invited.');
+            // A company owner might revoke a membership just before the
+            // administrator acts. Admin can still place a durable hold on
+            // owner-revoked records, but cannot double-revoke an existing hold.
+            abort_unless(in_array($locked->status, ['active', 'invited', 'revoked'], true)
+                && $locked->admin_revoked_at === null,
+                409, 'Membership is already under an administrator hold.');
             abort_unless($locked->invitation_version === (int) $input['expected_version'],
                 409, 'Staff permissions changed. Refresh before revoking.');
 
