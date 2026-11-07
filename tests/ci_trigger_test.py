@@ -144,5 +144,33 @@ class CITriggerTest(unittest.TestCase):
         self.assertIn("flutter build ios --simulator --no-codesign", workflow)
 
 
+    def test_queue_maintenance_requires_explicit_manual_dispatch(self):
+        workflow = (
+            ROOT / ".github/workflows/queued-ci-maintenance.yml"
+        ).read_text()
+        trigger = top_level_section(workflow, "on")
+        self.assertIn("  workflow_dispatch:", trigger)
+        self.assertNotIn("  pull_request:", trigger)
+        self.assertNotIn("  push:", trigger)
+        self.assertIn("default: false", trigger)
+        self.assertIn('options: ["1", "5", "10", "25", "50"]', trigger)
+
+        jobs = top_level_section(workflow, "jobs")
+        self.assertIn("  dry-run:", jobs)
+        self.assertIn("  apply:", jobs)
+        before, apply = jobs.split("  apply:", 1)
+        self.assertIn("actions: read", before)
+        self.assertNotIn("actions: write", before)
+        self.assertIn("if: ${{ inputs.apply == true }}", apply)
+        self.assertIn("needs: dry-run", apply)
+        self.assertIn("actions: write", apply)
+        self.assertIn("test \"$GITHUB_EVENT_NAME\" = workflow_dispatch", apply)
+        self.assertIn("test \"$GITHUB_REPOSITORY\" = creabizsalonspa-create/EV", apply)
+        self.assertIn("test \"$APPLY\" = true", apply)
+        self.assertIn("--apply --summary-only", apply)
+        self.assertIn("--page-limit 12", apply)
+        self.assertRegex(workflow, r"(?m)^  cancel-in-progress: false$")
+
+
 if __name__ == "__main__":
     unittest.main()
