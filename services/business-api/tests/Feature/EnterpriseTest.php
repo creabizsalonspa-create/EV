@@ -109,6 +109,43 @@ class EnterpriseTest extends TestCase
         $this->assertSame(1, InboxNotification::where('user_id', $owner->id)->count());
     }
 
+    public function test_revoked_driver_cannot_assign_vehicle_even_after_previous_membership_access(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $outsider = User::factory()->create();
+        $fleet = Fleet::create(['owner_id' => $owner->id, 'name' => 'Locked assignment', 'country' => 'AE']);
+        $center = CostCenter::create(['fleet_id' => $fleet->id, 'code' => 'OPS', 'name' => 'Operations']);
+        $member = FleetMember::create([
+            'fleet_id' => $fleet->id, 'user_id' => $driver->id,
+            'role' => 'driver', 'status' => 'active',
+        ]);
+        $vehicle = Vehicle::create([
+            'user_id' => $driver->id, 'name' => 'Driver car', 'connector_type' => 'CCS2',
+        ]);
+        $otherVehicle = Vehicle::create([
+            'user_id' => $outsider->id, 'name' => 'Foreign car', 'connector_type' => 'CCS2',
+        ]);
+        $payload = ['vehicle_id' => $vehicle->id, 'cost_center_id' => $center->id];
+        $path = '/api/fleets/'.$fleet->id.'/vehicles';
+
+        $this->actingAs($driver)->postJson($path, [
+            'vehicle_id' => $otherVehicle->id,
+            'cost_center_id' => $center->id,
+        ])->assertNotFound();
+        $this->postJson($path, $payload)->assertCreated();
+        $this->assertDatabaseCount('fleet_vehicles', 1);
+        $this->actingAs($owner)->deleteJson(
+            '/api/fleets/'.$fleet->id.'/members/'.$member->id
+        )->assertNoContent();
+        $this->assertDatabaseCount('fleet_vehicles', 0);
+        $this->actingAs($driver)->postJson($path, $payload)->assertNotFound();
+        $this->assertDatabaseCount('fleet_vehicles', 0);
+        $this->assertDatabaseHas('fleet_members', [
+            'id' => $member->id, 'status' => 'revoked',
+        ]);
+    }
+
     public function test_fleet_invitation_rejects_revoked_state_until_owner_explicitly_reinvites(): void
     {
         $owner = User::factory()->create();

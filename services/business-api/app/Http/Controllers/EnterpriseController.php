@@ -184,25 +184,32 @@ class EnterpriseController extends Controller
     {
         $this->member($r, $fleet);
         $v = $r->validate(['vehicle_id' => 'required|integer', 'cost_center_id' => 'required|integer']);
-        $vehicle = Vehicle::whereKey($v['vehicle_id'])->where('user_id', $r->user()->id)->firstOrFail();
-        abort_unless(CostCenter::whereKey($v['cost_center_id'])->where('fleet_id', $fleet->id)->exists(), 404);
 
         return DB::transaction(function () use ($r, $fleet, $v) {
-            if ($fleet->owner_id !== $r->user()->id) {
-                $membership = FleetMember::where('fleet_id', $fleet->id)->where('user_id', $r->user()->id)->lockForUpdate()->first();
+            // Lock fleet before membership, as in invitation/accept/revoke.
+            // A revocation cannot overtake an in-flight vehicle assignment.
+            $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
+            if ($current->owner_id !== $r->user()->id) {
+                $membership = FleetMember::where('fleet_id', $current->id)
+                    ->where('user_id', $r->user()->id)->lockForUpdate()->first();
                 abort_unless($membership && $membership->status === 'active', 404);
             }
-            Vehicle::whereKey($v['vehicle_id'])->lockForUpdate()->firstOrFail();
-            $existing = FleetVehicle::where('vehicle_id', $v['vehicle_id'])->first();
+            $vehicle = Vehicle::whereKey($v['vehicle_id'])->lockForUpdate()->firstOrFail();
+            abort_unless($vehicle->user_id === $r->user()->id, 404);
+            abort_unless(CostCenter::whereKey($v['cost_center_id'])
+                ->where('fleet_id', $current->id)->exists(), 404);
+
+            $existing = FleetVehicle::where('vehicle_id', $vehicle->id)->first();
             if ($existing) {
-                abort_unless($existing->fleet_id === $fleet->id, 409, 'Vehicle belongs to a different fleet.');
+                abort_unless($existing->fleet_id === $current->id, 409, 'Vehicle belongs to a different fleet.');
                 $existing->update(['cost_center_id' => $v['cost_center_id']]);
 
                 return response()->json($existing);
-            }$a = FleetVehicle::create($v + ['fleet_id' => $fleet->id]);
-            $this->audit($r, 'fleet.vehicle_assigned', (string) $a->id);
+            }
+            $assignment = FleetVehicle::create($v + ['fleet_id' => $current->id]);
+            $this->audit($r, 'fleet.vehicle_assigned', (string) $assignment->id);
 
-            return response()->json($a, 201);
-        });
+            return response()->json($assignment, 201);
+        }, 3);
     }
 }

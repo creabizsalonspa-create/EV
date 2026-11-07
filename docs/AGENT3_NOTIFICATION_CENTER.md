@@ -93,3 +93,7 @@ The additive migration now includes `inbox_notifications(user_id,kind,id)` along
 ### Consistent lock ordering for fleet acceptance
 
 The fleet acceptance transaction now acquires the owning fleet row **before** the invitation membership row, matching invitation creation and revocation. It rechecks invitation ownership and fleet membership after locking, retries transient deadlocks up to three times, and creates only one acceptance notice on a real `invited`→`active` transition. Membership revocation rechecks the locked row's fleet ID. A new feature test confirms that a revoked invitation cannot be accepted until the owner deliberately issues a new invitation, and that repeated acceptance cannot create extra owner notices.
+
+### Vehicle-assignment authorization and fleet lock continuity
+
+The fleet assignment path now obtains the same fleet-before-membership row locks as invitation, acceptance and revocation. The driver's active membership, vehicle ownership and cost-center fleet association are all checked **inside the locked transaction**, not only against pre-transaction snapshots. The assignment transaction also retries transient deadlocks up to three times. A new test demonstrates that a driver's own vehicle is assigned while active, is detached on revocation, and cannot be assigned again after revocation; foreign-user vehicles are rejected.
