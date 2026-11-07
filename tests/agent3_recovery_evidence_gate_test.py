@@ -146,6 +146,23 @@ class GateTest(unittest.TestCase):
                 with self.assertRaises(gate.EvidenceError):
                     gate.inspect_proofs(b,c,SHA,'1234567','1')
 
+    def test_recovery_proof_rejects_duplicate_nested_keys_and_nonfinite_values(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d)/'proof.json'
+            for payload in (
+                '{"status":"PASS","status":"FAIL"}',
+                '{"data":{"source_sha":"good","source_sha":"bad"}}',
+                '{"value":NaN}',
+                '{"value":Infinity}',
+                '{"value":-Infinity}',
+            ):
+                with self.subTest(payload=payload):
+                    path.write_text(payload)
+                    with self.assertRaises(gate.EvidenceError):
+                        gate.read_proof(path)
+            path.write_text('{"status":"PASS","metadata":{"numbers":[1,2,3]}}')
+            self.assertEqual(gate.read_proof(path)['status'], 'PASS')
+
     def test_bounded_json_and_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             file=Path(d)/'proof.json'

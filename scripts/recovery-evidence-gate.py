@@ -15,6 +15,21 @@ def require(condition, error):
     if not condition:
         raise EvidenceError(error)
 
+def read_strict_json(payload):
+    def unique(pairs):
+        data = {}
+        for key, value in pairs:
+            require(key not in data, 'Duplicate recovery evidence JSON key')
+            data[key] = value
+        return data
+
+    def nonfinite(value):
+        raise EvidenceError('Non-standard JSON numeric constant in recovery evidence')
+
+    return json.loads(payload.decode('utf-8'), object_pairs_hook=unique,
+                      parse_constant=nonfinite)
+
+
 def read_proof(path):
     # Read and validate through the SAME no-follow descriptor. A prior
     # is_symlink()/stat() check is vulnerable to path replacement before read.
@@ -32,7 +47,7 @@ def read_proof(path):
         require(len(payload) == info.st_size and len(payload) <= 65536,
                 'Recovery evidence changed size while reading')
     try:
-        result = json.loads(payload.decode('utf-8'))
+        result = read_strict_json(payload)
     except (ValueError, UnicodeError):
         raise EvidenceError('Recovery evidence must be valid JSON') from None
     require(type(result) is dict, 'Recovery evidence must be a JSON object')

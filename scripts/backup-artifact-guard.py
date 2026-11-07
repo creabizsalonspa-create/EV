@@ -145,6 +145,23 @@ def read_auth_key(path):
         require(len(key) == 32, 'Run-local HMAC key changed during reading')
     return key
 
+def read_strict_json(payload):
+    # Duplicate names, even inside a nested object, and NaN/Infinity are
+    # ambiguous evidence across JSON implementations. Refuse them outright.
+    def unique(pairs):
+        data = {}
+        for key, value in pairs:
+            require(key not in data, 'Duplicate backup manifest JSON key')
+            data[key] = value
+        return data
+
+    def nonfinite(value):
+        raise ArchiveError('Non-standard manifest JSON numeric constant')
+
+    return json.loads(payload.decode('utf-8'), object_pairs_hook=unique,
+                      parse_constant=nonfinite)
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action',choices=('record','check'))
@@ -174,7 +191,7 @@ def main(argv=None):
                 payload = proof.read(65537)
                 require(len(payload) == info.st_size and len(payload) <= 65536,
                         'Manifest size changed during read')
-                saved = json.loads(payload.decode('utf-8'))
+                saved = read_strict_json(payload)
             require(type(saved) is dict, 'Backup manifest must be a JSON object')
             if args.auth_key_file is not None:
                 key = read_auth_key(args.auth_key_file)

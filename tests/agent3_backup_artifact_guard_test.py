@@ -71,6 +71,30 @@ class ArchiveTests(unittest.TestCase):
             key.write_bytes(b'short')
             self.assertEqual(guard.main(['check'] + args), 1)
 
+    def test_manifest_denies_duplicate_nested_keys_and_nonfinite_json(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump, manifest = root/'db.dump', root/'manifest.json'
+            sample_db(dump)
+            args = ['--pg-dump', str(dump), '--manifest', str(manifest)]
+            self.assertEqual(guard.main(['record'] + args), 0)
+            original = manifest.read_text()
+            for hostile in (
+                original.replace('"format":', '"format": "not-reviewed", "format":', 1),
+                original.replace('"database": {',
+                                 '"database": {"sha256": "incorrect",', 1),
+                original.replace('"production_ready": false',
+                                 '"production_ready": NaN', 1),
+                original.replace('"production_ready": false',
+                                 '"production_ready": Infinity', 1),
+            ):
+                with self.subTest(case=hostile[:70]):
+                    manifest.write_text(hostile)
+                    self.assertEqual(guard.main(['check'] + args), 1)
+            manifest.write_text(original)
+            self.assertEqual(guard.main(['check'] + args), 0)
+
     def test_content_change_detected(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);db=root/'db.dump';private=root/'p.tar.gz';manifest=root/'m.json'

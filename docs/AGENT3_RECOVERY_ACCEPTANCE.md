@@ -109,3 +109,7 @@ The disposable recovery runtime inspector rejects missing, extra, read-only or b
 ### Post-start isolation and network membership
 
 The disposable restore runner now rechecks internal Docker network membership after creating database containers and, for Laravel, after each application is started. Only the exact run-owned container IDs may be attached; an unrecognized peer or missing expected container blocks restoration. The same guard rejects host cgroup/UTS namespace sharing, custom security overrides, GPU/device requests and device cgroup rules. This is a synthetic environment control, not approval for production network access, data restoration or hardware operations.
+
+### Strict recovery-evidence JSON parser
+
+Both the local backup manifest verifier and the combined same-run evidence gate now reject duplicate object member names at any depth and non-standard `NaN`/`Infinity` numeric constants before interpreting proof fields. This closes parser-differential ambiguity in signed manifest and CI result ingestion. Existing byte/size/symlink restrictions and explicit non-production classification remain intact. No external signatures or production durability are implied.
