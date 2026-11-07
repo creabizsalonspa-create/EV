@@ -20,6 +20,10 @@ const point = {
   source_status_evidence: "OPEN_CHARGE_MAP_DISCOVERY_ONLY",
   reported_operational: true,
   reported_operational_evidence: "OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED",
+  reported_access: "Membership Required",
+  reported_membership_required: true,
+  reported_access_key_required: false,
+  reported_access_evidence: "OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED",
   source_clock_evidence: "CROWD_REPORTED_TIME",
   source_age_minutes: 120,
   connections: [{ reported_connector_type: "Type 2", reported_power_kw: 22, availability: "unknown" }],
@@ -121,6 +125,8 @@ const reply = {
       await root.locator('[name="ocm_latitude"]').fill("25.2");
       await root.locator('[name="ocm_longitude"]').fill("55.3");
       await root.locator('[name="ocm_radius_km"]').fill("10");
+      await root.locator('[name="ocm_country"]').fill("ae");
+      assert.equal(await root.locator('[name="ocm_country"]').inputValue(), "AE");
       assert.equal(searchRequests.length, 0, "Filling coordinates must not start a partner request");
       await root.locator('input[type="checkbox"]').check();
       await root.getByRole("button", { name: "Search open-licensed locations" }).click();
@@ -149,6 +155,7 @@ const reply = {
         latitude: 25.2,
         longitude: 55.3,
         radius_km: 10,
+        country: "AE",
       });
       assert.equal(await root.locator('input[type="checkbox"]').isChecked(), false);
       if (mode === "enabled") {
@@ -157,6 +164,7 @@ const reply = {
         assert.equal(await root.locator("article").textContent().then(s => s.includes("CC BY-SA 4.0")), true);
         assert.equal(await root.locator("article").textContent().then(s => s.includes("Type 2") && s.includes("22 kW")), true);
         await root.getByText("Crowd-reported operational at last update; unverified and not live.", { exact: true }).waitFor();
+        await root.getByText("Crowd-reported access (unverified): Membership Required · confirm with operator, not live.", { exact: true }).waitFor();
         assert.equal(await root.getByRole("button", { name: "Request charge" }).count(), 0);
         const source = root.getByRole("link", { name: "View source and license" });
         assert.equal(await source.getAttribute("href"), "https://openchargemap.org/site/poi/details/12345");
@@ -173,6 +181,10 @@ const reply = {
         ).waitFor();
         await popup.getByText(
           "Crowd report: this location was operational at last update; not live.",
+          { exact: true },
+        ).waitFor();
+        await popup.getByText(
+          "Crowd-reported access (unverified): Membership Required. Check with operator.",
           { exact: true },
         ).waitFor();
         assert.equal(await popup.getByRole("button", { name: "Add charging stop" }).count(), 0);

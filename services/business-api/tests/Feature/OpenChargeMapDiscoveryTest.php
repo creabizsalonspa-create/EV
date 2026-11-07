@@ -31,6 +31,7 @@ class OpenChargeMapDiscoveryTest extends TestCase
             ],
             'SubmissionStatusTypeID' => 200,
             'StatusType' => ['IsOperational' => true],
+            'UsageType' => ['Title' => 'Membership Required', 'IsMembershipRequired' => true, 'IsAccessKeyRequired' => false],
             'AddressInfo' => [
                 'Title' => 'Fixture open charge station',
                 'AddressLine1' => 'Fixture street',
@@ -85,6 +86,9 @@ class OpenChargeMapDiscoveryTest extends TestCase
             ->assertJsonPath('results.0.availability', 'unknown')
             ->assertJsonPath('results.0.reported_operational', true)
             ->assertJsonPath('results.0.reported_operational_evidence', 'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED')
+            ->assertJsonPath('results.0.reported_access', 'Membership Required')
+            ->assertJsonPath('results.0.reported_membership_required', true)
+            ->assertJsonPath('results.0.reported_access_evidence', 'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED')
             ->assertJsonPath('results.0.remote_control', false)
             ->assertJsonPath('results.0.reservable', false)
             ->assertJsonPath('results.0.billing_eligible', false)
@@ -118,6 +122,26 @@ class OpenChargeMapDiscoveryTest extends TestCase
         Http::fake(fn () => Http::response([$unlicensed, $unpublished, $invalid], 200, ['Content-Type' => 'application/json']));
         $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())
             ->assertOk()->assertJsonPath('count', 0)->assertJsonCount(0, 'results');
+    }
+
+    public function test_optional_iso_country_filter_is_bounded_and_verified_after_provider_response(): void
+    {
+        $us = $this->point();
+        $us['ID'] = 12346;
+        $us['AddressInfo']['Country']['ISOCode'] = 'US';
+        Http::fake(fn () => Http::response([$us, $this->point()], 200, ['Content-Type' => 'application/json']));
+        $response = $this->postJson('/api/discovery/open-charge-map/search', $this->input() + ['country' => 'AE']);
+        $response->assertOk()->assertJsonPath('count', 1)->assertJsonPath('results.0.id', 'ocm:12345');
+        Http::assertSent(fn ($request) => $request['countrycode'] === 'AE');
+        // Different country constraint must use its own safe cached response.
+        $response = $this->postJson('/api/discovery/open-charge-map/search', $this->input() + ['country' => 'US']);
+        $response->assertOk()->assertJsonPath('count', 1)->assertJsonPath('results.0.id', 'ocm:12346');
+        Http::assertSentCount(2);
+        foreach (['ae', 'A', 'UAE', 'US1'] as $bad) {
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input() + ['country' => $bad])
+                ->assertUnprocessable();
+        }
+        Http::assertSentCount(2);
     }
 
     public function test_unapproved_terms_and_missing_key_fail_closed_without_any_outbound_request(): void

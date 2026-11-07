@@ -65,6 +65,10 @@ final class OpenChargeMapProjection
         // connector occupancy or an authorized OCPI partner state.
         $operational = $poi['StatusType']['IsOperational'] ?? null;
         $reportedOperational = is_bool($operational) ? $operational : null;
+        $usage = is_array($poi['UsageType'] ?? null) ? $poi['UsageType'] : [];
+        $accessLabel = self::label($usage['Title'] ?? null, 120);
+        $membership = $usage['IsMembershipRequired'] ?? null;
+        $accessKey = $usage['IsAccessKeyRequired'] ?? null;
 
         $connections = [];
         foreach (is_array($poi['Connections'] ?? null) ? $poi['Connections'] : [] as $connection) {
@@ -102,6 +106,10 @@ final class OpenChargeMapProjection
             'source_status_evidence' => 'OPEN_CHARGE_MAP_DISCOVERY_ONLY',
             'reported_operational' => $reportedOperational,
             'reported_operational_evidence' => 'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED',
+            'reported_access' => $accessLabel,
+            'reported_membership_required' => is_bool($membership) ? $membership : null,
+            'reported_access_key_required' => is_bool($accessKey) ? $accessKey : null,
+            'reported_access_evidence' => 'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED',
             'data_provider' => $providerLabel,
             'data_license' => $license,
             'attribution' => 'Open Charge Map / '.$providerLabel,

@@ -36,6 +36,7 @@ final class OpenChargeMapDiscoveryController extends Controller
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
             'radius_km' => 'required|numeric|between:1,200',
+            'country' => 'nullable|string|regex:/^[A-Z]{2}$/',
         ]);
 
         if (! self::configured()) {
@@ -51,7 +52,7 @@ final class OpenChargeMapDiscoveryController extends Controller
         // provider requests under its published fair-usage requirements.
         $cacheIdentity = hash('sha256', json_encode([
             (float) $input['latitude'], (float) $input['longitude'],
-            (float) $input['radius_km'], hash('sha256', $key),
+            (float) $input['radius_km'], $input['country'] ?? null, hash('sha256', $key),
         ], JSON_THROW_ON_ERROR));
 
         try {
@@ -60,6 +61,7 @@ final class OpenChargeMapDiscoveryController extends Controller
                 (float) $input['longitude'],
                 (float) $input['radius_km'],
                 $key,
+                $input['country'] ?? null,
             ));
 
             return self::privateResponse($result);

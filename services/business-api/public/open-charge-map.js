@@ -31,6 +31,16 @@
     const lng = field('ocm_longitude', -180, 180, 'Longitude', 'خط الطول');
     const radius = field('ocm_radius_km', 1, 200, 'Radius in km', 'النطاق بالكيلومتر');
     radius.value = '25';
+    const countryRow = document.createElement('label');
+    const country = document.createElement('input');
+    country.name = 'ocm_country';
+    country.type = 'text';
+    country.maxLength = 2;
+    country.pattern = '[A-Z]{2}';
+    country.autocomplete = 'off';
+    country.oninput = () => { country.value = country.value.toUpperCase().replace(/[^A-Z]/g, ''); };
+    countryRow.append(text('span', 'Country ISO2 (optional)', 'رمز الدولة من حرفين (اختياري)'), country);
+    form.append(countryRow);
     const consent = document.createElement('input');
     consent.type = 'checkbox';
     consent.required = true;
@@ -74,6 +84,10 @@
         r.source_status_evidence === 'OPEN_CHARGE_MAP_DISCOVERY_ONLY' &&
         r.reported_operational_evidence === 'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED' &&
         (r.reported_operational === null || typeof r.reported_operational === 'boolean') &&
+        r.reported_access_evidence === 'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED' &&
+        typeof r.reported_access === 'string' &&
+        (r.reported_membership_required === null || typeof r.reported_membership_required === 'boolean') &&
+        (r.reported_access_key_required === null || typeof r.reported_access_key_required === 'boolean') &&
         r.availability === 'unknown' && r.remote_control === false &&
         r.reservable === false && r.billing_eligible === false &&
         typeof r.data_license === 'string' && !!r.data_license.trim() &&
@@ -117,6 +131,10 @@
                 : r.reported_operational === false
                     ? (ar() ? 'أبلغ المجتمع أن الموقع لا يعمل؛ غير مؤكد وليس مباشراً' : 'Crowd-reported non-operational at last update; unverified and not live.')
                     : (ar() ? 'الحالة التشغيلية المبلغ عنها غير معروفة؛ ليست مباشرة' : 'Crowd operational report unavailable; not live.');
+            const access = document.createElement('p');
+            access.textContent = (ar() ? 'الوصول حسب تقارير المجتمع (غير مؤكد): ' : 'Crowd-reported access (unverified): ') +
+                (r.reported_access || (ar() ? 'غير معروف' : 'unknown')) +
+                (ar() ? ' · تحقق مع المشغل، ليست حالة مباشرة.' : ' · confirm with operator, not live.');
             const license = document.createElement('p');
             license.textContent = (ar() ? 'المصدر والترخيص: ' : 'Source/license: ') + r.attribution + ' · ' + r.data_license;
             const connectors = document.createElement('p');
@@ -127,7 +145,7 @@
             link.href = r.source_url;
             link.target = '_blank';
             link.rel = 'noopener noreferrer';
-            card.append(heading, place, distance, age, reportedStatus, license, connectors,
+            card.append(heading, place, distance, age, reportedStatus, access, license, connectors,
                 text('p', 'Availability unknown. No remote charging, booking or payment.',
                     'التوفر غير معروف. لا شحن أو حجز أو دفع عن بُعد.'), link);
             results.append(card);
@@ -147,6 +165,7 @@
         window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: [] }));
         consent.checked = false;
         lat.value = lng.value = '';
+        country.value = '';
         radius.value = '25';
         announce('', '');
     };
@@ -169,7 +188,8 @@
                 method: 'POST', credentials: 'same-origin', redirect: 'error', cache: 'no-store',
                 headers: { Accept: 'application/json', 'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '' },
-                body: JSON.stringify({consent:true,latitude,longitude,radius_km:km}),
+                body: JSON.stringify({consent:true,latitude,longitude,radius_km:km,
+                    ...(country.value.trim() ? {country:country.value.trim()} : {})}),
                 signal: AbortSignal.any([current.signal, AbortSignal.timeout(15000)]),
             });
             if (epoch !== generation) return;

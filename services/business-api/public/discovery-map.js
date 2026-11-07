@@ -340,6 +340,8 @@
         r.source_status_evidence === "OPEN_CHARGE_MAP_DISCOVERY_ONLY" &&
         r.reported_operational_evidence === "OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED" &&
         (r.reported_operational === null || typeof r.reported_operational === "boolean") &&
+        r.reported_access_evidence === "OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED" &&
+        typeof r.reported_access === "string" &&
         r.availability === "unknown" && r.remote_control === false &&
         r.reservable === false && r.billing_eligible === false &&
         typeof r.data_license === "string" && r.data_license.trim() &&
@@ -382,6 +384,11 @@
                             ? "التقرير المجتمعي: أبلغ عن مشكلة تشغيل؛ ليست حالة مباشرة."
                             : "الحالة التشغيلية المجتمعية غير معروفة؛ ليست مباشرة.",
                 );
+                const access = make(
+                    "p",
+                    "Crowd-reported access (unverified): " + (row.reported_access || "unknown") + ". Check with operator.",
+                    "الوصول حسب تقارير المجتمع (غير مؤكد): " + (row.reported_access || "غير معروف") + ". تحقق مع المشغل.",
+                );
                 const attribution = document.createElement("p");
                 attribution.textContent = row.attribution + " · " + row.data_license;
                 const jump = make(
@@ -404,7 +411,7 @@
                 source.href = row.source_url;
                 source.target = "_blank";
                 source.rel = "noopener noreferrer";
-                popup.append(name, evidence, reported, attribution, jump, source);
+                popup.append(name, evidence, reported, access, attribution, jump, source);
             }
             L.marker([+first.latitude, +first.longitude], {
                 title: text(

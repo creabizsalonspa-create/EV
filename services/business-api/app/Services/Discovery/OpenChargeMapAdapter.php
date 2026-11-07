@@ -19,11 +19,12 @@ final class OpenChargeMapAdapter
      */
     public function __construct(private readonly ?Closure $fixtureTransport = null) {}
 
-    public function search(float $latitude, float $longitude, float $radiusKm, string $key): array
+    public function search(float $latitude, float $longitude, float $radiusKm, string $key, ?string $country = null): array
     {
         if (! is_finite($latitude) || ! is_finite($longitude) || ! is_finite($radiusKm)
             || abs($latitude) > 90 || abs($longitude) > 180
-            || $radiusKm < 1 || $radiusKm > 200 || trim($key) === '') {
+            || $radiusKm < 1 || $radiusKm > 200 || trim($key) === ''
+            || ($country !== null && preg_match('/^[A-Z]{2}$/D', $country) !== 1)) {
             throw new LookupFailure('invalid_request', 422);
         }
 
@@ -39,6 +40,9 @@ final class OpenChargeMapAdapter
             'verbose' => 'true',
             'compact' => 'false',
         ];
+        if ($country !== null) {
+            $parameters['countrycode'] = $country;
+        }
         $records = $this->fixtureTransport !== null
             ? ($this->fixtureTransport)($parameters)
             : $this->fetch($parameters, $key);
@@ -51,7 +55,8 @@ final class OpenChargeMapAdapter
                 continue;
             }
             $item = OpenChargeMapProjection::item($raw);
-            if ($item === null || isset($data[$item['id']])) {
+            if ($item === null || isset($data[$item['id']])
+                || ($country !== null && $item['country'] !== $country)) {
                 continue;
             }
             $distance = self::distance($latitude, $longitude, $item['latitude'], $item['longitude']);

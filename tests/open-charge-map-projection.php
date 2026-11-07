@@ -13,6 +13,7 @@ $poi = [
     'Connections'=>[['ConnectionType'=>['Title'=>'CCS2'],'PowerKW'=>120,'AccessToken'=>'secret'],['ConnectionType'=>['Title'=>'Type 2'], 'PowerKW'=>'NaN']],
     'SubmissionStatusTypeID'=>200,
     'StatusType'=>['IsOperational'=>true],
+    'UsageType'=>['Title'=>'Membership Required','IsMembershipRequired'=>true,'IsAccessKeyRequired'=>false],
     'DateLastStatusUpdate'=>'2026-11-07T10:00:00Z',
     'PrivateNotes'=>'untrusted',
 ];
@@ -26,6 +27,8 @@ check($v['data_license']==='CC BY-SA 4.0','licensing');
 check($v['source_url']==='https://openchargemap.org/site/poi/details/12345','fixed origin');
 check($v['availability']==='unknown' && $v['remote_control']===false && $v['reservable']===false && $v['billing_eligible']===false,'never actionable');
 check($v['reported_operational']===true && $v['reported_operational_evidence']==='OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED','crowd operational evidence');
+check($v['reported_access']==='Membership Required' && $v['reported_membership_required']===true && $v['reported_access_key_required']===false, 'source-qualified access metadata');
+check($v['reported_access_evidence']==='OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED','unverified access provenance');
 check(count($v['connections'])===2 && $v['connections'][1]['reported_power_kw']===null,'reported connections');
 check(!str_contains(json_encode($v),'ApiKey')&&!str_contains(json_encode($v),'secret')&&!str_contains(json_encode($v),'PrivateNotes'),'private data leakage');
 $bad=$poi;$bad['StatusType']['IsOperational']=false;check(OpenChargeMapProjection::item($bad,$now)['reported_operational']===false,'reported false');
@@ -39,4 +42,4 @@ $bad=$poi;$bad['DateLastStatusUpdate']='tomorrow';$unknown=OpenChargeMapProjecti
 $bad=$poi;$bad['ID']=0;check(OpenChargeMapProjection::item($bad,$now)===null,'id bounds');
 $bad=$poi;$bad['DataProvider']['DataProviderStatusType']['IsProviderEnabled']=false;check(OpenChargeMapProjection::item($bad,$now)===null,'disabled provider');
 $bad=$poi;$bad['Connections']=array_fill(0,100,['ConnectionType'=>['Title'=>'Type 2'],'PowerKW'=>22]);check(count(OpenChargeMapProjection::item($bad,$now)['connections'])===20,'connection cap');
-echo 'PASS 17 standalone licensed OCM projection/denied-capability assertions'.PHP_EOL;
+echo 'PASS standalone licensed OCM projection/denied-capability assertions'.PHP_EOL;

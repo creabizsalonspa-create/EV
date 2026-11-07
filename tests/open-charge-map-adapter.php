@@ -24,6 +24,11 @@ verify($result['count']===2,'dedupe and radius filter');
 verify($result['results'][0]['id']==='ocm:11','sort by distance');
 verify($result['results'][1]['id']==='ocm:12','second source');
 verify($captured['opendata']==='true' && $captured['distanceunit']==='km' && $captured['maxresults']===25,'bounded OCM request');
+$countryPoint = $poi;$countryPoint['AddressInfo']['Country']=['ISOCode'=>'AE'];
+$countryMatch=(new OpenChargeMapAdapter(fn($params)=>[$countryPoint]))->search(25.2,55.3,5,'synthetic-secret','AE');
+verify($countryMatch['count']===1,'country-match source');
+$countryWrong=(new OpenChargeMapAdapter(fn($params)=>[$countryPoint]))->search(25.2,55.3,5,'synthetic-secret','US');
+verify($countryWrong['count']===0,'country mismatch not displayed');
 verify(!array_key_exists('key',$captured),'no API key in url');
 verify($result['availability']==='unknown' && !$result['remote_control'] && !$result['reservable'] && !$result['billing_eligible'],'never actionable');
 verify(strpos(json_encode($result),'synthetic-secret')===false,'never display key');
@@ -36,4 +41,4 @@ catch(LookupFailure $e) { verify($e->reason==='invalid_response','fail closed on
 $dateline=$poi;$dateline['ID']=22;$dateline['AddressInfo']['Latitude']=0.0;$dateline['AddressInfo']['Longitude']=-179.999;
 $res=(new OpenChargeMapAdapter(fn()=>[$dateline]))->search(0,179.999,5,'fake');
 verify($res['count']===1,'antimeridian distance');
-echo 'PASS 13 OCM offline adapter/transport/privacy/proximity assertions'.PHP_EOL;
+echo 'PASS OCM offline adapter/transport/privacy/proximity assertions'.PHP_EOL;
