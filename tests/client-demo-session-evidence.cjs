@@ -24,7 +24,12 @@ function sessions(){return [0,1].map(i=>({id:i+201,reservation_id:i+101,status:'
   evidence:'SIMULATED_CSMS',csms_linked:true,payment_status:'not_processed',currency:'AED',
   energy_wh:250+i*75,total_minor:25+i*8}));}
 function page(records){return{data:records,total:records.length};}
-function fake({reservationsData=reservations(),sessionsData=sessions(),logoutStatus=204,afterStatus=401,
+function invoices(){return sessions().map((item,i)=>({
+  id:301+i,charging_session_id:item.id,user_id:ACCOUNT,evidence:'SIMULATED',
+  currency:'AED',energy_wh:item.energy_wh,total_minor:item.total_minor
+}));}
+function fake({reservationsData=reservations(),sessionsData=sessions(),invoicesData=invoices(),
+  paidMinor=0,ledgerBalanced=true,logoutStatus=204,afterStatus=401,
   wrongRole=false,track=[]}={}) {
  return async(route,method,payload,jar)=>{
    track.push({route,method});
@@ -33,6 +38,16 @@ function fake({reservationsData=reservations(),sessionsData=sessions(),logoutSta
      email:fixture().accounts.customer.email}};
    if(route==='/api/reservations')return{status:200,body:page(reservationsData)};
    if(route==='/api/simulations')return{status:200,body:page(sessionsData)};
+   if(route==='/api/finance/invoices')return{status:200,body:page(invoicesData)};
+   if(/^\/api\/finance\/invoices\/[0-9]+$/.test(route)){
+     const id=Number(route.split('/').at(-1));
+     const record=invoicesData.find(x=>x.id===id);
+     if(!record)return{status:404,body:{message:'Not found'}};
+     return{status:200,body:{invoice:record,payment_provider:'SIMULATOR_ONLY',
+       real_payment_processed:false,ledger_balanced:ledgerBalanced,
+       paid_minor:paidMinor,net_collected_minor:paidMinor,refunded_minor:0,
+       payments:paidMinor?[{id:1}]:[],refunds:[]}};
+   }
    if(route==='/api/logout')return{status:logoutStatus,body:null};
    if(route==='/api/me')return{status:afterStatus,body:{}};
    throw Error('Disallowed local demo route');
@@ -81,10 +96,14 @@ test('local synthetic customer proof only uses CSRF/login, read-only API and log
  const report=await audit.inspect(manifest,fake({track}),()=> '2026-11-07T13:00:00.000Z');
  assert.equal(report.status,'LOCAL_SIMULATOR_COMPLETION_VERIFIED');
  assert.equal(report.completion_count,2);
+ assert.equal(report.simulated_invoices_verified,true);
+ assert.ok(report.protocols.every(x=>x.mock_invoice_verified===true));
  assert.equal(report.production_accepted,false);
  assert.equal(report.real_money_moved,false);
  assert.deepEqual(track.map(x=>x.route),[
-   '/api/csrf','/api/login','/api/reservations','/api/simulations','/api/logout','/api/me']);
+   '/api/csrf','/api/login','/api/reservations','/api/simulations',
+   '/api/finance/invoices','/api/finance/invoices/301','/api/finance/invoices/302',
+   '/api/logout','/api/me']);
  assert.deepEqual(track.filter(x=>x.method==='POST').map(x=>x.route),['/api/login','/api/logout']);
 }));
 test('unconfirmed logout makes private result INCOMPLETE even when source sessions finished',async()=>withManifest(async({manifest})=>{
@@ -142,3 +161,38 @@ test('nonboolean physical charging claims cannot be laundered as synthetic evide
    assert.throws(()=>audit.validateCompleted(fixture(),ACCOUNT,reservations(),list));
  }
 });
+
+test('mock invoices must cover both distinct local CSMS source sessions',()=>{
+ const completed=audit.validateCompleted(fixture(),ACCOUNT,reservations(),sessions());
+ const proof=audit.validateMockInvoices(completed,ACCOUNT,invoices());
+ assert.equal(proof.length,2);
+ assert.deepEqual(proof.map(x=>x.invoice_id),[301,302]);
+});
+test('missing or foreign-user simulator invoice is not accepted',()=>{
+ const completed=audit.validateCompleted(fixture(),ACCOUNT,reservations(),sessions());
+ assert.throws(()=>audit.validateMockInvoices(completed,ACCOUNT,invoices().slice(0,1)));
+ const foreign=invoices();foreign[1].user_id=999;
+ assert.throws(()=>audit.validateMockInvoices(completed,ACCOUNT,foreign));
+});
+test('paid mock invoice cannot masquerade as no-money-moved demo completion',async()=>withManifest(async({manifest})=>{
+ const report=await audit.inspect(manifest,fake({paidMinor:1}));
+ assert.equal(report.status,'INCOMPLETE');
+ assert.equal(report.simulated_invoices_verified,false);
+}));
+test('unbalanced synthetic finance journal must fail read-only completion evidence',async()=>withManifest(async({manifest})=>{
+ const report=await audit.inspect(manifest,fake({ledgerBalanced:false}));
+ assert.equal(report.status,'INCOMPLETE');
+}));
+test('wrong source invoice currency or physical invoice evidence is rejected',()=>{
+ const completed=audit.validateCompleted(fixture(),ACCOUNT,reservations(),sessions());
+ const wrong=invoices();wrong[1].evidence='LIVE_PSP';
+ assert.throws(()=>audit.validateMockInvoices(completed,ACCOUNT,wrong));
+ const wrongCurrency=invoices();wrongCurrency[1].currency='USD';
+ assert.throws(()=>audit.validateMockInvoices(completed,ACCOUNT,wrongCurrency));
+});
+test('complete post-demo evidence contains no session IDs or invoice IDs',async()=>withManifest(async({manifest})=>{
+ const report=await audit.inspect(manifest,fake());
+ assert.equal(report.status,'LOCAL_SIMULATOR_COMPLETION_VERIFIED');
+ assert.equal(JSON.stringify(report).includes('"session_id"'),false);
+ assert.equal(JSON.stringify(report).includes('"invoice_id"'),false);
+}));
