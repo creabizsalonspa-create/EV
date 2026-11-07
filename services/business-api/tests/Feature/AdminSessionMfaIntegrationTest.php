@@ -30,7 +30,6 @@ class AdminSessionMfaIntegrationTest extends TestCase
             '/api/admin/audit-events',
             '/api/admin/operator-role-changes',
             '/api/vendor-ops/companies',
-            '/api/v1/me',
         ];
         $this->postJson('/api/login', [
             'email' => $admin->email, 'password' => 'password',
@@ -51,6 +50,10 @@ class AdminSessionMfaIntegrationTest extends TestCase
             'id' => $customer->id, 'account_status' => 'active',
         ]);
         $this->assertDatabaseCount('audit_events', 0);
+        // The API group is not a session-bound Admin portal. Browser MFA
+        // must not silently unlock the native API on the same account.
+        $this->getJson('/api/v1/me')->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
 
         $secret = $this->postJson('/api/admin/second-factor/begin', [
             'password' => 'password',
@@ -62,6 +65,8 @@ class AdminSessionMfaIntegrationTest extends TestCase
         foreach ($readOnly as $uri) {
             $this->getJson($uri)->assertOk();
         }
+        $this->getJson('/api/v1/me')->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
         $this->patchJson($moderation, [
             'expected_status' => 'active',
             'account_status' => 'suspended',
