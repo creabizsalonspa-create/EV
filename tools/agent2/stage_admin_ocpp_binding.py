@@ -40,7 +40,10 @@ router.get("/admin/ocpp/booking-sessions", AdminAuth, AdminListLinkedBookingOcpp
 
 // Bookings & Reviews (read-only)''','Admin OCPP route placement')
     b=once(b,'const BookingModel = mongoose.model("Booking", BookingSchema);',
-       '''BookingSchema.add({ocppTokenIssuedAt:{type:Date,default:null}});
+       '''BookingSchema.add({
+  ocppTokenIssuedAt:{type:Date,default:null},
+  ocppChargerId:{type:String,default:""},
+});
 
 const BookingModel = mongoose.model("Booking", BookingSchema);''',
        'booking issuance timestamp')
