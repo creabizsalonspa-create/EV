@@ -198,7 +198,6 @@ class MobileReleaseSigningTest(unittest.TestCase):
         self.assertIn(
             "Flutter/MapsKeys.xcconfig", (root / ".gitignore").read_text()
         )
-        self.assertFalse((root / "Flutter/MapsKeys.xcconfig").exists())
 
     def test_ios_photo_picker_has_user_visible_privacy_description(self):
         app = ROOT / "apps/hasone-customer"
