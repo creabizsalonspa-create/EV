@@ -37,8 +37,6 @@ def patch(root):
     }
 
     // Never offer another scan when this booking is already bound to a'''
-    if section.count(before_source)!=1:raise RuntimeError('Scanner source gate moved')
-    section=section.replace(before_source,gate)
     old='''    return {
       status: "Success",
       message: "Charging station info fetched.",
@@ -61,6 +59,8 @@ def patch(root):
       data: {'''
     if section.count(old)!=1:raise RuntimeError('Station display shape changed')
     section=section.replace(old,new)
+    if section.count(before_source)!=1:raise RuntimeError('Scanner source gate moved')
+    section=section.replace(before_source,gate)
     old2='''        status:           session.status,            // "NotStarted"
         canScan:          session.status === "NotStarted",'''
     new2='''        status: chargingState,
