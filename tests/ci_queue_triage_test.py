@@ -153,9 +153,9 @@ class QueueTriageTest(unittest.TestCase):
             def pages(self, suffix, key):
                 if suffix.startswith("/pulls?"):
                     return [pr()], False
-                if suffix.startswith("/actions/runs?"):
-                    return [r], False
                 raise AssertionError(suffix)
+            def queued_pages(self, limit=triage.MAX_PAGE_COUNT):
+                return [r], False
             def request(self, suffix, method="GET"):
                 if method != "GET":
                     self.posted = True
@@ -179,9 +179,9 @@ class QueueTriageTest(unittest.TestCase):
             def pages(self, suffix, key):
                 if suffix.startswith("/pulls?"):
                     return [pr(sha=SHA_A)], False
-                if suffix.startswith("/actions/runs?"):
-                    return [r], False
                 raise AssertionError(suffix)
+            def queued_pages(self, limit=triage.MAX_PAGE_COUNT):
+                return [r], False
             def request(self, suffix, method="GET"):
                 if method != "GET":
                     self.posted = True
@@ -209,9 +209,9 @@ class QueueTriageTest(unittest.TestCase):
             def pages(self, suffix, key):
                 if suffix.startswith("/pulls?"):
                     return [pr()], False
-                if suffix.startswith("/actions/runs?"):
-                    return [r1, r2], False
                 raise AssertionError(suffix)
+            def queued_pages(self, limit=triage.MAX_PAGE_COUNT):
+                return [r1, r2], False
             def request(self, suffix, method="GET"):
                 if method == "GET":
                     return r1 if suffix.endswith("/1") else r2
@@ -336,6 +336,84 @@ class QueueTriageTest(unittest.TestCase):
         prs, incomplete = github.pages("/pulls?state=open", "pull_requests")
         self.assertEqual(1, len(prs))
         self.assertFalse(incomplete)
+
+
+    def test_queue_split_recovers_runs_hidden_beyond_github_cap(self):
+        github = triage.Github()
+        # The API exposes 1,360 queued runs, but unfiltered pagination returns
+        # only the newest 1,000; created-range pagination exposes the older 361,
+        # including one duplicated run at the timestamp boundary.
+        newest = [dict(run(id=i), created_at="2026-11-07T14:00:00Z")
+                  for i in range(1360, 360, -1)]
+        newest[-1]["created_at"] = "2026-11-07T13:00:00Z"
+        older = [dict(run(id=i), created_at="2026-11-07T12:00:00Z")
+                 for i in range(360, 0, -1)] + [newest[-1]]
+        older.sort(key=lambda x: x["created_at"], reverse=True)
+
+        def response(suffix):
+            from urllib.parse import parse_qs
+            query = parse_qs(suffix.split("?", 1)[-1])
+            page = int(query.get("page", ["1"])[0])
+            per_page = int(query.get("per_page", ["100"])[0])
+            if "created" in query:
+                self.assertIn("..2026-11-07T13:00:00Z",
+                              query["created"][0])
+                rows = older
+                total = len(older)
+            else:
+                rows = newest
+                total = 1360 if per_page == 1 or page <= 10 else 0
+            start = (page - 1) * per_page
+            return {"total_count": total,
+                    "workflow_runs": rows[start:start + per_page]}
+        github.request = response
+        combined, incomplete = github.queued_pages()
+        self.assertFalse(incomplete)
+        self.assertEqual(1360, len(combined))
+        self.assertEqual(1360, len({r["id"] for r in combined}))
+
+    def test_queue_split_refuses_new_work_arriving_during_scan(self):
+        github = triage.Github()
+        newest = [dict(run(id=i), created_at="2026-11-07T14:00:00Z")
+                  for i in range(1360, 360, -1)]
+        newest[-1]["created_at"] = "2026-11-07T13:00:00Z"
+        older = [dict(run(id=i), created_at="2026-11-07T12:00:00Z")
+                 for i in range(360, 0, -1)] + [newest[-1]]
+        older.sort(key=lambda x: x["created_at"], reverse=True)
+        def response(suffix):
+            from urllib.parse import parse_qs
+            query = parse_qs(suffix.split("?", 1)[-1])
+            page = int(query.get("page", ["1"])[0])
+            per_page = int(query.get("per_page", ["100"])[0])
+            if "created" in query:
+                rows, total = older, len(older)
+            else:
+                rows = newest
+                total = (1361 if per_page == 1 else
+                         1360 if page <= 10 else 0)
+            start = (page - 1) * per_page
+            return {"total_count": total,
+                    "workflow_runs": rows[start:start + per_page]}
+        github.request = response
+        combined, incomplete = github.queued_pages()
+        self.assertTrue(incomplete)
+        self.assertEqual(1360, len(combined))
+
+    def test_queue_split_rejects_missing_timestamps(self):
+        github = triage.Github()
+        def response(suffix):
+            from urllib.parse import parse_qs
+            query = parse_qs(suffix.split("?", 1)[-1])
+            page = int(query.get("page", ["1"])[0])
+            return {"total_count": 1300 if page <= 10 else 0,
+                    "workflow_runs": [
+                        run(id=page * 100 + index)
+                        for index in range(100 if page <= 10 else 0)
+                    ]}
+        github.request = response
+        rows, incomplete = github.queued_pages()
+        self.assertTrue(incomplete)
+        self.assertEqual(1000, len(rows))
 
 
 if __name__ == "__main__":
