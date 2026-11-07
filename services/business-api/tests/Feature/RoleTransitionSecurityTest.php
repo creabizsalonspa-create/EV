@@ -128,6 +128,38 @@ class RoleTransitionSecurityTest extends TestCase
         $this->assertDatabaseCount('operator_role_changes', 0);
     }
 
+    public function test_unverified_mailbox_cannot_receive_administrator_privileges(): void
+    {
+        $user = User::factory()->unverified()->create(['role' => 'customer']);
+        $tokenId = $this->activeCredentials($user, 'unverified-admin-session');
+
+        $this->assertSame(1, Artisan::call('platform:role', [
+            'email' => $user->email,
+            'role' => 'admin',
+            '--ticket' => 'SEC-VERIFY:17',
+        ]));
+        $this->assertSame('customer', $user->fresh()->role);
+        $this->assertDatabaseHas('personal_access_tokens', ['id' => $tokenId]);
+        $this->assertDatabaseHas('sessions', ['id' => 'unverified-admin-session']);
+        $this->assertDatabaseCount('operator_role_changes', 0);
+
+        $user->markEmailAsVerified();
+        $this->assertSame(0, Artisan::call('platform:role', [
+            'email' => $user->email,
+            'role' => 'admin',
+            '--ticket' => 'SEC-VERIFY:17',
+        ]));
+        $this->assertSame('admin', $user->fresh()->role);
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $tokenId]);
+        $this->assertDatabaseMissing('sessions', ['id' => 'unverified-admin-session']);
+        $this->assertDatabaseHas('operator_role_changes', [
+            'target_user_id' => $user->id,
+            'previous_role' => 'customer',
+            'assigned_role' => 'admin',
+            'ticket_reference' => 'SEC-VERIFY:17',
+        ]);
+    }
+
     public function test_admin_kyc_approval_revokes_applicants_old_customer_credentials(): void
     {
         $owner = User::factory()->create(['role' => 'customer']);

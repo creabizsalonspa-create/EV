@@ -43,6 +43,13 @@ Artisan::command('platform:role {email} {role} {--ticket=}', function () {
         if ($account->role === $role) {
             return false;
         }
+        // Operator CLI is the only intended role-elevation path. Before
+        // granting Admin rights, establish mailbox ownership under the same
+        // row lock; rejected promotions must not revoke sessions or audit a
+        // successful privilege change.
+        if ($role === 'admin' && ! $account->hasVerifiedEmail()) {
+            return 'unverified';
+        }
 
         $before = $account->role;
         $account->role = $role;
@@ -58,6 +65,11 @@ Artisan::command('platform:role {email} {role} {--ticket=}', function () {
 
         return true;
     });
+    if ($changed === 'unverified') {
+        $this->error('Verify the account email address before granting Admin access.');
+
+        return 1;
+    }
     $this->info($changed
         ? 'Role changed and recorded; existing sessions require sign-in.'
         : 'Role unchanged; no new privilege change recorded.');
