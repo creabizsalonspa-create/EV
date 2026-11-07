@@ -180,5 +180,36 @@ class IntegrationReadinessTest(unittest.TestCase):
         self.assertIn("stacked_parent_pending:59", report["prs"][0]["blockers"])
 
 
+    def test_overlapping_active_agent_files_are_reported_without_merging(self):
+        changes = {
+            50: ["docs/AGENT2_PARALLEL_WORKSTREAM.md", "apps/mobile/lib/api.dart"],
+            55: ["apps/mobile/lib/api.dart", ".github/workflows/mobile.yml"],
+            59: [".github/workflows/mobile.yml", "services/business-api/routes/roaming_orders.php"],
+        }
+        overlaps = gate.shared_changed_files(changes)
+        self.assertEqual([50, 55], overlaps["apps/mobile/lib/api.dart"])
+        self.assertEqual([55, 59], overlaps[".github/workflows/mobile.yml"])
+        self.assertNotIn("docs/AGENT2_PARALLEL_WORKSTREAM.md", overlaps)
+        self.assertEqual("shared_code_or_schema",
+                         gate.risk_rank(".github/workflows/mobile.yml"))
+        self.assertEqual("shared_code_or_schema",
+                         gate.risk_rank("services/business-api/routes/api.php"))
+        self.assertEqual("shared_documentation",
+                         gate.risk_rank("docs/PROGRESS.md"))
+
+    def test_overlap_report_is_nonblocking_when_checks_are_truly_green(self):
+        self.assertEqual("candidate_for_manual_review",
+                         gate.assess(pr(), checks(), ["apps/mobile/lib/main.dart"],
+                                     parents={})["status"] if False else
+                         gate.assess(pr(), checks(gate.CORE | gate.NATIVE),
+                                     ["apps/mobile/lib/main.dart"])["status"])
+        # Shared paths do not establish an actual Git conflict by themselves.
+        self.assertEqual({"apps/mobile/lib/main.dart": [53, 55]},
+                         gate.shared_changed_files({
+                             53: ["apps/mobile/lib/main.dart"],
+                             55: ["apps/mobile/lib/main.dart"],
+                         }))
+
+
 if __name__ == "__main__":
     unittest.main()
