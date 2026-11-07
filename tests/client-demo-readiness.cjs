@@ -12,7 +12,7 @@ function synthetics(){
    simulators:()=>({ok:true,physical_charging_verified:false,real_money_moved:false,
      stations:OCPP.map(protocol=>({protocol,idle:true,physical_charging_verified:false,
        evidence:'SIMULATED_CITRINEOS'}))}),
-   roles:async()=>({ok:true,physical_charging_verified:false,real_money_moved:false,
+   roles:async()=>({ok:true,discovery_verified:true,physical_charging_verified:false,real_money_moved:false,
      production_accepted:false,
      results:ROLES.map(role=>({role,authenticated:true,read_only_features_verified:true,admin_authorized:role==='admin',post_logout_denied:true}))}),
    now:()=> '2026-11-07T13:00:00.000Z',
@@ -127,5 +127,13 @@ test('aggregated report rejects missing EV vehicle/reservation journey readiness
  const good=await synthetics().roles();
  good.results[1].read_only_features_verified=false;
  deps.roles=async()=>good;
+ assert.equal((await demo.inspect({manifest:'private'},deps)).status,'INCOMPLETE');
+});
+
+test('combined lab report refuses browser roles whose public synthetic stations are missing',async()=>{
+ const deps=synthetics();
+ const result=await synthetics().roles();
+ result.discovery_verified=false;
+ deps.roles=async()=>result;
  assert.equal((await demo.inspect({manifest:'private'},deps)).status,'INCOMPLETE');
 });
