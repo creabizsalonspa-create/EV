@@ -55,6 +55,9 @@ try{
  await BookingModel.init(); // Explicitly wait for the atomic station-slot index.
  const {default:AppSettingsModel}=await import(pathToFileURL(join(source,'src/models/AppSettingsModel.js')).href);
  const {default:ChargingSessionModel}=await import(pathToFileURL(join(source,'src/models/ChargingSessionModel.js')).href);
+ await ChargingSessionModel.init(); // Wait for the one-source-session-per-booking constraint.
+ const {default:AdminModel}=await import(pathToFileURL(join(source,'src/models/AdminModel.js')).href);
+ const jwt=(await import(pathToFileURL(join(dependencies,'node_modules/jsonwebtoken/index.js')).href)).default;
  const {default:PaymentCardModel}=await import(pathToFileURL(join(source,'src/models/PaymentCardModel.js')).href);
  const {EncodeToken}=await import(pathToFileURL(join(source,'src/utils/tokenHelper.js')).href);
  await AppSettingsModel.create({key:'main',savedCardEnabled:true,sslcommerzEnabled:false,stripeEnabled:false,currencyCode:'AED',currencySymbol:'د.إ'});
@@ -72,13 +75,16 @@ try{
  const brand=await VehicleBrandModel.create({name:'Test Vehicle Brand'});
  const model=await VehicleModelItemModel.create({brandId:brand._id,name:'Test EV Model'});
  const bearer='Bearer '+EncodeToken(user.email,String(user._id));
+ const admin=await AdminModel.create({name:'Agent 2 Test Administrator',email:'admin-agent2@example.invalid',password:'ephemeral-qa-value'});
+ const adminBearer='Bearer '+jwt.sign({id:String(admin._id)},process.env.JWT_SECRET,{expiresIn:'20m'});
  server=await new Promise(done=>{const s=app.listen(0,'127.0.0.1',()=>done(s));});
  const base='http://127.0.0.1:'+server.address().port;
  let passed=0;
- async function request(method,path,body,authorized=false){
+ async function request(method,path,body,authorized=false,extraHeaders={}){
   const res=await fetch(base+path,{method,headers:{
     ...(body===undefined?{}:{'content-type':'application/json'}),
-    ...(authorized?{authorization:bearer}:{})},
+    ...(authorized?{authorization:bearer}:{}),
+    ...extraHeaders},
     ...(body===undefined?{}:{body:JSON.stringify(body)}),
     redirect:'manual'});
   let json=null;const bodyText=await res.text();try{json=JSON.parse(bodyText);}catch{}
@@ -310,6 +316,94 @@ try{
     const r=await request('GET','/api/v1/ChargingSession/'+linked._id+'/status',undefined,true);
     assert.equal(r.code,200);assert.equal(r.body.data.sourceVerified,false);
     linked.sourceSessionId=String(sourceDoc._id);await linked.save();
+  });
+  const adminStation=await NearestStationModel.create({name:'Agent 2 Authorized Booking Station',
+    address:'Loopback OCPP Test Only',status:'Available',latitude:25.742,longitude:55.924,
+    pricePerHourValue:60,taxPercent:5,slots:[{startTime:'03:00 PM',endTime:'04:00 PM'}]});
+  const adminCharger='agent2-admin-bound-ocpp16';
+  await db.collection('ocpp_chargers').insertOne({stationId:String(adminStation._id),
+    chargerId:adminCharger,enabled:true,protocol:'ocpp1.6',controlApproved:false});
+  await db.collection('ocpp_tariffs').insertOne({chargerId:adminCharger,enabled:true,
+    rateFilsPerKwh:100,vatPercent:5});
+  // This is explicitly test data; no actual merchant charge or arrived customer.
+  const adminBooking=await BookingModel.create({userId:user._id,stationId:adminStation._id,
+    date:'2026-11-11',time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+    totalAmount:63,status:'Upcoming',isPaid:true,paymentStatus:'paid',hasArrived:true});
+  const issuePath='/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/issue-token';
+  await check('unprivileged customer cannot request one-time booking OCPP tokens',async()=>{
+    const z=await request('POST',issuePath,{},true);
+    assert.equal(z.code,401);
+    assert.equal(await db.collection('ocpp_access_tokens').countDocuments({chargerId:adminCharger}),0);
+  });
+  let issuedToken;
+  await check('authorized Admin issues one scoped, expiring OCPP token for an arrived booking',async()=>{
+    const z=await request('POST',issuePath,{},false,{authorization:adminBearer});
+    assert.equal(z.code,201);
+    assert.equal(z.body.status,'Success');
+    assert.equal(z.body.data.chargerId,adminCharger);
+    issuedToken=z.body.data.oneTimeToken;
+    assert.ok(typeof issuedToken==='string' && /^[0-9a-f]{48}$/.test(issuedToken));
+    const hash=createHash('sha256').update(issuedToken).digest('hex');
+    const saved=await BookingModel.findById(adminBooking._id);
+    assert.equal(saved.ocppTokenHash,hash);
+    assert.ok(saved.ocppTokenIssuedAt);
+    assert.equal(await db.collection('ocpp_access_tokens').countDocuments({chargerId:adminCharger,tokenHash:hash,enabled:true}),1);
+  });
+  await check('Admin duplicate token issuance rejected without adding another credential',async()=>{
+    const z=await request('POST',issuePath,{},false,{authorization:adminBearer});
+    assert.equal(z.code,409);
+    assert.equal(await db.collection('ocpp_access_tokens').countDocuments({chargerId:adminCharger}),1);
+  });
+  let adminOcppSession;
+  await check('real OCPP 1.6 handler accepts Admin booking token and persists source meter events',async()=>{
+    const starting=await handle({chargerId:adminCharger},'ocpp1.6','StartTransaction',{
+      connectorId:1,meterStart:1000,idTag:issuedToken,timestamp:new Date().toISOString()});
+    assert.equal(starting.idTagInfo.status,'Accepted');
+    await handle({chargerId:adminCharger},'ocpp1.6','MeterValues',{
+      transactionId:starting.transactionId,meterValue:meter(4000)});
+    await handle({chargerId:adminCharger},'ocpp1.6','StopTransaction',{
+      transactionId:starting.transactionId,meterStop:6000,
+      timestamp:new Date().toISOString(),reason:'EVDisconnected'});
+    adminOcppSession=await db.collection('ocpp_sessions').findOne({
+      chargerId:adminCharger,transactionId:starting.transactionId,protocol:'ocpp1.6'});
+    assert.ok(adminOcppSession);
+    assert.equal(adminOcppSession.energyKwh,5);
+    assert.equal(adminOcppSession.totalFils,525);
+    assert.equal(adminOcppSession.paymentStatus,'not_collected');
+  });
+  const bindPath='/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/bind-source';
+  await check('customer without AdminAuth cannot bind a charging source transaction',async()=>{
+    const z=await request('POST',bindPath,{sourceSessionId:String(adminOcppSession._id)},true);
+    assert.equal(z.code,401);
+  });
+  let adminLinkedSession;
+  await check('Admin binds approved, token-matched source exactly to the booking',async()=>{
+    const z=await request('POST',bindPath,{sourceSessionId:String(adminOcppSession._id)},false,
+      {authorization:adminBearer});
+    assert.equal(z.code,200);
+    assert.equal(z.body.status,'Success');
+    assert.equal(z.body.data.energyKwh,5);
+    assert.equal(z.body.data.financialSettlement,'not_collected');
+    adminLinkedSession=await ChargingSessionModel.findById(z.body.data.sessionId);
+    assert.equal(adminLinkedSession.sourceSessionId,String(adminOcppSession._id));
+  });
+  await check('customer sees meter-backed charging history from Admin-bound transaction',async()=>{
+    const z=await request('GET','/api/v1/ChargingSession/'+adminLinkedSession._id+'/status',
+      undefined,true);
+    assert.equal(z.code,200);
+    assert.equal(z.body.data.sourceVerified,true);
+    assert.equal(z.body.data.kwhUsed,5);
+    assert.equal(z.body.data.paymentStatus,'not_collected');
+  });
+  await check('same OCPP source session cannot be linked into a different booking',async()=>{
+    const second=await BookingModel.create({userId:user._id,stationId:adminStation._id,
+      date:'2026-11-12',time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+      totalAmount:63,status:'Upcoming',isPaid:true,hasArrived:true,
+      ocppTokenHash:createHash('sha256').update(issuedToken).digest('hex'),
+      ocppTokenIssuedAt:new Date(Date.now()-1000)});
+    const z=await request('POST','/api/v1/admin/bookings/'+second._id+'/ocpp/bind-source',
+      {sourceSessionId:String(adminOcppSession._id)},false,{authorization:adminBearer});
+    assert.notEqual(z.code,200);
   });
   const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
   const hash16=createHash('sha256').update(token16).digest('hex');
