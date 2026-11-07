@@ -101,6 +101,22 @@ class MobileApkAuditTests(unittest.TestCase):
         )
         self.assertEqual("a" * 64, result["approved_signer_digest"])
 
+    def test_release_rejects_android_debug_signer_even_with_matching_digest(self):
+        prod = BADGING.replace(EXPECTED, "com.creabiz.creabiz_ev")
+        digest = "a" * 64
+        debug_signer = (
+            "Signer #1 certificate DN: C=US, O=Android, CN=Android Debug\\n"
+            "Signer #1 certificate SHA-256 digest: " + digest
+        )
+        with self.assertRaisesRegex(audit.AuditError, "Android Debug"):
+            self.audit(
+                badging=prod,
+                package="com.creabiz.creabiz_ev",
+                mode="release",
+                expected_signer_sha256=digest,
+                signer_output=debug_signer,
+            )
+
     def test_missing_target_sdk_is_rejected(self):
         text = BADGING.replace("targetSdkVersion:'36'\n", "")
         with self.assertRaisesRegex(audit.AuditError, "target Android SDK"):
