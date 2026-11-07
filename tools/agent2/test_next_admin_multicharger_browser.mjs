@@ -161,7 +161,11 @@ try{
  await page.select('select[aria-label="Select booking charger"]',chargerB);
  await clickText(page,'Issue one-time authorization token');
  await step('token issued only for chosen second charger',async()=>{
-   await page.waitForFunction(()=>document.body.innerText.includes('Token already issued.'),{timeout:15000});
+   await page.waitForFunction(()=>document.body.innerText.includes('Token already issued.'),{timeout:9000}).catch(async error=>{
+     const detail=await page.evaluate(()=>({errors:[...document.querySelectorAll('[role="alert"]')].map(x=>x.textContent?.slice(0,200)),labels:[...document.querySelectorAll('button')].filter(x=>x.textContent?.includes('token')).map(x=>({label:x.textContent?.trim(),disabled:x.disabled})),state:document.body.innerText.slice(-750)}));
+     console.error('Staged token UI diagnostic',JSON.stringify({stage,issuedTo,detail}));
+     throw error;
+   });
    assert.equal(stage,1);
    assert.equal(issuedTo,chargerB);
    const exposed=await page.evaluate(()=>({
