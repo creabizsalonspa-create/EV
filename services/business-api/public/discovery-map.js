@@ -30,6 +30,16 @@
     const searchPartners = make("button", "Find partners near selected point", "البحث عن شركاء قرب النقطة المحددة");
     searchPartners.type = "button";
     searchPartners.hidden = true;
+    const platformLayerLabel = document.createElement("label");
+    const showPlatformLayer = document.createElement("input");
+    showPlatformLayer.id = "show-platform-map-pins";
+    showPlatformLayer.type = "checkbox";
+    showPlatformLayer.checked = true;
+    platformLayerLabel.append(
+        showPlatformLayer,
+        make("span", "Show platform station pins", "عرض محطات المنصة على الخريطة"),
+    );
+    platformLayerLabel.hidden = true;
     const partnerLayerLabel = document.createElement("label");
     const showPartnerLayer = document.createElement("input");
     showPartnerLayer.id = "show-partner-map-pins";
@@ -65,7 +75,7 @@
     canvas.id = "station-map";
     canvas.hidden = true;
     canvas.setAttribute("aria-label", "Station map / خريطة المحطات");
-    root.append(intro, enable, disable, focus, searchPartners, partnerLayerLabel, consent, locate, status, canvas);
+    root.append(intro, enable, disable, focus, searchPartners, platformLayerLabel, partnerLayerLabel, consent, locate, status, canvas);
     let locationGeneration = 0;
     let planner,
         selectedCentre = null,
@@ -227,6 +237,10 @@
     function render() {
         if (!map) return;
         markers.clearLayers();
+        if (!showPlatformLayer.checked) {
+            renderPartners();
+            return;
+        }
         // Screen-space groups keep dense pages usable; clusters never imply shared chargers.
         const buckets = new Map();
         for (const station of records.filter(valid)) {
@@ -303,7 +317,9 @@
         renderPartners();
     }
     const loadedPoints = () => [
-        ...records.filter(valid).map((s) => [+s.latitude, +s.longitude]),
+        ...(showPlatformLayer.checked
+            ? records.filter(valid).map((s) => [+s.latitude, +s.longitude])
+            : []),
         ...(showPartnerLayer.checked
             ? partnerRows.filter(partnerSafe).map((r) => [+r.location.latitude, +r.location.longitude])
             : []),
@@ -312,6 +328,7 @@
         // Purely local presentation toggle: no API, location or tile request.
         renderPartners();
     };
+    showPlatformLayer.onchange = () => render();
     function fitLoaded(announce = false) {
         if (!map) return;
         const points = loadedPoints();
@@ -343,7 +360,7 @@
         map = markers = partnerMarkers = routeLines = picked = null;
         canvas.hidden = true;
         enable.hidden = false;
-        disable.hidden = focus.hidden = partnerLayerLabel.hidden = true;
+        disable.hidden = focus.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = true;
         setStatus(
             "Interactive map disabled. Results remain available in the lists.",
             "تم إيقاف الخريطة التفاعلية. لا تزال النتائج متاحة في القوائم.",
@@ -353,7 +370,7 @@
         if (map) return;
         canvas.hidden = false;
         enable.hidden = true;
-        disable.hidden = focus.hidden = partnerLayerLabel.hidden = false;
+        disable.hidden = focus.hidden = partnerLayerLabel.hidden = platformLayerLabel.hidden = false;
         map = L.map(canvas, { worldCopyJump: true }).setView([24.45, 54.38], 6);
         L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
