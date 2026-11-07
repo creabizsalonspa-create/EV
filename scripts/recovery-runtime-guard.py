@@ -149,8 +149,10 @@ def validate_containers(rows, source, target, source_names, target_names,
                 'Recovery container has non-reviewed security or device privileges')
         # The same reviewed role determines both the image and mount target;
         # source and restored target must use byte-identical image IDs.
-        destination = ('/var/www/html/storage/app/private' if role == 'app'
-                       else '/var/lib/postgresql/data')
+        if role == 'app':
+            destination = '/var/www/html/storage/app/private'
+        else:
+            destination = '/var/lib/postgresql/data'
         mounts = row.get('Mounts')
         require(isinstance(mounts, list) and len(mounts) == 1,
                 'Exactly one recovery volume required for each container')
