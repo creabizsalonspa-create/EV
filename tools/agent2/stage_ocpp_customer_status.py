@@ -73,6 +73,15 @@ const readCustomerOcppSource = async (user_id, session) => {
     enabled:true,
   });
   if (!charger) return null;
+  // Multi-charger stations require a pinned booking-to-charger assignment.
+  // Old single-charger bookings retain a safe backward-compatible lookup.
+  if (booking.ocppChargerId) {
+    if (booking.ocppChargerId !== session.sourceChargerId) return null;
+  } else {
+    const count = await mongoose.connection.db.collection("ocpp_chargers")
+      .countDocuments({stationId:String(booking.stationId),enabled:true});
+    if (count !== 1) return null;
+  }
   const source = await mongoose.connection.db.collection("ocpp_sessions").findOne({
     _id:new mongoose.Types.ObjectId(session.sourceSessionId),
     chargerId:session.sourceChargerId,
