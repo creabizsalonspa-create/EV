@@ -1,8 +1,8 @@
 <?php
 
 return [
-    // In normal local/staging/production operation Admin MFA is mandatory.
-    // This switch is only available to isolated Laravel regression fixtures,
-    // so existing legacy feature tests are unaffected until explicitly opted in.
-    'force_in_tests' => false,
+    // Only synthetic local and PHPUnit test environments can opt in to the
+    // production-enforced Admin authenticator challenge. There is no
+    // production/staging disable switch.
+    'enforce_in_local_tests' => (bool) env('ADMIN_2FA_LOCAL_TEST', false),
 ];
