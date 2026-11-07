@@ -1,11 +1,11 @@
 {
-    # This private, loopback-only staging gateway has no public ACME challenge ports.
-    # Never attempt to issue a public TLS certificate for a non-reachable private tunnel.
+    # Private staging has no public ACME challenge ports.
+    # Do not expose the Caddy admin API or its issuer private key.
     admin off
 }
 {$STAGING_HOST} {
-    # Local Caddy CA. Operators must separately trust the reviewed PUBLIC root cert
-    # on the private test device. Never export or distribute the issuer private key.
+    # Operators must independently trust ONLY the reviewed PUBLIC Caddy root cert
+    # on their authorized lab device. Never distribute the CA private key.
     tls internal
     encode zstd gzip
     reverse_proxy application:80
@@ -13,5 +13,7 @@
         X-Content-Type-Options nosniff
         X-Frame-Options DENY
         Referrer-Policy strict-origin-when-cross-origin
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        Permissions-Policy "camera=(), microphone=(), geolocation=(self)"
     }
 }
