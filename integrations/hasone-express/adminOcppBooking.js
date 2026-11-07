@@ -9,6 +9,7 @@ import BookingModel from '../models/BookingModel.js';
 import ChargingSessionModel from '../models/ChargingSessionModel.js';
 import {verifyOcppSource} from '../utils/ocppSourceEvidence.mjs';
 import {chooseBookingCharger} from '../utils/ocppMultiCharger.mjs';
+import {canReissueOcppToken,OCPP_TOKEN_TTL_MS} from '../utils/ocppReissuePolicy.mjs';
 
 const fail=(res,code,message)=>res.status(code).json({status:'fail',message});
 const validHash=value=>typeof value==='string' && /^[a-f0-9]{64}$/i.test(value);
@@ -20,6 +21,23 @@ const chargerSelection=async (booking, requestedId='')=>chooseBookingCharger({
   chargers:await chargersFor(booking)
 });
 const chargerFor=async booking=>(await chargerSelection(booking)).charger;
+const tokenReissueEvidence=async (booking,charger)=>{
+  if(!charger || !validHash(booking.ocppTokenHash))
+    return {sourceLinked:true,sourceObserved:true,tokenConsumed:true};
+  const db=mongoose.connection.db;
+  const [bound,source,existing]=await Promise.all([
+    ChargingSessionModel.findOne({bookingId:booking._id,userId:booking.userId,
+      sourceType:'ocpp',sourceSessionId:{$nin:['',null]}}).select('_id').lean(),
+    db.collection('ocpp_sessions').findOne({chargerId:charger.chargerId,
+      $or:[{idTagHash:booking.ocppTokenHash},
+           {idTokenHash:booking.ocppTokenHash}]},{projection:{_id:1}}),
+    db.collection('ocpp_access_tokens').findOne({
+      chargerId:charger.chargerId,tokenHash:booking.ocppTokenHash
+    },{projection:{consumedAt:1}})
+  ]);
+  return {sourceLinked:!!bound,sourceObserved:!!source,
+    tokenConsumed:!!existing?.consumedAt};
+};
 
 /** POST /admin/bookings/:id/ocpp/issue-token */
 export async function AdminIssueBookingOcppToken(req,res){
@@ -67,6 +85,65 @@ export async function AdminIssueBookingOcppToken(req,res){
       oneTimeToken:token,expiresAt,chargingSessionConfirmed:false}});
  }catch{
   return fail(res,503,'Authorization provisioning temporarily unavailable');
+ }
+}
+
+/**
+ * POST /admin/bookings/:id/ocpp/reissue-token
+ *
+ * Safe recovery after the original 20-minute booking token expires.
+ * A 2-minute settling grace plus source/token-consumption checks prevent
+ * reissuing any credential that actually started physical charging.
+ */
+export async function AdminReissueExpiredBookingOcppToken(req,res){
+ res.set('Cache-Control','no-store');
+ if(!mongoose.isValidObjectId(req.params.id))
+  return fail(res,400,'Invalid booking identifier');
+ try{
+  const booking=await BookingModel.findById(req.params.id);
+  if(!booking)return fail(res,404,'Booking not found');
+  const selected=await chargerSelection(booking,req.body?.chargerId||'');
+  const charger=selected.charger;
+  if(!charger)return fail(res,409,'Original approved booking charger is unavailable');
+  const evidence=await tokenReissueEvidence(booking,charger);
+  const now=new Date();
+  if(!canReissueOcppToken({
+    booking,approvedChargerId:charger.chargerId,...evidence,now
+  }))return fail(res,409,'Token is active, already used or booking is not eligible for safe reissue');
+
+  const oldHash=booking.ocppTokenHash,oldIssuedAt=booking.ocppTokenIssuedAt;
+  const newToken=crypto.randomBytes(24).toString('hex');
+  const newHash=crypto.createHash('sha256').update(newToken).digest('hex');
+  const expiresAt=new Date(now.getTime()+OCPP_TOKEN_TTL_MS);
+  const changed=await BookingModel.findOneAndUpdate({
+    _id:booking._id,ocppTokenHash:oldHash,ocppTokenIssuedAt:oldIssuedAt,
+    ocppChargerId:charger.chargerId,isPaid:true,hasArrived:true,status:'Upcoming',
+  },{$set:{ocppTokenHash:newHash,ocppTokenIssuedAt:now}},{returnDocument:'after'});
+  if(!changed)return fail(res,409,'Booking authorization was changed by another operator');
+  const tokenTable=mongoose.connection.db.collection('ocpp_access_tokens');
+  try{
+    await tokenTable.updateMany({chargerId:charger.chargerId,tokenHash:oldHash},
+      {$set:{enabled:false,revokedAt:now}});
+    await tokenTable.insertOne({
+      chargerId:charger.chargerId,tokenHash:newHash,enabled:true,expiresAt,
+      bookingId:String(booking._id),userId:String(booking.userId),createdAt:now,
+    });
+  }catch{
+    // Never create a second physical start after an uncertain DB write.
+    // Revoke any partly inserted new credential before rolling back the pin.
+    await tokenTable.updateMany({chargerId:charger.chargerId,tokenHash:newHash},
+      {$set:{enabled:false,revokedAt:new Date()}}).catch(()=>{});
+    await BookingModel.updateOne({_id:booking._id,ocppTokenHash:newHash},
+      {$set:{ocppTokenHash:oldHash,ocppTokenIssuedAt:oldIssuedAt}}).catch(()=>{});
+    return fail(res,503,'Token reissue could not be completed safely');
+  }
+  return res.status(201).json({status:'Success',
+    message:'Expired unused authorization replaced. Copy the new token securely.',
+    data:{bookingId:String(booking._id),chargerId:charger.chargerId,
+      oneTimeToken:newToken,expiresAt,reissued:true,chargingSessionConfirmed:false}
+  });
+ }catch{
+  return fail(res,503,'Token reissue verification unavailable');
  }
 }
 
@@ -249,6 +326,12 @@ export async function AdminGetBookingOcppOperations(req,res){
   const charger=selection.charger;
   const authorized=validHash(booking.ocppTokenHash);
   const eligible=booking.isPaid===true && booking.hasArrived===true;
+  const renewalEvidence=authorized && charger
+    ?await tokenReissueEvidence(booking,charger)
+    :{sourceLinked:true,sourceObserved:true,tokenConsumed:true};
+  const canReissue=canReissueOcppToken({
+    booking,approvedChargerId:charger?.chargerId||'',...renewalEvidence,now:new Date()
+  });
   const record=await ChargingSessionModel.findOne({
     bookingId:booking._id,userId:booking.userId,sourceType:'ocpp'
   });
@@ -293,6 +376,7 @@ export async function AdminGetBookingOcppOperations(req,res){
     calculatedUnpaidAed:proof?.totalFils===null||!proof?null:proof.totalFils/100,
     paymentStatus:proof?.sourceVerified?'not_collected':null,
     canIssueToken:canIssue,
+    canReissueToken:canReissue,
     canBindSource:eligible && !!charger && authorized &&
        (booking.status==='Upcoming'||booking.status==='Completed') &&
        !record?.sourceSessionId,
