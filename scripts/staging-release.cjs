@@ -159,6 +159,27 @@ function composeUp(tag, deps={}) {
     });
 }
 
+function probePostDeploy(plan,deps={}) {
+  // A running container is not proof that a browser can use the staged backend.
+  // Probe only private loopback TLS with certificate verification enabled.
+  if(typeof deps.checkHttp==='function') {
+    if(deps.checkHttp(plan)!==true)throw Error('Private staging HTTP readiness failed');
+    return true;
+  }
+  const {parseEnv}=require('./staging-preflight.cjs');
+  const source=fs.readFileSync(deps.envFile||envPath,'utf8');
+  const {values,errors}=parseEnv(source);
+  if(errors.length || !values.STAGING_HOST)throw Error('Reviewed staging host unavailable');
+  const validated=require('./staging-health.cjs').parseArgs(
+    ['--url','https://'+values.STAGING_HOST+':8443/','--tls-loopback'],
+    deps.env||process.env);
+  if(!validated.tlsLoopback)throw Error('Private TLS loopback mode required');
+  (deps.nodeRun||execFileSync)(process.execPath,[
+    path.resolve(__dirname,'staging-health.cjs'),'--url',validated.url.toString(),'--tls-loopback'],
+    {encoding:'utf8',timeout:65000,maxBuffer:65536,stdio:['ignore','pipe','pipe'],
+      env:deps.env||process.env});
+  return true;
+}
 function verifyProtectedServices(plan,deps={}) {
   const run=deps.run||execFileSync;
   const rows=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
@@ -212,7 +233,8 @@ function apply(config,deps={}) {
       composeUp(config.tag,deps);
       verifyRunning(plan.candidate_ref,plan.candidate_id,deps);
       verifyProtectedServices(plan,deps);
-      journal(saved,'RELEASE_VERIFIED',{service_count:3,production_accepted:false});
+      probePostDeploy(plan,deps);
+      journal(saved,'RELEASE_VERIFIED',{service_count:3,private_http_routes_checked:true,production_accepted:false});
       return {ok:true,rollback_verified:false,plan};
     } catch {
       journal(saved,'RELEASE_UNCERTAIN_ROLLBACK_STARTED');
@@ -223,7 +245,8 @@ function apply(config,deps={}) {
         composeUp(plan.old_ref.split(':').slice(1).join(':'),deps);
         verifyRunning(plan.old_ref,plan.old_id,deps);
         verifyProtectedServices(plan,deps);
-        journal(saved,'ROLLBACK_VERIFIED',{production_accepted:false});
+        probePostDeploy(plan,deps);
+        journal(saved,'ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
         return {ok:false,rollback_verified:true,plan};
       } catch {
         journal(saved,'OPERATOR_RECONCILIATION_REQUIRED',{production_accepted:false});
@@ -255,4 +278,4 @@ function main(args=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)process.exitCode=main();
-module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,apply,main};
+module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,probePostDeploy,apply,main};
