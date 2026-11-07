@@ -60,6 +60,9 @@
     async function open(vehicle) {
       if (actor()?.role!=="customer"||!account)return;
       const token=++generation;
+      // Hide the old vehicle's editable panel immediately. A slow new GET
+      // must not leave a previous form capable of submitting to new selection.
+      root.querySelector("[data-manual-soc-panel]")?.remove();
       chosen=vehicle;latest=history=pending=null;page=1;
       status(ar()?"جارٍ تحميل بيانات البطارية...":"Loading manual battery reports…");
       try {
@@ -76,8 +79,8 @@
       try {
         const result=await api("vehicles/"+chosen.id+"/manual-soc/history?page="+page);
         if(!alive(token))return;
-        history=result;render();
-      }catch(e){if(alive(token))status(String(e.message||e));}
+        history=result;render();return true;
+      }catch(e){if(alive(token))status(String(e.message||e));return false;}
     }
     function render() {
       root.querySelector("[data-manual-soc-panel]")?.remove();
@@ -93,6 +96,8 @@
         "آخر تقدير للبطارية: "+latest.battery_percent+"٪ · "+(latest.reported_at||""),"p"));
       panel.append(tr("Battery may have changed since the report. Not an actual measurement.",
         "قد تكون حالة البطارية تغيرت منذ التقرير. هذه ليست قراءة فعلية.","p"));
+      const formTicket=generation, formVehicleId=chosen.id;
+      const editable=()=>alive(formTicket)&&chosen?.id===formVehicleId&&latest!==null;
       const form=document.createElement("form");
       form.className="vehicle-manual-soc-form";
       const field=document.createElement("input");
@@ -103,13 +108,15 @@
       form.append(label);
       const submit=document.createElement("button");submit.type="submit";
       submit.append(tr("Save manual report","حفظ التقرير اليدوي"));form.append(submit);
-      const retry=button("Retry the same report","إعادة إرسال نفس التقرير",()=>submitReport());
+      const retry=button("Retry the same report","إعادة إرسال نفس التقرير",
+        ()=>{if(editable())return submitReport();});
       retry.disabled=pending===null;
       form.append(retry);
       form.append(button("Clear pending after reviewing history","مسح المعلق بعد مراجعة السجل",
-        ()=>{pending=null;render();status("");}));
+        ()=>{if(!editable())return;pending=null;render();status("");}));
       form.onsubmit=event=>{
         event.preventDefault();
+        if(!editable())return;
         if(pending)return submitReport();
         const number=Number(field.value);
         if(!Number.isInteger(number)||number<0||number>100) {
@@ -134,7 +141,8 @@
       panel.append(list);
       if(page>1)panel.append(button("Previous","السابق",()=>loadHistory(page-1)));
       if(page<history.last_page)panel.append(button("Next","التالي",()=>loadHistory(page+1)));
-      panel.append(button("Refresh source and history","تحديث المصدر والسجل",()=>open(chosen)));
+      panel.append(button("Refresh source and history","تحديث المصدر والسجل",
+        ()=>{if(editable())return open(chosen);}));
       panel.append(button("Close","إغلاق",()=>panel.remove()));
       root.append(panel);
     }
@@ -143,14 +151,19 @@
       const token=generation, request=Object.freeze({...pending}), vehicleId=chosen.id;
       status(ar()?"جارٍ إرسال التقرير..." : "Saving self-reported battery…");
       try {
-        const result=await api("vehicles/"+vehicleId+"/manual-soc","POST",request);
-        if(!alive(token))return;
+        await api("vehicles/"+vehicleId+"/manual-soc","POST",request);
+        if(!alive(token)||chosen?.id!==vehicleId)return;
         pending=null;
         // A replay can refer to an old report. Always reload current state.
-        latest=await api("vehicles/"+vehicleId+"/manual-soc");
-        if(!alive(token))return;
-        await loadHistory(1);
-        if(alive(generation))status(ar()?"تم حفظ التقرير اليدوي." : "Manual report saved.");
+        // Stage asynchronous results before applying: an older vehicle's GET
+        // must never assign battery state to a newly selected vehicle.
+        const refreshed=await api("vehicles/"+vehicleId+"/manual-soc");
+        if(!alive(token)||chosen?.id!==vehicleId)return;
+        latest=refreshed;
+        const reload=loadHistory(1), reloadTicket=generation;
+        const loaded=await reload;
+        if(loaded&&alive(reloadTicket)&&chosen?.id===vehicleId)
+          status(ar()?"تم حفظ التقرير اليدوي." : "Manual report saved.");
       }catch(e) {
         if(!alive(token))return;
         status(ar()?"تعذرت معرفة النتيجة. راجع السجل أو أعد نفس التقرير." :
