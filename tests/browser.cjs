@@ -246,11 +246,37 @@ const { randomUUID } = require("node:crypto");
     await customer.page
       .locator("#support-create [name=body]")
       .fill("Test support message");
+    const createRequest = customer.page.waitForRequest((request) =>
+      request.url().endsWith("/api/support") &&
+      request.method() === "POST",
+    );
     await customer.page.locator("#support-create button").click();
+    const createPayload = (await createRequest).postDataJSON();
+    assert.match(createPayload.idempotency_key, /^[a-f0-9]{32}$/);
     await customer.page
       .locator("#ticket-detail h3")
       .filter({ hasText: "Browser support " + run })
       .waitFor();
+    const savedTicketsBeforeReplay = await customer.page.evaluate(() =>
+      api("support"),
+    );
+    const createdTicket = savedTicketsBeforeReplay.data.find(
+      (row) => row.subject === "Browser support " + run,
+    );
+    assert(createdTicket && Number.isSafeInteger(createdTicket.id));
+    const replayCreatedTicket = await customer.page.evaluate(
+      (payload) => api("support", "POST", payload), createPayload,
+    );
+    assert.equal(replayCreatedTicket.id, createdTicket.id);
+    assert.equal(replayCreatedTicket.idempotency_key, undefined);
+    const savedTicketsAfterReplay = await customer.page.evaluate(() =>
+      api("support"),
+    );
+    assert.equal(
+      savedTicketsAfterReplay.data.filter(
+        (row) => row.subject === "Browser support " + run,
+      ).length, 1,
+    );
     // Distinct role principals avoid spending one actor's entire protected-read
     // budget on repeated full-workspace reloads. Production limits stay enabled.
     const admin = await account("Admin");
