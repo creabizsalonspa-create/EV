@@ -154,3 +154,34 @@ TypeScript check passed and **Next.js 16.1.6 Webpack production build succeeded*
 including the `/ocpp-sessions` route.
 
 This is NOT deployed at `admin.hasone.io`; the live Admin remains unchanged.
+
+## Admin booking operations panel and safe workflow state
+
+Agent 2 added an authenticated GET route:
+`GET /api/v1/admin/bookings/:id/ocpp/operations`.
+
+The response returns only non-secret booking readiness and OCPP evidence:
+`bookingPrepaymentRecorded`, `arrivalRecorded`, `approvedChargerId`,
+`authorizationIssued`, `tokenIssuedAt`, `tokenExpiresAt`,
+`sourceSessionId`, `sourceVerified`, `meterVerified`,
+`sourceEnded`, `energyKwh`, `calculatedUnpaidAed`,
+`canIssueToken`, `canBindSource`, `canFinalizeSource` and
+`needsPaymentReconciliation`. Raw authorization credentials and hashes
+are never returned by this GET route.
+
+The authorized Next Admin Bookings page includes a new **OCPP** action per
+booking. The modal uses that GET route, approved station OCPP session listing,
+and existing AdminAuth POST routes to issue a one-time token, bind the exact
+source ID and finalize only after verified OCPP stop. The raw one-time token
+is shown to the Admin once, held only in component state and cleared on close
+or when the browser tab becomes hidden. There is no browser charging command.
+
+Frontend source: `integrations/hasone-next-admin/OcppBookingWorkflow.tsx`.
+Safe copy patcher: `tools/agent2/stage_next_ocpp_booking_workflow.py`.
+
+**Validation:** 60/60 Express/JWT/disposable Mongo/OCPP integration checks
+passed, including operations state before/after token, binding and completion.
+The purchased Next.js 16.1.6 Admin passed TypeScript and a full production
+Webpack build containing the new Bookings workflow and OCPP report page.
+
+All the changes remain in draft PR #50; not deployed to the live Admin URL.
