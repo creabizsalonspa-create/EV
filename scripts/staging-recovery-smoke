@@ -223,7 +223,12 @@ target_app=$(docker run -d --name "$review_id-app-target" --network "$target_net
   --env-file "$scratch/target-application.env" \
   --mount type=volume,target=/var/www/html/storage/app/private "$image")
 wait_for_app "$target_app"
-docker exec -i "$target_app" tar -C /var/www/html/storage/app/private -xzf -   < "$scratch/private-probe.tar.gz"
+# Extract as the unprivileged application owner, never as Docker's default
+# root user. The isolated source file is mode 0600 and the target directory
+# must already be writable by the www-data application account.
+docker exec -i --user www-data "$target_app" sh -ceu \
+  'umask 077; tar --no-same-owner --no-same-permissions -C /var/www/html/storage/app/private -xzf -' \
+  < "$scratch/private-probe.tar.gz"
 docker exec --user www-data "$target_app" php -r '
 $p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
 if (!is_file($p) || !is_readable($p)) exit(1);

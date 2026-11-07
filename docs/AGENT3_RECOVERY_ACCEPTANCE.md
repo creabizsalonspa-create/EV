@@ -85,3 +85,7 @@ The synthetic private-file archive checker now rejects **all group and other per
 ### Archive path conflict negative test
 
 The guard now rejects any regular file whose path is used as an ancestor of another archive member, in either tar-entry ordering, as well as existing exact duplicates and traversal paths. This prevents a backup that passes preflight but fails or has order-dependent effects at `tar -xzf` time. Added synthetic tests cover both parent-before-child and child-before-parent collisions, plus a normal single-file archive matching the isolated staging recovery smoke. The guard still does not claim signed/offsite backup verification or cross-service snapshot consistency.
+
+### Unprivileged private-volume restoration
+
+The disposable Laravel staging drill now extracts its verified private archive as `www-data` inside the **new target-only container**, not as Docker's default root user, with `umask 077`, `--no-same-owner` and `--no-same-permissions`. This reduces the risk that archive-controlled numeric ownership or mode bits are applied with elevated privileges. The script retains the subsequent application-user readability, mode and cryptographic private-file checks; a new static policy test fails if the extraction regresses to default-root execution. The actual container image/volume permissions and full restore path still require exact-head hosted Docker CI to verify.

@@ -78,6 +78,13 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         ):
             self.assertIn(required, code)
 
+    def test_private_file_restore_cannot_run_as_root_or_preserve_archive_owners(self):
+        code = self.source
+        self.assertIn('docker exec -i --user www-data "$target_app" sh -ceu', code)
+        self.assertIn('umask 077; tar --no-same-owner --no-same-permissions', code)
+        self.assertNotIn('docker exec -i "$target_app" tar -C', code)
+        self.assertIn('fileperms($p) & 0777', code)
+
     def test_no_sensitive_data_in_artifact_schema(self):
         code = self.source
         artifact = code.split("record = {", 1)[1].split("\n}", 1)[0]
