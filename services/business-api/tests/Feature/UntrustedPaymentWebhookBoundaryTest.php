@@ -71,4 +71,53 @@ class UntrustedPaymentWebhookBoundaryTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
         Http::assertNothingSent();
     }
+
+    public function test_configured_stripe_test_rejects_forged_stale_tampered_or_live_mode_webhook(): void
+    {
+        Http::preventStrayRequests();
+        $secret = 'whsec_'.str_repeat('s', 48);
+        config([
+            'payments.provider' => 'stripe_test',
+            'payments.stripe_test_webhook_secret' => $secret,
+            'payments.stripe_test_secret' => 'sk_test_agent9_no_payment_calls',
+        ]);
+
+        $path = '/api/payments/stripe-test/webhook';
+        $time = time();
+        $event = json_encode([
+            'id' => 'evt_agent9_synthetic_provider_proof',
+            'livemode' => false,
+            'type' => 'payment_intent.succeeded',
+            'data' => ['object' => ['id' => 'pi_agent9_untrusted', 'amount' => 5000]],
+        ], JSON_THROW_ON_ERROR);
+        $hmac = fn (string $raw, int $timestamp): string => hash_hmac('sha256', $timestamp.'.'.$raw, $secret);
+        $send = fn (string $raw, string $signature) => $this->call('POST', $path, [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+            'HTTP_STRIPE_SIGNATURE' => $signature,
+        ], $raw);
+
+        $send($event, '')->assertUnauthorized();
+        $send($event, 't='.$time.',v1='.str_repeat('0', 64))->assertUnauthorized();
+        $send($event.' ', 't='.$time.',v1='.$hmac($event, $time))->assertUnauthorized();
+
+        $stale = $time - 301;
+        $send($event, 't='.$stale.',v1='.$hmac($event, $stale))->assertUnauthorized();
+
+        // Even a correctly signed message cannot turn a Stripe live-mode
+        // notification into test-only charging money movement.
+        $live = json_encode([
+            'id' => 'evt_agent9_marked_live_not_real',
+            'livemode' => true,
+            'type' => 'payment_intent.succeeded',
+            'data' => ['object' => ['id' => 'pi_agent9_untrusted', 'amount' => 5000]],
+        ], JSON_THROW_ON_ERROR);
+        $send($live, 't='.$time.',v1='.$hmac($live, $time))->assertUnprocessable();
+
+        $this->assertDatabaseCount('gateway_webhook_events', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        Http::assertNothingSent();
+    }
+
 }
