@@ -272,3 +272,74 @@ test('no HTTP request is issued until candidate runtime and protected services p
   assert.equal(release.main(argv('apply',path.join(dir,'unhealthy.jsonl')),deps),1);
   assert.equal(called,1);
 }));
+
+test('image tag re-pointed after plan creation is refused before any Compose mutation',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  let seen=0;
+  deps.run=(cmd,args,opt)=>{
+    const response=original(cmd,args,opt);
+    if(args[0]==='image'&&args[2]===newRef&&++seen===2){
+      const item=JSON.parse(response);
+      item[0].Id='sha256:'+'d'.repeat(64);
+      return JSON.stringify(item);
+    }
+    return response;
+  };
+  const journal=path.join(dir,'candidate-retagged.jsonl');
+  assert.equal(release.main(argv('apply',journal),deps),2);
+  assert.equal(deps.state.mutations,0);
+  const records=fs.readFileSync(journal,'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(records.map(x=>x.event),['PREPARED']);
+}));
+test('candidate source label retarget after plan prevents stage update',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  let seen=0;
+  deps.run=(cmd,args,opt)=>{
+    const response=original(cmd,args,opt);
+    if(args[0]==='image'&&args[2]===newRef&&++seen===2){
+      const items=JSON.parse(response);
+      items[0].Config.Labels['org.opencontainers.image.revision']='d'.repeat(40);
+      return JSON.stringify(items);
+    }
+    return response;
+  };
+  assert.equal(release.main(argv('apply',path.join(dir,'source-replaced.jsonl')),deps),2);
+  assert.equal(deps.state.mutations,0);
+}));
+test('candidate tag replaced after startup triggers verified rollback rather than release acceptance',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  let seen=0;
+  deps.run=(cmd,args,opt)=>{
+    const response=original(cmd,args,opt);
+    if(args[0]==='image'&&args[2]===newRef&&++seen>=3){
+      const items=JSON.parse(response);
+      items[0].Id='sha256:'+'d'.repeat(64);
+      return JSON.stringify(items);
+    }
+    return response;
+  };
+  const journal=path.join(dir,'retagged-after-startup.jsonl');
+  assert.equal(release.main(argv('apply',journal),deps),1);
+  assert.equal(deps.state.tag,'old');
+  assert.equal(deps.state.mutations,2);
+  const text=fs.readFileSync(journal,'utf8');
+  assert.ok(text.includes('ROLLBACK_VERIFIED'));
+  assert.ok(!text.includes('"event":"RELEASE_VERIFIED"'));
+}));
+test('previous image tag replaced after rollback HTTP verification blocks false recovery',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  let oldChecks=0;
+  deps.state.failCandidate=true;
+  deps.run=(cmd,args,opt)=>{
+    const response=original(cmd,args,opt);
+    if(args[0]==='image'&&args[2]===oldRef&&++oldChecks>=3){
+      const items=JSON.parse(response);
+      items[0].Id='sha256:'+'e'.repeat(64);
+      return JSON.stringify(items);
+    }
+    return response;
+  };
+  const journal=path.join(dir,'retagged-old-after-rollback.jsonl');
+  assert.equal(release.main(argv('apply',journal),deps),3);
+  assert.ok(fs.readFileSync(journal,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+}));
