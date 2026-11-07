@@ -179,6 +179,57 @@ void main() {
     expect((await prefs.getUser())?['email'], 'second@example.test');
   });
 
+  test('delayed old logout cannot erase an already switched account', () async {
+    final vault = ControlledTokenVault();
+    final prefs = SharedPrefs(vault: vault);
+    await prefs.saveToken('first-account-token');
+    final staleGeneration = SharedPrefs.credentialGeneration;
+    final staleToken = Session.accessToken;
+    await prefs.saveToken('second-account-token');
+    final result = await prefs.clearIfCurrent(
+      expectedGeneration: staleGeneration,
+      expectedToken: staleToken,
+    );
+    expect(result, isFalse);
+    expect(await prefs.getToken(), 'second-account-token');
+    expect(Session.accessToken, 'second-account-token');
+  });
+
+  test('current account can explicitly logout via identity fence', () async {
+    final vault = ControlledTokenVault();
+    final prefs = SharedPrefs(vault: vault);
+    await prefs.saveToken('active-session');
+    final accepted = await prefs.clearIfCurrent(
+      expectedGeneration: SharedPrefs.credentialGeneration,
+      expectedToken: Session.accessToken,
+    );
+    expect(accepted, isTrue);
+    expect(vault.value, isNull);
+    expect(await prefs.getToken(), isNull);
+    expect(Session.accessToken, isNull);
+  });
+
+  test('logout superseded during vault deletion cannot navigate as completed', () async {
+    final vault = ControlledTokenVault();
+    final prefs = SharedPrefs(vault: vault);
+    await prefs.saveToken('first-session');
+    final signal = Completer<void>();
+    final release = Completer<void>();
+    vault.deleteStarted = signal;
+    vault.deleteWait = release.future;
+    final staleLogout = prefs.clearIfCurrent(
+      expectedGeneration: SharedPrefs.credentialGeneration,
+      expectedToken: Session.accessToken,
+    );
+    await signal.future;
+    final nextLogin = prefs.saveToken('second-session');
+    release.complete();
+    expect(await staleLogout, isFalse);
+    await nextLogin;
+    expect(await prefs.getToken(), 'second-session');
+    expect(Session.accessToken, 'second-session');
+  });
+
   test('cached user profile is erased along with the token', () async {
     final vault = ControlledTokenVault();
     final prefs = SharedPrefs(vault: vault);
