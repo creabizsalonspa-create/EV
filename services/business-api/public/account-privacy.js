@@ -179,6 +179,41 @@ window.EvPrivacyRequests = (() => {
                         el("p", record.details),
                         el("p", "Manual review required; no automatic deletion or export occurs.")
                     );
+                    const historyHost = el("div");
+                    const history = button("Private review history / سجل المراجعة", async () => {
+                        if (!active(state, generation, controller)) return;
+                        history.disabled = true;
+                        try {
+                            const response = await state.request(
+                                "admin/privacy-requests/" + caseId + "/reviews",
+                                "GET", undefined, controller.signal
+                            );
+                            if (!active(state, generation, controller)) return;
+                            const entries = Array.isArray(response.data) ? response.data : [];
+                            const list = el("ul");
+                            for (const item of entries) {
+                                list.append(el("li",
+                                    item.created_at + " · " + item.from_status +
+                                    " → " + item.to_status +
+                                    " · " + item.note
+                                ));
+                            }
+                            if (!entries.length) {
+                                list.append(el("li", "No recorded review decisions."));
+                            }
+                            historyHost.replaceChildren(
+                                el("p", "Private review reasons are visible to Admin only."),
+                                list
+                            );
+                        } catch {
+                            if (active(state, generation, controller)) {
+                                historyHost.replaceChildren(el("p", "Review history unavailable."));
+                            }
+                        } finally {
+                            history.disabled = false;
+                        }
+                    });
+                    card.append(history, historyHost);
                     const choices = allowed[record.status] || [];
                     if (choices.length) {
                         const form = el("form");
