@@ -41,6 +41,9 @@ function loadJournal(file) {
      !SHA.test(p.source_sha) || !REF.test(p.old_ref) || !REF.test(p.candidate_ref) ||
      p.old_ref===p.candidate_ref || !ID.test(p.old_id) || !ID.test(p.candidate_id) ||
      p.old_id===p.candidate_id || p.database_and_gateway_unchanged!==true ||
+     !p.protected_services || !/^[a-f0-9]{12,64}$/.test(p.protected_services.database||'') ||
+     !/^[a-f0-9]{12,64}$/.test(p.protected_services.gateway||'') ||
+     p.protected_services.database===p.protected_services.gateway ||
      p.automatic_migrations!==false || p.external_services_or_payments_invoked!==false ||
      JSON.stringify(p.roles)!==JSON.stringify(['application','worker','scheduler'])) {
     throw Error('Release provenance or non-destructive recovery constraints invalid');
@@ -65,6 +68,9 @@ function recoverySnapshot(rows,plan) {
       throw Error('Staging project has unexpected or duplicate service');
     }
     seen.add(c.Service);
+    if(['database','gateway'].includes(c.Service) && c.ID!==plan.protected_services[c.Service]) {
+      throw Error('A protected staging service was replaced after the original release');
+    }
     if(['application','worker','scheduler'].includes(c.Service) &&
       ![plan.old_ref,plan.candidate_ref].includes(c.Image)) {
       throw Error('Another deployment owns the current application');
@@ -106,12 +112,17 @@ function rollback(config,deps={}) {
     // A previously verified rollback still needs read-only confirmation of current state.
     if(['ROLLBACK_VERIFIED','MANUAL_ROLLBACK_VERIFIED'].includes(record.events.at(-1).event)) {
       verifyRunning(p.old_ref,p.old_id,deps);
+      // Verify the originally observed database and gateway are still running.
+      const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
+      recoverySnapshot(current,p);
       return {ok:true,changed:false};
     }
     journal(record.file,'MANUAL_ROLLBACK_STARTED');
     try {
       composeUp(p.old_ref.slice('creabiz-ev-business:'.length),deps);
       verifyRunning(p.old_ref,p.old_id,deps);
+      const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
+      recoverySnapshot(current,p);
       journal(record.file,'MANUAL_ROLLBACK_VERIFIED',{production_accepted:false});
       return {ok:true,changed:true};
     } catch {
