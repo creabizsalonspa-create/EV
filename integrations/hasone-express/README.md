@@ -263,3 +263,37 @@ Reverify all backend/browser cases, required source hashes and exact
 WebSocket gateway endpoint when the authorized machine is available,
 then coordinate acceptance with Agent 1 and the canonical Laravel
 charging/finance ledger.
+
+
+## Agent 2 transaction-start recovery and operator diagnostics — Nov 7, 2026
+
+This branch now includes two additional **staging-only** protections:
+1. `sameActiveOcpp16Retry` accepts a lost-response retry of the *exact*
+   same active OCPP 1.6 source only in a **120-second window** after the
+   original server-side `createdAt` timestamp. A stale/replayed tag cannot
+   recover an indefinitely active source transaction. The unit tests cover
+   119s/120s/120.001s boundaries, missing timestamps and invalid inputs.
+2. `ocppStartAudit.mjs` provides an explicitly **read-only** audit of a
+   consumed start token without a matching charger-scoped OCPP 1.6 / 2.0.1
+   source transaction. Tokens consumed under two minutes ago are excluded
+   from incident alerts during the retry grace period. The audit returns
+   only non-secret status, booking and charger references; no raw token,
+   authorization hash or automatic credential reset.
+
+Authenticated route:
+`GET /api/v1/admin/stations/:id/ocpp/start-exceptions`.
+The existing Admin Bookings OCPP modal now has a **Check interrupted starts**
+action. It lists redacted exceptions and explicitly requires operator review
+of charger and database evidence before any new authorization.
+
+Additional regression tests were committed in
+`integrations/hasone-express/tests/ocppStartAudit.test.mjs` and the isolated
+Express integration runner; the headless Admin UI test also now includes
+mocked exception-report handling.
+
+**Verification limitation:** The authorized host.crea-biz.com Desktop Commander
+device is offline, and GitHub hosted checks for the latest commits are
+queued. These new changes are committed but have not received a fresh
+full-stack staging test run. Previously reported integration/browser totals
+belong to the older tested revision. Production payment, Mongo and charging
+remain unchanged by these changes.
