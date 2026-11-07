@@ -173,3 +173,7 @@ A simulator source page with zero returned status events but a reported newest I
 ### Honest monitor-failure provenance
 
 A monitor review notice raised on a failed, missing or inconsistent simulator source page now carries `evidence=SIMULATED_SOURCE_UNVERIFIED`, not the earlier inaccurate `SIMULATED_SOURCE_OBSERVED`. Only committed valid fault events and the corresponding successful monitor catch-up carry the observed label. All remain `physical_verification=false`; no real charger/device claim is made. Backend feature assertions distinguish failed review evidence from successful source catch-up, preventing regressions that could present a network failure as an authenticated observation.
+
+### Invalid source timestamp failure contract
+
+A malformed string timestamp returned by the simulator status source now maps to a deterministic HTTP 503 rather than leaking a Carbon parser exception as an unclassified application error. Its cursor remains at the previous checkpoint, its source event and fault history remain unchanged, and the vendor receives one monitor-review notice with `SIMULATED_SOURCE_UNVERIFIED`. The regression test then supplies valid events and requires catch-up from the unchanged cursor, with no charger commands sent.

@@ -105,6 +105,38 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_unparseable_source_timestamp_returns_review_required_without_event_loss(): void
+    {
+        $f = $this->fixture();
+        $events = $this->events(1, 2);
+        $events[0]['timestamp'] = 'not-a-time';
+        $this->source($f, $events, newest: 2);
+
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Invalid timestamp was accepted as source evidence');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'state' => 'requires_review', 'last_event_id' => 0,
+        ]);
+        $notice = InboxNotification::where(
+            'kind', 'charging.monitor.requires_review.simulated'
+        )->firstOrFail();
+        $this->assertSame('SIMULATED_SOURCE_UNVERIFIED', $notice->metadata['evidence']);
+        $this->assertFalse($notice->metadata['physical_verification']);
+
+        $this->source($f, $this->events(1, 2), newest: 2);
+        $result = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('caught_up', $result['state']);
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 2]);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_empty_page_cannot_claim_catchup_when_source_has_newer_events(): void
     {
         $f = $this->fixture();

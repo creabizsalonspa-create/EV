@@ -74,7 +74,12 @@ class ContinuousFaultObserver
                 $previous = $after;
                 foreach ($events as $event) {
                     abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $previous && $event['id'] <= 2147483647 && is_string($event['connectorStatus'] ?? null) && strlen($event['connectorStatus']) <= 40 && is_string($event['timestamp'] ?? null) && strlen($event['timestamp']) <= 50 && (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 503);
-                    abort_unless(CarbonImmutable::parse($event['timestamp'])->lessThanOrEqualTo(now()), 503);
+                    try {
+                        $observedAt = CarbonImmutable::parse($event['timestamp']);
+                    } catch (Throwable) {
+                        abort(503, 'Source event timestamp is invalid.');
+                    }
+                    abort_unless($observedAt->lessThanOrEqualTo(now()), 503);
                     $previous = $event['id'];
                 }
                 // The highest event in a source page cannot exceed the
