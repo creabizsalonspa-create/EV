@@ -21,7 +21,7 @@ class AuthController extends GetxController {
        _prefs = prefs ?? SharedPrefs(),
        _authFeedback = authFeedback;
 
-  void _notifyLoginFeedback(String title, String message) {
+  void _notifyAuthFeedback(String title, String message) {
     if (_authFeedback != null) {
       _authFeedback(title, message);
       return;
@@ -106,8 +106,10 @@ class AuthController extends GetxController {
       if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
         final token = res.responseData?['token']?.toString();
         if (token == null || token.trim().isEmpty) {
-          Get.snackbar('Verification incomplete', 'The server did not return a valid session.',
-              snackPosition: SnackPosition.TOP);
+          _notifyAuthFeedback(
+            'Verification incomplete',
+            'The server did not return a valid session.',
+          );
           return false;
         }
         final saving = _prefs.saveToken(token);
@@ -117,23 +119,23 @@ class AuthController extends GetxController {
             savedGeneration != SharedPrefs.credentialGeneration) {
           return false;
         }
-        Get.snackbar(
+        _notifyAuthFeedback(
           'Success',
           res.responseData?['message']?.toString() ?? 'OTP verified successfully',
-          snackPosition: SnackPosition.TOP,
         );
         return true;
       }
-      Get.snackbar(
+      _notifyAuthFeedback(
         'Invalid OTP',
         res.errorMessage ?? 'The OTP you entered is incorrect',
-        snackPosition: SnackPosition.TOP,
       );
       return false;
     } catch (_) {
       if (attempt == _credentialAttempt) {
-        Get.snackbar('Verification unavailable', 'Could not safely save this session.',
-            snackPosition: SnackPosition.TOP);
+        _notifyAuthFeedback(
+          'Verification unavailable',
+          'Could not safely save this session.',
+        );
       }
       return false;
     } finally {
@@ -175,7 +177,7 @@ class AuthController extends GetxController {
       if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
         final token = res.responseData?['token']?.toString();
         if (token == null || token.trim().isEmpty) {
-          _notifyLoginFeedback(
+          _notifyAuthFeedback(
             'Login incomplete',
             'The server did not return a valid session.',
           );
@@ -202,13 +204,13 @@ class AuthController extends GetxController {
         }
         user.value = UserModel.fromJson(userData);
         pendingEmail = email;
-        _notifyLoginFeedback(
+        _notifyAuthFeedback(
           'Success',
           res.responseData?['message']?.toString() ?? 'Login successful',
         );
         return true;
       }
-      _notifyLoginFeedback(
+      _notifyAuthFeedback(
         'Login Failed',
         res.errorMessage ?? 'Invalid credentials',
       );
@@ -231,7 +233,7 @@ class AuthController extends GetxController {
         // deletion was suspended; suppress obsolete UI error notifications.
         if (attempt == _credentialAttempt) {
           user.value = null;
-          _notifyLoginFeedback(
+          _notifyAuthFeedback(
             'Sign-in unavailable',
             'Could not safely save this session.',
           );
