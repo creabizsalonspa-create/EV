@@ -31,13 +31,6 @@ def patch(root):
 import mongoose from "mongoose";
 import { verifyOcppSource } from "../utils/ocppSourceEvidence.mjs";''',
       'customer service source imports')
-    data['station']=once(data['station'],
-      'const NearestStationModel = mongoose.model("NearestStation", NearestStationSchema);',
-      '''// An approved source gateway charger ID; never derived from a station display name.
-NearestStationSchema.add({ ocppChargerId:{type:String,default:""} });
-
-const NearestStationModel = mongoose.model("NearestStation", NearestStationSchema);''',
-      'station OCPP mapping')
     data['booking']=once(data['booking'],
       'const BookingModel = mongoose.model("Booking", BookingSchema);',
       '''// Token hash must be issued for this owner/booking by an authorized gateway workflow.
@@ -73,8 +66,13 @@ const readCustomerOcppSource = async (user_id, session) => {
     _id:session.bookingId, userId:user_id, isPaid:true, hasArrived:true,
   });
   if (!booking || !/^[a-f0-9]{64}$/i.test(booking.ocppTokenHash || "")) return null;
-  const station = await NearestStationModel.findById(booking.stationId);
-  if (!station || station.ocppChargerId !== session.sourceChargerId) return null;
+  // Existing OCPP provisioning is the authoritative station-to-charger mapping.
+  const charger = await mongoose.connection.db.collection("ocpp_chargers").findOne({
+    stationId:String(booking.stationId),
+    chargerId:session.sourceChargerId,
+    enabled:true,
+  });
+  if (!charger) return null;
   const source = await mongoose.connection.db.collection("ocpp_sessions").findOne({
     _id:new mongoose.Types.ObjectId(session.sourceSessionId),
     chargerId:session.sourceChargerId,
