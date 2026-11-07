@@ -16,7 +16,7 @@ function sandbox(body) {
   try{return body(dir,envFile);}finally{fs.rmSync(dir,{force:true,recursive:true});}
 }
 function mock(envFile) {
-  const state={tag:'old',stopped:false,failCandidate:false,failRollback:false,mutations:0,commands:[],poisonOldImage:false,exposeDatabase:false,remoteContext:false};
+  const state={tag:'old',stopped:false,failCandidate:false,failRollback:false,mutations:0,commands:[],poisonOldImage:false,exposeDatabase:false,remoteContext:false,replaceDatabase:false,replaceGateway:false};
   const getId=()=>state.tag==='old'?OLD_ID:NEW_ID;
   const snapshot=()=>{
     let roles=['application','worker','scheduler','database','gateway'];
@@ -24,7 +24,8 @@ function mock(envFile) {
       Project:'ev-staging',Service:service,State:'running',
       Health:['application','database'].includes(service)?(state.stopped && service==='application'?'unhealthy':'healthy'):'',
       Image:i<=2?'creabiz-ev-business:'+state.tag:i===3?'postgres:17-alpine':'caddy:2-alpine',
-      ID:String(i+1).repeat(64),
+      ID:i===3&&state.replaceDatabase&&state.mutations>0?'9'.repeat(64):
+         i===4&&state.replaceGateway&&state.mutations>0?'8'.repeat(64):String(i+1).repeat(64),
       Publishers:i===4?[{URL:'127.0.0.1',TargetPort:443,PublishedPort:8443,Protocol:'tcp'}]:
         state.exposeDatabase&&i===3?[{URL:'0.0.0.0',PublishedPort:5432,TargetPort:5432,Protocol:'tcp'}]:[],
     }));
@@ -225,4 +226,23 @@ test('resolved Compose isolation rejection stops staging before any Docker opera
   assert.equal(release.main(argv('apply',path.join(dir,'effective-blocked.jsonl')),deps),2);
   assert.equal(deps.state.mutations,0);
   assert.equal(deps.state.commands.length,0);
+}));
+
+test('database replacement during staging rollout is detected and not counted as verified rollback',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  deps.state.replaceDatabase=true;
+  const file=path.join(dir,'database-changed.jsonl');
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.equal(deps.state.mutations,2);
+  const events=fs.readFileSync(file,'utf8');
+  assert.ok(events.includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.ok(!events.includes('"event":"RELEASE_VERIFIED"'));
+  assert.ok(!events.includes('"event":"ROLLBACK_VERIFIED"'));
+}));
+test('gateway replacement during staging rollout is detected as unverified recovery',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  deps.state.replaceGateway=true;
+  const file=path.join(dir,'gateway-changed.jsonl');
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
 }));
