@@ -180,6 +180,16 @@ class FleetFixture extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'fleet-invitations') {
+      return {
+        'data': [
+          {'id': 8, 'fleet_id': 31, 'status': 'invited'},
+        ],
+        'current_page': 1,
+        'last_page': 1,
+        'total': 1,
+      };
+    }
     if (path == 'notifications/summary') {
       return {'unread_count': 3, 'latest_id': 43, 'in_app_only': true};
     }
@@ -411,6 +421,31 @@ void main() {
       expect(find.textContaining('Ticket #'), findsNothing);
     },
   );
+  testWidgets('fleet inbox review opens live invitations without accepting automatically', (
+    tester,
+  ) async {
+    final api = FleetFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SupportView(
+          api: api,
+          accountId: 19,
+          onSessionExpired: () {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('review-fleet-invitation')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('review-fleet-invitation')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('fleet-invitations')), findsOneWidget);
+    expect(find.text('Accept invitation'), findsOneWidget);
+    // The notification review action must never accept on the user's behalf.
+  });
+
   testWidgets('fleet lifecycle notices render without a fake support link', (
     tester,
   ) async {

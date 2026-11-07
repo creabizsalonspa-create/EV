@@ -1,4 +1,6 @@
 window.EV_MESSAGES = {
+    "Review fleet invitation": { en: "Review fleet invitation", ar: "مراجعة دعوة الأسطول" },
+
     "Notification pages": { en: "Notification pages", ar: "صفحات الإشعارات" },
     "Previous notifications": { en: "Previous notifications", ar: "الإشعارات السابقة" },
     "Next notifications": { en: "Next notifications", ar: "الإشعارات التالية" },

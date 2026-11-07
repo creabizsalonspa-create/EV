@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'fleet.dart';
 
 /// Presentation-only: all values are text, never an authorization or charging
 /// command. Unknown or malformed event metadata cannot crash the inbox.
@@ -46,10 +47,12 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
 class SupportView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onSessionExpired;
+  final int? accountId;
   const SupportView({
     super.key,
     required this.api,
     required this.onSessionExpired,
+    this.accountId,
   });
   @override
   SupportViewState createState() => SupportViewState();
@@ -294,6 +297,31 @@ class SupportViewState extends State<SupportView> {
                       Wrap(
                         spacing: 8,
                         children: [
+                          if (row['kind'] == 'fleet.invitation' && widget.accountId != null)
+                            TextButton(
+                              key: const Key('review-fleet-invitation'),
+                              onPressed: loading
+                                  ? null
+                                  : () async {
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => Scaffold(
+                                            appBar: AppBar(
+                                              title: Text(s.t('fleet')),
+                                            ),
+                                            body: FleetView(
+                                              api: widget.api,
+                                              accountId: widget.accountId!,
+                                              onExpired: widget.onSessionExpired,
+                                              initialInvitations: true,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                      if (mounted) await refresh();
+                                    },
+                              child: Text(s.t('reviewFleetInvitation')),
+                            ),
                           if (row['support_ticket_id'] != null)
                             TextButton(
                               onPressed: loading

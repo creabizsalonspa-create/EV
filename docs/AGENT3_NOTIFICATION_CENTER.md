@@ -57,3 +57,7 @@ The browser now reads backend page metadata and renders bounded previous/next co
 ### Bounded UI refresh behavior
 
 Account initialization loads the existing support tickets and then the inbox, while **inbox-only** filter, category, page and read actions now call `refreshInbox()` rather than refetching support tickets. The two read-only inbox requests (page and global unread summary) are issued concurrently and the result is discarded if the account/session epoch changed. This reduces repeated support requests and preserves existing ticket reply/transition flows.
+
+## Actionable fleet notifications (no automatic consent)
+
+The browser inbox now provides a **Review fleet invitation** action that refreshes the existing authenticated fleet invitation list and scrolls to the current actionable invitations. A historical or revoked notification cannot directly accept an invitation. The Flutter SupportView accepts the currently authenticated account ID and can open the existing FleetView on its Invitations tab; this reuses FleetView's explicit confirmation-before-accept path. In both surfaces, tapping the inbox notification itself causes **no membership mutation** and does not bypass backend ownership checks. EN/AR labels and a native navigation fixture were added.

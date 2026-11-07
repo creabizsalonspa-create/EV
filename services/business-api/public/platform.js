@@ -1402,6 +1402,23 @@ async function refreshInbox() {
                     kind: { translate: m.kind },
                     id: m.support_ticket_id,
                 });
+        if (m.kind === "fleet.invitation") {
+            const review = ui("button", "Review fleet invitation");
+            review.type = "button";
+            review.onclick = async () => {
+                review.disabled = true;
+                try {
+                    await fleets();
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    el("fleet-invitations").scrollIntoView({ behavior: "smooth", block: "center" });
+                } catch (error) {
+                    if (session === client.sessionEpoch && account === user?.id) notice(error);
+                } finally {
+                    review.disabled = false;
+                }
+            };
+            row.append(review);
+        }
         if (!m.read_at) {
             const b = ui("button", "Mark read");
             b.onclick = async () => {
