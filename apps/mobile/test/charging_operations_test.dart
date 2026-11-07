@@ -7,6 +7,7 @@ import 'test_support.dart';
 class OpsApi extends FixtureApi {
   int writes = 0;
   bool open = false, proof = false, lost = false;
+  int focusedReads = 0;
   @override
   Future<dynamic> request(
     String path, {
@@ -20,6 +21,21 @@ class OpsApi extends FixtureApi {
         'active_session_count': 3,
         'missing_recent_evidence_count': 2,
         'unresolved_case_count': 1,
+        'recorded_monitor_review_count': 2,
+        'unacknowledged_fault_alert_count': 3,
+        'source_recovered_unacknowledged_fault_count': 1,
+        'alert_metrics_are_historical': true,
+      };
+    }
+    if (path == 'charging-operations/7/case' && method == 'GET') {
+      focusedReads++;
+      return {
+        'command': {'id': 7, 'status': 'outcome_unknown'},
+        'case': {'id': 8, 'state': 'awaiting_source'},
+        'source_observed': false,
+        'physical_charging_verified': false,
+        'events': {'data': <Map<String, dynamic>>[], 'current_page': 1,
+                   'last_page': 1, 'total': 0},
       };
     }
     if (method != 'GET') {
@@ -70,6 +86,8 @@ void main() {
       );
       await t.pumpAndSettle();
       expect(find.text('Open source-linked sessions: 3'), findsOneWidget);
+      expect(find.text('Recorded simulator monitor review flags: 2'), findsOneWidget);
+      expect(find.text('Unacknowledged recorded charger fault alerts: 3'), findsOneWidget);
       expect(find.text('No source evidence in the last 5 minutes: 2'), findsOneWidget);
       await t.ensureVisible(find.text('Open recovery case'));
       await t.tap(find.text('Open recovery case'));
@@ -90,6 +108,20 @@ void main() {
       expect(find.text('Awaiting source evidence'), findsWidgets);
     },
   );
+  testWidgets('focused recovery case is read-only until an explicit operator action', (t) async {
+    final api = OpsApi();
+    await t.pumpWidget(MaterialApp(
+      home: ChargingOperationsView(
+        api: api, onExpired: () {}, focusCommandId: 7,
+      ),
+    ));
+    await t.pumpAndSettle();
+    expect(find.text('Recovery notification · command #7'), findsOneWidget);
+    expect(find.text('Recorded case state: awaiting_source'), findsOneWidget);
+    expect(api.focusedReads, 1);
+    expect(api.writes, 0);
+    expect(api.focusedReads, 1);
+  });
   testWidgets('lost case response is not automatically replayed', (t) async {
     final api = OpsApi()..lost = true;
     await t.pumpWidget(

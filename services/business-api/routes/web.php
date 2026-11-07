@@ -6,6 +6,7 @@ use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
+use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
@@ -87,8 +88,21 @@ Route::middleware(['auth', 'throttle:support'])->group(function () {
     Route::get('/api/support/{ticket}', [$c, 'show']);
     Route::post('/api/support/{ticket}/messages', [$c, 'reply']);
     Route::patch('/api/support/{ticket}/status', [$c, 'transition']);
-    Route::get('/api/notifications', [$c, 'notifications']);
-    Route::post('/api/notifications/{notification}/read', [$c, 'read']);
+});
+
+// The existing session-backed /api routes and bearer-token /api/v1 routes
+// must expose equivalent scoped inbox operations. Inbox reads never exhaust
+// the support-ticket action allowance, and writes receive a tighter budget.
+Route::middleware(['auth', 'throttle:notification-read'])->group(function () {
+    Route::get('/api/notifications', [SupportController::class, 'notifications']);
+    Route::get('/api/notifications/summary', [NotificationCenterController::class, 'summary']);
+    Route::get('/api/notifications/preferences', [NotificationCenterController::class, 'preferences']);
+});
+Route::middleware(['auth', 'throttle:notification-write'])->group(function () {
+    Route::put('/api/notifications/preferences', [NotificationCenterController::class, 'updatePreferences']);
+    Route::post('/api/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
+    Route::post('/api/notifications/{notification}/read', [SupportController::class, 'read']);
+    Route::post('/api/notifications/{notification}/unread', [NotificationCenterController::class, 'markUnread']);
 });
 
 Route::post('/api/email/verification-notification', [AccountController::class, 'sendVerification'])

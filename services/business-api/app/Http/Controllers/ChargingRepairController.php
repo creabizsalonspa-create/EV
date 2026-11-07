@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\InboxNotification;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FaultMonitor;
@@ -34,11 +35,35 @@ class ChargingRepairController extends Controller
 
     public function index(Request $r, VendorCompany $company, VendorCharger $charger)
     {
-        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+        $r->validate([
+            'page' => 'sometimes|integer|min:1|max:100000',
+            'focus_order_id' => 'sometimes|integer|min:1',
+        ]);
         $b = $this->scope($r, $company, $charger);
-        $rows = $this->alerts($b)->join('charging_repair_orders as w', 'w.alert_id', '=', 'a.id')->select('w.id', 'w.alert_id', 'w.state', 'w.version', 'w.created_at', 'w.updated_at', 'o.evse_number', 'o.connector_number', 'a.recovery_observation_id')->orderByDesc('w.id')->paginate(25)->toArray();
+        $query = $this->alerts($b)->join('charging_repair_orders as w', 'w.alert_id', '=', 'a.id');
+        $focusPage = null;
+        if ($r->filled('focus_order_id')) {
+            $focus = $r->integer('focus_order_id');
+            // The focus must belong to this caller's canonical binding.
+            // Never reveal another vendor's order or its list position.
+            abort_unless((clone $query)->where('w.id', $focus)->exists(), 404);
+            $newer = (clone $query)->where('w.id', '>', $focus)->count();
+            $focusPage = intdiv($newer, 25) + 1;
+        }
+        $page = $focusPage ?? $r->integer('page', 1);
+        $rows = $query->select('w.id', 'w.alert_id', 'w.state', 'w.version',
+            'w.created_at', 'w.updated_at', 'o.evse_number', 'o.connector_number',
+            'a.recovery_observation_id')
+            ->orderByDesc('w.id')->paginate(25, ['*'], 'page', $page)->toArray();
+        if ($focusPage !== null) {
+            // Read-committed insertion between the count and page query
+            // must not claim that the requested order was actually shown.
+            abort_unless(collect($rows['data'])->contains(
+                fn ($row) => (int) data_get($row, 'id') === $focus
+            ), 409, 'Repair list changed while resolving the notification. Retry.');
+        }
 
-        return $this->reply($rows + ['can_manage' => $r->user()->role === 'admin' || $r->user()->id === $company->owner_id, 'commands_sent' => false, 'capacity_changed' => false, 'physical_repair_verified' => false]);
+        return $this->reply($rows + ['focus_page' => $focusPage, 'can_manage' => $r->user()->role === 'admin' || $r->user()->id === $company->owner_id, 'commands_sent' => false, 'capacity_changed' => false, 'physical_repair_verified' => false]);
     }
 
     public function history(Request $r, VendorCompany $company, VendorCharger $charger, int $order)
@@ -88,6 +113,34 @@ class ChargingRepairController extends Controller
             }
             DB::table('charging_repair_events')->insert(['order_id' => $id, 'actor_id' => $r->user()->id, 'request_key' => $v['request_key'], 'payload_hash' => $hash, 'state' => $v['state'], 'version' => $version, 'note_ciphertext' => Crypt::encryptString($v['note']), 'created_at' => now()]);
             app(VendorAccess::class)->audit($r->user(), 'charging_repair.'.$v['state'], $id);
+            // The existing repair event (unique actor/request key) and owner
+            // notice are in one transaction. A replay returns above without
+            // another message. Notes remain encrypted, never exposed here.
+            if ($r->user()->id !== $company->owner_id) {
+                $kind = match ($v['state']) {
+                    'open' => $order
+                        ? 'charging.repair.reopened.simulated'
+                        : 'charging.repair.opened.simulated',
+                    'in_progress' => 'charging.repair.work_started.simulated',
+                    'review' => 'charging.repair.review_requested.simulated',
+                    'closed' => 'charging.repair.review_closed.simulated',
+                };
+                InboxNotification::create([
+                    'user_id' => $company->owner_id,
+                    'kind' => $kind,
+                    'metadata' => [
+                        'source' => 'simulator',
+                        'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                        'physical_verification' => false,
+                        'company_id' => $company->id,
+                        'charger_id' => $charger->id,
+                        'station_id' => $locked->station_id,
+                        'alert_id' => $alert->id,
+                        'repair_order_id' => $id,
+                        'review_only' => true,
+                    ],
+                ]);
+            }
 
             return $this->reply(['id' => $id, 'version' => $version, 'state' => $v['state'], 'replayed' => false, 'capacity_changed' => false, 'commands_sent' => false]);
         }, 3);

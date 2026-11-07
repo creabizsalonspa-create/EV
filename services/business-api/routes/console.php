@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
@@ -134,4 +135,37 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
     return $failed ? 1 : 0;
 })->purpose('Bounded durable simulator fault observation; no hardware or capacity commands');
 
+
+Artisan::command('notifications:remind-faults {--limit=50} {--after=} {--older-than=15}', function () {
+    $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1, 'max_range' => 100]]);
+    $afterOption = $this->option('after');
+    $after = $afterOption === null || $afterOption === ''
+        ? -1
+        : filter_var($afterOption, FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 0]]);
+    $age = filter_var($this->option('older-than'), FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 5, 'max_range' => 1440]]);
+    if ($limit === false || $after === false || $age === false) {
+        $this->error('Use limit 1..100, optional after >=0 and older-than 5..1440 minutes.');
+
+        return 1;
+    }
+    try {
+        $result = app(FaultReminderEscalator::class)->scan($limit, $after, $age);
+        $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+    } catch (Throwable $error) {
+        // Do not expose private alert records, secrets or raw source messages.
+        $this->error('Simulator fault reminder scan failed ('.$error::class.').');
+
+        return 1;
+    }
+
+    return 0;
+})->purpose('Bounded, owner-only, simulator in-app fault reminders; never hardware/external delivery');
+
 Schedule::command('csms:expire-diagnostic-files --limit=100')->everyTenMinutes()->withoutOverlapping();
+if (app()->environment(['local', 'testing'])) {
+    Schedule::command('notifications:remind-faults --limit=50 --older-than=15')
+        ->everyTenMinutes()->withoutOverlapping();
+}

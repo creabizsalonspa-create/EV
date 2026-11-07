@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\CostCenter;
 use App\Models\Fleet;
 use App\Models\FleetMember;
+use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -64,6 +65,217 @@ class EnterpriseTest extends TestCase
         $this->assertDatabaseCount('fleet_vehicles', 0);
         $this->actingAs($driver)->getJson('/api/fleets/'.$f->id)->assertNotFound();
         $this->postJson('/api/fleet-invitations/'.$m->id.'/accept')->assertConflict();
+    }
+
+    public function test_fleet_inbox_lifecycle_is_account_scoped_and_transition_idempotent(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $outsider = User::factory()->create();
+        $fleet = Fleet::create(['owner_id' => $owner->id, 'name' => 'Notification fleet', 'country' => 'AE']);
+        $url = '/api/fleets/'.$fleet->id.'/invitations';
+        $body = ['email' => $driver->email];
+
+        $this->actingAs($owner)->postJson($url, $body)->assertAccepted();
+        $this->postJson($url, $body)->assertAccepted();
+        $this->postJson($url, ['email' => 'absent@example.test'])
+            ->assertAccepted()->assertExactJson(['message' => 'Invitation recorded if the account is eligible.']);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $invite = FleetMember::where('fleet_id', $fleet->id)->where('user_id', $driver->id)->firstOrFail();
+        $this->actingAs($driver)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'fleet.invitation');
+        $this->actingAs($outsider)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($driver)->postJson('/api/fleet-invitations/'.$invite->id.'/accept')->assertOk();
+        $this->postJson('/api/fleet-invitations/'.$invite->id.'/accept')->assertOk();
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->actingAs($owner)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'fleet.invitation.accepted');
+
+        $this->deleteJson('/api/fleets/'.$fleet->id.'/members/'.$invite->id)->assertNoContent();
+        $this->deleteJson('/api/fleets/'.$fleet->id.'/members/'.$invite->id)->assertNoContent();
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        $this->actingAs($driver)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.kind', 'fleet.membership.revoked');
+        $this->actingAs($owner)->postJson($url, $body)->assertAccepted();
+        $this->assertSame('invited', $invite->fresh()->status);
+        $this->assertDatabaseCount('inbox_notifications', 4);
+        $this->actingAs($driver)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 3)
+            ->assertJsonPath('data.0.kind', 'fleet.invitation');
+
+        $this->assertSame(3, InboxNotification::where('user_id', $driver->id)->count());
+        $this->assertSame(1, InboxNotification::where('user_id', $owner->id)->count());
+    }
+
+    public function test_driver_assignment_notifications_and_cost_center_change_audit_are_idempotent(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $thirdParty = User::factory()->create();
+        $fleet = Fleet::create(['owner_id' => $owner->id, 'name' => 'Audit fixture', 'country' => 'AE']);
+        FleetMember::create([
+            'fleet_id' => $fleet->id, 'user_id' => $driver->id,
+            'status' => 'active', 'role' => 'driver',
+        ]);
+        $first = CostCenter::create(['fleet_id' => $fleet->id, 'code' => 'A', 'name' => 'Alpha']);
+        $second = CostCenter::create(['fleet_id' => $fleet->id, 'code' => 'B', 'name' => 'Beta']);
+        $vehicle = Vehicle::create([
+            'user_id' => $driver->id, 'name' => 'Driver EV', 'connector_type' => 'CCS2',
+        ]);
+        $endpoint = '/api/fleets/'.$fleet->id.'/vehicles';
+        $input = ['vehicle_id' => $vehicle->id, 'cost_center_id' => $first->id];
+
+        $this->actingAs($driver)->postJson($endpoint, $input)->assertCreated();
+        $this->postJson($endpoint, $input)->assertOk();
+        $this->assertSame(1, InboxNotification::where('user_id', $owner->id)->count());
+
+        $input['cost_center_id'] = $second->id;
+        $this->postJson($endpoint, $input)->assertOk();
+        $this->postJson($endpoint, $input)->assertOk();
+        $this->assertSame(2, InboxNotification::where('user_id', $owner->id)->count());
+
+        $this->actingAs($owner)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.kind', 'fleet.vehicle.cost_center_changed')
+            ->assertJsonPath('data.1.kind', 'fleet.vehicle.assigned');
+        $this->actingAs($thirdParty)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 0);
+
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+            ->where('actor_id', $driver->id)->where('action', 'fleet.vehicle_assigned')->count());
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+            ->where('actor_id', $driver->id)->where('action', 'fleet.vehicle_cost_center_changed')->count());
+    }
+
+    public function test_revoked_driver_cannot_assign_vehicle_even_after_previous_membership_access(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $outsider = User::factory()->create();
+        $fleet = Fleet::create(['owner_id' => $owner->id, 'name' => 'Locked assignment', 'country' => 'AE']);
+        $center = CostCenter::create(['fleet_id' => $fleet->id, 'code' => 'OPS', 'name' => 'Operations']);
+        $member = FleetMember::create([
+            'fleet_id' => $fleet->id, 'user_id' => $driver->id,
+            'role' => 'driver', 'status' => 'active',
+        ]);
+        $vehicle = Vehicle::create([
+            'user_id' => $driver->id, 'name' => 'Driver car', 'connector_type' => 'CCS2',
+        ]);
+        $otherVehicle = Vehicle::create([
+            'user_id' => $outsider->id, 'name' => 'Foreign car', 'connector_type' => 'CCS2',
+        ]);
+        $payload = ['vehicle_id' => $vehicle->id, 'cost_center_id' => $center->id];
+        $path = '/api/fleets/'.$fleet->id.'/vehicles';
+
+        $this->actingAs($driver)->postJson($path, [
+            'vehicle_id' => $otherVehicle->id,
+            'cost_center_id' => $center->id,
+        ])->assertNotFound();
+        $this->postJson($path, $payload)->assertCreated();
+        $this->assertDatabaseCount('fleet_vehicles', 1);
+        $this->actingAs($owner)->deleteJson(
+            '/api/fleets/'.$fleet->id.'/members/'.$member->id
+        )->assertNoContent();
+        $this->assertDatabaseCount('fleet_vehicles', 0);
+        $this->actingAs($driver)->postJson($path, $payload)->assertNotFound();
+        $this->assertDatabaseCount('fleet_vehicles', 0);
+        $this->assertDatabaseHas('fleet_members', [
+            'id' => $member->id, 'status' => 'revoked',
+        ]);
+    }
+
+    public function test_pending_invitation_withdrawal_is_distinct_from_active_revocation(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $fleet = Fleet::create([
+            'owner_id' => $owner->id,
+            'name' => 'Lifecycle type fixture',
+            'country' => 'AE',
+        ]);
+        $member = FleetMember::create([
+            'fleet_id' => $fleet->id,
+            'user_id' => $driver->id,
+            'role' => 'driver',
+            'status' => 'invited',
+        ]);
+        $url = '/api/fleets/'.$fleet->id.'/members/'.$member->id;
+        $this->actingAs($owner)->deleteJson($url)->assertNoContent();
+        $this->deleteJson($url)->assertNoContent();
+        $this->assertSame('revoked', $member->fresh()->status);
+        $this->assertSame(1, InboxNotification::where('user_id', $driver->id)
+            ->where('kind', 'fleet.invitation.withdrawn')->count());
+        $this->assertSame(0, InboxNotification::where('user_id', $driver->id)
+            ->where('kind', 'fleet.membership.revoked')->count());
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+            ->where('actor_id', $owner->id)
+            ->where('action', 'fleet.invitation_withdrawn')->count());
+
+        $this->postJson('/api/fleets/'.$fleet->id.'/invitations', [
+            'email' => $driver->email,
+        ])->assertAccepted();
+        $this->actingAs($driver)->postJson(
+            '/api/fleet-invitations/'.$member->id.'/accept'
+        )->assertOk();
+        $this->actingAs($owner)->deleteJson($url)->assertNoContent();
+        $this->assertSame(1, InboxNotification::where('user_id', $driver->id)
+            ->where('kind', 'fleet.membership.revoked')->count());
+    }
+
+    public function test_fleet_invitation_rejects_revoked_state_until_owner_explicitly_reinvites(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $outsider = User::factory()->create();
+        $fleet = Fleet::create([
+            'owner_id' => $owner->id,
+            'name' => 'Concurrent transitions fixture',
+            'country' => 'AE',
+        ]);
+        $membership = FleetMember::create([
+            'fleet_id' => $fleet->id,
+            'user_id' => $driver->id,
+            'role' => 'driver',
+            'status' => 'invited',
+        ]);
+
+        // The driver cannot trigger membership status updates for another user.
+        $this->actingAs($outsider)
+            ->postJson('/api/fleet-invitations/'.$membership->id.'/accept')
+            ->assertNotFound();
+
+        $this->actingAs($owner)
+            ->deleteJson('/api/fleets/'.$fleet->id.'/members/'.$membership->id)
+            ->assertNoContent();
+        $this->assertDatabaseHas('fleet_members', [
+            'id' => $membership->id,
+            'status' => 'revoked',
+        ]);
+
+        $this->actingAs($driver)
+            ->postJson('/api/fleet-invitations/'.$membership->id.'/accept')
+            ->assertConflict();
+        $this->assertSame(
+            0,
+            InboxNotification::where('user_id', $owner->id)
+                ->where('kind', 'fleet.invitation.accepted')->count(),
+        );
+
+        $this->actingAs($owner)
+            ->postJson('/api/fleets/'.$fleet->id.'/invitations', ['email' => $driver->email])
+            ->assertAccepted();
+        $this->actingAs($driver)
+            ->postJson('/api/fleet-invitations/'.$membership->id.'/accept')
+            ->assertOk();
+        $this->postJson('/api/fleet-invitations/'.$membership->id.'/accept')
+            ->assertOk();
+        $this->assertSame(
+            1,
+            InboxNotification::where('user_id', $owner->id)
+                ->where('kind', 'fleet.invitation.accepted')->count(),
+        );
     }
 
     public function test_invites_do_not_disclose_whether_email_exists(): void

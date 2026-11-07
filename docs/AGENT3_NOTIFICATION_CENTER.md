@@ -1,0 +1,241 @@
+# Agent 3 — Account-scoped notification center
+
+## Feature delivered
+
+Existing account notifications remain persisted in `inbox_notifications`; no notification records are deleted, automatically acknowledged, or exposed to another actor. This extension uses existing in-app notification history and introduces:
+
+- `GET /api/v1/notifications/summary` and the existing session-based `GET /api/notifications/summary`: return only `unread_count`, `latest_id`, `in_app_only:true` for the authenticated account.
+- `POST /api/v1/notifications/read-through` and `POST /api/notifications/read-through` with `{"through_id":ID}`: update *only the caller's unread rows with IDs ≤ the observed high-water mark*. Return changed row count, cutoff and remaining unread count. Repeated cutoff calls cannot re-count already acknowledged rows. Notifications arriving with later IDs remain unread.
+- Web support inbox now shows an unread count and bilingual bulk-read control. Existing per-notification read remains available.
+- Canonical customer/vendor Flutter SupportView shows the same count and bulk control in EN/AR. Widget generation checks block stale UI responses after disposal/refresh.
+- Successful mutations add one scoped audit event, and no audit event is inserted for an idempotent no-op.
+
+## Evidence and boundaries
+
+The backend feature tests cover unauthenticated access, invalid cutoff values, two-account privacy, repeat acknowledgement, late arrivals and legacy route compatibility. The Flutter widget tests cover the cutoff that came from the server and accurate count refresh. Browser session fencing uses existing `EvApi` identity epoch. All access requires existing authentication and rate limit middleware.
+
+This feature is **in-app only**; it does not claim external push, email, SMS delivery, delivery receipts or that the user opened a notification. This is not a charging-state, transaction, payment or physical-hardware feature. The user must explicitly choose the bulk-read action; no background process silently dismisses messages.
+
+## Verification and integration
+
+Run `./scripts/php artisan test --filter=NotificationCenterTest`, `flutter test test/support_test.dart`, related browser/navigation tests, static lints and exact-source hosted CI before merging. These are required gates, not presumed passes. No manual changes to live backend or production app instances are included.
+
+## Additional listing functionality
+
+Both account-scoped notification listing routes now accept an optional validated `unread_only=1` filter. The canonical `/api/v1/notifications` listing and individual read endpoint are aliases of the existing session API, with the same authorization, pagination and throttling. The web inbox adds a persistent-for-session unread-only toggle, cleared on account identity reset. Flutter SupportView offers the same filter with the existing refresh and page controls. Invalid filter values return 422; no record is modified simply by applying a filter.
+
+## Source-observed simulator charger faults in the owner inbox
+
+The existing `ContinuousFaultObserver` already requires a locally enabled simulator source, tests the authentic source/binding relationship and rechecks current vendor ownership inside a locked database transaction. Its fault monitor now accepts an optional callback *only when a new durable fault alert is inserted*. The observer uses that callback to persist one vendor-owner `charging.fault.simulated` inbox record, **in the same transaction** as the observation, alert and monitor cursor. No message is sent on a replay, rejected source, changed owner, or rollback. Existing monitor callers without callbacks retain their previous behavior.
+
+Notification metadata contains only simulator provenance, the source-evidence class, station ID, internal alert ID and explicit `physical_verification=false`. No raw OCPP source token, device secret, private message, meter data, live payment or actual hardware assurance enters the inbox. The web and Flutter inboxes show clear bilingual simulator-fault labels without inventing a support-ticket link. Updated observer tests exercise both OCPP 1.6 and 2.0.1 fixtures, replay idempotency, owner isolation and failed-batch rollback. **No production monitor is enabled or charger command sent.**
+
+## High-volume indexing and category filtering
+
+A follow-up additive migration creates a composite index on `inbox_notifications(user_id, read_at, id)` for tenant-scoped unread count and cursor-cutoff updates. Both account notification listing routes accept an allowlisted `category=support|vehicle|charging` parameter, filtering by the corresponding fixed `kind` namespace. No user-controlled SQL wildcard enters a query, invalid categories return HTTP 422, and the category combines with `unread_only=1` and existing 25-row pagination. Web and Flutter expose the same category selection in their inboxes. No notification gets changed solely by filtering.
+
+## Individual acknowledgment integrity and localization
+
+The legacy single-notification read endpoint now updates only the current user's still-unread row in an atomic transaction, writing a scoped audit event exactly once. Repeated reads return the already-acknowledged record without duplicating audit events. The unread-category picker displays localized English/Arabic labels; tests cover native category requests, isolated read receipts and combined category/unread filters in the real browser. Read acknowledgments remain **in-app state only**, not external delivery receipts.
+
+### Source-observed recovery status (not physical repair)
+
+The simulator observer now also emits a distinct `charging.fault.recovered.simulated` notification **only** when the durable charging fault alert obtains its first qualifying source recovery observation. The conditional DB update (previous recovery must be NULL) and notification insert occur in the same owner-locked transaction. Replayed observations, restarted monitors and later source pages do not duplicate the recovery notice. All metadata remains simulator-only with `physical_verification=false`; observing `Available` in a simulator is neither proof of actual repair nor authorization to release charging capacity. EN/AR web and Flutter labels explicitly describe *simulator source reported recovery*.
+
+## Idempotent fleet notification lifecycle
+
+Fleet invitations now produce an inbox notification only when a registered, different eligible account receives a new or explicitly re-issued invitation. Existing invitations and active memberships are not duplicated. A removed membership can be re-invited by the current verified fleet owner through a lock-protected transition; the API still always returns the same generic response for unregistered/eligible addresses. Accepting a fleet invitation creates one owner notification (not again on idempotent acceptance). Revoking a membership creates one member notice and clears attached vehicle authorizations; repeated revocation is a no-op. All notification and membership state changes commit in the same transaction. EN/AR web/Flutter inbox categories and labels cover invited, accepted and revoked. No email/push delivery, account enumeration or cross-tenant browsing is introduced.
+
+### Lock ordering and resilient client labels
+
+The fleet membership revocation path now acquires the fleet row before the membership row (matching invitation creation) and retries transient transaction failures up to three times. This reduces deadlock risk on concurrent owner re-invitations/revocations. The Flutter inbox uses a single typed title formatter with a validated positive numeric station/vehicle/fleet identifier. Malformed/missing metadata produces a harmless placeholder instead of raising a widget build exception; localized English/Arabic wording remains explicitly simulator-scoped.
+
+### Web inbox pagination
+
+The browser now reads backend page metadata and renders bounded previous/next controls with EN/AR labels. The page state is identity-scoped, and changing unread/category filters or completing a bulk-read resets to the first page. The existing Laravel pagination limit stays at 25; backend regression tests verify 27 own records across two pages, descending order, and non-disclosure of an unrelated account's rows. No API returns an unbounded inbox dump.
+
+### Bounded UI refresh behavior
+
+Account initialization loads the existing support tickets and then the inbox, while **inbox-only** filter, category, page and read actions now call `refreshInbox()` rather than refetching support tickets. The two read-only inbox requests (page and global unread summary) are issued concurrently and the result is discarded if the account/session epoch changed. This reduces repeated support requests and preserves existing ticket reply/transition flows.
+
+## Actionable fleet notifications (no automatic consent)
+
+The browser inbox now provides a **Review fleet invitation** action that refreshes the existing authenticated fleet invitation list and scrolls to the current actionable invitations. A historical or revoked notification cannot directly accept an invitation. The Flutter SupportView accepts the currently authenticated account ID and can open the existing FleetView on its Invitations tab; this reuses FleetView's explicit confirmation-before-accept path. In both surfaces, tapping the inbox notification itself causes **no membership mutation** and does not bypass backend ownership checks. EN/AR labels and a native navigation fixture were added.
+
+### Same-snapshot high-water summary
+
+The unread count and maximum observed notification ID are now derived from one aggregate SQL statement (portable conditional SUM and MAX), rather than two independently timed SELECT queries. This prevents a concurrent insert between separate reads from producing an internally inconsistent count/cutoff pair. The count is still per account, and the ID remains an observed database high-water mark, not proof that the user saw or received every item. Tests verify zero-unread-with-history and later-arrival behavior. The native fleet review regression also asserts that navigating from the notification performs no invitation acceptance POST.
+
+### In-account inbox request ordering
+
+In addition to the session epoch guard, the browser inbox now increments an `inboxGeneration` counter at the start of each refresh, and again when private views are cleared. A previous request (including one for a different page/category with the same account) is discarded if it finishes after a more recent request. This prevents a delayed older response from replacing the newest category/filter view. Requests still use existing `EvApi` session fencing and do not mutate notifications merely by refreshing.
+
+### Independent authenticated notification traffic budget
+
+The browser inbox no longer spends support-ticket rate-limit capacity. Session-authenticated `GET /api/notifications` and `/summary` use a dedicated **120/minute per-account notification-read** limiter; `POST /api/notifications/read-through` and individual read actions use a separate **30/minute notification-write** limiter. Support ticket reads/writes keep their existing **30/minute** allowance. The canonical `/api/v1` endpoints remain under their pre-existing `platform-api` limiter, preserving existing native API throttling. Tests issue 70 actual inbox read requests, then confirm support creation still works; another test confirms the 31st notification-write returns 429 while the read and support routes remain available.
+
+## Explicit unread-state reversal
+
+New account-scoped `POST /api[/v1]/notifications/{notification}/unread` reverses an earlier local read acknowledgement without recreating or resending an event. The update is atomic, idempotent and audits exactly one real transition. Both web and Flutter expose localized Mark unread controls; existing support/charging/fleet events and external delivery states do not change. Backend tests cover cross-account 404, stable record count and single audit; native widget tests cover read→unread round trips.
+
+### Category-level unread totals
+
+The single-query tenant-scoped summary now returns `unread_by_category` for `support`, `vehicle`, `charging`, `fleet`, and `other` using fixed SQL prefix parameters. `other` counts unrecognized event classes rather than hiding them. Category counts add up to the global unread count and cannot include foreign users. Web and Flutter show EN/AR category totals only if all category fields are valid nonnegative integers, while older clients can continue consuming the existing `unread_count`, `latest_id`, and `in_app_only` fields. Backend and native widget tests cover known categories, unknown types, another account's records, and summary presentation.
+
+## Visibility-aware notification refresh
+
+The web account inbox now has an explicit **Refresh notifications** control and a single 60-second read-only refresh loop. The loop is registered once per page load, runs only for an authenticated user while the tab is visible and the support pane is available, and is silent when the tab is hidden or logout is pending. Returning to a visible tab triggers a fresh read. Refreshes reuse the per-account generation and session-epoch guards and do not acknowledge, reopen, create or delete notifications. All background calls use the separate notification-read allowance, not the support ticket quota. The browser test exercises refreshing a newly received support notification without reloading the entire application.
+
+### Additional query index and exact UI read-reversal test
+
+The additive migration now includes `inbox_notifications(user_id,kind,id)` alongside the owner-unread index. The second index targets the allowlisted notification-category listing while preserving owner scoping and descending ID pagination. The full Playwright browser workflow now clicks the real **Mark unread** and **Mark read** controls for an identified persisted notification, asserting unchanged total records, updated per-category counts and the newer event's independent receipt. Native GitHub Actions workflow runs are now grouped by branch/head ref, canceling superseded attempts on the same branch rather than accumulating outdated iOS/Android jobs; this does not imply current CI has run successfully.
+
+### Consistent lock ordering for fleet acceptance
+
+The fleet acceptance transaction now acquires the owning fleet row **before** the invitation membership row, matching invitation creation and revocation. It rechecks invitation ownership and fleet membership after locking, retries transient deadlocks up to three times, and creates only one acceptance notice on a real `invited`→`active` transition. Membership revocation rechecks the locked row's fleet ID. A new feature test confirms that a revoked invitation cannot be accepted until the owner deliberately issues a new invitation, and that repeated acceptance cannot create extra owner notices.
+
+### Vehicle-assignment authorization and fleet lock continuity
+
+The fleet assignment path now obtains the same fleet-before-membership row locks as invitation, acceptance and revocation. The driver's active membership, vehicle ownership and cost-center fleet association are all checked **inside the locked transaction**, not only against pre-transaction snapshots. The assignment transaction also retries transient deadlocks up to three times. A new test demonstrates that a driver's own vehicle is assigned while active, is detached on revocation, and cannot be assigned again after revocation; foreign-user vehicles are rejected.
+
+### Audited owner-visible driver assignment changes
+
+A driver's new vehicle assignment and an actual cost-center update now generate separate owner-only in-app notifications in the same database transaction as the audit and vehicle change. An identical retry is a no-op: no additional notification or audit. Self-actions by the owner do not generate redundant owner messages. Metadata contains internal identifiers, not private charger information or payment data. Backend tests verify exactly two owner notices, separate audit actions and no unrelated-user visibility. Web and Flutter format these events in English and Arabic with safe placeholders for invalid/missing IDs.
+
+### Accurate invitation withdrawal vs active membership revocation
+
+Canceling an *unaccepted* fleet invitation now emits `fleet.invitation.withdrawn` and audits `fleet.invitation_withdrawn`, whereas revoking an *active* membership emits `fleet.membership.revoked`, removes associated fleet-vehicle assignments and audits `fleet.revoked`. Repeated cancellation is idempotent. The restored state remains `revoked` internally so the owner may explicitly re-invite later; neither the client nor audit trail falsely claims active fleet access existed. Web and Flutter show separate localized labels, with backend and native coverage for withdrawal/reinvite/accept/revoke.
+
+### Privacy-sensitive response caching and cutoff input bounds
+
+Notification list, unread/category summary, individual read/unread and bulk-read endpoints now explicitly set `Cache-Control: private, no-store` for account-specific responses. Bulk-read `through_id` is bounded to JavaScript's exact integer range (`1..9007199254740991`), rejecting larger out-of-range inputs rather than risking a PostgreSQL cast or cross-client precision error. Backend tests cover all endpoint cache headers and an oversized cutoff. These are in-app state controls only, not external delivery/read receipts.
+
+### Source-observed fault inbox to authorized operational review
+
+Each new source-observed simulator charger-fault/recovery notice now stores internal `company_id` and `charger_id` alongside its already-present station/alert IDs. Those IDs are obtained from an ownership-checked locked binding, not caller input, and the persisted notice remains vendor-owner scoped. On web, an explicit **Review simulated charger fault** action appears only for consistent simulator provenance and numeric IDs. It opens the existing Vendor Operations fault-alert view, whose company and charger API performs all normal access checks. If the alert is on an older page, users are directed to the pre-existing pagination. The action does not acknowledge, repair, release, authorize or send commands.
+
+### Native source fault review navigation
+
+Flutter's account SupportView now renders **Review simulated charger fault** only if the notification kind, simulator provenance, explicit `physical_verification=false`, and positive company/charger/alert IDs are all present. It opens the existing `ChargerDiagnosticsView` in a read-only alert-first mode, which sequentially loads the source diagnostics and fault alert list. The existing diagnostics and repair panels retain all backend ownership checks and explicit human confirmation for any later note/acknowledgment; navigation itself performs GET requests only. Tests cover malformed/forged navigation metadata and a full native fixture asserting no POST/PATCH charger actions.
+
+### Deduplicated simulator monitor review and catch-up alerts
+
+When the existing read-only simulator observer cannot accept a source event page, its separately lock-checked failure transaction transitions the monitor to `requires_review` and inserts one owner-only `charging.monitor.requires_review.simulated` message **only** on first entry to that state. Additional failures while already requiring review do not repeat it. Once a valid authenticated source page catches up, the same locked transaction updates the monitor cursor and adds one `charging.monitor.resumed.simulated` status notice. A later failure is a new transition and may create a new incident message. Both are distinct from charger fault/repair states, explicitly simulator-scoped with `physical_verification=false`, and never send charger commands, change capacity or claim physical acceptance. Backend tests cover failed-batch rollback, repeated failure deduplication, source catch-up and subsequent new failure; Flutter/web have localized labels.
+
+### Source-monitor notification navigation
+
+A monitor status notice (`charging.monitor.requires_review.simulated` or `charging.monitor.resumed.simulated`) now offers **Review simulator source monitor** on web and Flutter when verified simulator provenance and positive company/charger IDs exist. It opens the existing vendor source-diagnostics screen, not the fault acknowledgment action. The web workspace re-authorizes the company/charger through its existing API; Flutter uses `ChargerDiagnosticsView` with read-only initial load. Tests reject forged/incomplete metadata and check that navigation performs GET calls only, never automatic source inspection, fault acknowledgment or charger commands.
+
+### Recovery-operator authorization after remote source reads
+
+ChargingOperationsController's existing source-inspection path now rechecks vendor-to-station ownership *after* an awaited source read but *before* the reconciler runs. Before recording the case-inspected event, a second authorization recheck holds row locks for the command and station, and refuses writes under stale vendor ownership. This addresses the time-of-check/time-of-use window where station access changes while remote evidence is being fetched. A new feature test deliberately transfers the station during a mocked source read, verifies HTTP 404, verifies no reconciliation call or operational case event was written, and leaves charger commands/invoices untouched. Agent 1 still owns source-consumer/reconciliation internals; this patch does not claim to roll back source reads that already occurred.
+
+### Canonical command recovery case notifications (operator-scoped)
+
+Agent 3 added two **vendor-owned in-app status signals** to the existing `ChargingOperationsController` without modifying Agent 1's canonical dispatch/reconciliation: `charging.operational_case.opened` on the first quarantined case-open transition and `charging.operational_case.source_observed` after the first authenticated `command_source_observations` proof is found during operator inspection. The latter uses the locked case row plus an existing encrypted case-event marker (`source_observed_notice`) to prevent duplicate notifications after repeated inspections. Both updates and the event marker commit in the same DB transaction, contain only station/command/case IDs and explicit `physical_verification=false`, and never send commands, release charging capacity or create finance records. Regression tests cover owner-only visibility, idempotent opening and inspection, no invoices, no additional commands and no HTTP source requests.
+
+### Operator recovery inbox actions in web and Flutter
+
+The two operational case notice kinds now have localized EN/AR titles in both clients. A notice with an integer command ID, valid case ID and explicit `physical_verification=false` can open the existing authorization-enforced operator recovery panel. Web uses the existing `openOperationalCase` read path against that specific command; Flutter `ChargingOperationsView` supports `focusCommandId` and fetches the current case through its normal authenticated GET endpoint, displaying its state and history without issuing a POST. Further inspection, state edits and physical operations remain separate manual controls, not automatic notification behavior. Native widget tests assert no writes during focused-case opening.
+
+### Focused read-only native regression evidence
+
+Flutter fixture coverage now verifies that opening an operational case notice issues a GET for the *exact referenced command* (`charging-operations/7/case`), renders its returned status, and sends **zero write requests**. It also checks invalid case IDs, non-physical provenance mismatches and unrelated notification kinds cannot form a deep-link target. The operational recovery widget fixture independently checks the focused case GET request and read-only state display. Native test execution on the exact pushed revision remains pending hosted CI; fixtures alone are not build acceptance.
+
+### Operator case source-based review closure notification
+
+Reviewing a command recovery case as `resolved` continues to require canonical applied source evidence. The transition from any non-resolved state to `resolved` now inserts one vendor-owned `charging.operational_case.review_resolved` notice inside the existing locked transaction. Repeating a resolved review is not a new transition, so no duplicate closure notice is emitted. The case remains purely a source-evidence review; metadata always states `source_observed=true` and `physical_verification=false`. EN/AR web and native labels explicitly say *source-based operator review closed*, with owner-only visibility and repeated-resolution regression coverage.
+
+### Bounded historical operations-attention dashboard
+
+The existing `/api[/v1]/charging-operations/dashboard` now provides `recorded_monitor_review_count`, `unacknowledged_fault_alert_count` and `source_recovered_unacknowledged_fault_count` computed from archived simulator source records and scoped to the requesting vendor's stations (Admin may see all). These are **historical operator-workload counters**, not claims of current charger health, and the response retains `physical_charging_verified=false`. No fault payload, API token, note, customer identity or internal private evidence is returned. Existing web and Flutter operational recovery dashboards display EN/AR counts with the existing physical-evidence disclaimer. Backend tests create two vendors' source records and assert separation from Admin aggregate; widget tests verify displayed values.
+
+### Focused native recovery navigation and stale response control
+
+An inbox-originated `ChargingOperationsView(focusCommandId: ...)` now issues only the authorized single-case GET rather than also loading unrelated dashboard/list endpoints. Its focused request has an independent generation marker, suppresses stale replies and handles session-expiration callback disposal safely. Generic dashboard/list refresh buttons are hidden in focused mode, while the focused card still offers an explicit read refresh and existing case history. The full SupportView-to-focused-case widget fixture asserts exactly one case GET, no unsolicited dashboard queries, no write method calls, and rendering of the actual server case state. This remains uncompiled until hosted Flutter validation finishes.
+
+### Vendor reassignment isolation for archived source fault metrics
+
+A new dashboard safety check scopes simulator fault/monitor counts through the currently valid station↔vendor-company↔site↔charger↔CSMS binding graph, including matching simulator source and OCPP protocol. Legacy or transferred stations without an intact mapping do not expose a previous vendor's archived alert counts to a new station owner. An Admin view likewise counts only currently coherent mappings rather than misattributing historical records. Laravel regression tests create separate legitimate vendor mappings, verify each tenant's own counters, transfer a station to a different vendor without changing the prior company ownership, and require all invalidated counts to disappear. No historical source records are deleted or rewritten.
+
+### Simulator source ownership race regression
+
+Two additional observer feature tests simulate station ownership transfer and the reassignment of the canonical charger binding **during the pending source HTTP call**. Both must fail closed with HTTP 409 and leave the source cursor, observations, fault alerts and vendor inbox empty. These tests protect against sending a fault notice to a previous vendor after station or charger mapping changes; they do not grant physical charger authority or trigger any control commands.
+
+### Source newest-watermark consistency
+
+The read-only simulator fault observer now rejects a source event page whose highest returned event ID is greater than the same page's reported newest event ID, including the *first* poll when the cursor is zero. Previously that initial poll could accept a contradictory snapshot. The observer records a single owner-only monitor-review status while leaving the cursor and event history at the prior checkpoint; a later consistent source page replays from the unchanged cursor and raises the normal simulator fault/recovery and monitor-resumed notices once. Added a backend regression for the invalid initial watermark and successful catch-up, with no charger commands or finance activity.
+
+### Empty-page/newer-source inconsistency
+
+A simulator source page with zero returned status events but a reported newest ID higher than the stored cursor is now rejected as an inconsistent source read rather than falsely declared `caught_up`. The observer records a deduplicated monitor-review notice without advancing the checkpoint, and a later consistent page replays all missing events. A regression test covers five subsequently recovered records, vendor monitor-resumption/fault messages, and the absence of charging commands or invoices.
+
+### Honest monitor-failure provenance
+
+A monitor review notice raised on a failed, missing or inconsistent simulator source page now carries `evidence=SIMULATED_SOURCE_UNVERIFIED`, not the earlier inaccurate `SIMULATED_SOURCE_OBSERVED`. Only committed valid fault events and the corresponding successful monitor catch-up carry the observed label. All remain `physical_verification=false`; no real charger/device claim is made. Backend feature assertions distinguish failed review evidence from successful source catch-up, preventing regressions that could present a network failure as an authenticated observation.
+
+### Invalid source timestamp failure contract
+
+A malformed string timestamp returned by the simulator status source now maps to a deterministic HTTP 503 rather than leaking a Carbon parser exception as an unclassified application error. Its cursor remains at the previous checkpoint, its source event and fault history remain unchanged, and the vendor receives one monitor-review notice with `SIMULATED_SOURCE_UNVERIFIED`. The regression test then supplies valid events and requires catch-up from the unchanged cursor, with no charger commands sent.
+
+## Notification display preferences (Agent 3)
+
+Added an account-owned `notification_preferences` table with an idempotent GET/PUT contract under both `/api/notifications/preferences` and `/api/v1/notifications/preferences`. Preferences hold a default inbox category, unread-only default, and opt-in/out for **optional repeat simulator fault reminders**. Default view preferences never delete, acknowledge or hide critical in-app records. All responses explicitly declare `in_app_only=true`, `external_delivery_available=false` and `critical_events_always_visible=true`; no external provider is configured or delivery attempted. Writes use insert-ignore plus row lock, changed-state audit only, and dedicated notification rate limiting. Tests cover no-row defaults, account isolation, invalid inputs, full desired-state idempotency, no alteration of critical events, v1 parity and private no-store headers. Reminder generation must be coupled to the observer escalation scanner; no user setting may suppress initial fault events.
+
+### Web preference round trip
+
+On first authenticated support load, the web inbox GETs account preferences and applies the saved category/unread defaults; a session epoch and account ID fence prevents a delayed response from carrying preferences across logouts. The inbox renders EN/AR controls to choose the default category, unread-only mode, and optional repeat simulated fault reminder. A PUT replaces only allowed values, returns authoritative values, and the inbox refreshes only after the response confirms them. Failure leaves previous settings intact and surfaces an error. A real browser regression verifies server round-trip and persistence across a full reload, while the summary still reports all critical in-app records. External notification delivery is explicitly labeled inactive.
+
+### Flutter persisted notification settings
+
+On first native inbox opening, Flutter reads the account-scoped GET preferences before requesting any filtered rows; it applies validated saved category and unread-only defaults and offers an EN/AR settings dialog. PUT writes all desired values and updates in-memory defaults only after the response confirms the write. The dialog explicitly warns that email/SMS/push delivery is unavailable and critical in-app events remain visible. Fixtures now return the same preference contract, and a widget test saves a category/unread/reminder choice, tears down the view and verifies the backend settings are applied to a new native view. A missing/malformed preference response shows a normal retry error rather than silently treating a bad response as a successful setting.
+
+## Optional simulator fault reminder escalation
+
+Implemented a bounded local/test-only scanner `notifications:remind-faults --limit=50 --after=0 --older-than=15`, scheduled every ten minutes without overlap. It scans only persisted simulator source fault alerts that are at least 15 minutes old, unacknowledged and unrecovered. Before creating a **single optional in-app reminder per alert**, it locks the current vendor company and source binding, re-verifies company/site/station/charger ownership, protocol/identifier and immutable source generation, then locks the alert and reads the owner's account preference. An opt-out disables only these reminders; the initial fault alert and inbox history remain. A unique `charging_fault_reminders.alert_id` receipt and notification are committed in the same transaction, so reruns/parallel workers cannot double-send. The scanner never reads live source, sends an email/SMS/push, commands a charger, clears fault/capacity or moves money. Backend regressions cover one-shot idempotency, opt-out and opt-in, acknowledged/recovered/recent faults, reassigned source mapping/owner, tenant isolation, disabled production behavior and bad bounds. This is an operational simulator workflow, not live escalation acceptance.
+
+Reminder scanner fixes: the historical source timestamp is now parsed as a Carbon timestamp before comparison with the cutoff; the automatic schedule is registered only in `local` or `testing`. The command itself also rejects production and remains bounded/read-only except for one owner-only in-app reminder transaction.
+
+### Reminder presentation and operator navigation
+
+The one-shot `charging.fault.reminder.simulated` notification now has distinct, localized EN/AR text in web and Flutter. The original and reminder notices both link to the already-authorized read-only fault-alert page, but only when the simulator provenance, company/charger/alert IDs and `physical_verification=false` pass client checks. Backend vendor access remains authoritative. Native tests verify the localized reminder and reject forged physical-verification metadata. No visual/text claim of physical recovery or SMS/email/push delivery is introduced.
+
+### Starvation-free bounded reminder scanning
+
+The scheduled fault-reminder scanner now uses a small durable cursor record and scans bounded pages of **all** fault alert IDs, rotating back to zero after reaching the end. This avoids permanently selecting the same oldest 50 opt-outs, recovered alerts or stale mappings while newer eligible alerts never receive their one optional in-app reminder. A manually provided `--after=ID` performs a stateless directed scan; the usual schedule uses the stored cursor. Cursor update is compare-and-set to avoid regressing another run's progress. A two-vendor regression uses limit=1 to prove an opted-out old fault does not starve the next eligible vendor and that subsequent wraps cannot duplicate notices. No live charger or production monitor is activated.
+
+### Replay-safe support reply submission (Agent 3)
+
+A new nullable 32-character hex `ticket_messages.idempotency_key` is unique per ticket and author. Current web and Flutter clients generate a cryptographically random key for each reply and preserve it when an HTTP acknowledgment is uncertain; they generate a fresh key only for changed text/internal status or after a successful response. Laravel holds the ticket lock before the key lookup, returns the originally committed message on identical retries (including after ticket closure), rejects a reused key with a different body or internal flag (409), and writes the owner notice/audit at most once. The replay key is excluded from serialized message records and invalid keys are rejected. Older clients without a key retain legacy semantics. Focused Laravel tests verify replay, conflict, closed-ticket stability, isolation and one customer notice; a Flutter lost-ACK widget fixture and browser API replay regression were added. No external messaging is implied and no production mail/SMS is sent.
+
+### Retry-safe support ticket creation and native authoring
+
+The support ticket creation endpoint now accepts an optional 32-character cryptographically random `idempotency_key`, scoped and unique to the authenticated account. PostgreSQL user-row locking serializes concurrent submissions and the unique index rejects double insertions. A repeated request returns the original ticket when both subject and initial message match, without adding a second ticket, message or audit event; reusing a key with a changed body/subject fails 409. Old clients without the key remain supported, and ticket/reply keys are omitted from public JSON. The browser creation form retains a pending key after a lost HTTP acknowledgement and renews it on payload changes. Flutter's support tab now offers an EN/AR new-ticket dialog with validated subject/body, automatic list refresh, and pending-key reuse when a failed request is resubmitted. Laravel and browser regressions cover duplicate create and account isolation; native fixtures cover create, prefilled retry and key stability. Flutter tests remain pending exact-source hosted compilation.
+
+### Per-owner optional simulator fault reminder delay
+
+The preference API now returns `fault_reminder_delay_minutes` (default **15**) and accepts exactly `15|30|60` minutes on existing account-scoped desired-state PUTs. This field is optional to preserve a saved value when an older app sends only the three previous fields. A later account-scoped worker scan checks the configured age **after vendor/binding/alert locks**; the owner-selected threshold can only lengthen the worker's configured minimum, never shorten it. Invalid stored values fail closed; suppressed reminders never dismiss the original critical in-app fault record. Web and Flutter preferences expose EN/AR 15/30/60 selectors and compare the authoritative response before applying it. No external messaging is enabled. Backend tests cover tenant isolation, invalid values, legacy compatibility and two-vendor scheduling; browser/native UI fixtures cover saved choice and reload. Hosted native/browser execution and production scheduling remain unverified.
+
+### Explicit on-call Admin escalation for unresolved simulator faults
+
+A new **disabled-by-default** `CSMS_FAULT_ESCALATION_ADMIN_USER_ID` identifies exactly one active role=`admin` account for **in-app-only** escalations. After at least 60 minutes of retained unresolved, unacknowledged, correctly bound simulator source evidence, `notifications:remind-faults` may insert one uniquely keyed `charging_fault_admin_escalations` row and one tenant-scoped `charging.fault.escalated.simulated` notice in the same database transaction. No unspecified Admin automatically receives vendor fault data. A vendor can suppress optional repeat reminders but not the separately enabled on-call Admin escalation; that stage requires a valid currently authorized Admin ID. Replay and concurrent worker scans cannot duplicate delivery because `alert_id` is unique. Admin review opens only the existing authorized read-only fault diagnostic view; no physical repair, external provider delivery, charging command or revenue ledger mutation is implied. Production is excluded by the existing worker environment gate. Synthetic Laravel tests cover opt-out independence, role/tenant separation and delayed duplicate prevention.
+
+### Closing an Admin escalation on recorded source/acknowledgment evidence
+
+The bounded local worker now reconciles previously escalated alerts with their own recorded recovery/acknowledgment evidence. A matching same-generation, same-component later `Available/NoError` observation closes with `source_recovered`; an explicit operator acknowledgment closes with `operator_acknowledged`. Each closure updates the original escalation row once and, only if the original recipient still has an active Admin role, emits one separate in-app resolution notice in the **same transaction**. No notice asserts physical repair, operational release or charging capacity; incorrect/stale recovery references cannot close a case. Original escalation history remains retained and private even if the Admin is subsequently demoted. A new `closed` count reports scanner progress without initiating hardware/network/financial actions.
+
+### Escalation closure privacy after Admin revocation
+
+The account-scoped inbox visibility filter now excludes **both** the original on-call Admin escalation and its subsequent closure notification whenever the recipient no longer holds the authoritative `admin` role in the database. A cached authenticated session cannot fetch either notification, affect read/unread receipts, inflate summary counts or mark them through in bulk after demotion. Restoring the Admin role restores access to the same durable historical notices. This does not delete audit evidence or alter physical hardware/payment state.
+
+### Query-time Admin revocation under concurrent role changes
+
+The inbox scope now evaluates current Admin authorization via an `EXISTS` predicate **inside the same SQL read/update** for both the initial cross-company escalation and its closure. It no longer performs an earlier standalone role lookup that could become stale between query construction and execution. Tests prepare the query before revocation, demote the account in the authoritative database, then require both a read and a write to be denied before restoring the role. Normal account-scoped notifications remain available. This is an application-level privacy guard, not hardware or payment acceptance.
+
+### Monotonic source-recovery timestamp gate
+
+Admin fault-escalation closure now requires recovered simulator status evidence to be strictly later than the original fault in **both** source event ID and observed timestamp, with the recovery timestamp no later than the current time. Invalid or future-dated source observations cannot close an escalation, even if they have a higher source event ID and matching connector identity. The existing guard still verifies source generation, binding and status. Tests include late-ID/earlier-time and future-time negative controls, followed by valid source recovery with exactly one closure notice. This never proves a physical repair or changes charging capacity.
+
+### Durable incident closure when an on-call Admin is temporarily demoted
+
+The escalation event is historically assigned to the Admin who received it. If the recipient loses the Admin role before the simulator fault is acknowledged or source-recovered, the durable escalation row **and its matching closure inbox notice** still commit atomically. The account-scoped inbox's authoritative role predicate prevents access to either while demoted, and they reappear together only if the recipient is formally reauthorized. This avoids a misleading unresolved historical incident after later role restoration. The system remains in-app only, with no physical-repair assertion and no external notification delivery.

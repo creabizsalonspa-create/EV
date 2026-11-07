@@ -6,6 +6,7 @@ use App\Models\CostCenter;
 use App\Models\Fleet;
 use App\Models\FleetMember;
 use App\Models\FleetVehicle;
+use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Http\Request;
@@ -81,9 +82,31 @@ class EnterpriseController extends Controller
         // Same response whether the address is registered; no account-enumeration signal.
         if ($u && $u->id !== $r->user()->id) {
             DB::transaction(function () use ($r, $fleet, $u) {
-                FleetMember::firstOrCreate(['fleet_id' => $fleet->id, 'user_id' => $u->id], ['role' => 'driver', 'status' => 'invited']);
-                $this->audit($r, 'fleet.invited', (string) $fleet->id);
-            });
+                $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
+                abort_unless($current->owner_id === $r->user()->id, 404);
+                $member = FleetMember::where('fleet_id', $current->id)
+                    ->where('user_id', $u->id)->lockForUpdate()->first();
+                if ($member && $member->status !== 'revoked') {
+                    // Invited or active: no new invitation and no repeat notice.
+                    return;
+                }
+                if ($member) {
+                    $member->update(['status' => 'invited']);
+                } else {
+                    $member = FleetMember::create([
+                        'fleet_id' => $current->id,
+                        'user_id' => $u->id,
+                        'role' => 'driver',
+                        'status' => 'invited',
+                    ]);
+                }
+                InboxNotification::create([
+                    'user_id' => $u->id,
+                    'kind' => 'fleet.invitation',
+                    'metadata' => ['fleet_id' => $current->id, 'membership_id' => $member->id],
+                ]);
+                $this->audit($r, 'fleet.invited', (string) $current->id);
+            }, 3);
         }
 
         return response()->json(['message' => 'Invitation recorded if the account is eligible.'], 202);
@@ -100,13 +123,26 @@ class EnterpriseController extends Controller
         abort_unless(in_array($invitation->status, ['invited', 'active']), 409);
 
         return DB::transaction(function () use ($r, $invitation) {
+            // Every membership state transition follows the same Fleet ->
+            // membership row-lock order (invite, accept, revoke). This prevents
+            // circular waits during concurrent acceptance/revocation.
+            $fleet = Fleet::whereKey($invitation->fleet_id)->lockForUpdate()->firstOrFail();
             $invitation = FleetMember::whereKey($invitation->id)->lockForUpdate()->firstOrFail();
-            abort_unless(in_array($invitation->status, ['invited', 'active']), 409);
-            $invitation->update(['status' => 'active']);
-            $this->audit($r, 'fleet.accepted', (string) $invitation->id);
+            abort_unless($invitation->fleet_id === $fleet->id &&
+                $invitation->user_id === $r->user()->id, 404);
+            abort_unless(in_array($invitation->status, ['invited', 'active'], true), 409);
+            if ($invitation->status === 'invited') {
+                $invitation->update(['status' => 'active']);
+                InboxNotification::create([
+                    'user_id' => $fleet->owner_id,
+                    'kind' => 'fleet.invitation.accepted',
+                    'metadata' => ['fleet_id' => $fleet->id, 'membership_id' => $invitation->id],
+                ]);
+                $this->audit($r, 'fleet.accepted', (string) $invitation->id);
+            }
 
             return response()->json($invitation);
-        });
+        }, 3);
     }
 
     public function remove(Request $r, Fleet $fleet, FleetMember $membership)
@@ -115,13 +151,34 @@ class EnterpriseController extends Controller
         abort_unless($membership->fleet_id === $fleet->id, 404);
 
         return DB::transaction(function () use ($r, $membership, $fleet) {
+            // Use the same Fleet -> membership lock order as invitation.
+            $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
+            abort_unless($current->owner_id === $r->user()->id, 404);
             $membership = FleetMember::whereKey($membership->id)->lockForUpdate()->firstOrFail();
-            $membership->update(['status' => 'revoked']);
-            FleetVehicle::where('fleet_id', $fleet->id)->whereIn('vehicle_id', Vehicle::where('user_id', $membership->user_id)->select('id'))->delete();
-            $this->audit($r, 'fleet.revoked', (string) $membership->id);
+            abort_unless($membership->fleet_id === $current->id, 404);
+            if ($membership->status !== 'revoked') {
+                // An unaccepted invitation is withdrawn, not a revoked active
+                // membership. Only active members can have fleet vehicles.
+                $wasInvited = $membership->status === 'invited';
+                $membership->update(['status' => 'revoked']);
+                if (! $wasInvited) {
+                    FleetVehicle::where('fleet_id', $fleet->id)
+                        ->whereIn('vehicle_id', Vehicle::where('user_id', $membership->user_id)->select('id'))->delete();
+                }
+                InboxNotification::create([
+                    'user_id' => $membership->user_id,
+                    'kind' => $wasInvited ? 'fleet.invitation.withdrawn' : 'fleet.membership.revoked',
+                    'metadata' => ['fleet_id' => $fleet->id, 'membership_id' => $membership->id],
+                ]);
+                $this->audit(
+                    $r,
+                    $wasInvited ? 'fleet.invitation_withdrawn' : 'fleet.revoked',
+                    (string) $membership->id
+                );
+            }
 
             return response()->noContent();
-        });
+        }, 3);
     }
 
     public function costCenter(Request $r, Fleet $fleet)
@@ -136,25 +193,58 @@ class EnterpriseController extends Controller
     {
         $this->member($r, $fleet);
         $v = $r->validate(['vehicle_id' => 'required|integer', 'cost_center_id' => 'required|integer']);
-        $vehicle = Vehicle::whereKey($v['vehicle_id'])->where('user_id', $r->user()->id)->firstOrFail();
-        abort_unless(CostCenter::whereKey($v['cost_center_id'])->where('fleet_id', $fleet->id)->exists(), 404);
 
         return DB::transaction(function () use ($r, $fleet, $v) {
-            if ($fleet->owner_id !== $r->user()->id) {
-                $membership = FleetMember::where('fleet_id', $fleet->id)->where('user_id', $r->user()->id)->lockForUpdate()->first();
+            // Lock fleet before membership, as in invitation/accept/revoke.
+            // A revocation cannot overtake an in-flight vehicle assignment.
+            $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
+            if ($current->owner_id !== $r->user()->id) {
+                $membership = FleetMember::where('fleet_id', $current->id)
+                    ->where('user_id', $r->user()->id)->lockForUpdate()->first();
                 abort_unless($membership && $membership->status === 'active', 404);
             }
-            Vehicle::whereKey($v['vehicle_id'])->lockForUpdate()->firstOrFail();
-            $existing = FleetVehicle::where('vehicle_id', $v['vehicle_id'])->first();
+            $vehicle = Vehicle::whereKey($v['vehicle_id'])->lockForUpdate()->firstOrFail();
+            abort_unless($vehicle->user_id === $r->user()->id, 404);
+            abort_unless(CostCenter::whereKey($v['cost_center_id'])
+                ->where('fleet_id', $current->id)->exists(), 404);
+
+            $existing = FleetVehicle::where('vehicle_id', $vehicle->id)->first();
             if ($existing) {
-                abort_unless($existing->fleet_id === $fleet->id, 409, 'Vehicle belongs to a different fleet.');
-                $existing->update(['cost_center_id' => $v['cost_center_id']]);
+                abort_unless($existing->fleet_id === $current->id, 409, 'Vehicle belongs to a different fleet.');
+                if ((int) $existing->cost_center_id !== (int) $v['cost_center_id']) {
+                    $existing->update(['cost_center_id' => $v['cost_center_id']]);
+                    $this->audit($r, 'fleet.vehicle_cost_center_changed', (string) $existing->id);
+                    if ($current->owner_id !== $r->user()->id) {
+                        InboxNotification::create([
+                            'user_id' => $current->owner_id,
+                            'kind' => 'fleet.vehicle.cost_center_changed',
+                            'metadata' => [
+                                'fleet_id' => $current->id,
+                                'vehicle_id' => $vehicle->id,
+                                'assignment_id' => $existing->id,
+                            ],
+                        ]);
+                    }
+                }
 
                 return response()->json($existing);
-            }$a = FleetVehicle::create($v + ['fleet_id' => $fleet->id]);
-            $this->audit($r, 'fleet.vehicle_assigned', (string) $a->id);
+            }
 
-            return response()->json($a, 201);
-        });
+            $assignment = FleetVehicle::create($v + ['fleet_id' => $current->id]);
+            $this->audit($r, 'fleet.vehicle_assigned', (string) $assignment->id);
+            if ($current->owner_id !== $r->user()->id) {
+                InboxNotification::create([
+                    'user_id' => $current->owner_id,
+                    'kind' => 'fleet.vehicle.assigned',
+                    'metadata' => [
+                        'fleet_id' => $current->id,
+                        'vehicle_id' => $vehicle->id,
+                        'assignment_id' => $assignment->id,
+                    ],
+                ]);
+            }
+
+            return response()->json($assignment, 201);
+        }, 3);
     }
 }
