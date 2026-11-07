@@ -40,7 +40,8 @@ function readCookies(jar, headers) {
   }
 }
 function jsonRequest(route, method='GET', payload=undefined,jar=new Map(),client=http) {
-  if(!/^\/api\/[a-z0-9/.-]+$/.test(route) || !['GET','POST'].includes(method))throw Error('Unsupported synthetic route');
+  if(!['/api/csrf','/api/login','/api/me','/api/admin/overview','/api/logout'].includes(route) ||
+    (method!=='GET'&&method!=='POST'))throw Error('Unsupported synthetic route');
   const body=payload===undefined?null:JSON.stringify(payload);
   const headers={Accept:'application/json','Cache-Control':'no-store'};
   if(body!==null){headers['Content-Type']='application/json';headers['Content-Length']=Buffer.byteLength(body);}
