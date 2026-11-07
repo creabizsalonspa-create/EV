@@ -5,6 +5,7 @@
 const {load,jsonRequest}=require('./staging-synthetic-role-smoke.cjs');
 const {validateCompleted,validateMockInvoices,page}=require('./client-demo-session-evidence.cjs');
 const {checkOutputDestination,writeEvidence}=require('./staging-acceptance.cjs');
+const {fixtureSha256}=require('./client-demo-evidence-fingerprint.cjs');
 
 const SCHEMA='ev-local-csms-ledger-audit-v1';
 const PROTOCOLS=['1.6','2.0.1'];
@@ -179,6 +180,7 @@ async function main(argv=process.argv.slice(2),deps={}){
     const config=parseArgs(argv);
     checkOutputDestination(config.output);
     const proof=await inspect(config.manifest,deps.send||jsonRequest,deps.clock);
+    proof.fixture_sha256=(deps.fingerprint||fixtureSha256)(config.manifest);
     writeEvidence(config.output,proof);
     if(proof.status!=='LOCAL_SIMULATED_LEDGER_VERIFIED'){
       process.stderr.write('FAIL: private synthetic double-entry ledger or customer/vendor/Admin authorization evidence incomplete; no details disclosed.\n');
