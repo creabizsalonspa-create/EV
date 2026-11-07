@@ -71,7 +71,7 @@ function mock(envFile) {
     }
     throw Error('Unexpected Docker command');
   }
-  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock')};
+  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock'),preflight:()=>({ok:true,errors:[]})};
 }
 const argv=(mode,journal)=>[mode,'--candidate-tag','new','--source-sha',SHA,
   ...(mode==='apply'?['--journal',journal,'--approval','APPLY_PRIVATE_STAGING_'+SHA.slice(0,12)]:[])];
@@ -209,4 +209,12 @@ test('staging lock removed after verified release or automatic rollback',()=>san
   const file=path.join(dir,'journal.jsonl');
   assert.equal(release.main(argv('apply',file),deps),1);
   assert.equal(fs.existsSync(deps.lockPath),false);
+}));
+
+test('isolated payment/charger configuration rejection blocks Docker before staging changes',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  deps.preflight=()=>({ok:false,errors:['PAYMENT_PROVIDER: not mock']});
+  assert.equal(release.main(argv('apply',path.join(dir,'blocked.jsonl')),deps),2);
+  assert.equal(deps.state.commands.length,0);
+  assert.equal(deps.state.mutations,0);
 }));
