@@ -15,6 +15,15 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
     def setUpClass(cls):
         cls.source = SCRIPT.read_text(encoding="utf-8")
 
+    def test_hosted_staging_job_runs_all_agent3_security_policies(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        command = "python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q"
+        self.assertEqual(workflow.count(command), 1)
+        self.assertLess(workflow.index(command),
+                        workflow.index('./scripts/staging-image-build creabiz-ev-business:ci-review'))
+        self.assertLess(workflow.index(command),
+                        workflow.index('bash scripts/staging-recovery-smoke creabiz-ev-business:ci-review'))
+
     def test_script_parses_as_bash(self):
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True, timeout=10)
 

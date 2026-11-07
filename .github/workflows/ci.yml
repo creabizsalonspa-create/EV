@@ -129,6 +129,8 @@ jobs:
           name: agent3-staging-preflight
           path: artifacts/agent3-preflight/validation.json
           if-no-files-found: warn
+      - name: Run all Agent 3 recovery policies and negative security cases
+        run: python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q
       - name: Seed synthetic build-context exclusion canaries
         shell: bash
         run: |

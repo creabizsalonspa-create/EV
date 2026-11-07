@@ -125,3 +125,7 @@ The Laravel, PostGIS and combined same-run evidence publishers now use one share
 ### Runtime source-and-target image evidence
 
 The disposable inspector now checks the actual Docker `Config.Image` against the exact reviewed PostgreSQL or PHP image reference supplied to the drill and validates the `sha256:` container image IDs. Source and target containers within each role must have matching immutable image IDs; mixed Laravel/PostgreSQL roles are compared separately while the four-container volume separation and network identity checks remain intact. Synthetic unit tests reject unexpected image references, source/target byte mismatches, and incomplete image hashes. This does not authenticate upstream registries or establish production deployment acceptance.
+
+### Early hosted recovery policy coverage
+
+The hosted `staging-image` job now runs the entire `agent3_*_test.py` Python negative/policy suite **before** building or starting the synthetic Docker images. It includes the runtime network/image checks, HMAC/digest handling, atomic evidence publication, proof parser, strict staging config and both restore-runner policies, even when later `recovery-acceptance` prerequisites are blocked. Workflow-policy tests enforce this early position. This does not substitute for the separately required real Docker restore and GitHub job outcome.
