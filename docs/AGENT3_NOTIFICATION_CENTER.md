@@ -199,3 +199,7 @@ Reminder scanner fixes: the historical source timestamp is now parsed as a Carbo
 ### Reminder presentation and operator navigation
 
 The one-shot `charging.fault.reminder.simulated` notification now has distinct, localized EN/AR text in web and Flutter. The original and reminder notices both link to the already-authorized read-only fault-alert page, but only when the simulator provenance, company/charger/alert IDs and `physical_verification=false` pass client checks. Backend vendor access remains authoritative. Native tests verify the localized reminder and reject forged physical-verification metadata. No visual/text claim of physical recovery or SMS/email/push delivery is introduced.
+
+### Starvation-free bounded reminder scanning
+
+The scheduled fault-reminder scanner now uses a small durable cursor record and scans bounded pages of **all** fault alert IDs, rotating back to zero after reaching the end. This avoids permanently selecting the same oldest 50 opt-outs, recovered alerts or stale mappings while newer eligible alerts never receive their one optional in-app reminder. A manually provided `--after=ID` performs a stateless directed scan; the usual schedule uses the stored cursor. Cursor update is compare-and-set to avoid regressing another run's progress. A two-vendor regression uses limit=1 to prove an opted-out old fault does not starve the next eligible vendor and that subsequent wraps cannot duplicate notices. No live charger or production monitor is activated.

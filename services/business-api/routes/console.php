@@ -136,15 +136,18 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
 })->purpose('Bounded durable simulator fault observation; no hardware or capacity commands');
 
 
-Artisan::command('notifications:remind-faults {--limit=50} {--after=0} {--older-than=15}', function () {
+Artisan::command('notifications:remind-faults {--limit=50} {--after=} {--older-than=15}', function () {
     $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT,
         ['options' => ['min_range' => 1, 'max_range' => 100]]);
-    $after = filter_var($this->option('after'), FILTER_VALIDATE_INT,
-        ['options' => ['min_range' => 0]]);
+    $afterOption = $this->option('after');
+    $after = $afterOption === null || $afterOption === ''
+        ? -1
+        : filter_var($afterOption, FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 0]]);
     $age = filter_var($this->option('older-than'), FILTER_VALIDATE_INT,
         ['options' => ['min_range' => 5, 'max_range' => 1440]]);
     if ($limit === false || $after === false || $age === false) {
-        $this->error('Use limit 1..100, after >=0 and older-than 5..1440 minutes.');
+        $this->error('Use limit 1..100, optional after >=0 and older-than 5..1440 minutes.');
 
         return 1;
     }

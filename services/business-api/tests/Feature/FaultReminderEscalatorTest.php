@@ -94,6 +94,39 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_rotating_cursor_never_starves_an_enabled_vendor_behind_opted_out_faults(): void
+    {
+        $first = $this->fixture();
+        $this->actingAs($first['owner'])->putJson('/api/notifications/preferences', [
+            'default_category' => 'charging',
+            'default_unread_only' => false,
+            'remind_unresolved_simulator_faults' => false,
+        ])->assertOk();
+        $second = $this->fixture();
+        $service = app(FaultReminderEscalator::class);
+
+        $firstPass = $service->scan(1);
+        $this->assertSame(1, $firstPass['examined']);
+        $this->assertSame(0, $firstPass['reminded']);
+
+        $secondPass = $service->scan(1);
+        $this->assertSame(1, $secondPass['examined']);
+        $this->assertSame(1, $secondPass['reminded']);
+        $this->assertSame($second['owner']->id,
+            InboxNotification::where('kind', 'charging.fault.reminder.simulated')
+                ->firstOrFail()->user_id);
+        $this->assertSame($second['alert'], (int) DB::table(
+            'charging_fault_reminder_scan_progress')->where('id', 1)->value('after_alert_id'));
+
+        $wrapped = $service->scan(1);
+        $this->assertSame(0, $wrapped['examined']);
+        $this->assertSame(0, (int) DB::table('charging_fault_reminder_scan_progress')
+            ->where('id', 1)->value('after_alert_id'));
+        $this->assertSame(0, $service->scan(1)['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 1);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+    }
+
     public function test_owner_can_suppress_repeat_reminder_but_original_fault_remains_available(): void
     {
         $f = $this->fixture();

@@ -14,25 +14,32 @@ use Illuminate\Support\Facades\DB;
  */
 class FaultReminderEscalator
 {
-    public function scan(int $limit = 50, int $after = 0, int $olderThanMinutes = 15): array
+    public function scan(int $limit = 50, int $after = -1, int $olderThanMinutes = 15): array
     {
         abort_unless(app()->environment(['local', 'testing'])
             && config('csms.session_bridge_enabled')
             && config('csms.fault_worker_enabled'), 503);
         abort_unless($limit >= 1 && $limit <= 100
-            && $after >= 0 && $olderThanMinutes >= 5
+            && $after >= -1 && $olderThanMinutes >= 5
             && $olderThanMinutes <= 1440, 422);
 
         $cutoff = now()->subMinutes($olderThanMinutes);
-        $ids = DB::table('charging_fault_alerts as alert')
-            ->join('charging_status_observations as observation', 'observation.id', '=', 'alert.observation_id')
-            ->where('alert.id', '>', $after)
-            ->whereNull('alert.acknowledged_at')
-            ->whereNull('alert.recovery_observation_id')
-            ->where('observation.occurred_at', '<=', $cutoff)
-            ->orderBy('alert.id')
+        $automatic = $after === -1;
+        if ($automatic) {
+            DB::table('charging_fault_reminder_scan_progress')->insertOrIgnore([
+                'id' => 1, 'after_alert_id' => 0, 'updated_at' => now(),
+            ]);
+            $after = (int) DB::table('charging_fault_reminder_scan_progress')
+                ->where('id', 1)->value('after_alert_id');
+        }
+        // A rotating cursor scans EVERY alert by ID, not only eligible ones.
+        // Otherwise old opt-outs or no-longer-owned alerts can starve all
+        // newer operators. Eligibility is rechecked after locking each row.
+        $ids = DB::table('charging_fault_alerts')
+            ->where('id', '>', $after)
+            ->orderBy('id')
             ->limit($limit)
-            ->pluck('alert.id');
+            ->pluck('id');
 
         $examined = 0;
         $reminded = 0;
@@ -133,6 +140,15 @@ class FaultReminderEscalator
             if ($created) {
                 $reminded++;
             }
+        }
+
+        if ($automatic) {
+            // CAS avoids a second concurrent scheduler run moving a more
+            // advanced cursor backwards. A completed pass wraps to zero.
+            $next = $ids->isEmpty() ? 0 : $lastId;
+            DB::table('charging_fault_reminder_scan_progress')
+                ->where('id', 1)->where('after_alert_id', $after)
+                ->update(['after_alert_id' => $next, 'updated_at' => now()]);
         }
 
         return [
