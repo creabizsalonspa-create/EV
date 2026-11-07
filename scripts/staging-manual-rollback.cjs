@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { parseSnapshot, localDockerSnapshot } = require('./staging-runtime-gate.cjs');
-const { inspectImage, acquireLock, reviewIsolatedConfig, reviewEffectiveCompose, composeUp, verifyRunning, journal } = require('./staging-release.cjs');
+const { inspectImage, acquireLock, reviewIsolatedConfig, reviewEffectiveCompose, composeUp, verifyRunning, probePostDeploy, journal } = require('./staging-release.cjs');
 
 const SHA=/^[a-f0-9]{40}$/;
 const ID=/^sha256:[a-f0-9]{64}$/;
@@ -115,6 +115,7 @@ function rollback(config,deps={}) {
       // Verify the originally observed database and gateway are still running.
       const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
       recoverySnapshot(current,p);
+      probePostDeploy(p,deps);
       return {ok:true,changed:false};
     }
     journal(record.file,'MANUAL_ROLLBACK_STARTED');
@@ -123,7 +124,8 @@ function rollback(config,deps={}) {
       verifyRunning(p.old_ref,p.old_id,deps);
       const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
       recoverySnapshot(current,p);
-      journal(record.file,'MANUAL_ROLLBACK_VERIFIED',{production_accepted:false});
+      probePostDeploy(p,deps);
+      journal(record.file,'MANUAL_ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
       return {ok:true,changed:true};
     } catch {
       journal(record.file,'OPERATOR_RECONCILIATION_REQUIRED',{production_accepted:false});
