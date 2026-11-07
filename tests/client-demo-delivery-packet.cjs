@@ -140,8 +140,9 @@ test('private reports reject symlink, public readable file and leaked credential
 test('fingerprint is an exact hash of private fixture and changes with its contents',()=>temp(root=>{
  const x=setup(root);const a=fixtureSha256(x.manifest);
  assert.match(a,/^[a-f0-9]{64}$/);
- const b=fs.readFileSync(x.manifest,'utf8').replace('aA9!','bB8?');
- fs.writeFileSync(x.manifest,b);
+ const modified=JSON.parse(fs.readFileSync(x.manifest,'utf8'));
+ modified.accounts.customer.password='b'.repeat(48)+'aA9!';
+ fs.writeFileSync(x.manifest,JSON.stringify(modified));
  assert.notEqual(fixtureSha256(x.manifest),a);
  assert.throws(()=>packet.bundle(x,{now:NOW}));
 }));
