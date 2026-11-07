@@ -96,3 +96,14 @@ test('review arguments cannot request CA installation or network/production chan
    assert.throws(()=>review.parseArgs(args));
  }
 });
+
+test('all noncertificate PEM material including OpenSSH key blocks must be refused',()=>temp(dir=>{
+ const root=syntheticRoot(dir);
+ fs.appendFileSync(root.cert,'\n-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n');
+ assert.throws(()=>review.secureInput(root.cert));
+}));
+test('unreviewed comments and unrelated content cannot be hidden in root PEM',()=>temp(dir=>{
+ const root=syntheticRoot(dir);
+ fs.appendFileSync(root.cert,'\n# operator note: approve without fingerprint\n');
+ assert.throws(()=>review.secureInput(root.cert));
+}));
