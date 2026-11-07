@@ -81,6 +81,7 @@ function clearPrivateViews() {
     chargingReviews.clear();
     invoiceHistory.clear();
     commercialWorkspace.clear();
+    window.EvAdminOperatorRoleHistory?.clear();
     tariffWorkspace.clear();
     commandRequest?.abort();
     el("charging-dashboard").replaceChildren();
@@ -247,6 +248,7 @@ async function identity() {
     await invoiceHistory.setActor(user);
     await tariffWorkspace.setActor(user);
     await commercialWorkspace.setActor(user);
+    window.EvAdminOperatorRoleHistory?.setActor(user, api);
     if (user?.role === "admin") await adminOverview();
     if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
