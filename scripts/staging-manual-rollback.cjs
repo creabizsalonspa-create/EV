@@ -13,7 +13,18 @@ const SHA=/^[a-f0-9]{40}$/;
 const ID=/^sha256:[a-f0-9]{64}$/;
 const REF=/^creabiz-ev-business:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 const SERVICES=['application','worker','scheduler','database','gateway'];
-const MUTATING=['RELEASE_STARTED','RELEASE_VERIFIED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','OPERATOR_RECONCILIATION_REQUIRED'];
+// A journal is authorization evidence, not a bag of independent event names.
+// Refuse impossible success, rollback, or recovery histories even when owner-only.
+const NEXT=Object.freeze({
+  PREPARED:['RELEASE_STARTED'],
+  RELEASE_STARTED:['RELEASE_VERIFIED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','MANUAL_ROLLBACK_STARTED'],
+  RELEASE_VERIFIED:['MANUAL_ROLLBACK_STARTED'],
+  RELEASE_UNCERTAIN_ROLLBACK_STARTED:['ROLLBACK_VERIFIED','OPERATOR_RECONCILIATION_REQUIRED','MANUAL_ROLLBACK_STARTED'],
+  ROLLBACK_VERIFIED:[],
+  OPERATOR_RECONCILIATION_REQUIRED:['MANUAL_ROLLBACK_STARTED'],
+  MANUAL_ROLLBACK_STARTED:['MANUAL_ROLLBACK_VERIFIED','OPERATOR_RECONCILIATION_REQUIRED','MANUAL_ROLLBACK_STARTED'],
+  MANUAL_ROLLBACK_VERIFIED:[]
+});
 
 function parseArgs(args) {
   if(args.length!==5 || args[0]!=='rollback' || args[1]!=='--journal' ||
@@ -49,14 +60,14 @@ function loadJournal(file) {
      JSON.stringify(p.roles)!==JSON.stringify(['application','worker','scheduler'])) {
     throw Error('Release provenance or non-destructive recovery constraints invalid');
   }
-  if(!events.slice(1).some(x=>MUTATING.includes(x.event))) {
-    throw Error('No authorized staging mutation was started');
-  }
-  const allowed=new Set(['PREPARED','RELEASE_STARTED','RELEASE_VERIFIED',
-    'RELEASE_UNCERTAIN_ROLLBACK_STARTED','ROLLBACK_VERIFIED','OPERATOR_RECONCILIATION_REQUIRED',
-    'MANUAL_ROLLBACK_STARTED','MANUAL_ROLLBACK_VERIFIED']);
-  if(events.some((x,i)=>!allowed.has(x.event) || (i>0 && x.event==='PREPARED'))) {
-    throw Error('Unknown or repeated release preparation event');
+  // Every recoverable history starts a real release, then moves only through
+  // states emitted by staging-release or a deliberate manual rollback.
+  // In particular PREPARED->ROLLBACK_VERIFIED and standalone MANUAL_* success
+  // must never authorize a potentially mutating recovery.
+  for(let i=1;i<events.length;i++) {
+    if(!NEXT[events[i-1].event]?.includes(events[i].event)) {
+      throw Error('Impossible staging release/rollback journal transition');
+    }
   }
   return {file:real,plan:p,events};
 }

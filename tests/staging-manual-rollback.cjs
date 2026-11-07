@@ -75,6 +75,41 @@ test('explicit rollback command accepts only journal and correct option shape',(
   for(const args of [[],['rollback'],['rollback','--journal','x'],['apply','--journal','file','--approval',approval]])
     assert.throws(()=>recovery.parseArgs(args));
 }));
+test('impossible successful or missing-start events never authorize staging rollback',()=>temp(dir=>{
+  const impossible=[
+    ['RELEASE_VERIFIED'],
+    ['ROLLBACK_VERIFIED'],
+    ['MANUAL_ROLLBACK_VERIFIED'],
+    ['RELEASE_STARTED','ROLLBACK_VERIFIED'],
+    ['RELEASE_STARTED','RELEASE_STARTED'],
+    ['RELEASE_STARTED','RELEASE_VERIFIED','ROLLBACK_VERIFIED'],
+    ['RELEASE_STARTED','MANUAL_ROLLBACK_VERIFIED'],
+    ['RELEASE_STARTED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','RELEASE_VERIFIED'],
+    ['RELEASE_STARTED','MANUAL_ROLLBACK_STARTED','RELEASE_VERIFIED'],
+    ['RELEASE_STARTED','MANUAL_ROLLBACK_STARTED','MANUAL_ROLLBACK_VERIFIED','MANUAL_ROLLBACK_STARTED']
+  ];
+  for(let i=0;i<impossible.length;i++){
+    const folder=path.join(dir,String(i));fs.mkdirSync(folder,{mode:0o700});
+    const file=setup(folder,impossible[i]),deps=mock(folder);
+    assert.throws(()=>recovery.loadJournal(file),/transition/,impossible[i].join(' -> '));
+    assert.equal(recovery.main(cli(file),deps),2);
+    assert.equal(deps.state.up,0);
+  }
+}));
+test('valid interrupted manual attempts and recovery retries remain inspectable',()=>temp(dir=>{
+  const histories=[
+    ['RELEASE_STARTED'],
+    ['RELEASE_STARTED','RELEASE_VERIFIED'],
+    ['RELEASE_STARTED','RELEASE_UNCERTAIN_ROLLBACK_STARTED'],
+    ['RELEASE_STARTED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','OPERATOR_RECONCILIATION_REQUIRED','MANUAL_ROLLBACK_STARTED'],
+    ['RELEASE_STARTED','MANUAL_ROLLBACK_STARTED','OPERATOR_RECONCILIATION_REQUIRED','MANUAL_ROLLBACK_STARTED']
+  ];
+  for(const [i,events] of histories.entries()){
+    const folder=path.join(dir,String(i));fs.mkdirSync(folder,{mode:0o700});
+    const file=setup(folder,events);
+    assert.deepEqual(recovery.loadJournal(file).events.map(x=>x.event),['PREPARED',...events]);
+  }
+}));
 test('prepared-only journal cannot cause a rollback',()=>temp(dir=>{
   const file=setup(dir,[]);
   assert.throws(()=>recovery.loadJournal(file));
@@ -94,7 +129,7 @@ test('manual rollback of interrupted release restores only three app services',(
   assert.ok(deps.state.seen.every(args=>!args.includes('migrate')&&!args.includes('down')&&!args.includes('rm')));
 }));
 test('successful earlier rollback is read-only confirmed without another up',()=>temp(dir=>{
-  const file=setup(dir,['RELEASE_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir);
+  const file=setup(dir,['RELEASE_STARTED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir);
   deps.state.tag='old';deps.state.appUnhealthy=false;
   assert.equal(recovery.main(cli(file),deps),0);
   assert.equal(deps.state.up,0);
@@ -160,7 +195,7 @@ test('symlinked, public-readable and unknown-event journals fail closed',()=>tem
   }
 }));
 test('already restored tag with different actual image is never accepted',()=>temp(dir=>{
-  const file=setup(dir,['MANUAL_ROLLBACK_VERIFIED']),deps=mock(dir);
+  const file=setup(dir,['RELEASE_STARTED','MANUAL_ROLLBACK_STARTED','MANUAL_ROLLBACK_VERIFIED']),deps=mock(dir);
   deps.state.tag='new';
   assert.equal(recovery.main(cli(file),deps),2);
   assert.equal(deps.state.up,0);
@@ -213,7 +248,7 @@ test('manual rollback requires healthy private HTTP routes after restoring prior
   assert.ok(!events.includes('"event":"MANUAL_ROLLBACK_VERIFIED"'));
 }));
 test('previous verified rollback is not reaccepted with broken HTTP readiness',()=>temp(dir=>{
-  const file=setup(dir,['RELEASE_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir);
+  const file=setup(dir,['RELEASE_STARTED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir);
   deps.state.tag='old';deps.state.appUnhealthy=false;
   deps.checkHttp=()=>false;
   assert.equal(recovery.main(cli(file),deps),2);
@@ -251,7 +286,7 @@ test('old tag retarget after manual Compose recover marks reconciliation instead
   assert.ok(!event.includes('MANUAL_ROLLBACK_VERIFIED'));
 }));
 test('previously verified manual recovery still detects later retargeted old image',()=>temp(dir=>{
-  const file=setup(dir,['RELEASE_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir),original=deps.run;
+  const file=setup(dir,['RELEASE_STARTED','RELEASE_UNCERTAIN_ROLLBACK_STARTED','ROLLBACK_VERIFIED']),deps=mock(dir),original=deps.run;
   deps.state.tag='old';deps.state.appUnhealthy=false;
   let checks=0;
   deps.run=(cmd,args,opts)=>{
