@@ -98,7 +98,11 @@ void main() {
         find.byKey(const Key('admin-model-source')),
         'https://example.com/source',
       );
-      await tester.ensureVisible(find.byKey(const Key('admin-model-save')));
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('admin-model-save')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.byKey(const Key('admin-model-save')));
       await tester.pumpAndSettle();
       expect(api.writes, hasLength(1));
