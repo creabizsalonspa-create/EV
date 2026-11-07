@@ -16,7 +16,7 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
 
 | PRD | Requirement | Atoms | Coded | Tested | Merged | Production accepted |
-|---|---|---:|---:|---:|---:|
+|---|---|---:|---:|---:|---:|---:|
 | 2.1 | Identity, verification, 2FA, privacy | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
 | 2.2 | EV garage and driver preferences | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
 | 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
