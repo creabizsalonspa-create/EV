@@ -688,7 +688,8 @@ try{
     assert.equal(summary.body.data.paymentStatus,'not_collected');
     assert.equal(summary.body.data.needsPayment,false);
   });
-  const {migrateChargerStationIndex}=await import(
+  const {migrateChargerStationIndex,planChargerStationIndexMigration,
+    planChargerStationRollback,rollbackChargerStationIndex}=await import(
     pathToFileURL(join(source,'src/utils/migrateChargerStationIndex.mjs')).href);
   const multiStation=await NearestStationModel.create({
     name:'Agent 2 Two Charger Station',address:'Isolated OCPP Test Station',
@@ -708,13 +709,35 @@ try{
     assert.equal(response.code,409);
     assert.equal(await chargerTable.countDocuments({stationId:String(multiStation._id)}),1);
   });
+  await check('read-only index preflight reports legacy station uniqueness',async()=>{
+    const before=await planChargerStationIndexMigration(chargerTable);
+    assert.equal(before.hasLegacyUniqueStationIndex,true);
+    assert.equal(before.hasGlobalUniqueChargerIndex,true);
+    assert.equal(before.blocked,false);
+    await assert.rejects(()=>migrateChargerStationIndex(chargerTable),/approval required/);
+    const still=await chargerTable.indexes();
+    assert.ok(still.some(x=>x.unique===true && x.key?.stationId===1));
+  });
   await check('staging index migration retains globally unique charger IDs',async()=>{
-    const result=await migrateChargerStationIndex(chargerTable);
+    const result=await migrateChargerStationIndex(chargerTable,{
+      approval:'APPLY_TO_DISPOSABLE_AGENT2_DB'
+    });
     assert.equal(result.uniqueChargerIdIndexVerified,true);
     assert.equal(result.removedUniqueStationIndex,'stationId_1');
     const indexes=await chargerTable.indexes();
     assert.equal(indexes.some(x=>x.unique===true && x.key.stationId===1),false);
     assert.equal(indexes.some(x=>x.unique===true && x.key.chargerId===1),true);
+  });
+  await check('staging rollback can restore unique station index before extra charger exists',async()=>{
+    const plan=await planChargerStationRollback(chargerTable);
+    assert.equal(plan.blocked,false);
+    await assert.rejects(()=>rollbackChargerStationIndex(chargerTable),/approval required/);
+    const done=await rollbackChargerStationIndex(chargerTable,{
+      approval:'ROLLBACK_DISPOSABLE_AGENT2_DB'
+    });
+    assert.equal(done.restoredUniqueStationIndex,true);
+    assert.ok((await chargerTable.indexes()).some(x=>x.unique===true && x.key?.stationId===1));
+    await migrateChargerStationIndex(chargerTable,{approval:'APPLY_TO_DISPOSABLE_AGENT2_DB'});
   });
   await check('customer without AdminAuth cannot register additional charger',async()=>{
     const response=await request('POST',registration,{chargerId:multiSecond,protocol:'ocpp1.6'},true);
@@ -728,6 +751,12 @@ try{
     assert.equal(response.body.data.controlApproved,false);
     assert.ok(/^[a-f0-9]{40}$/.test(response.body.data.password));
     assert.equal(await chargerTable.countDocuments({stationId:String(multiStation._id)}),2);
+    const rollbackPlan=await planChargerStationRollback(chargerTable);
+    assert.equal(rollbackPlan.blocked,true);
+    assert.ok(rollbackPlan.reasons.includes('multiple_chargers_share_station'));
+    await assert.rejects(()=>rollbackChargerStationIndex(chargerTable,{
+      approval:'ROLLBACK_DISPOSABLE_AGENT2_DB'
+    }),/multiple_chargers_share_station/);
   });
   await check('duplicate global charger ID is rejected across stations',async()=>{
     const response=await request('POST',registration,
