@@ -44,6 +44,12 @@ python3 scripts/delivery_bundle.py verify \
 
 If either artifact comes from another GitHub run, has expired, comes from a fork, has a changed head source, no successful CI conclusion, an unsupported trigger, or bytes differing from its own published artifact metadata, **the gate fails** and creates no customer bundle.
 
+### Provenance travels with the delivery bundle
+
+The verified, private `manifest.json` now contains an optional `workflow_evidence` record for workflow-imported development builds: exact GitHub repository, successful workflow name and run ID, exact source SHA, both artifact IDs, and the **original outer ZIP SHA-256 digests** checked before import. The normal generic bundler remains backwards compatible and does not claim a GitHub run it never verified.
+
+The record contains `snapshot_authenticated: false` deliberately. It records internally consistent, operator-supplied GitHub REST metadata but **does not cryptographically authenticate a saved JSON snapshot** or sign the binary. Independent bundle re-verification refuses tampered workflow IDs, source SHAs, artifact references, wrong hash shapes and any claim that the metadata snapshot is signed. The package continues to contain exactly the Android APK, iOS simulator ZIP and manifest—no extra private download metadata or access token files.
+
 ## Tests and remaining acceptance
 
 ```sh
@@ -51,6 +57,6 @@ python3 -m py_compile scripts/delivery_bundle.py scripts/delivery_artifact_impor
 python3 -m unittest discover -s tests -p 'delivery_*_test.py' -v
 ```
 
-Exact GitHub source tested on an isolated authorized host with Python 3.9.25: **34/34 tests passed**, zero failures/skips. The result includes full in-memory/temporary Android APK and iOS tar.gz wrapper-to-bundle integration, wrong source ID, mixed runs, expired artifacts, untrusted fork, altered download bytes, wrong artifact sizes and missing workflow conclusions. Tested files' Git object hashes matched GitHub blobs. This remains development artifact verification, **not** store signing or a production-delivery claim.
+Exact GitHub source tested on an isolated authorized host with Python 3.9.25: **38/38 tests passed**, zero failures/skips. The result includes full in-memory/temporary Android APK and iOS tar.gz wrapper-to-bundle integration, wrong source ID, mixed runs, expired artifacts, untrusted fork, altered download bytes, wrong artifact sizes and missing workflow conclusions. Tested files' Git object hashes matched GitHub blobs. This remains development artifact verification, **not** store signing or a production-delivery claim.
 
 **Important limitations:** local JSON metadata could be tampered with before inspection; the gate does not cryptographically verify GitHub's API transport or build attestations. Operators must obtain metadata from the authenticated GitHub API and separately verify that artifact download IDs came from that run. A successful developer-build workflow does not prove authenticated HAS.ONE journeys, that an Android APK is store-signed, that an iOS simulator app runs on physical devices, or that Laravel/CitrineOS, Teltonika hardware, real PSP settlement and third-party OCPI networks are production-accepted. Agent 6 and Agent 9 own these acceptance domains; Agent 4 must verify exact-head CI before integrating this PR.
