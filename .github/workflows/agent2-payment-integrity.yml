@@ -42,6 +42,8 @@ jobs:
           node --check tools/agent2/live-demo-readiness.mjs
       - name: Run pure payment and OCPP source evidence regression tests
         run: node --test integrations/hasone-express/tests/*.test.mjs
+      - name: Validate isolated staging wrapper syntax
+        run: bash -n tools/agent2/run_all_isolated_validation.sh
       - name: Check Python staging scripts compile
         run: |
           python3 -m py_compile tools/agent2/stage_payment_safety.py
