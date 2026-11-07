@@ -32,3 +32,6 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+# Private iOS Maps key injected by approved build runners.
+Flutter/MapsKeys.xcconfig
