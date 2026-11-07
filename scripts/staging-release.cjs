@@ -180,6 +180,13 @@ function probePostDeploy(plan,deps={}) {
       env:deps.env||process.env});
   return true;
 }
+function verifyFormerTag(plan,deps={}) {
+  // The old image is the only automated rollback target. A release must never
+  // proceed when that reviewed image has been removed or re-pointed.
+  const old=inspectImage(plan.old_ref,deps.run||execFileSync);
+  if(old.Id!==plan.old_id)throw Error('Previous staging image is no longer the reviewed rollback target');
+  return true;
+}
 function verifyCandidateTag(plan,deps={}) {
   // OCI labels are self-declared but must remain identical to the reviewed
   // immutable candidate at the last safe moment before and after Compose up.
@@ -243,14 +250,17 @@ function apply(config,deps={}) {
     const saved=createJournal(target,plan);
     // If a local tag was re-pointed after plan inspection, refuse before
     // touching application containers. Preserve PREPARED-only journal evidence.
+    verifyFormerTag(plan,deps);
     verifyCandidateTag(plan,deps);
     journal(saved,'RELEASE_STARTED');
     try {
       composeUp(config.tag,deps);
       verifyRunning(plan.candidate_ref,plan.candidate_id,deps);
       verifyProtectedServices(plan,deps);
+      verifyFormerTag(plan,deps);
       verifyCandidateTag(plan,deps);
       probePostDeploy(plan,deps);
+      verifyFormerTag(plan,deps);
       verifyCandidateTag(plan,deps);
       journal(saved,'RELEASE_VERIFIED',{service_count:3,private_http_routes_checked:true,production_accepted:false});
       return {ok:true,rollback_verified:false,plan};
@@ -258,15 +268,12 @@ function apply(config,deps={}) {
       journal(saved,'RELEASE_UNCERTAIN_ROLLBACK_STARTED');
       // Refuse to roll back to a mutable tag that has been re-pointed.
       try {
-        const old=inspectImage(plan.old_ref,deps.run||execFileSync);
-        if(old.Id!==plan.old_id) throw Error('Former image identity changed');
+        verifyFormerTag(plan,deps);
         composeUp(plan.old_ref.split(':').slice(1).join(':'),deps);
         verifyRunning(plan.old_ref,plan.old_id,deps);
         verifyProtectedServices(plan,deps);
         probePostDeploy(plan,deps);
-        if(inspectImage(plan.old_ref,deps.run||execFileSync).Id!==plan.old_id) {
-          throw Error('Previous staging image tag changed during rollback');
-        }
+        verifyFormerTag(plan,deps);
         journal(saved,'ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
         return {ok:false,rollback_verified:true,plan};
       } catch {
@@ -299,4 +306,4 @@ function main(args=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)process.exitCode=main();
-module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,verifyCandidateTag,probePostDeploy,apply,main};
+module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,verifyCandidateTag,verifyFormerTag,probePostDeploy,apply,main};
