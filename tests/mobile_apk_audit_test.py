@@ -23,12 +23,32 @@ MANIFEST = """E: application
     A: android:value(0x01010024)="" (Raw: "")
 """
 EXPECTED = "com.creabiz.hasone.customer.dev"
+DOMAINS = sorted(audit.BACKUP_DOMAINS)
+
+
+def exclusions(indent):
+    return "".join(
+        " " * indent + "E: exclude\n" +
+        " " * (indent + 2) + 'A: domain="' + domain + '" (Raw: "' + domain + '")\n' +
+        " " * (indent + 2) + 'A: path="." (Raw: ".")\n'
+        for domain in DOMAINS
+    )
+
+
+LEGACY = "E: full-backup-content\n" + exclusions(2)
+EXTRACTION = (
+    "E: data-extraction-rules\n"
+    "  E: cloud-backup\n" + exclusions(4) +
+    "  E: device-transfer\n" + exclusions(4)
+)
 
 
 class MobileApkAuditTests(unittest.TestCase):
     def audit(self, badging=BADGING, manifest=MANIFEST, **kwargs):
         return audit.audit_manifest(
             badging, manifest, expected_package=kwargs.pop("package", EXPECTED),
+            backup_rules=kwargs.pop("backup_rules", LEGACY),
+            extraction_rules=kwargs.pop("extraction_rules", EXTRACTION),
             **kwargs,
         )
 
@@ -54,6 +74,28 @@ class MobileApkAuditTests(unittest.TestCase):
             with self.subTest(manifest=text):
                 with self.assertRaises(audit.AuditError):
                     self.audit(manifest=text)
+
+    def test_compiled_backup_rules_must_exclude_all_sensitive_domains(self):
+        broken_legacy = LEGACY.replace(
+            'A: domain="device_sharedpref" (Raw: "device_sharedpref")',
+            'A: domain="other" (Raw: "other")',
+        )
+        with self.assertRaisesRegex(audit.AuditError, "device_sharedpref"):
+            self.audit(backup_rules=broken_legacy)
+        with self.assertRaisesRegex(audit.AuditError, "unexpectedly allows"):
+            self.audit(backup_rules=LEGACY + "  E: include\n")
+
+    def test_compiled_cloud_and_transfer_exclusions_are_both_required(self):
+        missing_transfer = EXTRACTION.split("  E: device-transfer", 1)[0]
+        with self.assertRaisesRegex(audit.AuditError, "cloud/device"):
+            self.audit(extraction_rules=missing_transfer)
+        cloud, transfer = EXTRACTION.split("  E: device-transfer", 1)
+        broken_transfer = transfer.replace(
+            'A: domain="device_sharedpref" (Raw: "device_sharedpref")',
+            'A: domain="other" (Raw: "other")',
+        )
+        with self.assertRaisesRegex(audit.AuditError, "device_sharedpref"):
+            self.audit(extraction_rules=cloud + "  E: device-transfer" + broken_transfer)
 
     def test_cleartext_enabled_is_rejected(self):
         unsafe = MANIFEST.replace(
