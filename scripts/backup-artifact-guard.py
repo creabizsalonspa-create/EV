@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic dump integrity guard: not a signature, encryption or production backup."""
 import argparse, gzip, hashlib, json, os, stat, sys, tarfile
+from contextlib import contextmanager
 from pathlib import Path
 
 class ArchiveError(Exception):
@@ -10,20 +11,24 @@ def require(ok, reason):
     if not ok:
         raise ArchiveError(reason)
 
-def fingerprint(path, magic):
-    path=Path(path)
-    flags = os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0)
-    # The file must not turn into a symlink between a path test and open.
+@contextmanager
+def open_regular_archive(path):
+    """Open a bounded regular archive without following a swapped symlink."""
     require(hasattr(os, 'O_NOFOLLOW'), 'No-follow archive reads unavailable')
-    flags |= os.O_NOFOLLOW
+    flags = os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) | os.O_NOFOLLOW
     try:
         fd = os.open(path, flags)
     except OSError as error:
         raise ArchiveError(f'Archive cannot be opened safely: {error.strerror}') from None
     with os.fdopen(fd, 'rb') as stream:
         info = os.fstat(stream.fileno())
-        require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 8*1024**3,
+        require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 8 * 1024**3,
                 'Archive type or size invalid')
+        yield stream
+
+def fingerprint(path, magic):
+    with open_regular_archive(path) as stream:
+        info = os.fstat(stream.fileno())
         h = hashlib.sha256()
         require(stream.read(len(magic)) == magic, 'Archive magic mismatch')
         stream.seek(0)
@@ -39,7 +44,7 @@ def safe_tar(path):
     file_names = set()
     content_hash = hashlib.sha256()
     try:
-        with tarfile.open(path, mode='r:gz') as archive:
+        with open_regular_archive(path) as raw, tarfile.open(fileobj=raw, mode='r:gz') as archive:
             for member in archive:
                 count += 1
                 require(count <= 10000, 'Too many private archive members')
@@ -92,7 +97,7 @@ def safe_tar(path):
     # Consume the entire stream and validate CRC32/ISIZE before restoration.
     decompressed = 0
     try:
-        with gzip.open(path, 'rb') as stream:
+        with open_regular_archive(path) as raw, gzip.GzipFile(fileobj=raw, mode='rb') as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b''):
                 decompressed += len(block)
                 require(decompressed <= 2 * 1024**3 + 10000 * 512 + 1024 * 1024,
