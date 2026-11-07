@@ -48,6 +48,14 @@ class PlatformController extends Controller
         if (! Auth::attempt($v)) {
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
         }
+        if ($r->user()->account_status !== 'active') {
+            // Do not allow a suspended account to create a fresh browser
+            // session. The same generic response avoids enumerating status.
+            Auth::logout();
+            $r->session()->invalidate();
+            $r->session()->regenerateToken();
+            throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
+        }
         $r->session()->regenerate();
 
         return response()->json($r->user());
