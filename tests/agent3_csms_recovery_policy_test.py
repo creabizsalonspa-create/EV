@@ -30,6 +30,7 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
         self.assertIn('docker rm -fv "$id"', code)
         self.assertIn('docker network rm "$id"', code)
         self.assertIn("trap cleanup EXIT", code)
+        self.assertIn('rm -f -- "$root/artifacts/agent3-csms-recovery/validation.json"', code)
         self.assertNotIn("--network host", code)
         self.assertNotIn("--privileged", code)
         self.assertNotIn("--publish", code)
