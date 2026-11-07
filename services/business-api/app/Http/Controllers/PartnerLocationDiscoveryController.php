@@ -20,16 +20,28 @@ final class PartnerLocationDiscoveryController extends Controller
             'q' => 'nullable|string|max:80',
             'country' => 'nullable|string|regex:/^[A-Z]{3}$/D',
             'connector_standard' => 'nullable|string|max:64',
+            'provider' => 'nullable|string|max:80',
             'latitude' => 'required_with:longitude,radius_km|numeric|between:-90,90',
             'longitude' => 'required_with:latitude,radius_km|numeric|between:-180,180',
             'radius_km' => 'required_with:latitude,longitude|numeric|between:1,200',
         ]);
         $text = trim($filters['q'] ?? '');
+        $providerText = trim($filters['provider'] ?? '');
+        $authorizedProviders = OcpiProvider::query()->where('authorized', true);
+        if ($providerText !== '') {
+            $driver = DB::connection()->getDriverName();
+            if (! in_array($driver, ['sqlite', 'pgsql'], true)) {
+                throw new \LogicException('Unsupported partner provider-search database.');
+            }
+            $operator = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
+            $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $providerText).'%';
+            $authorizedProviders->whereRaw("ocpi_providers.name $operator ? ESCAPE '!'", [$pattern]);
+        }
 
         $query = OcpiRecord::query()
             ->where('module', 'locations')
             ->where('normalized->publish', true)
-            ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
+            ->whereIn('ocpi_provider_id', $authorizedProviders->select('id'))
             ->when($text !== '', function ($query) use ($text) {
                 // SQL LIKE wildcards are not the user's search text. Both supported
                 // databases accept an explicit ! escape; every value is bound.
@@ -54,7 +66,16 @@ final class PartnerLocationDiscoveryController extends Controller
         $nearby = isset($filters['latitude']);
         if ($nearby) {
             $geo->within($query, (float) $filters['latitude'], (float) $filters['longitude'], (float) $filters['radius_km']);
+        } else {
+            $query->select('ocpi_records.*');
         }
+        // Name is provider-configured and not proof of a legal network operator.
+        // The same authorization gate prevents exposing a revoked provider label.
+        $query->addSelect([
+            'provider_label' => OcpiProvider::query()->select('name')
+                ->whereColumn('ocpi_providers.id', 'ocpi_records.ocpi_provider_id')
+                ->where('authorized', true)->limit(1),
+        ]);
 
         // The final ID key also stabilizes ties in distance.
         $now = now()->getTimestamp();
@@ -68,6 +89,8 @@ final class PartnerLocationDiscoveryController extends Controller
                 return [
                     'id' => $record->id,
                     'provider_id' => $record->ocpi_provider_id,
+                    'provider_label' => $record->provider_label,
+                    'provider_label_evidence' => 'PROVIDER_CONFIGURED_UNVERIFIED',
                     'location' => $record->normalized,
                     'received_at' => $record->received_at,
                     'source_updated_at' => $record->source_updated_at,
