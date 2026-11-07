@@ -77,6 +77,7 @@ class FinancialApi extends FixtureApi {
         'amount_minor': body['amount_minor'],
         'reason': body['reason'],
         'request_key': body['idempotency_key'],
+        'ocpi_credit_record_id': body['ocpi_credit_record_id'],
         'status': 'pending',
       };
     }
@@ -413,8 +414,10 @@ void main() {
         find.byType(TextField).at(1),
         'Synthetic refund reason',
       );
+      await t.enterText(find.byType(TextField).at(2), '7');
       await confirm(t, 'Submit request');
       expect(api.posts, 1);
+      expect(api.bodies.single['ocpi_credit_record_id'], 7);
       expect(api.bodies.single['amount_minor'], 125);
       expect(store.values.length, 1);
       await t.pumpWidget(const MaterialApp(home: Text('closed')));
@@ -448,7 +451,7 @@ void main() {
       );
       await t.pumpAndSettle();
       await t.enterText(find.byType(TextField).first, '1.25');
-      await t.enterText(find.byType(TextField).last, 'Synthetic reason');
+      await t.enterText(find.byType(TextField).at(1), 'Synthetic reason');
       await confirm(t, 'Submit request');
       expect(api.posts, 0);
       expect(find.textContaining('secret-provider-field'), findsNothing);

@@ -7,6 +7,7 @@ use App\Models\Finance\Payment;
 use App\Models\Finance\Refund;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
+use App\Services\Ocpi\CreditRefundEvidence;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -67,20 +68,28 @@ class CommercialFinanceController extends Controller
     public function requestRefund(Request $r, Invoice $invoice)
     {
         abort_unless($invoice->user_id === $r->user()->id, 404);
-        $v = $r->validate(['amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
+        $v = $r->validate(['ocpi_credit_record_id' => 'sometimes|integer|min:1', 'amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
+
+        if (isset($v['ocpi_credit_record_id'])) {
+            $v['ocpi_credit_record_id'] = (int) $v['ocpi_credit_record_id'];
+        }
 
         return DB::transaction(function () use ($r, $invoice, $v) {
             User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
             $old = DB::table('finance_refund_requests')->where('user_id', $r->user()->id)->where('request_key', $v['idempotency_key'])->first();
             if ($old) {
-                abort_unless($old->invoice_id === $invoice->id && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'], 409, 'Refund request key conflict.');
+                abort_unless($old->invoice_id === $invoice->id && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'] && ($old->ocpi_credit_record_id ?? null) === ($v['ocpi_credit_record_id'] ?? null), 409, 'Refund request key conflict.');
 
                 return response()->json($old);
             }
+            if (isset($v['ocpi_credit_record_id'])) {
+                $credit = app(CreditRefundEvidence::class)->require($invoice, (int) $v['ocpi_credit_record_id']);
+                abort_if(DB::table('finance_refund_requests')->where('ocpi_credit_record_id', $credit->id)->exists(), 409, 'Credit source already has a refund review.');
+            }
             $available = (int) Payment::where('invoice_id', $invoice->id)->sum('amount_minor') - (int) Refund::where('invoice_id', $invoice->id)->sum('amount_minor') - (int) DB::table('finance_refund_requests')->where('invoice_id', $invoice->id)->where('status', 'pending')->sum('amount_minor');
             abort_unless((int) $v['amount_minor'] <= $available, 409, 'Requested amount exceeds unreserved captured funds.');
-            $id = DB::table('finance_refund_requests')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $r->user()->id, 'request_key' => $v['idempotency_key'], 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('finance_refund_requests')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $r->user()->id, 'request_key' => $v['idempotency_key'], 'ocpi_credit_record_id' => $v['ocpi_credit_record_id'] ?? null, 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
 
             return response()->json(DB::table('finance_refund_requests')->find($id), 201);
         }, 3);
@@ -102,6 +111,9 @@ class CommercialFinanceController extends Controller
                 abort_unless($row->status === $status && $row->decision_note === $v['note'], 409, 'Refund request already reviewed.');
 
                 return response()->json($row);
+            }
+            if ($status === 'approved' && $row->ocpi_credit_record_id !== null) {
+                app(CreditRefundEvidence::class)->require($invoice, (int) $row->ocpi_credit_record_id);
             }
             abort_if($status === 'approved' && (config('payments.provider', 'mock') !== 'mock' || DB::table('gateway_checkouts')->where('invoice_id', $invoice->id)->where('provider', '!=', 'mock')->exists()), 503, 'Provider refund execution is required; ledger-only approval is disabled.');
             $refund = $status === 'approved' ? $finance->refund($invoice, $r->user()->id, (int) $row->amount_minor, 'request-'.$row->id, $row->reason) : null;

@@ -509,6 +509,14 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             undefined,
                         ),
                         field("reason", "Reason", "السبب", undefined),
+                        field(
+                            "ocpi_credit_record_id",
+                            "Optional source credit record ID",
+                            "مرجع سجل إشعار دائن اختياري",
+                            undefined,
+                            "number",
+                            false,
+                        ),
                     ],
                     "Request refund",
                     "طلب استرداد",
@@ -520,15 +528,37 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         );
                         if (!amount)
                             throw Error("Enter an exact positive amount.");
-                        await api(
+                        const creditId = data.ocpi_credit_record_id
+                            ? Number(data.ocpi_credit_record_id)
+                            : null;
+                        if (
+                            creditId !== null &&
+                            (!Number.isSafeInteger(creditId) || creditId <= 0)
+                        )
+                            throw Error("Invalid source credit reference.");
+                        const receipt = await api(
                             `finance/invoices/${invoice.id}/refund-requests`,
                             "POST",
                             {
                                 amount_minor: amount,
+                                ...(data.ocpi_credit_record_id
+                                    ? {
+                                          ocpi_credit_record_id: Number(
+                                              data.ocpi_credit_record_id,
+                                          ),
+                                      }
+                                    : {}),
                                 reason: data.reason,
                                 idempotency_key: key,
                             },
                         );
+                        if (
+                            creditId !== null &&
+                            receipt.ocpi_credit_record_id !== creditId
+                        )
+                            throw Error(
+                                "Source credit link was not confirmed.",
+                            );
                         await load();
                     },
                 );
@@ -654,6 +684,14 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 text("p", `#${request.id} · ${request.status}`),
                 text("p", request.reason),
             );
+            if (request.ocpi_credit_record_id != null)
+                row.append(
+                    translated(
+                        "p",
+                        `Source credit record: ${request.ocpi_credit_record_id}`,
+                        `مرجع مصدر الإشعار الدائن: ${request.ocpi_credit_record_id}`,
+                    ),
+                );
             if (operations && request.status === "pending")
                 form(
                     row,
