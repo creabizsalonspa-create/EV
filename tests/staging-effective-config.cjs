@@ -14,8 +14,10 @@ function sample(){
  const privateMount={type:'volume',source:'ev-staging_private-storage',target:'/var/www/html/storage/app/private'};
  return {name:'ev-staging',services:{
    application:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount]},
-   worker:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount]},
-   scheduler:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount]},
+   worker:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount],
+     command:['php','artisan','queue:work','--sleep=3','--tries=3','--timeout=90']},
+   scheduler:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount],
+     command:['php','artisan','schedule:work']},
    database:{image:'postgres:17-alpine',volumes:[{type:'volume',source:'ev-staging_database',target:'/var/lib/postgresql/data'}]},
    gateway:{image:'caddy:2-alpine',environment:{STAGING_HOST:'staging.ev-example.org',ACME_EMAIL:'ops@ev-example.org'},
      ports:[{host_ip:'127.0.0.1',published:'8443',target:443,protocol:'tcp'}],
@@ -122,3 +124,17 @@ test('snapshot mode verifies without Docker and does not leak secrets',()=>temp(
  assert.equal(gate.main(['--snapshot',file],{checkValues:()=>[]}),0);
  assert.equal(gate.main(['--snapshot',file,'--execute'],{checkValues:()=>[]}),1);
 }));
+
+test('application HTTPS origin must match the actual staging certificate hostname',()=>{
+  fail(x=>x.services.application.environment.APP_URL='https://other-operator.example.org','HTTPS origin does not match');
+});
+test('unexpected host binds, writable gateway config or runtime command overrides forbidden',()=>{
+  fail(x=>x.services.database.volumes.push({type:'bind',source:'/etc',target:'/host'}),'host bind');
+  fail(x=>x.services.application.volumes.push({type:'bind',source:'/secrets',target:'/app/secrets'}),'host bind');
+  fail(x=>x.services.gateway.volumes.find(x=>x.type==='bind').read_only=false,'read-only Caddyfile');
+  fail(x=>x.services.worker.command=['sh','-c','curl https://remote.example.org'],'command differs');
+  fail(x=>x.services.scheduler.command=['sh','-c','arbitrary command'],'command differs');
+  fail(x=>x.services.application.entrypoint=['sh'],'entrypoint');
+  fail(x=>x.services.gateway.network_mode='container:production','privileged');
+  fail(x=>x.services.database.security_opt=['seccomp=unconfined'],'privileged');
+});
