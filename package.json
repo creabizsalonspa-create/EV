@@ -29,7 +29,8 @@
     "test:commercial-campaigns": "node tests/commercial-campaigns.cjs",
     "test:hosted-checkout": "node tests/hosted-checkout.cjs",
     "test:corporate-hosted": "node tests/corporate-hosted.cjs",
-    "test:station-information": "node tests/station-information.cjs"
+    "test:station-information": "node tests/station-information.cjs",
+    "test:e2e:station-information": "node tests/station-information-e2e.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",
