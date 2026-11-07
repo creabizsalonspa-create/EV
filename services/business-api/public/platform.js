@@ -167,6 +167,7 @@ function renderIdentity() {
             : "Your charging companion",
     );
     window.EvAdminAccounts?.setActor(user, api);
+    window.EvAdminKycQueue?.setActor(user, api);
 }
 
 function node(tag, text) {
