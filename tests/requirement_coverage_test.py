@@ -42,5 +42,32 @@ class CoverageEvidenceTest(unittest.TestCase):
         self.rejected(self.inventory, 'AssertionError')
 
 
+    def test_checkpoint_evidence_outside_repository_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / 'fake-hosted-checkpoint.json'
+            checkpoint = self.inventory['checkpoints']['pr14']
+            evidence.write_text(json.dumps({
+                'source_sha': checkpoint['source_sha'],
+                'integrated_sha': checkpoint['merge_sha'],
+            }))
+            checkpoint['evidence'] = str(evidence)
+            self.rejected(self.inventory, 'evidence must stay within repository')
+
+    def test_relative_checkpoint_escape_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / 'fake-checkpoint.json'
+            checkpoint = self.inventory['checkpoints']['pr14']
+            evidence.write_text(json.dumps({
+                'source_sha': checkpoint['source_sha'],
+                'integrated_sha': checkpoint['merge_sha'],
+            }))
+            checkpoint['evidence'] = __import__('os').path.relpath(evidence, ROOT)
+            self.rejected(self.inventory, 'evidence must stay within repository')
+
+    def test_original_312_atom_inventory_cannot_silently_shrink(self):
+        self.inventory['categories'][0]['atoms'].pop()
+        self.rejected(self.inventory, 'Original 312 requirement atoms are mandatory')
+
+
 if __name__ == '__main__':
     unittest.main()
