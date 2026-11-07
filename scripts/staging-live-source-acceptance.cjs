@@ -28,14 +28,42 @@ function parseArgs(args) {
   if(health.url.port!=='8443')throw Error('Only the approved private TLS gateway port is permitted');
   return {source_sha:args[1],health,output:args[5]};
 }
+function readPrivateEnv(file=ENV_FILE) {
+  // Read a single owner-only regular inode with no-follow. A concurrent
+  // replacement must never turn the acceptance gate into a secrets reader.
+  const flags=fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW||0) |
+    (fs.constants.O_NONBLOCK||0);
+  const stat=fs.lstatSync(file);
+  if(!stat.isFile() || stat.isSymbolicLink() || stat.size<20 || stat.size>128*1024 ||
+      (process.platform!=='win32' && (stat.mode&0o077)!==0)) {
+    throw Error('Private staging .env is unsafe');
+  }
+  const fd=fs.openSync(file,flags);
+  try {
+    const opened=fs.fstatSync(fd);
+    if(!opened.isFile() || opened.dev!==stat.dev || opened.ino!==stat.ino ||
+        opened.size!==stat.size || opened.size>128*1024 ||
+        (process.platform!=='win32' && (opened.mode&0o077)!==0)) {
+      throw Error('Staging environment inode changed during read');
+    }
+    const content=fs.readFileSync(fd);
+    if(content.length!==opened.size)throw Error('Staging environment changed during read');
+    return content;
+  }finally{fs.closeSync(fd);}
+}
 function reviewEnv() {
   // PR #62 must be merged before this workflow can succeed.
   const canonical=require('./staging-preflight.cjs');
+  const initial=readPrivateEnv();
   const check=canonical.reviewFile(ENV_FILE);
   if(!check || check.ok!==true)throw Error('Private staging environment failed');
-  const {values,errors}=canonical.parseEnv(fs.readFileSync(ENV_FILE,'utf8'));
+  const latest=readPrivateEnv();
+  const firstDigest=crypto.createHash('sha256').update(initial).digest('hex');
+  const finalDigest=crypto.createHash('sha256').update(latest).digest('hex');
+  if(firstDigest!==finalDigest)throw Error('Private environment changed during review');
+  const {values,errors}=canonical.parseEnv(latest.toString('utf8'));
   if(errors.length || !canonical.validDomain(values.STAGING_HOST))throw Error('Invalid staging hostname');
-  return {host:values.STAGING_HOST,checker:canonical.checkValues};
+  return {host:values.STAGING_HOST,checker:canonical.checkValues,env_digest:finalDigest};
 }
 function reviewEffective(checker) {
   const source=liveConfig(execFileSync,process.env);
@@ -79,7 +107,8 @@ async function inspect(config,deps={}) {
     schema:SCHEMA,source_sha:config.source_sha,status:'INCOMPLETE',
     observed_from_utc:now(),observed_until_utc:null,
     checks:{clean_checkout:false,private_environment:false,resolved_compose:false,
-      immutable_running_source:false,private_https_routes:false,stable_runtime_after_http:false},
+      immutable_running_source:false,private_https_routes:false,
+      private_environment_stable_after_http:false,stable_runtime_after_http:false},
     http_routes:[],runtime_fingerprint_sha256:null,
     image_source_label_self_declared:true,independent_build_attestation:false,
     synthetic_accounts_authenticated:false,simulator_session_completed:false,
@@ -90,7 +119,9 @@ async function inspect(config,deps={}) {
     if(getHead()!==config.source_sha)throw Error('Checked-out source is wrong or dirty');
     result.checks.clean_checkout=true;
     const stage=inspectEnv();
-    if(!stage || stage.host!==config.health.url.hostname || typeof stage.checker!=='function') {
+    if(!stage || stage.host!==config.health.url.hostname ||
+        typeof stage.checker!=='function' ||
+        !/^[a-f0-9]{64}$/.test(stage.env_digest||'')) {
       throw Error('Private staging origin differs from reviewed environment');
     }
     result.checks.private_environment=true;
@@ -107,7 +138,14 @@ async function inspect(config,deps={}) {
         SERVICES.some(s=>first.services[s]!==second.services[s])) {
       throw Error('Staging container identity changed during HTTPS acceptance');
     }
-    if(inspectEffective(stage.checker)!==true || getHead()!==config.source_sha) {
+    const afterEnv=inspectEnv();
+    if(!afterEnv || afterEnv.host!==stage.host ||
+        afterEnv.env_digest!==stage.env_digest ||
+        typeof afterEnv.checker!=='function') {
+      throw Error('Reviewed private environment changed during HTTPS probe');
+    }
+    result.checks.private_environment_stable_after_http=true;
+    if(inspectEffective(afterEnv.checker)!==true || getHead()!==config.source_sha) {
       throw Error('Staging configuration or checkout changed during acceptance');
     }
     const bytes=SERVICES.map(s=>s+':'+first.services[s]).join('\n')+'\n'+first.image_id;
@@ -139,4 +177,4 @@ async function main(argv=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)main().then(code=>{process.exitCode=code;});
-module.exports={SCHEMA,SERVICES,parseArgs,reviewEnv,reviewEffective,checkProvenance,checkRoutes,inspect,main};
+module.exports={SCHEMA,SERVICES,parseArgs,readPrivateEnv,reviewEnv,reviewEffective,checkProvenance,checkRoutes,inspect,main};

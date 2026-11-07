@@ -16,7 +16,7 @@ const proof=()=>({ok:true,source_sha:SHA,image_id:IMAGE,runtime_services:ids()})
 const httpPass=()=>({ok:true,results:routes.map(x=>({path:x.path,status:x.kind==='private'?401:200,ok:true}))});
 const argv=(output)=>['--source-sha',SHA,'--url',url,'--output',output];
 function fixture(extra={}){
-  return {getHead:()=>SHA,inspectEnv:()=>({host:HOST,checker:()=>[]}),
+  return {getHead:()=>SHA,inspectEnv:()=>({host:HOST,checker:()=>[],env_digest:'b'.repeat(64)}),
     inspectEffective:()=>true,inspectImages:proof,checkHttp:async()=>httpPass(),
     now:()=> '2026-11-08T03:30:00.000Z',...extra};
 }
@@ -67,7 +67,7 @@ test('wrong source checkout stops before any Docker or HTTPS inspection',async()
 test('missing canonical staging preflight and effective-config failure block all HTTP traffic',async()=>{
   for(const changed of [
     {inspectEnv:()=>{throw Error('unsafe private credential');}},
-    {inspectEnv:()=>({host:'unreviewed.example.org',checker:()=>[]})},
+    {inspectEnv:()=>({host:'unreviewed.example.org',checker:()=>[],env_digest:'b'.repeat(64)})},
     {inspectEffective:()=>false},
   ]){
     let requested=0;
@@ -144,6 +144,35 @@ test('protected gateway and database changes during HTTPS probe block acceptance
     assert.equal(count,2);
   }
 });
+test('replaced private environment content during HTTPS probe prevents false readiness',async()=>{
+  let attempts=0;
+  const result=await gate.inspect(gate.parseArgs(argv('report.json')),fixture({
+    inspectEnv:()=>{
+      attempts++;
+      return {host:HOST,checker:()=>[],env_digest:(attempts===1?'b':'c').repeat(64)};
+    }
+  }));
+  assert.equal(result.status,'INCOMPLETE');
+  assert.equal(attempts,2);
+  assert.equal(result.checks.private_https_routes,true);
+  assert.equal(result.checks.private_environment_stable_after_http,false);
+});
+test('private staging env read rejects public modes, symlinks and invalid file types',async()=>privatePath(async(_output,dir)=>{
+  const file=path.join(dir,'private.env');
+  fs.writeFileSync(file,'APP_KEY=SYNTHETIC_ONLY\nDB_PASSWORD=synthetic\n',{mode:0o600});
+  assert.ok(gate.readPrivateEnv(file).includes(Buffer.from('SYNTHETIC_ONLY')));
+  const link=path.join(dir,'link.env');fs.symlinkSync(file,link);
+  assert.throws(()=>gate.readPrivateEnv(link));
+  if(process.platform!=='win32') {
+    fs.chmodSync(file,0o644);
+    assert.throws(()=>gate.readPrivateEnv(file));
+    fs.chmodSync(file,0o600);
+  }
+  assert.throws(()=>gate.readPrivateEnv(dir));
+  const empty=path.join(dir,'empty.env');
+  fs.writeFileSync(empty,'',{mode:0o600});
+  assert.throws(()=>gate.readPrivateEnv(empty));
+}));
 test('resolved Compose change or dirty checkout after probe blocks acceptance',async()=>{
   let checks=0;
   const changed=await gate.inspect(gate.parseArgs(argv('report.json')),fixture({

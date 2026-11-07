@@ -29,7 +29,7 @@ Every stage must pass before PRIVATE_SOURCE_LINKED_STAGE_READY:
 - Actual running application, worker and scheduler containers use one immutable, source-labeled image ID matching reviewed Git SHA and public repository source. OCI labels are **self-declared**, not signed attestation.
 - Five Docker Compose container IDs match project roles and persist through the first local-only Docker inspection.
 - Seven anonymous HTTPS routes verify readiness, public catalog, web security headers, and denial of unauthorized customer/Admin identity endpoints.
-- After HTTPS: recheck the image and five container identities, health, loopback port, source checkout and resolved Compose config. Any drift is INCOMPLETE.
+- After HTTPS: re-read the exact owner-only private .env inode using no-follow semantics and require its SHA-256 to equal the pre-probe reviewed value. The digest is **never written** to customer evidence. Recheck image and five container identities, health, loopback port, source checkout and resolved Compose config. Any drift is INCOMPLETE.
 
 Evidence is a new exclusive owner-only JSON file. It includes the Git SHA, limited boolean checkpoints, seven route/status summaries, a one-way SHA-256 of the five stable container IDs plus image ID, and explicit non-production flags. No secrets, Docker environment values, passwords, account details or raw response bodies are written.
 
