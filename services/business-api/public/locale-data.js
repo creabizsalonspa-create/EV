@@ -2840,4 +2840,6 @@ window.EV_MESSAGES = {
         en: "No approved feedback in report window",
         ar: "لا توجد ملاحظات معتمدة ضمن فترة التقرير",
     },
+    "View simulated roaming invoice": {en: "View simulated roaming invoice", ar: "عرض فاتورة التجوال التجريبية"},
+    "Review simulated roaming invoice": {en: "Review simulated roaming invoice", ar: "مراجعة فاتورة التجوال التجريبية"},
 };

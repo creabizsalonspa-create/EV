@@ -18,6 +18,7 @@ const groups = [
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
   ["client-demo-lifecycle"], // six private fixture logins; dedicated window
   ["charging-reviews"], // own unchanged authentication window
+  ["ocpi-test-invoice"], // explicit TEST consent and lost-response recovery; own auth window
   ["sandbox-roaming"], // isolated synthetic CPO contract; own auth window
   ["partner-favorites"], // own customer/Admin authentication window
   ["charger-configuration"], // two explicit source-device read workflows; own authentication window
