@@ -134,7 +134,13 @@ def verify(folder, expected_source=None):
     root = Path(folder)
     if root.is_symlink() or not root.is_dir():
         raise BundleError('Bundle must be a directory, not a symlink')
+    # A valid digest does not make publicly readable handoff data private.
+    # Every exported bundle is created owner-only and should remain so.
+    if os.name != 'nt' and root.stat().st_mode & 0o077:
+        raise BundleError('Delivery bundle directory must be owner-only')
     manifest_path = regular_private_file(root / 'manifest.json')
+    if os.name != 'nt' and manifest_path.stat().st_mode & 0o077:
+        raise BundleError('Delivery manifest must be owner-only')
     if manifest_path.stat().st_size > 64 * 1024:
         raise BundleError('Manifest is unexpectedly large')
     try:
@@ -169,6 +175,8 @@ def verify(folder, expected_source=None):
                 type(item['size_bytes']) is not int or item['size_bytes'] < 1:
             raise BundleError('Invalid artifact path, size, or digest metadata')
         artifact = regular_private_file(root / name)
+        if os.name != 'nt' and artifact.stat().st_mode & 0o077:
+            raise BundleError('Development delivery artifacts must be owner-only')
         actual_digest, actual_size = checksum(artifact)
         if actual_digest != item['sha256'] or actual_size != item['size_bytes']:
             raise BundleError('Artifact bytes differ from manifest')

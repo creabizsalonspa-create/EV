@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -34,6 +35,23 @@ class DeliveryBundleTests(unittest.TestCase):
         bundle = self.bundle()
         self.assertEqual(verify(bundle, SHA)['source_sha'], SHA)
         self.assertEqual(len(list(bundle.iterdir())), 3)
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX ownership mode not available')
+    def test_verify_refuses_world_readable_bundle_directory(self):
+        bundle = self.bundle()
+        bundle.chmod(0o755)
+        with self.assertRaises(BundleError):
+            verify(bundle, SHA)
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX ownership mode not available')
+    def test_verify_refuses_world_readable_manifest_or_binary(self):
+        for relative in ('manifest.json', 'android-development.apk', 'ios-simulator.zip'):
+            bundle = self.root / ('delivery-' + relative.split('.')[0])
+            create(bundle, SHA, self.android, self.ios)
+            artifact = bundle / relative
+            artifact.chmod(0o644)
+            with self.subTest(relative=relative), self.assertRaises(BundleError):
+                verify(bundle, SHA)
 
     def test_reject_wrong_source_sha(self):
         bundle = self.bundle()
