@@ -90,38 +90,52 @@ class _OperationsState extends State<ChargingOperationsView> {
   bool focusBusy = false;
   bool busy = false;
   int generation = 0;
+  int focusGeneration = 0;
   String t(String k) => opsText(context, k);
   @override
   void initState() {
     super.initState();
-    load();
-    if (widget.focusCommandId != null) loadFocusedCase();
+    // An inbox case review needs only one owner-authorized case GET.
+    // The full dashboard/list is deliberately not fetched on this route.
+    if (widget.focusCommandId == null) {
+      load();
+    } else {
+      loadFocusedCase();
+    }
   }
 
   Future<void> loadFocusedCase() async {
     final id = widget.focusCommandId;
     if (id == null || id <= 0) return;
+    final request = ++focusGeneration;
     setState(() {
       focusBusy = true;
       focusError = null;
     });
     try {
       final result = await widget.api.request('charging-operations/$id/case');
-      if (!mounted) return;
+      if (!mounted || request != focusGeneration ||
+          widget.focusCommandId != id) return;
       if (result is! Map || result['command'] is! Map || result['case'] is! Map ||
           result['command']['id'] != id) {
         throw const FormatException('Operational case unavailable');
       }
       setState(() => focusedCase = Map<String, dynamic>.from(result));
     } catch (e) {
-      if (!mounted) return;
-      if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
+      if (!mounted || request != focusGeneration ||
+          widget.focusCommandId != id) return;
+      if (e is ApiException && [401, 419].contains(e.status)) {
+        widget.onExpired();
+        if (!mounted || request != focusGeneration) return;
+      }
       setState(() {
         focusError = e;
         focusedCase = null;
       });
     } finally {
-      if (mounted) setState(() => focusBusy = false);
+      if (mounted && request == focusGeneration) {
+        setState(() => focusBusy = false);
+      }
     }
   }
 
@@ -289,10 +303,11 @@ class _OperationsState extends State<ChargingOperationsView> {
           ],
           if (busy) const LinearProgressIndicator(),
           if (error != null) Text(s.t(errorKey(error!))),
-          TextButton(
-            onPressed: busy ? null : () => load(page: data?.current ?? 1),
-            child: Text(t('refresh')),
-          ),
+          if (widget.focusCommandId == null)
+            TextButton(
+              onPressed: busy ? null : () => load(page: data?.current ?? 1),
+              child: Text(t('refresh')),
+            ),
           if (data != null && data!.items.isEmpty) Text(t('none')),
           for (final row in data?.items ?? <Map<String, dynamic>>[])
             Card(

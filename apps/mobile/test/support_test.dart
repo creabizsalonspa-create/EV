@@ -290,6 +290,78 @@ class OperationalNoticeFixture extends FixtureApi {
   }
 }
 
+class OperationalInboxFixture extends FixtureApi {
+  int caseReads = 0;
+  int otherReads = 0;
+  int writes = 0;
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (method != 'GET') {
+      writes++;
+      throw const ApiException(405, 'Unexpected write from notification review');
+    }
+    if (path == 'notifications') {
+      return {
+        'data': [
+          {
+            'id': 25,
+            'kind': 'charging.operational_case.opened',
+            'read_at': null,
+            'support_ticket_id': null,
+            'metadata': {
+              'station_id': 3,
+              'command_id': 7,
+              'case_id': 8,
+              'physical_verification': false,
+            },
+          },
+        ],
+        'current_page': 1,
+        'last_page': 1,
+        'total': 1,
+      };
+    }
+    if (path == 'notifications/summary') {
+      return {
+        'unread_count': 1,
+        'latest_id': 25,
+        'unread_by_category': {
+          'support': 0, 'vehicle': 0, 'charging': 1,
+          'fleet': 0, 'other': 0,
+        },
+        'in_app_only': true,
+      };
+    }
+    if (path == 'charging-operations/7/case') {
+      caseReads++;
+      return {
+        'command': {'id': 7, 'status': 'outcome_unknown'},
+        'case': {'id': 8, 'state': 'awaiting_source'},
+        'source_observed': false,
+        'physical_charging_verified': false,
+        'events': {
+          'data': <Map<String, dynamic>>[],
+          'current_page': 1, 'last_page': 1, 'total': 0,
+        },
+      };
+    }
+    otherReads++;
+    if (path == 'support') {
+      return {
+        'data': <Map<String, dynamic>>[],
+        'current_page': 1, 'last_page': 1, 'total': 0,
+      };
+    }
+    throw ApiException(404, 'Unexpected request: $path');
+  }
+}
+
 class FleetFixture extends FixtureApi {
   int acceptRequests = 0;
   @override
@@ -419,6 +491,31 @@ void main() {
     expect(api.calls, contains('charging-operations/7/case'));
     expect(api.writes, 0);
   });
+
+  testWidgets(
+    'owner recovery notification opens only the authorized read-only case',
+    (tester) async {
+      final fixture = OperationalInboxFixture();
+      addTearDown(fixture.close);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SupportView(api: fixture, onSessionExpired: () {}),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('support-notifications')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('review-operational-case')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('review-operational-case')));
+      await tester.pumpAndSettle();
+      expect(find.text('Recovery notification · command #7'), findsOneWidget);
+      expect(find.text('Recorded case state: awaiting_source'), findsOneWidget);
+      expect(fixture.caseReads, 1);
+      expect(fixture.otherReads, 1); // The initial support page only.
+      expect(fixture.writes, 0); // No command, inspection or case mutation.
+    },
+  );
 
   test('monitor review and source catch-up are distinct from physical repair', () {
     final en = EvStrings(const Locale('en'));

@@ -120,6 +120,7 @@ void main() {
     expect(find.text('Recorded case state: awaiting_source'), findsOneWidget);
     expect(api.focusedReads, 1);
     expect(api.writes, 0);
+    expect(api.focusedReads, 1);
   });
   testWidgets('lost case response is not automatically replayed', (t) async {
     final api = OpsApi()..lost = true;
