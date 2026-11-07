@@ -253,3 +253,53 @@ The gateway is not production-deployed. Tests of this latest change are
 **pending** because the remote test host timed out during file synchronization.
 Do not mark it accepted before staged tests pass and charger-specific protocol
 retry handling is approved.
+
+
+## Additional Agent 2 contract: safe reissue, index preflight and binding concurrency
+
+**New AdminAuth endpoint**
+
+`POST /api/v1/admin/bookings/:id/ocpp/reissue-token` accepts an
+optional `chargerId` that must match the booking's original pinned
+charger. The response on a successful safe reissue includes
+`oneTimeToken`, `chargerId`, `expiresAt` and `reissued:true`,
+and never represents a real charger start or financial settlement.
+
+`GET /api/v1/admin/bookings/:id/ocpp/operations` adds
+`canReissueToken`. The Admin modal shows the action only after the
+backend verifies 20-minute TTL + 2-minute safety grace, no valid
+old credential, no durable consumed-token evidence, no observed
+OCPP source, and no already bound source. Raw token and hash are
+never returned by the read-only operations route.
+
+**Gateway requirement:** On an actual OCPP start, atomically claim
+the token and remove its TTL expiry field from the consumed record
+so its use cannot later be forgotten by Mongo TTL cleanup.
+OCPP `Authorize` is read-only. Exact OCPP 1.6 lost-response retries
+may reuse only the original active transaction identity.
+
+**Source-binding constraint:** `ChargingSession` source-bound
+`{bookingId,userId}` and `sourceSessionId` indexes are unique
+and binding update is conditional. Concurrent duplicate Admin
+requests must be idempotent or rejected, never reassign a booking.
+
+**Read-only release preflight:**
+`integrations/hasone-express/ocppSourceBindingIndexAudit.mjs`
+checks duplicate source IDs and bookings before installing either
+uniqueness index. Index writes in this helper are intentionally
+restricted to the disposable `agent2_demo_ephemeral` database.
+Do not let staging auto-index settings become a surprise
+production migration; verify production duplicate counts before
+a separately approved release.
+
+**WSS configuration:** For physical charger onboarding, set the
+actual verified `OCPP_PUBLIC_WS_BASE` URI. The staged Admin API no
+longer manufactures a charger WebSocket URL when one is not configured.
+
+**Verification:** The expanded isolated full-stack test runner has
+90 scenarios, including new expired-token and concurrency cases, but
+the latest additions are pending on-host integration/Next build
+because Desktop Commander was offline. Earlier 73/73 backend and
+8/8 mocked-browser checkpoints remain the last verified full runs.
+40/40 additional pure policy logic checks were executed independently.
+This is not a live merchant payment or Teltonika charger acceptance.
