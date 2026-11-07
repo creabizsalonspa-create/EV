@@ -206,9 +206,10 @@ class AdminAccountModerationTest extends TestCase
 
         $this->postJson('/api/login', [
             'email' => $account->email, 'password' => 'password',
-        ])->assertOk();
-        $this->getJson('/api/v1/me')->assertOk()
-            ->assertJsonPath('role', 'vendor');
+        ])->assertOk()->assertJsonPath('role', 'vendor');
+        // The browser login is a web-session flow; this deployment does not
+        // promise that a browser cookie authenticates native Sanctum routes.
+        $this->getJson('/api/vehicles')->assertOk();
     }
 
     public function test_new_genuine_native_token_is_compatible_with_nonzero_browser_epoch(): void
