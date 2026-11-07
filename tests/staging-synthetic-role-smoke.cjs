@@ -25,7 +25,7 @@ function withFixture(fn){
  const file=path.join(run,'access.json');fs.writeFileSync(file,JSON.stringify(fixture()),{mode:0o600});
  try{return fn(file);}finally{fs.rmSync(root,{recursive:true,force:true});}
 }
-function mockSend({adminStatus,logoutStatus,postLogoutStatus,wrongLoginRole,wrongMeId,track=[]}={}) {
+function mockSend({adminStatus,logoutStatus,postLogoutStatus,wrongLoginRole,wrongMeId,featureStatus,foreignReservation=false,track=[]}={}) {
  let role='',loggedIn=false,sequence=0;
  return async function(route,method,payload,jar) {
    track.push({route,method,jar});
@@ -43,6 +43,10 @@ function mockSend({adminStatus,logoutStatus,postLogoutStatus,wrongLoginRole,wron
    if(route==='/api/me') {
      if(!loggedIn)return {status:postLogoutStatus??401,body:{message:'Unauthenticated'}};
      return {status:200,body:{id:wrongMeId??roleSmoke.ROLES.indexOf(role)+1,role,email:'client-demo-'+role+'-'+RUN+'@example.test'}};
+   }
+   if(route==='/api/vehicles'||route==='/api/reservations'){
+     return {status:featureStatus??200,body:{data:route==='/api/reservations'&&foreignReservation?
+       [{id:55,user_id:999}]:[],total:foreignReservation?1:0}};
    }
    if(route==='/api/admin/overview') {
      return role==='admin'?{status:adminStatus??200,body:{users:3}}:{status:adminStatus??403,body:{message:'Forbidden'}};
@@ -191,4 +195,19 @@ test('browser cookie jar refuses suspicious overload before network requests',()
  assert.throws(()=>roleSmoke.readCookies(jar,{'set-cookie':[false]}));
  const more=new Map(Array.from({length:8},(_,i)=>['a'+i,'value']));
  assert.throws(()=>roleSmoke.readCookies(more,{'set-cookie':['ninth=value']}));
+});
+
+test('read-only reservation/vehicle journeys are required for all synthetic roles',async()=>{
+ const seen=[];
+ const result=await roleSmoke.checkRole('customer',fixture().accounts.customer,mockSend({track:seen}));
+ assert.equal(result.read_only_features_verified,true);
+ assert.ok(seen.some(x=>x.route==='/api/vehicles'&&x.method==='GET'));
+ assert.ok(seen.some(x=>x.route==='/api/reservations'&&x.method==='GET'));
+ assert.equal(seen.some(x=>x.route==='/api/reservations'&&x.method!=='GET'),false);
+});
+test('synthetic browser feature error fails rather than claiming demo readiness',async()=>{
+ await assert.rejects(()=>roleSmoke.checkRole('vendor',fixture().accounts.vendor,mockSend({featureStatus:500})));
+});
+test('customer synthetic reservations must not include another account ID',async()=>{
+ await assert.rejects(()=>roleSmoke.checkRole('customer',fixture().accounts.customer,mockSend({foreignReservation:true})));
 });
