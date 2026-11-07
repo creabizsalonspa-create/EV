@@ -51,6 +51,45 @@ Do not use a public staging service with this demo flag or consider this
 proof of authenticated API/charger operation. Store/release builds must
 use an authorized HTTPS origin.
 
+## Google Maps native SDK provisioning
+
+The separate HAS.ONE customer app uses Google Maps on Android and iOS. An
+Android API key is not interchangeable with an iOS bundle-restricted key.
+
+**Android:** the existing `MAPS_API_KEY` Gradle project property supplies
+the manifest's Google Maps SDK key. Approved release `assembleRelease`,
+`bundleRelease` and `packageRelease` tasks now reject a missing key;
+debug/local-demo builds may still compile without it but maps will not work.
+Use a key restricted to the final Android package ID, signing-certificate
+fingerprint, and required Maps API. The current `.dev` application ID must
+be approved or replaced by the owner before store distribution. For a CI
+runner, `ORG_GRADLE_PROJECT_MAPS_API_KEY` can supply the value without
+embedding it in committed Gradle files.
+
+**iOS:** `Runner/AppDelegate.swift` now imports GoogleMaps and calls
+`GMSServices.provideAPIKey` before registering Flutter plugins when a
+configured key is available. Both iOS Info plists take their value from
+`$(EV_GOOGLE_MAPS_IOS_KEY)`. On an authorized macOS/Xcode build host,
+create an **untracked** `apps/hasone-customer/ios/Flutter/MapsKeys.xcconfig`
+containing the approved bundle-restricted key:
+
+```xcconfig
+EV_GOOGLE_MAPS_IOS_KEY = YOUR_APPROVED_IOS_MAPS_KEY
+```
+
+Both Debug and Release xcconfigs include this optional file. The file is
+ignored by Git. No key is committed, generated, guessed or provisioned by
+these source changes. Missing iOS configuration allows unrelated simulator
+tests to build, **but maps cannot be accepted as working**. Before customer
+delivery, configure the bundle-restricted key, compile on macOS/Xcode,
+open real Google Maps views on device, and confirm API/billing and location
+restrictions. A mobile API key is embedded in the distributed app and must
+be restricted by the provider; keeping it untracked in source control is
+not a substitute for API restriction.
+
+See the official native SDK setup:
+https://developers.google.com/maps/documentation/ios-sdk/config
+
 ## Secrets supplied by the authorized release operator
 
 Set four **Gradle project properties** for each app through a secured CI secret
