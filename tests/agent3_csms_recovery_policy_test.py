@@ -2,6 +2,9 @@
 from pathlib import Path
 import re
 import subprocess
+import tempfile
+import shutil
+import os
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +42,30 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
         self.assertNotIn("--mount type=bind", code)
         self.assertNotIn("docker compose down", code)
         self.assertNotIn("docker volume prune", code)
+
+    def test_missing_docker_erases_old_pass_without_running_containers(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root/'scripts').mkdir()
+            (root/'artifacts/agent3-csms-recovery').mkdir(parents=True)
+            script = root/'scripts/csms-recovery-smoke'
+            shutil.copyfile(SCRIPT, script)
+            artifact = root/'artifacts/agent3-csms-recovery/validation.json'
+            artifact.write_text('{"status":"PASS","outdated":true}')
+            utilities = root/'safe-path'
+            utilities.mkdir()
+            for name in ('dirname', 'mkdir', 'rm', 'date'):
+                destination = shutil.which(name)
+                self.assertIsNotNone(destination)
+                (utilities/name).symlink_to(destination)
+            # No Docker binary exists in this restricted PATH, even when the
+            # CI runner has one. This test never starts or inspects a daemon.
+            run = subprocess.run(
+                ['/bin/bash', str(script)], env={'PATH': str(utilities)},
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertNotEqual(run.returncode, 0)
+            self.assertFalse(artifact.exists())
 
     def test_geospatial_proof_and_point_in_time_boundary(self):
         code = self.source

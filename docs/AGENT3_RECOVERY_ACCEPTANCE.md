@@ -113,3 +113,7 @@ The disposable restore runner now rechecks internal Docker network membership af
 ### Strict recovery-evidence JSON parser
 
 Both the local backup manifest verifier and the combined same-run evidence gate now reject duplicate object member names at any depth and non-standard `NaN`/`Infinity` numeric constants before interpreting proof fields. This closes parser-differential ambiguity in signed manifest and CI result ingestion. Existing byte/size/symlink restrictions and explicit non-production classification remain intact. No external signatures or production durability are implied.
+
+### Stale success cleanup before prerequisite failures
+
+Both disposable restore entrypoints now remove only their own previous `validation.json` immediately after establishing the script-root path, **before** argument validation, local Docker discovery, image inspection, or runtime readiness. Negative tests create a prior synthetic PASS in an isolated temporary repository, then deliberately fail early (invalid staging image or a restricted PATH without Docker) and require the artifact to be absent. This prevents an old local success file surviving an unsuccessful rerun; it does not change or remove unrelated artifacts and is not a production recovery claim.

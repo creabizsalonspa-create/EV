@@ -3,6 +3,10 @@
 # PostgreSQL containers. No host port, existing database or production service is used.
 set -euo pipefail
 umask 077
+root=$(cd "$(dirname "$0")/.." && pwd)
+# Clear stale success BEFORE input, image, Docker or runtime checks.
+mkdir -p "$root/artifacts/agent3-recovery"
+rm -f -- "$root/artifacts/agent3-recovery/validation.json"
 command -v date >/dev/null
 drill_started_epoch=$(date -u +%s)
 
@@ -19,10 +23,6 @@ command -v docker >/dev/null
 command -v python3 >/dev/null
 docker image inspect "$image" >/dev/null
 
-root=$(cd "$(dirname "$0")/.." && pwd)
-# Never expose an old PASS artifact when a subsequent rehearsal fails.
-mkdir -p "$root/artifacts/agent3-recovery"
-rm -f -- "$root/artifacts/agent3-recovery/validation.json"
 review_id="ev-recovery-$RANDOM-$$"
 scratch=$(mktemp -d /tmp/ev-recovery.XXXXXXXX)
 # The key never leaves this disposable run; it is not a production signing root.

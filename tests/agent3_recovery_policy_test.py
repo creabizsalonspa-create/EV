@@ -2,6 +2,8 @@
 from pathlib import Path
 import re
 import subprocess
+import tempfile
+import shutil
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +29,23 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertNotRegex(code, r"docker\s+(?:system|volume|image)\s+prune")
         self.assertNotIn("docker volume rm", code)
         self.assertNotIn("docker rm -f $(docker", code)
+
+    def test_invalid_input_erases_stale_pass_before_any_docker_action(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root/'scripts').mkdir()
+            (root/'artifacts/agent3-recovery').mkdir(parents=True)
+            script = root/'scripts/staging-recovery-smoke'
+            shutil.copyfile(SCRIPT, script)
+            artifact = root/'artifacts/agent3-recovery/validation.json'
+            artifact.write_text('{"status":"PASS","outdated":true}')
+            run = subprocess.run(
+                ['/bin/bash', str(script), 'non-review-image'],
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertNotEqual(run.returncode, 0)
+            self.assertFalse(artifact.exists())
+            self.assertIn('non-review', run.stderr)
 
     def test_applications_cannot_reach_external_networks_or_host_ports(self):
         code = self.source
