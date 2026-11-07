@@ -28,6 +28,7 @@ class ChargingOperationsController extends Controller
     public function index(Request $r)
     {
         $this->authorizeOperator($r);
+        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
         $q = ChargerCommand::where(function ($q) {
             $q->whereIn('status', self::UNCERTAIN)->orWhereExists(fn ($s) => $s->selectRaw('1')->from('charging_operational_cases')->whereColumn('command_id', 'charger_commands.id'));
         });
@@ -46,6 +47,7 @@ class ChargingOperationsController extends Controller
     public function show(Request $r, ChargerCommand $command)
     {
         $this->authorizeOperator($r, $command);
+        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
         $case = OperationalCase::where('command_id', $command->id)->first();
         $events = $case ? DB::table('charging_operational_case_events')->where('case_id', $case->id)->orderByDesc('id')->paginate(25)->through(function ($event) {
             $event->note = Crypt::decryptString($event->note);

@@ -103,6 +103,34 @@ class ChargingOperationsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_recovery_case_and_event_pagination_are_bounded_and_owner_scoped(): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $this->actingAs($vendor)->postJson('/api/charging-operations/'.$command->id.'/case', [
+            'note' => 'Inspecting the limited recovery page',
+        ])->assertCreated();
+
+        foreach (['0', '-1', 'garbage', '1000001', '1.5'] as $invalid) {
+            $this->getJson('/api/charging-operations?page='.$invalid)
+                ->assertUnprocessable();
+            $this->getJson('/api/charging-operations/'.$command->id.'?page='.$invalid)
+                ->assertUnprocessable();
+        }
+        $this->getJson('/api/charging-operations?page=1')->assertOk()
+            ->assertJsonPath('total', 1);
+        $this->getJson('/api/charging-operations/'.$command->id.'?page=1')
+            ->assertOk()->assertJsonPath('events.total', 1);
+
+        $outsider = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($outsider)->getJson('/api/charging-operations/'.$command->id.'?page=bad')
+            ->assertNotFound();
+        $this->getJson('/api/charging-operations?page=1')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_operational_case_open_notice_is_owner_scoped_and_replay_idempotent(): void
     {
         [$vendor, $customer, $session, $command] = $this->fixture();
