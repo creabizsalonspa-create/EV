@@ -41,7 +41,7 @@ async function inspect(options,deps={}){
     const first=readiness(options.manifest);
     requireSimulators(first);
     const roles=await roleCheck(options.manifest);
-    if(roles?.ok!==true || roles.physical_charging_verified!==false ||
+    if(roles?.ok!==true || roles.discovery_verified!==true || roles.physical_charging_verified!==false ||
       roles.real_money_moved!==false || roles.production_accepted!==false ||
       roles.results?.length!==3 ||
       roles.results.some((x,i)=>x.role!==ROLES[i] || x.authenticated!==true ||
