@@ -65,7 +65,9 @@ class MobileReleaseSigningTest(unittest.TestCase):
                 ).getroot()
                 self.assertEqual("full-backup-content", backup.tag)
                 required_domains = {
-                    "root", "file", "database", "sharedpref", "external"
+                    "root", "file", "database", "sharedpref", "external",
+                    "device_root", "device_file", "device_database",
+                    "device_sharedpref",
                 }
                 self.assertEqual(
                     required_domains,
