@@ -55,11 +55,11 @@ final class AdminTotp
         }
         $counter = pack('N2', intdiv($step, 4294967296), $step % 4294967296);
         $digest = hash_hmac('sha1', $counter, self::decodeSecret($secret), true);
-        $offset = ord($digest[19]) & 0x0f;
-        $number = ((ord($digest[$offset]) & 0x7f) << 24)
-            | ((ord($digest[$offset + 1]) & 0xff) << 16)
-            | ((ord($digest[$offset + 2]) & 0xff) << 8)
-            | (ord($digest[$offset + 3]) & 0xff);
+        $offset = ord($digest[19]) & 0x0F;
+        $number = ((ord($digest[$offset]) & 0x7F) << 24)
+            | ((ord($digest[$offset + 1]) & 0xFF) << 16)
+            | ((ord($digest[$offset + 2]) & 0xFF) << 8)
+            | (ord($digest[$offset + 3]) & 0xFF);
 
         return str_pad((string) ($number % 1000000), 6, '0', STR_PAD_LEFT);
     }
