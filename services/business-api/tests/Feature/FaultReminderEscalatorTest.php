@@ -221,6 +221,43 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_former_admin_cannot_view_or_mutate_historical_escalation(): void
+    {
+        $fixture = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')
+            ->where('id', $fixture['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $this->assertSame(1, app(FaultReminderEscalator::class)->scan()['escalated']);
+        $id = InboxNotification::where('kind', 'charging.fault.escalated.simulated')
+            ->firstOrFail()->id;
+        $this->actingAs($admin);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+
+        $admin->update(['role' => 'vendor']);
+        foreach (['/api/notifications', '/api/v1/notifications'] as $base) {
+            $this->getJson($base.'?category=charging')
+                ->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($base.'/summary')->assertOk()
+                ->assertJsonPath('unread_count', 0);
+            $this->postJson($base.'/'.$id.'/read')->assertNotFound();
+            $this->postJson($base.'/'.$id.'/unread')->assertNotFound();
+            $this->postJson($base.'/read-through', [
+                'through_id' => $id,
+            ])->assertOk()->assertJsonPath('marked_read', 0)
+                ->assertJsonPath('remaining_unread', 0);
+        }
+        $this->assertNull(InboxNotification::findOrFail($id)->read_at);
+        $admin->update(['role' => 'admin']);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->postJson('/api/notifications/'.$id.'/read')->assertOk();
+        $this->assertNotNull(InboxNotification::findOrFail($id)->read_at);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_escalation_requires_valid_admin_and_unresolved_fault_over_sixty_minutes(): void
     {
         $f = $this->fixture();

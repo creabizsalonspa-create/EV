@@ -182,7 +182,7 @@ class SupportController extends Controller
             'category' => 'sometimes|in:support,vehicle,charging,fleet,other',
         ]);
 
-        $page = InboxNotification::where('user_id', $r->user()->id)
+        $page = InboxNotification::visibleTo($r->user())
             ->when($r->boolean('unread_only'), fn ($q) => $q->whereNull('read_at'))
             ->when(isset($filters['category']), function ($q) use ($filters) {
                 if ($filters['category'] === 'other') {
@@ -202,11 +202,12 @@ class SupportController extends Controller
 
     public function read(Request $r, InboxNotification $notification)
     {
-        abort_unless($notification->user_id === $r->user()->id, 404);
+        abort_unless(InboxNotification::visibleTo($r->user())
+            ->whereKey($notification->id)->exists(), 404);
 
         return DB::transaction(function () use ($r, $notification) {
-            $changed = InboxNotification::whereKey($notification->id)
-                ->where('user_id', $r->user()->id)
+            $changed = InboxNotification::visibleTo($r->user())
+                ->whereKey($notification->id)
                 ->whereNull('read_at')
                 ->update(['read_at' => now()]);
 
@@ -219,8 +220,8 @@ class SupportController extends Controller
                 ]);
             }
 
-            return response()->json(InboxNotification::whereKey($notification->id)
-                ->where('user_id', $r->user()->id)->firstOrFail())
+            return response()->json(InboxNotification::visibleTo($r->user())
+                ->whereKey($notification->id)->firstOrFail())
                 ->header('Cache-Control', 'private, no-store');
         });
     }

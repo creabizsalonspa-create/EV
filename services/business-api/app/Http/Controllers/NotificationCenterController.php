@@ -24,8 +24,7 @@ class NotificationCenterController extends Controller
             'charging' => 'charging.%',
             'fleet' => 'fleet.%',
         ];
-        $query = InboxNotification::query()
-            ->where('user_id', $request->user()->id)
+        $query = InboxNotification::visibleTo($request->user())
             ->selectRaw('COALESCE(SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count, COALESCE(MAX(id), 0) AS latest_id');
 
         foreach ($fields as $category => $prefix) {
@@ -144,7 +143,7 @@ class NotificationCenterController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $v): JsonResponse {
-            $scope = InboxNotification::query()->where('user_id', $request->user()->id);
+            $scope = InboxNotification::visibleTo($request->user());
             $updated = (clone $scope)->where('id', '<=', $v['through_id'])
                 ->whereNull('read_at')->update(['read_at' => now()]);
 
@@ -168,12 +167,12 @@ class NotificationCenterController extends Controller
     /** Reopens only the caller's in-app read state; does not change the event. */
     public function markUnread(Request $request, InboxNotification $notification): JsonResponse
     {
-        abort_unless($notification->user_id === $request->user()->id, 404);
+        abort_unless(InboxNotification::visibleTo($request->user())
+            ->whereKey($notification->id)->exists(), 404);
 
         return DB::transaction(function () use ($request, $notification): JsonResponse {
-            $updated = InboxNotification::query()
+            $updated = InboxNotification::visibleTo($request->user())
                 ->whereKey($notification->id)
-                ->where('user_id', $request->user()->id)
                 ->whereNotNull('read_at')
                 ->update(['read_at' => null]);
 
@@ -187,8 +186,8 @@ class NotificationCenterController extends Controller
             }
 
             return response()->json(
-                InboxNotification::query()->whereKey($notification->id)
-                    ->where('user_id', $request->user()->id)->firstOrFail()
+                InboxNotification::visibleTo($request->user())
+                    ->whereKey($notification->id)->firstOrFail()
             )->header('Cache-Control', 'private, no-store');
         });
     }
