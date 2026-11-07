@@ -338,6 +338,8 @@
     const ocmSafe = (r) =>
         r && typeof r.id === "string" && /^ocm:[1-9]\d*$/.test(r.id) &&
         r.source_status_evidence === "OPEN_CHARGE_MAP_DISCOVERY_ONLY" &&
+        r.reported_operational_evidence === "OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED" &&
+        (r.reported_operational === null || typeof r.reported_operational === "boolean") &&
         r.availability === "unknown" && r.remote_control === false &&
         r.reservable === false && r.billing_eligible === false &&
         typeof r.data_license === "string" && r.data_license.trim() &&
@@ -367,6 +369,19 @@
                     "Open Charge Map crowd report (licensed source). Live availability unverified; no booking, charging or payment.",
                     "تقرير مجتمعي من خريطة الشحن المفتوحة (مصدر مرخص). التوفر المباشر غير مؤكد؛ لا حجز أو شحن أو دفع.",
                 );
+                const reported = make(
+                    "p",
+                    row.reported_operational === true
+                        ? "Crowd report: this location was operational at last update; not live."
+                        : row.reported_operational === false
+                            ? "Crowd report: this location had an operational issue; not live."
+                            : "Crowd operational report unknown; not live.",
+                    row.reported_operational === true
+                        ? "التقرير المجتمعي: كان الموقع يعمل عند آخر تحديث؛ ليست حالة مباشرة."
+                        : row.reported_operational === false
+                            ? "التقرير المجتمعي: أبلغ عن مشكلة تشغيل؛ ليست حالة مباشرة."
+                            : "الحالة التشغيلية المجتمعية غير معروفة؛ ليست مباشرة.",
+                );
                 const attribution = document.createElement("p");
                 attribution.textContent = row.attribution + " · " + row.data_license;
                 const jump = make(
@@ -389,7 +404,7 @@
                 source.href = row.source_url;
                 source.target = "_blank";
                 source.rel = "noopener noreferrer";
-                popup.append(name, evidence, attribution, jump, source);
+                popup.append(name, evidence, reported, attribution, jump, source);
             }
             L.marker([+first.latitude, +first.longitude], {
                 title: text(

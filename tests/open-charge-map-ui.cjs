@@ -18,6 +18,8 @@ const point = {
   distance_basis: "great_circle",
   operator_label: "Unverified network",
   source_status_evidence: "OPEN_CHARGE_MAP_DISCOVERY_ONLY",
+  reported_operational: true,
+  reported_operational_evidence: "OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED",
   source_clock_evidence: "CROWD_REPORTED_TIME",
   source_age_minutes: 120,
   connections: [{ reported_connector_type: "Type 2", reported_power_kw: 22, availability: "unknown" }],
@@ -48,9 +50,23 @@ const reply = {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   try {
-    for (const mode of ["disabled", "enabled", "unsafe"]) {
+    for (const mode of ["disabled", "enabled", "unsafe", "late"]) {
       const context = await browser.newContext({ permissions: [] });
       const page = await context.newPage();
+      if (mode === "late") await page.addInitScript(() => {
+        const original = Response.prototype.json;
+        Response.prototype.json = function(...args) {
+          if (this.url.includes("/api/discovery/open-charge-map/search")) {
+            return new Promise((resolve, reject) => {
+              window.__releaseOcmJson = async () => {
+                try { resolve(await original.apply(this, args)); }
+                catch (error) { reject(error); }
+              };
+            });
+          }
+          return original.apply(this, args);
+        };
+      });
       const pageErrors = [];
       const searchRequests = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -108,6 +124,20 @@ const reply = {
       assert.equal(searchRequests.length, 0, "Filling coordinates must not start a partner request");
       await root.locator('input[type="checkbox"]').check();
       await root.getByRole("button", { name: "Search open-licensed locations" }).click();
+      if (mode === "late") {
+        await page.waitForFunction(() => typeof window.__releaseOcmJson === "function", { timeout: 6000 });
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
+        await page.evaluate(() => window.__releaseOcmJson());
+        await page.waitForTimeout(200);
+        assert.equal(await root.locator("article").count(), 0);
+        assert.equal(await page.locator(".ocm-map-pin").count(), 0,
+          "Delayed JSON after identity switch leaked stale licensed-source data");
+        assert.equal(await root.getByRole("button", { name: "Search open-licensed locations" }).isEnabled(), true,
+          "Aborted source query must not permanently disable search");
+        assert.deepEqual(pageErrors, []);
+        await context.close();
+        continue;
+      }
       await page.waitForFunction(() => {
         const el = document.querySelector("#open-charge-map-discovery");
         return el && (el.querySelector("article") || el.textContent.includes("Licensed source unavailable"));
@@ -126,6 +156,7 @@ const reply = {
         assert.equal(await root.locator("article img").count(), 0, "Raw contributor title became HTML");
         assert.equal(await root.locator("article").textContent().then(s => s.includes("CC BY-SA 4.0")), true);
         assert.equal(await root.locator("article").textContent().then(s => s.includes("Type 2") && s.includes("22 kW")), true);
+        await root.getByText("Crowd-reported operational at last update; unverified and not live.", { exact: true }).waitFor();
         assert.equal(await root.getByRole("button", { name: "Request charge" }).count(), 0);
         const source = root.getByRole("link", { name: "View source and license" });
         assert.equal(await source.getAttribute("href"), "https://openchargemap.org/site/poi/details/12345");
@@ -138,6 +169,10 @@ const reply = {
         const popup = page.locator(".leaflet-popup-content");
         await popup.getByText(
           "Open Charge Map crowd report (licensed source). Live availability unverified; no booking, charging or payment.",
+          { exact: true },
+        ).waitFor();
+        await popup.getByText(
+          "Crowd report: this location was operational at last update; not live.",
           { exact: true },
         ).waitFor();
         assert.equal(await popup.getByRole("button", { name: "Add charging stop" }).count(), 0);

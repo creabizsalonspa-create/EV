@@ -30,6 +30,7 @@ class OpenChargeMapDiscoveryTest extends TestCase
                 'IsOpenDataLicensed' => true,
             ],
             'SubmissionStatusTypeID' => 200,
+            'StatusType' => ['IsOperational' => true],
             'AddressInfo' => [
                 'Title' => 'Fixture open charge station',
                 'AddressLine1' => 'Fixture street',
@@ -82,6 +83,8 @@ class OpenChargeMapDiscoveryTest extends TestCase
             ->assertJsonPath('results.0.data_license', 'CC BY-SA 4.0')
             ->assertJsonPath('results.0.attribution', 'Open Charge Map / Licensed contributor')
             ->assertJsonPath('results.0.availability', 'unknown')
+            ->assertJsonPath('results.0.reported_operational', true)
+            ->assertJsonPath('results.0.reported_operational_evidence', 'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED')
             ->assertJsonPath('results.0.remote_control', false)
             ->assertJsonPath('results.0.reservable', false)
             ->assertJsonPath('results.0.billing_eligible', false)

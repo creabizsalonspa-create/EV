@@ -72,6 +72,8 @@
     };
     const secure = (r) => r && /^ocm:[1-9]\d*$/.test(r.id || '') &&
         r.source_status_evidence === 'OPEN_CHARGE_MAP_DISCOVERY_ONLY' &&
+        r.reported_operational_evidence === 'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED' &&
+        (r.reported_operational === null || typeof r.reported_operational === 'boolean') &&
         r.availability === 'unknown' && r.remote_control === false &&
         r.reservable === false && r.billing_eligible === false &&
         typeof r.data_license === 'string' && !!r.data_license.trim() &&
@@ -94,7 +96,6 @@
             !data.results.every(secure)) throw Error('Unsafe source data');
         lastResult = data;
         results.replaceChildren();
-        window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: data.results }));
         for (const r of data.results) {
             const card = document.createElement('article');
             card.dataset.ocmLocationId = r.id;
@@ -110,6 +111,12 @@
                 : Number.isSafeInteger(r.source_age_minutes) && r.source_age_minutes >= 0
                     ? (ar() ? 'عمر التقرير: ' : 'Reported source age: ') + r.source_age_minutes + ' min (not live)'
                     : (ar() ? 'وقت تحديث المصدر غير معروف' : 'Source update time unknown');
+            const reportedStatus = document.createElement('p');
+            reportedStatus.textContent = r.reported_operational === true
+                ? (ar() ? 'وفق تقرير المجتمع كان الموقع يعمل؛ غير مؤكد وليس مباشراً' : 'Crowd-reported operational at last update; unverified and not live.')
+                : r.reported_operational === false
+                    ? (ar() ? 'أبلغ المجتمع أن الموقع لا يعمل؛ غير مؤكد وليس مباشراً' : 'Crowd-reported non-operational at last update; unverified and not live.')
+                    : (ar() ? 'الحالة التشغيلية المبلغ عنها غير معروفة؛ ليست مباشرة' : 'Crowd operational report unavailable; not live.');
             const license = document.createElement('p');
             license.textContent = (ar() ? 'المصدر والترخيص: ' : 'Source/license: ') + r.attribution + ' · ' + r.data_license;
             const connectors = document.createElement('p');
@@ -120,17 +127,21 @@
             link.href = r.source_url;
             link.target = '_blank';
             link.rel = 'noopener noreferrer';
-            card.append(heading, place, distance, age, license, connectors,
+            card.append(heading, place, distance, age, reportedStatus, license, connectors,
                 text('p', 'Availability unknown. No remote charging, booking or payment.',
                     'التوفر غير معروف. لا شحن أو حجز أو دفع عن بُعد.'), link);
             results.append(card);
         }
         announce('Up to 25 licensed discovery-only results. Other sites may be missing; none is verified live.',
             'حتى 25 نتيجة مرخصة للاكتشاف فقط؛ قد تكون مواقع أخرى مفقودة؛ لا يوجد توفر مباشر مؤكد.');
+        // Publish markers only after the entire vetted list renders.
+        window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: data.results }));
     }
     const clear = () => {
         generation++;
         current?.abort();
+        current = null;
+        search.disabled = false;
         lastResult = null;
         results.replaceChildren();
         window.dispatchEvent(new CustomEvent("open-charge-map-data", { detail: [] }));
@@ -163,7 +174,11 @@
             });
             if (epoch !== generation) return;
             if (!response.ok) throw Error('Source unavailable');
-            render(await response.json());
+            const responseBody = await response.json();
+            // A logout/identity change can race with streamed JSON parsing:
+            // never resurrect a revoked source after source generation changes.
+            if (epoch !== generation) return;
+            render(responseBody);
         } catch (_) {
             if (epoch !== generation) return;
             results.replaceChildren();

@@ -61,6 +61,10 @@ final class OpenChargeMapProjection
             : intdiv($now->getTimestamp() - $sourceTime->getTimestamp(), 60);
         $sourceEvidence = $sourceTime === null ? 'SOURCE_TIME_UNKNOWN'
             : ($sourceTime->getTimestamp() > $now->getTimestamp() ? 'SOURCE_CLOCK_AHEAD' : 'CROWD_REPORTED_TIME');
+        // The operational flag is a historic crowd report, NOT current OCPP
+        // connector occupancy or an authorized OCPI partner state.
+        $operational = $poi['StatusType']['IsOperational'] ?? null;
+        $reportedOperational = is_bool($operational) ? $operational : null;
 
         $connections = [];
         foreach (is_array($poi['Connections'] ?? null) ? $poi['Connections'] : [] as $connection) {
@@ -96,6 +100,8 @@ final class OpenChargeMapProjection
             'source_age_minutes' => $sourceAge,
             'source_clock_evidence' => $sourceEvidence,
             'source_status_evidence' => 'OPEN_CHARGE_MAP_DISCOVERY_ONLY',
+            'reported_operational' => $reportedOperational,
+            'reported_operational_evidence' => 'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED',
             'data_provider' => $providerLabel,
             'data_license' => $license,
             'attribution' => 'Open Charge Map / '.$providerLabel,

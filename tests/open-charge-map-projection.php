@@ -12,6 +12,7 @@ $poi = [
     'OperatorInfo'=>['Title'=>'Crowd-supplied operator', 'ConnectionKey'=>'never disclose'],
     'Connections'=>[['ConnectionType'=>['Title'=>'CCS2'],'PowerKW'=>120,'AccessToken'=>'secret'],['ConnectionType'=>['Title'=>'Type 2'], 'PowerKW'=>'NaN']],
     'SubmissionStatusTypeID'=>200,
+    'StatusType'=>['IsOperational'=>true],
     'DateLastStatusUpdate'=>'2026-11-07T10:00:00Z',
     'PrivateNotes'=>'untrusted',
 ];
@@ -24,8 +25,11 @@ check($v['source_clock_evidence']==='CROWD_REPORTED_TIME','clock evidence');
 check($v['data_license']==='CC BY-SA 4.0','licensing');
 check($v['source_url']==='https://openchargemap.org/site/poi/details/12345','fixed origin');
 check($v['availability']==='unknown' && $v['remote_control']===false && $v['reservable']===false && $v['billing_eligible']===false,'never actionable');
+check($v['reported_operational']===true && $v['reported_operational_evidence']==='OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED','crowd operational evidence');
 check(count($v['connections'])===2 && $v['connections'][1]['reported_power_kw']===null,'reported connections');
 check(!str_contains(json_encode($v),'ApiKey')&&!str_contains(json_encode($v),'secret')&&!str_contains(json_encode($v),'PrivateNotes'),'private data leakage');
+$bad=$poi;$bad['StatusType']['IsOperational']=false;check(OpenChargeMapProjection::item($bad,$now)['reported_operational']===false,'reported false');
+$bad=$poi;$bad['StatusType']['IsOperational']='true';check(OpenChargeMapProjection::item($bad,$now)['reported_operational']===null,'malformed status unknown');
 $bad=$poi;$bad['DataProvider']['IsOpenDataLicensed']=false;check(OpenChargeMapProjection::item($bad,$now)===null,'not open licensed');
 $bad=$poi;$bad['DataProvider']['License']='';check(OpenChargeMapProjection::item($bad,$now)===null,'unattributed license');
 $bad=$poi;$bad['AddressInfo']['Longitude']=181;check(OpenChargeMapProjection::item($bad,$now)===null,'invalid coords');
