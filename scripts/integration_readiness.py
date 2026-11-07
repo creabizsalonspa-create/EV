@@ -18,15 +18,19 @@ TARGET = "development/fullstack-continuation"
 CORE = frozenset(("business-platform", "finance-postgres",
                   "connector-postgres", "staging-image"))
 NATIVE = frozenset(("native (ubuntu-latest)", "native (macos-15)"))
+HASONE_NATIVE = frozenset(("hasone-native (ubuntu-latest)",
+                          "hasone-native (macos-15)"))
 CHECK_LIMIT = 300
 
 
 def required_checks(paths):
     required = set(CORE)
-    if any(p.startswith(("apps/mobile/", "apps/hasone-customer/"))
-           or p == ".github/workflows/mobile.yml"
-           or p == ".github/workflows/hasone-customer.yml" for p in paths):
+    if any(p.startswith("apps/mobile/")
+           or p == ".github/workflows/mobile.yml" for p in paths):
         required.update(NATIVE)
+    if any(p.startswith("apps/hasone-customer/")
+           or p == ".github/workflows/hasone-customer.yml" for p in paths):
+        required.update(HASONE_NATIVE)
     if any(p.startswith("integrations/hasone-express/") for p in paths):
         required.add("integration-guards")
     if any(p.startswith("scripts/csms-recovery-smoke") for p in paths):
