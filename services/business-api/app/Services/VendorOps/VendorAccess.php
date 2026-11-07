@@ -17,7 +17,7 @@ class VendorAccess
     {
         $owner = $company->owner_id === $actor->id;
         $reviewer = $actor->role === 'admin';
-        $permissions = $owner || $reviewer ? self::PERMISSIONS : (VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $actor->id)->where('status', 'active')->first()?->permissions ?? []);
+        $permissions = $owner || $reviewer ? self::PERMISSIONS : (VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $actor->id)->where('status', 'active')->whereNull('admin_revoked_at')->first()?->permissions ?? []);
 
         return ['owner' => $owner, 'reviewer' => $reviewer, 'company_read' => in_array('company.read', $permissions, true),
             'inventory_read' => in_array('inventory.read', $permissions, true), 'inventory_write' => in_array('inventory.write', $permissions, true),
@@ -29,7 +29,7 @@ class VendorAccess
         if ($actor->role === 'admin' || $company->owner_id === $actor->id) {
             return;
         }
-        $membership = VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $actor->id)->where('status', 'active')->lockForUpdate()->first();
+        $membership = VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $actor->id)->where('status', 'active')->whereNull('admin_revoked_at')->lockForUpdate()->first();
         abort_unless($membership && in_array($permission, $membership->permissions, true), 404);
     }
 

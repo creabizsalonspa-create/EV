@@ -27,7 +27,7 @@ class VendorOpsController extends Controller
 
     public function companies(Request $r)
     {
-        return VendorCompany::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id)->orWhereIn('id', VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'active')->select('company_id')))->orderByDesc('id')->paginate(25)->through(fn ($company) => $company->toArray() + ['capabilities' => $this->access->capabilities($r->user(), $company)]);
+        return VendorCompany::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id)->orWhereIn('id', VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'active')->whereNull('admin_revoked_at')->select('company_id')))->orderByDesc('id')->paginate(25)->through(fn ($company) => $company->toArray() + ['capabilities' => $this->access->capabilities($r->user(), $company)]);
     }
 
     public function createCompany(Request $r)
@@ -235,7 +235,7 @@ class VendorOpsController extends Controller
 
     public function invitations(Request $r)
     {
-        $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->paginate(25);
+        $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->whereNull('admin_revoked_at')->paginate(25);
         $companies = VendorCompany::whereIn('id', $page->getCollection()->pluck('company_id'))->get(['id', 'legal_name', 'country'])->keyBy('id');
 
         return $page->through(fn ($membership) => $membership->toArray() + ['company' => $companies->get($membership->company_id)]);

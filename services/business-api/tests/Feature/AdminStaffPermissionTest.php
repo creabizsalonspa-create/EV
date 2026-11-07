@@ -224,6 +224,29 @@ class AdminStaffPermissionTest extends TestCase
         ]);
     }
 
+    public function test_emergency_hold_is_checked_at_each_company_access_even_if_status_is_inconsistent(): void
+    {
+        [$admin, $owner, $staff, $company, $member] = $this->fixture();
+        $this->actingAs($admin)->postJson(
+            '/api/admin/permission-grants/'.$member->id.'/revoke',
+            $this->payload()
+        )->assertOk();
+
+        // Simulate a separate stale writer or erroneous legacy SQL update:
+        // the Admin hold must override an accidentally reactivated status.
+        DB::table('vendor_company_staff')->where('id', $member->id)
+            ->update(['status' => 'active']);
+        $this->actingAs($staff)->getJson(
+            '/api/vendor-ops/companies/'.$company->id
+        )->assertNotFound();
+        $this->getJson('/api/vendor-ops/companies')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($owner)->getJson(
+            '/api/vendor-ops/companies/'.$company->id
+        )->assertOk();
+        $this->assertNotNull($member->fresh()->admin_revoked_at);
+    }
+
     public function test_revocation_history_is_private_to_admin(): void
     {
         [$admin, , $staff, , $membership] = $this->fixture();
