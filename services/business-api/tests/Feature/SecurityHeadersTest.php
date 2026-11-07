@@ -52,6 +52,38 @@ class SecurityHeadersTest extends TestCase
         }
     }
 
+    public function test_anonymous_private_customer_vendor_and_admin_api_routes_fail_closed(): void
+    {
+        // These are protected endpoints, not a catalog. Do not turn an
+        // unauthenticated error or redirect into a cacheable customer record.
+        foreach ([
+            '/api/me',
+            '/api/vehicles',
+            '/api/reservations',
+            '/api/fleets',
+            '/api/admin/overview',
+            '/api/charger-commands',
+            '/api/support',
+        ] as $path) {
+            $response = $this->getJson($path);
+
+            $response->assertUnauthorized();
+            $this->assertSame('no-store, private', $response->headers->get('Cache-Control'), $path);
+            $this->assertSame('DENY', $response->headers->get('X-Frame-Options'), $path);
+            $this->assertSame('nosniff', $response->headers->get('X-Content-Type-Options'), $path);
+        }
+    }
+
+    public function test_password_reset_token_page_never_leaks_a_referrer_or_cacheable_response(): void
+    {
+        $response = $this->get('/reset-password/synthetic-unusable-token');
+
+        $response->assertOk();
+        $this->assertSame('no-referrer', $response->headers->get('Referrer-Policy'));
+        $this->assertSame('no-store, private', $response->headers->get('Cache-Control'));
+        $this->assertSame('DENY', $response->headers->get('X-Frame-Options'));
+    }
+
     public function test_regular_pages_still_receive_the_platform_default_csp(): void
     {
         $response = $this->get('/');
