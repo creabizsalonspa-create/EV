@@ -55,7 +55,7 @@ class AdminSecondFactorController extends Controller
         $request->session()->put('admin_second_factor_pending', [
             'user_id' => $account->id,
             'encrypted_secret' => Crypt::encryptString($secret),
-            'expires_at' => time() + 600,
+            'expires_at' => now()->timestamp + 600,
         ]);
 
         // The one-time enrollment secret is shown only after password
@@ -75,10 +75,10 @@ class AdminSecondFactorController extends Controller
         abort_unless(is_array($pending)
             && ($pending['user_id'] ?? null) === $account->id
             && is_string($pending['encrypted_secret'] ?? null)
-            && (int) ($pending['expires_at'] ?? 0) >= time(), 409, 'Enrollment expired. Restart authenticator setup.');
+            && (int) ($pending['expires_at'] ?? 0) >= now()->timestamp, 409, 'Enrollment expired. Restart authenticator setup.');
 
         $secret = Crypt::decryptString($pending['encrypted_secret']);
-        $step = AdminTotp::matchingStep($secret, $code, time());
+        $step = AdminTotp::matchingStep($secret, $code, now()->timestamp);
         if ($step === null) {
             throw ValidationException::withMessages(['code' => 'Invalid or expired authenticator code.']);
         }
@@ -119,7 +119,7 @@ class AdminSecondFactorController extends Controller
             abort_unless($record, 409, 'Enroll an authenticator before verification.');
 
             $secret = Crypt::decryptString($record->encrypted_secret);
-            $step = AdminTotp::matchingStep($secret, $code, time(), (int) $record->last_accepted_step);
+            $step = AdminTotp::matchingStep($secret, $code, now()->timestamp, (int) $record->last_accepted_step);
             if ($step === null) {
                 throw ValidationException::withMessages(['code' => 'Invalid, expired or already used authenticator code.']);
             }
@@ -147,7 +147,7 @@ class AdminSecondFactorController extends Controller
         // Promote to a fresh session identifier after successful MFA.
         $request->session()->regenerate();
         $request->session()->put('admin_second_factor_user_id', $account->id);
-        $request->session()->put('admin_second_factor_verified_at', time());
+        $request->session()->put('admin_second_factor_verified_at', now()->timestamp);
         $request->session()->put('admin_second_factor_enrollment_proof', hash('sha256', $encrypted));
     }
 
