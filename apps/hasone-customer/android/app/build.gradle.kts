@@ -59,6 +59,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Even if CI also supplies the approved release ID, debug-signed
+            // builds must not impersonate the production package identity.
+            if (!approvedApplicationId.isNullOrBlank()) {
+                applicationIdSuffix = ".dev"
+            }
+        }
         release {
             // Never ship a release APK/AAB signed with Android debug keys.
             if (releaseSigningComplete) {
