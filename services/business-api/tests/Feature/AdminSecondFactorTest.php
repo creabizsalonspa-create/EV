@@ -164,6 +164,118 @@ class AdminSecondFactorTest extends TestCase
             DB::table('audit_events')->get()->toJson());
     }
 
+    public function test_recovery_code_rotation_requires_verified_mfa_fresh_password_and_unused_totp(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $route = '/api/admin/second-factor/rotate-recovery-codes';
+        $this->postJson($route, ['password' => 'password', 'code' => '000000'])
+            ->assertUnauthorized();
+
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk();
+        // Correct password but no enrolled/verifiable MFA is insufficient.
+        $this->postJson($route, ['password' => 'password', 'code' => '000000'])
+            ->assertForbidden();
+        $secret = $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'password',
+        ])->assertOk()->json('secret');
+        $oldCodes = $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk()->json('recovery_codes');
+        $this->assertCount(8, $oldCodes);
+        $this->assertDatabaseCount('admin_second_factor_recovery_codes', 8);
+
+        // Enrollment used the current 30-second step. A new step is needed
+        // before reissuing backup codes; the same TOTP cannot be replayed.
+        $this->postJson($route, [
+            'password' => 'password',
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertUnprocessable()->assertJsonValidationErrors(['code']);
+
+        $this->travel(35)->seconds();
+        $nextCode = AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30));
+        $this->postJson($route, [
+            'password' => 'incorrect-admin-password',
+            'code' => $nextCode,
+        ])->assertUnprocessable()->assertJsonValidationErrors(['password']);
+        $this->assertDatabaseHas('admin_second_factor_recovery_codes', [
+            'code_digest' => hash('sha256', $oldCodes[0]),
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.second_factor.recovery_rotation_denied',
+        ]);
+
+        $result = $this->postJson($route, [
+            'password' => 'password',
+            'code' => $nextCode,
+        ])->assertOk()->assertJsonPath('old_codes_invalidated', true)
+            ->assertJsonPath('authenticator_changed', false)
+            ->assertJsonCount(8, 'recovery_codes')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $newCodes = $result->json('recovery_codes');
+        $this->assertCount(8, array_unique($newCodes));
+        $this->assertNotContains($oldCodes[0], $newCodes);
+        $this->assertDatabaseCount('admin_second_factor_recovery_codes', 8);
+        $this->assertDatabaseMissing('admin_second_factor_recovery_codes', [
+            'code_digest' => hash('sha256', $oldCodes[0]),
+        ]);
+        $this->assertDatabaseHas('admin_second_factor_recovery_codes', [
+            'code_digest' => hash('sha256', $newCodes[0]),
+        ]);
+        $this->assertDatabaseCount('admin_second_factors', 1);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.second_factor.recovery_codes_rotated',
+        ]);
+        $audit = DB::table('audit_events')->get()->toJson();
+        $this->assertStringNotContainsString($nextCode, $audit);
+        $this->assertStringNotContainsString($newCodes[0], $audit);
+        $this->assertStringNotContainsString('incorrect-admin-password', $audit);
+
+        $this->postJson($route, ['password' => 'password', 'code' => $nextCode])
+            ->assertUnprocessable()->assertJsonValidationErrors(['code']);
+        $this->assertDatabaseCount('admin_second_factor_recovery_codes', 8);
+
+        $this->postJson('/api/logout')->assertNoContent();
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk();
+        $this->postJson('/api/admin/second-factor/recover', [
+            'recovery_code' => $oldCodes[0],
+        ])->assertUnprocessable();
+        $this->postJson('/api/admin/second-factor/recover', [
+            'recovery_code' => $newCodes[0],
+        ])->assertOk()->assertJsonPath('verified', false);
+        $this->getJson('/api/admin/overview')->assertForbidden();
+    }
+
+    public function test_recovery_code_rotation_is_rejected_when_verified_grant_expires(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk();
+        $secret = $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'password',
+        ])->assertOk()->json('secret');
+        $codes = $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk()->json('recovery_codes');
+        $this->travel(13)->hours();
+
+        $this->postJson('/api/admin/second-factor/rotate-recovery-codes', [
+            'password' => 'password',
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertForbidden();
+        $this->assertDatabaseHas('admin_second_factor_recovery_codes', [
+            'code_digest' => hash('sha256', $codes[0]),
+        ]);
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'admin.second_factor.recovery_codes_rotated')->count());
+    }
+
     public function test_new_login_requires_fresh_single_use_totp_and_rejects_replay(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
