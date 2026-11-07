@@ -221,6 +221,74 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_escalation_closes_once_on_operator_acknowledgment_without_claiming_repair(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $service = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $service->scan()['escalated']);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+        $resolution = $service->scan();
+        $this->assertSame(1, $resolution['closed']);
+        $this->assertSame(0, $resolution['escalated']);
+        $this->assertSame(0, $service->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'resolution_source' => 'operator_acknowledged',
+        ]);
+        $closure = InboxNotification::where('kind',
+            'charging.fault.escalation_closed.simulated')->firstOrFail();
+        $this->assertSame($admin->id, $closure->user_id);
+        $this->assertSame('SIMULATED_OPERATOR_ACKNOWLEDGED',
+            $closure->metadata['evidence']);
+        $this->assertFalse($closure->metadata['physical_verification']);
+        $this->actingAs($admin)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_verified_source_recovery_closes_escalation_and_bad_recovery_does_not(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        $binding = DB::table('csms_bindings')->find($f['bindingId']);
+        $bad = DB::table('charging_status_observations')->insertGetId([
+            'binding_id' => $binding->id,
+            'source_generation' => str_repeat('f', 64),
+            'source_event_id' => 2, 'fingerprint' => str_repeat('f', 64),
+            'evse_number' => 1, 'connector_number' => 1,
+            'status' => 'Available', 'error_code' => 'NoError',
+            'occurred_at' => now(), 'created_at' => now(),
+        ]);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['recovery_observation_id' => $bad]);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'resolution_source' => null,
+        ]);
+        DB::table('charging_status_observations')->where('id', $bad)
+            ->update(['source_generation' => FaultMonitor::generation($binding)]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'resolution_source' => 'source_recovered',
+        ]);
+        $closure = InboxNotification::where('kind',
+            'charging.fault.escalation_closed.simulated')->firstOrFail();
+        $this->assertSame('source_recovered', $closure->metadata['resolution_source']);
+        $this->assertSame('SIMULATED_SOURCE_OBSERVED', $closure->metadata['evidence']);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_former_admin_cannot_view_or_mutate_historical_escalation(): void
     {
         $fixture = $this->fixture();

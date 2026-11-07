@@ -56,6 +56,7 @@ class FaultReminderEscalator
         $examined = 0;
         $reminded = 0;
         $escalated = 0;
+        $closed = 0;
         $lastId = $after;
         foreach ($ids as $id) {
             $id = (int) $id;
@@ -106,8 +107,7 @@ class FaultReminderEscalator
                 }
                 $alert = DB::table('charging_fault_alerts')
                     ->where('id', $id)->lockForUpdate()->first();
-                if (! $alert || $alert->acknowledged_at !== null
-                    || $alert->recovery_observation_id !== null) {
+                if (! $alert) {
                     return false;
                 }
                 $observation = DB::table('charging_status_observations')
@@ -126,6 +126,63 @@ class FaultReminderEscalator
                     $occurredAt = CarbonImmutable::parse($observation->occurred_at);
                 } catch (Throwable) {
                     return false;
+                }
+                // An on-call escalation is a historical incident record.
+                // Reconcile its status when the original fault is explicitly
+                // acknowledged or authentic same-generation recovery is
+                // observed. Neither event proves physical repair.
+                if ($alert->acknowledged_at !== null ||
+                    $alert->recovery_observation_id !== null) {
+                    $resolution = null;
+                    if ($alert->recovery_observation_id !== null) {
+                        $recovered = DB::table('charging_status_observations')
+                            ->where('id', $alert->recovery_observation_id)->first();
+                        if ($recovered && $recovered->binding_id === $binding->id &&
+                            hash_equals((string) $observation->source_generation,
+                                (string) $recovered->source_generation) &&
+                            $recovered->source_event_id > $observation->source_event_id &&
+                            $recovered->evse_number === $observation->evse_number &&
+                            $recovered->connector_number === $observation->connector_number &&
+                            $recovered->status === 'Available' &&
+                            in_array($recovered->error_code, [null, 'NoError'], true)) {
+                            $resolution = 'source_recovered';
+                        }
+                    }
+                    if ($resolution === null && $alert->acknowledged_at !== null) {
+                        $resolution = 'operator_acknowledged';
+                    }
+                    if ($resolution === null) return false;
+                    $prior = DB::table('charging_fault_admin_escalations')
+                        ->where('alert_id', $alert->id)->lockForUpdate()->first();
+                    if (! $prior || $prior->resolved_at !== null) return false;
+                    $updated = DB::table('charging_fault_admin_escalations')
+                        ->where('alert_id', $alert->id)->whereNull('resolved_at')
+                        ->update(['resolved_at' => now(), 'resolution_source' => $resolution]);
+                    if ($updated === 1) {
+                        $admin = DB::table('users')->where('id', $prior->admin_user_id)
+                            ->where('role', 'admin')->lockForUpdate()->first();
+                        if ($admin) {
+                            InboxNotification::create([
+                                'user_id' => $prior->admin_user_id,
+                                'kind' => 'charging.fault.escalation_closed.simulated',
+                                'metadata' => [
+                                    'source' => 'simulator',
+                                    'evidence' => $resolution === 'source_recovered'
+                                        ? 'SIMULATED_SOURCE_OBSERVED'
+                                        : 'SIMULATED_OPERATOR_ACKNOWLEDGED',
+                                    'physical_verification' => false,
+                                    'company_id' => $company->id,
+                                    'station_id' => $station->id,
+                                    'charger_id' => $charger->id,
+                                    'alert_id' => $alert->id,
+                                    'admin_escalation_only' => true,
+                                    'resolution_source' => $resolution,
+                                ],
+                            ]);
+                        }
+                    }
+                    return ['reminded' => false, 'escalated' => false,
+                        'closed' => $updated === 1];
                 }
                 if ($occurredAt->greaterThan($cutoff)) {
                     return false;
@@ -212,6 +269,7 @@ class FaultReminderEscalator
             if (is_array($result)) {
                 if ($result['reminded']) $reminded++;
                 if ($result['escalated']) $escalated++;
+                if ($result['closed'] ?? false) $closed++;
             }
         }
 
@@ -228,6 +286,7 @@ class FaultReminderEscalator
             'examined' => $examined,
             'reminded' => $reminded,
             'escalated' => $escalated,
+            'closed' => $closed,
             'after' => $lastId,
             'in_app_only' => true,
             'physical_verification' => false,

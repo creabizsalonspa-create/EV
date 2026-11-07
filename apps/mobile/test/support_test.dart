@@ -1044,6 +1044,29 @@ void main() {
     expect(fixture.writes, 0);
   });
 
+  test('admin escalation closure distinguishes source evidence from operator acknowledgment', () {
+    final en = EvStrings(const Locale('en'));
+    for (final source in ['source_recovered', 'operator_acknowledged']) {
+      final notice = {
+        'kind': 'charging.fault.escalation_closed.simulated',
+        'metadata': {
+          'source': 'simulator', 'physical_verification': false,
+          'company_id': 5, 'charger_id': 7,
+          'alert_id': 9, 'station_id': 17,
+          'resolution_source': source,
+        },
+      };
+      final title = inboxNotificationTitle(notice, en);
+      expect(title, contains('station #17'));
+      expect(title, contains(source == 'source_recovered'
+          ? 'source fault escalation resolved'
+          : 'Operator acknowledged'));
+      expect(simulatedFaultTarget(notice), {
+        'company_id': 5, 'charger_id': 7, 'alert_id': 9,
+      });
+    }
+  });
+
   test('explicit on-call Admin escalation stays simulator scoped', () {
     final notice = {
       'kind': 'charging.fault.escalated.simulated',

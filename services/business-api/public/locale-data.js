@@ -1,4 +1,12 @@
 window.EV_MESSAGES = {
+    "Simulator source fault escalation resolved · station #{id}": {
+        en: "Simulator source fault escalation resolved · station #{id}",
+        ar: "تم حل تصعيد العطل وفق مصدر المحاكاة · المحطة #{id}",
+    },
+    "Operator acknowledged simulator fault escalation · station #{id}": {
+        en: "Operator acknowledged simulator fault escalation · station #{id}",
+        ar: "أقرّ المشغل بمراجعة تصعيد العطل التجريبي · المحطة #{id}",
+    },
     "Unresolved simulated charger fault escalated to on-call Admin · station #{id}": {
         en: "Unresolved simulated charger fault escalated to on-call Admin · station #{id}",
         ar: "تم تصعيد عطل الشاحن التجريبي غير المحلول للمشرف المناوب · المحطة #{id}",
