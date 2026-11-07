@@ -142,7 +142,9 @@ certificate SHA-256 fingerprint**. This validates the certificate identity
 against `apksigner verify --print-certs` (and rejects `.dev`, `.test`, or
 `.debug` package suffixes). The standard Android Debug signer is rejected
 even if someone supplies that debug certificate's own digest as the expected
-release fingerprint. Use `--require-maps-key` to reject an absent
+release fingerprint. The compiled release manifest must also refuse
+`android:debuggable=true` and `android:testOnly=true`, regardless of which
+signing certificate was used. Use `--require-maps-key` to reject an absent
 or blank compiled Google Maps manifest key:
 
 ```sh
