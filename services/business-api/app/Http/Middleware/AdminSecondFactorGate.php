@@ -10,9 +10,9 @@ use Symfony\Component\HttpFoundation\Response;
 
 class AdminSecondFactorGate
 {
-    public static function verified(Request $request): bool
+    public static function verified(Request $request, ?object $resolvedAccount = null): bool
     {
-        $account = $request->user();
+        $account = $resolvedAccount ?? $request->user();
         if (! $account || $account->role !== 'admin' || ! $request->hasSession()) {
             return false;
         }
@@ -95,7 +95,7 @@ class AdminSecondFactorGate
             // Resolve the actual Sanctum actor now so a session-backed Admin
             // cannot slip around the browser-only MFA middleware.
             $nativeAccount = Auth::guard('sanctum')->user();
-            if ($nativeAccount?->role === 'admin' && ! self::verified($request)) {
+            if ($nativeAccount?->role === 'admin' && ! self::verified($request, $nativeAccount)) {
                 return response()->json([
                     'message' => 'Administrator authenticator verification is required.',
                     'admin_second_factor_required' => true,
