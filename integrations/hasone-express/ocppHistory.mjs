@@ -22,7 +22,7 @@ export function presentOcppHistory({link,booking,charger,source}){
  const proof=mapped && booking.isPaid===true && booking.hasArrived===true
    ?verifyOcppSource(source,{sourceId:link.sourceSessionId,
       chargerId:link.sourceChargerId,transactionId:link.sourceTransactionId,
-      tokenHash:booking.ocppTokenHash}):null;
+      tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null}):null;
  const meter=proof?.meterVerified===true;
  const verified=proof?.sourceVerified===true;
  const start=verified?new Date(source.startedAt):null;
@@ -35,6 +35,7 @@ export function presentOcppHistory({link,booking,charger,source}){
    protocol:verified?proof.protocol:null,
    state:verified && meter?(proof.sessionEnded?'ended':'active'):'unverified',
    sourceVerified:verified,meterVerified:meter,
+   resourceVerified:proof?.resourceVerified===true,resourceScope:proof?.resourceScope??null,
    reviewReason:!mapped?'charger_mapping_unavailable':
      !verified?'source_evidence_unverified':!meter?'meter_evidence_unverified':null,
    bookingPrepaymentRecorded:booking.isPaid===true,

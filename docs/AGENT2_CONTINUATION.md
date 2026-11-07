@@ -16,6 +16,36 @@ disaster recovery belong to Agent 3; unrelated product features belong to Agent 
 Use current PRs before changing shared files. Never force-push or merge unverified
 source.
 
+## Current connector-scope continuation
+
+Explicit protocol-specific resource scope now passes from Admin issuance/reissue
+into the booking and single-use token. Mongo matches that scope atomically before
+consuming a credential. Wrong OCPP1.6 connector or OCPP2.0.1 EVSE/connector starts
+cannot consume it. Reissue cannot redirect a pinned resource. Conflicting meter
+identities are refused; source proof, binding, customer status/history and Admin
+finalization all recheck the selected resource. Legacy charger-wide tokens remain
+explicitly unscoped and never receive a verified connector label.
+
+The Admin workflow has explicit scope controls and rejects a mismatched scope
+receipt before displaying a token. PR70's history consumer displays verified
+connector/EVSE identity in EN/AR and rejects malformed verified resource claims.
+Station-wide slot uniqueness remains unchanged: this is source identity safety,
+not proof of independent concurrent connector reservation capacity.
+
+Verified:116 Node guards;13 callback HTTP checks;129 backend/OCPP checks;13 mocked
+Admin Chrome checks;10 actual-API Chrome checks; Next TypeScript/production build.
+Backend plus actual browser or actual Flutter reports130 checks. The native suite
+passes35 tests with one default opt-in API skip; separately that API test verifies
+both scoped protocols against actual disposable Express/Mongo. New native files
+analyze cleanly. All tested source blobs are recorded in
+`docs/evidence/agent2-resource-scope/validation.json` and the companion PR70 evidence.
+No physical charger, PSP, production files or live indexes were changed.
+
+Next: complete resource-specific reservation capacity, customer selection and
+expiry/reschedule using canonical EVSE capacity contracts and an explicit audited
+migration; do not silently remove the existing station-wide unique index. No new
+full original requirement atom or whole-product percentage credit is claimed.
+
 ## Current booking lifecycle continuation — November 7, 2026
 
 Staged customer cancellation/rescheduling now uses conditional booking updates
@@ -83,8 +113,7 @@ Express reservation compatibility: compare canonical Laravel connector/EVSE
 capacity contracts and the legacy CreateBooking/index shape before implementing
 resource-level reservations and an audited migration. Do not drop the existing
 station-wide unique index or activate a second billing/charging authority.
-Also connect the legacy mobile booking mutation failure reason/authority refresh
-so a paid/authorized denial or uncertain outcome is explained to the customer.
+Preserve PR70's existing native mutation explanations and authoritative recovery.
 No complete 2.6 or 2.7.9 credit is claimed for the current safety subset.
 
 ## Environment and integration constraints

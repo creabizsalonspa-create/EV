@@ -1431,6 +1431,106 @@ try{
     }
     assert.equal((await request('GET',historyPath+'/bad',undefined,true)).code,400);
   });
+  for(const protocol of ['ocpp1.6','ocpp2.0.1']){
+    const scopedCharger='resource-scope-'+protocol.replaceAll('.','-');
+    const selectedScope={protocol,connectorId:2,evseId:protocol==='ocpp2.0.1'?3:null};
+    const scopedStation=await NearestStationModel.create({name:'Scoped Test Only '+protocol,
+      address:'Loopback',status:'Available',latitude:25.7,longitude:55.9});
+    await db.collection('ocpp_chargers').insertOne({stationId:String(scopedStation._id),
+      chargerId:scopedCharger,protocol,enabled:true});
+    await db.collection('ocpp_tariffs').insertOne({chargerId:scopedCharger,enabled:true,
+      rateFilsPerKwh:100,vatPercent:5});
+    const scopedBooking=await BookingModel.create({userId:user._id,stationId:scopedStation._id,
+      status:'Upcoming',isPaid:true,hasArrived:true,date:'scope-test',time:'11:00 AM'});
+    const scopedPath='/api/v1/admin/bookings/'+scopedBooking._id+'/ocpp/';
+    let credential,transactionId,scopedSource,scopedSession;
+    await check(protocol+' pins requested connector scope in booking and credential',async()=>{
+      const reply=await request('POST',scopedPath+'issue-token',{
+        chargerId:scopedCharger,resourceScope:selectedScope},false,{authorization:adminBearer});
+      assert.equal(reply.code,201);credential=reply.body.data.oneTimeToken;
+      assert.equal(reply.body.data.connectorScoped,true);
+      assert.deepEqual(reply.body.data.resourceScope,selectedScope);
+      assert.deepEqual((await BookingModel.findById(scopedBooking._id)).ocppResourceScope,selectedScope);
+      const token=await db.collection('ocpp_access_tokens').findOne({bookingId:String(scopedBooking._id)});
+      assert.deepEqual(token.resourceScope,selectedScope);assert.equal(token.enabled,true);
+    });
+    await check(protocol+' reissue cannot redirect scope and retains it on safe renewal',async()=>{
+      const expired=new Date(Date.now()-25*60000);
+      await BookingModel.updateOne({_id:scopedBooking._id},{$set:{ocppTokenIssuedAt:expired}});
+      await db.collection('ocpp_access_tokens').updateMany({bookingId:String(scopedBooking._id)},
+        {$set:{expiresAt:expired}});
+      const denied=await request('POST',scopedPath+'reissue-token',{
+        resourceScope:{...selectedScope,connectorId:3}},false,{authorization:adminBearer});
+      assert.equal(denied.code,409);
+      const renewed=await request('POST',scopedPath+'reissue-token',{},false,{authorization:adminBearer});
+      assert.equal(renewed.code,201);assert.deepEqual(renewed.body.data.resourceScope,selectedScope);
+      assert.notEqual(renewed.body.data.oneTimeToken,credential);credential=renewed.body.data.oneTimeToken;
+    });
+    const start=scope=>protocol==='ocpp1.6'
+      ?handle({chargerId:scopedCharger},protocol,'StartTransaction',{
+        idTag:credential,connectorId:scope.connectorId,meterStart:1000,timestamp:new Date().toISOString()})
+      :handle({chargerId:scopedCharger},protocol,'TransactionEvent',{
+        eventType:'Started',seqNo:0,transactionInfo:{transactionId:'scope-transaction'},
+        idToken:{idToken:credential,type:'Central'},timestamp:new Date().toISOString(),
+        evse:{id:scope.evseId,connectorId:scope.connectorId},meterValue:meter(1000)});
+    await check(protocol+' wrong connector or EVSE cannot consume the scoped credential',async()=>{
+      const denied=await start({...selectedScope,connectorId:3});
+      assert.equal((denied.idTagInfo||denied.idTokenInfo).status,'Invalid');
+      if(protocol==='ocpp2.0.1'){
+        assert.equal((await start({...selectedScope,evseId:4})).idTokenInfo.status,'Invalid');
+        assert.equal((await start({...selectedScope,evseId:null})).idTokenInfo.status,'Invalid');
+      }
+      const digest=createHash('sha256').update(credential).digest('hex');
+      const stored=await db.collection('ocpp_access_tokens').findOne({chargerId:scopedCharger,tokenHash:digest});
+      assert.equal(stored.enabled,true);assert.equal(stored.consumedAt,undefined);
+      assert.equal(await db.collection('ocpp_sessions').countDocuments({chargerId:scopedCharger}),0);
+    });
+    await check(protocol+' exact scoped resource starts and rejects conflicting meter identity',async()=>{
+      const accepted=await start(selectedScope);
+      assert.equal((accepted.idTagInfo||accepted.idTokenInfo).status,'Accepted');
+      scopedSource=await db.collection('ocpp_sessions').findOne({chargerId:scopedCharger});
+      transactionId=scopedSource.transactionId;assert.equal(scopedSource.connectorId,2);
+      if(protocol==='ocpp1.6'){
+        await assert.rejects(()=>handle({chargerId:scopedCharger},protocol,'MeterValues',{
+          transactionId,connectorId:3,meterValue:meter(9000)}),/Connector/);
+        await handle({chargerId:scopedCharger},protocol,'MeterValues',{
+          transactionId,connectorId:2,meterValue:meter(4000)});
+        await handle({chargerId:scopedCharger},protocol,'StopTransaction',{
+          transactionId,meterStop:6000,timestamp:new Date().toISOString()});
+      }else{
+        await assert.rejects(()=>handle({chargerId:scopedCharger},protocol,'TransactionEvent',{
+          eventType:'Updated',seqNo:1,transactionInfo:{transactionId},
+          evse:{id:4,connectorId:2},meterValue:meter(9000)}),/EVSE/);
+        await handle({chargerId:scopedCharger},protocol,'TransactionEvent',{
+          eventType:'Ended',seqNo:1,transactionInfo:{transactionId},
+          evse:{id:3,connectorId:2},timestamp:new Date().toISOString(),meterValue:meter(6000)});
+      }
+      scopedSource=await db.collection('ocpp_sessions').findOne({_id:scopedSource._id});
+      assert.equal(scopedSource.energyWh,5000);assert.equal(scopedSource.totalFils,525);
+    });
+    await check(protocol+' source binding and customer history qualify the selected connector',async()=>{
+      const linked=await request('POST',scopedPath+'bind-source',{
+        sourceSessionId:String(scopedSource._id)},false,{authorization:adminBearer});
+      assert.equal(linked.code,200);scopedSession=linked.body.data.sessionId;
+      const history=await request('GET','/api/v1/ChargingSession/history/'+scopedSession,undefined,true);
+      assert.equal(history.code,200);assert.equal(history.body.data.resourceVerified,true);
+      assert.deepEqual(history.body.data.resourceScope,selectedScope);
+      assert.equal(history.body.data.energyKwh,5);
+    });
+    await check(protocol+' changed source connector redacts reads and blocks finalization',async()=>{
+      await db.collection('ocpp_sessions').updateOne({_id:scopedSource._id},{$set:{connectorId:3}});
+      try{
+        const status=await request('GET','/api/v1/ChargingSession/'+scopedSession+'/status',undefined,true);
+        assert.equal(status.body.data.sourceVerified,false);assert.equal(status.body.data.kwhUsed,null);
+        const history=await request('GET','/api/v1/ChargingSession/history/'+scopedSession,undefined,true);
+        assert.equal(history.body.data.state,'unverified');assert.equal(history.body.data.totalFils,null);
+        const finalized=await request('POST',scopedPath+'finalize-source',{},false,{authorization:adminBearer});
+        assert.equal(finalized.code,409);
+      }finally{await db.collection('ocpp_sessions').updateOne({_id:scopedSource._id},{$set:{connectorId:2}});}
+      assert.equal((await request('POST',scopedPath+'finalize-source',{},false,
+        {authorization:adminBearer})).code,200);
+    });
+  }
   const charger16='agent2-ocpp16-test',token16='0123456789ABCDEF0123';
   const hash16=createHash('sha256').update(token16).digest('hex');
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
@@ -1534,6 +1634,7 @@ try{
         verifyResult:async sourceId=>{
           const saved=await BookingModel.findById(uiBooking._id);
           assert.equal(saved.status,'Completed');
+          assert.deepEqual(saved.ocppResourceScope,{protocol:'ocpp1.6',connectorId:1,evseId:null});
           const linked=await ChargingSessionModel.findOne({bookingId:uiBooking._id});
           assert.equal(linked.sourceSessionId,sourceId);
           assert.equal(await ChargingSessionModel.countDocuments({bookingId:uiBooking._id}),1);

@@ -4,6 +4,7 @@
  * binding. Does not initiate remote charging, capture money or generate invoices.
  */
 import crypto from 'node:crypto';
+import {selectBookingResourceScope} from '../utils/ocppResourceScope.mjs';
 import {createOcppBookingToken} from '../utils/ocppBookingToken.mjs';
 import mongoose from 'mongoose';
 import BookingModel from '../models/BookingModel.js';
@@ -61,6 +62,8 @@ export async function AdminIssueBookingOcppToken(req,res){
    return fail(res,409,selected.reason==='explicit_selection_required'
      ? 'Select a specific approved charger for this multi-charger station.'
      : 'Requested charger is unavailable or does not match this booking.');
+  const resource=selectBookingResourceScope(booking,charger,req.body||{});
+  if(!resource.ok)return fail(res,409,'Connector scope does not match the pinned booking and charger protocol');
   const token=createOcppBookingToken();
   const tokenHash=crypto.createHash('sha256').update(token).digest('hex');
   const issuedAt=new Date();
@@ -69,13 +72,15 @@ export async function AdminIssueBookingOcppToken(req,res){
     _id:booking._id,isPaid:true,hasArrived:true,status:'Upcoming',
     ocppTokenHash:{$in:['',null]},
     ocppChargerId:{$in:['',null,charger.chargerId]},
+    ocppResourceScope:booking.ocppResourceScope??null,
   },{$set:{ocppTokenHash:tokenHash,ocppTokenIssuedAt:issuedAt,
-           ocppChargerId:charger.chargerId}},{returnDocument:'after'});
+           ocppChargerId:charger.chargerId,ocppResourceScope:resource.scope}},{returnDocument:'after'});
   if(!updated)return fail(res,409,'Booking token already issued or booking status changed');
   try{
    await mongoose.connection.db.collection('ocpp_access_tokens').insertOne({
     chargerId:charger.chargerId,tokenHash,enabled:true,expiresAt,
     bookingId:String(booking._id),userId:String(booking.userId),createdAt:issuedAt,
+    resourceScope:resource.scope,
    });
   }catch{
    // An insert can commit even when its acknowledgement is lost. Retain
@@ -89,7 +94,8 @@ export async function AdminIssueBookingOcppToken(req,res){
   return res.status(201).json({status:'Success',
     message:'One-time OCPP token issued. Deliver securely to the authorized charger.',
     data:{bookingId:String(booking._id),chargerId:charger.chargerId,
-      oneTimeToken:token,expiresAt,chargingSessionConfirmed:false}});
+      oneTimeToken:token,expiresAt,resourceScope:resource.scope,
+      connectorScoped:!!resource.scope,chargingSessionConfirmed:false}});
  }catch{
   return fail(res,503,'Authorization provisioning temporarily unavailable');
  }
@@ -118,14 +124,17 @@ export async function AdminReissueExpiredBookingOcppToken(req,res){
     booking,approvedChargerId:charger.chargerId,...evidence,now
   }))return fail(res,409,'Token is active, already used or booking is not eligible for safe reissue');
 
+  const resource=selectBookingResourceScope(booking,charger,req.body||{});
+  if(!resource.ok)return fail(res,409,'Connector scope cannot change during reissue');
   const oldHash=booking.ocppTokenHash,oldIssuedAt=booking.ocppTokenIssuedAt;
   const newToken=createOcppBookingToken();
   const newHash=crypto.createHash('sha256').update(newToken).digest('hex');
   const expiresAt=new Date(now.getTime()+OCPP_TOKEN_TTL_MS);
   const changed=await BookingModel.findOneAndUpdate({
     _id:booking._id,ocppTokenHash:oldHash,ocppTokenIssuedAt:oldIssuedAt,
+    ocppResourceScope:booking.ocppResourceScope??null,
     ocppChargerId:charger.chargerId,isPaid:true,hasArrived:true,status:'Upcoming',
-  },{$set:{ocppTokenHash:newHash,ocppTokenIssuedAt:now}},{returnDocument:'after'});
+  },{$set:{ocppTokenHash:newHash,ocppTokenIssuedAt:now,ocppResourceScope:resource.scope}},{returnDocument:'after'});
   if(!changed)return fail(res,409,'Booking authorization was changed by another operator');
   const tokenTable=mongoose.connection.db.collection('ocpp_access_tokens');
   try{
@@ -134,6 +143,7 @@ export async function AdminReissueExpiredBookingOcppToken(req,res){
     await tokenTable.insertOne({
       chargerId:charger.chargerId,tokenHash:newHash,enabled:true,expiresAt,
       bookingId:String(booking._id),userId:String(booking.userId),createdAt:now,
+      resourceScope:resource.scope,
     });
   }catch{
     // Keep the new booking pin/time even if registration or revocation
@@ -146,7 +156,8 @@ export async function AdminReissueExpiredBookingOcppToken(req,res){
   return res.status(201).json({status:'Success',
     message:'Expired unused authorization replaced. Copy the new token securely.',
     data:{bookingId:String(booking._id),chargerId:charger.chargerId,
-      oneTimeToken:newToken,expiresAt,reissued:true,chargingSessionConfirmed:false}
+      oneTimeToken:newToken,expiresAt,reissued:true,resourceScope:resource.scope,
+      connectorScoped:!!resource.scope,chargingSessionConfirmed:false}
   });
  }catch{
   return fail(res,503,'Token reissue verification unavailable');
@@ -179,7 +190,7 @@ export async function AdminBindBookingOcppSource(req,res){
    return fail(res,409,'Source transaction predates this booking authorization');
   const proof=verifyOcppSource(source,{
     sourceId,chargerId:charger.chargerId,
-    transactionId:String(source.transactionId),tokenHash:booking.ocppTokenHash
+    transactionId:String(source.transactionId),tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null
   });
   if(!proof?.sourceVerified || !proof.meterVerified)
    return fail(res,409,'Source transaction lacks authorized OCPP meter evidence');
@@ -246,7 +257,7 @@ export async function AdminListLinkedBookingOcppSessions(req,res){
    });
    const proof=verifyOcppSource(src,{
     sourceId:item.sourceSessionId,chargerId:charger.chargerId,
-    transactionId:item.sourceTransactionId,tokenHash:booking.ocppTokenHash,
+    transactionId:item.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,
    });
    if(!proof?.sourceVerified)continue;
    if(proof.meterVerified)confirmed++;
@@ -301,7 +312,7 @@ export async function AdminFinalizeBookingOcppSource(req,res){
   });
   const proof=verifyOcppSource(source,{
     sourceId:session.sourceSessionId,chargerId:charger.chargerId,
-    transactionId:session.sourceTransactionId,tokenHash:booking.ocppTokenHash,
+    transactionId:session.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,
   });
   if(!proof?.sourceVerified || !proof.meterVerified || !proof.sessionEnded ||
       proof.totalFils===null || proof.billingStatus!=='calculated_unpaid')
@@ -360,7 +371,7 @@ export async function AdminGetBookingOcppOperations(req,res){
    });
    proof=verifyOcppSource(session,{
      sourceId:record.sourceSessionId,chargerId:charger.chargerId,
-     transactionId:record.sourceTransactionId,tokenHash:booking.ocppTokenHash
+     transactionId:record.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null
    });
   }
   const ready=!!(proof?.sourceVerified && proof?.meterVerified
@@ -380,6 +391,9 @@ export async function AdminGetBookingOcppOperations(req,res){
         Date.now()-new Date(c.lastSeenAt).getTime()<120000
     })),
     authorizationIssued:authorized,
+    resourceScope:booking.ocppResourceScope??null,
+    resourceVerified:proof?.resourceVerified===true,
+    connectorScoped:booking.ocppResourceScope!=null,
     tokenIssuedAt:booking.ocppTokenIssuedAt??null,
     tokenExpiresAt:booking.ocppTokenIssuedAt
       ? new Date(new Date(booking.ocppTokenIssuedAt).getTime()+20*60000):null,

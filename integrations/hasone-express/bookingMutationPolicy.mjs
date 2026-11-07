@@ -1,3 +1,4 @@
+import {normalizeResourceScope} from './ocppResourceScope.mjs';
 /** Existing Express booking compatibility; never reprices or refunds a booking. */
 const empty=value=>value===null || value===undefined || value==='';
 const text=value=>typeof value==='string' && value.trim()!=='' && value.length<=64;
@@ -5,13 +6,14 @@ export function bookingMutationFilter(booking,{hasSession=false}={}){
  if(!booking || !booking._id || !booking.userId || booking.status!=='Upcoming'
      || booking.hasArrived===true || !empty(booking.ocppTokenHash)
      || !empty(booking.ocppChargerId) || booking.ocppTokenIssuedAt!=null
-     || hasSession || booking.isPaid!==false)return null;
+     || hasSession || booking.isPaid!==false
+     || (booking.ocppResourceScope!=null && !normalizeResourceScope(booking.ocppResourceScope)))return null;
  // Couple the mutation to the exact inspected slot and payment/arrival state.
  // Token issue uses the same booking document; neither operation can silently
  // overwrite the other's authoritative state after an asynchronous read.
  return {_id:booking._id,userId:booking.userId,status:'Upcoming',
    date:booking.date,time:booking.time,slotStart:booking.slotStart,slotEnd:booking.slotEnd,
-   isPaid:booking.isPaid,hasArrived:{$ne:true},
+   isPaid:booking.isPaid,hasArrived:{$ne:true},ocppResourceScope:booking.ocppResourceScope??null,
    ocppTokenHash:{$in:['',null]},ocppChargerId:{$in:['',null]},ocppTokenIssuedAt:null};
 }
 function minutes(value){

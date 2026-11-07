@@ -10,12 +10,14 @@ type BookingRef={
   status:string;isPaid:boolean;hasArrived?:boolean;
 };
 
+type ResourceScope={protocol:"ocpp1.6"|"ocpp2.0.1";connectorId:number;evseId:number|null};
 type OpState={
   bookingId:string;stationId:string;bookingStatus:string;
   bookingPrepaymentRecorded:boolean;arrivalRecorded:boolean;
   approvedChargerId:string|null;selectedChargerId:string|null;
   approvedChargers:Array<{chargerId:string;protocol:string;online:boolean}>;
   requiresChargerSelection:boolean;authorizationIssued:boolean;
+  resourceScope?:ResourceScope|null;connectorScoped?:boolean;resourceVerified?:boolean;
   tokenIssuedAt:string|null;tokenExpiresAt:string|null;
   sourceSessionId:string|null;sourceTransactionId:string|null;
   sourceVerified:boolean;meterVerified:boolean;sourceEnded:boolean;
@@ -38,6 +40,7 @@ type SourceSession={
 };
 type IssueResponse={status:string;data?:{
   oneTimeToken:string;chargerId:string;expiresAt:string;
+  resourceScope?:ResourceScope|null;connectorScoped?:boolean;
 }};
 const isHex24=(value:string)=>/^[a-f0-9]{24}$/i.test(value);
 const statusText=(value:boolean,positive:string,negative:string)=>value?positive:negative;
@@ -63,6 +66,9 @@ export default function OcppBookingWorkflow({
   const [sessions,setSessions]=useState<SourceSession[]>([]);
   const [chosen,setChosen]=useState("");
   const [chargerChoice,setChargerChoice]=useState("");
+  const [scopeEnabled,setScopeEnabled]=useState(false);
+  const [connectorChoice,setConnectorChoice]=useState("");
+  const [evseChoice,setEvseChoice]=useState("");
   const [refreshOnClose,setRefreshOnClose]=useState(false);
   const [startAudit,setStartAudit]=useState<StartExceptionReport|null>(null);
   const [auditLoading,setAuditLoading]=useState(false);
@@ -78,6 +84,11 @@ export default function OcppBookingWorkflow({
       throw new Error("Invalid Admin booking state");
     const current=response.data.data as OpState;
     setState(current);
+    if(current.resourceScope){
+      setScopeEnabled(true);
+      setConnectorChoice(String(current.resourceScope.connectorId));
+      setEvseChoice(current.resourceScope.evseId==null?"":String(current.resourceScope.evseId));
+    }
     const available=Array.isArray(current.approvedChargers)?current.approvedChargers:[];
     setChargerChoice(previous=>current.selectedChargerId||
       (available.some(c=>c.chargerId===previous)?previous:
@@ -115,6 +126,7 @@ export default function OcppBookingWorkflow({
     setShowSecret(false);
     setChosen("");
     setChargerChoice("");
+    setScopeEnabled(false);setConnectorChoice("");setEvseChoice("");
     setMessage("");
     setError("");
     setState(null);
@@ -146,9 +158,18 @@ export default function OcppBookingWorkflow({
 
   async function perform(
     path:"issue-token"|"reissue-token"|"bind-source"|"finalize-source",
-    body:Record<string,string>={}
+    body:Record<string,unknown>={}
   ){
     if(working || !state)return;
+    const protocol=state.approvedChargers.find(c=>c.chargerId===chargerChoice)?.protocol;
+    const connectorId=Number(connectorChoice),evseId=Number(evseChoice);
+    const tokenWrite=path==="issue-token"||path==="reissue-token";
+    if(tokenWrite && scopeEnabled && (
+      !/^[0-9]{1,2}$/.test(connectorChoice)||connectorId<1||connectorId>64 ||
+      !["ocpp1.6","ocpp2.0.1"].includes(protocol||"") ||
+      (protocol==="ocpp2.0.1" && (!/^[0-9]{1,2}$/.test(evseChoice)||evseId<1||evseId>64)))){
+      setError("Choose a connector ID from 1 to 64 and the OCPP2.0.1 EVSE ID. No authorization was issued.");return;
+    }
     const deliveryGeneration=secretGeneration.current;
     setWorking(true);
     setSecret("");
@@ -157,7 +178,9 @@ export default function OcppBookingWorkflow({
     setMessage("");
     try{
       const payload=(path==="issue-token"||path==="reissue-token")
-        ?{...body,chargerId:chargerChoice}:body;
+        ?{...body,chargerId:chargerChoice,...(scopeEnabled?{resourceScope:{
+          protocol,connectorId,evseId:protocol==="ocpp2.0.1"?evseId:null
+        }}:{})}:body;
       const response=await api.post("/admin/bookings/"+booking._id+"/ocpp/"+path,payload);
       if(response.data?.status!=="Success")throw new Error("Operation was not accepted");
       if(path==="issue-token"||path==="reissue-token"){
@@ -165,6 +188,12 @@ export default function OcppBookingWorkflow({
         if(typeof result.data?.oneTimeToken!=="string" ||
           !/^[A-F0-9]{20}$/.test(result.data.oneTimeToken)){
           throw new Error("Authorization was accepted, but token delivery was incomplete. Contact your administrator.");
+        }
+        if(scopeEnabled && (result.data?.connectorScoped!==true ||
+          result.data.resourceScope?.protocol!==protocol ||
+          result.data.resourceScope?.connectorId!==connectorId ||
+          result.data.resourceScope?.evseId!==(protocol==="ocpp2.0.1"?evseId:null))){
+          throw new Error("Authorization scope receipt did not match the selected connector. Refresh before recovery.");
         }
         if(deliveryGeneration!==secretGeneration.current ||
            document.visibilityState!=="visible"){
@@ -321,6 +350,30 @@ export default function OcppBookingWorkflow({
                         </select>
                       </label>
                     )}
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" aria-label="Limit authorization to connector"
+                        checked={scopeEnabled} disabled={state.authorizationIssued||working}
+                        onChange={e=>setScopeEnabled(e.target.checked)}/>
+                      Limit authorization to a specific connector
+                    </label>
+                    {scopeEnabled&&<div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-xs font-semibold">Connector ID
+                        <input aria-label="Booking connector ID" type="number" min="1" max="64"
+                          className={inputClass+" mt-1"} value={connectorChoice}
+                          disabled={state.authorizationIssued||working}
+                          onChange={e=>setConnectorChoice(e.target.value)}/>
+                      </label>
+                      {state.approvedChargers.find(c=>c.chargerId===chargerChoice)?.protocol==="ocpp2.0.1"&&
+                        <label className="block text-xs font-semibold">EVSE ID
+                          <input aria-label="Booking EVSE ID" type="number" min="1" max="64"
+                            className={inputClass+" mt-1"} value={evseChoice}
+                            disabled={state.authorizationIssued||working}
+                            onChange={e=>setEvseChoice(e.target.value)}/>
+                        </label>}
+                    </div>}
+                    <p className={"text-xs "+muted}>{scopeEnabled
+                      ?"Explicit connector scope limits this credential. It does not establish live availability or a parallel reservation."
+                      :"Legacy charger-wide authorization: the connector is not verified. No connector capacity is implied."}</p>
                     {state.authorizationIssued&&
                       <p className="text-sm text-sky-600">Token already issued.
                         {state.tokenExpiresAt?" Expires "+new Date(state.tokenExpiresAt).toLocaleString():""}

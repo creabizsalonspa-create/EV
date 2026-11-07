@@ -6,11 +6,12 @@
  * Calling OCPP Authorize MUST stay read-only and must not call this helper.
  */
 import {createHash} from 'node:crypto';
+import {normalizeResourceScope,tokenResourceMatches} from './ocppResourceScope.mjs';
 export const hashOcppToken=raw=>{
   if(typeof raw!=='string' || raw.length<8 || raw.length>64)return null;
   return createHash('sha256').update(raw,'utf8').digest('hex');
 };
-export async function claimOcppStartToken(tokens,chargerId,raw,now=new Date()){
+export async function claimOcppStartToken(tokens,chargerId,raw,now=new Date(),resourceScope=null){
   const tokenHash=hashOcppToken(raw);
   if(!tokenHash || typeof chargerId!=='string' || !/^[A-Za-z0-9_-]{1,64}$/.test(chargerId)
       || !(now instanceof Date) || !Number.isFinite(now.valueOf())){
@@ -19,7 +20,16 @@ export async function claimOcppStartToken(tokens,chargerId,raw,now=new Date()){
   // Atomic compare-and-swap. Never use findOne + updateOne here.
   // Remove expiresAt on claim so Mongo's TTL index cannot erase the durable
   // consumed-token evidence before an operator checks for safe reissue.
+  if(resourceScope!=null && !normalizeResourceScope(resourceScope))
+    return {accepted:false,tokenHash:null};
+  const scopeQuery=resourceScope==null?{resourceScope:null}:{$or:[
+    {resourceScope:null},
+    {'resourceScope.protocol':resourceScope.protocol,
+     'resourceScope.connectorId':resourceScope.connectorId,
+     'resourceScope.evseId':resourceScope.evseId??null}
+  ]};
   const response=await tokens.findOneAndUpdate({
+    ...scopeQuery,
     chargerId,tokenHash,enabled:true,consumedAt:{$exists:false},
     expiresAt:{$gt:now}
   },{$set:{enabled:false,consumedAt:now},$unset:{expiresAt:''}},
@@ -32,7 +42,8 @@ export async function claimOcppStartToken(tokens,chargerId,raw,now=new Date()){
   const accepted=!!(claimed && claimed.chargerId===chargerId
     && claimed.tokenHash===tokenHash && claimed.enabled===false
     && claimed.consumedAt instanceof Date
-    && Number.isFinite(claimed.consumedAt.valueOf()));
+    && Number.isFinite(claimed.consumedAt.valueOf())
+    && tokenResourceMatches(claimed,resourceScope));
   return {accepted,tokenHash:accepted?tokenHash:null};
 }
 /** Reuse only the SAME active OCPP1.6 source session after lost reply. */

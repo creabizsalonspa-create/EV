@@ -1,3 +1,26 @@
+## Connector-scoped authorization and source verification
+
+Admin may supply `resourceScope:{protocol,connectorId,evseId}` when issuing a
+booking credential. IDs are integers1–64; OCPP1.6 has null EVSE, OCPP2.0.1 requires
+an EVSE ID. The booking and token retain the exact immutable scope. Mongo checks
+scope before token consumption, and reissue cannot redirect it. Meter updates,
+source binding/status/history and finalization reject conflicting resource
+identity. The Admin dialog and customer history distinguish explicit verified
+scope from legacy charger-wide authorization. Scope does not prove availability,
+commissioning, or independent reservation capacity.
+
+Existing legacy token behavior is retained and labelled unscoped. Requests cannot
+silently clear a pinned scope. Malformed OCPP2.0.1 resource starts are refused
+before consuming credentials. The existing station-wide booking-slot index stays
+in place. Resource-level capacity/migration remains unfinished; this subset does
+not complete the original reservation or live-source requirements.
+
+Current source evidence: `docs/evidence/agent2-resource-scope/validation.json`.
+116 guards,13 callback checks,129 backend/OCPP checks,13 mocked Chrome checks,
+10 actual-API Chrome checks and Next TypeScript/build pass. Native35 tests and
+real API scope decoding pass on the companion PR70 source. All are disposable
+software checks, separate from hardware, partner, merchant and production gates.
+
 ## Latest staged customer booking safety — Agent 2
 
 Customer cancellation/rescheduling uses atomic booking-state comparisons and

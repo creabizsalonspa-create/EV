@@ -18,7 +18,9 @@ def patch(path):
     if not path.is_file():raise RuntimeError('Staged ocpp-handlers.mjs not found')
     helper=Path(__file__).resolve().parents[2]/'integrations/hasone-express/ocppStartAuthorization.mjs'
     out=path.parent/'ocppStartAuthorization.mjs'
-    if not helper.is_file() or out.exists():
+    resource=helper.parent/'ocppResourceScope.mjs'
+    resource_out=path.parent/'ocppResourceScope.mjs'
+    if not helper.is_file() or not resource.is_file() or out.exists() or resource_out.exists():
         raise RuntimeError('Required single-use authorization helper missing or already staged')
     data=path.read_text(encoding='utf8')
     data=once(data,'const maxWh = 1e12;',
@@ -33,8 +35,8 @@ def patch(path):
     marker='''  async function open16(chargerId,data) {'''
     consumption='''  // Transaction start consumes the scoped credential atomically.
   // An OCPP Authorize preflight remains read-only and does not call this.
-  async function consumeToken(chargerId,value) {
-    return (await claimOcppStartToken(tokens,chargerId,value)).accepted;
+  async function consumeToken(chargerId,value,resourceScope) {
+    return (await claimOcppStartToken(tokens,chargerId,value,new Date(),resourceScope)).accepted;
   }
 '''
     data=once(data,marker,consumption+marker,'consume function insertion')
@@ -62,7 +64,9 @@ def patch(path):
     if(prior && sameActiveOcpp16Retry(prior,{
       chargerId,tokenHash:idTagHash,connectorId:data.connectorId,meterStart:data.meterStart
     }))return {transactionId:prior.transactionId,idTagInfo:{status:"Accepted"}};
-    if(!await consumeToken(chargerId,data.idTag))
+    if(!await consumeToken(chargerId,data.idTag,{
+      protocol:"ocpp1.6",connectorId:data.connectorId,evseId:null
+    }))
       return {idTagInfo:{status:"Invalid"}};
     const counter='''
     data=once(data,previous,replacement,'1.6 start consumption and safe retry')
@@ -72,10 +76,32 @@ def patch(path):
       '1.6 reuse computed hash')
     data=once(data,
       '''const valid=data.idToken?.idToken && await validToken(chargerId,data.idToken.idToken);''',
-      '''const valid=data.idToken?.idToken && await consumeToken(chargerId,data.idToken.idToken);''',
+      '''if(!Number.isInteger(data.evse?.id)||data.evse.id<1||data.evse.id>64 ||
+         !Number.isInteger(data.evse?.connectorId)||data.evse.connectorId<1||data.evse.connectorId>64)
+        return {idTokenInfo:{status:"Invalid"}};
+      const valid=data.idToken?.idToken && await consumeToken(chargerId,data.idToken.idToken,{
+        protocol:"ocpp2.0.1",connectorId:data.evse.connectorId,evseId:data.evse.id
+      });''',
       '2.0.1 consume at start')
+    data=once(data,
+      '''    if(previous && (previous.lastSeqNo??-1)>=data.seqNo)return {};''',
+      '''    if(previous && data.evse && (data.evse.id!==previous.evseId ||
+        (data.evse.connectorId!==undefined && data.evse.connectorId!==previous.connectorId)))
+      throw new Error("EVSE/connector does not match the source transaction");
+    if(previous && (previous.lastSeqNo??-1)>=data.seqNo)return {};''',
+      '2.0.1 resource consistency before replay')
+    data=once(data,
+      '''        await updateMeter(id,payload.transactionId,readMeter16(payload.meterValue));return {};''',
+      '''        if(payload.connectorId!==undefined){
+          const linked=await sessions.findOne({chargerId:id,protocol:"ocpp1.6",transactionId:payload.transactionId});
+          if(linked && payload.connectorId!==linked.connectorId)
+            throw new Error("Connector does not match the source transaction");
+        }
+        await updateMeter(id,payload.transactionId,readMeter16(payload.meterValue));return {};''',
+      '1.6 explicit meter connector consistency')
     path.write_text(data,encoding='utf8')
     out.write_text(helper.read_text(encoding='utf8'),encoding='utf8')
+    resource_out.write_text(resource.read_text(encoding='utf8'),encoding='utf8')
     print('STAGED_OCPP_START_TOKENS_ATOMIC_SINGLE_USE; live gateway unchanged')
 
 if __name__=='__main__':

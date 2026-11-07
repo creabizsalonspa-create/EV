@@ -1,3 +1,4 @@
+import {normalizeResourceScope,sameResourceScope,sourceResourceScope} from './ocppResourceScope.mjs';
 /**
  * Fail-closed, read-only authorization and metering proof for an OCPP session.
  * Never changes payments or starts/stops hardware.
@@ -21,7 +22,7 @@ const sourceDate=value=>{
   return Number.isFinite(parsed.valueOf())?parsed:null;
 };
 
-export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash}={}) {
+export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash,resourceScope=null}={}) {
   if(!source || typeof source!=='object' || !sourceId || !chargerId || !transactionId || !tokenHash)
     return null;
   if(!/^[a-f0-9]{64}$/i.test(tokenHash) || !same(source._id,sourceId)
@@ -30,6 +31,9 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
       || !['active','ended'].includes(source.status)) return null;
   const field=source.protocol==='ocpp1.6'?'idTagHash':'idTokenHash';
   if(source[field]!==tokenHash) return null;
+  const observedScope=sourceResourceScope(source);
+  if(resourceScope!=null && (!normalizeResourceScope(resourceScope) ||
+      !sameResourceScope(resourceScope,observedScope)))return null;
   const start=sourceDate(source.startedAt);
   if(!start)return null;
   const ended=source.status==='ended';
@@ -37,6 +41,8 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
   if(source.paymentStatus!=='not_collected')return null;
   const evidence={
     sourceVerified:true,
+    resourceVerified:resourceScope!=null && !!observedScope,
+    resourceScope:resourceScope!=null?observedScope:null,
     meterVerified:false,
     source:'ocpp',
     protocol:source.protocol,

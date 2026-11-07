@@ -67,6 +67,11 @@ export async function runActualAdminBrowser({
      const value=await page.$eval('select[aria-label="Select booking charger"]',x=>x.value);
      assert.equal(value,chargerId);
    });
+   await step('operator explicitly scopes the credential to connector one',async()=>{
+     await page.click('input[aria-label="Limit authorization to connector"]');
+     await page.type('input[aria-label="Booking connector ID"]','1');
+     assert.equal(await page.$eval('input[aria-label="Booking connector ID"]',x=>x.value),'1');
+   });
    await click(page,'Issue one-time authorization token');
    let rawToken='';
    await step('UI issues one credential through real Express authentication',async()=>{

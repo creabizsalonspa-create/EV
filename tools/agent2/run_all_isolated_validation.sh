@@ -59,13 +59,14 @@ for target in \
   src/models/ChargingSessionModel.js src/controllers/adminOcppBooking.js \
   src/controllers/adminMultiCharger.js src/utils/ocppSourceEvidence.mjs \
   src/utils/ocppReissuePolicy.mjs src/utils/ocppSourceBindingIndexAudit.mjs \
-  src/controllers/ocppHistory.js src/utils/ocppHistory.mjs \
+  src/controllers/ocppHistory.js src/utils/ocppHistory.mjs src/utils/ocppResourceScope.mjs \
   src/services/bookingMutationService.js src/utils/bookingMutationPolicy.mjs
 do
   node --check "$work/express/$target"
 done
 node --check "$work/ocpp/ocpp-handlers.mjs"
 node --check "$work/ocpp/ocppStartAuthorization.mjs"
+node --check "$work/ocpp/ocppResourceScope.mjs"
 python3 -m py_compile "$root/tools/agent2"/stage_*.py
 echo "Source patch and syntax checks passed."
 

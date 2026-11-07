@@ -77,6 +77,7 @@ router.get("/admin/stations/:id/ocpp/start-exceptions", AdminAuth, AdminListStat
        '''BookingSchema.add({
   ocppTokenIssuedAt:{type:Date,default:null},
   ocppChargerId:{type:String,default:""},
+  ocppResourceScope:{type:Object,default:null},
 });
 
 const BookingModel = mongoose.model("Booking", BookingSchema);''',

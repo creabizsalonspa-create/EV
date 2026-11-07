@@ -20,7 +20,8 @@ def patch(root):
     if not all(p.is_file() for p in paths.values()):
         raise RuntimeError('Complete staged Express source required')
     helper=Path(__file__).resolve().parents[2]/'integrations/hasone-express/ocppSourceEvidence.mjs'
-    if not helper.is_file():
+    resource=helper.parent/'ocppResourceScope.mjs'
+    if not helper.is_file() or not resource.is_file():
         raise RuntimeError('OCPP evidence guard is missing')
     data={key:p.read_text(encoding='utf8') for key,p in paths.items()}
     def once(text,old,new,name):
@@ -90,7 +91,7 @@ const readCustomerOcppSource = async (user_id, session) => {
     sourceId:session.sourceSessionId,
     chargerId:session.sourceChargerId,
     transactionId:session.sourceTransactionId,
-    tokenHash:booking.ocppTokenHash,
+    tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,
   });
 };
 
@@ -113,6 +114,7 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
         batteryPercent:null,timeRemaining:null,kwhUsed:proof.energyKwh,
         energyWh:proof.energyWh,
         sourceVerified:true,meterVerified:true,source:"ocpp",protocol:proof.protocol,
+        resourceVerified:proof.resourceVerified,resourceScope:proof.resourceScope,
         billingStatus:proof.billingStatus,paymentStatus:"not_collected",
         canStop:false,canExtend:false}};
   } catch {
@@ -123,11 +125,13 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
 '''
     data['service']=s[:pos]+method+s[finish:]
     helper_dest=root/'src/utils/ocppSourceEvidence.mjs'
-    if helper_dest.exists():
+    resource_dest=root/'src/utils/ocppResourceScope.mjs'
+    if helper_dest.exists() or resource_dest.exists():
         raise RuntimeError('OCPP source guard already present in staged tree')
     for key,p in paths.items():
         p.write_text(data[key],encoding='utf8')
     helper_dest.write_text(helper.read_text(encoding='utf8'),encoding='utf8')
+    resource_dest.write_text(resource.read_text(encoding='utf8'),encoding='utf8')
     print('STAGED_CUSTOMER_OCPP_STATUS_LINKED; physical charging and payments unchanged')
 
 if __name__=='__main__':
