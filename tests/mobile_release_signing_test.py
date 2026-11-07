@@ -175,6 +175,31 @@ class MobileReleaseSigningTest(unittest.TestCase):
                     release_target,
                 )
 
+    def test_ios_google_maps_is_initialized_with_untracked_build_setting(self):
+        root = ROOT / "apps/hasone-customer/ios"
+        delegate = (root / "Runner/AppDelegate.swift").read_text()
+        self.assertIn("import GoogleMaps", delegate)
+        self.assertIn("GMSServices.provideAPIKey(key)", delegate)
+        self.assertIn('object(forInfoDictionaryKey: "GoogleMapsApiKey")', delegate)
+        self.assertLess(
+            delegate.index("GMSServices.provideAPIKey"),
+            delegate.index("GeneratedPluginRegistrant.register"),
+        )
+        for variant in ("Info.plist", "Info-Debug.plist"):
+            with self.subTest(variant=variant):
+                with (root / "Runner" / variant).open("rb") as handle:
+                    manifest = plistlib.load(handle)
+                self.assertEqual(
+                    "$(EV_GOOGLE_MAPS_IOS_KEY)", manifest["GoogleMapsApiKey"]
+                )
+        for variant in ("Debug.xcconfig", "Release.xcconfig"):
+            text = (root / "Flutter" / variant).read_text()
+            self.assertIn('#include? "MapsKeys.xcconfig"', text)
+        self.assertIn(
+            "Flutter/MapsKeys.xcconfig", (root / ".gitignore").read_text()
+        )
+        self.assertFalse((root / "Flutter/MapsKeys.xcconfig").exists())
+
     def test_ios_photo_picker_has_user_visible_privacy_description(self):
         app = ROOT / "apps/hasone-customer"
         # Profile screen invokes ImagePicker with both camera and gallery.
