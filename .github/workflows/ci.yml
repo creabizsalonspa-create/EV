@@ -1,5 +1,8 @@
 name: Platform validation
-on: [push, pull_request]
+on:
+  push:
+    branches: [development/fullstack-continuation]
+  pull_request:
 permissions:
   contents: read
 # Cancel superseded runs of the same workflow/event/ref. Keep push and PR
