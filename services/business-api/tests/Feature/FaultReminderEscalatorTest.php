@@ -236,7 +236,11 @@ class FaultReminderEscalatorTest extends TestCase
         $this->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 1);
 
-        $admin->update(['role' => 'vendor']);
+        // Role is deliberately guarded on User: change the database
+        // directly to model a remote operator revocation with a cached auth
+        // session that still contains the old Admin attributes.
+        DB::table('users')->where('id', $admin->id)
+            ->update(['role' => 'vendor']);
         foreach (['/api/notifications', '/api/v1/notifications'] as $base) {
             $this->getJson($base.'?category=charging')
                 ->assertOk()->assertJsonPath('total', 0);
@@ -250,7 +254,8 @@ class FaultReminderEscalatorTest extends TestCase
                 ->assertJsonPath('remaining_unread', 0);
         }
         $this->assertNull(InboxNotification::findOrFail($id)->read_at);
-        $admin->update(['role' => 'admin']);
+        DB::table('users')->where('id', $admin->id)
+            ->update(['role' => 'admin']);
         $this->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 1);
         $this->postJson('/api/notifications/'.$id.'/read')->assertOk();
