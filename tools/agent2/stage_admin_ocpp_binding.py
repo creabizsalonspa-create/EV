@@ -81,6 +81,12 @@ ChargingSessionSchema.index({sourceSessionId:1},{
   name:"uniq_linked_ocpp_source_session",
   partialFilterExpression:{sourceSessionId:{$gt:""}},
 });
+// A booking may have only one source-verified physical charging transaction.
+ChargingSessionSchema.index({bookingId:1,userId:1},{
+  unique:true,
+  name:"uniq_source_bound_ocpp_booking",
+  partialFilterExpression:{sourceType:"ocpp",sourceSessionId:{$gt:""}},
+});
 
 const ChargingSessionModel = mongoose.model("ChargingSession", ChargingSessionSchema);''',
        'session binding uniqueness')
