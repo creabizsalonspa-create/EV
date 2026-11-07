@@ -11,6 +11,11 @@
     const verifyForm = $("factor-verify");
     const keyText = $("factor-setup-key");
     const signout = $("factor-signout");
+    const recoveryCodesPanel = $("factor-recovery-codes");
+    const recoveryList = $("factor-recovery-list");
+    const codesSaved = $("factor-codes-saved");
+    const recoverForm = $("factor-recover");
+    const resetForm = $("factor-reset");
 
     let csrf = document.querySelector('meta[name="csrf-token"]').content;
     let busy = false;
@@ -23,6 +28,11 @@
         keyText.textContent = "";
         secretPanel.hidden = true;
         confirmForm.reset();
+    }
+
+    function clearRecoveryCodes() {
+        recoveryList.textContent = "";
+        recoveryCodesPanel.hidden = true;
     }
 
     function setBusy(value) {
@@ -69,19 +79,26 @@
     async function refresh() {
         try {
             const state = await request("admin/second-factor/status");
+            const resetting = state.recovery_reset_available === true;
             beginForm.hidden = state.enrolled;
-            verifyForm.hidden = !state.enrolled;
+            verifyForm.hidden = !state.enrolled || resetting;
+            recoverForm.hidden = !state.enrolled || resetting;
+            resetForm.hidden = !resetting;
             if (state.enrolled) clearSecret();
-            if (state.verified) {
+            if (state.verified && !resetting) {
                 window.location.replace("/");
                 return;
             }
-            message(state.enrolled
-                ? "Enter the current code from your authenticator app."
-                : "Confirm your password to enroll an authenticator.");
+            message(resetting
+                ? "Replace the lost authenticator using your password. Old recovery codes will be revoked."
+                : state.enrolled
+                  ? "Enter a current authenticator code or one saved recovery code."
+                  : "Confirm your password to enroll an authenticator.");
         } catch {
             beginForm.hidden = true;
             verifyForm.hidden = true;
+            recoverForm.hidden = true;
+            resetForm.hidden = true;
             message("Unable to confirm the Admin session. Sign in again.");
         }
     }
@@ -112,9 +129,22 @@
         setBusy(true);
         try {
             const code = event.target.elements.namedItem("code").value;
-            await request("admin/second-factor/" + endpoint, "POST", {code});
+            const result = await request("admin/second-factor/" + endpoint, "POST", {code});
             clearSecret();
             event.target.reset();
+            if (endpoint === "confirm") {
+                beginForm.hidden = true;
+                verifyForm.hidden = true;
+                recoverForm.hidden = true;
+                if (!Array.isArray(result.recovery_codes) || result.recovery_codes.length !== 8) {
+                    message("Enrollment succeeded. Recovery codes could not be displayed; contact the platform operator for secure recovery.");
+                    return;
+                }
+                recoveryList.textContent = result.recovery_codes.join("\n");
+                recoveryCodesPanel.hidden = false;
+                message("Save all recovery codes before continuing. They cannot be retrieved later.");
+                return;
+            }
             window.location.replace("/");
         } catch (error) {
             message(error.message);
@@ -127,12 +157,56 @@
     confirmForm.onsubmit = (event) => submitCode(event, "confirm");
     verifyForm.onsubmit = (event) => submitCode(event, "verify");
 
+    codesSaved.onclick = () => {
+        clearRecoveryCodes();
+        window.location.replace("/");
+    };
+
+    recoverForm.onsubmit = async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        try {
+            const recoveryCode = recoverForm.elements.namedItem("recovery_code").value;
+            await request("admin/second-factor/recover", "POST", {recovery_code: recoveryCode});
+            recoverForm.reset();
+            recoverForm.hidden = true;
+            verifyForm.hidden = true;
+            resetForm.hidden = false;
+            message("Recovery code accepted and consumed. Set up a replacement authenticator.");
+        } catch (error) {
+            message(error.message);
+            recoverForm.elements.namedItem("recovery_code").value = "";
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    resetForm.onsubmit = async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        try {
+            const password = resetForm.elements.namedItem("password").value;
+            await request("admin/second-factor/reset-after-recovery", "POST", {password});
+            resetForm.reset();
+            clearSecret();
+            clearRecoveryCodes();
+            window.location.replace("/admin/second-factor");
+        } catch (error) {
+            message(error.message);
+        } finally {
+            setBusy(false);
+        }
+    };
+
     signout.onclick = async () => {
         if (busy) return;
         setBusy(true);
         try {
             await request("logout", "POST");
             clearSecret();
+            clearRecoveryCodes();
             window.location.replace("/");
         } catch {
             message("Could not confirm sign-out. Please retry while connected.");
@@ -141,6 +215,9 @@
         }
     };
 
-    window.addEventListener("pagehide", clearSecret);
+    window.addEventListener("pagehide", () => {
+        clearSecret();
+        clearRecoveryCodes();
+    });
     refresh();
 })();
