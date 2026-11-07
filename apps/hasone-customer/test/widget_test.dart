@@ -64,12 +64,32 @@ void main() {
       for (final path in [
         '/api/v1/ChargingSession/abc/start',
         '/api/v1/ChargingSession/abc/stop',
+        '/api/v1/ChargingSession/abc/extend',
         '/api/v1/PaymentCards',
         '/api/v1/Bookings/abc/payment',
         '/api/v1/payment/stripe/create-intent',
       ]) {
         expect((await client.postRequest(path)).isSuccess, false);
       }
+      expect(adapter.calls, 0);
+    },
+  );
+  test('old per-request token cannot cross into a new session', () async {
+    final result = await client.getRequest(
+      '/api/v1/Profile',
+      bearerToken: 'old-session',
+    );
+    expect(result.isSuccess, false);
+    expect(adapter.calls, 0);
+  });
+  test(
+    'case-variant stale authorization is rejected before transport',
+    () async {
+      final result = await client.getRequest(
+        '/api/v1/Profile',
+        headers: {'authorization': 'Bearer old-session'},
+      );
+      expect(result.isSuccess, false);
       expect(adapter.calls, 0);
     },
   );

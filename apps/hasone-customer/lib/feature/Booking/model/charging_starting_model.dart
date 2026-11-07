@@ -31,26 +31,66 @@ class Data {
   double? kwhUsed;
   bool? canStop;
   bool? canExtend;
+  bool sourceVerified = false;
+  bool meterVerified = false;
+  String? source;
+  String? protocol;
+  String? paymentStatus;
+  int? energyWh;
+  bool get hasSourceProof =>
+      sourceVerified &&
+      source == 'ocpp' &&
+      ['ocpp1.6', 'ocpp2.0.1'].contains(protocol);
+  bool get hasVerifiedMeter =>
+      hasSourceProof && meterVerified && energyWh != null && kwhUsed != null;
 
-  Data(
-      {this.sessionId,
-        this.bookingId,
-        this.chargingStatus,
-        this.batteryPercent,
-        this.timeRemaining,
-        this.kwhUsed,
-        this.canStop,
-        this.canExtend});
+  Data({
+    this.sessionId,
+    this.bookingId,
+    this.chargingStatus,
+    this.batteryPercent,
+    this.timeRemaining,
+    this.kwhUsed,
+    this.canStop,
+    this.canExtend,
+  });
 
   Data.fromJson(Map<String, dynamic> json) {
     sessionId = json['sessionId'];
     bookingId = json['bookingId'];
-    chargingStatus = json['chargingStatus'];
-    batteryPercent = (json['batteryPercent'] is num) ? (json['batteryPercent'] as num).toInt() : null;
-    timeRemaining = json['timeRemaining'];
-    kwhUsed = (json['kwhUsed'] is num) ? (json['kwhUsed'] as num).toDouble() : null;
-    canStop = json['canStop'];
-    canExtend = json['canExtend'];
+    sourceVerified = json['sourceVerified'] == true;
+    meterVerified = json['meterVerified'] == true;
+    source = json['source'] is String ? json['source'] : null;
+    protocol = json['protocol'] is String ? json['protocol'] : null;
+    paymentStatus = json['paymentStatus'] is String
+        ? json['paymentStatus']
+        : null;
+    chargingStatus = hasSourceProof && json['chargingStatus'] is String
+        ? json['chargingStatus']
+        : null;
+    final wh = json['energyWh'];
+    final kwh = json['kwhUsed'];
+    if (hasSourceProof &&
+        meterVerified &&
+        wh is int &&
+        wh >= 0 &&
+        kwh is num &&
+        kwh.isFinite &&
+        kwh >= 0 &&
+        (kwh * 1000 - wh).abs() < 0.0001) {
+      energyWh = wh;
+      kwhUsed = kwh.toDouble();
+    }
+    // OCPP transaction/meter proof does not establish the EV battery's SOC.
+    // The staged status contract has no independent authenticated SOC source.
+    // Ignore even plausible numeric batteryPercent values until such a
+    // provenance-verified contract is implemented; do not display an estimate.
+    batteryPercent = null;
+    // No source-backed ETA contract exists. Never invent a countdown.
+    timeRemaining = null;
+    // This development client has no commissioned control adapter.
+    canStop = false;
+    canExtend = false;
   }
 
   Map<String, dynamic> toJson() {
