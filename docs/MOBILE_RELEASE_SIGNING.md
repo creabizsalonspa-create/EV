@@ -115,6 +115,50 @@ not a substitute for API restriction.
 See the official native SDK setup:
 https://developers.google.com/maps/documentation/ios-sdk/config
 
+## Inspect the compiled Android artifact before distribution
+
+The source checks in `tests/mobile_release_signing_test.py` do not prove that
+Gradle packaged the intended privacy settings. The stdlib tool
+`scripts/audit_mobile_apk.py` inspects an **actual APK** using Android SDK
+`aapt` and, in release mode, `apksigner`. It fails if the compiled package ID
+differs from the expected ID, backup or remote cleartext is enabled, mandatory
+backup/data-extraction references are absent, or target SDK is unavailable.
+
+Example for a disposable debug build after `flutter build apk --debug`:
+
+```sh
+python3 scripts/audit_mobile_apk.py \
+  apps/hasone-customer/build/app/outputs/flutter-apk/app-debug.apk \
+  --mode debug \
+  --expected-package com.creabiz.hasone.customer.dev
+python3 -m unittest discover -s tests -p 'mobile_*test.py'
+```
+
+For a release APK, provide the **owner-approved final ID and signing
+certificate SHA-256 fingerprint**. This validates the certificate identity
+against `apksigner verify --print-certs` (and rejects `.dev`, `.test`, or
+`.debug` package suffixes). Use `--require-maps-key` to reject an absent
+or blank compiled Google Maps manifest key:
+
+```sh
+python3 scripts/audit_mobile_apk.py path/to/approved-release.apk \
+  --mode release \
+  --expected-package com.yourcompany.approved.application \
+  --expected-signer-sha256 YOUR_APPROVED_64_HEX_CERT_FINGERPRINT \
+  --require-maps-key
+```
+
+Replace the example package and fingerprint with genuine authorized values;
+the example itself is **not** an approved ID. The script does not print
+provider API keys or signing passwords. It returns a package, target SDK,
+privacy findings and artifact SHA-256 for an exact-source audit log.
+A missing Maps key correctly fails the `--require-maps-key` option on
+unprovisioned debug/demo builds. The audit cannot verify Google API-key
+restrictions, live maps, Play integrity, physical devices, iOS signing,
+certificate authorization, or customer release acceptance. Run it as a
+separate artifact-level gate after actual builds, not instead of native
+build/test/CI gates.
+
 ## Secrets supplied by the authorized release operator
 
 Set four **Gradle project properties** for each app through a secured CI secret
