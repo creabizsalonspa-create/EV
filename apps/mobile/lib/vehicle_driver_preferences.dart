@@ -29,6 +29,23 @@ class _DriverPreferencesState extends State<VehicleDriverPreferencesView> {
 
   @override
   void initState() { super.initState(); reload(); }
+
+  @override
+  void didUpdateWidget(covariant VehicleDriverPreferencesView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.vehicleId == widget.vehicleId &&
+        identical(oldWidget.api, widget.api)) return;
+    // A parent may reuse this State for another vehicle. Invalidate pending
+    // responses and clear the old editable values before fetching the new ID.
+    generation++;
+    power.clear();
+    preferences = null;
+    goal = 'balanced';
+    accessible = freeParking = loading = saving = false;
+    error = success = null;
+    reload();
+  }
+
   @override
   void dispose() { generation++; power.dispose(); super.dispose(); }
 
