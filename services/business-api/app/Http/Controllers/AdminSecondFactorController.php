@@ -39,6 +39,7 @@ class AdminSecondFactorController extends Controller
             'enrolled' => $enrolled,
             'verified' => $enrolled && AdminSecondFactorGate::verified($request),
             'authenticator_required' => true,
+            'recovery_reset_available' => $enrolled && AdminSecondFactorGate::verified($request) && $request->session()->get('admin_second_factor_recovery_used') === true,
         ])->header('Cache-Control', 'no-store, private');
     }
 
@@ -153,6 +154,75 @@ class AdminSecondFactorController extends Controller
             ->header('Cache-Control', 'no-store, private');
     }
 
+    public function recover(Request $request)
+    {
+        $account = $this->account($request);
+        $code = $request->validate([
+            'recovery_code' => ['required', 'string', 'regex:/^[a-fA-F0-9]{20}$/D'],
+        ])['recovery_code'];
+        $digest = hash('sha256', strtolower($code));
+
+        $encrypted = DB::transaction(function () use ($account, $digest) {
+            $record = DB::table('admin_second_factor_recovery_codes')
+                ->where('user_id', $account->id)
+                ->where('code_digest', $digest)
+                ->whereNull('used_at')->lockForUpdate()->first();
+            if (! $record) {
+                throw ValidationException::withMessages(['recovery_code' => 'Invalid or already used recovery code.']);
+            }
+
+            $encrypted = DB::table('admin_second_factors')
+                ->where('user_id', $account->id)->value('encrypted_secret');
+            abort_unless(is_string($encrypted), 409, 'Authenticator enrollment is unavailable.');
+
+            DB::table('admin_second_factor_recovery_codes')
+                ->where('id', $record->id)->whereNull('used_at')
+                ->update(['used_at' => now()]);
+            $this->audit($account, 'admin.second_factor.recovered');
+
+            return $encrypted;
+        });
+
+        $this->grant($request, $account, $encrypted);
+        $request->session()->put('admin_second_factor_recovery_used', true);
+
+        return response()->json(['verified' => true, 'recovery_reset_available' => true])
+            ->header('Cache-Control', 'no-store, private');
+    }
+
+    public function resetAfterRecovery(Request $request)
+    {
+        $account = $this->account($request);
+        abort_unless(
+            AdminSecondFactorGate::verified($request)
+            && $request->session()->get('admin_second_factor_recovery_used') === true,
+            403,
+            'A recently used recovery code is required to replace an authenticator.'
+        );
+        $input = $request->validate(['password' => 'required|string|max:128']);
+        if (! Hash::check($input['password'], $account->password)) {
+            throw ValidationException::withMessages(['password' => 'Unable to verify account credentials.']);
+        }
+
+        DB::transaction(function () use ($account) {
+            User::whereKey($account->id)->lockForUpdate()->firstOrFail();
+            DB::table('admin_second_factor_recovery_codes')->where('user_id', $account->id)->delete();
+            DB::table('admin_second_factors')->where('user_id', $account->id)->delete();
+            $this->audit($account, 'admin.second_factor.reset_for_reenrollment');
+        });
+        $request->session()->forget([
+            'admin_second_factor_user_id',
+            'admin_second_factor_verified_at',
+            'admin_second_factor_enrollment_proof',
+            'admin_second_factor_pending',
+            'admin_second_factor_recovery_used',
+        ]);
+        $request->session()->regenerate();
+
+        return response()->json(['enrolled' => false, 'verified' => false])
+            ->header('Cache-Control', 'no-store, private');
+    }
+
     private function code(Request $request): string
     {
         return $request->validate(['code' => ['required', 'string', 'regex:/^\d{6}$/D']])['code'];
@@ -162,6 +232,7 @@ class AdminSecondFactorController extends Controller
     {
         // Promote to a fresh session identifier after successful MFA.
         $request->session()->regenerate();
+        $request->session()->forget('admin_second_factor_recovery_used');
         $request->session()->put('admin_second_factor_user_id', $account->id);
         $request->session()->put('admin_second_factor_verified_at', now()->timestamp);
         $request->session()->put('admin_second_factor_enrollment_proof', hash('sha256', $encrypted));
