@@ -55,14 +55,3 @@ if __name__=='__main__':
     if len(sys.argv)!=2:
         raise SystemExit('Usage: stage_next_ocpp_booking_workflow.py STAGED_NEXT_ADMIN')
     patch(Path(sys.argv[1]))
-+'{(b.totalAmount || 0).toFixed(2)}</td>'
-    src=once(src,usd,'>AED {(b.totalAmount || 0).toFixed(2)}</td>',
-             'Admin booking AED label')
-    component.write_text(reference.read_text(encoding='utf8'),encoding='utf8')
-    booking.write_text(src,encoding='utf8')
-    print('STAGED_NEXT_OCPP_BOOKING_ACTIONS_READY; production unchanged')
-
-if __name__=='__main__':
-    if len(sys.argv)!=2:
-        raise SystemExit('Usage: stage_next_ocpp_booking_workflow.py STAGED_NEXT_ADMIN')
-    patch(Path(sys.argv[1]))
