@@ -38,6 +38,36 @@ verify($cachedFiltered['count']===1 && $source['count']===1,'pure cache filter d
 $badCache=$source;$badCache['remote_control']=true;
 try { (new OpenChargeMapAdapter())->filterReported($badCache,20,'Type 2'); throw new RuntimeException('unsafe cache was accepted'); }
 catch(LookupFailure $e) { verify($e->reason==='invalid_response','unsafe cached capability rejected'); }
+// Cached source must never be able to upgrade a discovery-only station
+// or connector to live control, booking or payment authority.
+foreach ([
+    ['availability', 'available'],
+    ['remote_control', true],
+    ['reservable', true],
+    ['billing_eligible', true],
+    ['source_status_evidence', 'LIVE_OPERATOR'],
+    ['data_license', ''],
+] as [$field, $value]) {
+    $tampered = $source;
+    $tampered['results'][0][$field] = $value;
+    try { (new OpenChargeMapAdapter())->filterReported($tampered); throw new RuntimeException('unsafe station cache accepted: '.$field); }
+    catch (LookupFailure $e) { verify($e->reason === 'invalid_response', 'station cache fail closed: '.$field); }
+}
+foreach ([
+    ['availability', 'available'],
+    ['remote_control', true],
+    ['reservable', true],
+    ['billing_eligible', true],
+] as [$field, $value]) {
+    $tampered = $source;
+    $tampered['results'][0]['connections'][0][$field] = $value;
+    try { (new OpenChargeMapAdapter())->filterReported($tampered); throw new RuntimeException('unsafe connector cache accepted: '.$field); }
+    catch (LookupFailure $e) { verify($e->reason === 'invalid_response', 'connector cache fail closed: '.$field); }
+}
+$malformed = $source;
+$malformed['results'][0]['connections'] = ['unsafe' => ['availability' => 'unknown']];
+try { (new OpenChargeMapAdapter())->filterReported($malformed); throw new RuntimeException('associative connector cache accepted'); }
+catch (LookupFailure $e) { verify($e->reason === 'invalid_response', 'reject associative connector cache'); }
 verify($result['results'][0]['id']==='ocm:11','sort by distance');
 verify($result['results'][1]['id']==='ocm:12','second source');
 verify($captured['opendata']==='true' && $captured['distanceunit']==='km' && $captured['maxresults']===25,'bounded OCM request');

@@ -121,6 +121,33 @@ final class OpenChargeMapAdapter
             if (! is_array($item) || ! is_array($item['connections'] ?? null)) {
                 throw new LookupFailure('invalid_response');
             }
+            // Treat cache storage as untrusted. A malformed cache entry must
+            // never advertise actionable OCPP/OCPI capabilities, even when the
+            // top-level source envelope still says discovery-only.
+            if (($item['provider'] ?? null) !== 'open_charge_map'
+                || ($item['source_status_evidence'] ?? null) !== 'OPEN_CHARGE_MAP_DISCOVERY_ONLY'
+                || ($item['availability'] ?? null) !== 'unknown'
+                || ($item['remote_control'] ?? null) !== false
+                || ($item['reservable'] ?? null) !== false
+                || ($item['billing_eligible'] ?? null) !== false
+                || ! is_string($item['data_provider'] ?? null)
+                || trim($item['data_provider']) === ''
+                || ! is_string($item['data_license'] ?? null)
+                || trim($item['data_license']) === ''
+                || ! array_is_list($item['connections'])
+                || count($item['connections']) > 20) {
+                throw new LookupFailure('invalid_response');
+            }
+            foreach ($item['connections'] as $connection) {
+                if (! is_array($connection)
+                    || ! is_string($connection['reported_connector_type'] ?? null)
+                    || ($connection['availability'] ?? null) !== 'unknown'
+                    || array_key_exists('remote_control', $connection)
+                    || array_key_exists('reservable', $connection)
+                    || array_key_exists('billing_eligible', $connection)) {
+                    throw new LookupFailure('invalid_response');
+                }
+            }
             // The provider response is cached for 5 minutes. Recompute its
             // sourced age for every request, including unfiltered requests,
             // so a recent->stale transition is never frozen in the cache.
