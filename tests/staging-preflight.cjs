@@ -79,3 +79,28 @@ test('reported failures never contain raw supplied credentials', () => withEnv(s
   assert.equal(result.ok, false);
   assert.equal(JSON.stringify(result.errors).includes('unsafe_secret_value'), false);
 }));
+
+test('inherited shell binding cannot silently expose reviewed staging configuration', () => withEnv(source(), file => {
+  const original = process.env.STAGING_BIND_IP;
+  process.env.STAGING_BIND_IP = '0.0.0.0';
+  try {
+    const result = reviewFile(file);
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.some(e => e.startsWith('STAGING_BIND_IP: inherited shell')));
+    assert.ok(!JSON.stringify(result.errors).includes(password));
+  } finally {
+    if (original === undefined) delete process.env.STAGING_BIND_IP;
+    else process.env.STAGING_BIND_IP = original;
+  }
+}));
+
+test('matching inherited Compose binding does not fail review', () => withEnv(source(), file => {
+  const original = process.env.STAGING_BIND_IP;
+  process.env.STAGING_BIND_IP = '127.0.0.1';
+  try {
+    assert.equal(reviewFile(file).ok, true);
+  } finally {
+    if (original === undefined) delete process.env.STAGING_BIND_IP;
+    else process.env.STAGING_BIND_IP = original;
+  }
+}));
