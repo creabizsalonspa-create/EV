@@ -92,8 +92,31 @@ class VendorOpsTest extends TestCase
         $d = VendorKycDocument::first();
         $this->assertStringNotContainsString('Private file', Storage::disk('local')->get($d->getRawOriginal('storage_path')));
         $this->get('/api/vendor-ops/companies/'.$c->id.'/documents/'.$d->id)->assertOk()->assertContent("%PDF-1.4\nPrivate file")->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $owner->id,
+            'action' => 'vendor_ops.document.downloaded',
+            'subject' => (string) $d->id,
+        ]);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'vendor_ops.document.downloaded')->count());
+        $this->actingAs($other)
+            ->get('/api/vendor-ops/companies/'.$c->id.'/documents/'.$d->id)
+            ->assertNotFound();
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'vendor_ops.document.downloaded')->count());
         $this->actingAs($other)->getJson('/api/vendor-ops/companies/'.$c->id.'/documents')->assertNotFound();
         $this->get('/api/vendor-ops/companies/'.$otherCompany->id.'/documents/'.$d->id)->assertNotFound();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)
+            ->get('/api/vendor-ops/companies/'.$c->id.'/documents/'.$d->id)
+            ->assertOk()->assertContent("%PDF-1.4\nPrivate file");
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'vendor_ops.document.downloaded',
+            'subject' => (string) $d->id,
+        ]);
+        $this->assertSame(2, DB::table('audit_events')
+            ->where('action', 'vendor_ops.document.downloaded')->count());
         VendorCompanyStaff::create(['company_id' => $c->id, 'user_id' => $staff->id, 'permissions' => ['company.read', 'inventory.read'], 'status' => 'active']);
         $this->actingAs($staff)->getJson('/api/vendor-ops/companies/'.$c->id)->assertOk()->assertJsonMissingPath('trade_license_number');
         $this->getJson('/api/vendor-ops/companies/'.$c->id.'/documents')->assertNotFound();

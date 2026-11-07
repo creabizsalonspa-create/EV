@@ -135,7 +135,20 @@ class VendorOpsController extends Controller
             'image/png' => 'png','image/jpeg' => 'jpg',default => 'pdf'
         };
 
-        return response(Crypt::decryptString(Storage::disk('local')->get($document->getRawOriginal('storage_path'))), 200, ['Content-Type' => $document->mime_type, 'Content-Disposition' => 'attachment; filename="kyc-document-'.$document->id.'.'.$extension.'"', 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'no-store, private']);
+        $contents = Crypt::decryptString(
+            Storage::disk('local')->get($document->getRawOriginal('storage_path'))
+        );
+        // Log only a successful authorized access, without storage paths,
+        // plaintext document contents, trade-license IDs or download URLs.
+        // Fail closed if the compliance audit cannot be recorded.
+        $this->access->audit($r->user(), 'document.downloaded', $document->id);
+
+        return response($contents, 200, [
+            'Content-Type' => $document->mime_type,
+            'Content-Disposition' => 'attachment; filename="kyc-document-'.$document->id.'.'.$extension.'"',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'no-store, private',
+        ]);
     }
 
     public function submit(Request $r, VendorCompany $company)
