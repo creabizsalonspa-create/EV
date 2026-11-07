@@ -83,7 +83,13 @@ class AdminSecondFactorController extends Controller
             throw ValidationException::withMessages(['code' => 'Invalid or expired authenticator code.']);
         }
 
-        $encrypted = DB::transaction(function () use ($account, $secret, $step) {
+        // High-entropy codes are shown once, after the authenticator itself is
+        // confirmed. Only their SHA-256 digests ever enter the database.
+        $recoveryCodes = array_map(
+            fn () => bin2hex(random_bytes(10)),
+            range(1, 8)
+        );
+        $encrypted = DB::transaction(function () use ($account, $secret, $step, $recoveryCodes) {
             User::whereKey($account->id)->lockForUpdate()->firstOrFail();
             abort_if(DB::table('admin_second_factors')->where('user_id', $account->id)->exists(), 409, 'Authenticator is already enrolled.');
             $encrypted = Crypt::encryptString($secret);
@@ -95,6 +101,13 @@ class AdminSecondFactorController extends Controller
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+            foreach ($recoveryCodes as $code) {
+                DB::table('admin_second_factor_recovery_codes')->insert([
+                    'user_id' => $account->id,
+                    'code_digest' => hash('sha256', $code),
+                    'created_at' => now(),
+                ]);
+            }
             $this->audit($account, 'admin.second_factor.enrolled');
 
             return $encrypted;
@@ -103,8 +116,11 @@ class AdminSecondFactorController extends Controller
         $request->session()->forget('admin_second_factor_pending');
         $this->grant($request, $account, $encrypted);
 
-        return response()->json(['verified' => true, 'enrolled' => true])
-            ->header('Cache-Control', 'no-store, private');
+        return response()->json([
+            'verified' => true,
+            'enrolled' => true,
+            'recovery_codes' => $recoveryCodes,
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function verify(Request $request)
