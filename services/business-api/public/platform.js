@@ -1248,12 +1248,13 @@ async function batteryEditor(id, row) {
     box.append(batteryNode("p", "Simulator-only alerts. Choose location explicitly in discovery for nearby results.", "تنبيهات محاكاة فقط. اختر الموقع صراحةً في الدليل للنتائج القريبة."));
     let version = data.version, pending = null;
     const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = data.alerts_enabled;
-    const threshold = document.createElement("input"); threshold.type = "number"; threshold.min = "1"; threshold.max = "50"; threshold.value = data.threshold_percent;
+    const threshold = document.createElement("input"); threshold.type = "number"; threshold.required = true; threshold.min = "1"; threshold.max = "50"; threshold.value = data.threshold_percent;
     const label = (en, ar, input) => {const l = node("label", ""); l.append(batteryNode("span", en, ar), input); box.append(l);};
     label("Enable low-battery notifications", "تفعيل تنبيهات البطارية المنخفضة", enabled);
     label("Threshold % (1–50)", "عتبة التنبيه ٪ (1–50)", threshold);
     const save = batteryNode("button", "Save battery preferences", "حفظ تفضيلات البطارية");
     save.onclick = async () => {
+        if (!threshold.reportValidity()) return;
         save.disabled = true;
         try {
             const value = await api(`vehicles/${id}/battery-preferences`, "PUT", {
@@ -1265,11 +1266,12 @@ async function batteryEditor(id, row) {
     };
     box.append(save);
     if (data.can_simulate) {
-        const percent = document.createElement("input"); percent.type = "number"; percent.min = "0"; percent.max = "100"; percent.value = "15";
+        const percent = document.createElement("input"); percent.type = "number"; percent.required = true; percent.min = "0"; percent.max = "100"; percent.value = "15";
         label("Simulated battery % (0–100)", "بطارية محاكاة ٪ (0–100)", percent);
         const simulate = batteryNode("button", "Record simulator observation", "تسجيل قراءة محاكاة");
         const result = node("p", "");
         simulate.onclick = async () => {
+            if (pending === null && !percent.reportValidity()) return;
             pending ??= {operation_key: crypto.randomUUID(), battery_percent: Number(percent.value)};
             simulate.disabled = true; save.disabled = enabled.disabled = threshold.disabled = percent.disabled = true;
             try {
