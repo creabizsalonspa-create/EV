@@ -169,7 +169,7 @@ const assert = require("node:assert/strict");
     await page.locator(".partner-map-pin").waitFor();
     showPartner = false;
     await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
-    await page.getByText("No published partner locations.", { exact: true }).waitFor();
+    await page.getByText("No matching partner locations.", { exact: true }).waitFor();
     assert.equal(await page.locator(".partner-map-pin").count(), 0);
     // A future API advertising unsupported live charging capabilities is rejected
     // before any partner marker can be displayed, even after a valid prior page.
