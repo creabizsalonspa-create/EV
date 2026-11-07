@@ -16,6 +16,7 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'simulatedFaultAlert': 'Observed simulated charger fault · station #{station}',
     'unreadOnly': 'Unread only',
     'unreadNotificationCount': '{count} unread notifications',
     'markCurrentNotificationsRead': 'Mark all current notifications as read',
@@ -340,6 +341,7 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'simulatedFaultAlert': 'رُصد عطل شاحن تجريبي · المحطة #{station}',
     'unreadOnly': 'غير المقروءة فقط',
     'unreadNotificationCount': '{count} إشعار غير مقروء',
     'markCurrentNotificationsRead': 'تحديد الإشعارات الحالية كمقروءة',

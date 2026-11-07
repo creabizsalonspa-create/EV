@@ -14,7 +14,7 @@ class FaultMonitor
         return hash('sha256', json_encode([$binding->id, $binding->station_id, $binding->vendor_charger_id, $binding->identifier, $binding->protocol], JSON_THROW_ON_ERROR));
     }
 
-    public function ingest(object $binding, array $snapshot): int
+    public function ingest(object $binding, array $snapshot, ?callable $onAlertCreated = null): int
     {
         $generation = self::generation($binding);
         abort_unless(hash_equals($generation, $snapshot['source_generation'] ?? ''), 409, 'Source mapping changed; inspect again.');
@@ -36,7 +36,10 @@ class FaultMonitor
             }
             $id = DB::table('charging_status_observations')->insertGetId($values + ['fingerprint' => $fingerprint, 'created_at' => now()]);
             if ($values['status'] === 'Faulted' || ! in_array($values['error_code'], [null, 'NoError'], true)) {
-                DB::table('charging_fault_alerts')->insert(['observation_id' => $id, 'created_at' => now(), 'updated_at' => now()]);
+                $alertId = DB::table('charging_fault_alerts')->insertGetId(['observation_id' => $id, 'created_at' => now(), 'updated_at' => now()]);
+                if ($onAlertCreated !== null) {
+                    $onAlertCreated($alertId);
+                }
                 $created++;
             }
         }

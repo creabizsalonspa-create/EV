@@ -2,6 +2,7 @@
 
 namespace App\Services\Charging;
 
+use App\Models\InboxNotification;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -69,8 +70,27 @@ class ContinuousFaultObserver
             $state = $sourceId === null ? 'not_observed' : (count($events) > 100 ? 'catching_up' : 'caught_up');
             $events = array_slice($events, 0, 100);
 
-            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after) {
-                $created = app(FaultMonitor::class)->ingest($current, ['source_generation' => $generation, 'events' => $events]);
+            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId) {
+                // The source observation, fault alert and vendor-only in-app
+                // notification commit atomically under the verified ownership lock.
+                // Historical replay never emits a second notification.
+                $created = app(FaultMonitor::class)->ingest(
+                    $current,
+                    ['source_generation' => $generation, 'events' => $events],
+                    function (int $alertId) use ($current, $ownerId): void {
+                        InboxNotification::create([
+                            'user_id' => $ownerId,
+                            'kind' => 'charging.fault.simulated',
+                            'metadata' => [
+                                'source' => 'simulator',
+                                'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                                'station_id' => $current->station_id,
+                                'alert_id' => $alertId,
+                                'physical_verification' => false,
+                            ],
+                        ]);
+                    },
+                );
                 $last = $events ? end($events)['id'] : $after;
                 DB::table('charging_fault_cursors')->updateOrInsert(['source_generation' => $generation], ['binding_id' => $current->id, 'source_station_id' => $sourceId, 'last_event_id' => $last, 'state' => $state, 'checked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 

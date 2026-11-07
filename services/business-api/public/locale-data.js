@@ -1,4 +1,8 @@
 window.EV_MESSAGES = {
+    "Observed simulated charger fault · station #{id}": {
+        en: "Observed simulated charger fault · station #{id}",
+        ar: "رُصد عطل شاحن تجريبي · المحطة #{id}",
+    },
     "Show unread only": { en: "Show unread only", ar: "عرض غير المقروءة فقط" },
     "Show all notifications": { en: "Show all notifications", ar: "عرض جميع الإشعارات" },
     "{count} unread notifications": {

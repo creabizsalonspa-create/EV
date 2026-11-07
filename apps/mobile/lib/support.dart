@@ -209,13 +209,19 @@ class SupportViewState extends State<SupportView> {
                   children: [
                     if (notifications) ...[
                       Text(
-                        row['kind'] == 'vehicle.battery.simulated'
-                            ? '${Localizations.localeOf(context).languageCode == 'ar' ? 'محاكاة بطارية منخفضة' : 'Simulated low battery'} · #${row['metadata']['vehicle_id']} · ${row['metadata']['battery_percent']}%'
-                            : s.t(
-                                row['kind'] == 'support.reply'
-                                    ? 'supportReply'
-                                    : 'supportStatus',
-                              ),
+                        row['kind'] == 'charging.fault.simulated'
+                            ? s.t('simulatedFaultAlert', {
+                                'station': row['metadata'] is Map
+                                    ? (row['metadata'] as Map)['station_id'] ?? '?'
+                                    : '?',
+                              })
+                            : row['kind'] == 'vehicle.battery.simulated'
+                                ? '${Localizations.localeOf(context).languageCode == 'ar' ? 'محاكاة بطارية منخفضة' : 'Simulated low battery'} · #${row['metadata'] is Map ? row['metadata']['vehicle_id'] ?? '?' : '?'} · ${row['metadata'] is Map ? row['metadata']['battery_percent'] ?? '?' : '?'}%'
+                                : s.t(
+                                    row['kind'] == 'support.reply'
+                                        ? 'supportReply'
+                                        : 'supportStatus',
+                                  ),
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       Text(s.t(row['read_at'] == null ? 'unread' : 'read')),

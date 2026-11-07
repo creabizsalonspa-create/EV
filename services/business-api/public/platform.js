@@ -1329,11 +1329,15 @@ async function support() {
     }
     for (const m of n.data) {
         const row = m.kind === "vehicle.battery.simulated"
-            ? node("p", (user.locale === "ar" ? "محاكاة بطارية منخفضة · المركبة " : "Simulated low battery · Vehicle ") + m.metadata.vehicle_id + " · " + m.metadata.battery_percent + "%")
-            : ui("p", "{kind} · ticket #{id}", {
-            kind: { translate: m.kind },
-            id: m.support_ticket_id,
-        });
+            ? node("p", (user.locale === "ar" ? "محاكاة بطارية منخفضة · المركبة " : "Simulated low battery · Vehicle ") + (m.metadata?.vehicle_id ?? "?") + " · " + (m.metadata?.battery_percent ?? "?") + "%")
+            : m.kind === "charging.fault.simulated"
+                ? ui("p", "Observed simulated charger fault · station #{id}", {
+                    id: m.metadata?.station_id ?? "?",
+                })
+                : ui("p", "{kind} · ticket #{id}", {
+                    kind: { translate: m.kind },
+                    id: m.support_ticket_id,
+                });
         if (!m.read_at) {
             const b = ui("button", "Mark read");
             b.onclick = async () => {

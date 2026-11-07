@@ -23,3 +23,9 @@ Run `./scripts/php artisan test --filter=NotificationCenterTest`, `flutter test 
 ## Additional listing functionality
 
 Both account-scoped notification listing routes now accept an optional validated `unread_only=1` filter. The canonical `/api/v1/notifications` listing and individual read endpoint are aliases of the existing session API, with the same authorization, pagination and throttling. The web inbox adds a persistent-for-session unread-only toggle, cleared on account identity reset. Flutter SupportView offers the same filter with the existing refresh and page controls. Invalid filter values return 422; no record is modified simply by applying a filter.
+
+## Source-observed simulator charger faults in the owner inbox
+
+The existing `ContinuousFaultObserver` already requires a locally enabled simulator source, tests the authentic source/binding relationship and rechecks current vendor ownership inside a locked database transaction. Its fault monitor now accepts an optional callback *only when a new durable fault alert is inserted*. The observer uses that callback to persist one vendor-owner `charging.fault.simulated` inbox record, **in the same transaction** as the observation, alert and monitor cursor. No message is sent on a replay, rejected source, changed owner, or rollback. Existing monitor callers without callbacks retain their previous behavior.
+
+Notification metadata contains only simulator provenance, the source-evidence class, station ID, internal alert ID and explicit `physical_verification=false`. No raw OCPP source token, device secret, private message, meter data, live payment or actual hardware assurance enters the inbox. The web and Flutter inboxes show clear bilingual simulator-fault labels without inventing a support-ticket link. Updated observer tests exercise both OCPP 1.6 and 2.0.1 fixtures, replay idempotency, owner isolation and failed-batch rollback. **No production monitor is enabled or charger command sent.**

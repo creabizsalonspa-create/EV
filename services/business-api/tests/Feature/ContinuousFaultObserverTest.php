@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\InboxNotification;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -74,6 +75,18 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertSame(0, app(ContinuousFaultObserver::class)->observe($f['binding'])['events']);
         $this->assertDatabaseCount('charging_status_observations', 101);
         $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $notification = InboxNotification::firstOrFail();
+        $this->assertSame($f['owner']->id, $notification->user_id);
+        $this->assertSame('charging.fault.simulated', $notification->kind);
+        $this->assertSame('simulator', $notification->metadata['source']);
+        $this->assertSame('SIMULATED_SOURCE_OBSERVED', $notification->metadata['evidence']);
+        $this->assertSame($f['station']->id, $notification->metadata['station_id']);
+        $this->assertSame(false, $notification->metadata['physical_verification']);
+        $this->actingAs($f['owner'])->getJson('/api/v1/notifications/summary')
+            ->assertOk()->assertJsonPath('unread_count', 1);
+        $this->getJson('/api/v1/notifications?unread_only=1')
+            ->assertOk()->assertJsonPath('data.0.kind', 'charging.fault.simulated');
         $alert = DB::table('charging_fault_alerts')->first();
         $this->assertNotNull($alert->recovery_observation_id);
         $path = '/api/vendor-ops/companies/'.$f['company']->id.'/chargers/'.$f['charger']->id;
@@ -128,6 +141,7 @@ class ContinuousFaultObserverTest extends TestCase
         }
         $this->assertDatabaseCount('charging_fault_cursors', 0);
         $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
     }
 
     public function test_disabled_or_production_worker_cannot_read_source(): void

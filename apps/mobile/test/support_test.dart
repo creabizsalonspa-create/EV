@@ -123,6 +123,41 @@ class BatteryFixture extends FixtureApi {
   };
 }
 
+class FaultFixture extends FixtureApi {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'notifications/summary') {
+      return {'unread_count': 1, 'latest_id': 22, 'in_app_only': true};
+    }
+    final items = path == 'notifications'
+        ? [
+            {
+              'id': 22,
+              'kind': 'charging.fault.simulated',
+              'support_ticket_id': null,
+              'read_at': null,
+              'metadata': {
+                'source': 'simulator',
+                'station_id': 17,
+                'physical_verification': false,
+              },
+            },
+          ]
+        : <Map<String, dynamic>>[];
+    return {
+      'data': items,
+      'current_page': 1,
+      'last_page': 1,
+      'total': items.length,
+    };
+  }
+}
+
 class PendingSupport extends FixtureApi {
   final response = Completer<dynamic>();
   @override
@@ -258,6 +293,25 @@ void main() {
     expect(fixture.read, isTrue);
     expect(find.text('0 unread notifications'), findsOneWidget);
   });
+  testWidgets(
+    'source-observed simulated fault is visible to owner without invented ticket or physical claim',
+    (tester) async {
+      final api = FaultFixture();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SupportView(api: api, onSessionExpired: () {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('support-notifications')));
+      await tester.pumpAndSettle();
+      expect(find.text('Observed simulated charger fault · station #17'), findsOneWidget);
+      expect(find.textContaining('Ticket #'), findsNothing);
+    },
+  );
   testWidgets(
     'battery notification labels simulation without a support ticket link',
     (tester) async {
