@@ -185,6 +185,7 @@ test('private owner-only proof is never overwritten or promoted to real payment 
   assert.equal(await audit.main(options,{send:sender()}),0);
   const data=JSON.parse(fs.readFileSync(output,'utf8'));
   assert.equal(data.status,'LOCAL_SIMULATED_LEDGER_VERIFIED');
+  assert.match(data.fixture_sha256,/^[a-f0-9]{64}$/);
   for(const field of ['real_money_moved','payment_processor_verified','physical_charging_verified',
     'production_accepted','customer_contract_accepted'])assert.equal(data[field],false);
   if(process.platform!=='win32')assert.equal(fs.statSync(output).mode&0o077,0);
