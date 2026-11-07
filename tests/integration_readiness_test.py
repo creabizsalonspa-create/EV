@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -128,6 +129,37 @@ class IntegrationReadinessTest(unittest.TestCase):
             run["pull_requests"] = [{"number": 52}]
         result = gate.assess(pr(number=57), other_checks, ["README.md"])
         self.assertEqual("blocked", result["status"])
+
+
+    def test_targeted_stacked_child_audit_discovers_open_parent(self):
+        parent = pr(number=59)
+        parent["head"]["ref"] = "development/ocpi-test-invoice-lineage"
+        child = pr(number=61, base=parent["head"]["ref"])
+
+        class FakeGitHub:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def get(self, suffix):
+                if suffix == "/pulls/61":
+                    return child
+                raise AssertionError("Unexpected network endpoint " + suffix)
+
+            def pages(self, suffix, key=None):
+                if suffix == "/pulls?state=open":
+                    return [parent, child]
+                if suffix == "/pulls/61/files":
+                    return [{"filename": "README.md"}]
+                if suffix.startswith("/commits/"):
+                    return checks()
+                raise AssertionError("Unexpected collection " + suffix)
+
+        with patch.object(gate, "GitHub", FakeGitHub):
+            report = gate.inspect_live(only_pr=61)
+        self.assertEqual(1, report["audited_prs"])
+        self.assertEqual("blocked", report["prs"][0]["status"])
+        self.assertEqual(59, report["prs"][0]["dependency_pr"])
+        self.assertIn("stacked_parent_pending:59", report["prs"][0]["blockers"])
 
 
 if __name__ == "__main__":
