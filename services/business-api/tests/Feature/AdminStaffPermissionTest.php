@@ -277,6 +277,35 @@ class AdminStaffPermissionTest extends TestCase
         $this->assertNotNull($member->fresh()->admin_revoked_at);
     }
 
+    public function test_admin_release_cannot_restore_access_on_inconsistent_held_membership(): void
+    {
+        [$admin, , $staff, $company, $member] = $this->fixture();
+        $this->actingAs($admin)->postJson(
+            '/api/admin/permission-grants/'.$member->id.'/revoke',
+            $this->payload()
+        )->assertOk();
+
+        // Emulate a stale legacy SQL update during the administrative hold.
+        DB::table('vendor_company_staff')->where('id', $member->id)
+            ->update(['status' => 'active']);
+        $this->actingAs($staff)->getJson(
+            '/api/vendor-ops/companies/'.$company->id
+        )->assertNotFound();
+
+        $this->actingAs($admin)->postJson(
+            '/api/admin/permission-grants/'.$member->id.'/release',
+            $this->payload(2, 'Independent Admin review completed without automatic grant')
+        )->assertOk()->assertJsonPath('status', 'revoked')
+            ->assertJsonPath('requires_fresh_invitation', true);
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $member->id, 'status' => 'revoked',
+            'invitation_version' => 3, 'admin_revoked_at' => null,
+        ]);
+        $this->actingAs($staff)->getJson(
+            '/api/vendor-ops/companies/'.$company->id
+        )->assertNotFound();
+    }
+
     public function test_revocation_history_is_private_to_admin(): void
     {
         [$admin, , $staff, , $membership] = $this->fixture();

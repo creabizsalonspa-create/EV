@@ -153,12 +153,16 @@ class AdminStaffPermissionController extends Controller
         return DB::transaction(function () use ($actor, $membership, $input) {
             $locked = VendorCompanyStaff::whereKey($membership->id)
                 ->lockForUpdate()->firstOrFail();
-            abort_unless($locked->status === 'revoked'
-                && $locked->admin_revoked_at !== null, 409, 'No emergency hold to release.');
+            // A legacy writer may have incorrectly marked a held membership
+            // active. Admin may resolve that hold, but must never turn the
+            // release into an access grant.
+            abort_unless($locked->admin_revoked_at !== null,
+                409, 'No emergency hold to release.');
             abort_unless($locked->invitation_version === (int) $input['expected_version'],
                 409, 'Staff permissions changed. Refresh before releasing.');
 
             $previousVersion = $locked->invitation_version;
+            $locked->status = 'revoked';
             $locked->admin_revoked_at = null;
             $locked->invitation_version = $previousVersion + 1;
             $locked->save();
