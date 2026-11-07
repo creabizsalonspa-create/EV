@@ -77,6 +77,7 @@ function clearIdentity() {
 function clearPrivateViews() {
     riderWorkspace.clear();
     vendorWorkspace.clear();
+    driverPreferences.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
     invoiceHistory.clear();
@@ -1140,6 +1141,10 @@ el("station-form").onsubmit = async (e) => {
         notice(e);
     }
 };
+const driverPreferences = VehicleDriverPreferences.create({
+    root: el("driver-preferences-editor"), api, actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),
     api,
@@ -1233,6 +1238,16 @@ async function garage() {
                 } catch (e) { notice(e); action.disabled = false; }
             };
             row.append(action);
+        }
+        if (user?.role === "customer") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.dataset.en = "Driver charging preferences";
+            button.dataset.ar = "تفضيلات الشحن";
+            button.textContent = document.documentElement.lang === "ar"
+                ? button.dataset.ar : button.dataset.en;
+            button.onclick = () => driverPreferences.open(v);
+            row.append(button);
         }
         el("vehicle-list").append(row);
     }
