@@ -40,6 +40,7 @@ process.env.SSLCOMMERZ_STORE_ID='';
 process.env.SSLCOMMERZ_STORE_PASSWORD='';
 process.env.OCPP_REMOTE_CONTROL_ENABLED='false';
 process.env.BACKEND_URL='http://127.0.0.1';
+process.env.OCPP_PUBLIC_WS_BASE='';
 const mongoose=(await import(pathToFileURL(join(dependencies,'node_modules/mongoose/index.js')).href)).default;
 let server;
 try{
@@ -750,6 +751,8 @@ try{
     assert.equal(response.code,201);
     assert.equal(response.body.data.chargerId,multiSecond);
     assert.equal(response.body.data.controlApproved,false);
+    assert.equal(response.body.data.url,null);
+    assert.equal(response.body.data.gatewayUrlConfigured,false);
     assert.ok(/^[a-f0-9]{40}$/.test(response.body.data.password));
     assert.equal(await chargerTable.countDocuments({stationId:String(multiStation._id)}),2);
     const rollbackPlan=await planChargerStationRollback(chargerTable);
@@ -758,6 +761,21 @@ try{
     await assert.rejects(()=>rollbackChargerStationIndex(chargerTable,{
       approval:'ROLLBACK_DISPOSABLE_AGENT2_DB'
     }),/multiple_chargers_share_station/);
+  });
+  await check('configured WSS gateway base yields only an explicitly approved charger URL',async()=>{
+    const secondStation=await NearestStationModel.create({name:'Agent 2 Explicit WSS Station',
+      address:'Test Only',status:'Available',latitude:25.77,longitude:55.96,
+      pricePerHourValue:40,slots:[{startTime:'08:00 AM',endTime:'09:00 AM'}]});
+    process.env.OCPP_PUBLIC_WS_BASE='wss://configured-test.invalid/ocpp';
+    try{
+      const response=await request('POST','/api/v1/admin/stations/'+secondStation._id+'/ocpp/chargers',
+        {chargerId:'agent2-approved-configured-wss',protocol:'ocpp1.6'},
+        false,{authorization:adminBearer});
+      assert.equal(response.code,201);
+      assert.equal(response.body.data.url,
+        'wss://configured-test.invalid/ocpp/agent2-approved-configured-wss');
+      assert.equal(response.body.data.gatewayUrlConfigured,true);
+    }finally{process.env.OCPP_PUBLIC_WS_BASE='';}
   });
   await check('duplicate global charger ID is rejected across stations',async()=>{
     const response=await request('POST',registration,
