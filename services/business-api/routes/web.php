@@ -135,3 +135,5 @@ Route::get('/payments/corporate-hosted-simulation/{checkout}', function (string 
 
 Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
 Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/vehicle_driver_preferences.php');

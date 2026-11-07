@@ -134,3 +134,5 @@ Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogControl
 
 Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
 Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
+
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/vehicle_driver_preferences.php');
