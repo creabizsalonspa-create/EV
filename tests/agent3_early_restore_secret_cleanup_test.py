@@ -13,37 +13,30 @@ class EarlyRestoreSecretCleanupTests(unittest.TestCase):
     def test_partial_hmac_key_is_removed_even_when_generator_fails(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            executable = root/'fake-tools'
-            executable.mkdir()
             scratch_base = root/'scratch'
             scratch_base.mkdir()
-            # Use real inert file/clock tools but NEVER contact a Docker daemon.
-            for name in ('dirname', 'mkdir', 'rm', 'date', 'sha256sum'):
-                target = shutil.which(name)
-                self.assertIsNotNone(target)
-                (executable/name).symlink_to(target)
-
-            mktemp_path = shutil.which('mktemp')
-            self.assertIsNotNone(mktemp_path)
-            mktemp = executable/'mktemp'
-            mktemp.write_text('#!/bin/sh\n'
-                'exec "' + mktemp_path + '" -d "$TMP_TEST_SCRATCH/isolation.XXXXXXXX"\n')
-            mktemp.chmod(0o700)
-
-            python = executable/'python3'
-            python.write_text('#!/bin/sh\n'
-                              'printf "partial-sensitive-run-key" > "$2"\n'
-                              'exit 74\n')
-            python.chmod(0o700)
-
-            docker = executable/'docker'
-            docker.write_text('#!/bin/sh\n'
-                'if [ "$1" = image ] && [ "$2" = inspect ]; then exit 0; fi\n'
-                'printf "unexpected docker access\\n" >> "$DOCKER_ACTIONS"\n'
-                'exit 99\n')
-            docker.chmod(0o700)
             actions = root/'docker-actions'
-            env = {**os.environ, 'PATH': str(executable),
+            # /tmp is noexec on the authorized test host. Bash *reads* this
+            # file via BASH_ENV; it never executes a fake program from /tmp.
+            # Functions replace Docker, mktemp and Python without invoking
+            # any external Docker daemon or real secret generator.
+            fake_shell = root/'isolated-qa-functions.sh'
+            fake_shell.write_text('''
+docker() {
+  if [[ "$1" == image && "$2" == inspect ]]; then return 0; fi
+  printf 'unexpected Docker action\\n' >> "$DOCKER_ACTIONS"
+  return 99
+}
+mktemp() {
+  /usr/bin/mktemp -d "$TMP_TEST_SCRATCH/isolation.XXXXXXXX"
+}
+python3() {
+  printf 'partial-sensitive-run-key' > "$2"
+  return 74
+}
+''')
+            env = {**os.environ,
+                   'BASH_ENV': str(fake_shell),
                    'TMP_TEST_SCRATCH': str(scratch_base),
                    'DOCKER_ACTIONS': str(actions)}
             for name, label, args in (
