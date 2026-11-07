@@ -205,6 +205,9 @@ class EvApi {
     try {
       raw = await _vaultOperation(() => vault!.read(base.origin));
     } catch (_) {
+      // A newer logout/identity supersedes even a failed platform read.
+      // Do not show an obsolete Keychain error on the next account's screen.
+      if (restoreEpoch != _epoch) return null;
       throw const SessionStorageException();
     }
     if (restoreEpoch != _epoch) return null;
