@@ -14,6 +14,7 @@ const assert = require("node:assert/strict");
     const page = await context.newPage();
     let tiles = 0;
     let showPartner = true;
+    let unsafePartner = false;
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.route("https://tile.openstreetmap.org/**", (r) => {
@@ -62,7 +63,7 @@ const assert = require("node:assert/strict");
             ? [{
                 id: 19, provider_id: 9,
                 evidence: "PARTNER_REPORTED_UNVERIFIED",
-                availability: "unknown", remote_control: false, reservable: false,
+                availability: unsafePartner ? "available" : "unknown", remote_control: false, reservable: false,
                 source_timestamp_evidence: "PARTNER_REPORTED_ONLY",
                 reported_source_age_minutes: 120,
                 received_at: "2026-11-07T12:00:00Z",
@@ -145,6 +146,13 @@ const assert = require("node:assert/strict");
     showPartner = false;
     await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
     await page.getByText("No published partner locations.", { exact: true }).waitFor();
+    assert.equal(await page.locator(".partner-map-pin").count(), 0);
+    // A future API advertising unsupported live charging capabilities is rejected
+    // before any partner marker can be displayed, even after a valid prior page.
+    showPartner = true;
+    unsafePartner = true;
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Retry", exact: true }).waitFor();
     assert.equal(await page.locator(".partner-map-pin").count(), 0);
     await page.locator("#language").click();
     assert.match(
