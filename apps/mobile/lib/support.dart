@@ -6,6 +6,13 @@ import 'fleet.dart';
 import 'charger_diagnostics.dart';
 import 'charging_operations.dart';
 
+String newSupportRequestKey() {
+  final random = Random.secure();
+  return List.generate(16,
+    (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+  ).join();
+}
+
 /// Presentation-only: all values are text, never an authorization or charging
 /// command. Unknown or malformed event metadata cannot crash the inbox.
 String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
@@ -157,6 +164,7 @@ class SupportViewState extends State<SupportView> {
   Map<String, dynamic>? savedPreferences;
   int? unreadCount, latestNotificationId;
   Map<String, int>? unreadByCategory;
+  String? pendingTicketSubject, pendingTicketBody, pendingTicketKey;
   Object? error;
   ApiPage<Map<String, dynamic>>? data;
   int generation = 0;
@@ -234,6 +242,106 @@ class SupportViewState extends State<SupportView> {
       if (mounted && request == generation) setState(() => error = e);
     } finally {
       if (mounted && request == generation) setState(() => loading = false);
+    }
+  }
+
+  Future<void> createTicket() async {
+    if (loading || notifications) return;
+    final strings = EvStrings.of(context);
+    final subjectInput = TextEditingController(text: pendingTicketSubject);
+    final bodyInput = TextEditingController(text: pendingTicketBody);
+    final fields = GlobalKey<FormState>();
+    final desired = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(strings.t('openTicket')),
+        content: SingleChildScrollView(
+          child: Form(
+            key: fields,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  key: const Key('support-new-subject'),
+                  controller: subjectInput,
+                  maxLength: 150,
+                  decoration: InputDecoration(labelText: strings.t('subject')),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? strings.t('required') : null,
+                ),
+                TextFormField(
+                  key: const Key('support-new-body'),
+                  controller: bodyInput,
+                  maxLength: 5000,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: InputDecoration(labelText: strings.t('body')),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? strings.t('required') : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(strings.t('cancel')),
+          ),
+          FilledButton(
+            key: const Key('support-create-confirm'),
+            onPressed: () {
+              if (!fields.currentState!.validate()) return;
+              Navigator.of(dialogContext).pop({
+                'subject': subjectInput.text.trim(),
+                'body': bodyInput.text.trim(),
+              });
+            },
+            child: Text(strings.t('openTicket')),
+          ),
+        ],
+      ),
+    );
+    subjectInput.dispose();
+    bodyInput.dispose();
+    if (!mounted || desired == null) return;
+    if (pendingTicketKey == null ||
+        pendingTicketSubject != desired['subject'] ||
+        pendingTicketBody != desired['body']) {
+      pendingTicketKey = newSupportRequestKey();
+      pendingTicketSubject = desired['subject'];
+      pendingTicketBody = desired['body'];
+    }
+    final request = ++generation;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final accepted = await widget.api.request(
+        'support',
+        method: 'POST',
+        body: {...desired, 'idempotency_key': pendingTicketKey},
+      );
+      if (!mounted || request != generation) return;
+      if (accepted is! Map ||
+          accepted['id'] is! int ||
+          (accepted['id'] as int) <= 0) {
+        throw const FormatException('Support ticket creation not confirmed');
+      }
+      pendingTicketSubject = null;
+      pendingTicketBody = null;
+      pendingTicketKey = null;
+      await load(page: 1);
+    } catch (errorValue) {
+      if (!mounted || request != generation) return;
+      if (errorValue is ApiException && [401, 419].contains(errorValue.status)) {
+        widget.onSessionExpired();
+      }
+      setState(() {
+        error = errorValue;
+        loading = false;
+      });
     }
   }
 
@@ -454,6 +562,13 @@ class SupportViewState extends State<SupportView> {
                         load();
                       },
               ),
+              if (!notifications)
+                OutlinedButton.icon(
+                  key: const Key('support-new-ticket'),
+                  onPressed: loading ? null : createTicket,
+                  icon: const Icon(Icons.add_comment_outlined),
+                  label: Text(s.t('openTicket')),
+                ),
               if (notifications)
                 DropdownButton<String>(
                   key: const Key('support-category'),
@@ -775,12 +890,7 @@ class _TicketPageState extends State<TicketPage> {
   String? pendingReplyBody;
   String? pendingReplyKey;
 
-  String freshReplyKey() {
-    final rng = Random.secure();
-    return List.generate(16,
-      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
-    ).join();
-  }
+  // Reply and ticket-create retries share the same secure key generator.
   @override
   void initState() {
     super.initState();
@@ -826,7 +936,7 @@ class _TicketPageState extends State<TicketPage> {
       final text = reply.text.trim();
       if (pendingReplyKey == null || pendingReplyBody != text) {
         pendingReplyBody = text;
-        pendingReplyKey = freshReplyKey();
+        pendingReplyKey = newSupportRequestKey();
       }
       await widget.api.request(
         'support/${widget.id}/messages',

@@ -23,6 +23,8 @@ class SupportFixture extends FixtureApi {
   int preferenceWrites = 0;
   final publicMessages = ['Original public message'];
   String? lastReplyKey;
+  String? lastTicketKey;
+  final List<Map<String, dynamic>> createdTickets = [];
   @override
   Future<dynamic> request(
     String path, {
@@ -36,6 +38,16 @@ class SupportFixture extends FixtureApi {
         preferences = {...preferences, ...?body};
       }
       return preferences;
+    }
+    if (path == 'support' && method == 'POST') {
+      lastTicketKey = body?['idempotency_key'] as String?;
+      final created = {
+        'id': createdTickets.length + 2,
+        'subject': body?['subject'],
+        'status': 'open',
+      };
+      createdTickets.add(created);
+      return created;
     }
     if (path == 'support/1/messages') {
       lastReplyKey = body?['idempotency_key'] as String?;
@@ -142,6 +154,30 @@ class LostAckSupportFixture extends SupportFixture {
         throw const ApiException(503, 'response lost');
       }
       expect(key, firstRequestKey);
+    }
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
+class LostAckCreateTicketFixture extends SupportFixture {
+  int attempts = 0;
+  String? firstKey;
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'support' && method == 'POST') {
+      attempts++;
+      final key = body?['idempotency_key'] as String?;
+      if (attempts == 1) {
+        firstKey = key;
+        throw const ApiException(503, 'ticket response lost');
+      }
+      expect(key, firstKey);
     }
     return super.request(path, method: method, body: body, query: query);
   }
@@ -746,6 +782,52 @@ void main() {
     expect(expired, isFalse);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('native customer creates a support ticket with a replay key', (tester) async {
+    final api = SupportFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-new-ticket')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('support-new-subject')),
+        'Charging issue from mobile');
+    await tester.enterText(find.byKey(const Key('support-new-body')),
+        'Please investigate the failed charging session');
+    await tester.tap(find.byKey(const Key('support-create-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.lastTicketKey, matches(RegExp(r'^[a-f0-9]{32}$')));
+    expect(api.createdTickets.length, 1);
+    expect(api.createdTickets.single['subject'], 'Charging issue from mobile');
+  });
+
+  testWidgets('lost ticket-create acknowledgment reuses the pending key', (tester) async {
+    final api = LostAckCreateTicketFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-new-ticket')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('support-new-subject')),
+        'Retry-safe native support');
+    await tester.enterText(find.byKey(const Key('support-new-body')),
+        'Network disconnected after submission');
+    await tester.tap(find.byKey(const Key('support-create-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.attempts, 1);
+    expect(api.firstKey, matches(RegExp(r'^[a-f0-9]{32}$')));
+    await tester.tap(find.byKey(const Key('support-new-ticket')));
+    await tester.pumpAndSettle();
+    expect(find.text('Retry-safe native support'), findsWidgets);
+    await tester.tap(find.byKey(const Key('support-create-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.attempts, 2);
+    expect(api.createdTickets.length, 1);
+  });
+
   testWidgets(
     'thread loads public messages, sends replies and disables closed-ticket actions',
     (tester) async {
