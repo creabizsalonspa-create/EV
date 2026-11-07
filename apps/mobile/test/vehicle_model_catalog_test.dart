@@ -110,6 +110,11 @@ void main() {
       expect(api.writes.single['model'], 'E city');
       expect(api.writes.single['published'], false);
       expect(api.writes.single['source_url'], 'https://example.com/source');
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('admin-model-success')),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Catalog record saved.'), findsOneWidget);
     } finally {
       api.close();
