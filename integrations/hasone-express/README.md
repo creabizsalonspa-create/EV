@@ -41,3 +41,35 @@ The staging patch only applies to a matching Express source revision. It does **
 7. Agree with Agent 1 on one canonical charging and billing authority before syncing Express/Mongo data into Laravel/CitrineOS.
 
 This PR is intentionally draft pending authenticated sandbox acceptance and approved deployment controls.
+
+
+## Additional Agent 2 connected development — November 7, 2026
+
+Staging-only code now includes:
+
+- **Station booking exclusivity:** partial Mongo unique index on active station/date/time slots; 10 parallel customer requests result in one valid reservation; cancelled booking releases the slot.
+- **Source-safe charging:** imported purchased Flutter API's old charging start/stop/time-based meter estimates are disabled until evidence-backed OCPP adapters are commissioned; GET does not generate energy or mutate charging.
+- **OCPP 1.6 and 2.0.1:** customer tokens are bound to authenticated bookings and existing charger registrations; raw authorization credentials are not stored in transaction records; 2.0.1 token hash is preserved in the staged gateway.
+- **Admin-scoped source binding:** protected `issue-token` and `bind-source` API routes ensure a paid, arrived booking and exact charger/transaction/meter evidence. Simultaneous token issuance yields one credential; a source session cannot bind to multiple bookings.
+- **Customer sourced status:** authenticated customer API reads only the matching OCPP session's confirmed kWh, and cannot show imaginary battery percentage or a collected payment.
+- **Admin sourced reporting:** AdminAuth-only report shows metered kWh and `calculated_unpaid` AED estimates, never fake received revenue.
+- **Server Maps key:** inherited source hardcoded key replaced in staging with `GOOGLE_MAPS_API_KEY` from environment, and distance lookup disabled gracefully if absent. Restrict/rotate the exposed original key before future deployment.
+- **Encrypted database backup:** live Mongo ciphertext snapshot retained exclusively on owner's server; archive decrypt + `mongorestore --dryRun` succeeded. Offsite restore remains unverified.
+
+**Validation on authorized host**: 26/26 payment+OCPP pure guard tests,
+13/13 isolated route-level payment callback tests, and **45/45**
+integrated Express/JWT/Mongo/OCPP scenario checks across authenticated
+customer/admin, bookings, payments, OCPP1.6/2.0.1 and source reporting.
+These tests use a local ephemeral MongoDB and staged source and do **not**
+prove physical charging, live merchant capture, or production acceptance.
+
+Detailed consumer API fields and deployment boundaries are in
+[`AGENT1_HANDOFF_CONTRACT.md`](./AGENT1_HANDOFF_CONTRACT.md).
+To rerun, stage the source with the independent patchers in
+`tools/agent2/` and execute `run_isolated_backend_demo.mjs` with
+the required dependency root and patched OCPP handler. The runner
+rejects production directories.
+
+**Status:** All new work is in PR #50, not merged or deployed. Hosted
+GitHub Actions may be queued; local staged checks passing does not override
+mandatory CI or PSP/hardware acceptance.
