@@ -4,6 +4,9 @@ on:
     paths: ['apps/hasone-customer/**', '.github/workflows/hasone-customer.yml']
   push:
     branches: [development/fullstack-continuation, development/platform-foundation]
+    # Match PR path scope so unrelated integration commits do not launch two
+    # full Flutter platform builds while PR and default-branch checks remain.
+    paths: ['apps/hasone-customer/**', '.github/workflows/hasone-customer.yml']
   workflow_dispatch:
 permissions:
   contents: read
