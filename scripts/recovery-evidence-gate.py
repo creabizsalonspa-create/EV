@@ -125,6 +125,8 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business.get('private_archive_tamper_rejected') is True and
             business.get('queue_worker_started') is True and
             business.get('durable_queue_job_restored_and_executed') is True and
+            business.get('database_session_cache_restored') is True and
+            business.get('post_snapshot_session_cache_changes_excluded') is True and
             business.get('post_snapshot_queue_write_excluded') is True and
             business.get('scheduler_bootstrapped') is True,
             'Business recovery readiness boundary invalid')

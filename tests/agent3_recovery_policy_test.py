@@ -145,6 +145,18 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
                         code.index('pg_restore -U ev_recovery_review'))
         self.assertIn("'isolated_runtime_verified': True", code)
 
+    def test_database_session_and_cache_snapshot_includes_only_original_values(self):
+        code = self.source
+        self.assertIn("PHP_SESSION_CACHE_BEFORE", code)
+        self.assertIn("PHP_SESSION_CACHE_LATE", code)
+        self.assertIn("PHP_SESSION_CACHE_TARGET", code)
+        self.assertIn("PHP_SESSION_CACHE_SOURCE", code)
+        self.assertLess(code.index("PHP_SESSION_CACHE_BEFORE"), code.index("pg_dump -U ev_recovery_review"))
+        self.assertGreater(code.index("PHP_SESSION_CACHE_LATE"), code.index("pg_dump -U ev_recovery_review"))
+        self.assertGreater(code.index("PHP_SESSION_CACHE_TARGET"), code.index("pg_restore -U ev_recovery_review"))
+        self.assertIn("'database_session_cache_restored': True", code)
+        self.assertIn("'post_snapshot_session_cache_changes_excluded': True", code)
+
     def test_durable_laravel_queue_is_restored_and_post_snapshot_job_is_excluded(self):
         code = self.source
         self.assertEqual(code.count('Bus::dispatch(new \\App\\Jobs\\Agent3SyntheticQueueRecoveryProbe'), 2)

@@ -196,6 +196,28 @@ PHP_QUEUE_ENQUEUE
 [[ "$(query "$source_db" 'SELECT count(*) FROM jobs')" == 1 ]] || {
   echo 'Synthetic queued job did not persist before snapshot.' >&2; exit 1;
 }
+# Persist synthetic database-backed cache and session-handler payloads.
+# No real user login, cookie, customer or remote cache is involved.
+docker exec -i --user www-data "$source_app" php <<'PHP_SESSION_CACHE_BEFORE'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if (config('cache.default') !== 'database' ||
+    config('session.driver') !== 'database') {
+    throw new RuntimeException('Synthetic session/cache restore requires database stores.');
+}
+$cache = \Illuminate\Support\Facades\Cache::store('database');
+if (! $cache->put('agent3:recovery:cache', 'cached-before-snapshot', 7200) ||
+    $cache->get('agent3:recovery:cache') !== 'cached-before-snapshot') {
+    throw new RuntimeException('Synthetic pre-snapshot cache value was not persisted.');
+}
+$handler = \Illuminate\Support\Facades\Session::driver('database')->getHandler();
+if (! $handler->write('agent3syntheticrecovery000000000000000001', 'session-before-snapshot') ||
+    $handler->read('agent3syntheticrecovery000000000000000001') !== 'session-before-snapshot') {
+    throw new RuntimeException('Synthetic pre-snapshot session-handler bytes missing.');
+}
+PHP_SESSION_CACHE_BEFORE
 # Distinct run-owned private file, never a real customer's document.
 docker exec --user www-data "$source_app" php -r '
 $p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
@@ -260,6 +282,22 @@ PHP_QUEUE_AFTER_SNAPSHOT
 [[ "$(query "$source_db" 'SELECT count(*) FROM jobs')" == 2 ]] || {
   echo 'Late synthetic source queue write was not recorded.' >&2; exit 1;
 }
+# Only SOURCE gets the late session/cache updates; target must restore
+# the former values. Never use actual cookies, auth users or PII.
+docker exec -i --user www-data "$source_app" php <<'PHP_SESSION_CACHE_LATE'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$cache = \Illuminate\Support\Facades\Cache::store('database');
+$handler = \Illuminate\Support\Facades\Session::driver('database')->getHandler();
+$cache->put('agent3:recovery:cache', 'cached-after-snapshot', 7200);
+$handler->write('agent3syntheticrecovery000000000000000001', 'session-after-snapshot');
+if ($cache->get('agent3:recovery:cache') !== 'cached-after-snapshot' ||
+    $handler->read('agent3syntheticrecovery000000000000000001') !== 'session-after-snapshot') {
+    throw new RuntimeException('Synthetic post-snapshot source changes not persisted.');
+}
+PHP_SESSION_CACHE_LATE
 # Synthetic source-private file created after the archived snapshot.
 # Restoring the archive must not include this late source-side write.
 docker exec --user www-data "$source_app" php -r '
@@ -338,7 +376,34 @@ docker exec --user www-data "$source_app" php -r '
 if (!is_file("/var/www/html/storage/app/private/agent3-post-snapshot-private.bin")) exit(1);
 '
 docker exec --user www-data "$target_app" php artisan migrate:status --no-interaction >/dev/null
-# Only boots worker/scheduler against the new isolated database; does not run due jobs.
+# Directly read the persisted session-handler payload and database cache
+# from the restored application; neither is a real authenticated session.
+docker exec -i --user www-data "$target_app" php <<'PHP_SESSION_CACHE_TARGET'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$cache = \Illuminate\Support\Facades\Cache::store('database');
+$handler = \Illuminate\Support\Facades\Session::driver('database')->getHandler();
+if ($cache->get('agent3:recovery:cache') !== 'cached-before-snapshot' ||
+    $handler->read('agent3syntheticrecovery000000000000000001') !== 'session-before-snapshot') {
+    throw new RuntimeException('Restored cache/session differs from snapshot.');
+}
+PHP_SESSION_CACHE_TARGET
+docker exec -i --user www-data "$source_app" php <<'PHP_SESSION_CACHE_SOURCE'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$cache = \Illuminate\Support\Facades\Cache::store('database');
+$handler = \Illuminate\Support\Facades\Session::driver('database')->getHandler();
+if ($cache->get('agent3:recovery:cache') !== 'cached-after-snapshot' ||
+    $handler->read('agent3syntheticrecovery000000000000000001') !== 'session-after-snapshot') {
+    throw new RuntimeException('Target restore unexpectedly changed source state.');
+}
+PHP_SESSION_CACHE_SOURCE
+# Execute only the single known synthetic recovery probe job in the
+# fresh target, then list the scheduler without running scheduled tasks.
 docker exec --user www-data "$target_app" php artisan queue:work --once   --stop-when-empty --tries=1 --timeout=10 --no-interaction >/dev/null
 [[ "$(query "$target_db" 'SELECT count(*) FROM jobs')" == 0 ]] || {
   echo 'Restored synthetic queued job was not consumed.' >&2; exit 1;
@@ -434,6 +499,8 @@ record = {
     'private_archive_tamper_rejected': True,
     'queue_worker_started': True,
     'durable_queue_job_restored_and_executed': True,
+    'database_session_cache_restored': True,
+    'post_snapshot_session_cache_changes_excluded': True,
     'post_snapshot_queue_write_excluded': True,
     'scheduler_bootstrapped': True,
     'classification': 'disposable staging software only',

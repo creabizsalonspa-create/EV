@@ -43,6 +43,8 @@ def evidence():
         'private_archive_tamper_rejected': True,
         'queue_worker_started': True,
         'durable_queue_job_restored_and_executed': True,
+        'database_session_cache_restored': True,
+        'post_snapshot_session_cache_changes_excluded': True,
         'post_snapshot_queue_write_excluded': True,
         'scheduler_bootstrapped': True,
     }
@@ -118,6 +120,8 @@ class GateTest(unittest.TestCase):
             ('private_archive_tamper_rejected',False),
             ('queue_worker_started',False),
             ('durable_queue_job_restored_and_executed',False),
+            ('database_session_cache_restored',False),
+            ('post_snapshot_session_cache_changes_excluded',False),
             ('post_snapshot_queue_write_excluded',False),
             ('scheduler_bootstrapped',False),('external_acceptance','yes'),
         ]
