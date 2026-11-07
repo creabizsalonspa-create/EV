@@ -21,4 +21,4 @@ $captured = [];
 foreach ($commands as $command) {
     $captured[$command->action] = ['payload' => json_decode(Crypt::decryptString($command->payload_ciphertext), true, flags: JSON_THROW_ON_ERROR), 'attempted' => $command->attempted_at !== null];
 }
-echo json_encode(['order_id' => $row->id, 'token' => app(SandboxRoaming::class)->token($row), 'commands' => $captured, 'charging_sessions' => DB::table('charging_sessions')->where('user_id', $driver->id)->count(), 'financial_invoices' => DB::table('finance_invoices')->where('user_id', $driver->id)->count()], JSON_THROW_ON_ERROR);
+echo json_encode(['order_id' => $row->id, 'token' => app(SandboxRoaming::class)->token($row), 'commands' => $captured, 'charging_sessions' => DB::table('charging_sessions as s')->join('reservations as r', 'r.id', '=', 's.reservation_id')->where('r.user_id', $driver->id)->count(), 'financial_invoices' => DB::table('finance_invoices')->where('user_id', $driver->id)->count()], JSON_THROW_ON_ERROR);

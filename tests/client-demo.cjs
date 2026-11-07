@@ -174,6 +174,8 @@ async function main() {
     );
   }
   await require("./helpers/operational-report-proof.cjs")(fixture, clients);
+  // Same completed sessions and identities; do not repeat charging for feedback proof.
+  await require("./helpers/charging-review-source-proof.cjs")(fixture, clients);
 }
 main().catch((error) => {
   console.error(error.message);
