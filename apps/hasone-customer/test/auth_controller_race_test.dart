@@ -242,6 +242,33 @@ void main() {
     expect(Session.accessToken, isNull);
   });
 
+  test('OTP feedback failure cannot leave a live unreported token', () async {
+    final vault = _MemoryVault();
+    final network = _HeldAuthenticationNetwork();
+    final auth = AuthController(
+      client: network,
+      prefs: SharedPrefs(vault: vault),
+      authFeedback: (title, _) {
+        if (title == 'Success') {
+          throw StateError('synthetic notification failed after OTP approval');
+        }
+      },
+    );
+
+    final pending = auth.verifyOtp('synthetic@example.test', '123456');
+    expect(await network.requested.future, '/api/v1/VerifyOTP');
+    network.response.complete(NetworkResponse(
+      isSuccess: true,
+      statusCode: 200,
+      responseData: {'token': 'otp-token-that-must-be-revoked'},
+    ));
+
+    expect(await pending, isFalse);
+    expect(Session.accessToken, isNull,
+        reason: 'Failed verification result cannot retain a live token');
+    expect(vault.value, isNull);
+  });
+
   test('late OTP approval after logout cannot restore obsolete bearer',
       () async {
     final vault = _MemoryVault();
