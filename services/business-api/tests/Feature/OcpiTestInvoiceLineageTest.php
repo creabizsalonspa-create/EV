@@ -2,7 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Finance\Invoice;
+use App\Models\OcpiProvider;
+use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Finance\FinanceService;
+use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\TestInvoiceLineage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
@@ -192,5 +197,40 @@ class OcpiTestInvoiceLineageTest extends TestCase
         $repair->down();
         $this->assertSame($expected, $index());
         $this->assertSame(2, DB::table('sqlite_master')->where('type', 'trigger')->whereIn('name', ['charging_source_insert', 'charging_source_update'])->count());
+    }
+
+    public function test_credit_evidence_uses_existing_customer_request_vendor_review_and_canonical_refund_once(): void
+    {
+        [$owner,$driver,,,, $order] = $this->billable();
+        $consent = $this->accept($order);
+        $invoice = $this->postJson('/api/roaming/sandbox-orders/'.$order.'/test-invoice', $consent)->assertOk()->json('invoice');
+        $model = Invoice::findOrFail($invoice['id']);
+        $receipt = DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $model->id)->first();
+        $original = OcpiRecord::findOrFail($receipt->source_cdr_record_id);
+        $provider = OcpiProvider::findOrFail($original->ocpi_provider_id);
+        app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [array_replace($original->payload, ['id' => 'source-credit', 'credit' => true, 'credit_reference_id' => $original->external_id])]);
+        $credit = OcpiRecord::where('external_id', 'source-credit')->sole();
+        $body = ['amount_minor' => 25, 'reason' => 'Review source correction', 'idempotency_key' => 'credit-refund-review', 'ocpi_credit_record_id' => $credit->id];
+        $path = '/api/finance/invoices/'.$model->id.'/refund-requests';
+        $this->actingAs($driver)->postJson($path, $body)->assertConflict();
+        $this->assertDatabaseCount('finance_refund_requests', 0);
+        app(FinanceService::class)->pay($model, $driver->id, 25, 'credit-test-payment');
+        $this->postJson($path, array_replace($body, ['ocpi_credit_record_id' => $original->id]))->assertConflict();
+        $request = $this->actingAs($driver)->postJson($path, $body)->assertCreated()->assertJsonPath('ocpi_credit_record_id', $credit->id)->json();
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $request['id']);
+        $this->postJson($path, array_replace($body, ['ocpi_credit_record_id' => $original->id]))->assertConflict();
+        $this->postJson($path, array_replace($body, ['idempotency_key' => 'second-credit-request']))->assertConflict();
+        $evidence = $this->actingAs($owner)->getJson('/api/finance/refund-requests')->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('data.0.source_credit_evidence.status', 'source_reference_matched')->assertJsonPath('data.0.source_credit_evidence.reported_cost.excl_vat', '0.25')->assertJsonPath('data.0.source_credit_evidence.financial_authority', false)->json('data.0.source_credit_evidence');
+        $this->assertStringNotContainsString('token', json_encode($evidence));
+        $this->assertStringNotContainsString('payload', json_encode($evidence));
+        $this->actingAs(User::factory()->create())->getJson('/api/finance/refund-requests')->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($owner);
+        $review = '/api/finance/refund-requests/'.$request['id'].'/review';
+        $this->actingAs($owner)->postJson($review, ['decision' => 'approve', 'note' => 'Reviewed captured TEST funds'])->assertOk();
+        $this->postJson($review, ['decision' => 'approve', 'note' => 'Reviewed captured TEST funds'])->assertOk();
+        $this->assertDatabaseCount('finance_refunds', 1);
+        $this->assertSame(25, (int) DB::table('finance_refunds')->sum('amount_minor'));
+        $this->assertSame($original->payload, $original->fresh()->payload);
+        $this->assertTrue(app(FinanceService::class)->summary($model)['ledger_balanced']);
     }
 }

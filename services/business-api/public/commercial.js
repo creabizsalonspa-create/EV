@@ -509,6 +509,14 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             undefined,
                         ),
                         field("reason", "Reason", "السبب", undefined),
+                        field(
+                            "ocpi_credit_record_id",
+                            "Optional source credit record ID",
+                            "مرجع سجل إشعار دائن اختياري",
+                            undefined,
+                            "number",
+                            false,
+                        ),
                     ],
                     "Request refund",
                     "طلب استرداد",
@@ -520,15 +528,37 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         );
                         if (!amount)
                             throw Error("Enter an exact positive amount.");
-                        await api(
+                        const creditId = data.ocpi_credit_record_id
+                            ? Number(data.ocpi_credit_record_id)
+                            : null;
+                        if (
+                            creditId !== null &&
+                            (!Number.isSafeInteger(creditId) || creditId <= 0)
+                        )
+                            throw Error("Invalid source credit reference.");
+                        const receipt = await api(
                             `finance/invoices/${invoice.id}/refund-requests`,
                             "POST",
                             {
                                 amount_minor: amount,
+                                ...(data.ocpi_credit_record_id
+                                    ? {
+                                          ocpi_credit_record_id: Number(
+                                              data.ocpi_credit_record_id,
+                                          ),
+                                      }
+                                    : {}),
                                 reason: data.reason,
                                 idempotency_key: key,
                             },
                         );
+                        if (
+                            creditId !== null &&
+                            receipt.ocpi_credit_record_id !== creditId
+                        )
+                            throw Error(
+                                "Source credit link was not confirmed.",
+                            );
                         await load();
                     },
                 );
@@ -654,6 +684,53 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 text("p", `#${request.id} · ${request.status}`),
                 text("p", request.reason),
             );
+            if (request.ocpi_credit_record_id != null)
+                row.append(
+                    translated(
+                        "p",
+                        `Source credit record: ${request.ocpi_credit_record_id}`,
+                        `مرجع مصدر الإشعار الدائن: ${request.ocpi_credit_record_id}`,
+                    ),
+                );
+            const evidence = request.source_credit_evidence;
+            if (
+                evidence &&
+                evidence.schema_version === 1 &&
+                evidence.invoice_id === request.invoice_id &&
+                evidence.credit_record_id === request.ocpi_credit_record_id &&
+                evidence.financial_authority === false &&
+                evidence.automatic_refund === false
+            ) {
+                row.append(
+                    translated(
+                        "p",
+                        evidence.status === "source_reference_matched"
+                            ? "Source reference matched; reported credit amounts do not approve a refund."
+                            : "Source credit evidence requires review.",
+                        evidence.status === "source_reference_matched"
+                            ? "تطابق مرجع المصدر؛ مبالغ الإشعار المبلّغ عنها لا تعني الموافقة على استرداد."
+                            : "تتطلب أدلة مصدر الإشعار الدائن المراجعة.",
+                    ),
+                );
+                if (evidence.status === "source_reference_matched")
+                    for (const [kind, amount] of Object.entries(
+                        evidence.reported_cost || {},
+                    )) {
+                        if (
+                            ["excl_vat", "incl_vat"].includes(kind) &&
+                            typeof amount === "string" &&
+                            /^(0|[1-9][0-9]{0,9})(?:\.[0-9]{1,6})?$/.test(
+                                amount,
+                            )
+                        )
+                            row.append(
+                                text(
+                                    "p",
+                                    `${kind === "incl_vat" ? "Gross / شامل الضريبة" : "Net / قبل الضريبة"}: ${amount} ${evidence.currency}`,
+                                ),
+                            );
+                    }
+            }
             if (operations && request.status === "pending")
                 form(
                     row,

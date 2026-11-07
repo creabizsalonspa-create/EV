@@ -68,6 +68,43 @@ String refundText(BuildContext c, String k) =>
     (Localizations.localeOf(c).languageCode == 'ar' ? refundAr : refundEn)[k] ??
     k;
 
+List<Widget> _sourceCreditEvidence(BuildContext context, Map row) {
+  final v = row['source_credit_evidence'];
+  if (v is! Map ||
+      v['schema_version'] != 1 ||
+      v['invoice_id'] != row['invoice_id'] ||
+      v['credit_record_id'] != row['ocpi_credit_record_id'] ||
+      v['financial_authority'] != false ||
+      v['automatic_refund'] != false)
+    return [];
+  final ar = Localizations.localeOf(context).languageCode == 'ar';
+  final matched = v['status'] == 'source_reference_matched';
+  return [
+    Text(
+      matched
+          ? (ar
+                ? 'تطابق مرجع المصدر؛ لا يعني ذلك الموافقة على استرداد.'
+                : 'Source reference matched; this does not approve a refund.')
+          : (ar
+                ? 'تتطلب أدلة مصدر الإشعار الدائن المراجعة.'
+                : 'Source credit evidence requires review.'),
+    ),
+    if (matched &&
+        v['currency'] is String &&
+        RegExp(r'^[A-Z]{3}$').hasMatch(v['currency'] as String) &&
+        v['reported_cost'] is Map)
+      for (final entry in (v['reported_cost'] as Map).entries)
+        if (['excl_vat', 'incl_vat'].contains(entry.key) &&
+            entry.value is String &&
+            RegExp(
+              r'^(0|[1-9][0-9]{0,9})(?:\.[0-9]{1,6})?$',
+            ).hasMatch(entry.value as String))
+          Text(
+            '${ar ? 'مبلغ مبلّغ عنه' : 'Reported amount'} (${entry.key == 'incl_vat' ? (ar ? 'شامل الضريبة' : 'gross') : (ar ? 'قبل الضريبة' : 'net')}): ${entry.value} ${v['currency']}',
+          ),
+  ];
+}
+
 class RefundRequestsView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
@@ -154,9 +191,14 @@ class _RefundListState extends State<RefundRequestsView> {
                       '#${row['id']} · ${t(['pending', 'approved', 'rejected'].contains(row['status']) ? row['status'] : 'unknown')}',
                     ),
                     Text('${row['reason'] ?? ''}'),
+                    if (row['ocpi_credit_record_id'] != null)
+                      Text(
+                        '${Localizations.localeOf(c).languageCode == 'ar' ? 'مرجع مصدر الإشعار الدائن' : 'Source credit record'}: ${row['ocpi_credit_record_id']}',
+                      ),
                     Text(
                       '${row['amount_minor']} · ${Localizations.localeOf(c).languageCode == 'ar' ? 'وحدات نقدية صغرى' : 'minor units'}',
                     ),
+                    ..._sourceCreditEvidence(c, row),
                     if (row['decision_note'] != null)
                       Text('${row['decision_note']}'),
                     if (widget.role == 'vendor' && row['status'] == 'pending')
@@ -226,7 +268,9 @@ class RefundRequestView extends StatefulWidget {
 }
 
 class _RefundRequestState extends State<RefundRequestView> {
-  final amount = TextEditingController(), reason = TextEditingController();
+  final amount = TextEditingController(),
+      reason = TextEditingController(),
+      credit = TextEditingController();
   FinancialOperation? operation;
   Object? error;
   bool busy = true, uncertain = false, confirmed = false;
@@ -243,6 +287,7 @@ class _RefundRequestState extends State<RefundRequestView> {
     generation++;
     amount.dispose();
     reason.dispose();
+    credit.dispose();
     super.dispose();
   }
 
@@ -269,6 +314,7 @@ class _RefundRequestState extends State<RefundRequestView> {
         final body = pending.pending!['body'] as Map;
         amount.text = minorDecimal(body['amount_minor'] as int, widget.digits);
         reason.text = body['reason'] as String;
+        credit.text = '${body['ocpi_credit_record_id'] ?? ''}';
         uncertain = true;
       }
     } catch (e) {
@@ -283,8 +329,11 @@ class _RefundRequestState extends State<RefundRequestView> {
   }
 
   Future<void> submit() async {
+    final creditId = int.tryParse(credit.text.trim());
     final minor = decimalMinor(amount.text, widget.digits, maximum: 2000000000);
-    if (minor == null ||
+    if ((credit.text.trim().isNotEmpty &&
+            (creditId == null || creditId <= 0)) ||
+        minor == null ||
         minor < 1 ||
         reason.text.trim().isEmpty ||
         reason.text.length > 500) {
@@ -320,6 +369,7 @@ class _RefundRequestState extends State<RefundRequestView> {
       final body = await operation!.prepare({
         'amount_minor': minor,
         'reason': reason.text.trim(),
+        if (credit.text.trim().isNotEmpty) 'ocpi_credit_record_id': creditId,
       });
       if (!mounted || generation != epoch) return;
       final result = await widget.api.request(
@@ -333,6 +383,7 @@ class _RefundRequestState extends State<RefundRequestView> {
           result['amount_minor'] != minor ||
           result['request_key'] != body['idempotency_key'] ||
           result['reason'] != body['reason'] ||
+          result['ocpi_credit_record_id'] != body['ocpi_credit_record_id'] ||
           !['pending', 'approved', 'rejected'].contains(result['status']))
         throw const ApiException(502, 'Unconfirmed request receipt.');
       confirmed = true;
@@ -376,6 +427,16 @@ class _RefundRequestState extends State<RefundRequestView> {
           minLines: 2,
           maxLines: 5,
           decoration: InputDecoration(labelText: t('reason')),
+        ),
+        TextField(
+          controller: credit,
+          readOnly: busy || uncertain || confirmed,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            labelText: Localizations.localeOf(c).languageCode == 'ar'
+                ? 'مرجع سجل إشعار دائن اختياري'
+                : 'Optional source credit record ID',
+          ),
         ),
         FilledButton(
           onPressed: busy || confirmed || operation == null ? null : submit,
