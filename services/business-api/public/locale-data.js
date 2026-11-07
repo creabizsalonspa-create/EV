@@ -2872,4 +2872,16 @@ window.EV_MESSAGES = {
         en: "Charging evidence could not be verified. Retry safely.",
         ar: "تعذر التحقق من أدلة الشحن. أعد المحاولة بأمان.",
     },
+    "Credit CDR original reference matched": {
+        en: "Credit CDR original reference matched",
+        ar: "تطابق مرجع سجل الشحن الأصلي للإشعار الدائن",
+    },
+    "Credit CDR original reference requires review": {
+        en: "Credit CDR original reference requires review",
+        ar: "يتطلب مرجع سجل الشحن الأصلي للإشعار الدائن المراجعة",
+    },
+    "Credit reference does not authorize a refund": {
+        en: "A source reference does not approve a refund or change the original invoice.",
+        ar: "لا يعني مرجع المصدر الموافقة على استرداد أو تغيير الفاتورة الأصلية.",
+    },
 };
