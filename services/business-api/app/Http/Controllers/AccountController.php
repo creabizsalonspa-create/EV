@@ -74,8 +74,8 @@ class AccountController extends Controller
                 DB::table('sessions')->where('user_id', $account->id)->delete();
                 $account->tokens()->delete();
             });
-            if ($r->user()?->id === $user->id) {
-                Auth::logout();
+            if (Auth::guard('web')->id() === $user->id) {
+                Auth::guard('web')->logout();
                 $r->session()->invalidate();
                 $r->session()->regenerateToken();
             }
