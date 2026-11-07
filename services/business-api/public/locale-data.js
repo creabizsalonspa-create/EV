@@ -1472,6 +1472,18 @@ window.EV_MESSAGES = {
         ar: "المواقع واردة من الشريك وغير متحقق منها. التوافر غير معروف؛ الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.",
     },
     "Roaming coordinates": { en: "Coordinates:", ar: "الإحداثيات:" },
+    "Roaming straight-line distance": {
+        en: "Straight-line distance (not driving distance):",
+        ar: "المسافة بخط مستقيم (ليست مسافة قيادة):",
+    },
+    "Roaming partner source age": {
+        en: "Partner record age (not live availability):",
+        ar: "عمر سجل الشريك (ليس توافراً مباشراً):",
+    },
+    "Partner search latitude": { en: "Nearby latitude", ar: "خط العرض للبحث القريب" },
+    "Partner search longitude": { en: "Nearby longitude", ar: "خط الطول للبحث القريب" },
+    "Partner search radius km": { en: "Radius in km (1–200)", ar: "نطاق البحث بالكيلومتر (1–200)" },
+
     "Roaming source updated": {
         en: "Source updated (UTC):",
         ar: "تحديث المصدر (UTC):",
