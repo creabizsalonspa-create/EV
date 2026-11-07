@@ -1,13 +1,19 @@
 {
-    email {$ACME_EMAIL}
+    # Private staging has no public ACME challenge ports.
+    # Do not expose the Caddy admin API or its issuer private key.
     admin off
 }
 {$STAGING_HOST} {
+    # Operators must independently trust ONLY the reviewed PUBLIC Caddy root cert
+    # on their authorized lab device. Never distribute the CA private key.
+    tls internal
     encode zstd gzip
     reverse_proxy application:80
     header {
         X-Content-Type-Options nosniff
         X-Frame-Options DENY
         Referrer-Policy strict-origin-when-cross-origin
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        Permissions-Policy "camera=(), microphone=(), geolocation=(self)"
     }
 }
