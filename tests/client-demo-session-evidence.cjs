@@ -91,9 +91,12 @@ test('unconfirmed logout makes private result INCOMPLETE even when source sessio
  const report=await audit.inspect(manifest,fake({afterStatus:200}));
  assert.equal(report.status,'INCOMPLETE');assert.equal(report.completion_count,0);
 }));
-test('wrong authenticated customer role is rejected',async()=>withManifest(async({manifest})=>{
- const report=await audit.inspect(manifest,fake({wrongRole:true}));
+test('wrong authenticated customer role is rejected and malformed successful login is logged out',async()=>withManifest(async({manifest})=>{
+ const track=[];
+ const report=await audit.inspect(manifest,fake({wrongRole:true,track}));
  assert.equal(report.status,'INCOMPLETE');
+ assert.ok(track.some(x=>x.route==='/api/logout'&&x.method==='POST'));
+ assert.ok(track.some(x=>x.route==='/api/me'&&x.method==='GET'));
 }));
 test('missing second simulated protocol session cannot be presented as complete',async()=>withManifest(async({manifest})=>{
  const report=await audit.inspect(manifest,fake({sessionsData:sessions().slice(0,1)}));
@@ -131,4 +134,11 @@ test('CLI accepts only private manifest and new local output',()=>{
  assert.throws(()=>audit.parseArgs(['--url','https://prod.example.org']));
  assert.throws(()=>audit.parseArgs(['--manifest','--unsafe','--output','out.json']));
  assert.deepEqual(audit.parseArgs(['--manifest','a','--output','b']),{manifest:'a',output:'b'});
+});
+
+test('nonboolean physical charging claims cannot be laundered as synthetic evidence',()=>{
+ for(const value of ['true',1,{},[]]){
+   const list=sessions();list[1].physical_charging_verified=value;
+   assert.throws(()=>audit.validateCompleted(fixture(),ACCOUNT,reservations(),list));
+ }
 });
