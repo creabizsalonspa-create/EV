@@ -26,12 +26,11 @@ function secureInput(file){
     throw Error('Staging public root certificate must come from reviewed owner-only file');
   }
   const bytes=fs.readFileSync(absolute);
-  if(/-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----/.test(bytes.toString('utf8'))) {
-    throw Error('Private key must never be supplied to public root reviewer');
-  }
-  if((bytes.toString('utf8').match(/-----BEGIN CERTIFICATE-----/g)||[]).length!==1 ||
-    (bytes.toString('utf8').match(/-----END CERTIFICATE-----/g)||[]).length!==1){
-    throw Error('Expected a single public root certificate, not a CA bundle');
+  const text=bytes.toString('utf8');
+  if(!/^\s*-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----\s*$/.test(text) ||
+    (text.match(/-----BEGIN CERTIFICATE-----/g)||[]).length!==1){
+    // Do not allow ANY second PEM block, private key flavor, comment or hidden content.
+    throw Error('Expected only one public root PEM with no private key or extra materials');
   }
   return bytes;
 }
