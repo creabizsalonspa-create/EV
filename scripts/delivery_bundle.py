@@ -99,6 +99,29 @@ def archive_check(path, platform):
         raise BundleError('Corrupt or unsupported ZIP/APK archive') from exc
 
 
+def verify_workflow_reference(workflow, source_sha):
+    """Fail closed on bundled provenance claims without implying signed GitHub attestation."""
+    expected = {'provider', 'repository', 'workflow_name', 'run_id', 'head_sha',
+                'android', 'ios', 'snapshot_authenticated'}
+    if not isinstance(workflow, dict) or set(workflow) != expected:
+        raise BundleError('Invalid optional workflow evidence schema')
+    if workflow['provider'] != 'github_actions' or workflow['repository'] != 'creabizsalonspa-create/EV' or \
+            workflow['workflow_name'] != 'Hasone customer development builds' or \
+            type(workflow['run_id']) is not int or workflow['run_id'] <= 0 or \
+            workflow['head_sha'] != source_sha or workflow['snapshot_authenticated'] is not False:
+        raise BundleError('Unverifiable workflow provenance or false authentication claim')
+    ids = set()
+    for role in ('android', 'ios'):
+        data = workflow[role]
+        if not isinstance(data, dict) or set(data) != {'artifact_id', 'wrapper_sha256'} or \
+                type(data['artifact_id']) is not int or data['artifact_id'] <= 0 or \
+                not isinstance(data['wrapper_sha256'], str) or not DIGEST.fullmatch(data['wrapper_sha256']):
+            raise BundleError('Invalid workflow platform artifact metadata')
+        ids.add(data['artifact_id'])
+    if len(ids) != 2:
+        raise BundleError('Duplicate GitHub workflow artifact IDs')
+
+
 def verify(folder, expected_source=None):
     root = Path(folder)
     if root.is_symlink() or not root.is_dir():
@@ -110,7 +133,8 @@ def verify(folder, expected_source=None):
         manifest = json.loads(manifest_path.read_text('utf-8'))
     except (ValueError, UnicodeError) as exc:
         raise BundleError('Invalid manifest JSON') from exc
-    if not isinstance(manifest, dict) or set(manifest) != {'schema', 'source_sha', 'created_at_utc', 'acceptance', 'artifacts'}:
+    core = {'schema', 'source_sha', 'created_at_utc', 'acceptance', 'artifacts'}
+    if not isinstance(manifest, dict) or set(manifest) not in (core, core | {'workflow_evidence'}):
         raise BundleError('Manifest fields do not match approved schema')
     if manifest['schema'] != SCHEMA or not isinstance(manifest['source_sha'], str) or not SHA.fullmatch(manifest['source_sha']):
         raise BundleError('Invalid delivery schema or source reference')
@@ -118,6 +142,8 @@ def verify(folder, expected_source=None):
         raise BundleError('Package source does not match requested checkpoint')
     if manifest['acceptance'] != {'kind': 'development_demo_only', 'production_accepted': False, 'signed_for_store': False}:
         raise BundleError('Unsafe acceptance or signing claim')
+    if 'workflow_evidence' in manifest:
+        verify_workflow_reference(manifest['workflow_evidence'], manifest['source_sha'])
     if not isinstance(manifest['created_at_utc'], str) or not manifest['created_at_utc'].endswith('Z'):
         raise BundleError('Invalid bundle creation timestamp')
     if not isinstance(manifest['artifacts'], list) or len(manifest['artifacts']) != 2:
@@ -144,7 +170,7 @@ def verify(folder, expected_source=None):
     return manifest
 
 
-def create(output, source_sha, android, ios):
+def create(output, source_sha, android, ios, workflow_evidence=None):
     if not SHA.fullmatch(source_sha):
         raise BundleError('Source reference must be an exact 40-character commit SHA')
     source = {'android-debug': regular_private_file(android), 'ios-simulator': regular_private_file(ios)}
@@ -172,6 +198,9 @@ def create(output, source_sha, android, ios):
                     'created_at_utc': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
                     'acceptance': {'kind': 'development_demo_only', 'production_accepted': False, 'signed_for_store': False},
                     'artifacts': artifacts}
+        if workflow_evidence is not None:
+            verify_workflow_reference(workflow_evidence, source_sha)
+            manifest['workflow_evidence'] = workflow_evidence
         with open(target / 'manifest.json', 'x', encoding='utf-8') as out:
             json.dump(manifest, out, indent=2, sort_keys=True)
             out.write('\n')
