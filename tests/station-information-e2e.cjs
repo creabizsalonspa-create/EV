@@ -114,6 +114,21 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   await form.waitFor({timeout:20000});
   await page.unroute('**/api/stations/*/information');
   assert.equal(await form.locator('[name=description_en]').inputValue(),'');
+  // The vendor list may omit a station's timezone. Never display literal
+  // "undefined" or invent the station's geographical time offset.
+  await page.route('**/api/vendor/stations*',async route=>{
+    const response=await route.fetch();
+    const body=await response.json();
+    body.data=body.data.map(row=>({...row,timezone:null}));
+    await route.fulfill({response,json:body});
+  });
+  try{
+    await root.getByRole('button',{name:'Refresh',exact:true}).click();
+    await form.waitFor({timeout:20000});
+    const legend=await form.locator('fieldset').first().locator('legend').innerText();
+    assert.match(legend,/timezone not provided/);
+    assert.doesNotMatch(legend,/undefined|null/i);
+  }finally{await page.unroute('**/api/vendor/stations*');}
   assert.deepEqual(errors,[]);
   await page.locator('#logout').click();
   await page.locator('#vendor').waitFor({state:'hidden',timeout:25000});

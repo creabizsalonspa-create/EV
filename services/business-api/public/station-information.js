@@ -143,7 +143,14 @@
             field(form, "access_en", "Access instructions (English)", "تعليمات الدخول (بالإنجليزية)", info.access_en);
             field(form, "access_ar", "Access instructions (Arabic)", "تعليمات الدخول (بالعربية)", info.access_ar);
             const week = document.createElement("fieldset");
-            week.append(label("Opening hours, station local time (" + selected.timezone + ")", "ساعات العمل بتوقيت المحطة (" + selected.timezone + ")", "legend"));
+            const timezone = typeof selected.timezone === "string" && selected.timezone.trim()
+                ? selected.timezone.trim() : null;
+            week.append(label(
+                timezone ? "Opening hours, station local time (" + timezone + ")"
+                    : "Opening hours, station local time; timezone not provided",
+                timezone ? "ساعات العمل بتوقيت المحطة (" + timezone + ")"
+                    : "ساعات العمل بتوقيت المحطة؛ المنطقة الزمنية غير متوفرة",
+                "legend"));
             const inputs = {};
             for (let i = 0; i < days.length; i++) {
                 const day = days[i], hours = info.weekly_hours?.[day] || {};
