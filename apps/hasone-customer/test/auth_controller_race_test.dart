@@ -92,7 +92,7 @@ void main() {
     expect(vault.value, isNull,
         reason: 'Secure vault must not retain a partial login');
     expect(auth.user.value, isNull);
-    expect(feedback, contains(contains('Sign-in unavailable')));
+    expect(feedback.single, contains('Sign-in unavailable'));
   });
 
   test('late successful login after explicit logout never republishes token',
