@@ -61,6 +61,25 @@ a temporary copy of the harness, propagates only synthetic fixture tokens to
 the child environment, then removes the temporary harness. It never starts a
 public listener, writes production data, or operates hardware/payment providers.
 
+## Interrupted source-read recovery checkpoint
+
+Status reads have a15-second deadline and explicit read-only retry messaging
+in English/Arabic. Resume invalidates old in-flight requests and starts a fresh
+read without waiting for the abandoned reply. Request generations fence timeout,
+background, route reuse, disposal and account-change races. A different session
+or booking cannot populate this screen. Failed reads remove prior telemetry;
+they never imply charging stopped or replay start/stop/payment commands.
+
+Six deterministic widget regressions and the full customer suite pass:
+49 tests,3 default opt-in API skips; four changed files analyze cleanly.
+Exact-source hashes/logs are in
+docs/evidence/agent2-mobile-read-recovery/validation.json.
+Backend/API/browser evidence retains its prior246510d/20ba054 scope.
+
+Next: verify compatibility with Agent6 token infrastructure PR78, then complete
+remaining charging incident/recovery and canonical reservation workflows.
+Required native/hosted gates and Agent4 integration remain pending.
+
 ## Accepted-meter active-progress checkpoint
 
 OCPP1.6 and2.0.1 accepted-meter receipts now record server receive time.

@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 
 Map<String, dynamic> progressContract() => {
+  'sessionId': 's',
+  'bookingId': 'b',
   'source': 'ocpp',
   'protocol': 'ocpp1.6',
   'sourceVerified': true,

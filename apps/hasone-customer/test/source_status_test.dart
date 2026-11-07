@@ -9,6 +9,8 @@ import 'package:evcharg/feature/Booking/UI/controller/all_booking_controller.dar
 import 'package:evcharg/feature/Booking/UI/screen/charging_screen.dart';
 
 Map<String, dynamic> contract() => {
+  'sessionId': 's',
+  'bookingId': 'b',
   'source': 'ocpp',
   'protocol': 'ocpp1.6',
   'sourceVerified': true,
