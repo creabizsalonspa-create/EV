@@ -68,6 +68,66 @@ class RoleTransitionSecurityTest extends TestCase
         $this->assertDatabaseMissing('sessions', ['id' => 'cli-old-session']);
     }
 
+    public function test_operator_cli_role_changes_preserve_audit_provenance_and_noops(): void
+    {
+        $user = User::factory()->create(['role' => 'customer']);
+        $token = $this->activeCredentials($user, 'operator-audit-session');
+
+        $this->assertSame(0, Artisan::call('platform:role', [
+            'email' => $user->email,
+            'role' => 'admin',
+            '--ticket' => 'SEC-2026:1742',
+        ]));
+        $this->assertDatabaseHas('operator_role_changes', [
+            'target_user_id' => $user->id,
+            'previous_role' => 'customer',
+            'assigned_role' => 'admin',
+            'source' => 'platform:role',
+            'ticket_reference' => 'SEC-2026:1742',
+        ]);
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $token]);
+        $this->assertDatabaseMissing('sessions', ['id' => 'operator-audit-session']);
+        $this->assertDatabaseCount('operator_role_changes', 1);
+
+        // Re-running a command at its desired role does not manufacture
+        // another privilege-change audit event or invalidate new sessions.
+        $newToken = $user->fresh()->createToken('new-mobile', ['platform'], now()->addDay())->accessToken->id;
+        $this->assertSame(0, Artisan::call('platform:role', [
+            'email' => $user->email, 'role' => 'admin', '--ticket' => 'SEC-2026:1742',
+        ]));
+        $this->assertDatabaseCount('operator_role_changes', 1);
+        $this->assertDatabaseHas('personal_access_tokens', ['id' => $newToken]);
+
+        $this->assertSame(0, Artisan::call('platform:role', [
+            'email' => $user->email, 'role' => 'vendor',
+        ]));
+        $this->assertDatabaseHas('operator_role_changes', [
+            'target_user_id' => $user->id,
+            'previous_role' => 'admin',
+            'assigned_role' => 'vendor',
+            'source' => 'platform:role',
+            'ticket_reference' => null,
+        ]);
+        $this->assertDatabaseCount('operator_role_changes', 2);
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $newToken]);
+    }
+
+    public function test_invalid_cli_ticket_and_role_cannot_mutate_privileges_or_create_audit(): void
+    {
+        $user = User::factory()->create(['role' => 'customer']);
+        $this->assertSame(1, Artisan::call('platform:role', [
+            'email' => $user->email,
+            'role' => 'admin',
+            '--ticket' => 'bad/wildcard%reference',
+        ]));
+        $this->assertSame(1, Artisan::call('platform:role', [
+            'email' => $user->email,
+            'role' => 'superadmin',
+        ]));
+        $this->assertSame('customer', $user->fresh()->role);
+        $this->assertDatabaseCount('operator_role_changes', 0);
+    }
+
     public function test_admin_kyc_approval_revokes_applicants_old_customer_credentials(): void
     {
         $owner = User::factory()->create(['role' => 'customer']);
