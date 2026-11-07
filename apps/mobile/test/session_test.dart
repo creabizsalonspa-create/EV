@@ -209,6 +209,106 @@ void main() {
     }
   });
 
+  test('old logout awaiting storage cannot revoke the next login', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var logoutCalls = 0;
+    final subscription = server.listen((req) async {
+      req.response.headers.contentType = ContentType.json;
+      switch (req.uri.path) {
+        case '/api/csrf':
+          req.response.cookies.add(Cookie('session', 'fresh'));
+          req.response.write(jsonEncode({'token': 'fresh-csrf'}));
+        case '/api/login':
+          req.response.write(jsonEncode({
+            'id': 4, 'name': 'New user', 'role': 'customer',
+          }));
+        case '/api/logout':
+          logoutCalls++;
+          req.response.statusCode = 204;
+        default:
+          req.response.statusCode = 404;
+          req.response.write('{}');
+      }
+      await req.response.close();
+    });
+    final deletion = Completer<void>();
+    final vault = MemoryVault()..deleteWait = deletion.future;
+    final api = EvApi(
+      Uri.parse('http://127.0.0.1:${server.port}'), vault: vault,
+    );
+    try {
+      final oldLogout = api.signOut();
+      final newLogin = api.signIn('new@example.test', 'no-persist');
+      deletion.complete();
+      await oldLogout;
+      expect((await newLogin).name, 'New user');
+      expect(logoutCalls, 0);
+    } finally {
+      if (!deletion.isCompleted) deletion.complete();
+      api.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('old logout response cannot clear credentials after new login', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final logoutStarted = Completer<void>();
+    final releaseLogout = Completer<void>();
+    final subscription = server.listen((req) async {
+      req.response.headers.contentType = ContentType.json;
+      switch (req.uri.path) {
+        case '/api/logout':
+          logoutStarted.complete();
+          await releaseLogout.future;
+          req.response.statusCode = 204;
+        case '/api/csrf':
+          req.response.cookies.add(
+            Cookie('session', 'new-session')..httpOnly = true,
+          );
+          req.response.write(jsonEncode({'token': 'new-csrf'}));
+        case '/api/login':
+          req.response.write(jsonEncode({
+            'id': 5, 'name': 'New signed-in user', 'role': 'vendor',
+          }));
+        case '/api/me':
+          final valid = req.cookies.any(
+            (c) => c.name == 'session' && c.value == 'new-session',
+          );
+          if (!valid) {
+            req.response.statusCode = 401;
+            req.response.write(jsonEncode({'message': 'Unauthenticated'}));
+          } else {
+            req.response.write(jsonEncode({
+              'id': 5, 'name': 'New signed-in user', 'role': 'vendor',
+            }));
+          }
+        default:
+          req.response.statusCode = 404;
+          req.response.write('{}');
+      }
+      await req.response.close();
+    });
+    final api = EvApi(Uri.parse('http://127.0.0.1:${server.port}'));
+    try {
+      final oldLogout = api.signOut();
+      await logoutStarted.future;
+      final newest = await api.signIn('new@example.test', 'no-persist');
+      expect(newest.name, 'New signed-in user');
+      releaseLogout.complete();
+      await expectLater(
+        oldLogout,
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      expect((await api.request('me'))['name'], 'New signed-in user');
+    } finally {
+      if (!releaseLogout.isCompleted) releaseLogout.complete();
+      api.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
   test('plaintext origins never persist credentials', () async {
     final vault = MemoryVault();
     final api = EvApi(Uri.parse('http://127.0.0.1:8000'), vault: vault);
