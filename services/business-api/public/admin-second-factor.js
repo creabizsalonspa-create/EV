@@ -16,6 +16,8 @@
     const codesSaved = $("factor-codes-saved");
     const recoverForm = $("factor-recover");
     const resetForm = $("factor-reset");
+    const rotateForm = $("factor-rotate");
+    const manageMode = new URLSearchParams(window.location.search).get("manage") === "1";
 
     let csrf = document.querySelector('meta[name="csrf-token"]').content;
     let busy = false;
@@ -83,25 +85,30 @@
         try {
             const state = await request("admin/second-factor/status");
             const resetting = state.recovery_reset_available === true;
+            const managing = manageMode && state.enrolled && state.verified && !resetting;
             beginForm.hidden = state.enrolled;
-            verifyForm.hidden = !state.enrolled || resetting;
-            recoverForm.hidden = !state.enrolled || resetting;
+            verifyForm.hidden = !state.enrolled || resetting || managing;
+            recoverForm.hidden = !state.enrolled || resetting || managing;
             resetForm.hidden = !resetting;
+            rotateForm.hidden = !managing;
             if (state.enrolled) clearSecret();
-            if (state.verified && !resetting) {
+            if (state.verified && !resetting && !managing) {
                 window.location.replace("/");
                 return;
             }
             message(resetting
                 ? "Replace the lost authenticator using your password. Old recovery codes will be revoked."
-                : state.enrolled
-                  ? "Enter a current authenticator code or one saved recovery code."
-                  : "Confirm your password to enroll an authenticator.");
+                : managing
+                  ? "Use your password and a fresh, unused authenticator code to replace all backup codes."
+                  : state.enrolled
+                    ? "Enter a current authenticator code or one saved recovery code."
+                    : "Confirm your password to enroll an authenticator.");
         } catch {
             beginForm.hidden = true;
             verifyForm.hidden = true;
             recoverForm.hidden = true;
             resetForm.hidden = true;
+            rotateForm.hidden = true;
             message("Unable to confirm the Admin session. Sign in again.");
         }
     }
@@ -206,6 +213,34 @@
             clearRecoveryCodes();
             window.location.replace("/admin/second-factor");
         } catch (error) {
+            message(error.message);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    rotateForm.onsubmit = async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        try {
+            const password = rotateForm.elements.namedItem("password").value;
+            const code = rotateForm.elements.namedItem("code").value;
+            const result = await request("admin/second-factor/rotate-recovery-codes", "POST", {
+                password, code,
+            });
+            rotateForm.reset();
+            if (!Array.isArray(result.recovery_codes) || result.recovery_codes.length !== 8) {
+                rotateForm.hidden = true;
+                message("Backup codes were changed, but could not be displayed. Contact the platform operator to securely recover access.");
+                return;
+            }
+            recoveryList.textContent = result.recovery_codes.join("\n");
+            recoveryCodesPanel.hidden = false;
+            rotateForm.hidden = true;
+            message("All previous recovery codes are invalid. Save these eight new codes securely before leaving.");
+        } catch (error) {
+            rotateForm.reset();
             message(error.message);
         } finally {
             setBusy(false);

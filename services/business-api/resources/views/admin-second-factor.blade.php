@@ -39,6 +39,17 @@
       </label>
       <button type="submit">Verify and open Admin workspace</button>
     </form>
+    <form id="factor-rotate" hidden>
+      <h2>Replace authenticator backup codes / استبدال رموز الاسترداد</h2>
+      <p>Only use this while you still have your authenticator. All old recovery codes become invalid immediately; your authenticator device stays enrolled.</p>
+      <label>Confirm account password / تأكيد كلمة المرور
+        <input name="password" type="password" autocomplete="current-password" maxlength="128" required>
+      </label>
+      <label>New six-digit authenticator code / رمز تحقق جديد
+        <input name="code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required>
+      </label>
+      <button type="submit">Replace all eight backup codes</button>
+    </form>
     <section id="factor-recovery-codes" hidden aria-label="Private recovery codes">
       <h2>Save these eight recovery codes now / احتفظ برموز الاسترداد</h2>
       <p>These single-use codes are displayed only once. Save them in a secure password manager, separate from your authenticator device.</p>

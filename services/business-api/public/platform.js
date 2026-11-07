@@ -1527,7 +1527,12 @@ async function adminOverview() {
     scroll.setAttribute("role", "region");
     EvLocale.attribute(scroll, "aria-label", "Audit history");
     scroll.append(table);
-    container.append(metrics, tools, scroll);
+    const backupCodes = document.createElement("a");
+    backupCodes.href = "/admin/second-factor?manage=1";
+    backupCodes.textContent = "Manage authenticator backup codes / إدارة رموز الاسترداد";
+    const security = document.createElement("p");
+    security.append(backupCodes);
+    container.append(metrics, security, tools, scroll);
 }
 
 async function openOperationalCase(command, parent, actor, signal) {
