@@ -89,6 +89,47 @@ class MobileReleaseSigningTest(unittest.TestCase):
                          if entry.get("path") == "."},
                     )
 
+    def test_local_http_is_debug_only_and_only_for_exact_loopback(self):
+        ns = "{http://schemas.android.com/apk/res/android}"
+        for app in ("mobile", "hasone-customer"):
+            with self.subTest(app=app):
+                root = ROOT / "apps" / app / "android/app/src"
+                release_manifest = ET.parse(
+                    root / "main/AndroidManifest.xml"
+                ).getroot().find("application")
+                self.assertIsNotNone(release_manifest)
+                self.assertIsNone(release_manifest.get(ns + "networkSecurityConfig"))
+                debug_manifest = ET.parse(
+                    root / "debug/AndroidManifest.xml"
+                ).getroot().find("application")
+                self.assertIsNotNone(debug_manifest)
+                self.assertEqual(
+                    "@xml/ev_debug_network_security",
+                    debug_manifest.get(ns + "networkSecurityConfig"),
+                )
+                policy = ET.parse(
+                    root / "debug/res/xml/ev_debug_network_security.xml"
+                ).getroot()
+                self.assertEqual("network-security-config", policy.tag)
+                self.assertEqual(
+                    "false",
+                    policy.find("base-config").get("cleartextTrafficPermitted"),
+                )
+                configs = policy.findall("domain-config")
+                self.assertEqual(1, len(configs))
+                self.assertEqual(
+                    "true", configs[0].get("cleartextTrafficPermitted")
+                )
+                domains = configs[0].findall("domain")
+                self.assertEqual(
+                    {"localhost", "127.0.0.1"},
+                    {item.text.strip() for item in domains},
+                )
+                self.assertTrue(
+                    all(item.get("includeSubdomains") == "false"
+                        for item in domains)
+                )
+
     def test_ios_photo_picker_has_user_visible_privacy_description(self):
         app = ROOT / "apps/hasone-customer"
         # Profile screen invokes ImagePicker with both camera and gallery.
