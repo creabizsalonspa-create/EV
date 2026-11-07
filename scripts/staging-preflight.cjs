@@ -126,7 +126,7 @@ function checkValues(values) {
     if (values[name]) errors.push(name + ': real provider credentials are not permitted in isolated staging');
   }
   for (const name of ['APP_KEY', 'DB_PASSWORD', 'STAGING_HOST', 'ACME_EMAIL', 'EV_IMAGE_TAG', 'STAGING_BIND_IP']) {
-    if (values[name] && /\$\{|\$\(|\x60|[\r\n]/.test(values[name])) {
+    if (values[name] && /\$\{|\$\(|\$[A-Za-z_][A-Za-z0-9_]*|\x60|[\r\n]/.test(values[name])) {
       errors.push(`${name}: interpolation or control syntax is not permitted`);
     }
   }
