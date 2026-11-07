@@ -75,6 +75,8 @@ class PartnerLocationDiscoveryTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $row->id)
+            ->assertJsonPath('data.0.provider_label', 'Synthetic operator')
+            ->assertJsonPath('data.0.provider_label_evidence', 'PROVIDER_CONFIGURED_UNVERIFIED')
             ->assertJsonPath('data.0.evidence', 'PARTNER_REPORTED_UNVERIFIED')
             ->assertJsonPath('data.0.availability', 'unknown')
             ->assertJsonPath('data.0.remote_control', false)
@@ -179,6 +181,30 @@ class PartnerLocationDiscoveryTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $underscore->id);
         $this->getJson('/api/roaming/locations?q='.rawurlencode('value!proof'))
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $bang->id);
+    }
+
+    public function test_configured_provider_filter_is_literal_and_preserves_authorization(): void
+    {
+        $source = $this->provider();
+        $source->update(['name' => 'Network_50%!']);
+        $match = $this->location($source, 'network-match', 25.2, 55.3);
+        $similarlyNamed = $this->provider();
+        $similarlyNamed->update(['name' => 'NetworkX50X!']);
+        $this->location($similarlyNamed, 'network-other', 25.2, 55.3);
+        $revoked = $this->provider(false);
+        $revoked->update(['name' => 'Network_50%!']);
+        $this->location($revoked, 'network-revoked', 25.2, 55.3);
+
+        $this->getJson('/api/roaming/locations?provider='.rawurlencode('network_50%!'))
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $match->id)
+            ->assertJsonPath('data.0.provider_label', 'Network_50%!')
+            ->assertJsonPath('data.0.provider_label_evidence', 'PROVIDER_CONFIGURED_UNVERIFIED')
+            ->assertJsonMissingPath('data.0.connection_key')
+            ->assertJsonMissingPath('data.0.owner_id');
+
+        $this->getJson('/api/roaming/locations?provider='.str_repeat('x', 81))
+            ->assertUnprocessable();
     }
 
     public function test_no_unverified_partner_is_published_by_nearby_search(): void
