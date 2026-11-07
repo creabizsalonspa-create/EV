@@ -43,7 +43,7 @@ function readPrivateReport(file){
   return {body,digest:crypto.createHash('sha256').update(bytes).digest('hex')};
 }
 function utc(value){
-  if(typeof value!=='string'||!^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(value)){
+  if(typeof value!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(value)){
     throw Error('Private demo UTC timestamp missing or malformed');
   }
   const n=Date.parse(value);
