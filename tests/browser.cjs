@@ -264,6 +264,14 @@ const { randomUUID } = require("node:crypto");
       (row) => row.subject === "Browser support " + run,
     );
     assert(createdTicket && Number.isSafeInteger(createdTicket.id));
+    assert.equal(
+      await customer.page.locator("#support-create [name=subject]").inputValue(),
+      "",
+    );
+    assert.equal(
+      await customer.page.locator("#support-create [name=body]").inputValue(),
+      "",
+    );
     const replayCreatedTicket = await customer.page.evaluate(
       (payload) => api("support", "POST", payload), createPayload,
     );

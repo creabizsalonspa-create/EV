@@ -1799,6 +1799,9 @@ async function ticketDetail(id) {
                     idempotency_key: pendingReply.key,
                 });
                 pendingReply = null;
+                // The API accepted the message. If the subsequent refresh
+                // fails, do not leave the just-sent body ready to submit again.
+                body.value = "";
                 await support();
                 await ticketDetail(id);
             } catch (e) {
@@ -1843,6 +1846,7 @@ async function ticketDetail(id) {
                     idempotency_key: pendingStatus.key,
                 });
                 pendingStatus = null;
+                reason.value = "";
                 await support();
                 await ticketDetail(id);
             } catch (e) {
@@ -1868,7 +1872,11 @@ el("support-create").onsubmit = async (e) => {
             ...payload,
             idempotency_key: pendingTicketCreate.key,
         });
+        if (!Number.isSafeInteger(t?.id) || t.id <= 0) {
+            throw new Error("Ticket creation was not confirmed");
+        }
         pendingTicketCreate = null;
+        e.target.reset();
         await support();
         await ticketDetail(t.id);
     } catch (e) {
