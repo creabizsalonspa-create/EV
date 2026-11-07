@@ -71,7 +71,16 @@ const assert = require("node:assert/strict");
     await page.locator("#language").click();
     await page.getByText("1.11 كم بخط مستقيم", { exact: true }).waitFor();
     assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
-    assert.equal(await page.locator("#stations button").count(), 0);
+    // Read-only feedback is allowed; discovery still grants no booking/control.
+    const cards = page.locator("#stations");
+    assert.equal(await cards.locator("button").count(), 1);
+    assert.equal(
+      await cards
+        .getByRole("button", { name: "ملاحظات الشحن", exact: true })
+        .count(),
+      1,
+    );
+    assert.equal(await cards.locator("form").count(), 0);
     assert.deepEqual(errors, []);
     console.log(
       "Nearby catalog: coordinate query, truthful distance, Arabic RTL and no discovery reservation pass.",
