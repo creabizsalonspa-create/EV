@@ -77,10 +77,13 @@ export async function AdminIssueBookingOcppToken(req,res){
     bookingId:String(booking._id),userId:String(booking.userId),createdAt:issuedAt,
    });
   }catch{
-   await BookingModel.updateOne({_id:booking._id,ocppTokenHash:tokenHash},
-    {$set:{ocppTokenHash:'',ocppTokenIssuedAt:null,
-            ocppChargerId:booking.ocppChargerId||''}});
-   return fail(res,503,'Authorization token could not be registered');
+   // An insert can commit even when its acknowledgement is lost. Retain
+   // the booking pin and issuance time so a retry cannot create a second
+   // credential. Best-effort revocation may itself have an uncertain result.
+   await mongoose.connection.db.collection('ocpp_access_tokens').updateMany({
+     chargerId:charger.chargerId,tokenHash
+   },{$set:{enabled:false,revokedAt:new Date()}}).catch(()=>{});
+   return fail(res,503,'Authorization outcome uncertain; reload booking before recovery');
   }
   return res.status(201).json({status:'Success',
     message:'One-time OCPP token issued. Deliver securely to the authorized charger.',
@@ -132,13 +135,12 @@ export async function AdminReissueExpiredBookingOcppToken(req,res){
       bookingId:String(booking._id),userId:String(booking.userId),createdAt:now,
     });
   }catch{
-    // Never create a second physical start after an uncertain DB write.
-    // Revoke any partly inserted new credential before rolling back the pin.
+    // Keep the new booking pin/time even if registration or revocation
+    // acknowledgement is lost. Restoring the expired old pin would allow
+    // another reissue while the new credential might still be enabled.
     await tokenTable.updateMany({chargerId:charger.chargerId,tokenHash:newHash},
       {$set:{enabled:false,revokedAt:new Date()}}).catch(()=>{});
-    await BookingModel.updateOne({_id:booking._id,ocppTokenHash:newHash},
-      {$set:{ocppTokenHash:oldHash,ocppTokenIssuedAt:oldIssuedAt}}).catch(()=>{});
-    return fail(res,503,'Token reissue could not be completed safely');
+    return fail(res,503,'Token reissue outcome uncertain; reload booking before recovery');
   }
   return res.status(201).json({status:'Success',
     message:'Expired unused authorization replaced. Copy the new token securely.',

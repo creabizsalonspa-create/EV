@@ -330,3 +330,31 @@ UI `integrations/hasone-next-admin/OcppBookingWorkflow.tsx`.
 
 These latest changes await staging rerun because the authorized host
 is offline; they must not be merged or deployed on earlier test results.
+
+
+## Uncertain credential registration recovery — 7 November 2026
+
+Initial token issue and expired-unused token reissue retain the **newest booking
+hash, selected charger and issuance time** when credential registration fails.
+A database insert may have committed even when its acknowledgement was lost.
+Clearing the pin or restoring the expired old hash could otherwise permit a
+second credential while the first remains enabled.
+
+The handler attempts revocation of the new credential but never treats a failed
+revocation as proof it is absent. It returns HTTP 503 without disclosing a raw
+token. Reloaded operations block immediate issue/reissue; the existing expiry,
+settling-grace, consumed-token and observed-source checks still govern recovery.
+Consumed credentials must never be automatically reactivated.
+
+Six fault-injected integration cases cover initial issue and reissue for:
+insert failure before commit, acknowledgement loss after commit, and committed
+insert plus unavailable revocation. Each case checks the persisted pin, no raw
+credential exposure, eight rejected concurrent issue retries, rejected early
+reissue and redacted Admin state. These run only against disposable local Mongo.
+
+The new regression fails against parent source `8a8f292b` (booking hash cleared)
+and passes with this fix. Production source and physical chargers are unchanged.
+
+The isolated validation wrapper now uses `exec` when starting its loopback Next
+server so cleanup targets the server PID instead of leaving an orphaned child.
+The final acceptance run verifies the selected test port is released afterward.

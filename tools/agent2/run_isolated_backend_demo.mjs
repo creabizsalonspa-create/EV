@@ -456,6 +456,87 @@ try{
     assert.equal(await db.collection('ocpp_access_tokens').countDocuments({
       chargerId:adminCharger,bookingId:String(other._id)}),1);
   });
+  // Inject storage failures only into the disposable database. Simulate
+  // both an insert rejected before commit and a lost acknowledgement after
+  // commit, including unavailable cleanup. Never point this at a live DB.
+  for(const renewal of [false,true]){
+    for(const fault of ['before-insert','after-insert','after-insert-revoke-fails']){
+      await check((renewal?'reissue':'initial issue')+' retains booking pin after '+fault,async()=>{
+        const day=1+(renewal?3:0)+['before-insert','after-insert','after-insert-revoke-fails'].indexOf(fault);
+        const oldHash=createHash('sha256').update('uncertain-old-'+day).digest('hex');
+        const oldIssuedAt=new Date(Date.now()-30*60000);
+        const candidate=await BookingModel.create({
+          userId:user._id,stationId:adminStation._id,
+          date:'2027-01-'+String(day).padStart(2,'0'),
+          time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+          status:'Upcoming',isPaid:true,hasArrived:true,totalAmount:63,
+          ...(renewal?{ocppChargerId:adminCharger,ocppTokenHash:oldHash,
+            ocppTokenIssuedAt:oldIssuedAt}:{})
+        });
+        if(renewal)await db.collection('ocpp_access_tokens').insertOne({
+          chargerId:adminCharger,tokenHash:oldHash,enabled:true,
+          expiresAt:new Date(Date.now()-60000),bookingId:String(candidate._id)
+        });
+        const nativeCollection=db.collection;
+        let attemptedHash=null,insertAttempts=0;
+        db.collection=function(name,...args){
+          const table=nativeCollection.call(this,name,...args);
+          if(name!=='ocpp_access_tokens')return table;
+          return new Proxy(table,{get(target,key){
+            if(key==='insertOne')return async(document,...opts)=>{
+              if(document.bookingId!==String(candidate._id))
+                return target.insertOne(document,...opts);
+              insertAttempts++;attemptedHash=document.tokenHash;
+              if(fault==='before-insert')throw Error('injected insert unavailable');
+              await target.insertOne(document,...opts);
+              throw Error('injected acknowledgement lost after insert committed');
+            };
+            if(key==='updateMany')return async(filter,...opts)=>{
+              if(fault==='after-insert-revoke-fails' && attemptedHash
+                  && filter.tokenHash===attemptedHash)
+                throw Error('injected revocation unavailable');
+              return target.updateMany(filter,...opts);
+            };
+            const value=Reflect.get(target,key);
+            return typeof value==='function'?value.bind(target):value;
+          }});
+        };
+        let response;
+        try{
+          response=await request('POST','/api/v1/admin/bookings/'+candidate._id+
+            '/ocpp/'+(renewal?'reissue-token':'issue-token'),{},false,
+            {authorization:adminBearer});
+        }finally{db.collection=nativeCollection;}
+        assert.equal(response.code,503);
+        assert.equal(insertAttempts,1);
+        assert.equal(response.body.data?.oneTimeToken,undefined);
+        const retained=await BookingModel.findById(candidate._id);
+        assert.equal(retained.ocppTokenHash,attemptedHash);
+        assert.equal(retained.ocppChargerId,adminCharger);
+        assert.ok(retained.ocppTokenIssuedAt>oldIssuedAt);
+        const table=db.collection('ocpp_access_tokens');
+        const stored=await table.findOne({chargerId:adminCharger,tokenHash:attemptedHash});
+        if(fault==='before-insert')assert.equal(stored,null);
+        else assert.equal(stored.enabled,fault==='after-insert-revoke-fails');
+        if(renewal)assert.equal((await table.findOne({tokenHash:oldHash})).enabled,false);
+        const retries=await Promise.all(Array.from({length:8},()=>request('POST',
+          '/api/v1/admin/bookings/'+candidate._id+'/ocpp/issue-token',{},false,
+          {authorization:adminBearer})));
+        assert.ok(retries.every(x=>x.code===409));
+        const recover=await request('POST','/api/v1/admin/bookings/'+candidate._id+
+          '/ocpp/reissue-token',{},false,{authorization:adminBearer});
+        assert.equal(recover.code,409);
+        const state=await request('GET','/api/v1/admin/bookings/'+candidate._id+
+          '/ocpp/operations',undefined,false,{authorization:adminBearer});
+        assert.equal(state.code,200);
+        assert.equal(state.body.data.canIssueToken,false);
+        assert.equal(state.body.data.canReissueToken,false);
+        assert.equal(JSON.stringify(state.body).includes(attemptedHash),false);
+        assert.equal(await table.countDocuments({bookingId:String(candidate._id),
+          tokenHash:{$ne:oldHash}}),fault==='before-insert'?0:1);
+      });
+    }
+  }
   await check('active unused booking token cannot be reissued early',async()=>{
     const response=await request('POST',
       '/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/reissue-token',

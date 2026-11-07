@@ -98,7 +98,7 @@ if [[ "$browser_flag" == "1" ]]; then
     echo "Port already occupied; will not touch listener" >&2
     exit 3
   fi
-  (cd "$work/next" && node ./node_modules/next/dist/bin/next start \
+  (cd "$work/next" && exec node ./node_modules/next/dist/bin/next start \
     --hostname 127.0.0.1 --port "$port") &
   server_pid=$!
   ready=0
