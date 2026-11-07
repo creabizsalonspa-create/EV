@@ -521,9 +521,14 @@ class ProfileController extends GetxController {
     final token = Session.accessToken;
     loading.value = true;
     try {
-      await _net.getRequest('/api/v1/UserLogout');
-      // Local logout still applies if the server does not respond successfully,
-      // but never clears credentials for a newer signed-in account.
+      try {
+        await _net.getRequest('/api/v1/UserLogout');
+      } catch (_) {
+        // An offline/failed remote logout must not keep local bearer tokens.
+        // Server revocation still requires online confirmation separately.
+      }
+      // Local logout still applies if the server is offline or responds with
+      // an error, but cannot clear a newer signed-in account.
       final cleared = await _prefs.clearIfCurrent(
         expectedGeneration: generation,
         expectedToken: token,
