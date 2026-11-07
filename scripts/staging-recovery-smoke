@@ -237,6 +237,11 @@ import json, os, sys
 path, archive_hash, private_hash, count, migration_hash, probe_hash = sys.argv[1:]
 record = {
     'status': 'PASS',
+    'source_sha': os.environ.get('GITHUB_SHA', 'local-unverified'),
+    'workflow_run_id': os.environ.get('GITHUB_RUN_ID', 'local-unverified'),
+    'workflow_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT', 'local-unverified'),
+    'laravel_encrypted_record_restored': True,
+    'synthetic_private_file_restored': True,
     'classification': 'disposable staging software only',
     'postgresql': '17-alpine pinned image',
     'dump_sha256': archive_hash,

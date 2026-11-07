@@ -142,6 +142,9 @@ import json, os, sys
 path, archive_hash, fingerprint, count = sys.argv[1:]
 record = {
     'status': 'PASS',
+    'source_sha': os.environ.get('GITHUB_SHA', 'local-unverified'),
+    'workflow_run_id': os.environ.get('GITHUB_RUN_ID', 'local-unverified'),
+    'workflow_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT', 'local-unverified'),
     'classification': 'disposable synthetic PostGIS recovery, not CitrineOS acceptance',
     'database_image': 'postgis/postgis:16-3.5 digest pinned to CSMS compose',
     'database_archive_sha256': archive_hash,
