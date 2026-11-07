@@ -124,8 +124,14 @@ Gradle packaged the intended privacy settings. The stdlib tool
 differs from the expected ID, backup or remote cleartext is enabled, mandatory
 backup/data-extraction references are absent, the **compiled backup XML**
 fails to exclude all root/file/database/shared-preference and device-protected
-domains for legacy backup, Android 12+ cloud backup and device transfer, or
-target SDK is unavailable.
+domains for legacy backup, Android 12+ cloud backup and device transfer,
+or target SDK is unavailable. The audit also resolves any compiled debug
+`networkSecurityConfig` resource through the APK resource table, verifies
+that it disables cleartext by default and permits cleartext **only** for
+exact `localhost` / `127.0.0.1` domains without subdomains or user-added
+trust anchors. A compiled release APK containing a network-security
+override is rejected: that override could supersede
+`android:usesCleartextTraffic="false"`.
 
 Example for a disposable debug build after `flutter build apk --debug`:
 
