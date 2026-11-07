@@ -41,6 +41,25 @@ def read_proof(path):
 def valid_hash(value, size):
     return type(value) is str and re.fullmatch('[a-f0-9]{%s}' % size, value) is not None
 
+def timing_metrics(record, label):
+    # Separate synthetic snapshots cannot measure production RPO or RTO.
+    # Verify the five clocks are real integers in chronological order.
+    fields = ('drill_started_epoch', 'snapshot_started_epoch',
+              'snapshot_completed_epoch', 'restore_started_epoch',
+              'drill_completed_epoch')
+    ticks = [record.get(field) for field in fields]
+    require(all(type(t) is int and 1600000000 <= t <= 4102444800 for t in ticks),
+            f'{label} synthetic recovery clock evidence invalid')
+    require(all(a <= b for a, b in zip(ticks, ticks[1:])) and
+            ticks[-1] - ticks[0] <= 86400,
+            f'{label} synthetic recovery clock ordering or duration invalid')
+    return {
+        f'{label}_synthetic_snapshot_age_seconds': ticks[-1] - ticks[1],
+        f'{label}_synthetic_restore_duration_seconds': ticks[-1] - ticks[3],
+        f'{label}_synthetic_drill_duration_seconds': ticks[-1] - ticks[0],
+    }
+
+
 def inspect_proofs(business, csms, sha, run_id, attempt):
     require(re.fullmatch(r'[a-f0-9]{40}', sha) is not None,
             'Expected Git source SHA invalid')
@@ -94,6 +113,8 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             csms.get('single_transaction_restore') is True and
             csms.get('isolated_runtime_verified') is True,
             'PostGIS recovery or external acceptance boundary invalid')
+    business_timing = timing_metrics(business, 'business')
+    csms_timing = timing_metrics(csms, 'csms')
     return {
         'status': 'PASS',
         'classification': 'two independent synthetic restores; no cross-service consistent snapshot',
@@ -103,6 +124,9 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
         'csms_dump_sha256': csms['database_archive_sha256'],
         'laravel_migrations_restored': business['laravel_migration_rows'],
         'synthetic_postgis_rows_restored': csms['recovered_rows'],
+        **business_timing,
+        **csms_timing,
+        'production_rpo_rto_proven': False,
         'cross_service_consistent_snapshot_proven': False,
         'real_merchant_charge_or_hardware_tested': False,
         'production_ready': False,

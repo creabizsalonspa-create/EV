@@ -117,6 +117,17 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
                         code.index('pg_restore -U ev_recovery_review'))
         self.assertIn("'isolated_runtime_verified': True", code)
 
+    def test_timed_recovery_proof_covers_private_snapshot_and_laravel_boot(self):
+        code = self.source
+        self.assertIn('drill_started_epoch=$(date -u +%s)', code)
+        self.assertLess(code.index('snapshot_started_epoch=$(date -u +%s)'),
+                        code.index('private-probe.tar.gz'))
+        self.assertLess(code.index('restore_started_epoch=$(date -u +%s)'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertGreater(code.index('drill_completed_epoch=$(date -u +%s)'),
+                           code.index('PHP_HTTP'))
+        self.assertIn("'drill_completed_epoch': int(drill_end)", code)
+
     def test_no_sensitive_data_in_artifact_schema(self):
         code = self.source
         artifact = code.split("record = {", 1)[1].split("\n}", 1)[0]

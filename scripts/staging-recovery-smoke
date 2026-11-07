@@ -3,6 +3,8 @@
 # PostgreSQL containers. No host port, existing database or production service is used.
 set -euo pipefail
 umask 077
+command -v date >/dev/null
+drill_started_epoch=$(date -u +%s)
 
 if [[ "$#" -ne 1 ]]; then
   echo 'Usage: scripts/staging-recovery-smoke creabiz-ev-business:review' >&2
@@ -163,6 +165,7 @@ $p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
 if (file_put_contents($p, "synthetic-private-archive", LOCK_EX) === false) exit(1);
 if (!chmod($p, 0600)) exit(1);
 '
+snapshot_started_epoch=$(date -u +%s)
 docker exec "$source_app" tar -C /var/www/html/storage/app/private -czf -   agent3-recovery-probe.bin > "$scratch/private-probe.tar.gz"
 [[ -s "$scratch/private-probe.tar.gz" ]] || {
   echo 'Synthetic private-storage archive is empty.' >&2; exit 1;
@@ -180,6 +183,7 @@ archive="$scratch/ev_recovery_review.dump"
 docker exec "$source_db" pg_dump -U ev_recovery_review -d ev_recovery_review \
   --format=custom --no-owner --no-privileges > "$archive"
 [[ -s "$archive" ]] || { echo 'PostgreSQL dump is empty.' >&2; exit 1; }
+snapshot_completed_epoch=$(date -u +%s)
 python3 "$root/scripts/backup-artifact-guard.py" record --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
 # Prove real backup-byte tampering is rejected before the restored DB is touched.
@@ -215,6 +219,7 @@ if (!chmod($p, 0600)) exit(1);
 # Recheck exact on-disk bytes immediately before and after the isolated
 # database restore; the recovery proof must describe the consumed archive.
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
+restore_started_epoch=$(date -u +%s)
 docker exec -i "$target_db" pg_restore -U ev_recovery_review -d ev_recovery_review \
   --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
@@ -317,13 +322,18 @@ if (($json['data'] ?? null) !== [] || ($json['total'] ?? null) !== 0) {
 echo "Recovered application HTTP and Laravel migrations: PASS\n";
 PHP_HTTP
 
+# Measure until all database, private-storage and Laravel boot checks pass.
+drill_completed_epoch=$(date -u +%s)
 mkdir -p "$root/artifacts/agent3-recovery"
 archive_hash=$(sha256sum "$archive" | awk '{print $1}')
 private_archive_hash=$(sha256sum "$scratch/private-probe.tar.gz" | awk '{print $1}')
 python3 - "$root/artifacts/agent3-recovery/validation.json" \
-  "$archive_hash" "$private_archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" <<'PY_EVIDENCE'
+  "$archive_hash" "$private_archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" \
+  "$drill_started_epoch" "$snapshot_started_epoch" "$snapshot_completed_epoch" \
+  "$restore_started_epoch" "$drill_completed_epoch" <<'PY_EVIDENCE'
 import json, os, sys
-path, archive_hash, private_hash, count, migration_hash, probe_hash = sys.argv[1:]
+path, archive_hash, private_hash, count, migration_hash, probe_hash, \
+    drill_start, snapshot_start, snapshot_end, restore_start, drill_end = sys.argv[1:]
 record = {
     'status': 'PASS',
     'source_sha': os.environ.get('GITHUB_SHA', 'local-unverified'),
@@ -337,6 +347,11 @@ record = {
     'archive_tamper_rejected': True,
     'single_transaction_restore': True,
     'isolated_runtime_verified': True,
+    'drill_started_epoch': int(drill_start),
+    'snapshot_started_epoch': int(snapshot_start),
+    'snapshot_completed_epoch': int(snapshot_end),
+    'restore_started_epoch': int(restore_start),
+    'drill_completed_epoch': int(drill_end),
     'private_archive_tamper_rejected': True,
     'queue_worker_started': True,
     'scheduler_bootstrapped': True,

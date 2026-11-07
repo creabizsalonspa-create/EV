@@ -68,6 +68,16 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
                         code.index('pg_restore -U ev_csms_recovery'))
         self.assertIn("'isolated_runtime_verified': True", code)
 
+    def test_timing_span_covers_dump_restore_and_geospatial_checks(self):
+        code = self.source
+        self.assertLess(code.index('snapshot_started_epoch=$(date -u +%s)'),
+                        code.index('pg_dump -U ev_csms_recovery'))
+        self.assertLess(code.index('restore_started_epoch=$(date -u +%s)'),
+                        code.index('pg_restore -U ev_csms_recovery'))
+        self.assertGreater(code.index('drill_completed_epoch=$(date -u +%s)'),
+                           code.index('restored_fingerprint'))
+        self.assertIn("'drill_completed_epoch': int(drill_end)", code)
+
     def test_redacted_artifact(self):
         record = self.source.split("record = {", 1)[1].split("\n}", 1)[0]
         self.assertNotRegex(record, re.compile(r"secret|password|token|app_key", re.I))

@@ -4,6 +4,8 @@
 # are accessed. This is a synthetic *database* drill, not live CSMS recovery.
 set -euo pipefail
 umask 077
+command -v date >/dev/null
+drill_started_epoch=$(date -u +%s)
 
 command -v docker >/dev/null
 command -v python3 >/dev/null
@@ -104,9 +106,11 @@ source_srid_count=$(query "$source_db" 'SELECT count(*) FROM ev_agent3_recovery.
 }
 
 archive="$scratch/csms-postgis.dump"
+snapshot_started_epoch=$(date -u +%s)
 docker exec "$source_db" pg_dump -U ev_csms_recovery -d ev_csms_recovery \
   --format=custom --no-owner --no-privileges > "$archive"
 [[ -s "$archive" ]] || { echo 'PostGIS archive is empty.' >&2; exit 1; }
+snapshot_completed_epoch=$(date -u +%s)
 
 # Verify the target is a distinct clean DB. Mutate the source *after* snapshot
 # to establish that the restore represents an earlier, consistent recovery point.
@@ -132,6 +136,7 @@ fi
 # Guard the byte range consumed by the disposable restore, not only the
 # earlier pre-restore snapshot validation.
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
+restore_started_epoch=$(date -u +%s)
 docker exec -i "$target_db" pg_restore -U ev_csms_recovery -d ev_csms_recovery \
   --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
@@ -158,14 +163,19 @@ restored_postgis_count=$(query "$target_db" 'SELECT count(*) FROM pg_extension W
   echo 'Source unexpectedly changed after independent target restore.' >&2; exit 1;
 }
 
+# Measure through all synthetic geospatial snapshot verification checks.
+drill_completed_epoch=$(date -u +%s)
 # Artifact records hashes/evidence only; no credentials or business data.
 root=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$root/artifacts/agent3-csms-recovery"
 dump_hash=$(sha256sum "$archive" | awk '{print $1}')
 python3 - "$root/artifacts/agent3-csms-recovery/validation.json" \
-  "$dump_hash" "$source_fingerprint" "$restored_count" <<'PY_EVIDENCE'
+  "$dump_hash" "$source_fingerprint" "$restored_count" \
+  "$drill_started_epoch" "$snapshot_started_epoch" "$snapshot_completed_epoch" \
+  "$restore_started_epoch" "$drill_completed_epoch" <<'PY_EVIDENCE'
 import json, os, sys
-path, archive_hash, fingerprint, count = sys.argv[1:]
+path, archive_hash, fingerprint, count, \
+    drill_start, snapshot_start, snapshot_end, restore_start, drill_end = sys.argv[1:]
 record = {
     'status': 'PASS',
     'source_sha': os.environ.get('GITHUB_SHA', 'local-unverified'),
@@ -181,6 +191,11 @@ record = {
     'archive_tamper_rejected': True,
     'single_transaction_restore': True,
     'isolated_runtime_verified': True,
+    'drill_started_epoch': int(drill_start),
+    'snapshot_started_epoch': int(snapshot_start),
+    'snapshot_completed_epoch': int(snapshot_end),
+    'restore_started_epoch': int(restore_start),
+    'drill_completed_epoch': int(drill_end),
     'real_citrineos_schema_restored': False,
     'rabbitmq_broker_restored': False,
     'physical_charger_or_money': False,

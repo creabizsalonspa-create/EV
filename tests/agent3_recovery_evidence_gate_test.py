@@ -34,6 +34,11 @@ def evidence():
         'archive_tamper_rejected': True,
         'single_transaction_restore': True,
         'isolated_runtime_verified': True,
+        'drill_started_epoch': 1790000000,
+        'snapshot_started_epoch': 1790000010,
+        'snapshot_completed_epoch': 1790000020,
+        'restore_started_epoch': 1790000030,
+        'drill_completed_epoch': 1790000040,
         'private_archive_tamper_rejected': True,
         'queue_worker_started': True,
         'scheduler_bootstrapped': True,
@@ -52,6 +57,11 @@ def evidence():
         'archive_tamper_rejected': True,
         'single_transaction_restore': True,
         'isolated_runtime_verified': True,
+        'drill_started_epoch': 1790000000,
+        'snapshot_started_epoch': 1790000010,
+        'snapshot_completed_epoch': 1790000020,
+        'restore_started_epoch': 1790000030,
+        'drill_completed_epoch': 1790000040,
     }
     return business, csms
 
@@ -61,6 +71,30 @@ class GateTest(unittest.TestCase):
         self.assertEqual(result['status'],'PASS')
         self.assertFalse(result['production_ready'])
         self.assertFalse(result['cross_service_consistent_snapshot_proven'])
+        self.assertFalse(result['production_rpo_rto_proven'])
+        self.assertEqual(result['business_synthetic_snapshot_age_seconds'], 30)
+        self.assertEqual(result['business_synthetic_restore_duration_seconds'], 10)
+        self.assertEqual(result['csms_synthetic_drill_duration_seconds'], 40)
+
+    def test_recovery_timing_rejects_missing_reordered_or_implausible_clock_data(self):
+        for selected in ('business', 'csms'):
+            for bad in (None, True, '1790000030', -1, 1500000000, 4102444801):
+                with self.subTest(selected=selected, value=bad):
+                    b,c=evidence()
+                    obj=b if selected=='business' else c
+                    obj['restore_started_epoch']=bad
+                    with self.assertRaises(gate.EvidenceError):
+                        gate.inspect_proofs(b,c,SHA,'1234567','1')
+            for values in (
+                {'snapshot_started_epoch': 1790000050},
+                {'snapshot_completed_epoch': 1790000001},
+                {'drill_completed_epoch': 1790090000},
+            ):
+                with self.subTest(selected=selected, values=values):
+                    b,c=evidence()
+                    (b if selected=='business' else c).update(values)
+                    with self.assertRaises(gate.EvidenceError):
+                        gate.inspect_proofs(b,c,SHA,'1234567','1')
 
     def test_business_negative_states(self):
         cases=[
