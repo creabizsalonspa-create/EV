@@ -680,6 +680,8 @@ window.createRoamingWorkspace = ({
     }
     function clear() {
         generation++;
+        publicRequest?.abort();
+        window.dispatchEvent(new CustomEvent("roaming-map-data", { detail: [] }));
         roamingVersion++;
         roamingPending = null;
         details++;
