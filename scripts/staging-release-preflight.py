@@ -113,6 +113,33 @@ def extract_services(compose):
             services[current].append(line)
     return {name: '\n'.join(lines) for name, lines in services.items()}
 
+def require_exact_mounts(section, indent, expected):
+    """Reject extra bind mounts and long-form host volumes in reviewed services."""
+    prefix = ' ' * indent
+    rows = section.splitlines()
+    starts = [i for i, row in enumerate(rows) if row == prefix + 'volumes:']
+    require(len(starts) == 1, 'Unreviewed staging volume configuration')
+    entries = []
+    for row in rows[starts[0] + 1:]:
+        if row.startswith(prefix + '  - '):
+            entries.append(row[len(prefix + '  - '):])
+        elif not row.strip():
+            continue
+        else:
+            break
+    require(entries == expected, 'Staging mount list deviates from reviewed volumes')
+
+
+def require_direct_keys(section, indent, allowed, expected=None):
+    prefix = ' ' * indent
+    keys = re.findall(r'^' + re.escape(prefix) +
+                      r'(<<|[a-z][a-z0-9_-]*):', section, re.M)
+    require(len(keys) == len(set(keys)), 'Duplicate staging service/anchor keys')
+    require(set(keys).issubset(allowed) and
+            (expected is None or set(keys) == expected),
+            'Unreviewed staging service/anchor configuration')
+
+
 def check_policy(root):
     root = Path(root) / 'infra/staging'
     compose = (root / 'compose.yaml').read_text()
@@ -127,6 +154,11 @@ def check_policy(root):
             'Invalid anchored staging environment')
     require(not re.search(r'^  (ports|network_mode|privileged|extra_hosts):',
                           anchor, re.M), 'Shared application anchor exposes host settings')
+    require_direct_keys(anchor, 2,
+        {'build', 'image', 'env_file', 'environment', 'volumes', 'depends_on', 'restart'},
+        {'build', 'image', 'env_file', 'environment', 'volumes', 'depends_on', 'restart'})
+    require_exact_mounts(anchor, 2,
+                         ['private-storage:/var/www/html/storage/app/private'])
     environment = anchor.split('  environment:\n', 1)
     require(len(environment) == 2,
             'Shared application anchor must define an environment section')
@@ -145,6 +177,23 @@ def check_policy(root):
     required = {'application', 'worker', 'scheduler', 'database', 'gateway'}
     require(set(services) == required,
             'Staging must define only the five reviewed services')
+    allowed_services = {
+        'application': {'<<'},
+        'worker': {'<<', 'command', 'healthcheck'},
+        'scheduler': {'<<', 'command', 'healthcheck'},
+        'database': {'image', 'environment', 'volumes', 'healthcheck', 'restart'},
+        'gateway': {'image', 'environment', 'volumes', 'ports', 'depends_on', 'restart'},
+    }
+    for name, body in services.items():
+        require_direct_keys(body, 4, allowed_services[name],
+                            expected=allowed_services[name])
+    require_exact_mounts(services['database'], 4,
+                         ['database:/var/lib/postgresql/data'])
+    require_exact_mounts(services['gateway'], 4, [
+        './Caddyfile:/etc/caddy/Caddyfile:ro',
+        'certificates:/data',
+        'gateway-config:/config',
+    ])
     for name in ('application', 'worker', 'scheduler'):
         body = services[name]
         require(re.search(r'^    <<: \*application\s*$', body, re.M) is not None,

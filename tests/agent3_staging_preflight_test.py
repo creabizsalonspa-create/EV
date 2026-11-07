@@ -120,6 +120,32 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaises(p.PreflightError):
                 p.check_policy(root)
 
+    def test_staging_rejects_unreviewed_host_mounts_and_privileged_settings(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            stage = root/'infra/staging'
+            stage.mkdir(parents=True)
+            source = (ROOT/'infra/staging'/'compose.yaml').read_text()
+            for name in ('Caddyfile', 'Dockerfile'):
+                (stage/name).write_text((ROOT/'infra/staging'/name).read_text())
+            mutations = (
+                source.replace('    - private-storage:/var/www/html/storage/app/private',
+                    '    - private-storage:/var/www/html/storage/app/private\n    - /etc:/host-etc'),
+                source.replace('    - database:/var/lib/postgresql/data',
+                    '    - /host/customer-data:/var/lib/postgresql/data'),
+                source.replace('      - certificates:/data',
+                    '      - certificates:/data\n      - /var/run/docker.sock:/var/run/docker.sock'),
+                source.replace('  worker:\n    <<: *application',
+                    '  worker:\n    <<: *application\n    privileged: true'),
+                source.replace('  scheduler:\n    <<: *application',
+                    '  scheduler:\n    <<: *application\n    devices:\n      - /dev/sda:/dev/sda'),
+            )
+            for i, changed in enumerate(mutations):
+                with self.subTest(candidate=i):
+                    (stage/'compose.yaml').write_text(changed)
+                    with self.assertRaises(p.PreflightError):
+                        p.check_policy(root)
+
     def test_duplicate_compose_services_and_environment_keys_are_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
