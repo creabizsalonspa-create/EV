@@ -71,7 +71,7 @@ function mock(envFile) {
     }
     throw Error('Unexpected Docker command');
   }
-  return {state,run,env:{},envFile};
+  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock')};
 }
 const argv=(mode,journal)=>[mode,'--candidate-tag','new','--source-sha',SHA,
   ...(mode==='apply'?['--journal',journal,'--approval','APPLY_PRIVATE_STAGING_'+SHA.slice(0,12)]:[])];
@@ -193,4 +193,20 @@ test('running image validation checks actual immutable ID, not only tag',()=>san
   };
   deps.state.tag='new';
   assert.throws(()=>release.verifyRunning(newRef,NEW_ID,deps));
+}));
+
+test('concurrent or crashed release lock fails closed, without Docker mutation',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  const lock=release.acquireLock(deps);
+  try {
+    assert.equal(release.main(argv('apply',path.join(dir,'journal.jsonl')),deps),2);
+    assert.equal(deps.state.mutations,0);
+  } finally {lock();}
+  assert.equal(fs.existsSync(deps.lockPath),false);
+}));
+test('staging lock removed after verified release or automatic rollback',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);deps.state.failCandidate=true;
+  const file=path.join(dir,'journal.jsonl');
+  assert.equal(release.main(argv('apply',file),deps),1);
+  assert.equal(fs.existsSync(deps.lockPath),false);
 }));
