@@ -86,6 +86,47 @@ void main() {
     expect(auth.user.value, isNull);
   });
 
+  test('two concurrent controllers ignore out-of-order old login',
+      () async {
+    final vault = _MemoryVault();
+    final firstNetwork = _HeldAuthenticationNetwork();
+    final secondNetwork = _HeldAuthenticationNetwork();
+    final first = AuthController(
+      client: firstNetwork,
+      prefs: SharedPrefs(vault: vault),
+    );
+    final second = AuthController(
+      client: secondNetwork,
+      prefs: SharedPrefs(vault: vault),
+    );
+
+    final oldLogin = first.login('first@example.test', 'synthetic-pass');
+    expect(await firstNetwork.requested.future, '/api/v1/Login');
+    final newLogin = second.login('second@example.test', 'synthetic-pass');
+    expect(await secondNetwork.requested.future, '/api/v1/Login');
+
+    firstNetwork.response.complete(NetworkResponse(
+      isSuccess: true,
+      statusCode: 200,
+      responseData: {'token': 'stale-first-account'},
+    ));
+    expect(await oldLogin, isFalse);
+    expect(first.user.value, isNull);
+    expect(vault.value, isNull);
+
+    // Finish the second in-flight request only after an explicit logout,
+    // so neither response should publish any account.
+    await SharedPrefs(vault: vault).clear();
+    secondNetwork.response.complete(NetworkResponse(
+      isSuccess: true,
+      statusCode: 200,
+      responseData: {'token': 'stale-second-account'},
+    ));
+    expect(await newLogin, isFalse);
+    expect(vault.value, isNull);
+    expect(Session.accessToken, isNull);
+  });
+
   test('late OTP approval after logout cannot restore obsolete bearer',
       () async {
     final vault = _MemoryVault();
