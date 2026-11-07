@@ -24,6 +24,13 @@ type OpState={
   canBindSource:boolean;canFinalizeSource:boolean;
   needsPaymentReconciliation:boolean;
 };
+type StartExceptionReport={
+  orphanCount:number;matchedSourceCount:number;withinGracePeriodCount:number;
+  readOnly:boolean;exceptions:Array<{
+    chargerId:string;bookingId:string|null;consumedAt:string;
+    issue:string;action:string;credentialRestored:boolean
+  }>;
+};
 type SourceSession={
   id:string;chargerId:string;protocol:string;transactionId:string|number;
   status:string;energyKwh:number|null;paymentStatus:string;
@@ -56,6 +63,8 @@ export default function OcppBookingWorkflow({
   const [chosen,setChosen]=useState("");
   const [chargerChoice,setChargerChoice]=useState("");
   const [refreshOnClose,setRefreshOnClose]=useState(false);
+  const [startAudit,setStartAudit]=useState<StartExceptionReport|null>(null);
+  const [auditLoading,setAuditLoading]=useState(false);
   const [secret,setSecret]=useState("");
   const [showSecret,setShowSecret]=useState(false);
 
@@ -105,6 +114,7 @@ export default function OcppBookingWorkflow({
     setMessage("");
     setError("");
     setState(null);
+    setStartAudit(null);
     if(refreshOnClose)void onUpdated();
     setRefreshOnClose(false);
   }
@@ -162,6 +172,23 @@ export default function OcppBookingWorkflow({
       if(path==="finalize-source")setRefreshOnClose(true);
     }catch(e){setError(errorText(e));}
     finally{setWorking(false);}
+  }
+
+  async function auditStartExceptions(){
+    if(!state || !isHex24(state.stationId) || auditLoading || working)return;
+    setAuditLoading(true);
+    setError("");
+    try{
+      const response=await api.get(
+        "/admin/stations/"+state.stationId+"/ocpp/start-exceptions");
+      const report=response.data?.data as StartExceptionReport|undefined;
+      if(response.data?.status!=="Success" || !report ||
+         report.readOnly!==true || !Array.isArray(report.exceptions)){
+        throw new Error("Invalid OCPP start exception response");
+      }
+      setStartAudit(report);
+    }catch(error){setError(errorText(error));}
+    finally{setAuditLoading(false);}
   }
 
   async function copySecret(){
@@ -318,6 +345,37 @@ export default function OcppBookingWorkflow({
                       className="rounded-lg bg-sky-600 px-4 py-2.5 font-semibold text-white text-sm disabled:opacity-40">
                       Bind verified source
                     </button>
+                  </section>
+
+                  <section className={"space-y-3 rounded-xl border p-4 "+surface}>
+                    <h3 className="font-bold flex items-center gap-2"><RefreshCw size={16}/> Charging start diagnostics</h3>
+                    <p className={"text-xs "+muted}>
+                      Check for consumed charger tokens with no matching OCPP transaction.
+                      This is read-only. Credentials will never be restored automatically.
+                    </p>
+                    <button type="button" disabled={working||auditLoading}
+                      onClick={()=>void auditStartExceptions()}
+                      className="rounded-lg border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-700 disabled:opacity-40">
+                      {auditLoading?"Checking…":"Check interrupted starts"}
+                    </button>
+                    {startAudit&&(
+                      <div className="space-y-2" role="status">
+                        <p className="text-xs">
+                          Transactions matched: <strong>{startAudit.matchedSourceCount}</strong>.
+                          Grace period: <strong>{startAudit.withinGracePeriodCount}</strong>.
+                          Investigation required: <strong>{startAudit.orphanCount}</strong>.
+                        </p>
+                        {startAudit.exceptions
+                          .filter(x=>x.chargerId===state.selectedChargerId||!state.selectedChargerId)
+                          .map((x,i)=>(
+                            <div key={x.chargerId+"-"+x.consumedAt+"-"+i}
+                              className="rounded-lg border border-amber-300 p-3 text-xs">
+                              <strong>{x.chargerId}</strong> — consumed {new Date(x.consumedAt).toLocaleString()}.
+                              <p className="mt-1">{x.action}</p>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                   </section>
 
                   <section className={"space-y-3 rounded-xl border p-4 "+surface}>
