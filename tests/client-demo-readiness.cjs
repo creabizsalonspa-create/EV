@@ -10,7 +10,8 @@ const OCPP=['1.6','2.0.1'],ROLES=['customer','vendor','admin'];
 function synthetics(){
  return {
    simulators:()=>({ok:true,physical_charging_verified:false,real_money_moved:false,
-     stations:OCPP.map(protocol=>({protocol,idle:true}))}),
+     stations:OCPP.map(protocol=>({protocol,idle:true,physical_charging_verified:false,
+       evidence:'SIMULATED_CITRINEOS'}))}),
    roles:async()=>({ok:true,physical_charging_verified:false,real_money_moved:false,
      production_accepted:false,
      results:ROLES.map(role=>({role,authenticated:true,admin_authorized:role==='admin',post_logout_denied:true}))}),
@@ -42,7 +43,8 @@ test('role check cannot be called if initial simulator observation fails',async(
 test('after browser checks, newly active simulator fails demonstration readiness',async()=>{
  const deps=synthetics();let seen=0;
  deps.simulators=()=>({ok:true,physical_charging_verified:false,real_money_moved:false,
-   stations:OCPP.map(protocol=>({protocol,idle:++seen<=2}))});
+   stations:OCPP.map(protocol=>({protocol,idle:++seen<=2,
+     physical_charging_verified:false,evidence:'SIMULATED_CITRINEOS'}))});
  const proof=await demo.inspect({manifest:'private'},deps);
  assert.equal(proof.status,'INCOMPLETE');
  assert.deepEqual(proof.simulated_protocols,[]);
@@ -90,4 +92,32 @@ test('failed demo test produces only sanitized incomplete evidence',async()=>{
 test('unrecognized CLI inputs cannot target remote servers or files',()=>{
  assert.throws(()=>demo.parseArgs(['--url','https://production.example.org']));
  assert.throws(()=>demo.parseArgs(['--manifest','foo','--output','x','--execute']));
+});
+
+test('post-browser station reporting real hardware fails private synthetic readiness',async()=>{
+ const deps=synthetics();let calls=0;
+ deps.simulators=()=>{
+   calls++;
+   const good=synthetics().simulators();
+   if(calls===2)good.physical_charging_verified=true;
+   return good;
+ };
+ const proof=await demo.inspect({manifest:'private'},deps);
+ assert.equal(proof.status,'INCOMPLETE');
+ assert.equal(proof.production_accepted,false);
+});
+test('incorrect simulator provenance marker and second-stage monetary claim cannot pass',async()=>{
+ const deps=synthetics();
+ deps.simulators=()=>({...synthetics().simulators(),stations:[
+   {protocol:'1.6',idle:true,physical_charging_verified:false,evidence:'PHYSICAL_CHARGER'},
+   {protocol:'2.0.1',idle:true,physical_charging_verified:false,evidence:'SIMULATED_CITRINEOS'}]});
+ assert.equal((await demo.inspect({manifest:'private'},deps)).status,'INCOMPLETE');
+ let seen=0;
+ deps.simulators=()=>{
+   seen++;
+   const v=synthetics().simulators();
+   if(seen===2)v.real_money_moved=true;
+   return v;
+ };
+ assert.equal((await demo.inspect({manifest:'private'},deps)).status,'INCOMPLETE');
 });
