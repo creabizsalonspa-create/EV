@@ -18,6 +18,27 @@ def patch(root):
     i=source.find(a);j=source.find(b,i)
     if i<0 or j<i:raise RuntimeError('Charging station function not located')
     section=source[i:j]
+    # A confirmed source transaction overrides the original planned slot time.
+    # For unbound bookings, the original five-minute check stays in force.
+    original='''    // ── 5-minute early check ──
+    const earlyCheck = checkTooEarly(booking);
+    if (earlyCheck) return earlyCheck;
+
+    // Create session doc if not already created'''
+    revised='''    // Create session doc if not already created'''
+    if section.count(original)!=1:raise RuntimeError('Station early gate changed')
+    section=section.replace(original,revised)
+    before_source='''    // Never offer another scan when this booking is already bound to a'''
+    gate='''    // Once an OCPP source exists, the actual transaction outranks the
+    // booking's scheduled start time. Unbound bookings still obey the slot.
+    if (!session.sourceSessionId) {
+      const earlyCheck = checkTooEarly(booking);
+      if (earlyCheck) return earlyCheck;
+    }
+
+    // Never offer another scan when this booking is already bound to a'''
+    if section.count(before_source)!=1:raise RuntimeError('Scanner source gate moved')
+    section=section.replace(before_source,gate)
     old='''    return {
       status: "Success",
       message: "Charging station info fetched.",
