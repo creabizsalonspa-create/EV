@@ -76,8 +76,7 @@ window.EvAdminStaffPermissions = (() => {
                         reason.setAttribute("aria-label", "Private revocation reason");
                         const confirm = button("Confirm access revocation / تأكيد", () => {});
                         confirm.type = "submit";
-                        const cancel = button("Cancel / إلغاء", () => form.replaceWith
-                            ? form.replaceWith(revoke) : card.replaceChildren(revoke));
+                        const cancel = button("Cancel / إلغاء", () => actionHost.replaceChildren(revoke));
                         form.append(field("Private reason (10–2000 characters)", reason), confirm, cancel);
                         form.onsubmit = async (event) => {
                             event.preventDefault();
