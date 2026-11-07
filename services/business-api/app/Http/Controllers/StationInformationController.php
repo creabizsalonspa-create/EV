@@ -26,7 +26,7 @@ final class StationInformationController extends Controller
             'description_ar' => 'present|nullable|string|max:500',
             'access_en' => 'present|nullable|string|max:500',
             'access_ar' => 'present|nullable|string|max:500',
-            'weekly_hours' => 'required|array|size:7',
+            'weekly_hours' => 'required|array:mon,tue,wed,thu,fri,sat,sun|size:7',
             'closed_dates' => 'present|array|max:50',
             'closed_dates.*' => 'required|date_format:Y-m-d|distinct',
             'amenities' => 'present|array|max:8',
