@@ -51,14 +51,15 @@ Staging-only code now includes:
 - **Source-safe charging:** imported purchased Flutter API's old charging start/stop/time-based meter estimates are disabled until evidence-backed OCPP adapters are commissioned; GET does not generate energy or mutate charging.
 - **OCPP 1.6 and 2.0.1:** customer tokens are bound to authenticated bookings and existing charger registrations; raw authorization credentials are not stored in transaction records; 2.0.1 token hash is preserved in the staged gateway.
 - **Admin-scoped source binding:** protected `issue-token` and `bind-source` API routes ensure a paid, arrived booking and exact charger/transaction/meter evidence. Simultaneous token issuance yields one credential; a source session cannot bind to multiple bookings.
+- **Customer charging screens:** Station QR and initial session screen no longer claim physical charging before OCPP evidence. The final charging summary derives kWh, rate, VAT and calculated unpaid AED charges from the verified source, not synthetic session data.
 - **Customer sourced status:** authenticated customer API reads only the matching OCPP session's confirmed kWh, and cannot show imaginary battery percentage or a collected payment.
 - **Source-backed booking completion:** Admin-authenticated finalize route moves bookings to `Completed` only after an OCPP Ended event, verified meters and a calculated-but-unpaid invoice. Repeated calls are idempotent.
 - **Admin sourced reporting:** AdminAuth-only report shows metered kWh and `calculated_unpaid` AED estimates, never fake received revenue.
 - **Server Maps key:** inherited source hardcoded key replaced in staging with `GOOGLE_MAPS_API_KEY` from environment, and distance lookup disabled gracefully if absent. Restrict/rotate the exposed original key before future deployment.
 - **Encrypted database backup:** live Mongo ciphertext snapshot retained exclusively on owner's server; archive decrypt + `mongorestore --dryRun` succeeded. Offsite restore remains unverified.
 
-**Validation on authorized host**: 26/26 payment+OCPP pure guard tests,
-13/13 isolated route-level payment callback tests, and **48/48**
+**Validation on authorized host**: 28/28 payment+OCPP pure guard tests,
+13/13 isolated route-level payment callback tests, and **55/55**
 integrated Express/JWT/Mongo/OCPP scenario checks across authenticated
 customer/admin, bookings, payments, OCPP1.6/2.0.1 and source reporting.
 These tests use a local ephemeral MongoDB and staged source and do **not**
@@ -74,3 +75,7 @@ rejects production directories.
 **Status:** All new work is in PR #50, not merged or deployed. Hosted
 GitHub Actions may be queued; local staged checks passing does not override
 mandatory CI or PSP/hardware acceptance.
+
+### Latest clean-staging reproducibility
+
+Rebuilt from the deployed Express source snapshot with all ten stage patchers and the OCPP 2.0.1 handler patch; validated Node syntax, compiled Python patchers, and ran 55/55 integrated, 28/28 pure source/payment and 13/13 real-route payment callback tests on a disposable localhost MongoDB. The full tested staging tree remains only under `/home/hasio/agent2-work/repro-customer-admin-20261107` on the authorized server. It is **not** exposed publicly or deployed into the live app.
