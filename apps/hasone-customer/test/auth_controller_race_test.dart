@@ -48,10 +48,48 @@ class _HeldAuthenticationNetwork extends NetworkClient {
   }
 }
 
+class _FailingUserCache extends SharedPrefs {
+  _FailingUserCache(TokenVault vault) : super(vault: vault);
+
+  @override
+  Future<void> saveUser(Map<String, dynamic> user) async {
+    throw StateError('synthetic profile persistence failure');
+  }
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     Session.clear();
+  });
+
+  test('failed profile cache save cannot leave a live login token', () async {
+    final vault = _MemoryVault();
+    final network = _HeldAuthenticationNetwork();
+    final auth = AuthController(
+      client: network,
+      prefs: _FailingUserCache(vault),
+    );
+
+    final pending = auth.login('synthetic@example.test', 'synthetic-only');
+    expect(await network.requested.future, '/api/v1/Login');
+    network.response.complete(NetworkResponse(
+      isSuccess: true,
+      statusCode: 200,
+      responseData: {
+        'token': 'synthetic-token-must-not-survive',
+        'name': 'Partial account',
+        'email': 'synthetic@example.test',
+        'userId': '17',
+      },
+    ));
+
+    expect(await pending, isFalse);
+    expect(Session.accessToken, isNull,
+        reason: 'Unsuccessful login must not expose authenticated state');
+    expect(vault.value, isNull,
+        reason: 'Secure vault must not retain a partial login');
+    expect(auth.user.value, isNull);
   });
 
   test('late successful login after explicit logout never republishes token',
