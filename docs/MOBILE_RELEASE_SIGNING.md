@@ -74,6 +74,28 @@ cannot replace the production package. Protected CI environments can supply
 required private `EV_ANDROID_*` signing properties. Do not commit a
 production signing keystore or invent an ID for customer delivery.
 
+### Shared EV iOS release identity
+
+The shared EV iOS Runner and RunnerTests keep their existing
+`com.creabiz.creabizEv`-based bundle IDs in Debug. Their Release/Profile
+bundle IDs now require the owner-approved
+`EV_SHARED_IOS_RELEASE_BUNDLE_ID` Xcode build setting (which can be the
+original ID if the Apple Developer owner confirms it).
+
+On an authorized macOS runner, create this **untracked** file:
+
+```xcconfig
+// apps/mobile/ios/Flutter/ReleaseIdentity.xcconfig
+EV_SHARED_IOS_RELEASE_BUNDLE_ID = com.yourcompany.approved.evapp
+```
+
+Replace the example with the registered bundle ID and corresponding
+provisioning/team entitlements. `Release.xcconfig` optionally includes this
+file while `.gitignore` prevents accidental commits. Do not put an actual
+Apple account secret in source control. These build settings must still be
+verified on macOS/Xcode; this Linux source-only work does **not** prove iOS
+build, signing, device install or App Store acceptance.
+
 ## Google Maps native SDK provisioning
 
 The separate HAS.ONE customer app uses Google Maps on Android and iOS. An
