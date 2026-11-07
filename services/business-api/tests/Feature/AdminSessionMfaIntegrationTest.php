@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Security\AdminTotp;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class AdminSessionMfaIntegrationTest extends TestCase
@@ -40,7 +40,7 @@ class AdminSessionMfaIntegrationTest extends TestCase
             'password' => 'password',
         ])->assertOk()->json('secret');
         $this->postJson('/api/admin/second-factor/confirm', [
-            'code' => \App\Security\AdminTotp::codeAtStep(
+            'code' => AdminTotp::codeAtStep(
                 $secret, intdiv(now()->timestamp, 30)
             ),
         ])->assertOk()->assertJsonPath('verified', true);
