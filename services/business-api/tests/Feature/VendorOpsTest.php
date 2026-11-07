@@ -183,7 +183,7 @@ class VendorOpsTest extends TestCase
         ]);
 
         $this->actingAs($staff)->getJson($sites)->assertNotFound();
-        $this->postJson($base.'/staff/'.$grant->id.'/permissions', [
+        $this->patchJson($base.'/staff/'.$grant->id.'/permissions', [
             'expected_version' => 2, 'permissions' => ['company.read'],
         ])->assertNotFound();
         $this->postJson('/api/vendor-ops/staff-invitations/'.$grant->id.'/accept', [
