@@ -13,7 +13,9 @@ type BookingRef={
 type OpState={
   bookingId:string;stationId:string;bookingStatus:string;
   bookingPrepaymentRecorded:boolean;arrivalRecorded:boolean;
-  approvedChargerId:string|null;authorizationIssued:boolean;
+  approvedChargerId:string|null;selectedChargerId:string|null;
+  approvedChargers:Array<{chargerId:string;protocol:string;online:boolean}>;
+  requiresChargerSelection:boolean;authorizationIssued:boolean;
   tokenIssuedAt:string|null;tokenExpiresAt:string|null;
   sourceSessionId:string|null;sourceTransactionId:string|null;
   sourceVerified:boolean;meterVerified:boolean;sourceEnded:boolean;
@@ -23,7 +25,7 @@ type OpState={
   needsPaymentReconciliation:boolean;
 };
 type SourceSession={
-  id:string;protocol:string;transactionId:string|number;
+  id:string;chargerId:string;protocol:string;transactionId:string|number;
   status:string;energyKwh:number|null;paymentStatus:string;
 };
 type IssueResponse={status:string;data?:{
@@ -52,6 +54,7 @@ export default function OcppBookingWorkflow({
   const [state,setState]=useState<OpState|null>(null);
   const [sessions,setSessions]=useState<SourceSession[]>([]);
   const [chosen,setChosen]=useState("");
+  const [chargerChoice,setChargerChoice]=useState("");
   const [secret,setSecret]=useState("");
   const [showSecret,setShowSecret]=useState(false);
 
@@ -62,9 +65,13 @@ export default function OcppBookingWorkflow({
       throw new Error("Invalid Admin booking state");
     const current=response.data.data as OpState;
     setState(current);
+    const available=Array.isArray(current.approvedChargers)?current.approvedChargers:[];
+    setChargerChoice(previous=>current.selectedChargerId||
+      (available.some(c=>c.chargerId===previous)?previous:
+       available.length===1?available[0].chargerId:""));
     if(current.stationId && isHex24(current.stationId)){
       const sessionsResponse=await api.get(
-        "/admin/stations/"+current.stationId+"/ocpp/sessions");
+        "/admin/stations/"+current.stationId+"/ocpp/booking-sources");
       const list=sessionsResponse.data?.data?.sessions;
       const loaded=Array.isArray(list)?list as SourceSession[]:[];
       setSessions(loaded);
@@ -93,6 +100,7 @@ export default function OcppBookingWorkflow({
     setSecret("");
     setShowSecret(false);
     setChosen("");
+    setChargerChoice("");
     setMessage("");
     setError("");
     setState(null);
@@ -125,7 +133,8 @@ export default function OcppBookingWorkflow({
     setError("");
     setMessage("");
     try{
-      const response=await api.post("/admin/bookings/"+booking._id+"/ocpp/"+path,body);
+      const payload=path==="issue-token"?{...body,chargerId:chargerChoice}:body;
+      const response=await api.post("/admin/bookings/"+booking._id+"/ocpp/"+path,payload);
       if(response.data?.status!=="Success")throw new Error("Operation was not accepted");
       if(path==="issue-token"){
         const result=response.data as IssueResponse;
@@ -219,14 +228,29 @@ export default function OcppBookingWorkflow({
                   <section className={"space-y-3 rounded-xl border p-4 "+surface}>
                     <h3 className="font-bold flex items-center gap-2"><LockKeyhole size={16}/> 1. Authorize charger token</h3>
                     <p className={"text-xs "+muted}>
-                      Approved charger: <strong>{state.approvedChargerId||"No approved charger"}</strong>.
+                      Approved charger: <strong>{state.approvedChargerId||
+                        (state.approvedChargers.length>1?"Select below":"No approved charger")}</strong>.
                       A paid, arrived Upcoming booking and approved charger are required.
                     </p>
+                    {state.approvedChargers.length>0&&(
+                      <label className="block text-xs font-semibold">Booking charger
+                        <select aria-label="Select booking charger" className={inputClass+" mt-1"}
+                          value={chargerChoice} onChange={e=>setChargerChoice(e.target.value)}
+                          disabled={state.authorizationIssued||working}>
+                          <option value="">Choose approved charger</option>
+                          {state.approvedChargers.map(c=>
+                            <option key={c.chargerId} value={c.chargerId}>
+                              {c.chargerId} · {c.protocol} · {c.online?"Online":"Offline"}
+                            </option>)}
+                        </select>
+                      </label>
+                    )}
                     {state.authorizationIssued&&
                       <p className="text-sm text-sky-600">Token already issued.
                         {state.tokenExpiresAt?" Expires "+new Date(state.tokenExpiresAt).toLocaleString():""}
                       </p>}
-                    <button type="button" disabled={!canOperate||!state.canIssueToken}
+                    <button type="button"
+                      disabled={!canOperate||!state.canIssueToken||!chargerChoice}
                       onClick={()=>void perform("issue-token")}
                       className="rounded-lg bg-sky-600 px-4 py-2.5 font-semibold text-white text-sm disabled:opacity-40">
                       {working?"Working…":"Issue one-time authorization token"}
@@ -255,9 +279,10 @@ export default function OcppBookingWorkflow({
                       <select className={inputClass+" mt-1"} value={chosen}
                         onChange={e=>setChosen(e.target.value)} disabled={!!state.sourceSessionId||working}>
                         <option value="">Select recorded OCPP transaction</option>
-                        {sessions.filter(x=>isHex24(x.id)).map(x=>(
+                        {sessions.filter(x=>isHex24(x.id)&&
+                          x.chargerId===(state.selectedChargerId||chargerChoice)).map(x=>(
                           <option key={x.id} value={x.id}>
-                            {x.protocol} · {String(x.transactionId)} · {x.status} · {x.energyKwh??"?"} kWh
+                            {x.chargerId} · {x.protocol} · {String(x.transactionId)} · {x.status} · {x.energyKwh??"?"} kWh
                           </option>
                         ))}
                       </select>
