@@ -2,6 +2,12 @@ name: Platform validation
 on: [push, pull_request]
 permissions:
   contents: read
+# Cancel superseded runs of the same workflow/event/ref. Keep push and PR
+# validations separate so a branch push cannot cancel a required PR check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   business-platform:
     runs-on: ubuntu-latest
