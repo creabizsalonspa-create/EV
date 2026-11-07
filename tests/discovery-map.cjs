@@ -117,6 +117,9 @@ const assert = require("node:assert/strict");
     await page.locator(".station-map-pin:not(.partner-map-pin)").waitFor();
     assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
     assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    // Refit requires explicit interaction; never creates new inventory.
+    await page.getByRole("button", { name: "Show loaded locations on map" }).click();
+    await page.getByText("Map fitted to loaded results only. Other nearby sites may not be listed.", { exact: true }).waitFor();
     const stationPinColor = await page.locator(".station-map-pin:not(.partner-map-pin)").evaluate(node => getComputedStyle(node).backgroundColor);
     const partnerPinColor = await page.locator(".partner-map-pin").evaluate(node => getComputedStyle(node).backgroundColor);
     assert.notEqual(partnerPinColor, stationPinColor, "Unverified partner pins must look distinct");
@@ -163,6 +166,17 @@ const assert = require("node:assert/strict");
       await page.locator("#discovery-map").textContent(),
       /استخدام موقعي/,
     );
+    await page.getByRole("button", { name: "إيقاف الخريطة التفاعلية" }).click();
+    assert.equal(await page.locator("#station-map").isHidden(), true);
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    assert.equal(await page.locator("#location-consent").isChecked(), false);
+    assert.equal(await page.getByRole("button", { name: "إظهار المواقع المحملة على الخريطة" }).isHidden(), true);
+    assert.equal(await page.getByRole("button", { name: "تفعيل الخريطة التفاعلية" }).isVisible(), true);
+    // A second consent must create a fresh Leaflet instance cleanly.
+    await page.getByRole("button", { name: "تفعيل الخريطة التفاعلية" }).click();
+    assert.equal(await page.locator("#station-map").isVisible(), true);
+    await page.getByRole("button", { name: "إظهار المواقع المحملة على الخريطة" }).click();
+    await page.getByText("لا توجد إحداثيات صالحة للمواقع المحملة على الخريطة.", { exact: true }).waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
       await page.evaluate(
@@ -172,7 +186,7 @@ const assert = require("node:assert/strict");
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: consented station/partner overlay, strict unverified partner capabilities, revocation clearing, GPS opt-in, safe literal popups, Arabic and mobile layout. Synthetic only.",
+      "PASS: consented mixed map, disable/re-enable privacy and map refit, unverified partner capability checks, revocation, GPS opt-in, safe popups, Arabic and mobile layout. Synthetic only.",
     );
   } finally {
     await browser.close();
