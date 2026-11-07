@@ -89,3 +89,7 @@ The web account inbox now has an explicit **Refresh notifications** control and 
 ### Additional query index and exact UI read-reversal test
 
 The additive migration now includes `inbox_notifications(user_id,kind,id)` alongside the owner-unread index. The second index targets the allowlisted notification-category listing while preserving owner scoping and descending ID pagination. The full Playwright browser workflow now clicks the real **Mark unread** and **Mark read** controls for an identified persisted notification, asserting unchanged total records, updated per-category counts and the newer event's independent receipt. Native GitHub Actions workflow runs are now grouped by branch/head ref, canceling superseded attempts on the same branch rather than accumulating outdated iOS/Android jobs; this does not imply current CI has run successfully.
+
+### Consistent lock ordering for fleet acceptance
+
+The fleet acceptance transaction now acquires the owning fleet row **before** the invitation membership row, matching invitation creation and revocation. It rechecks invitation ownership and fleet membership after locking, retries transient deadlocks up to three times, and creates only one acceptance notice on a real `invited`→`active` transition. Membership revocation rechecks the locked row's fleet ID. A new feature test confirms that a revoked invitation cannot be accepted until the owner deliberately issues a new invitation, and that repeated acceptance cannot create extra owner notices.

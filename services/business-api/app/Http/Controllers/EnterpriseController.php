@@ -123,21 +123,26 @@ class EnterpriseController extends Controller
         abort_unless(in_array($invitation->status, ['invited', 'active']), 409);
 
         return DB::transaction(function () use ($r, $invitation) {
+            // Every membership state transition follows the same Fleet ->
+            // membership row-lock order (invite, accept, revoke). This prevents
+            // circular waits during concurrent acceptance/revocation.
+            $fleet = Fleet::whereKey($invitation->fleet_id)->lockForUpdate()->firstOrFail();
             $invitation = FleetMember::whereKey($invitation->id)->lockForUpdate()->firstOrFail();
-            abort_unless(in_array($invitation->status, ['invited', 'active']), 409);
+            abort_unless($invitation->fleet_id === $fleet->id &&
+                $invitation->user_id === $r->user()->id, 404);
+            abort_unless(in_array($invitation->status, ['invited', 'active'], true), 409);
             if ($invitation->status === 'invited') {
                 $invitation->update(['status' => 'active']);
-                $ownerId = Fleet::whereKey($invitation->fleet_id)->firstOrFail()->owner_id;
                 InboxNotification::create([
-                    'user_id' => $ownerId,
+                    'user_id' => $fleet->owner_id,
                     'kind' => 'fleet.invitation.accepted',
-                    'metadata' => ['fleet_id' => $invitation->fleet_id, 'membership_id' => $invitation->id],
+                    'metadata' => ['fleet_id' => $fleet->id, 'membership_id' => $invitation->id],
                 ]);
                 $this->audit($r, 'fleet.accepted', (string) $invitation->id);
             }
 
             return response()->json($invitation);
-        });
+        }, 3);
     }
 
     public function remove(Request $r, Fleet $fleet, FleetMember $membership)
@@ -150,6 +155,7 @@ class EnterpriseController extends Controller
             $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
             abort_unless($current->owner_id === $r->user()->id, 404);
             $membership = FleetMember::whereKey($membership->id)->lockForUpdate()->firstOrFail();
+            abort_unless($membership->fleet_id === $current->id, 404);
             if ($membership->status !== 'revoked') {
                 $membership->update(['status' => 'revoked']);
                 FleetVehicle::where('fleet_id', $fleet->id)

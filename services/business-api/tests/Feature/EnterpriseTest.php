@@ -109,6 +109,60 @@ class EnterpriseTest extends TestCase
         $this->assertSame(1, InboxNotification::where('user_id', $owner->id)->count());
     }
 
+    public function test_fleet_invitation_rejects_revoked_state_until_owner_explicitly_reinvites(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $outsider = User::factory()->create();
+        $fleet = Fleet::create([
+            'owner_id' => $owner->id,
+            'name' => 'Concurrent transitions fixture',
+            'country' => 'AE',
+        ]);
+        $membership = FleetMember::create([
+            'fleet_id' => $fleet->id,
+            'user_id' => $driver->id,
+            'role' => 'driver',
+            'status' => 'invited',
+        ]);
+
+        // The driver cannot trigger membership status updates for another user.
+        $this->actingAs($outsider)
+            ->postJson('/api/fleet-invitations/'.$membership->id.'/accept')
+            ->assertNotFound();
+
+        $this->actingAs($owner)
+            ->deleteJson('/api/fleets/'.$fleet->id.'/members/'.$membership->id)
+            ->assertNoContent();
+        $this->assertDatabaseHas('fleet_members', [
+            'id' => $membership->id,
+            'status' => 'revoked',
+        ]);
+
+        $this->actingAs($driver)
+            ->postJson('/api/fleet-invitations/'.$membership->id.'/accept')
+            ->assertConflict();
+        $this->assertSame(
+            0,
+            InboxNotification::where('user_id', $owner->id)
+                ->where('kind', 'fleet.invitation.accepted')->count(),
+        );
+
+        $this->actingAs($owner)
+            ->postJson('/api/fleets/'.$fleet->id.'/invitations', ['email' => $driver->email])
+            ->assertAccepted();
+        $this->actingAs($driver)
+            ->postJson('/api/fleet-invitations/'.$membership->id.'/accept')
+            ->assertOk();
+        $this->postJson('/api/fleet-invitations/'.$membership->id.'/accept')
+            ->assertOk();
+        $this->assertSame(
+            1,
+            InboxNotification::where('user_id', $owner->id)
+                ->where('kind', 'fleet.invitation.accepted')->count(),
+        );
+    }
+
     public function test_invites_do_not_disclose_whether_email_exists(): void
     {
         $owner = User::factory()->create();
