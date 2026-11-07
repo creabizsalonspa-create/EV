@@ -4,6 +4,7 @@
 // Does not start/stop chargers, reserve slots, issue payments or operate production.
 const {load,jsonRequest}=require('./staging-synthetic-role-smoke.cjs');
 const {checkOutputDestination,writeEvidence}=require('./staging-acceptance.cjs');
+const {fixtureSha256}=require('./client-demo-evidence-fingerprint.cjs');
 
 const SCHEMA='ev-local-csms-demo-completion-v2';
 const PROTOCOLS=['1.6','2.0.1'];
@@ -137,6 +138,7 @@ async function main(argv=process.argv.slice(2),deps={}) {
     const options=parseArgs(argv);
     checkOutputDestination(options.output);
     const proof=await inspect(options.manifest,deps.send||jsonRequest,deps.now);
+    proof.fixture_sha256=(deps.fingerprint||fixtureSha256)(options.manifest);
     writeEvidence(options.output,proof);
     if(proof.status!=='LOCAL_SIMULATOR_COMPLETION_VERIFIED') {
       process.stderr.write('FAIL: local-only simulated charging completion lacks required evidence; no credentials or API bodies disclosed.\n');
