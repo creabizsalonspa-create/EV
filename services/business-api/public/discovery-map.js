@@ -61,6 +61,7 @@
         selectedCentre = null,
         routeSegments = [],
         routeLines;
+    let popupOpen = false;
     let records = [],
         partnerRows = [],
         map,
@@ -283,7 +284,7 @@
         if (!map) return;
         const points = loadedPoints();
         if (points.length) {
-            map.fitBounds(points, { maxZoom: 13, padding: [24, 24] });
+            map.fitBounds(points, { maxZoom: 13, padding: [24, 24], animate: false });
             if (announce) setStatus(
                 "Map fitted to loaded results only. Other nearby sites may not be listed.",
                 "تم ضبط الخريطة على النتائج المحملة فقط. قد توجد مواقع أخرى قريبة غير معروضة.",
@@ -306,6 +307,7 @@
         selectedCentre = null;
         searchPartners.hidden = true;
         if (map) map.remove();
+        popupOpen = false;
         map = markers = partnerMarkers = routeLines = picked = null;
         canvas.hidden = true;
         enable.hidden = false;
@@ -338,7 +340,13 @@
         routeLines = L.layerGroup().addTo(map);
         renderRoute();
         fitLoaded();
-        map.on("moveend zoomend", render);
+        map.on("popupopen", () => { popupOpen = true; });
+        map.on("popupclose", () => { popupOpen = false; });
+        // Screen-space bucketing may be recalculated on viewport changes, but
+        // never destroy an open popup while its controls are being used.
+        map.on("moveend zoomend", () => {
+            if (!popupOpen) render();
+        });
         map.on("click", (event) =>
             select(event.latlng.lat, event.latlng.wrap().lng),
         );
