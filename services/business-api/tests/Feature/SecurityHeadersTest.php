@@ -42,7 +42,7 @@ class SecurityHeadersTest extends TestCase
     public function test_hosted_payment_returns_set_hsts_only_for_secure_requests(): void
     {
         foreach (['/payments/hosted-return', '/payments/corporate-hosted-return'] as $path) {
-            $http = $this->get($path);
+            $http = $this->withServerVariables(['HTTPS' => 'off'])->get($path);
             $http->assertOk();
             $this->assertFalse($http->headers->has('Strict-Transport-Security'));
 
