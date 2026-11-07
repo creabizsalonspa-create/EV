@@ -43,6 +43,7 @@ final class PartnerLocationDiscoveryController extends Controller
 
         // The final ID key also stabilizes ties in distance.
         $now = now()->getTimestamp();
+
         return $query->orderByDesc('ocpi_records.id')->paginate(25)->appends($filters)
             ->through(function (OcpiRecord $record) use ($nearby, $now) {
                 $age = $record->source_updated_at
