@@ -159,6 +159,27 @@ class MobileApkAuditTests(unittest.TestCase):
                 signer_output=debug_signer,
             )
 
+    def test_release_refuses_debuggable_and_test_only_flags(self):
+        prod = BADGING.replace(EXPECTED, "com.creabiz.production.example")
+        digest = "a" * 64
+        signer = "Signer #1 certificate SHA-256 digest: " + digest
+        for unsafe_attribute in ("debuggable", "testOnly"):
+            with self.subTest(attribute=unsafe_attribute):
+                manifest = (
+                    MANIFEST +
+                    "  A: android:" + unsafe_attribute +
+                    "(0x0101000f)=(type 0x12)0xffffffff\\n"
+                )
+                with self.assertRaisesRegex(audit.AuditError, unsafe_attribute):
+                    self.audit(
+                        badging=prod,
+                        package="com.creabiz.production.example",
+                        manifest=manifest,
+                        mode="release",
+                        expected_signer_sha256=digest,
+                        signer_output=signer,
+                    )
+
     def test_missing_target_sdk_is_rejected(self):
         text = BADGING.replace("targetSdkVersion:'36'\n", "")
         with self.assertRaisesRegex(audit.AuditError, "target Android SDK"):
