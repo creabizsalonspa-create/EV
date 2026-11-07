@@ -1,5 +1,6 @@
 """Progress evidence must fail closed; tests never invent feature acceptance."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -61,7 +62,7 @@ class CoverageEvidenceTest(unittest.TestCase):
                 'source_sha': checkpoint['source_sha'],
                 'integrated_sha': checkpoint['merge_sha'],
             }))
-            checkpoint['evidence'] = __import__('os').path.relpath(evidence, ROOT)
+            checkpoint['evidence'] = os.path.relpath(evidence, ROOT)
             self.rejected(self.inventory, 'evidence must stay within repository')
 
     def test_original_312_atom_inventory_cannot_silently_shrink(self):
