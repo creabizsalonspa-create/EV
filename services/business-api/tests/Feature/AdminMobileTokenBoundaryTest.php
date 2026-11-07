@@ -3,12 +3,40 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Http\Middleware\RejectAdminPersonalAccessToken;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class AdminMobileTokenBoundaryTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_every_sanctum_protected_native_route_has_the_mobile_admin_boundary(): void
+    {
+        $protected = 0;
+
+        foreach (Route::getRoutes() as $route) {
+            if (! str_starts_with($route->uri(), 'api/v1')) {
+                continue;
+            }
+
+            $middleware = $route->gatherMiddleware();
+            if (! in_array('auth:sanctum', $middleware, true)) {
+                continue;
+            }
+
+            $protected++;
+            $this->assertContains(RejectAdminPersonalAccessToken::class, $middleware, $route->uri().' must not permit Admin bearer tokens.');
+            $this->assertLessThan(
+                array_search(RejectAdminPersonalAccessToken::class, $middleware, true),
+                array_search('auth:sanctum', $middleware, true),
+                'Admin bearer guard must run after Sanctum authentication.'
+            );
+        }
+
+        $this->assertGreaterThan(0, $protected, 'Expected authenticated native routes.');
+    }
 
     public function test_vendor_mobile_token_loses_all_protected_access_after_admin_promotion(): void
     {
