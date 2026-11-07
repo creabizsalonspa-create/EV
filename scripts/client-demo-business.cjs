@@ -12,6 +12,10 @@ async function main() {
   assert(args.includes('--confirm-mock-payment'),
     'Usage: scripts/client-demo business --invoice ID --confirm-mock-payment [--publish-test-policy]');
   const index = args.indexOf('--invoice');
+  assert(args.filter(x => x === '--invoice').length === 1 &&
+    args.length === (args.includes('--publish-test-policy') ? 4 : 3) &&
+    args.every((x,i) => i === index + 1 || ['--invoice','--confirm-mock-payment','--publish-test-policy'].includes(x)),
+    'Select exactly one invoice and only supported demo options.');
   const invoiceId = Number(args[index + 1]);
   assert(index >= 0 && Number.isSafeInteger(invoiceId) && invoiceId > 0, 'Select one existing invoice.');
   const base = path.resolve('artifacts/client-demo');
@@ -20,7 +24,7 @@ async function main() {
   assert(file.startsWith(base + path.sep) && (fs.statSync(file).mode & 0o077) === 0);
   const fixture = JSON.parse(fs.readFileSync(file));
   assert(fixture.fixture_only && !fixture.real_money && fixture.base === 'http://127.0.0.1:8000');
-  const config = JSON.parse(execFileSync('docker', ['exec','-u','1000:1000','-w',
+  const config = JSON.parse(execFileSync('docker', ['exec','-u',`${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,'-w',
     '/app/services/business-api','ev-business-api','php','-r',
     'require "vendor/autoload.php"; $a=require "bootstrap/app.php"; $a->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); echo json_encode(["local"=>app()->environment("local","testing"),"provider"=>config("payments.provider"),"loyalty"=>config("loyalty.enabled")]);'
   ], {encoding:'utf8'}));
