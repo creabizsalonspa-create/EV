@@ -68,13 +68,17 @@ class AuthController extends GetxController {
     try {
       // Authentication is a new identity boundary. Clear the prior token
       // first; leave it blocked if secure deletion cannot be confirmed.
-      await _prefs.clear();
-      if (attempt != _credentialAttempt) return false;
+      final clearing = _prefs.clear();
+      final clearedGeneration = SharedPrefs.credentialGeneration;
+      await clearing;
+      if (attempt != _credentialAttempt ||
+          clearedGeneration != SharedPrefs.credentialGeneration) return false;
       final res = await _net.postRequest(
         '/api/v1/VerifyOTP',
         body: {'email': email, 'otp': otp},
       );
-      if (attempt != _credentialAttempt) return false;
+      if (attempt != _credentialAttempt ||
+          clearedGeneration != SharedPrefs.credentialGeneration) return false;
       if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
         final token = res.responseData?['token']?.toString();
         if (token == null || token.trim().isEmpty) {
@@ -82,8 +86,11 @@ class AuthController extends GetxController {
               snackPosition: SnackPosition.TOP);
           return false;
         }
-        await _prefs.saveToken(token);
-        if (attempt != _credentialAttempt) return false;
+        final saving = _prefs.saveToken(token);
+        final savedGeneration = SharedPrefs.credentialGeneration;
+        await saving;
+        if (attempt != _credentialAttempt ||
+            savedGeneration != SharedPrefs.credentialGeneration) return false;
         Get.snackbar(
           'Success',
           res.responseData?['message']?.toString() ?? 'OTP verified successfully',
@@ -118,13 +125,17 @@ class AuthController extends GetxController {
     try {
       // Supersede earlier login responses and invalidate any old cached
       // account before the new request. A failed login stays logged out.
-      await _prefs.clear();
-      if (attempt != _credentialAttempt) return false;
+      final clearing = _prefs.clear();
+      final clearedGeneration = SharedPrefs.credentialGeneration;
+      await clearing;
+      if (attempt != _credentialAttempt ||
+          clearedGeneration != SharedPrefs.credentialGeneration) return false;
       final res = await _net.postRequest(
         '/api/v1/Login',
         body: {'email': email, 'password': password},
       );
-      if (attempt != _credentialAttempt) return false;
+      if (attempt != _credentialAttempt ||
+          clearedGeneration != SharedPrefs.credentialGeneration) return false;
       if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
         final token = res.responseData?['token']?.toString();
         if (token == null || token.trim().isEmpty) {
@@ -132,15 +143,19 @@ class AuthController extends GetxController {
               snackPosition: SnackPosition.TOP);
           return false;
         }
-        await _prefs.saveToken(token);
-        if (attempt != _credentialAttempt) return false;
+        final saving = _prefs.saveToken(token);
+        final savedGeneration = SharedPrefs.credentialGeneration;
+        await saving;
+        if (attempt != _credentialAttempt ||
+            savedGeneration != SharedPrefs.credentialGeneration) return false;
         final userData = <String, dynamic>{
           'fullName': res.responseData?['name']?.toString(),
           'email': res.responseData?['email']?.toString(),
           'userId': res.responseData?['userId']?.toString(),
         };
         await _prefs.saveUser(userData);
-        if (attempt != _credentialAttempt) return false;
+        if (attempt != _credentialAttempt ||
+            savedGeneration != SharedPrefs.credentialGeneration) return false;
         user.value = UserModel.fromJson(userData);
         pendingEmail = email;
         Get.snackbar(
