@@ -27,7 +27,33 @@ class VendorOpsController extends Controller
 
     public function companies(Request $r)
     {
-        return VendorCompany::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id)->orWhereIn('id', VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'active')->whereNull('admin_revoked_at')->select('company_id')))->orderByDesc('id')->paginate(25)->through(fn ($company) => $company->toArray() + ['capabilities' => $this->access->capabilities($r->user(), $company)]);
+        $actor = $r->user();
+        $query = VendorCompany::query();
+        if ($actor->role !== 'admin') {
+            $query->where(fn ($q) => $q->where('owner_id', $actor->id)
+                ->orWhereIn('id', VendorCompanyStaff::where('user_id', $actor->id)
+                    ->where('status', 'active')->whereNull('admin_revoked_at')->select('company_id')));
+        }
+
+        // Inventory-only staff need a company picker, but membership alone
+        // does not grant company.read. Keep private company/KYC data out.
+        $page = $query->orderByDesc('id')->paginate(25)->through(function (VendorCompany $company) use ($actor) {
+            $capabilities = $this->access->capabilities($actor, $company);
+            if (! $capabilities['company_read']) {
+                return [
+                    'id' => $company->id,
+                    'legal_name' => $company->legal_name,
+                    'country' => $company->country,
+                    'status' => $company->status,
+                    'capabilities' => $capabilities,
+                    'restricted_directory_entry' => true,
+                ];
+            }
+
+            return $company->toArray() + ['capabilities' => $capabilities];
+        });
+
+        return response()->json($page)->header('Cache-Control', 'no-store, private');
     }
 
     public function createCompany(Request $r)
