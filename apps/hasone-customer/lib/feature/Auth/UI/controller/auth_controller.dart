@@ -9,12 +9,29 @@ import '../../../../core/service/network/network_client.dart';
 class AuthController extends GetxController {
   final NetworkClient _net;
   final SharedPrefs _prefs;
+  final void Function(String title, String message)? _authFeedback;
 
-  /// The same secure storage + credential fencing is used in production and
-  /// in isolated race tests, which can inject a synthetic network and vault.
-  AuthController({NetworkClient? client, SharedPrefs? prefs})
-      : _net = client ?? NetworkService().client,
-        _prefs = prefs ?? SharedPrefs();
+  /// Real UI uses GetX; race tests can inject a notification sink without
+  /// starting overlay timers or depending on a mounted navigation tree.
+  AuthController({
+    NetworkClient? client,
+    SharedPrefs? prefs,
+    void Function(String title, String message)? authFeedback,
+  }) : _net = client ?? NetworkService().client,
+       _prefs = prefs ?? SharedPrefs(),
+       _authFeedback = authFeedback;
+
+  void _notifyLoginUnavailable() {
+    if (_authFeedback != null) {
+      _authFeedback('Sign-in unavailable', 'Could not safely save this session.');
+      return;
+    }
+    Get.snackbar(
+      'Sign-in unavailable',
+      'Could not safely save this session.',
+      snackPosition: SnackPosition.TOP,
+    );
+  }
   // Shared across controller instances: whichever sign-in or OTP verification
   // starts most recently is the only attempt permitted to publish credentials.
   static int _credentialAttempt = 0;
@@ -215,8 +232,7 @@ class AuthController extends GetxController {
           }
         }
         user.value = null;
-        Get.snackbar('Sign-in unavailable', 'Could not safely save this session.',
-            snackPosition: SnackPosition.TOP);
+        _notifyLoginUnavailable();
       }
       return false;
     } finally {
