@@ -105,6 +105,51 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_newest_source_event_must_not_be_older_than_initial_page(): void
+    {
+        $f = $this->fixture();
+        $this->source($f, $this->events(1, 2), newest: 1);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Contradictory source newest watermark was accepted');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 0,
+            'state' => 'requires_review',
+        ]);
+        $this->assertSame(1, InboxNotification::where(
+            'kind', 'charging.monitor.requires_review.simulated'
+        )->count());
+        $this->assertSame(0, InboxNotification::where(
+            'kind', 'charging.fault.simulated'
+        )->count());
+
+        // A later consistent source page catches up from exactly the old
+        // cursor, emits normal synthetic fault/recovery records and one
+        // monitor-status recovery. No events were skipped.
+        $this->source($f, $this->events(1, 2), newest: 2);
+        $result = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('caught_up', $result['state']);
+        $this->assertSame(2, $result['events']);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertSame(1, InboxNotification::where(
+            'kind', 'charging.monitor.resumed.simulated'
+        )->count());
+        $this->assertSame(1, InboxNotification::where(
+            'kind', 'charging.fault.simulated'
+        )->count());
+        $this->assertSame(1, InboxNotification::where(
+            'kind', 'charging.fault.recovered.simulated'
+        )->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_failed_batch_does_not_skip_events_and_source_replacement_needs_review(): void
     {
         $f = $this->fixture();

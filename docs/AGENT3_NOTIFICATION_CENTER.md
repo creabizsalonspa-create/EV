@@ -161,3 +161,7 @@ A new dashboard safety check scopes simulator fault/monitor counts through the c
 ### Simulator source ownership race regression
 
 Two additional observer feature tests simulate station ownership transfer and the reassignment of the canonical charger binding **during the pending source HTTP call**. Both must fail closed with HTTP 409 and leave the source cursor, observations, fault alerts and vendor inbox empty. These tests protect against sending a fault notice to a previous vendor after station or charger mapping changes; they do not grant physical charger authority or trigger any control commands.
+
+### Source newest-watermark consistency
+
+The read-only simulator fault observer now rejects a source event page whose highest returned event ID is greater than the same page's reported newest event ID, including the *first* poll when the cursor is zero. Previously that initial poll could accept a contradictory snapshot. The observer records a single owner-only monitor-review status while leaving the cursor and event history at the prior checkpoint; a later consistent source page replays from the unchanged cursor and raises the normal simulator fault/recovery and monitor-resumed notices once. Added a backend regression for the invalid initial watermark and successful catch-up, with no charger commands or finance activity.

@@ -66,6 +66,18 @@ class ContinuousFaultObserver
                     abort_unless(CarbonImmutable::parse($event['timestamp'])->lessThanOrEqualTo(now()), 503);
                     $previous = $event['id'];
                 }
+                // The highest event in a source page cannot exceed the
+                // source's newest observed event. The initial cursor (0)
+                // must be validated too, otherwise a contradictory snapshot
+                // can be committed as if it were healthy.
+                if ($events) {
+                    abort_unless(
+                        is_int($newest[0]['id'] ?? null) &&
+                        $newest[0]['id'] >= $previous,
+                        503,
+                        'Source event page exceeds reported newest event.'
+                    );
+                }
             }
             $state = $sourceId === null ? 'not_observed' : (count($events) > 100 ? 'catching_up' : 'caught_up');
             $events = array_slice($events, 0, 100);
