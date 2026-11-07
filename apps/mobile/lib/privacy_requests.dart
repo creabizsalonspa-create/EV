@@ -31,6 +31,13 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
     _ => value,
   };
 
+  String outcome(String value) => switch (value) {
+    'referred' => t('Referred to compliance', 'أُحيل للامتثال'),
+    'declined' => t('Declined after review', 'رُفض بعد المراجعة'),
+    'review_documented' => t('Review documented', 'المراجعة موثقة'),
+    _ => value,
+  };
+
   @override
   void initState() {super.initState(); refresh();}
   @override
@@ -164,7 +171,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
             Text(status((row['status'] ?? '').toString())),
             if (row['reason'] is String && (row['reason'] as String).isNotEmpty)
               Text(row['reason'] as String),
-            if (row['resolution'] != null) Text(t('Administrative outcome: ', 'النتيجة الإدارية: ') + row['resolution'].toString()),
+            if (row['resolution'] != null) Text(t('Administrative outcome (not legal fulfillment): ', 'النتيجة الإدارية (ليست وفاءً قانونياً): ') + outcome(row['resolution'].toString())),
             if (row['decision_note'] is String) Text(row['decision_note'] as String),
             if (['submitted','in_review'].contains(row['status']))
               TextButton(

@@ -36,15 +36,28 @@
       if (!line) {line = document.createElement("p"); line.dataset.privacyMessage = "yes"; line.setAttribute("role","status");line.setAttribute("aria-live","polite");root.prepend(line);}
       line.textContent = message;
     }
-    const status = value => safe(value?.status);
+    const statusNames = {
+    submitted:["Submitted","تم التقديم"], in_review:["Under review","قيد المراجعة"],
+    closed:["Review closed","أُغلقت المراجعة"], withdrawn:["Withdrawn","تم السحب"],
+  };
+  const outcomeNames = {
+    referred:["Referred to compliance","أُحيل للامتثال"],
+    declined:["Declined after review","رُفض بعد المراجعة"],
+    review_documented:["Review documented","المراجعة موثقة"],
+  };
+  const pair = (table, key) => table[key] || [safe(key),safe(key)];
     function oneRow(row, onWithdraw) {
       const card = document.createElement("article");
       card.className = "privacy-request-card";
       const labels = ownLabel(row.request_type);
       card.append(text(labels[0], labels[1], "h4"));
-      card.append(p("Status: " + status(row) + " · Request #" + row.id, "الحالة: " + status(row) + " · الطلب #" + row.id));
+      const state = pair(statusNames,row.status);
+      card.append(p("Status: " + state[0] + " · Request #" + row.id, "الحالة: " + state[1] + " · الطلب #" + row.id));
       if (row.reason) card.append(p("Reason: " + row.reason, "السبب: " + row.reason));
-      if (row.resolution) card.append(p("Review outcome: " + row.resolution + ". This is not proof of data deletion.", "نتيجة المراجعة: " + row.resolution + ". ليست إثباتاً لحذف البيانات."));
+      if (row.resolution) {
+        const outcome = pair(outcomeNames,row.resolution);
+        card.append(p("Review outcome: " + outcome[0] + ". This is not proof of data deletion.", "نتيجة المراجعة: " + outcome[1] + ". ليست إثباتاً لحذف البيانات."));
+      }
       if (row.decision_note) card.append(p("Review note: " + row.decision_note, "ملاحظة المراجعة: " + row.decision_note));
       if (onWithdraw && ["submitted","in_review"].includes(row.status))
         card.append(btn("Withdraw request", "سحب الطلب", () => onWithdraw(row.id)));
