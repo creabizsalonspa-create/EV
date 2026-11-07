@@ -1,3 +1,4 @@
+import 'charging_provenance.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -182,6 +183,24 @@ class _InvoicePageState extends State<InvoicePage> {
                   }),
                 ),
               ),
+            OutlinedButton(
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ChargingProvenanceView(
+                          api: widget.api,
+                          invoiceId: invoice['id'] as int,
+                          onExpired: widget.onExpired,
+                        ),
+                      ),
+                    ),
+              child: Text(
+                Localizations.localeOf(context).languageCode == 'ar'
+                    ? 'أدلة مصدر الشحن'
+                    : 'Charging source evidence',
+              ),
+            ),
             for (final kind in ['payments', 'refunds']) ...[
               Text(s.t(kind), style: Theme.of(context).textTheme.titleMedium),
               if ((data![kind] as List? ?? []).isEmpty)

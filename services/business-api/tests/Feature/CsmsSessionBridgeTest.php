@@ -10,11 +10,14 @@ use App\Models\Station;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class CsmsSessionBridgeTest extends TestCase
 {
     use RefreshDatabase;
+
+    private string $protocol = '1.6';
 
     private const KEY = 'fixture-local-event-signing-key-at-least-32';
 
@@ -25,12 +28,13 @@ class CsmsSessionBridgeTest extends TestCase
         config(['csms.session_bridge_enabled' => true, 'csms.event_secret' => self::KEY]);
     }
 
-    private function fixture(): array
+    private function fixture(string $protocol = '1.6'): array
     {
+        $this->protocol = $protocol;
         $v = User::factory()->create(['role' => 'vendor']);
         $u = User::factory()->create();
         $s = Station::create(['vendor_id' => $v->id, 'name' => 'Bound simulator', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
-        DB::table('csms_bindings')->insert(['station_id' => $s->id, 'identifier' => 'ev-test-bridge', 'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('csms_bindings')->insert(['station_id' => $s->id, 'identifier' => 'ev-test-bridge', 'protocol' => $this->protocol, 'created_at' => now(), 'updated_at' => now()]);
         $r = Reservation::create(['user_id' => $u->id, 'station_id' => $s->id, 'starts_at' => now()->subMinutes(5), 'idempotency_key' => 'fixture']);
 
         return [$v, $u, $s, $r];
@@ -38,7 +42,7 @@ class CsmsSessionBridgeTest extends TestCase
 
     private function event(int $id, string $type, int $seq, int $meter, array $extra = []): array
     {
-        return array_replace(['event_id' => 'evt-'.$id.'-'.$seq, 'session_id' => $id, 'identifier' => 'ev-test-bridge', 'protocol' => '1.6', 'transaction_id' => '123', 'type' => $type, 'sequence' => $seq, 'meter_wh' => $meter, 'occurred_at' => now()->addSeconds($seq)->toIso8601String()], $extra);
+        return array_replace(['event_id' => 'evt-'.$id.'-'.$seq, 'session_id' => $id, 'identifier' => 'ev-test-bridge', 'protocol' => $this->protocol, 'transaction_id' => '123', 'type' => $type, 'sequence' => $seq, 'meter_wh' => $meter, 'occurred_at' => now()->addSeconds($seq)->toIso8601String()], $extra);
     }
 
     private function send(array $event, ?string $timestamp = null, ?string $key = null)
@@ -49,9 +53,11 @@ class CsmsSessionBridgeTest extends TestCase
         return $this->call('POST', '/api/internal/csms/events', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_X_EV_TIMESTAMP' => $ts, 'HTTP_X_EV_SIGNATURE' => hash_hmac('sha256', $ts.'.'.$raw, $key ?? self::KEY)], $raw);
     }
 
-    public function test_correlated_source_meters_finalize_one_invoice_and_replay_cannot_double_bill(): void
+    #[TestWith(['1.6'])]
+    #[TestWith(['2.0.1'])]
+    public function test_correlated_source_meters_finalize_one_invoice_and_replay_cannot_double_bill(string $protocol): void
     {
-        [$v,$u,$station,$r] = $this->fixture();
+        [$v,$u,$station,$r] = $this->fixture($protocol);
         TariffVersion::create(['station_id' => $station->id, 'created_by' => $v->id, 'rate_minor_per_kwh' => 125, 'tax_bps' => 500, 'commission_bps' => 0, 'currency' => 'AED', 'minor_units' => 2, 'effective_from' => now()->subMinute()]);
         $this->actingAs($u)->postJson('/api/reservations/'.$r->id.'/csms-start')->assertAccepted()->assertJsonPath('session.status', 'pending_start');
         $s = ChargingSession::first();
@@ -78,6 +84,17 @@ class CsmsSessionBridgeTest extends TestCase
         $this->assertSame(313, $s->fresh()->total_minor);
         $this->send($this->event($s->id, 'meter', 3, 4000))->assertConflict();
         $this->assertSame(2500, $s->fresh()->energy_wh);
+        $proofPath = '/api/finance/invoices/'.$invoice->id.'/source-evidence';
+        $this->getJson($proofPath)->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('kind', 'OCPP_SIMULATOR')->assertJsonPath('source_verified', true)->assertJsonPath('protocol', 'OCPP '.$protocol)->assertJsonPath('energy_wh', 2500)->assertJsonPath('physical_charging_verified', false)->assertJsonCount(2, 'proofs');
+        $this->actingAs($v)->getJson($proofPath)->assertOk();
+        $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($proofPath)->assertOk();
+        $this->actingAs(User::factory()->create())->getJson($proofPath)->assertNotFound();
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($proofPath)->assertNotFound();
+        DB::table('csms_inbox_events')->where('type', 'ended')->update(['outcome' => 'stale']);
+        $this->actingAs($u)->getJson($proofPath)->assertOk()->assertJsonPath('source_verified', false)->assertJsonPath('status', 'requires_review')->assertJsonCount(0, 'proofs');
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('finance_payments', 0);
+
     }
 
     public function test_signature_replay_window_binding_and_transaction_conflicts_are_rejected(): void

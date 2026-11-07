@@ -278,4 +278,14 @@ class FinanceTest extends TestCase
         $this->expectException(HttpException::class);
         app(FinanceService::class)->pay($invoice, $f[1]->id, 1, 'production');
     }
+
+    public function test_application_only_invoice_does_not_invent_source_evidence_or_change_financial_records(): void
+    {
+        $f = $this->fixture();
+        $invoice = $this->invoice($f);
+        $response = $this->actingAs(User::findOrFail($invoice->user_id))->getJson('/api/finance/invoices/'.$invoice->id.'/source-evidence')->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('kind', 'APP_SIMULATION')->assertJsonPath('source_verified', false)->assertJsonPath('status', 'not_source_verified')->assertJsonPath('financial_records_changed', false)->assertJsonPath('physical_charging_verified', false)->assertJsonCount(0, 'proofs');
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertIsObject(json_decode($response->getContent())->proofs);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
 }
