@@ -88,6 +88,8 @@ window.createRoamingWorkspace = ({
     function location(parent, item, metadata = null) {
         const card = document.createElement("article");
         card.className = "station-card";
+        if (Number.isSafeInteger(metadata?.id))
+            card.dataset.partnerLocationId = String(metadata.id);
         card.append(raw("h3", item.name || item.id));
         card.append(
             raw(
@@ -209,6 +211,8 @@ window.createRoamingWorkspace = ({
             epoch = generation;
         if (savedOnly && viewer?.role !== "customer") return catalog(1, false);
         publicRequest?.abort();
+        // Clear old partner pins before any refresh, filtering or revocation check.
+        window.dispatchEvent(new CustomEvent("roaming-map-data", { detail: [] }));
         const request = new AbortController();
         publicRequest = request;
         publicRoot.setAttribute("aria-busy", "true");
@@ -282,6 +286,7 @@ window.createRoamingWorkspace = ({
             if (savedOnly) content.dataset.privateRoaming = "";
             const list = document.createElement("div");
             list.className = "station-grid";
+            const mapRows = [];
             for (const row of result.data) {
                 // Fail closed if a future API changes the safety contract.
                 if (
@@ -298,6 +303,7 @@ window.createRoamingWorkspace = ({
                     );
                     list.append(card);
                 } else {
+                    mapRows.push(row);
                     location(list, row.location, row);
                     line(
                         list.lastElementChild,
@@ -370,6 +376,7 @@ window.createRoamingWorkspace = ({
                     ),
                 );
             content.append(list);
+            window.dispatchEvent(new CustomEvent("roaming-map-data", { detail: mapRows }));
             pager(content, result, (page) => catalog(page, savedOnly));
             publicRoot.append(content);
         } catch (e) {
