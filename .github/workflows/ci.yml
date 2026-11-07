@@ -24,6 +24,8 @@ jobs:
         run: |
           node --check scripts/client-demo-business.cjs
           node -e 'const r=require("node:child_process").spawnSync(process.execPath,["scripts/client-demo-business.cjs"],{encoding:"utf8"}); if(r.status!==1 || !r.stderr.includes("Usage:")) process.exit(1);'
+      - name: Verify mandatory CI trigger coverage and run deduplication
+        run: python3 -B -m unittest discover -s tests -p ci_trigger_test.py
       - run: ./scripts/setup
       - run: ./scripts/php /usr/bin/composer validate --strict
       - run: ./scripts/php vendor/bin/pint --test
