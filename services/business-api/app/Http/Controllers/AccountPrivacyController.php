@@ -118,6 +118,29 @@ class AccountPrivacyController extends Controller
         }))->header('Cache-Control', 'no-store, private');
     }
 
+    /**
+     * Private append-only decision history. Customers see request status,
+     * not internal reviewer notes or other accounts' confidential records.
+     */
+    public function adminHistory(Request $request, AccountPrivacyRequest $privacyCase)
+    {
+        $this->admin($request);
+
+        $page = DB::table('account_privacy_request_reviews')
+            ->where('privacy_request_id', $privacyCase->id)
+            ->orderByDesc('id')
+            ->paginate(25);
+
+        return response()->json($page->through(fn ($event) => [
+            'id' => (int) $event->id,
+            'reviewer_id' => (int) $event->reviewer_id,
+            'from_status' => $event->from_status,
+            'to_status' => $event->to_status,
+            'note' => Crypt::decryptString($event->note_encrypted),
+            'created_at' => $event->created_at,
+        ]))->header('Cache-Control', 'no-store, private');
+    }
+
     public function review(Request $request, AccountPrivacyRequest $privacyCase)
     {
         $actor = $this->admin($request);
@@ -144,9 +167,21 @@ class AccountPrivacyController extends Controller
             ];
             abort_unless(in_array($input['status'], $allowed[$case->status], true),
                 409, 'Invalid privacy review transition.');
+            $oldStatus = $case->status;
+            $note = trim($input['review_note']);
+            // Preserve an immutable, encrypted decision timeline before the
+            // latest-status summary is advanced. Both writes are atomic.
+            DB::table('account_privacy_request_reviews')->insert([
+                'privacy_request_id' => $case->id,
+                'reviewer_id' => $actor->id,
+                'from_status' => $oldStatus,
+                'to_status' => $input['status'],
+                'note_encrypted' => Crypt::encryptString($note),
+                'created_at' => now(),
+            ]);
             $case->update([
                 'status' => $input['status'],
-                'review_note_encrypted' => Crypt::encryptString(trim($input['review_note'])),
+                'review_note_encrypted' => Crypt::encryptString($note),
                 'reviewed_by' => $actor->id,
                 'reviewed_at' => now(),
             ]);
