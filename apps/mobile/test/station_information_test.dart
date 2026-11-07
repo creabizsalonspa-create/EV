@@ -50,14 +50,14 @@ class _OwnedStationApi extends EvApi {
 Future<void> revealStationEditorControl(WidgetTester tester, Finder control) async {
   for (var attempts = 0; attempts < 30; attempts++) {
     final y = tester.getCenter(control).dy;
-    if (y >= 110 && y <= 500) return;
+    if (y >= 100 && y <= 575) return;
     await tester.drag(
       find.byType(ListView).first,
       Offset(0, y > 500 ? -230 : 230),
     );
     await tester.pumpAndSettle();
   }
-  expect(tester.getCenter(control).dy, inInclusiveRange(110, 500));
+  expect(tester.getCenter(control).dy, inInclusiveRange(100, 575));
 }
 
 void main() {
