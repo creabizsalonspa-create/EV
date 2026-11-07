@@ -440,7 +440,7 @@ const { randomUUID } = require("node:crypto");
         '/api/notifications/' + observed.latest_id + '/unread',
       ) && response.request().method() === 'POST',
     );
-    await oldNotification.getByRole('button', { name: 'Mark unread' }).click();
+    await oldNotification.getByRole('button', { name: await customer.page.evaluate(() => EvLocale.text('Mark unread')), exact: true }).click();
     assert.equal((await unreadResponse).status(), 200);
     const reopened = await customer.page.evaluate(async () => ({
       summary: await api('notifications/summary'),
@@ -458,7 +458,7 @@ const { randomUUID } = require("node:crypto");
     );
     await customer.page.locator(
       '[data-notification-id="' + observed.latest_id + '"]',
-    ).getByRole('button', { name: 'Mark read', exact: true }).click();
+    ).getByRole('button', { name: await customer.page.evaluate(() => EvLocale.text('Mark read')), exact: true }).click();
     assert.equal((await rereadResponse).status(), 200);
     assert.equal(
       (await customer.page.evaluate(() => api('notifications/summary'))).unread_count,
