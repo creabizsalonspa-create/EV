@@ -73,3 +73,7 @@ The first full-member-reading implementation was not sufficient to reject a gzip
 ### Key-continuity negative control and corrected acceptance fixture
 
 The isolated restored Laravel application now proves that preserved source `APP_KEY` decrypts synthetic ciphertext and an independent valid 32-byte key cannot. The false-key check constructs a disposable Encrypter and does **not** rotate or expose the restored application's APP_KEY. The combined recovery-evidence gate requires `wrong_laravel_key_rejected=true`. Its CSMS positive-test fixture was corrected to contain the already-required `archive_tamper_rejected=true` field; duplicate business-field entries were also removed. Negative tests now cover both fields explicitly. These gates remain synthetic-only and are not physical/production acceptance.
+
+### Strict private-archive extraction policy
+
+The synthetic archive guard now rejects duplicate tar member names, ambiguous `.` or backslash path segments, path traversal, links and devices, setuid/setgid/sticky or group/world-writable permission bits, and archives containing only directories. At least one regular private file must be present. It still bounds total decompression, reads every member and validates the gzip trailer. New isolated negative tests cover repeated filenames, unsafe modes, ambiguous paths and directory-only backups. This hardened drill remains unsigned synthetic recovery evidence, not production backup acceptance.

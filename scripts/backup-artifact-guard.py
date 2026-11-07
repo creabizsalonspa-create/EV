@@ -26,7 +26,9 @@ def fingerprint(path, magic):
 
 def safe_tar(path):
     count = 0
+    regular_files = 0
     expanded = 0
+    names = set()
     content_hash = hashlib.sha256()
     try:
         with tarfile.open(path, mode='r:gz') as archive:
@@ -35,9 +37,14 @@ def safe_tar(path):
                 require(count <= 10000, 'Too many private archive members')
                 parts = member.name.replace('\\', '/').split('/')
                 require(member.name and not member.name.startswith(('/', '\\')) and
-                        '..' not in parts and all(parts),
+                        '..' not in parts and '.' not in parts and all(parts) and
+                        '\\' not in member.name,
                         'Unsafe private archive member path')
+                require(member.name not in names, 'Duplicate private archive member')
+                names.add(member.name)
                 require(member.isfile() or member.isdir(), 'Private links/devices denied')
+                require(member.mode & 0o7022 == 0,
+                        'Privileged or writable private archive permissions denied')
                 require(member.size >= 0, 'Invalid private archive member size')
                 expanded += member.size
                 require(expanded <= 2 * 1024**3, 'Expanded private data exceeds limit')
@@ -49,6 +56,7 @@ def safe_tar(path):
                 content_hash.update(str(member.size).encode('ascii'))
                 content_hash.update(b'\0')
                 if member.isfile():
+                    regular_files += 1
                     reader = archive.extractfile(member)
                     require(reader is not None, 'Private archive member is unreadable')
                     read_bytes = 0
@@ -60,7 +68,8 @@ def safe_tar(path):
                     require(read_bytes == member.size, 'Truncated private archive member')
     except (tarfile.TarError, OSError, EOFError, UnicodeError):
         raise ArchiveError('Invalid private gzip/tar archive') from None
-    require(count > 0, 'Private archive empty')
+    require(count > 0 and regular_files > 0,
+            'Private archive must contain at least one regular file')
     # tarfile can stop at tar end markers before reading the gzip trailer.
     # Consume the entire stream and validate CRC32/ISIZE before restoration.
     decompressed = 0
@@ -75,6 +84,7 @@ def safe_tar(path):
     return {
         'gzip_trailer_verified': True,
         'entries': count,
+        'regular_files': regular_files,
         'expanded_bytes': expanded,
         'expanded_sha256': content_hash.hexdigest(),
         'full_member_read_verified': True,

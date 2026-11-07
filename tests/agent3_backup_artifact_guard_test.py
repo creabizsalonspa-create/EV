@@ -44,6 +44,48 @@ class ArchiveTests(unittest.TestCase):
                 sample_db(db);sample_tar(t,name,link)
                 with self.assertRaises(guard.ArchiveError):guard.inspect(db,t)
 
+    def test_duplicate_member_names_are_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); db = root / 'db.dump'; archive = root / 'duplicate.tar.gz'
+            sample_db(db)
+            with tarfile.open(archive, 'w:gz') as output:
+                for value in (b'first', b'second'):
+                    entry = tarfile.TarInfo('repeated.txt')
+                    entry.mode = 0o600
+                    entry.size = len(value)
+                    output.addfile(entry, io.BytesIO(value))
+            with self.assertRaises(guard.ArchiveError):
+                guard.inspect(db, archive)
+
+    def test_dot_segments_and_privileged_modes_are_rejected(self):
+        for name, mode in [
+            ('nested/./secret.txt', 0o600),
+            ('private.txt', 0o4755),
+            ('private.txt', 0o666),
+        ]:
+            with self.subTest(name=name, mode=mode), tempfile.TemporaryDirectory() as d:
+                root = Path(d); db = root / 'db.dump'; archive = root / 'test.tar.gz'
+                sample_db(db)
+                with tarfile.open(archive, 'w:gz') as output:
+                    entry = tarfile.TarInfo(name)
+                    entry.mode = mode
+                    entry.size = 4
+                    output.addfile(entry, io.BytesIO(b'test'))
+                with self.assertRaises(guard.ArchiveError):
+                    guard.inspect(db, archive)
+
+    def test_directory_only_archive_is_not_a_private_file_backup(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); db = root / 'db.dump'; archive = root / 'directory.tar.gz'
+            sample_db(db)
+            with tarfile.open(archive, 'w:gz') as output:
+                entry = tarfile.TarInfo('empty-directory')
+                entry.mode = 0o700
+                entry.type = tarfile.DIRTYPE
+                output.addfile(entry)
+            with self.assertRaises(guard.ArchiveError):
+                guard.inspect(db, archive)
+
     def test_archive_members_are_fully_read_and_digest_is_stable(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
