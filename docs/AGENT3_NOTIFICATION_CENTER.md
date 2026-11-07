@@ -231,3 +231,7 @@ The account-scoped inbox visibility filter now excludes **both** the original on
 ### Query-time Admin revocation under concurrent role changes
 
 The inbox scope now evaluates current Admin authorization via an `EXISTS` predicate **inside the same SQL read/update** for both the initial cross-company escalation and its closure. It no longer performs an earlier standalone role lookup that could become stale between query construction and execution. Tests prepare the query before revocation, demote the account in the authoritative database, then require both a read and a write to be denied before restoring the role. Normal account-scoped notifications remain available. This is an application-level privacy guard, not hardware or payment acceptance.
+
+### Monotonic source-recovery timestamp gate
+
+Admin fault-escalation closure now requires recovered simulator status evidence to be strictly later than the original fault in **both** source event ID and observed timestamp, with the recovery timestamp no later than the current time. Invalid or future-dated source observations cannot close an escalation, even if they have a higher source event ID and matching connector identity. The existing guard still verifies source generation, binding and status. Tests include late-ID/earlier-time and future-time negative controls, followed by valid source recovery with exactly one closure notice. This never proves a physical repair or changes charging capacity.

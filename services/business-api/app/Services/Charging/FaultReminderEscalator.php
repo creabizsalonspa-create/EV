@@ -137,7 +137,18 @@ class FaultReminderEscalator
                     if ($alert->recovery_observation_id !== null) {
                         $recovered = DB::table('charging_status_observations')
                             ->where('id', $alert->recovery_observation_id)->first();
-                        if ($recovered && $recovered->binding_id === $binding->id &&
+                        $recoveredAt = null;
+                        if ($recovered) {
+                            try {
+                                $recoveredAt = CarbonImmutable::parse($recovered->occurred_at);
+                            } catch (Throwable) {
+                                // A malformed source record is not closure evidence.
+                            }
+                        }
+                        if ($recovered && $recoveredAt !== null &&
+                            $recoveredAt->greaterThan($occurredAt) &&
+                            $recoveredAt->lessThanOrEqualTo(now()) &&
+                            $recovered->binding_id === $binding->id &&
                             hash_equals((string) $observation->source_generation,
                                 (string) $recovered->source_generation) &&
                             $recovered->source_event_id > $observation->source_event_id &&

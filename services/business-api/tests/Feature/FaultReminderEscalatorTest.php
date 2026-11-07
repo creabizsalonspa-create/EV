@@ -276,7 +276,18 @@ class FaultReminderEscalatorTest extends TestCase
             'alert_id' => $f['alert'], 'resolution_source' => null,
         ]);
         DB::table('charging_status_observations')->where('id', $bad)
-            ->update(['source_generation' => FaultMonitor::generation($binding)]);
+            ->update([
+                'source_generation' => FaultMonitor::generation($binding),
+                // A newer source event ID with an older timestamp is NOT
+                // evidence of recovery after this fault occurred.
+                'occurred_at' => now()->subMinutes(70),
+            ]);
+        $this->assertSame(0, $worker->scan()['closed']);
+        DB::table('charging_status_observations')->where('id', $bad)
+            ->update(['occurred_at' => now()->addMinutes(5)]);
+        $this->assertSame(0, $worker->scan()['closed']);
+        DB::table('charging_status_observations')->where('id', $bad)
+            ->update(['occurred_at' => now()]);
         $this->assertSame(1, $worker->scan()['closed']);
         $this->assertSame(0, $worker->scan()['closed']);
         $this->assertDatabaseHas('charging_fault_admin_escalations', [
