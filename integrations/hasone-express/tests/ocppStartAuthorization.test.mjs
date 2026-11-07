@@ -79,7 +79,7 @@ test('hash preflight is read-only and cannot consume the token',()=>{
 });
 const session={chargerId:charger,protocol:'ocpp1.6',idTagHash:hashOcppToken(raw),
  connectorId:2,meterStartWh:1000,status:'active',transactionId:12,
- createdAt:new Date(now.getTime()-1000)};
+ createdAt:new Date(Date.now()-1000)};
 test('same active OCPP1.6 source is reusable for exact lost response retry',()=>{
  assert.equal(sameActiveOcpp16Retry(session,{
    chargerId:charger,tokenHash:hashOcppToken(raw),connectorId:2,meterStart:1000}),true);
