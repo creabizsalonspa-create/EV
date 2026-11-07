@@ -27,6 +27,9 @@
     );
     const disable = make("button", "Disable interactive map", "إيقاف الخريطة التفاعلية");
     const focus = make("button", "Show loaded locations on map", "إظهار المواقع المحملة على الخريطة");
+    const searchPartners = make("button", "Find partners near selected point", "البحث عن شركاء قرب النقطة المحددة");
+    searchPartners.type = "button";
+    searchPartners.hidden = true;
     enable.type = locate.type = disable.type = focus.type = "button";
     disable.hidden = focus.hidden = true;
     const consent = document.createElement("label");
@@ -52,7 +55,7 @@
     canvas.id = "station-map";
     canvas.hidden = true;
     canvas.setAttribute("aria-label", "Station map / خريطة المحطات");
-    root.append(intro, enable, disable, focus, consent, locate, status, canvas);
+    root.append(intro, enable, disable, focus, searchPartners, consent, locate, status, canvas);
     let locationGeneration = 0;
     let planner,
         selectedCentre = null,
@@ -77,6 +80,7 @@
         Math.abs(+s.longitude) <= 180;
     function select(lat, lng) {
         selectedCentre = { latitude: lat, longitude: lng };
+        searchPartners.hidden = false;
         const form = document.getElementById("filters");
         form.elements.latitude.value = lat.toFixed(6);
         form.elements.longitude.value = lng.toFixed(6);
@@ -92,6 +96,30 @@
             picked = L.circleMarker([lat, lng], { radius: 9 }).addTo(map);
         }
     }
+
+    // One selected point explicitly updates partner discovery; map/GPS never
+    // silently sends coordinates to another catalog without this click.
+    searchPartners.onclick = () => {
+        if (!selectedCentre) return;
+        const { latitude, longitude } = selectedCentre;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+            Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return;
+        const field = document.getElementById("filters").elements.radius_km;
+        const value = Number(field.value);
+        const radius = field.value && Number.isFinite(value) && value >= 1 && value <= 200
+            ? value : 25;
+        window.dispatchEvent(new CustomEvent("partner-nearby-search", {
+            detail: {
+                latitude: latitude.toFixed(6),
+                longitude: longitude.toFixed(6),
+                radius_km: String(radius),
+            },
+        }));
+        setStatus(
+            "Searching partner-reported locations around selected coordinates. Availability is not live.",
+            "يجري البحث في مواقع الشركاء المبلغ عنها قرب الإحداثيات المحددة. التوفر ليس مباشراً.",
+        );
+    };
 
     // Partner markers reuse this exact map and its explicit tile-consent gate.
     // Never infer booking, charging, live availability or route authority from OCPI.
@@ -275,6 +303,8 @@
         locationGeneration++;
         locate.disabled = false;
         checkbox.checked = false;
+        selectedCentre = null;
+        searchPartners.hidden = true;
         if (map) map.remove();
         map = markers = partnerMarkers = routeLines = picked = null;
         canvas.hidden = true;
@@ -403,6 +433,7 @@
         delete status.dataset.en;
         delete status.dataset.ar;
         selectedCentre = null;
+        searchPartners.hidden = true;
         routeSegments = [];
         planner?.clear();
         if (picked) {
