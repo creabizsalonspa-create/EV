@@ -34,7 +34,7 @@ class ProfilePrivilegeBoundaryTest extends TestCase
 
     public function test_authenticated_web_profile_update_cannot_promote_role_or_replace_identity(): void
     {
-        $account = User::factory()->create(['role' => 'customer']);
+        $account = User::factory()->create(['role' => 'customer', 'email_verified_at' => null]);
         $other = User::factory()->create(['role' => 'vendor']);
         $password = $account->getAuthPassword();
 
