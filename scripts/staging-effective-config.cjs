@@ -7,6 +7,7 @@ const path=require('node:path');
 const {execFileSync}=require('node:child_process');
 
 const project='ev-staging',expected=['application','worker','scheduler','database','gateway'];
+const PINNED_DATABASE_IMAGE='postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b';
 const scriptRoot=path.resolve(__dirname,'..');
 const compose=path.join(scriptRoot,'infra/staging/compose.yaml');
 const envFile=path.join(scriptRoot,'infra/staging/.env');
@@ -40,7 +41,9 @@ function assertResolved(input,configCheck) {
   const image=app.image;
   if(typeof image!=='string'||!/^creabiz-ev-business:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(image) ||
     worker.image!==image || scheduler.image!==image)problems.push('Application roles must share a valid review image tag');
-  if(!/^postgres:17-alpine(?:@sha256:[a-f0-9]{64})?$/.test(database.image||''))problems.push('Database must be PostgreSQL 17 Alpine');
+  if(database.image!==PINNED_DATABASE_IMAGE) {
+    problems.push('Database image must match reviewed pinned PostgreSQL digest');
+  }
   if(!/^caddy:2-alpine(?:@sha256:[a-f0-9]{64})?$/.test(gateway.image||''))problems.push('Gateway must be Caddy 2 Alpine');
   const envs={};
   for(const name of ['application','worker','scheduler']) {
@@ -59,7 +62,9 @@ function assertResolved(input,configCheck) {
       if(String(env[key])!==wanted)problems.push('application: reviewed '+key+' setting changed');
     }
     if(typeof env.APP_URL!=='string'||!env.APP_URL.startsWith('https://'))problems.push('application: HTTPS origin missing');
-    if(env.APP_URL!=='https://'+gateway.environment?.STAGING_HOST)problems.push('application: HTTPS origin does not match staging hostname');
+    if(env.APP_URL!=='https://'+gateway.environment?.STAGING_HOST+':8443') {
+      problems.push('application: HTTPS origin must match private staging hostname and port 8443');
+    }
     if(typeof env.DB_PASSWORD!=='string'||env.DB_PASSWORD.length<24)problems.push('application: private database password missing');
     if(typeof env.APP_KEY!=='string'||!env.APP_KEY.startsWith('base64:'))problems.push('application: Laravel application key missing');
     if(env.DB_URL && env.DB_URL!=='null')problems.push('application: DB_URL may override the isolated database');

@@ -6,7 +6,7 @@ const gate=require('../scripts/staging-effective-config.cjs');
 
 function sample(){
  const appEnv={APP_ENV:'staging',APP_DEBUG:'false',APP_KEY:'base64:'+'x'.repeat(44),
-  APP_URL:'https://staging.ev-example.org',DB_CONNECTION:'pgsql',DB_HOST:'database',DB_PORT:'5432',
+  APP_URL:'https://staging.ev-example.org:8443',DB_CONNECTION:'pgsql',DB_HOST:'database',DB_PORT:'5432',
   DB_DATABASE:'ev_business',DB_USERNAME:'ev_business',DB_PASSWORD:'synthetic-database-secret-very-long',
   SESSION_DRIVER:'database',SESSION_ENCRYPT:'true',SESSION_SECURE_COOKIE:'true',
   QUEUE_CONNECTION:'database',CSMS_SIMULATOR_ENABLED:'false',
@@ -22,7 +22,7 @@ function sample(){
      command:['php','artisan','queue:work','--sleep=3','--tries=3','--timeout=90']},
    scheduler:{image:'creabiz-ev-business:review',environment:{...appEnv},volumes:[privateMount],
      command:['php','artisan','schedule:work']},
-   database:{image:'postgres:17-alpine',volumes:[{type:'volume',source:'ev-staging_database',target:'/var/lib/postgresql/data'}]},
+   database:{image:'postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b',volumes:[{type:'volume',source:'ev-staging_database',target:'/var/lib/postgresql/data'}]},
    gateway:{image:'caddy:2-alpine',environment:{STAGING_HOST:'staging.ev-example.org',ACME_EMAIL:'ops@ev-example.org'},
      ports:[{host_ip:'127.0.0.1',published:'8443',target:443,protocol:'tcp'}],
      volumes:[{type:'volume',source:'ev-staging_certificates',target:'/data'},
@@ -102,6 +102,11 @@ test('volume and network isolation cannot inherit production data or foreign net
   fail(x=>x.services.application.networks=['default','production'],'unreviewed network');
   fail(x=>x.services.gateway.networks={production:null},'unreviewed network');
 });
+test('database must retain the exact reviewed pinned image digest, not a mutable tag',()=>{
+  fail(x=>x.services.database.image='postgres:17-alpine','pinned PostgreSQL digest');
+  fail(x=>x.services.database.image='postgres:17-alpine@sha256:'+'a'.repeat(64),'pinned PostgreSQL digest');
+  fail(x=>x.services.database.image='postgres:18-alpine@sha256:'+'a'.repeat(64),'pinned PostgreSQL digest');
+});
 test('privileged or host-network container refused',()=>{
  fail(x=>x.services.application.privileged=true,'privileged');
  fail(x=>x.services.gateway.network_mode='host','privileged');
@@ -143,8 +148,11 @@ test('snapshot mode verifies without Docker and does not leak secrets',()=>temp(
  assert.equal(gate.main(['--snapshot',file,'--execute'],{checkValues:()=>[]}),1);
 }));
 
-test('application HTTPS origin must match the actual staging certificate hostname',()=>{
-  fail(x=>x.services.application.environment.APP_URL='https://other-operator.example.org','HTTPS origin does not match');
+test('application HTTPS origin must include the private loopback gateway port',()=>{
+  fail(x=>x.services.application.environment.APP_URL='https://staging.ev-example.org','port 8443');
+  fail(x=>x.services.application.environment.APP_URL='https://staging.ev-example.org:443','port 8443');
+  fail(x=>x.services.application.environment.APP_URL='http://staging.ev-example.org:8443','port 8443');
+  fail(x=>x.services.application.environment.APP_URL='https://other-operator.example.org','port 8443');
 });
 test('unexpected host binds, writable gateway config or runtime command overrides forbidden',()=>{
   fail(x=>x.services.database.volumes.push({type:'bind',source:'/etc',target:'/host'}),'host bind');

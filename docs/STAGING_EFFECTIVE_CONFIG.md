@@ -39,7 +39,8 @@ node scripts/staging-effective-config.cjs \
 - Applies PR #62's canonical isolated-staging policy to the **effective** application environment with staging hostname and certificate contact from the gateway. This rejects active live partner, billing, physical device or hosted key settings instead of relying only on the raw .env file.
 - No application, worker, scheduler or PostgreSQL host port. The gateway alone publishes exactly `127.0.0.1:8443 -> 443/tcp`.
 - No privileged containers, host networking, device passthrough or capability additions.
-- Correct PostgreSQL 17 and Caddy 2 images, private application persistent volume, database volume and gateway certificate/config volumes.
+- The **exact PostgreSQL 17 Alpine image digest pinned by PR #62**, not a mutable version tag or an arbitrary digest; Caddy 2 family and the four project-owned private volumes and isolated default network.
+- The resolved Laravel \`APP_URL\` is exactly \`https://STAGING_HOST:8443\`, matching the gateway's sole published loopback TLS listener. An unqualified \`https://STAGING_HOST\` or port 443 is refused to prevent broken local demo redirects.
 
 ## Test evidence
 
