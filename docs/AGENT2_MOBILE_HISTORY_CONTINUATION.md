@@ -1,5 +1,16 @@
 # Agent 2 mobile source-history checkpoint
 
+Latest native follow-up explains booking-mutation denials and unknown outcomes,
+refreshes authoritative bookings after every write result, and never resends a
+write automatically. A successful HTTP response without an application success
+receipt does not confirm cancellation/rescheduling. Pending mutation screens
+ignore receipts after disposal. Controller dependency injection supports actual
+failure/unknown-outcome regression tests. The full customer suite now passes 31
+tests with one opt-in actual API skip; the API test passes separately. All four
+changed/new files analyze cleanly. See
+`docs/evidence/agent2-mobile-booking-mutations/validation.json`. Backend safety
+counterpart: PR50 at 834bb41; no new production claim.
+
 Standing ten-agent ownership applies. Agent 2 owns PR50, Express/Mongo
 compatibility and associated customer/Admin charging features. Agent 4 owns
 integration and coverage. This branch is stacked on PR52's purchased customer

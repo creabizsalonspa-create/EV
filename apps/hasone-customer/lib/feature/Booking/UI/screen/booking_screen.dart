@@ -646,11 +646,12 @@ class _BookingScreenState extends State<BookingScreen> {
               Navigator.pop(context);
               final success =
                   await _controller.cancelBooking(bookingId);
+              if (!mounted) { return; }
               if (success) {
                 Get.snackbar('Cancelled', 'Booking has been cancelled.',
                     snackPosition: SnackPosition.TOP);
               } else {
-                Get.snackbar('Error', 'Failed to cancel booking.',
+                Get.snackbar('Booking update', _controller.bookingMutationMessage.value,
                     snackPosition: SnackPosition.TOP);
               }
             },

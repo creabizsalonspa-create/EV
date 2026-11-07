@@ -61,5 +61,7 @@
     "unit": "cd apps/hasone-customer && flutter test --no-pub",
     "analyze": "flutter analyze --no-pub lib/feature/Booking/history test/source_history_test.dart test/source_history_api_test.dart",
     "actual_api": "python3 tools/agent2/run_mobile_history_api.py PR50_RUNNER STAGED_EXPRESS EXPRESS_DEPENDENCIES STAGED_OCPP_HANDLER FLUTTER_EXECUTABLE apps/hasone-customer"
-  }
+  },
+  "source_commit": "94222911c24acadc86befa5f932287b265273a5f",
+  "superseded_mobile_suite": "Current native mutation evidence is in ../agent2-mobile-booking-mutations/validation.json"
 }

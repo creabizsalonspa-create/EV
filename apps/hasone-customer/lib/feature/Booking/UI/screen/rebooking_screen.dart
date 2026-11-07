@@ -90,12 +90,14 @@ class _RebookingScreenState extends State<RebookingScreen> {
       slotEnd: slot.endTime ?? '',
     );
 
+    if (!mounted) { return; }
+
     if (success) {
       Get.back(result: true);
       Get.snackbar('Success', 'Booking rescheduled successfully.',
           snackPosition: SnackPosition.TOP);
     } else {
-      Get.snackbar('Error', 'Failed to reschedule booking.',
+      Get.snackbar('Booking update', _controller.bookingMutationMessage.value,
           snackPosition: SnackPosition.TOP);
     }
   }
