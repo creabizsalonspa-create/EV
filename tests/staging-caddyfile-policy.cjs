@@ -22,7 +22,7 @@ test('staging Caddy supplies HTTP acceptance headers and a bounded CSP',()=>{
   for (const fragment of ["script-src 'self'", "object-src 'none'", "frame-ancestors 'none'", "connect-src 'self'", "form-action 'self'"]) {
     assert.ok(s.includes(fragment),'missing CSP directive '+fragment);
   }
-  assert.doesNotMatch(s,/script-src[^\n]*'unsafe-inline'/);
+  assert.doesNotMatch(s,/script-src[^;\n]*'unsafe-inline'/);
   assert.match(s,/Permissions-Policy\s+"camera=\(\), microphone=\(\)/);
 });
 test('no unreviewed catch-all public hostname or admin endpoint',()=>{
