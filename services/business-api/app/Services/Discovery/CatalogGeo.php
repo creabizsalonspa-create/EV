@@ -3,6 +3,7 @@
 namespace App\Services\Discovery;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /** Great-circle discovery distance, never driving distance or availability. */
 final class CatalogGeo
