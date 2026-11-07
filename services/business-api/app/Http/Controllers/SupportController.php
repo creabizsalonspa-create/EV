@@ -103,7 +103,8 @@ class SupportController extends Controller
                 if ($previous) {
                     abort_unless(
                         hash_equals((string) $previous->body, $v['body'])
-                            && (bool) $previous->internal === (bool) ($v['internal'] ?? false),
+                            && (bool) $previous->internal === (bool) ($v['internal'] ?? false)
+                            && $previous->transition_status === null,
                         409,
                         'Request key was already used with different reply content.'
                     );
@@ -135,19 +136,42 @@ class SupportController extends Controller
     public function transition(Request $r, SupportTicket $ticket)
     {
         abort_unless($r->user()->role === 'admin', 403);
-        $v = $r->validate(['status' => 'required|in:open,in_progress,resolved,closed', 'reason' => 'required|string|max:1000']);
+        $v = $r->validate([
+            'status' => 'required|in:open,in_progress,resolved,closed',
+            'reason' => 'required|string|max:1000',
+            'idempotency_key' => ['sometimes', 'string', 'regex:/^[a-f0-9]{32}$/'],
+        ]);
 
         return DB::transaction(function () use ($r, $ticket, $v) {
             $t = SupportTicket::whereKey($ticket->id)->lockForUpdate()->firstOrFail();
+            if (isset($v['idempotency_key'])) {
+                $old = TicketMessage::where('support_ticket_id', $t->id)
+                    ->where('author_id', $r->user()->id)
+                    ->where('idempotency_key', $v['idempotency_key'])->first();
+                if ($old) {
+                    abort_unless($old->transition_status === $v['status']
+                        && hash_equals((string) $old->body, $v['reason'])
+                        && $t->status === $v['status'], 409,
+                        'Request key is already used or the ticket state changed.');
+                    return $t;
+                }
+            }
             $allowed = ['open' => ['in_progress', 'resolved'], 'in_progress' => ['open', 'resolved'], 'resolved' => ['open', 'closed'], 'closed' => ['open']];
             abort_unless(in_array($v['status'], $allowed[$t->status]), 409, 'Invalid support status transition.');
             $t->update(['status' => $v['status']]);
-            TicketMessage::create(['support_ticket_id' => $t->id, 'author_id' => $r->user()->id, 'body' => $v['reason'], 'internal' => false]);
+            TicketMessage::create([
+                'support_ticket_id' => $t->id,
+                'author_id' => $r->user()->id,
+                'body' => $v['reason'],
+                'internal' => false,
+                'transition_status' => $v['status'],
+                'idempotency_key' => $v['idempotency_key'] ?? null,
+            ]);
             InboxNotification::create(['user_id' => $t->user_id, 'kind' => 'support.status.'.$v['status'], 'support_ticket_id' => $t->id]);
             $this->audit($r, 'support.status.'.$v['status'], $t->id);
 
             return $t;
-        });
+        }, 3);
     }
 
     public function notifications(Request $r)

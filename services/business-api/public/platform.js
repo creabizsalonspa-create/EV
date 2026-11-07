@@ -1826,13 +1826,23 @@ async function ticketDetail(id) {
         );
         EvLocale.attribute(reason, "aria-label", "Reason for status change");
         f.append(select, reason, ui("button", "Update ticket status"));
+        let pendingStatus = null;
         f.onsubmit = async (e) => {
             e.preventDefault();
+            const payload = { status: select.value, reason: reason.value };
+            const signature = JSON.stringify(payload);
+            if (!pendingStatus || pendingStatus.signature !== signature) {
+                pendingStatus = {
+                    signature,
+                    key: crypto.randomUUID().replace(/-/g, ""),
+                };
+            }
             try {
                 await api("support/" + id + "/status", "PATCH", {
-                    status: select.value,
-                    reason: reason.value,
+                    ...payload,
+                    idempotency_key: pendingStatus.key,
                 });
+                pendingStatus = null;
                 await support();
                 await ticketDetail(id);
             } catch (e) {

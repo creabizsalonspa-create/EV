@@ -185,6 +185,51 @@ class SupportTest extends TestCase
         $this->assertDatabaseCount('inbox_notifications', 0);
     }
 
+    public function test_admin_status_transition_retry_has_one_notice_and_audit_event(): void
+    {
+        $owner = User::factory()->create();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $ticket = SupportTicket::create([
+            'user_id' => $owner->id, 'subject' => 'Source monitor review',
+        ]);
+        $this->actingAs($admin);
+        $url = '/api/support/'.$ticket->id.'/status';
+        $payload = [
+            'status' => 'resolved',
+            'reason' => 'The simulated source incident was reviewed',
+            'idempotency_key' => str_repeat('e', 32),
+        ];
+        $this->patchJson($url, $payload)->assertOk()
+            ->assertJsonPath('status', 'resolved');
+        $this->patchJson($url, $payload)->assertOk()
+            ->assertJsonPath('status', 'resolved');
+        $this->assertDatabaseCount('ticket_messages', 1);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('actor_id', $admin->id)
+            ->where('action', 'support.status.resolved')->count());
+        $this->patchJson($url, [...$payload, 'reason' => 'Conflicting replay'])
+            ->assertConflict();
+        $this->patchJson($url, [...$payload, 'status' => 'closed'])
+            ->assertConflict();
+        // A key first used by a status transition must not be replayed as
+        // a public support reply (same body is not enough).
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => $payload['reason'],
+            'idempotency_key' => $payload['idempotency_key'],
+        ])->assertConflict();
+        $this->assertDatabaseCount('ticket_messages', 1);
+
+        $this->patchJson($url, [
+            'status' => 'closed', 'reason' => 'Operator confirmed closure',
+            'idempotency_key' => str_repeat('f', 32),
+        ])->assertOk();
+        // A stale replay cannot falsely report the earlier state.
+        $this->patchJson($url, $payload)->assertConflict();
+        $this->assertDatabaseCount('ticket_messages', 2);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+    }
+
     public function test_resolution_close_and_reopen_have_explicit_transition_rules(): void
     {
         $u = User::factory()->create();

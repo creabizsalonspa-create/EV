@@ -9,7 +9,7 @@ class TicketMessage extends Model
     protected $guarded = ['id'];
 
     // Request replay keys are transport metadata, not public ticket content.
-    protected $hidden = ['idempotency_key'];
+    protected $hidden = ['idempotency_key', 'transition_status'];
 
     protected $attributes = ['internal' => false];
 }
