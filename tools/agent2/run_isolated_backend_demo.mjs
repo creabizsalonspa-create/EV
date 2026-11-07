@@ -52,6 +52,7 @@ try{
  const {default:BookingModel}=await import(pathToFileURL(join(source,'src/models/BookingModel.js')).href);
  await BookingModel.init(); // Explicitly wait for the atomic station-slot index.
  const {default:AppSettingsModel}=await import(pathToFileURL(join(source,'src/models/AppSettingsModel.js')).href);
+ const {default:ChargingSessionModel}=await import(pathToFileURL(join(source,'src/models/ChargingSessionModel.js')).href);
  const {default:PaymentCardModel}=await import(pathToFileURL(join(source,'src/models/PaymentCardModel.js')).href);
  const {EncodeToken}=await import(pathToFileURL(join(source,'src/utils/tokenHelper.js')).href);
  await AppSettingsModel.create({key:'main',savedCardEnabled:true,sslcommerzEnabled:false,stripeEnabled:false,currencyCode:'AED',currencySymbol:'د.إ'});
@@ -180,6 +181,50 @@ try{
     {type:'payment_intent.succeeded',data:{object:{id:'pi_fake',status:'succeeded'}}});
   assert.equal(r.code,400);
   assert.equal((await BookingModel.findById(booking._id)).isPaid,false);
+ });
+ await check('unverified charging start cannot claim a physical OCPP start',async()=>{
+  const session=await ChargingSessionModel.create({bookingId:booking._id,userId:user._id,
+    stationId:station._id,status:'NotStarted'});
+  const r=await request('POST','/api/v1/ChargingSession/'+session._id+'/start',{},true);
+  assert.equal(r.code,400);
+  assert.equal((await ChargingSessionModel.findById(session._id)).status,'NotStarted');
+ });
+ await check('polling a fake charging session never fabricates meter values',async()=>{
+  const session=await ChargingSessionModel.create({bookingId:booking._id,userId:user._id,
+    stationId:station._id,status:'Charging',kwhUsed:7,batteryPercent:40,
+    startedAt:new Date(Date.now()-7200000),timeRemainingMs:3600000});
+  const path='/api/v1/ChargingSession/'+session._id;
+  const first=await request('GET',path+'/status',undefined,true);
+  const second=await request('GET',path+'/status',undefined,true);
+  assert.equal(first.code,200);assert.equal(second.code,200);
+  assert.equal(first.body.data.meterVerified,false);
+  assert.equal(first.body.data.kwhUsed,null);
+  assert.equal(second.body.data.kwhUsed,null);
+  const stored=await ChargingSessionModel.findById(session._id);
+  assert.equal(stored.kwhUsed,7);
+  assert.equal(stored.batteryPercent,40);
+ });
+ await check('unverified charging stop cannot create a synthetic invoice',async()=>{
+  const session=await ChargingSessionModel.create({bookingId:booking._id,userId:user._id,
+    stationId:station._id,status:'Charging',kwhUsed:12});
+  const r=await request('POST','/api/v1/ChargingSession/'+session._id+'/stop',{},true);
+  assert.equal(r.code,400);
+  const stored=await ChargingSessionModel.findById(session._id);
+  assert.equal(stored.status,'Charging');assert.equal(stored.totalAmount,0);
+ });
+ await check('unverified charging extensions cannot create billed charges',async()=>{
+  const session=await ChargingSessionModel.create({bookingId:booking._id,userId:user._id,
+    stationId:station._id,status:'Charging'});
+  const r=await request('POST','/api/v1/ChargingSession/'+session._id+'/extend',{extendMins:30},true);
+  assert.equal(r.code,400);
+  const stored=await ChargingSessionModel.findById(session._id);
+  assert.equal(stored.extensions.length,0);
+ });
+ await check('unverified completed sessions cannot generate trusted summaries',async()=>{
+  const session=await ChargingSessionModel.create({bookingId:booking._id,userId:user._id,
+    stationId:station._id,status:'Completed',kwhUsed:99});
+  const r=await request('GET','/api/v1/ChargingSession/'+session._id+'/summary',undefined,true);
+  assert.equal(r.code,400);
  });
  console.log('ISOLATED_EXPRESS_DEMO_TESTS_PASSED '+passed);
 }finally{
