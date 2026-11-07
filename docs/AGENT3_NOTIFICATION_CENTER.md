@@ -165,3 +165,7 @@ Two additional observer feature tests simulate station ownership transfer and th
 ### Source newest-watermark consistency
 
 The read-only simulator fault observer now rejects a source event page whose highest returned event ID is greater than the same page's reported newest event ID, including the *first* poll when the cursor is zero. Previously that initial poll could accept a contradictory snapshot. The observer records a single owner-only monitor-review status while leaving the cursor and event history at the prior checkpoint; a later consistent source page replays from the unchanged cursor and raises the normal simulator fault/recovery and monitor-resumed notices once. Added a backend regression for the invalid initial watermark and successful catch-up, with no charger commands or finance activity.
+
+### Empty-page/newer-source inconsistency
+
+A simulator source page with zero returned status events but a reported newest ID higher than the stored cursor is now rejected as an inconsistent source read rather than falsely declared `caught_up`. The observer records a deduplicated monitor-review notice without advancing the checkpoint, and a later consistent page replays all missing events. A regression test covers five subsequently recovered records, vendor monitor-resumption/fault messages, and the absence of charging commands or invoices.

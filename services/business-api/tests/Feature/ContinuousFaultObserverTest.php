@@ -105,6 +105,51 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_empty_page_cannot_claim_catchup_when_source_has_newer_events(): void
+    {
+        $f = $this->fixture();
+        $this->source($f, [], newest: 5);
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Empty page with a newer source event was accepted');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 0,
+            'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertSame(1, InboxNotification::where(
+            'kind', 'charging.monitor.requires_review.simulated'
+        )->count());
+
+        // New source data is not silently skipped. Catch-up starts at zero
+        // and independently records both the fault and its source recovery.
+        $this->source($f, $this->events(1, 5), newest: 5);
+        $result = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('caught_up', $result['state']);
+        $this->assertSame(5, $result['events']);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 5,
+            'state' => 'caught_up',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 5);
+        $this->assertSame(1, InboxNotification::where(
+            'kind', 'charging.monitor.resumed.simulated'
+        )->count());
+        $this->assertSame(1, InboxNotification::where(
+            'kind', 'charging.fault.simulated'
+        )->count());
+        $this->assertSame(1, InboxNotification::where(
+            'kind', 'charging.fault.recovered.simulated'
+        )->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_newest_source_event_must_not_be_older_than_initial_page(): void
     {
         $f = $this->fixture();
