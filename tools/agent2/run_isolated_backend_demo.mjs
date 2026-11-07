@@ -675,6 +675,130 @@ try{
     assert.equal(summary.body.data.paymentStatus,'not_collected');
     assert.equal(summary.body.data.needsPayment,false);
   });
+  const {migrateChargerStationIndex}=await import(
+    pathToFileURL(join(source,'src/utils/migrateChargerStationIndex.mjs')).href);
+  const multiStation=await NearestStationModel.create({
+    name:'Agent 2 Two Charger Station',address:'Isolated OCPP Test Station',
+    status:'Available',latitude:25.76,longitude:55.96,pricePerHourValue:70,
+    slots:[{startTime:'10:00 AM',endTime:'11:00 AM'}]});
+  const multiPrimary='agent2-multi-primary',multiSecond='agent2-multi-secondary';
+  const chargerTable=db.collection('ocpp_chargers');
+  await chargerTable.createIndex({stationId:1},{unique:true,
+    partialFilterExpression:{stationId:{$type:'string'}},name:'stationId_1'});
+  await chargerTable.insertOne({stationId:String(multiStation._id),
+    chargerId:multiPrimary,enabled:true,protocol:'ocpp1.6',
+    online:false,controlApproved:false});
+  const registration='/api/v1/admin/stations/'+multiStation._id+'/ocpp/chargers';
+  await check('multi-charger registration requires explicit database index migration',async()=>{
+    const response=await request('POST',registration,{
+      chargerId:multiSecond,protocol:'ocpp1.6'},false,{authorization:adminBearer});
+    assert.equal(response.code,409);
+    assert.equal(await chargerTable.countDocuments({stationId:String(multiStation._id)}),1);
+  });
+  await check('staging index migration retains globally unique charger IDs',async()=>{
+    const result=await migrateChargerStationIndex(chargerTable);
+    assert.equal(result.uniqueChargerIdIndexVerified,true);
+    assert.equal(result.removedUniqueStationIndex,'stationId_1');
+    const indexes=await chargerTable.indexes();
+    assert.equal(indexes.some(x=>x.unique===true && x.key.stationId===1),false);
+    assert.equal(indexes.some(x=>x.unique===true && x.key.chargerId===1),true);
+  });
+  await check('customer without AdminAuth cannot register additional charger',async()=>{
+    const response=await request('POST',registration,{chargerId:multiSecond,protocol:'ocpp1.6'},true);
+    assert.equal(response.code,401);
+  });
+  await check('Admin registers second station charger without enabling remote control',async()=>{
+    const response=await request('POST',registration,
+      {chargerId:multiSecond,protocol:'ocpp1.6'},false,{authorization:adminBearer});
+    assert.equal(response.code,201);
+    assert.equal(response.body.data.chargerId,multiSecond);
+    assert.equal(response.body.data.controlApproved,false);
+    assert.ok(/^[a-f0-9]{40}$/.test(response.body.data.password));
+    assert.equal(await chargerTable.countDocuments({stationId:String(multiStation._id)}),2);
+  });
+  await check('duplicate global charger ID is rejected across stations',async()=>{
+    const response=await request('POST',registration,
+      {chargerId:multiSecond,protocol:'ocpp1.6'},false,{authorization:adminBearer});
+    assert.equal(response.code,409);
+  });
+  await check('Admin sees both chargers without recovering passwords or hashes',async()=>{
+    const response=await request('GET',registration,undefined,false,{authorization:adminBearer});
+    assert.equal(response.code,200);
+    assert.deepEqual(response.body.data.chargers.map(x=>x.chargerId).sort(),
+      [multiPrimary,multiSecond].sort());
+    assert.equal(JSON.stringify(response.body).includes('secretHash'),false);
+    assert.equal(JSON.stringify(response.body).includes('password'),false);
+  });
+  await db.collection('ocpp_tariffs').insertMany([
+    {chargerId:multiPrimary,enabled:true,rateFilsPerKwh:60,vatPercent:5},
+    {chargerId:multiSecond,enabled:true,rateFilsPerKwh:100,vatPercent:5}
+  ]);
+  const multiBooking=await BookingModel.create({
+    userId:user._id,stationId:multiStation._id,date:'2026-11-19',
+    time:'10:00 AM',slotStart:'10:00 AM',slotEnd:'11:00 AM',
+    status:'Upcoming',isPaid:true,hasArrived:true,paymentStatus:'paid',totalAmount:70
+  });
+  const multiIssue='/api/v1/admin/bookings/'+multiBooking._id+'/ocpp/issue-token';
+  const multiOps='/api/v1/admin/bookings/'+multiBooking._id+'/ocpp/operations';
+  await check('multi-charger booking cannot auto-assign first station charger',async()=>{
+    const ready=await request('GET',multiOps,undefined,false,{authorization:adminBearer});
+    assert.equal(ready.code,200);
+    assert.equal(ready.body.data.requiresChargerSelection,true);
+    assert.equal(ready.body.data.approvedChargers.length,2);
+    assert.equal(ready.body.data.approvedChargerId,null);
+    const noChoice=await request('POST',multiIssue,{},false,{authorization:adminBearer});
+    assert.equal(noChoice.code,409);
+    const wrong=await request('POST',multiIssue,{chargerId:'other-station-charger'},
+      false,{authorization:adminBearer});
+    assert.equal(wrong.code,409);
+  });
+  let multiToken;
+  await check('Admin explicitly pins booking to second station charger',async()=>{
+    const response=await request('POST',multiIssue,{chargerId:multiSecond},
+      false,{authorization:adminBearer});
+    assert.equal(response.code,201);
+    assert.equal(response.body.data.chargerId,multiSecond);
+    multiToken=response.body.data.oneTimeToken;
+    const saved=await BookingModel.findById(multiBooking._id);
+    assert.equal(saved.ocppChargerId,multiSecond);
+    const ready=await request('GET',multiOps,undefined,false,{authorization:adminBearer});
+    assert.equal(ready.body.data.selectedChargerId,multiSecond);
+    assert.equal(ready.body.data.canBindSource,true);
+    assert.equal(JSON.stringify(ready.body).includes(multiToken),false);
+  });
+  await check('pinned charger authorization cannot start on the other charger',async()=>{
+    const denied=await handle({chargerId:multiPrimary},'ocpp1.6','StartTransaction',{
+      connectorId:1,meterStart:1000,idTag:multiToken,timestamp:new Date().toISOString()});
+    assert.equal(denied.idTagInfo.status,'Invalid');
+    const valid=await handle({chargerId:multiSecond},'ocpp1.6','StartTransaction',{
+      connectorId:1,meterStart:1000,idTag:multiToken,timestamp:new Date().toISOString()});
+    assert.equal(valid.idTagInfo.status,'Accepted');
+    await handle({chargerId:multiSecond},'ocpp1.6','StopTransaction',{
+      transactionId:valid.transactionId,meterStop:8000,
+      timestamp:new Date().toISOString(),reason:'EVDisconnected'});
+  });
+  await check('station source picker includes both chargers but not private tokens',async()=>{
+    const response=await request('GET',
+      '/api/v1/admin/stations/'+multiStation._id+'/ocpp/booking-sources',
+      undefined,false,{authorization:adminBearer});
+    assert.equal(response.code,200);
+    assert.equal(response.body.data.sessions.some(x=>x.chargerId===multiSecond),true);
+    assert.equal(JSON.stringify(response.body).includes('idTagHash'),false);
+  });
+  await check('booking binds only to its pinned physical charger source',async()=>{
+    const src=await db.collection('ocpp_sessions').findOne({chargerId:multiSecond,
+      idTagHash:createHash('sha256').update(multiToken).digest('hex')});
+    const response=await request('POST',
+      '/api/v1/admin/bookings/'+multiBooking._id+'/ocpp/bind-source',
+      {sourceSessionId:String(src._id)},false,{authorization:adminBearer});
+    assert.equal(response.code,200);
+    const customer=await request('GET','/api/v1/ChargingSession/'+response.body.data.sessionId+'/status',
+      undefined,true);
+    assert.equal(customer.code,200);
+    assert.equal(customer.body.data.sourceVerified,true);
+    assert.equal(customer.body.data.kwhUsed,7);
+    assert.equal(customer.body.data.paymentStatus,'not_collected');
+  });
   const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
   const hash16=createHash('sha256').update(token16).digest('hex');
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
