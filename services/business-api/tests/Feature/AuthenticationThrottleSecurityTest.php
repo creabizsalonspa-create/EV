@@ -85,4 +85,28 @@ class AuthenticationThrottleSecurityTest extends TestCase
         $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.45']);
         $this->postJson('/api/v1/login', $credentials)->assertUnprocessable();
     }
+
+    public function test_untrusted_forwarded_for_headers_cannot_reset_authentication_attempts(): void
+    {
+        // The unit-test transport is not a trusted reverse proxy. A caller
+        // cannot create fresh IP buckets by varying self-supplied headers.
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.46']);
+        $body = [
+            'email' => 'unknown-qa-forged-origin@example.test',
+            'password' => 'test-only-unknown-password',
+        ];
+
+        for ($attempt = 1; $attempt <= 10; $attempt++) {
+            $this->withHeaders([
+                'X-Forwarded-For' => '203.0.113.'.$attempt,
+                'X-Real-IP' => '203.0.113.'.$attempt,
+            ])->postJson('/api/login', $body)->assertUnprocessable();
+        }
+
+        $this->withHeaders([
+            'X-Forwarded-For' => '203.0.113.120',
+            'X-Real-IP' => '203.0.113.120',
+        ])->postJson('/api/login', $body)->assertStatus(429);
+    }
+
 }
