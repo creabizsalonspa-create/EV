@@ -45,7 +45,7 @@ function readCookies(jar, headers) {
 function jsonRequest(route, method='GET', payload=undefined,jar=new Map(),client=http) {
   const allowed={
     '/api/csrf':'GET','/api/login':'POST','/api/me':'GET',
-    '/api/vehicles':'GET','/api/reservations':'GET',
+    '/api/vehicles':'GET','/api/reservations':'GET','/api/simulations':'GET',
     '/api/admin/overview':'GET','/api/logout':'POST',
   };
   const discovery=/^\/api\/stations\?q=[a-f0-9]{8}$/.test(route) && method==='GET';
