@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import Station from '../models/NearestStationModel.js';
+import {auditConsumedStarts} from '../utils/ocppStartAudit.mjs';
 
 const chargerTable=()=>mongoose.connection.db.collection('ocpp_chargers');
 const validId=x=>typeof x==='string' && /^[A-Za-z0-9_-]{1,64}$/.test(x);
@@ -112,5 +113,31 @@ export async function AdminListStationOcppBookingSources(req,res){
     }});
   }catch{
     return fail(res,503,'OCPP station source listing unavailable');
+  }
+}
+
+/**
+ * GET /admin/stations/:id/ocpp/start-exceptions
+ * Investigate consumed credentials with no corresponding charging source.
+ * Does not expose authorization hashes, reset credentials, or start hardware.
+ */
+export async function AdminListStationOcppStartExceptions(req,res){
+  res.set('Cache-Control','no-store');
+  try{
+    const station=await stationFrom(req,res);
+    if(!station)return;
+    const chargers=await chargerTable().find({
+      stationId:String(station._id),enabled:true
+    }).project({chargerId:1}).limit(128).toArray();
+    if(!chargers.length)return res.status(200).json({
+      status:'Success',data:{scanned:0,matchedSourceCount:0,
+        withinGracePeriodCount:0,orphanCount:0,exceptions:[],readOnly:true}
+    });
+    const report=await auditConsumedStarts(mongoose.connection.db,{
+      chargerIds:chargers.map(c=>c.chargerId),limit:50
+    });
+    return res.status(200).json({status:'Success',data:report});
+  }catch{
+    return fail(res,503,'Charger authorization exception report unavailable');
   }
 }
