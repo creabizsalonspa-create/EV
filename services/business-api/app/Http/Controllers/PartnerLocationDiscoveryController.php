@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Services\Discovery\PartnerCatalogGeo;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 final class PartnerLocationDiscoveryController extends Controller
 {
@@ -29,10 +30,24 @@ final class PartnerLocationDiscoveryController extends Controller
             ->where('module', 'locations')
             ->where('normalized->publish', true)
             ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
-            ->when($text !== '', fn ($q) => $q->where(fn ($q) => $q
-                ->whereLike('normalized->name', '%'.$text.'%')
-                ->orWhereLike('normalized->city', '%'.$text.'%')
-                ->orWhereLike('normalized->address', '%'.$text.'%')))
+            ->when($text !== '', function ($query) use ($text) {
+                // SQL LIKE wildcards are not the user's search text. Both supported
+                // databases accept an explicit ! escape; every value is bound.
+                $driver = DB::connection()->getDriverName();
+                if (! in_array($driver, ['sqlite', 'pgsql'], true)) {
+                    throw new \LogicException('Unsupported partner text-search database.');
+                }
+                $operator = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
+                $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text).'%';
+                $query->where(function ($match) use ($driver, $operator, $pattern) {
+                    foreach (['name', 'city', 'address'] as $field) {
+                        $column = $driver === 'pgsql'
+                            ? "(ocpi_records.normalized->>'".$field."')"
+                            : "json_extract(ocpi_records.normalized, '$.".$field."')";
+                        $match->orWhereRaw("$column $operator ? ESCAPE '!'", [$pattern]);
+                    }
+                });
+            })
             ->when(! empty($filters['country']), fn ($q) => $q->where('normalized->country', $filters['country']))
             ->when(! empty($filters['connector_standard']), fn ($q) => $q->whereJsonContains('normalized->connector_standards', $filters['connector_standard']));
 
