@@ -67,6 +67,13 @@ const assert = require('node:assert/strict');
   const response = await nearby;
   assert.equal(response.status(),200);
   assert((await response.json()).data.length>0);
+  await page.locator('#language').click();
+  await editor.getByLabel('عتبة التنبيه ٪ (1–50)').waitFor();
+  assert.match(await page.locator('#notifications').innerText(), /محاكاة بطارية منخفضة/);
+  assert.equal(await editor.getByLabel('عتبة التنبيه ٪ (1–50)').inputValue(), '20');
+  assert.equal(await editor.getByRole('button',{name:'حفظ تفضيلات البطارية',exact:true}).count(),1);
+  assert.equal(await editor.getByRole('button',{name:'البحث عن شواحن متوافقة',exact:true}).count(),1);
+
 
   await context.close();
  } finally {await browser.close();}
