@@ -101,9 +101,21 @@ class ChargingOperationsController extends Controller
         abort_unless(DB::table('csms_bindings')->where('id', $link->binding_id)->where('station_id', $command->station_id)->exists(), 409);
         // No command/case lock is held across authenticated source network reads.
         $events = $consumer->consume($link, true);
+        // A vendor can lose station access while waiting on the remote source.
+        // Do not reconcile or write case evidence under stale authorization.
+        $this->authorizeOperator(
+            $r,
+            ChargerCommand::whereKey($command->id)->firstOrFail()
+        );
         $reconciled = $reconciler->forSession($link->charging_session_id);
         $hasProof = DB::table('command_source_observations')->where('command_id', $command->id)->exists();
-        DB::transaction(function () use ($case, $r, $hasProof) {
+        DB::transaction(function () use ($case, $r, $hasProof, $command) {
+            $lockedCommand = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
+            $station = Station::whereKey($lockedCommand->station_id)->lockForUpdate()->firstOrFail();
+            abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
+            if ($r->user()->role !== 'admin') {
+                abort_unless($station->vendor_id === $r->user()->id, 404);
+            }
             $current = OperationalCase::whereKey($case->id)->lockForUpdate()->firstOrFail();
             if ($current->state !== 'resolved') {
                 $current->update(['state' => $hasProof ? 'source_observed' : 'awaiting_source']);

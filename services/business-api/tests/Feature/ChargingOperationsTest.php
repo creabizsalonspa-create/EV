@@ -9,6 +9,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
+use App\Services\Charging\CommandReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -61,6 +62,43 @@ class ChargingOperationsTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 1);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertStringNotContainsString('source absence', DB::table('charging_operational_cases')->value('operator_note'));
+        Http::assertNothingSent();
+    }
+
+    public function test_source_inspection_rechecks_vendor_ownership_after_inflight_source_read(): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $url = '/api/charging-operations/'.$command->id;
+        $this->actingAs($vendor)->postJson($url.'/case', [
+            'note' => 'Review isolated source without commands',
+        ])->assertCreated();
+        $oldCount = DB::table('charging_operational_case_events')->count();
+
+        $newOwner = User::factory()->create(['role' => 'vendor']);
+        $source = \Mockery::mock(SourceConsumer::class);
+        $source->shouldReceive('consume')->once()->andReturnUsing(
+            function () use ($command, $newOwner): int {
+                Station::whereKey($command->station_id)
+                    ->update(['vendor_id' => $newOwner->id]);
+                return 0;
+            }
+        );
+        $reconciler = \Mockery::mock(CommandReconciler::class);
+        $reconciler->shouldNotReceive('forSession');
+        $this->app->instance(SourceConsumer::class, $source);
+        $this->app->instance(CommandReconciler::class, $reconciler);
+
+        $this->postJson($url.'/inspect-source')->assertNotFound();
+        $this->assertSame(
+            $oldCount,
+            DB::table('charging_operational_case_events')->count()
+        );
+        $this->assertDatabaseHas('charging_operational_cases', [
+            'command_id' => $command->id,
+            'state' => 'open',
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 0);
         Http::assertNothingSent();
     }
 
