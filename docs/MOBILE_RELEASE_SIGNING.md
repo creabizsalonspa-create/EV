@@ -122,7 +122,10 @@ Gradle packaged the intended privacy settings. The stdlib tool
 `scripts/audit_mobile_apk.py` inspects an **actual APK** using Android SDK
 `aapt` and, in release mode, `apksigner`. It fails if the compiled package ID
 differs from the expected ID, backup or remote cleartext is enabled, mandatory
-backup/data-extraction references are absent, or target SDK is unavailable.
+backup/data-extraction references are absent, the **compiled backup XML**
+fails to exclude all root/file/database/shared-preference and device-protected
+domains for legacy backup, Android 12+ cloud backup and device transfer, or
+target SDK is unavailable.
 
 Example for a disposable debug build after `flutter build apk --debug`:
 
