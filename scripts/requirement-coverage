@@ -26,7 +26,8 @@ for name, checkpoint in checkpoints.items():
     if checkpoint['merge_sha']:
         assert checkpoint['test_result'] == 'passed' and re.fullmatch('[0-9a-f]{40}', checkpoint['merge_sha']), name
     if checkpoint['test_result'] == 'passed':
-        evidence = root / checkpoint['evidence']
+        evidence = (root / checkpoint['evidence']).resolve()
+        assert evidence.is_relative_to(root), f'{name}: evidence must stay within repository'
         assert evidence.is_file(), f'{name}: passing evidence is required'
         record = json.loads(evidence.read_text())
         assert record['source_sha'] == checkpoint['source_sha'], f'{name}: wrong source evidence'
@@ -65,6 +66,7 @@ for category in categories:
     for stage in stages:
         sums[stage] += Fraction(counts[stage], len(atoms)) / 42
     report.append({'prd':category['prd'], 'requirement':category['requirement'], 'atoms':len(atoms), 'counts':counts, 'details':detailed})
+assert len(seen) == 312, 'Original 312 requirement atoms are mandatory'
 assert set(acceptances).issubset(seen), 'Unknown production acceptance atom'
 percent = lambda value: f'{float(value*100):.2f}'
 output = {'method':inventory['method'], 'category_count':42, 'atom_count':len(seen), 'checkpoints':checkpoints, 'weighted_percent':{stage:percent(value) for stage,value in sums.items()}, 'exact_weighted_fractions':{stage:str(value) for stage,value in sums.items()}, 'categories':report}
