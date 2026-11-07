@@ -161,6 +161,30 @@ class _OperationalState extends State<OperationalAnalyticsView>
           row['evidence'] != 'SIMULATED')
         throw const FormatException('Invalid invoice fact');
     }
+    if (result['feedback_groups'] != null) {
+      if (result['feedback_groups'] is! List ||
+          result['feedback_physical_charging_verified'] != false ||
+          result['feedback_scope'] !=
+              'currently_published_revisions_created_in_window') {
+        throw const FormatException('Unexpected feedback authority');
+      }
+      for (final row in result['feedback_groups']) {
+        if (row is! Map ||
+            !exact(row['site_id']) ||
+            !result['sites'].any((s) => s['site_id'] == row['site_id']) ||
+            ![
+              'SIMULATED_SOURCE_OBSERVED',
+              'SIMULATED_APP_ONLY',
+            ].contains(row['evidence']) ||
+            !exact(row['ratings']) ||
+            row['ratings'] < 1 ||
+            !exact(row['rating_sum']) ||
+            row['rating_sum'] < row['ratings'] ||
+            row['rating_sum'] > row['ratings'] * 5) {
+          throw const FormatException('Invalid feedback aggregate');
+        }
+      }
+    }
     return Map<String, dynamic>.from(result);
   }
 
@@ -282,6 +306,38 @@ class _OperationalState extends State<OperationalAnalyticsView>
                 ),
               ),
             ),
+          if (report!['feedback_groups'] != null) ...[
+            Text(tr('Moderated charging feedback', 'ملاحظات الشحن المعتمدة')),
+            Text(
+              tr(
+                'Currently published feedback only, by creation date of its current revision within the UTC window. Physical charging is unverified. No identities or private comments are included.',
+                'الملاحظات المنشورة حالياً فقط، حسب تاريخ إنشاء النسخة الحالية ضمن الفترة بالتوقيت العالمي. لا يُستنتج تحقق من الشحن الفعلي. لا تتضمن هوية أو نصوصاً خاصة.',
+              ),
+            ),
+            if ((report!['feedback_groups'] as List).isEmpty)
+              Text(
+                tr(
+                  'No approved feedback in report window',
+                  'لا توجد ملاحظات معتمدة ضمن فترة التقرير',
+                ),
+              ),
+            for (final group in report!['feedback_groups']) ...[
+              Text(
+                group['evidence'] == 'SIMULATED_SOURCE_OBSERVED'
+                    ? tr(
+                        'Observed simulator feedback',
+                        'ملاحظات محاكاة مرصودة من المصدر',
+                      )
+                    : tr(
+                        'App-only simulator feedback',
+                        'ملاحظات محاكاة التطبيق فقط',
+                      ),
+              ),
+              Text(
+                '${tr('Ratings', 'التقييمات')}: ${group['ratings']} · ${tr('Rating sum', 'مجموع النقاط')}: ${group['rating_sum']} · ${tr('Site', 'الموقع')}: ${group['site_id']}',
+              ),
+            ],
+          ],
           if (report!['financial_visible'] == true)
             Text(
               tr(

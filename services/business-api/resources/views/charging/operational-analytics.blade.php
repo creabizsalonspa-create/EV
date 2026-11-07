@@ -9,6 +9,12 @@
 @endforeach
 </table>
 @endforeach
+<h2>{{ $ar ? 'ملاحظات الشحن المعتمدة' : 'Moderated charging feedback' }}</h2>
+<p>{{ $ar ? 'الملاحظات المنشورة حالياً فقط، حسب تاريخ إنشاء النسخة الحالية ضمن الفترة بالتوقيت العالمي. لا يُستنتج تحقق من الشحن الفعلي. لا تتضمن هوية أو نصوصاً خاصة.' : 'Currently published feedback only, by creation date of its current revision within the UTC window. Physical charging is unverified. No identities or private comments are included.' }}</p>
+@foreach($report['feedback_groups'] as $group)
+<p>{{ $ar ? 'الموقع' : 'Site' }} {{ $group['site_id'] }} · {{ $group['evidence'] === 'SIMULATED_SOURCE_OBSERVED' ? ($ar ? 'ملاحظات محاكاة مرصودة من المصدر' : 'Observed simulator feedback') : ($ar ? 'ملاحظات محاكاة التطبيق فقط' : 'App-only simulator feedback') }} · {{ $ar ? 'التقييمات' : 'Ratings' }} {{ $group['ratings'] }} · {{ $ar ? 'مجموع النقاط' : 'Rating sum' }} {{ $group['rating_sum'] }}</p>
+@endforeach
+@if(!$report['feedback_groups'])<p>{{ $ar ? 'لا توجد ملاحظات معتمدة ضمن فترة التقرير' : 'No approved feedback in report window' }}</p>@endif
 @if($report['financial_visible'])
 <h2>{{ $ar ? 'فواتير مرجعية وليست مقبوضات أو تسويات' : 'Invoice references, not cash or settlements' }}</h2>
 @foreach($report['invoice_facts'] as $fact)
