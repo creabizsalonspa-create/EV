@@ -124,6 +124,8 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business.get('isolated_runtime_verified') is True and
             business.get('private_archive_tamper_rejected') is True and
             business.get('queue_worker_started') is True and
+            business.get('durable_queue_job_restored_and_executed') is True and
+            business.get('post_snapshot_queue_write_excluded') is True and
             business.get('scheduler_bootstrapped') is True,
             'Business recovery readiness boundary invalid')
     require(valid_hash(csms.get('database_archive_sha256'), 64) and

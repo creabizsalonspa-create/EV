@@ -163,7 +163,9 @@ CREATE TABLE ev_agent3_recovery_probe (
   marker_value text NOT NULL
 );
 INSERT INTO ev_agent3_recovery_probe VALUES
-  ('alpha', 'integrity-checked'), ('beta', 'source-only-data');
+  ('alpha', 'integrity-checked'),
+  ('beta', 'source-only-data'),
+  ('queue-snapshot-intent', 'SYNTHETIC_AGENT3_RECOVERY_V1');
 SQL_SEED
 # Synthetic Laravel ciphertext is created by the application, not a SQL fixture.
 docker exec -i --user www-data "$source_app" php <<'PHP_ENCRYPT'
@@ -177,6 +179,23 @@ $ciphertext = \Illuminate\Support\Facades\Crypt::encryptString('agent3-recovery-
     'marker_value' => $ciphertext,
 ]);
 PHP_ENCRYPT
+# Persist a *real serialized Laravel database queue job* before the
+# snapshot. No source queue worker is running; target alone may execute it.
+docker exec -i --user www-data "$source_app" php <<'PHP_QUEUE_ENQUEUE'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if (config('queue.default') !== 'database') {
+    throw new RuntimeException('Synthetic queue restore requires database queue.');
+}
+\Illuminate\Support\Facades\Bus::dispatch(new \App\Jobs\Agent3SyntheticQueueRecoveryProbe(
+    \App\Jobs\Agent3SyntheticQueueRecoveryProbe::TOKEN
+));
+PHP_QUEUE_ENQUEUE
+[[ "$(query "$source_db" 'SELECT count(*) FROM jobs')" == 1 ]] || {
+  echo 'Synthetic queued job did not persist before snapshot.' >&2; exit 1;
+}
 # Distinct run-owned private file, never a real customer's document.
 docker exec --user www-data "$source_app" php -r '
 $p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
@@ -227,6 +246,20 @@ docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
   -d ev_recovery_review >/dev/null <<'SQL_AFTER_SNAPSHOT'
 INSERT INTO ev_agent3_recovery_probe VALUES ('post-snapshot', 'not-part-of-backup');
 SQL_AFTER_SNAPSHOT
+# This second valid queued job is committed AFTER the database snapshot.
+# It must never appear in the isolated target's restored jobs table.
+docker exec -i --user www-data "$source_app" php <<'PHP_QUEUE_AFTER_SNAPSHOT'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+\Illuminate\Support\Facades\Bus::dispatch(new \App\Jobs\Agent3SyntheticQueueRecoveryProbe(
+    \App\Jobs\Agent3SyntheticQueueRecoveryProbe::TOKEN
+));
+PHP_QUEUE_AFTER_SNAPSHOT
+[[ "$(query "$source_db" 'SELECT count(*) FROM jobs')" == 2 ]] || {
+  echo 'Late synthetic source queue write was not recorded.' >&2; exit 1;
+}
 # Synthetic source-private file created after the archived snapshot.
 # Restoring the archive must not include this late source-side write.
 docker exec --user www-data "$source_app" php -r '
@@ -265,6 +298,10 @@ docker inspect "$source_db" "$target_db" |
   echo 'Durable synthetic record changed after restore.' >&2; exit 1;
 }
 
+# The pre-snapshot queue payload must have been restored, with no late job.
+[[ "$(query "$target_db" 'SELECT count(*) FROM jobs')" == 1 ]] || {
+  echo 'Restored database queue omitted the expected synthetic job.' >&2; exit 1;
+}
 # A fresh application instance must boot against *only* the recovered database.
 target_app=$(docker run -d --name "$review_id-app-target" --network "$target_net" \
   --env-file "$scratch/target-application.env" \
@@ -303,6 +340,21 @@ if (!is_file("/var/www/html/storage/app/private/agent3-post-snapshot-private.bin
 docker exec --user www-data "$target_app" php artisan migrate:status --no-interaction >/dev/null
 # Only boots worker/scheduler against the new isolated database; does not run due jobs.
 docker exec --user www-data "$target_app" php artisan queue:work --once   --stop-when-empty --tries=1 --timeout=10 --no-interaction >/dev/null
+[[ "$(query "$target_db" 'SELECT count(*) FROM jobs')" == 0 ]] || {
+  echo 'Restored synthetic queued job was not consumed.' >&2; exit 1;
+}
+[[ "$(query "$target_db" 'SELECT count(*) FROM failed_jobs')" == 0 ]] || {
+  echo 'Restored synthetic queued job failed in isolated worker.' >&2; exit 1;
+}
+[[ "$(query "$target_db" "SELECT count(*) FROM ev_agent3_recovery_probe WHERE marker_key = 'queue-snapshot-executed' AND marker_value = 'SYNTHETIC_AGENT3_RECOVERY_V1'")" == 1 ]] || {
+  echo 'Recovered queued job did not create its durable synthetic completion marker.' >&2; exit 1;
+}
+[[ "$(query "$source_db" 'SELECT count(*) FROM jobs')" == 2 ]] || {
+  echo 'Restored worker unexpectedly consumed a source-only queued job.' >&2; exit 1;
+}
+[[ "$(query "$source_db" "SELECT count(*) FROM ev_agent3_recovery_probe WHERE marker_key = 'queue-snapshot-executed'")" == 0 ]] || {
+  echo 'Queue restore altered the source-only synthetic table.' >&2; exit 1;
+}
 docker exec --user www-data "$target_app" php artisan schedule:list   --no-interaction >/dev/null
 docker exec -i --user www-data "$target_app" php <<'PHP_DECRYPT'
 <?php
@@ -381,6 +433,8 @@ record = {
     'drill_completed_epoch': int(drill_end),
     'private_archive_tamper_rejected': True,
     'queue_worker_started': True,
+    'durable_queue_job_restored_and_executed': True,
+    'post_snapshot_queue_write_excluded': True,
     'scheduler_bootstrapped': True,
     'classification': 'disposable staging software only',
     'postgresql': '17-alpine pinned image',

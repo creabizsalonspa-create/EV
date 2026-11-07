@@ -42,6 +42,8 @@ def evidence():
         'drill_completed_epoch': 1790000040,
         'private_archive_tamper_rejected': True,
         'queue_worker_started': True,
+        'durable_queue_job_restored_and_executed': True,
+        'post_snapshot_queue_write_excluded': True,
         'scheduler_bootstrapped': True,
     }
     csms = {
@@ -115,6 +117,8 @@ class GateTest(unittest.TestCase):
             ('isolated_runtime_verified',False),
             ('private_archive_tamper_rejected',False),
             ('queue_worker_started',False),
+            ('durable_queue_job_restored_and_executed',False),
+            ('post_snapshot_queue_write_excluded',False),
             ('scheduler_bootstrapped',False),('external_acceptance','yes'),
         ]
         for field,value in cases:

@@ -145,6 +145,17 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
                         code.index('pg_restore -U ev_recovery_review'))
         self.assertIn("'isolated_runtime_verified': True", code)
 
+    def test_durable_laravel_queue_is_restored_and_post_snapshot_job_is_excluded(self):
+        code = self.source
+        self.assertEqual(code.count('Bus::dispatch(new \\App\\Jobs\\Agent3SyntheticQueueRecoveryProbe'), 2)
+        self.assertLess(code.index('PHP_QUEUE_ENQUEUE'), code.index('pg_dump -U ev_recovery_review'))
+        self.assertGreater(code.index('PHP_QUEUE_AFTER_SNAPSHOT'), code.index('pg_dump -U ev_recovery_review'))
+        self.assertIn("'durable_queue_job_restored_and_executed': True", code)
+        self.assertIn("'post_snapshot_queue_write_excluded': True", code)
+        self.assertIn('queue:work --once', code)
+        self.assertIn('SELECT count(*) FROM failed_jobs', code)
+        self.assertIn('queue-snapshot-executed', code)
+
     def test_runtime_guard_requires_only_reviewed_database_and_private_mounts(self):
         guard = (ROOT / 'scripts/recovery-runtime-guard.py').read_text()
         self.assertIn("destination = '/var/lib/postgresql/data'", guard)
