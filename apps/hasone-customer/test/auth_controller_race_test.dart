@@ -269,6 +269,34 @@ void main() {
     expect(vault.value, isNull);
   });
 
+  test('feedback exception cannot mask safe login cleanup', () async {
+    final vault = _MemoryVault();
+    final network = _HeldAuthenticationNetwork();
+    final auth = AuthController(
+      client: network,
+      prefs: _FailingUserCache(vault),
+      authFeedback: (_, __) => throw StateError('unmounted overlay'),
+    );
+
+    final pending = auth.login('offline@example.test', 'synthetic-only');
+    expect(await network.requested.future, '/api/v1/Login');
+    network.response.complete(NetworkResponse(
+      isSuccess: true,
+      statusCode: 200,
+      responseData: {
+        'token': 'must-be-cleared-despite-overlay-failure',
+        'name': 'Offline Account',
+        'email': 'offline@example.test',
+        'userId': '42',
+      },
+    ));
+
+    expect(await pending, isFalse);
+    expect(vault.value, isNull);
+    expect(Session.accessToken, isNull);
+    expect(auth.user.value, isNull);
+  });
+
   test('late OTP approval after logout cannot restore obsolete bearer',
       () async {
     final vault = _MemoryVault();
