@@ -198,6 +198,13 @@ docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_recovery_review \
   -d ev_recovery_review >/dev/null <<'SQL_AFTER_SNAPSHOT'
 INSERT INTO ev_agent3_recovery_probe VALUES ('post-snapshot', 'not-part-of-backup');
 SQL_AFTER_SNAPSHOT
+# Synthetic source-private file created after the archived snapshot.
+# Restoring the archive must not include this late source-side write.
+docker exec --user www-data "$source_app" php -r '
+$p="/var/www/html/storage/app/private/agent3-post-snapshot-private.bin";
+if (file_put_contents($p, "not-in-private-snapshot", LOCK_EX) === false) exit(1);
+if (!chmod($p, 0600)) exit(1);
+'
 # Recheck exact on-disk bytes immediately before and after the isolated
 # database restore; the recovery proof must describe the consumed archive.
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
@@ -240,6 +247,10 @@ $p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
 if (!is_file($p) || !is_readable($p)) exit(1);
 if (!hash_equals(hash("sha256", "synthetic-private-archive"), hash_file("sha256", $p))) exit(1);
 if ((fileperms($p) & 0777) !== 0600) exit(1);
+if (file_exists("/var/www/html/storage/app/private/agent3-post-snapshot-private.bin")) exit(1);
+'
+docker exec --user www-data "$source_app" php -r '
+if (!is_file("/var/www/html/storage/app/private/agent3-post-snapshot-private.bin")) exit(1);
 '
 docker exec --user www-data "$target_app" php artisan migrate:status --no-interaction >/dev/null
 # Only boots worker/scheduler against the new isolated database; does not run due jobs.
@@ -304,6 +315,7 @@ record = {
     'wrong_laravel_key_rejected': True,
     'synthetic_private_file_restored': True,
     'post_snapshot_write_excluded': True,
+    'post_snapshot_private_write_excluded': True,
     'archive_tamper_rejected': True,
     'single_transaction_restore': True,
     'private_archive_tamper_rejected': True,

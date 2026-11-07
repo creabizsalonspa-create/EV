@@ -88,6 +88,18 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertIn(guard, code[private_restore-350:private_restore])
         self.assertIn(guard, code[private_restore:private_restore+400])
 
+    def test_late_private_write_cannot_enter_restored_snapshot(self):
+        source = self.source
+        name = 'agent3-post-snapshot-private.bin'
+        self.assertIn(name, source)
+        archive = source.index('private-probe.tar.gz')
+        created = source.index('file_put_contents($p, "not-in-private-snapshot"')
+        restored = source.index('if (file_exists("/var/www/html/storage/app/private/' +
+                                name + '")) exit(1);')
+        self.assertLess(archive, created)
+        self.assertLess(created, restored)
+        self.assertIn("'post_snapshot_private_write_excluded': True", source)
+
     def test_private_file_restore_cannot_run_as_root_or_preserve_archive_owners(self):
         code = self.source
         self.assertIn('docker exec -i --user www-data "$target_app" sh -ceu', code)

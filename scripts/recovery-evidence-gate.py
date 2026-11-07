@@ -70,6 +70,7 @@ def inspect_proofs(business, csms, sha, run_id, attempt):
             business.get('wrong_laravel_key_rejected') is True and
             business.get('synthetic_private_file_restored') is True and
             business.get('post_snapshot_write_excluded') is True and
+            business.get('post_snapshot_private_write_excluded') is True and
             business.get('archive_tamper_rejected') is True and
             business.get('single_transaction_restore') is True and
             business.get('private_archive_tamper_rejected') is True and
