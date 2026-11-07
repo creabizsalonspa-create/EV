@@ -32,6 +32,10 @@ class FaultReminderEscalator
             $after = (int) DB::table('charging_fault_reminder_scan_progress')
                 ->where('id', 1)->value('after_alert_id');
         }
+        $originalCursor = $after;
+        // When the cursor has reached the highest ID, wrap and consume the
+        // first bounded page during THIS run. Otherwise an opted-out alert
+        // cannot be revisited immediately after its owner opts back in.
         // A rotating cursor scans EVERY alert by ID, not only eligible ones.
         // Otherwise old opt-outs or no-longer-owned alerts can starve all
         // newer operators. Eligibility is rechecked after locking each row.
@@ -40,6 +44,13 @@ class FaultReminderEscalator
             ->orderBy('id')
             ->limit($limit)
             ->pluck('id');
+        if ($automatic && $ids->isEmpty() && $after > 0) {
+            $after = 0;
+            $ids = DB::table('charging_fault_alerts')
+                ->orderBy('id')
+                ->limit($limit)
+                ->pluck('id');
+        }
 
         $examined = 0;
         $reminded = 0;
@@ -147,7 +158,7 @@ class FaultReminderEscalator
             // advanced cursor backwards. A completed pass wraps to zero.
             $next = $ids->isEmpty() ? 0 : $lastId;
             DB::table('charging_fault_reminder_scan_progress')
-                ->where('id', 1)->where('after_alert_id', $after)
+                ->where('id', 1)->where('after_alert_id', $originalCursor)
                 ->update(['after_alert_id' => $next, 'updated_at' => now()]);
         }
 
