@@ -593,6 +593,18 @@ class EvApi {
       if (signInEpoch != _epoch)
         throw const ApiException(409, 'Session changed.');
       return Account.fromJson(Map<String, dynamic>.from(data as Map));
+    } catch (_) {
+      // Login is a single credential transition, including the final CSRF
+      // refresh. If any part fails, discard cookies received during the
+      // partial handshake instead of leaving an authenticated UI session
+      // behind a failed sign-in response. Never clear a newer identity.
+      if (signInEpoch == _epoch &&
+          _authTransitionEpoch == signInEpoch &&
+          _authTransitionOperation == 'login') {
+        _cookies.clear();
+        _csrf = null;
+      }
+      rethrow;
     } finally {
       // A server rejection may have advanced the epoch during cleanup.
       // Release only this transition, never a newer concurrent transition.
