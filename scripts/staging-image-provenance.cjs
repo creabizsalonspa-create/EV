@@ -81,15 +81,35 @@ function localInspect(source_sha, {run=execFileSync, getCompose=localDockerSnaps
     throw Error('Invalid Compose container IDs');
   }
   const containers = parseInspect(String(run('docker',['container','inspect',...selected],options)));
-  if (containers.some(c=>!selected.includes(c.Id) && !selected.some(id=>c.Id?.startsWith(id)))) throw Error('Compose/container identity mismatch');
+  const expectedRef=before.find(x=>x.Service==='application')?.Image;
+  if (containers.length!==selected.length ||
+      containers.some((c,i)=>typeof c.Id!=='string' ||
+        !/^[a-f0-9]{64}$/.test(c.Id) || !c.Id.startsWith(selected[i]) ||
+        c.Config?.Labels?.['com.docker.compose.service']!==SERVICES[i] ||
+        c.Config?.Image!==expectedRef)) {
+    throw Error('Compose/container identity, service role or tag mismatch');
+  }
   if (!IMAGE_ID.test(containers[0].Image)) throw Error('Container image ID missing');
   const images = parseInspect(String(run('docker',['image','inspect',containers[0].Image],options)));
   // Detect any deployment race between the two observations.
   const after = parseSnapshot(getCompose(env,run));
-  if (!checkSnapshot(after).ok || SERVICES.some(s=>after.find(x=>x.Service===s)?.ID!==before.find(x=>x.Service===s)?.ID)) {
+  const protectedRoles=[...SERVICES,'database','gateway'];
+  if (!checkSnapshot(after).ok || protectedRoles.some(s=>
+    after.find(x=>x.Service===s)?.ID!==before.find(x=>x.Service===s)?.ID)) {
     throw Error('Staging containers changed during read-only inspection');
   }
-  return validateImageContainers(images,containers,source_sha);
+  const proof=validateImageContainers(images,containers,source_sha);
+  if (!proof.ok) return proof;
+  // Keep a precise, private identity snapshot so a separate HTTPS probe can
+  // prove that *the same* five staging containers survived its entire window.
+  const runtime_services=Object.fromEntries(protectedRoles.map(s=>
+    [s,before.find(x=>x.Service===s)?.ID]));
+  if (Object.values(runtime_services).some(id=>typeof id!=='string' ||
+      !/^[a-f0-9]{12,64}$/.test(id)) ||
+      new Set(Object.values(runtime_services)).size!==5) {
+    throw Error('Invalid staging container identities');
+  }
+  return {...proof,runtime_services};
 }
 function main(args=process.argv.slice(2), deps={}) {
   try {

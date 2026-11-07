@@ -81,6 +81,44 @@ test('live mode uses only inspect commands and detects source/runtime races',()=
   const fail={...deps,getCompose:()=>JSON.stringify(composeRows(containers).map(x=>({...x,ID:x.Service==='worker'?'9'.repeat(64):x.ID})))};
   assert.throws(()=>localInspect(SHA,fail));
 });
+test('live source proof refuses swapped role containers or container tag differing from Compose',()=>{
+  const {image,containers}=data();
+  for(const mutate of [
+    entries=>{const temp=entries[0];entries[0]=entries[1];entries[1]=temp;},
+    entries=>{entries[1].Config.Image='creabiz-ev-business:retagged';},
+    entries=>{entries[0].Id='9'.repeat(64);}
+  ]){
+    const entries=JSON.parse(JSON.stringify(containers));
+    mutate(entries);
+    const deps={getCompose:()=>JSON.stringify(composeRows(containers)),
+      run:(_cmd,args)=>args[0]==='container'?JSON.stringify(entries):JSON.stringify(image)};
+    assert.throws(()=>localInspect(SHA,deps),/mismatch/);
+  }
+});
+test('source-backed runtime inspection exposes all five stable service identities',()=>{
+  const {image,containers}=data();
+  const rows=composeRows(containers);
+  const deps={run:(_cmd,args)=>args[0]==='container'?JSON.stringify(containers):JSON.stringify(image),
+    getCompose:()=>JSON.stringify(rows)};
+  const proof=localInspect(SHA,deps);
+  assert.equal(proof.ok,true);
+  assert.deepEqual(Object.keys(proof.runtime_services),
+    ['application','worker','scheduler','database','gateway']);
+  assert.equal(proof.runtime_services.gateway,'6'.repeat(64));
+});
+test('protected gateway or database changed during provenance inspection fails',()=>{
+  const {image,containers}=data();
+  for(const changed of ['gateway','database']){
+    let reads=0;
+    const deps={run:(_cmd,args)=>args[0]==='container'?JSON.stringify(containers):JSON.stringify(image),
+      getCompose:()=>{
+        const rows=composeRows(containers);
+        if(++reads===2)rows.find(x=>x.Service===changed).ID='9'.repeat(64);
+        return JSON.stringify(rows);
+      }};
+    assert.throws(()=>localInspect(SHA,deps),/changed/);
+  }
+});
 test('live mode checks snapshot timing and denies app exposed externally',()=>{
   const {containers}=data();let i=0;
   const deps={run:(_cmd,args)=>args[0]==='container'?JSON.stringify(containers):JSON.stringify(data().image),getCompose:()=>{
