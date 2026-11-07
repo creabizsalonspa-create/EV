@@ -1,3 +1,52 @@
+# CURRENT OWNER DIRECTIVE — FIVE ACTIVE AGENTS (7 November 2026)
+
+This is the authoritative **current** assignment. All earlier "sole owner",
+"Agent 1 takeover", "Agent 2 takeover", or unavailable-agent instructions later
+in this file are preserved as history and must **not** override this directive.
+The fixed original 42-category / 312-subfeature scope remains mandatory.
+
+- **Agent 1 — canonical backend:** Laravel/PostgreSQL, CitrineOS/OCPP 1.6 and
+  2.0.1, OCPI, source authority, reservation/session reconciliation, charging,
+  finance, payment recovery and ledgers.
+- **Agent 2 — customer/OCPP integration:** separately staged Express/Mongo and
+  existing HAS.ONE customer/Admin integration, multi-charger operations,
+  booking-token safety, verified status/history, PR #50 and related web/mobile.
+  Do not introduce a second authoritative ledger or replace Agent 1's platform.
+- **Agent 3 — operations/reliability:** notifications, alerts, disaster
+  recovery and isolated PostgreSQL/CSMS restoration; owns PRs #54 and #55.
+- **Agent 4 — integration:** GitHub PR review and verified merges, merge
+  conflicts, CI/CD, build/release regression, cross-platform contracts, and
+  authoritative evidence-based requirement coverage. Agent 4 does not
+  overwrite independent feature branches.
+- **Agent 5 — unowned product gaps:** independent customer, vendor,
+  discovery, business functionality, web/Flutter, accessibility and
+  localization requirements not already assigned to Agents 1–4.
+
+## Permanent CONTINUE behavior
+
+When the owner says `CONTINUE`, resume the latest verified branch/PR and
+execute successive coherent development, testing and PR batches within the
+current session; do not ask to restart from prior context or stop after
+a trivial change. This does not authorize background execution after a
+session ends or blind merges while CI is queued.
+
+The integration target is `development/fullstack-continuation`. Before
+modifying code, check ownership/PR overlap and base refs; use isolated branches.
+Required exact-head platform, PostgreSQL, finance, Android, iOS, security and
+charging checks must pass as applicable. Agent 4 alone coordinates final merges.
+No force pushes, bypasses, fabricated green checks, or test removal.
+PR #3 has a different base (`development/universal-integration`) and must
+not be blindly merged. Stacked PRs must respect their parent dependencies.
+
+Physical charger commands, live PSP captures, production writes/deployment,
+live OCPI partner activation and store distribution remain prohibited absent
+separate approval and real acceptance. Simulators are software evidence only.
+Use `scripts/requirement-coverage` and original category weights to track
+coded/tested/merged/production-accepted stages separately; do not claim
+production readiness from source code, CI or check counts.
+
+---
+
 # Permanent owner continuation directive — 5 November 2026
 
 Agent1 owns the full remaining platform. Read docs/AGENT1_CONTINUATION.md when resuming. CONTINUE resumes the exact pending source action and integration; do not restart audits or pause after an individual feature. Implement independent work while CI runs, preserve all existing ledgers/modules and merge only validated source. No physical/live partner/payment/store acceptance is inferred. This standing directive supersedes historical task/ownership restrictions below.
