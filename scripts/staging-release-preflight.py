@@ -29,14 +29,28 @@ def require(ok, reason):
         raise PreflightError(reason)
 
 def read_env(path):
-    path = Path(path)
-    require(not path.is_symlink(), 'Staging env cannot be a symlink')
-    info = path.stat()
-    require(stat.S_ISREG(info.st_mode) and info.st_size <= 65536,
-            'Staging env must be a bounded regular file')
-    require(info.st_mode & 0o077 == 0, 'Staging env must not be group/other readable')
+    # A path-based is_symlink()/stat()/read_text() sequence permits a
+    # replacement between checks. Inspect and consume one no-follow fd.
+    require(hasattr(os, 'O_NOFOLLOW'), 'Secure staging env reads unavailable')
+    flags = os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        raise PreflightError('Staging env cannot be opened safely') from None
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 65536,
+                'Staging env must be a bounded regular file')
+        require(info.st_mode & 0o077 == 0, 'Staging env must not be group/other readable')
+        payload = stream.read(65537)
+        require(len(payload) == info.st_size and len(payload) <= 65536,
+                'Staging env changed size during reading')
+    try:
+        contents = payload.decode('utf-8')
+    except UnicodeDecodeError:
+        raise PreflightError('Staging env must be valid UTF-8') from None
     data = {}
-    for line in path.read_text(encoding='utf8').splitlines():
+    for line in contents.splitlines():
         line = line.strip()
         if not line or line.startswith('#'):
             continue

@@ -78,6 +78,16 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         ):
             self.assertIn(required, code)
 
+    def test_backup_integrity_checked_around_database_and_private_restores(self):
+        code = self.source
+        db_restore = code.index('pg_restore -U ev_recovery_review')
+        private_restore = code.index('tar --no-same-owner --no-same-permissions')
+        guard = 'backup-artifact-guard.py" check'
+        self.assertIn(guard, code[db_restore-350:db_restore])
+        self.assertIn(guard, code[db_restore:db_restore+400])
+        self.assertIn(guard, code[private_restore-350:private_restore])
+        self.assertIn(guard, code[private_restore:private_restore+400])
+
     def test_private_file_restore_cannot_run_as_root_or_preserve_archive_owners(self):
         code = self.source
         self.assertIn('docker exec -i --user www-data "$target_app" sh -ceu', code)

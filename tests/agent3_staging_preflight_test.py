@@ -6,6 +6,7 @@ import os
 import secrets
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('preflight', ROOT/'scripts/staging-release-preflight.py')
@@ -69,6 +70,40 @@ class PreflightTests(unittest.TestCase):
             link.symlink_to(file)
             with self.assertRaises(p.PreflightError):
                 p.read_env(link)
+
+    def test_symlink_swap_before_open_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            candidate = root/'env'
+            safe_copy = root/'source.env'
+            candidate.write_text('APP_KEY=not-a-real-key\n')
+            os.chmod(candidate, 0o600)
+            real_open = p.os.open
+            substituted = False
+
+            def substitute(path, flags, *args, **kwargs):
+                nonlocal substituted
+                if str(path) == str(candidate) and not substituted:
+                    candidate.rename(safe_copy)
+                    candidate.symlink_to(safe_copy)
+                    substituted = True
+                return real_open(path, flags, *args, **kwargs)
+
+            with patch.object(p.os, 'open', side_effect=substitute):
+                with self.assertRaises(p.PreflightError):
+                    p.read_env(candidate)
+            self.assertTrue(substituted)
+
+    def test_oversized_and_non_utf8_env_are_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d)/'env'
+            path.write_bytes(b'A=' + b'x' * 65536)
+            os.chmod(path, 0o600)
+            with self.assertRaises(p.PreflightError):
+                p.read_env(path)
+            path.write_bytes(b'APP_KEY=\xff\xfe')
+            with self.assertRaises(p.PreflightError):
+                p.read_env(path)
 
     def test_mutated_compose_policy_rejected(self):
         with tempfile.TemporaryDirectory() as d:
