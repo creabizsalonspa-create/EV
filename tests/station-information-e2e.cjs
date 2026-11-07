@@ -60,7 +60,8 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   // Create a second station, return to the original editor, then intentionally
   // hold the second GET. The original form must disappear synchronously,
   // not remain active with its previous station revision and mutable target.
-  await creation.locator('[name=name]').fill('Other QA Station '+crypto.randomBytes(5).toString('hex'));
+  const secondName='Other QA Station '+crypto.randomBytes(5).toString('hex');
+  await creation.locator('[name=name]').fill(secondName);
   await creation.locator('[name=latitude]').fill('25.21');
   await creation.locator('[name=longitude]').fill('55.34');
   await creation.locator('[name=power_kw]').fill('75');
@@ -72,22 +73,27 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   const second=await createdSecond.json();
   const picker=root.locator('select[aria-label]');
   await page.waitForFunction(() => document.querySelector('#station-information-vendor select[aria-label]')?.options.length >= 2);
+  // Select both stations explicitly; the newly created station may already
+  // be the selected picker option while its form is still loading.
+  await picker.selectOption(String(second.id));
+  await page.waitForFunction(n=>document.querySelector('#station-information-vendor form h3')?.textContent?.includes(n),secondName,{timeout:20000});
   await picker.selectOption(String(station.id));
-  await form.getByText('Edit information for '+name).waitFor({timeout:20000});
-  let release;
+  await page.waitForFunction(n=>document.querySelector('#station-information-vendor form h3')?.textContent?.includes(n),name,{timeout:20000});
+  let release, seen;
   const paused=new Promise(resolve=>{release=resolve;});
+  const requestStarted=new Promise(resolve=>{seen=resolve;});
   let intercepted=0;
   await page.route('**/api/stations/*/information',async route=>{
     if(route.request().method()==='GET'&&new URL(route.request().url()).pathname==='/api/stations/'+second.id+'/information'){
       intercepted++;
+      seen();
       await paused;
     }
     await route.continue();
   });
   try {
     await picker.selectOption(String(second.id));
-    await page.waitForFunction(() =>
-      document.querySelector('#station-information-vendor [data-station-info-state]')?.textContent?.includes('Loading station information'));
+    await requestStarted;
     assert.equal(await form.count(),0,'Old station editor must be removed while next station GET is pending');
     assert.equal(intercepted,1,'Second station load should be held by the test');
   } finally {
