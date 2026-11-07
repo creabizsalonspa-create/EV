@@ -170,6 +170,8 @@ function renderIdentity() {
     window.EvAdminKycQueue?.setActor(user, api);
     window.EvAdminStaffPermissions?.setActor(user, api);
     window.EvAdminAuditTrail?.setActor(user, api);
+    window.EvPrivacyRequests?.setSelfActor(user, api);
+    window.EvPrivacyRequests?.setAdminActor(user, api);
 }
 
 function node(tag, text) {
