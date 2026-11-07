@@ -243,6 +243,9 @@ class EvApi {
       // Do not delete a newer login's credentials on a stale restore.
       if (restoreEpoch != _epoch) return null;
       await forgetSession();
+      // Deletion can await Keychain/Keystore. Never clear a new identity
+      // that started signing in while the old snapshot was being removed.
+      if (_epoch != restoreEpoch + 1) return null;
       _cookies.clear();
       _csrf = null;
       return null;
