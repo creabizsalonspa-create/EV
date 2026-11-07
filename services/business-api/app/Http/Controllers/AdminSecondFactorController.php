@@ -216,8 +216,17 @@ class AdminSecondFactorController extends Controller
             throw ValidationException::withMessages(['password' => 'Unable to verify account credentials.']);
         }
 
-        DB::transaction(function () use ($account) {
-            User::whereKey($account->id)->lockForUpdate()->firstOrFail();
+        DB::transaction(function () use ($account, $request) {
+            $lockedAccount = User::whereKey($account->id)->lockForUpdate()->firstOrFail();
+            abort_unless($lockedAccount->role === 'admin', 403);
+            // Recheck the exact factor version under lock. A concurrent
+            // replacement must never be deleted with an older recovery proof.
+            $factor = DB::table('admin_second_factors')
+                ->where('user_id', $account->id)->lockForUpdate()->first();
+            $expected = $request->session()->get('admin_second_factor_recovery_enrollment_proof');
+            abort_unless($factor && is_string($expected)
+                && hash_equals(hash('sha256', $factor->encrypted_secret), $expected),
+                409, 'Authenticator was changed. Restart recovery.');
             DB::table('admin_second_factor_recovery_codes')->where('user_id', $account->id)->delete();
             DB::table('admin_second_factors')->where('user_id', $account->id)->delete();
             $this->audit($account, 'admin.second_factor.reset_for_reenrollment');
