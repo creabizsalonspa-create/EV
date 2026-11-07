@@ -170,7 +170,6 @@ const assert = require("node:assert/strict");
     await page.locator(".partner-map-pin").click();
     await page.locator(".leaflet-popup-content")
       .getByText("Partner source age: 2000 min (older than 24 hours); live status unverified.", { exact: true }).waitFor();
-    await page.locator(".leaflet-popup-close-button").click();
     // Identity/session reset removes every old map marker immediately.
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
     assert.equal(await page.locator(".partner-map-pin").count(), 0);
