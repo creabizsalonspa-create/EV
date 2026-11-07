@@ -173,6 +173,8 @@ archive="$scratch/ev_recovery_review.dump"
 docker exec "$source_db" pg_dump -U ev_recovery_review -d ev_recovery_review \
   --format=custom --no-owner --no-privileges > "$archive"
 [[ -s "$archive" ]] || { echo 'PostgreSQL dump is empty.' >&2; exit 1; }
+python3 "$root/scripts/backup-artifact-guard.py" record --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
 docker exec -i "$target_db" pg_restore -U ev_recovery_review -d ev_recovery_review \
   --clean --if-exists --no-owner --no-privileges --exit-on-error < "$archive"
 [[ "$(query "$target_db" 'SELECT count(*) FROM migrations')" == "$migration_count" ]] || {

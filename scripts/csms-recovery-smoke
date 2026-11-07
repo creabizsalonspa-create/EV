@@ -112,6 +112,8 @@ INSERT INTO ev_agent3_recovery.synthetic_locations VALUES
   ('post-snapshot', 'late-data', ST_SetSRID(ST_MakePoint(56,26),4326), '{"synthetic":true}');
 SQL_AFTER
 
+python3 "$root/scripts/backup-artifact-guard.py" record --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
 docker exec -i "$target_db" pg_restore -U ev_csms_recovery -d ev_csms_recovery \
   --clean --if-exists --no-owner --no-privileges --exit-on-error < "$archive"
 

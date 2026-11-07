@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Synthetic dump integrity guard: not a signature, encryption or production backup."""
+import argparse, hashlib, json, os, stat, sys, tarfile
+from pathlib import Path
+
+class ArchiveError(Exception):
+    pass
+
+def require(ok, reason):
+    if not ok:
+        raise ArchiveError(reason)
+
+def fingerprint(path, magic):
+    path=Path(path)
+    require(not path.is_symlink(), 'Symlink archive denied')
+    info=path.stat()
+    require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 8*1024**3,
+            'Archive type or size invalid')
+    h=hashlib.sha256()
+    with path.open('rb') as stream:
+        require(stream.read(len(magic)) == magic, 'Archive magic mismatch')
+        stream.seek(0)
+        for block in iter(lambda: stream.read(1048576), b''):
+            h.update(block)
+    return {'sha256':h.hexdigest(),'bytes':info.st_size}
+
+def safe_tar(path):
+    count=0
+    expanded=0
+    try:
+        with tarfile.open(path,mode='r:gz') as arc:
+            for entry in arc:
+                count+=1
+                require(count <= 10000, 'Too many private archive members')
+                parts=entry.name.replace('\\','/').split('/')
+                require(entry.name and not entry.name.startswith(('/', '\\')) and
+                        '..' not in parts and all(parts),
+                        'Unsafe private archive member path')
+                require(entry.isfile() or entry.isdir(), 'Private links/devices denied')
+                expanded+=entry.size
+                require(0 <= expanded <= 2*1024**3, 'Expanded private data exceeds limit')
+    except (tarfile.TarError, OSError, EOFError):
+        raise ArchiveError('Invalid private gzip/tar archive') from None
+    require(count > 0, 'Private archive empty')
+    return {'entries':count,'expanded_bytes':expanded}
+
+def inspect(pg_dump, private_tar=None):
+    result={
+        'format':'agent3.synthetic.dump-validation.v1',
+        'classification':'local integrity only; unsigned synthetic evidence',
+        'database':fingerprint(pg_dump,b'PGDMP'),
+        'production_ready':False,
+    }
+    if private_tar is not None:
+        result['private']={**fingerprint(private_tar,b'\x1f\x8b'),**safe_tar(private_tar)}
+    return result
+
+def main(argv=None):
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action',choices=('record','check'))
+    parser.add_argument('--pg-dump',required=True,type=Path)
+    parser.add_argument('--private-tar',type=Path)
+    parser.add_argument('--manifest',required=True,type=Path)
+    args=parser.parse_args(argv)
+    try:
+        if args.action=='record':
+            args.manifest.unlink(missing_ok=True)
+            actual=inspect(args.pg_dump,args.private_tar)
+            args.manifest.parent.mkdir(parents=True,exist_ok=True)
+            tmp=args.manifest.with_suffix('.pending-manifest')
+            tmp.unlink(missing_ok=True)
+            fd=os.open(tmp,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+            with os.fdopen(fd,'w') as f:
+                json.dump(actual,f,sort_keys=True,indent=2)
+                f.write('\n')
+            os.replace(tmp,args.manifest)
+        else:
+            require(not args.manifest.is_symlink(), 'Manifest symlink denied')
+            info=args.manifest.stat()
+            require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 65536,
+                    'Manifest invalid size/type')
+            saved=json.loads(args.manifest.read_text())
+            require(saved == inspect(args.pg_dump,args.private_tar),
+                    'Backup bytes differ from integrity record')
+    except (OSError, ValueError, ArchiveError) as exc:
+        print(f'FAIL: {exc}',file=sys.stderr)
+        return 1
+    print('PASS: synthetic archive format and digest; no independent authenticity')
+    return 0
+
+if __name__=='__main__':
+    sys.exit(main())
