@@ -37,6 +37,24 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
 
   @override
   void initState() {super.initState(); reload();}
+
+  @override
+  void didUpdateWidget(covariant VehicleModelAssociationView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.vehicleId == widget.vehicleId &&
+        oldWidget.vehicleConnector == widget.vehicleConnector &&
+        identical(oldWidget.api, widget.api)) return;
+    // Do not retain a previous vehicle's model link, search, compatible
+    // choices, or pending save when Flutter reuses this State.
+    generation++;
+    search.clear();
+    linked = null;choices = [];selectedId = null;
+    page = lastPage = 1;
+    busy = saving = false;
+    error = success = null;
+    reload();
+  }
+
   @override
   void dispose() {generation++;search.dispose();super.dispose();}
 
@@ -55,6 +73,7 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
     try {
       final current = await widget.api.request('vehicles/' +
           widget.vehicleId.toString() + '/model');
+      if (!mounted || ticket != generation || !fence()) return;
       // Filter at the API before pagination. Client-side filtering alone can
       // hide all compatible models behind pages of other connector types.
       final raw = await widget.api.request('vehicle-models', query: {
