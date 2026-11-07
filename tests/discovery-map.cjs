@@ -113,7 +113,7 @@ const assert = require("node:assert/strict");
     await page
       .getByRole("button", { name: "Enable interactive map", exact: true })
       .click();
-    await page.locator(".station-map-pin").waitFor();
+    await page.locator(".station-map-pin:not(.partner-map-pin)").waitFor();
     assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
     assert.equal(await page.locator(".partner-map-pin").count(), 1);
     await page.locator(".station-map-pin:not(.partner-map-pin)").click();
