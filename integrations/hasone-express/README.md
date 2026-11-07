@@ -105,3 +105,50 @@ copy of the owner's Next Admin source. The workflow is **not deployed**.
 The isolated backend now passes **60/60** checks; Next Admin TypeScript
 and Next.js Webpack production compilation pass. The financial amounts shown
 remain *calculated but not collected*.
+
+
+## Agent 2 multi-charger + actual browser acceptance (latest, November 7 2026)
+
+**Implemented on draft PR #50, staging only:**
+- `integrations/hasone-express/adminMultiCharger.js`: AdminAuth charger listing, additional charger registration and station-wide source transaction listing; no charger commands
+- `ocppMultiCharger.mjs`: deterministic charger selection, no implicit first charger for a station with multiple enabled devices, immutable booking-to-charger assignment
+- `migrateChargerStationIndex.mjs`: explicit audited migration helper for disposable/staging Mongo; does **not** run during live API calls
+- `adminOcppBooking.js`: booking token issuance requires explicit charger when several are approved and pins `ocppChargerId` atomically; all source validation/summary/finalization uses the same pin
+- `stage_ocpp_customer_status.py`: customer API rejects metering from a charger that does not match the booking's pinned ID. Legacy single-charger bookings retain a safe fallback
+- `integrations/hasone-next-admin/OcppBookingWorkflow.tsx`: approved charger selector and matching source-session filter in Bookings; token remains visible until Admin closes the modal, rather than being lost during a parent-table refresh
+
+**Observed production index shape (read-only check):** `ocpp_chargers`
+has a unique `chargerId_1` index and a **unique `stationId_1`**
+index, and contained **one** charger record at the time inspected.
+The live unique station index has **not** been changed. Real multi-charger
+registration must not be enabled until an approved maintenance-window migration
+drops that unique station index *after* ensuring unique `chargerId` values,
+backing up MongoDB and verifying rollback capability. A nonunique
+`station_lookup_multi` index replaces it. The legacy registration route in
+staged source no longer recreates the unique station index.
+
+**Verified on the authorized host:**
+- **73/73** isolated Express/JWT/Mongo/OCPP integration tests, including
+  two approved chargers at one station, denied registration before index
+  migration, exclusive booking selection, invalid charger tokens,
+  rejected cross-charger session binding and source-backed customer metering
+- **36/36** pure payment/source/multi-charger guard tests
+- **13/13** actual staged payment callback-route checks
+- **8/8** headless Chrome browser checks of the real staged Next.js Admin
+  UI (API responses explicitly mocked in this browser test):
+  unauthenticated redirect, authenticated bookings, charger selection,
+  one-time token issue, correct source filtering, binding, finalization
+  and secret cleanup
+- Next.js 16.1.6 Admin TypeScript and optimized Webpack production build passed.
+
+The browser test found and helped resolve a genuine UI defect: reloading the
+parent Bookings table immediately after token issue unmounted the modal,
+hiding the one-time token before it could be copied. The corrected UI defers
+the parent refresh until the dialog is closed.
+
+**Important distinction:** isolated backend tests exercise actual staged
+Express controllers, MongoDB and OCPP handlers. Browser acceptance uses
+explicitly mocked localhost API responses; it does not prove a live user
+login, real merchant payment or physical Teltonika charging. Production
+remains unchanged, and this PR should remain draft pending operational
+readiness and Agent 1 canonical platform integration.
