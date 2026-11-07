@@ -3,7 +3,8 @@
 Both native Flutter apps previously assigned `signingConfigs.debug` to Android
 `release` tasks. This is development-only and must not be shipped. Android
 release APK/AAB tasks now fail without an explicit, private signing keystore.
-Neither application identity nor production distribution permissions were changed.
+A release build now requires owner-approved Android identity in the
+separate HAS.ONE customer app; development identities remain isolated.
 
 ## Additional mobile platform protections
 
@@ -87,11 +88,23 @@ containing the approved bundle-restricted key:
 
 ```xcconfig
 EV_GOOGLE_MAPS_IOS_KEY = YOUR_APPROVED_IOS_MAPS_KEY
+EV_HASONE_IOS_RELEASE_BUNDLE_ID = com.yourcompany.approved.application
 ```
 
+The `EV_HASONE_IOS_RELEASE_BUNDLE_ID` variable is used in the
+HAS.ONE customer iOS `Release` and `Profile` Runner and RunnerTests
+configurations. Its value must be an owner-approved final iOS bundle ID,
+registered in the Apple Developer account, with corresponding signing
+provisioning and Google Maps iOS API-key restriction. The `Debug` Runner
+and RunnerTests retain `com.creabiz.hasone.customer.dev`. Never use the
+example `com.yourcompany.approved.application` for delivery.
+
 Both Debug and Release xcconfigs include this optional file. The file is
-ignored by Git. No key is committed, generated, guessed or provisioned by
-these source changes. Missing iOS configuration allows unrelated simulator
+ignored by Git. No key or production identifier is committed, generated,
+guessed or provisioned by these source changes. `xcodebuild` on an
+authorized macOS runner must verify the exact release bundle ID and signing.
+The source-only guard does not prove that Xcode will accept a missing or
+malformed build-setting value. Missing iOS configuration allows unrelated simulator
 tests to build, **but maps cannot be accepted as working**. Before customer
 delivery, configure the bundle-restricted key, compile on macOS/Xcode,
 open real Google Maps views on device, and confirm API/billing and location
