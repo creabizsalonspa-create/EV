@@ -164,6 +164,51 @@ void main() {
     expect(vault.entries[origin.origin], 'stale-snapshot');
   });
 
+  test('overlapping sign-ins do not resurrect the superseded identity', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final emails = <String>[];
+    final subscription = server.listen((req) async {
+      req.response.headers.contentType = ContentType.json;
+      if (req.uri.path == '/api/csrf') {
+        req.response.cookies.add(Cookie('session', 'current'));
+        req.response.write(jsonEncode({'token': 'fixture-csrf'}));
+      } else if (req.uri.path == '/api/login') {
+        final payload = jsonDecode(await utf8.decoder.bind(req).join()) as Map;
+        emails.add(payload['email'] as String);
+        req.response.write(jsonEncode({
+          'id': 2, 'name': 'Latest account', 'role': 'customer',
+        }));
+      } else {
+        req.response.statusCode = 404;
+        req.response.write('{}');
+      }
+      await req.response.close();
+    });
+    final release = Completer<void>();
+    final vault = MemoryVault()..deleteWait = release.future;
+    final api = EvApi(
+      Uri.parse('http://127.0.0.1:${server.port}'),
+      vault: vault,
+    );
+    try {
+      final older = api.signIn('older@example.test', 'not-persisted');
+      final newer = api.signIn('latest@example.test', 'not-persisted');
+      release.complete();
+      await expectLater(
+        older,
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      final account = await newer;
+      expect(account.name, 'Latest account');
+      expect(emails, ['latest@example.test']);
+    } finally {
+      if (!release.isCompleted) release.complete();
+      api.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
   test('plaintext origins never persist credentials', () async {
     final vault = MemoryVault();
     final api = EvApi(Uri.parse('http://127.0.0.1:8000'), vault: vault);
