@@ -21,15 +21,32 @@ def patch(root):
     booking=root/'src/models/BookingModel.js'
     session=root/'src/models/ChargingSessionModel.js'
     controller=root/'src/controllers/adminOcppBooking.js'
+    multi=root/'src/controllers/adminMultiCharger.js'
+    legacy=root/'src/controllers/adminOcpp.js'
+    multi_helper=root/'src/utils/ocppMultiCharger.mjs'
+    if not legacy.is_file() or multi.exists() or multi_helper.exists():
+        raise RuntimeError('Multi-charger source missing or already patched')
     if not all(p.is_file() for p in (routes,booking,session)) or controller.exists():
         raise RuntimeError('Incomplete staged tree or controller already present')
-    source=Path(__file__).resolve().parents[2]/'integrations/hasone-express/adminOcppBooking.js'
-    if not source.is_file():raise RuntimeError('Missing vetted controller in GitHub worktree')
+    integration=Path(__file__).resolve().parents[2]/'integrations/hasone-express'
+    source=integration/'adminOcppBooking.js'
+    multi_source=integration/'adminMultiCharger.js'
+    helper_source=integration/'ocppMultiCharger.mjs'
+    if not all(p.is_file() for p in (source,multi_source,helper_source)):
+        raise RuntimeError('Missing vetted multi-charger integration source')
     r,b,s=(f.read_text(encoding='utf8') for f in (routes,booking,session))
+    original=legacy.read_text(encoding='utf8')
     r=once(r,'import { AdminAuth } from "../middlewares/adminAuth.js";',
         '''import { AdminAuth } from "../middlewares/adminAuth.js";
 import { AdminIssueBookingOcppToken, AdminBindBookingOcppSource, AdminListLinkedBookingOcppSessions, AdminFinalizeBookingOcppSource, AdminGetBookingOcppOperations } from "../controllers/adminOcppBooking.js";''',
         'admin import')
+    r=once(r,'import { AdminAuth } from "../middlewares/adminAuth.js";',
+        '''import { AdminAuth } from "../middlewares/adminAuth.js";
+import {
+  AdminListStationOcppChargers, AdminProvisionStationOcppCharger,
+  AdminListStationOcppBookingSources,
+} from "../controllers/adminMultiCharger.js";''',
+        'multi-charger imports')
     r=once(r, '// Bookings & Reviews (read-only)',
         '''// Authorized source-bound OCPP customer booking lifecycle (no hardware commands).
 router.get("/admin/bookings/:id/ocpp/operations", AdminAuth, AdminGetBookingOcppOperations);
@@ -37,6 +54,11 @@ router.post("/admin/bookings/:id/ocpp/issue-token", AdminAuth, AdminIssueBooking
 router.post("/admin/bookings/:id/ocpp/bind-source", AdminAuth, AdminBindBookingOcppSource);
 router.post("/admin/bookings/:id/ocpp/finalize-source", AdminAuth, AdminFinalizeBookingOcppSource);
 router.get("/admin/ocpp/booking-sessions", AdminAuth, AdminListLinkedBookingOcppSessions);
+
+// Multi-charger operations. All require existing AdminAuth.
+router.get("/admin/stations/:id/ocpp/chargers", AdminAuth, AdminListStationOcppChargers);
+router.post("/admin/stations/:id/ocpp/chargers", AdminAuth, AdminProvisionStationOcppCharger);
+router.get("/admin/stations/:id/ocpp/booking-sources", AdminAuth, AdminListStationOcppBookingSources);
 
 // Bookings & Reviews (read-only)''','Admin OCPP route placement')
     b=once(b,'const BookingModel = mongoose.model("Booking", BookingSchema);',
@@ -57,11 +79,20 @@ ChargingSessionSchema.index({sourceSessionId:1},{
 
 const ChargingSessionModel = mongoose.model("ChargingSession", ChargingSessionSchema);''',
        'session binding uniqueness')
+    original=once(original,
+      '''await chargerTable().createIndex({stationId:1},{unique:true,partialFilterExpression:{stationId:{$type:"string"}}});''',
+      '''// The audited multi-charger migration must remove any legacy unique
+    // stationId index. Future registration guarantees unique charger IDs only.
+    await chargerTable().createIndex({chargerId:1},{unique:true,name:"chargerId_1"});''',
+      'remove legacy single-station index creation')
     # Everything was validated before any source file mutation.
     routes.write_text(r,encoding='utf8')
+    legacy.write_text(original,encoding='utf8')
     booking.write_text(b,encoding='utf8')
     session.write_text(s,encoding='utf8')
     controller.write_text(source.read_text(encoding='utf8'),encoding='utf8')
+    multi.write_text(multi_source.read_text(encoding='utf8'),encoding='utf8')
+    multi_helper.write_text(helper_source.read_text(encoding='utf8'),encoding='utf8')
     print('STAGED_ADMIN_OCPP_BINDING_PATCHED; production not modified')
 
 if __name__=='__main__':
