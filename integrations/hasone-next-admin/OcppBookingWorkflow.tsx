@@ -276,7 +276,7 @@ export default function OcppBookingWorkflow({
                     <p className={"text-xs "+muted}>Select an OCPP source from the approved booking station.
                       The backend verifies charger, booking token and meter evidence before binding.</p>
                     <label className="block text-xs font-semibold">Source session
-                      <select className={inputClass+" mt-1"} value={chosen}
+                      <select aria-label="Select source transaction" className={inputClass+" mt-1"} value={chosen}
                         onChange={e=>setChosen(e.target.value)} disabled={!!state.sourceSessionId||working}>
                         <option value="">Select recorded OCPP transaction</option>
                         {sessions.filter(x=>isHex24(x.id)&&
