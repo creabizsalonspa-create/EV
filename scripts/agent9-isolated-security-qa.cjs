@@ -42,6 +42,34 @@ if (!path.isAbsolute(php) || !fs.existsSync(php)) {
 const business = path.join(root, "services/business-api");
 const serveFrom = path.join(business, "public");
 const router = path.join(business, "vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php");
+// The temporary checkout is not necessarily trustworthy: never allow its
+// HTTP document root to be a symlink, or to contain symlinked assets that
+// would make the test server serve arbitrary files outside this checkout.
+function refuseUnsafePublicTree() {
+  for (const directory of [path.join(root, "services"), business, serveFrom]) {
+    let info;
+    try { info = fs.lstatSync(directory); } catch { /* reject below */ }
+    if (!info || !info.isDirectory() || info.isSymbolicLink() ||
+        !fs.realpathSync(directory).startsWith(root + path.sep)) {
+      console.error("Refusing symlinked or external HTTP document root.");
+      process.exit(2);
+    }
+  }
+  const pending = [serveFrom];
+  let entries = 0;
+  while (pending.length) {
+    const directory = pending.pop();
+    for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (++entries > 5000 || item.isSymbolicLink() ||
+          (!item.isDirectory() && !item.isFile())) {
+        console.error("Refusing symlink, special file or unbounded HTTP document tree.");
+        process.exit(2);
+      }
+      if (item.isDirectory()) pending.push(path.join(directory, item.name));
+    }
+  }
+}
+refuseUnsafePublicTree();
 for (const file of [
   router,
   path.join(business, "vendor/autoload.php"),
