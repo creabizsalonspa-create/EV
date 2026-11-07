@@ -50,12 +50,18 @@ const secondModel={...model,id:8,model:'EV-B',source_url:'https://example.com/ev
 const adminRoot=document.createElement('section'),customerRoot=document.createElement('section');
 let actor={id:3,role:'customer'},epoch=1;
 const sent=[];
-let activeModelId=null;
+let activeModelId=null, delayNextLink=false, releasePendingLink=null;
 const api=async(path,method='GET',body)=>{
   sent.push({path,method,body});
   if(path==='vehicles/12/model'&&method==='GET')return {vehicle_id:12,vehicle_connector_type:'CCS2',model_id:activeModelId,model:activeModelId===8?secondModel:activeModelId===7?model:null};
   if(path.startsWith('vehicle-models?'))return {data:[model,secondModel],last_page:1,current_page:1};
+  if(path==='vehicles/13/model'&&method==='GET')
+    return {vehicle_id:13,vehicle_connector_type:'CCS2',model_id:null,model:null};
   if(path==='vehicles/12/model'&&method==='PUT'){
+    if(delayNextLink){
+      delayNextLink=false;
+      await new Promise(resolve=>{releasePendingLink=resolve;});
+    }
     activeModelId=body.model_id;
     return {vehicle_id:12,model_id:body.model_id,model:activeModelId===8?secondModel:activeModelId===7?model:null};
   }
@@ -95,6 +101,27 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   assert.match(label(customerRoot),/Model linked/);
   assert.ok(customerRoot.querySelector('[data-vehicle-model-picker]'));
   assert.equal(visit(customerRoot,n=>n.tag==='select').value,'8');
+  // A pending link response from vehicle 12 must not populate vehicle 13's
+  // picker after switching, even if the GET for 13 finished first.
+  delayNextLink=true;
+  const pendingSave=visit(customerRoot,n=>n.tag==='button'&&label(n).includes('Link selected model')).onclick();
+  view.renderGarage([
+    {id:12,name:'Family EV latest',connector_type:'CCS2'},
+    {id:13,name:'Other EV',connector_type:'CCS2'},
+  ]);
+  const other=visit(customerRoot,n=>n.tag==='li'&&label(n).includes('Other EV'));
+  assert.ok(other);
+  await visit(other,n=>n.tag==='button'&&label(n).includes('Select catalog model')).onclick();
+  assert.match(label(customerRoot),/No catalog model associated/);
+  assert.equal(typeof releasePendingLink,'function');
+  releasePendingLink();
+  await pendingSave;
+  const searchAgain=visit(customerRoot,n=>n.tag==='button'&&label(n).includes('Search catalog'));
+  assert.ok(searchAgain);
+  searchAgain.onclick();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.match(label(customerRoot),/No catalog model associated/);
+  assert.doesNotMatch(label(customerRoot),/Current: Curation test EV-B/);
   // When the vehicle disappears, discard panel and linked model immediately.
   view.renderGarage([]);
   assert.equal(customerRoot.querySelector('[data-vehicle-model-picker]'), null);
