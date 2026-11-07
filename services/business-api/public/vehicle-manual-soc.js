@@ -153,17 +153,24 @@
       try {
         await api("vehicles/"+vehicleId+"/manual-soc","POST",request);
         if(!alive(token)||chosen?.id!==vehicleId)return;
-        pending=null;
-        // A replay can refer to an old report. Always reload current state.
-        // Stage asynchronous results before applying: an older vehicle's GET
-        // must never assign battery state to a newly selected vehicle.
+        // A successful POST does not prove that the subsequent read-back will
+        // complete. Retain the original operation key through BOTH GETs so
+        // an uncertain refresh can safely replay the same observation.
         const refreshed=await api("vehicles/"+vehicleId+"/manual-soc");
         if(!alive(token)||chosen?.id!==vehicleId)return;
         latest=refreshed;
         const reload=loadHistory(1), reloadTicket=generation;
         const loaded=await reload;
-        if(loaded&&alive(reloadTicket)&&chosen?.id===vehicleId)
-          status(ar()?"تم حفظ التقرير اليدوي." : "Manual report saved.");
+        if(!alive(reloadTicket)||chosen?.id!==vehicleId)return;
+        if(!loaded){
+          render(); // Restore the same-key retry control after history failure.
+          status(ar()?"تعذّر تحديث السجل. راجع السجل أو أعد نفس التقرير." :
+            "History refresh uncertain. Check history or retry the identical report.");
+          return;
+        }
+        pending=null;
+        render(); // The successful report must no longer offer a replay button.
+        status(ar()?"تم حفظ التقرير اليدوي." : "Manual report saved.");
       }catch(e) {
         if(!alive(token))return;
         status(ar()?"تعذرت معرفة النتيجة. راجع السجل أو أعد نفس التقرير." :
