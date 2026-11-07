@@ -50,7 +50,9 @@ class NetworkService {
       return;
     }
     if (SharedPrefs.credentialGeneration != rejectedGeneration ||
-        Session.accessToken != null) return;
+        Session.accessToken != null) {
+      return;
+    }
 
     Get.offAll(() => const LoginScreen());
     Get.snackbar(
