@@ -16,13 +16,15 @@ node scripts/staging-synthetic-role-smoke.cjs \
   --manifest artifacts/client-demo/EXACT_RUN/access.json
 ```
 
-The role smoke **does not run prepare**, create a customer, start a simulator, seed a reservation or access a production service. It only connects to TCP `127.0.0.1:8000`, has a fixed five-path allowlist, and refuses redirects. It checks three separate browser sessions—synthetic customer, vendor and Admin—with their `example.test` identities and private temporary passwords. For each session it requests a CSRF token, authenticates, verifies `/api/me`, confirms that the Admin overview is inaccessible to customer/vendor but accessible to the Admin fixture, logs out and checks that `/api/me` returns 401/403.
+The role smoke **does not run prepare**, create a customer, start a simulator, seed a reservation or access a production service. It only connects to TCP `127.0.0.1:8000`, has a fixed five-path allowlist, and refuses redirects. It checks three separate browser sessions—synthetic customer, vendor and Admin—with their `example.test` identities and private temporary passwords. For each session it requests a CSRF token, authenticates, verifies `/api/me`, reads the synthetic vehicles and scoped reservations pages without writing anything, confirms that the Admin overview is inaccessible to customer/vendor but accessible to the Admin fixture, logs out and checks that `/api/me` returns 401/403.
 
 These are the only HTTP actions it uses:
 
 - `GET /api/csrf`
 - `POST /api/login` (the synthetic fixture account)
 - `GET /api/me`
+- `GET /api/vehicles` (read-only, paginated)
+- `GET /api/reservations` (read-only, paginated; customer account scope checked)
 - `GET /api/admin/overview`
 - `POST /api/logout`
 
