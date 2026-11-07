@@ -165,13 +165,40 @@ class VendorOpsController extends Controller
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended', 'changes_requested'], 'suspended' => ['approved', 'changes_requested']];
             abort_unless(in_array($v['status'], $allowed[$c->status]), 409, 'Invalid review transition.');
+            $owner = null;
             if ($v['status'] === 'approved') {
+                // Review UI checks are advisory. Enforce these invariants
+                // again under locks for direct API requests and stale queues.
+                $owner = User::whereKey($c->owner_id)->lockForUpdate()->firstOrFail();
+                abort_unless($owner->account_status === 'active', 409, 'Owner account is suspended.');
                 abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
-            }VendorCompanyReview::create(['company_id' => $c->id, 'reviewer_id' => $r->user()->id, 'from_status' => $c->status, 'to_status' => $v['status'], 'reason' => $v['reason'], 'created_at' => now()]);
-            $c->update(['status' => $v['status'], 'review_reason' => $v['reason'], 'reviewed_by' => $r->user()->id, 'reviewed_at' => now()]);
-            if ($v['status'] === 'approved') {
-                User::whereKey($c->owner_id)->where('role', 'customer')->update(['role' => 'vendor']);
-            }$this->access->audit($r->user(), 'company.'.$v['status'], $c->id);
+                abort_unless(
+                    VendorKycDocument::where('company_id', $c->id)
+                        ->where('kind', 'trade_license')->exists(),
+                    422, 'Trade-license evidence is required for approval.'
+                );
+            }
+            VendorCompanyReview::create([
+                'company_id' => $c->id,
+                'reviewer_id' => $r->user()->id,
+                'from_status' => $c->status,
+                'to_status' => $v['status'],
+                'reason' => $v['reason'],
+                'created_at' => now(),
+            ]);
+            $c->update([
+                'status' => $v['status'],
+                'review_reason' => $v['reason'],
+                'reviewed_by' => $r->user()->id,
+                'reviewed_at' => now(),
+            ]);
+            if ($owner && $owner->role === 'customer') {
+                // Eloquent fires the role-change security epoch hook; a raw
+                // UPDATE would let a prior customer session gain vendor rights.
+                $owner->role = 'vendor';
+                $owner->save();
+            }
+            $this->access->audit($r->user(), 'company.'.$v['status'], $c->id);
 
             return response()->json($c->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $c)]);
         });
