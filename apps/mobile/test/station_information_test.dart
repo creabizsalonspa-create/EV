@@ -18,7 +18,7 @@ class _OwnedStationApi extends EvApi {
   }) async {
     if (path == 'vendor/stations' && method == 'GET') {
       return {
-        'data': [{'id': 7, 'name': 'Local Plaza'}],
+        'data': [{'id': 7, 'name': 'Local Plaza', 'timezone': 'Asia/Dubai'}],
         'current_page': 1, 'last_page': 1, 'total': 1,
       };
     }
@@ -99,6 +99,7 @@ void main() {
     ]))));
     await tester.tap(find.text('Hours, access & facilities'));
     await tester.pumpAndSettle();
+    expect(find.textContaining('Hours (Asia/Dubai)'), findsOneWidget);
     expect(find.textContaining('Fri: Closed'), findsOneWidget);
     expect(find.textContaining('Holiday closures: 2026-12-02'), findsOneWidget);
     expect(find.textContaining('Step-free access'), findsOneWidget);
@@ -144,6 +145,8 @@ void main() {
       ));
       await tester.pumpAndSettle();
       expect(find.text('Local Plaza'), findsOneWidget);
+      expect(find.textContaining('Opening hours (station local time) · Asia/Dubai'),
+          findsOneWidget);
       await tester.enterText(find.byKey(const Key('station-info-description_en')),
         'Roof deck');
       await tester.enterText(find.byKey(const Key('station-info-access_en')),

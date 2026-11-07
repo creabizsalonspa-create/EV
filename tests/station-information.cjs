@@ -43,6 +43,9 @@ const info = {
   accessibility: ['step_free'],
 };
 const en = output({information: info});
+const withTimezone = output({timezone: 'Asia/Dubai', information: info});
+assert.match(withTimezone, /Opening hours: station local time \(Asia\/Dubai\)/);
+assert.match(en, /timezone not provided/);
 assert.match(en, /Operator-reported details/);
 assert.match(en, /Monday: 08:00–22:00/);
 assert.match(en, /Friday: Closed/);

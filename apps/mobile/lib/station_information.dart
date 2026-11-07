@@ -237,7 +237,11 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
         multiline('description_ar', 'Description (Arabic)', 'الوصف بالعربية'),
         multiline('access_en', 'Access instructions (English)', 'تعليمات الدخول بالإنجليزية'),
         multiline('access_ar', 'Access instructions (Arabic)', 'تعليمات الدخول بالعربية'),
-        Text(t('Opening hours (station local time)', 'ساعات العمل بتوقيت المحطة')),
+        Text(t('Opening hours (station local time)', 'ساعات العمل بتوقيت المحطة') +
+          ' · ' +
+          (chosen?['timezone'] is String && (chosen!['timezone'] as String).trim().isNotEmpty
+            ? chosen!['timezone'] as String
+            : t('timezone not provided', 'المنطقة الزمنية غير متوفرة'))),
         for (var i = 0; i < stationInfoDays.length; i++) ...[
           CheckboxListTile(
             key: Key('station-info-closed-' + stationInfoDays[i]),

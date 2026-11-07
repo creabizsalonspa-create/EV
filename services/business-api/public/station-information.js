@@ -42,6 +42,10 @@
             return;
         }
         appendText(details, "Operator-reported details — not independently verified; live availability remains unknown.", "تفاصيل أفاد بها المشغل ولم يتم التحقق منها؛ التوفر الفعلي غير معروف.");
+        const zone = typeof station.timezone === "string" ? station.timezone.trim() : "";
+        appendText(details,
+            zone ? "Opening hours: station local time (" + zone + ")." : "Opening hours: station local time; timezone not provided.",
+            zone ? "ساعات العمل بالتوقيت المحلي للمحطة (" + zone + ")." : "ساعات العمل بالتوقيت المحلي للمحطة؛ المنطقة الزمنية غير متوفرة.");
         const description = fallback(info.description_en, info.description_ar);
         if (description) appendText(details, "About: " + fallback(info.description_en, description), "الوصف: " + fallback(info.description_ar, description));
         const access = fallback(info.access_en, info.access_ar);
