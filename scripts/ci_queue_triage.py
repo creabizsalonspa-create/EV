@@ -175,41 +175,53 @@ def inspect(github, page_limit=MAX_PAGE_COUNT):
 
 
 def cancel_candidates(github, report, max_cancel):
-    """Re-check original run and mutable PR state before each operator cancel."""
+    """Recheck each queued run before an explicitly authorized cancellation.
+
+    Return exact partial outcomes even if GitHub rejects a later action.
+    This does not grant Actions write access to pull-request workflows.
+    """
     if not github.token:
         raise PermissionError("Explicit Actions-write token required for --apply")
     if report["queue_scan_truncated"]:
         raise ValueError("Truncated queue inventory; refuse cancellation")
     if not _int(max_cancel) or max_cancel > 50:
         raise ValueError("Cancellation batch limit must be from 1 to 50")
-    cancelled, skipped = [], []
+    cancelled, skipped, errors = [], [], []
     for candidate in report["candidates"][:max_cancel]:
-        # Never apply a stale dry-run decision after another agent pushes.
-        prs, truncated = github.pages("/pulls?state=open", "pull_requests")
-        if truncated:
-            raise ValueError("PR inventory changed or truncated before cancellation")
-        queued, queue_truncated = github.pages("/actions/runs?status=queued",
-                                                "workflow_runs")
-        if queue_truncated:
-            raise ValueError("Queued runs exceeded safe scan limit")
-        heads, by_number, paired = build_context(prs, queued, github.repo)
-        current = next((r for r in queued if r.get("id") == candidate["id"]), None)
-        if (current is None or
-                classify(current, heads, by_number, paired, github.repo)
-                != candidate["reason"]):
-            skipped.append(candidate["id"])
-            continue
-        # Last status/refetch guard before POST; never cancel in-progress jobs.
-        latest = github.request("/actions/runs/" + str(candidate["id"]))
-        if (latest.get("status") != "queued"
-                or latest.get("head_sha") != candidate["sha"]
-                or latest.get("event") != candidate["event"]):
-            skipped.append(candidate["id"])
-            continue
-        github.request("/actions/runs/" + str(candidate["id"]) + "/cancel",
-                       method="POST")
-        cancelled.append(candidate["id"])
-    return cancelled, skipped
+        try:
+            # Never apply a stale dry-run decision after another agent pushes.
+            prs, truncated = github.pages("/pulls?state=open", "pull_requests")
+            if truncated:
+                raise ValueError("PR inventory truncated before cancellation")
+            queued, queue_truncated = github.pages("/actions/runs?status=queued",
+                                                    "workflow_runs")
+            if queue_truncated:
+                raise ValueError("Queued runs exceeded safe scan limit")
+            heads, by_number, paired = build_context(prs, queued, github.repo)
+            current = next((r for r in queued if r.get("id") == candidate["id"]),
+                           None)
+            if (current is None or
+                    classify(current, heads, by_number, paired, github.repo)
+                    != candidate["reason"]):
+                skipped.append(candidate["id"])
+                continue
+            # Last status/refetch guard before POST; never intentionally
+            # cancel in-progress jobs. GitHub state can still race between
+            # GET and POST; operators must inspect the returned outcome.
+            latest = github.request("/actions/runs/" + str(candidate["id"]))
+            if (latest.get("status") != "queued"
+                    or latest.get("head_sha") != candidate["sha"]
+                    or latest.get("event") != candidate["event"]):
+                skipped.append(candidate["id"])
+                continue
+            github.request("/actions/runs/" + str(candidate["id"]) + "/cancel",
+                           method="POST")
+            cancelled.append(candidate["id"])
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+            errors.append({"id": candidate["id"], "type": type(exc).__name__,
+                           "http_status": getattr(exc, "code", None)})
+            break
+    return cancelled, skipped, errors
 
 
 def main(argv=None):
@@ -228,12 +240,14 @@ def main(argv=None):
         github = Github(token=token)
         report = inspect(github, args.page_limit)
         if args.apply:
-            cancelled, skipped = cancel_candidates(github, report, args.max_cancel)
+            cancelled, skipped, errors = cancel_candidates(
+                github, report, args.max_cancel)
             report["cancellations_executed"] = len(cancelled)
             report["cancelled_ids"] = cancelled
             report["skipped_on_recheck"] = skipped
+            report["cancellation_errors"] = errors
         print(json.dumps(report, indent=2, sort_keys=True))
-        return 0
+        return 3 if args.apply and report.get("cancellation_errors") else 0
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError,
             PermissionError, OSError) as exc:
         print(json.dumps({"error": type(exc).__name__ + ": " + str(exc),
