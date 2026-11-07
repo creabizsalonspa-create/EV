@@ -10,6 +10,14 @@ import Station from '../models/NearestStationModel.js';
 const chargerTable=()=>mongoose.connection.db.collection('ocpp_chargers');
 const validId=x=>typeof x==='string' && /^[A-Za-z0-9_-]{1,64}$/.test(x);
 const fail=(res,code,message)=>res.status(code).json({status:'fail',message});
+// No invented OCPP websocket address: only expose an explicitly configured
+// approved WSS gateway base. This route never deploys a gateway listener.
+const publicGatewayUrl=chargerId=>{
+ const base=process.env.OCPP_PUBLIC_WS_BASE||'';
+ if(!/^wss:\/\/[a-z0-9.-]+(?::[0-9]{2,5})?(?:\/[A-Za-z0-9/_-]*)?\/?$/i.test(base))
+   return null;
+ return base.replace(/\/$/,'')+'/'+chargerId;
+};
 async function stationFrom(req,res) {
   if(!mongoose.isValidObjectId(req.params.id)){
     fail(res,400,'Invalid station identifier');return null;
@@ -70,7 +78,8 @@ export async function AdminProvisionStationOcppCharger(req,res){
     return res.status(201).json({status:'Success',message:'Charger added. Copy credentials once.',
       data:{...publicCharger({chargerId,protocol,enabled:true,online:false,controlApproved:false}),
         stationId:String(station._id),
-        url:'wss://api.hasone.io/ocpp/'+chargerId,
+        url:publicGatewayUrl(chargerId),
+        gatewayUrlConfigured:!!publicGatewayUrl(chargerId),
         username:chargerId,password}});
   }catch(error){
     if(error?.code===11000)return fail(res,409,'Charger ID is already registered');
