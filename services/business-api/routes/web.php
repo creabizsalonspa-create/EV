@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AdminSecondFactorController;
 use App\Http\Controllers\ChargerCommandController;
 use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
@@ -20,6 +21,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'platform');
+
+Route::middleware(['auth', 'throttle:authentication'])->group(function () {
+    Route::get('/admin/second-factor', [AdminSecondFactorController::class, 'page']);
+    Route::get('/api/admin/second-factor/status', [AdminSecondFactorController::class, 'status']);
+    Route::post('/api/admin/second-factor/begin', [AdminSecondFactorController::class, 'begin']);
+    Route::post('/api/admin/second-factor/confirm', [AdminSecondFactorController::class, 'confirm']);
+    Route::post('/api/admin/second-factor/verify', [AdminSecondFactorController::class, 'verify']);
+});
+
 Route::get('/api/csrf', fn () => response()->json(['token' => csrf_token()]));
 Route::middleware('throttle:authentication')->group(function () {
     Route::post('/api/register', [P::class, 'register']);
