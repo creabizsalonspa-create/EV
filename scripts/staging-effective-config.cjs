@@ -59,6 +59,7 @@ function assertResolved(input,configCheck) {
       if(String(env[key])!==wanted)problems.push('application: reviewed '+key+' setting changed');
     }
     if(typeof env.APP_URL!=='string'||!env.APP_URL.startsWith('https://'))problems.push('application: HTTPS origin missing');
+    if(env.APP_URL!=='https://'+gateway.environment?.STAGING_HOST)problems.push('application: HTTPS origin does not match staging hostname');
     if(typeof env.DB_PASSWORD!=='string'||env.DB_PASSWORD.length<24)problems.push('application: private database password missing');
     if(typeof env.APP_KEY!=='string'||!env.APP_KEY.startsWith('base64:'))problems.push('application: Laravel application key missing');
     if(env.DB_URL && env.DB_URL!=='null')problems.push('application: DB_URL may override the isolated database');
@@ -90,9 +91,13 @@ function assertResolved(input,configCheck) {
   }
   for(const [name,service] of Object.entries(services)) {
     boundPorts(service,name,name==='gateway');
-    if(service.privileged===true || service.network_mode==='host' ||
+    if(service.privileged===true || Boolean(service.network_mode) ||
+      service.pid==='host' || service.ipc==='host' || service.userns_mode==='host' ||
       (Array.isArray(service.devices)&&service.devices.length) ||
-      (Array.isArray(service.cap_add)&&service.cap_add.length))problems.push(name+': privileged or host networking forbidden');
+      (Array.isArray(service.cap_add)&&service.cap_add.length) ||
+      (Array.isArray(service.security_opt)&&service.security_opt.some(x=>/unconfined/i.test(String(x))))) {
+      problems.push(name+': privileged or host networking forbidden');
+    }
   }
   function privateVolume(service,name,target,suffix) {
     const volumes=service?.volumes || [];
@@ -106,6 +111,25 @@ function assertResolved(input,configCheck) {
   privateVolume(database,'database','/var/lib/postgresql/data','database');
   privateVolume(gateway,'gateway','/data','certificates');
   privateVolume(gateway,'gateway','/config','gateway-config');
+  // Restrict all runtime mounts: no surprise host paths to credentials or other containers.
+  for(const role of ['application','worker','scheduler','database']) {
+    const mounts=services[role].volumes;
+    if(!Array.isArray(mounts) || mounts.length!==1 || mounts[0]?.type!=='volume') {
+      problems.push(role+': unexpected runtime mount or host bind');
+    }
+  }
+  const gatewayMounts=gateway.volumes;
+  if(!Array.isArray(gatewayMounts) || gatewayMounts.length!==3 ||
+    !gatewayMounts.some(x=>x?.type==='bind'&&x.target==='/etc/caddy/Caddyfile'&&x.read_only===true) ||
+    gatewayMounts.some(x=>x?.type==='bind'&&x.target!=='/etc/caddy/Caddyfile')) {
+    problems.push('gateway: only a read-only Caddyfile host bind is permitted');
+  }
+  if(app.command || app.entrypoint || worker.entrypoint || scheduler.entrypoint ||
+    database.entrypoint || gateway.entrypoint)problems.push('Unexpected runtime entrypoint or app command override');
+  if(JSON.stringify(worker.command)!==JSON.stringify(['php','artisan','queue:work','--sleep=3','--tries=3','--timeout=90']) ||
+    JSON.stringify(scheduler.command)!==JSON.stringify(['php','artisan','schedule:work'])) {
+    problems.push('Worker/scheduler command differs from reviewed application lifecycle');
+  }
   if(!gateway.environment || gateway.environment.STAGING_HOST===undefined ||
     gateway.environment.ACME_EMAIL===undefined)problems.push('gateway: certificate hostname/contact missing');
   return {ok:!problems.length,problems};
