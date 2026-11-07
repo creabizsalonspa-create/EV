@@ -5,7 +5,7 @@ import 'package:creabiz_ev/operational_analytics.dart';
 import 'test_support.dart';
 
 class OpsApi extends FixtureApi {
-  bool unsafe = false, fail = false;
+  bool unsafe = false, fail = false, unsafeFeedback = false;
   final applied = <Map<String, String>>[];
   @override
   Future<dynamic> request(
@@ -26,6 +26,16 @@ class OpsApi extends FixtureApi {
       'to': '2026-11-06',
       'as_of': '2026-11-06T12:00:00Z',
       'invoice_facts': [],
+      'feedback_scope': 'currently_published_revisions_created_in_window',
+      'feedback_physical_charging_verified': unsafeFeedback,
+      'feedback_groups': [
+        {
+          'site_id': 1,
+          'evidence': 'SIMULATED_SOURCE_OBSERVED',
+          'ratings': 2,
+          'rating_sum': 9,
+        },
+      ],
       'sites': [
         {
           'name': 'Synthetic site',
@@ -77,6 +87,32 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
       expect(api.applied.length, calls);
+    },
+  );
+  testWidgets(
+    'anonymous source feedback renders but physical verification promotion fails closed',
+    (tester) async {
+      final api = OpsApi();
+      await tester.pumpWidget(app(api, () {}));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Observed simulator feedback'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Ratings: 2 · Rating sum: 9 · Site: 1'), findsOneWidget);
+      api.unsafeFeedback = true;
+      await tester.scrollUntilVisible(
+        find.text('Apply and refresh'),
+        -250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply and refresh'));
+      await tester.pumpAndSettle();
+      expect(find.text('Observed simulator feedback'), findsNothing);
+      expect(find.text('View private report PDF'), findsNothing);
     },
   );
 }

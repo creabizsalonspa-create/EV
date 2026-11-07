@@ -11,12 +11,14 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\CustomerReviews;
 use App\Services\Charging\FaultMonitor;
 use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -137,5 +139,32 @@ class OperationalAnalyticsTest extends TestCase
             ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:00:00Z'],
             ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:00:00Z']]]);
         $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.status_known_seconds', 0)->assertJsonPath('sites.0.status_unknown_seconds', 43200);
+    }
+
+    public function test_feedback_aggregates_include_only_current_public_revision_in_window_without_private_data_or_billing_changes(): void
+    {
+        [$owner, , , $b, $map, $evse, $url] = $this->setupReport();
+        $session = $this->sourceSession($b, $map, $evse, '2026-11-06 10:00:00', '2026-11-06 11:00:00');
+        $driver = User::findOrFail(Reservation::findOrFail($session->reservation_id)->user_id);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $body = ['request_key' => (string) Str::uuid(), 'rating' => 4, 'body' => 'PRIVATE approved synthetic feedback', 'consent' => true, 'terms_version' => CustomerReviews::TERMS];
+        $row = $this->actingAs($driver)->postJson('/api/charging-reviews/sessions/'.$session->id, $body)->assertOk()->json();
+        $this->actingAs($owner)->getJson($url)->assertOk()->assertJsonCount(0, 'feedback_groups');
+        $decision = ['request_key' => (string) Str::uuid(), 'expected_version' => 1, 'action' => 'publish', 'reason' => 'PRIVATE independent moderation'];
+        $published = $this->actingAs($admin)->postJson('/api/charging-reviews/'.$row['id'].'/moderate', $decision)->assertOk()->json();
+        $before = DB::table('finance_journals')->count();
+        $report = $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('feedback_physical_charging_verified', false)->assertJsonPath('feedback_groups.0.ratings', 1)->assertJsonPath('feedback_groups.0.rating_sum', 4)->assertJsonPath('feedback_groups.0.evidence', 'SIMULATED_SOURCE_OBSERVED');
+        foreach (['PRIVATE', $driver->email, 'public_id', 'user_id', 'session_id', 'source_fingerprint', 'body_ciphertext'] as $private) {
+            $this->assertStringNotContainsString($private, $report->getContent());
+        }
+        $csv = $this->get($url.'/export')->assertOk();
+        $this->assertStringContainsString('CURRENT_PUBLIC_SIMULATOR_FEEDBACK_NOT_PHYSICAL_VERIFICATION', $csv->getContent());
+        $this->assertStringNotContainsString('PRIVATE', $csv->getContent());
+        $this->get($url.'/pdf?locale=ar')->assertOk()->assertHeader('Content-Type', 'application/pdf');
+        $this->getJson($url.'?from=2026-11-01&to=2026-11-05')->assertOk()->assertJsonCount(0, 'feedback_groups');
+        $edit = array_replace($body, ['request_key' => (string) Str::uuid(), 'expected_version' => $published['version'], 'rating' => 1]);
+        $this->actingAs($driver)->putJson('/api/charging-reviews/'.$row['id'], $edit)->assertOk();
+        $this->actingAs($owner)->getJson($url)->assertOk()->assertJsonCount(0, 'feedback_groups');
+        $this->assertSame($before, DB::table('finance_journals')->count());
     }
 }

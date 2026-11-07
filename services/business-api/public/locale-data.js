@@ -2816,4 +2816,28 @@ window.EV_MESSAGES = {
     "Not reported": { en: "Not reported", ar: "غير مبلّغ عنه" },
     session: { en: "session", ar: "جلسة" },
     seconds: { en: "seconds", ar: "ثوانٍ" },
+    "Moderated charging feedback": {
+        en: "Moderated charging feedback",
+        ar: "ملاحظات الشحن المعتمدة",
+    },
+    "Feedback report window": {
+        en: "Currently published feedback only, by creation date of its current revision within the UTC window. Physical charging is unverified. No identities or private comments are included.",
+        ar: "الملاحظات المنشورة حالياً فقط، حسب تاريخ إنشاء النسخة الحالية ضمن الفترة بالتوقيت العالمي. لا يُستنتج تحقق من الشحن الفعلي. لا تتضمن هوية أو نصوصاً خاصة.",
+    },
+    "Observed simulator feedback": {
+        en: "Observed simulator feedback",
+        ar: "ملاحظات محاكاة مرصودة من المصدر",
+    },
+    "App-only simulator feedback": {
+        en: "App-only simulator feedback",
+        ar: "ملاحظات محاكاة التطبيق فقط",
+    },
+    "Feedback totals: {count} ratings \u00b7 {sum} points \u00b7 site {site}": {
+        en: "Feedback totals: {count} ratings · {sum} points · site {site}",
+        ar: "إجمالي الملاحظات: {count} تقييمات · {sum} نقاط · الموقع {site}",
+    },
+    "No approved feedback in report window": {
+        en: "No approved feedback in report window",
+        ar: "لا توجد ملاحظات معتمدة ضمن فترة التقرير",
+    },
 };
