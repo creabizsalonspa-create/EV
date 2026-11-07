@@ -16,7 +16,14 @@ abstract interface class TokenVault {
 
 class DeviceTokenVault implements TokenVault {
   const DeviceTokenVault();
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  // Keep credentials device-bound on iOS and encrypted through Android's
+  // Keystore-backed preferences. Never fall back to plaintext preferences.
+  static const FlutterSecureStorage _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.unlocked_this_device,
+    ),
+  );
 
   @override
   Future<void> write({required String key, required String value}) =>
