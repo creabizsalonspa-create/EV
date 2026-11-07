@@ -25,7 +25,10 @@
         "Use my location once",
         "استخدام موقعي مرة واحدة",
     );
-    enable.type = locate.type = "button";
+    const disable = make("button", "Disable interactive map", "إيقاف الخريطة التفاعلية");
+    const focus = make("button", "Show loaded locations on map", "إظهار المواقع المحملة على الخريطة");
+    enable.type = locate.type = disable.type = focus.type = "button";
+    disable.hidden = focus.hidden = true;
     const consent = document.createElement("label");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -49,7 +52,7 @@
     canvas.id = "station-map";
     canvas.hidden = true;
     canvas.setAttribute("aria-label", "Station map / خريطة المحطات");
-    root.append(intro, enable, consent, locate, status, canvas);
+    root.append(intro, enable, disable, focus, consent, locate, status, canvas);
     let locationGeneration = 0;
     let planner,
         selectedCentre = null,
@@ -244,9 +247,49 @@
         }
         renderPartners();
     }
+    const loadedPoints = () => [
+        ...records.filter(valid).map((s) => [+s.latitude, +s.longitude]),
+        ...partnerRows.filter(partnerSafe).map((r) => [+r.location.latitude, +r.location.longitude]),
+    ];
+    function fitLoaded(announce = false) {
+        if (!map) return;
+        const points = loadedPoints();
+        if (points.length) {
+            map.fitBounds(points, { maxZoom: 13, padding: [24, 24] });
+            if (announce) setStatus(
+                "Map fitted to loaded results only. Other nearby sites may not be listed.",
+                "تم ضبط الخريطة على النتائج المحملة فقط. قد توجد مواقع أخرى قريبة غير معروضة.",
+            );
+        } else if (announce) {
+            setStatus(
+                "No loaded locations have usable map coordinates.",
+                "لا توجد إحداثيات صالحة للمواقع المحملة على الخريطة.",
+            );
+        }
+    }
+    focus.onclick = () => fitLoaded(true);
+    disable.onclick = () => {
+        // Removing Leaflet releases its event listeners and stops subsequent tile
+        // activity until a fresh explicit Enable click; already requested tiles
+        // may complete at the network layer.
+        locationGeneration++;
+        locate.disabled = false;
+        checkbox.checked = false;
+        if (map) map.remove();
+        map = markers = partnerMarkers = routeLines = picked = null;
+        canvas.hidden = true;
+        enable.hidden = false;
+        disable.hidden = focus.hidden = true;
+        setStatus(
+            "Interactive map disabled. Results remain available in the lists.",
+            "تم إيقاف الخريطة التفاعلية. لا تزال النتائج متاحة في القوائم.",
+        );
+    };
     enable.onclick = () => {
+        if (map) return;
         canvas.hidden = false;
         enable.hidden = true;
+        disable.hidden = focus.hidden = false;
         map = L.map(canvas, { worldCopyJump: true }).setView([24.45, 54.38], 6);
         L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
@@ -264,12 +307,7 @@
         partnerMarkers = L.layerGroup().addTo(map);
         routeLines = L.layerGroup().addTo(map);
         renderRoute();
-        const points = [
-            ...records.filter(valid).map((s) => [+s.latitude, +s.longitude]),
-            ...partnerRows.filter(partnerSafe).map((r) => [+r.location.latitude, +r.location.longitude]),
-        ];
-        if (points.length)
-            map.fitBounds(points, { maxZoom: 13, padding: [24, 24] });
+        fitLoaded();
         map.on("moveend zoomend", render);
         map.on("click", (event) =>
             select(event.latlng.lat, event.latlng.wrap().lng),
