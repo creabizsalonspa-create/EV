@@ -91,10 +91,12 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
     assert.equal(await form.count(),0,'Old station editor must be removed while next station GET is pending');
     assert.equal(intercepted,1,'Second station load should be held by the test');
   } finally {
+    // Let the intercepted request finish before unregistering the route;
+    // unregistering a still-paused handler can complete it twice.
     release();
-    await page.unroute('**/api/stations/*/information');
   }
   await form.waitFor({timeout:20000});
+  await page.unroute('**/api/stations/*/information');
   assert.equal(await form.locator('[name=description_en]').inputValue(),'');
   assert.deepEqual(errors,[]);
   await page.locator('#logout').click();
