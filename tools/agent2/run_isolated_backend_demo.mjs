@@ -6,6 +6,7 @@
  * node tools/agent2/run_isolated_backend_demo.mjs STAGED_SOURCE EXPRESS_DEPENDENCY_ROOT
  */
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {mkdtempSync,mkdirSync,rmSync,existsSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -13,6 +14,7 @@ import {join,resolve} from 'node:path';
 import {createServer} from 'node:net';
 import {pathToFileURL} from 'node:url';
 const source=resolve(process.argv[2]??'.'), dependencies=resolve(process.argv[3]??'.');
+const ocppHandler=process.argv[4] ? resolve(process.argv[4]) : null;
 if(!existsSync(join(source,'src/app.js')) || !existsSync(join(source,'src/utils/paymentIntegrity.mjs'))
    || !existsSync(join(dependencies,'node_modules/mongoose/index.js'))) {
  console.error('Only isolated staged source is allowed; missing patched app/dependencies.');process.exit(2);
@@ -226,6 +228,78 @@ try{
   const r=await request('GET','/api/v1/ChargingSession/'+session._id+'/summary',undefined,true);
   assert.equal(r.code,400);
  });
+ if(ocppHandler){
+  if(!existsSync(ocppHandler) || ocppHandler.startsWith('/home/hasio/ev-deployment/'))
+    throw new Error('OCPP handler must be a staged source copy');
+  const {createProcessor}=await import(pathToFileURL(ocppHandler).href);
+  const handle=await createProcessor(mongoose.connection.db);
+  const db=mongoose.connection.db;
+  const chargerId='agent2-ocpp201-test', token='agent2-disposable-token-201';
+  const tokenHash=createHash('sha256').update(token).digest('hex');
+  const expiresAt=new Date(Date.now()+3600000);
+  await db.collection('ocpp_access_tokens').insertOne({chargerId,tokenHash,enabled:true,expiresAt});
+  await db.collection('ocpp_tariffs').insertOne({chargerId,enabled:true,rateFilsPerKwh:75,vatPercent:5});
+  const meter=value=>[{sampledValue:[{value:String(value),measurand:'Energy.Active.Import.Register',
+                                      unitOfMeasure:{unit:'Wh'}}]}];
+  const id='agent2-source-201';
+  await check('invalid OCPP 2.0.1 token cannot create a source transaction',async()=>{
+    const bad=await handle({chargerId},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Started',seqNo:0,transactionInfo:{transactionId:'unauthorized'},
+      idToken:{idToken:'wrong-token'},meterValue:meter(1000)});
+    assert.equal(bad.idTokenInfo.status,'Invalid');
+    assert.equal(await db.collection('ocpp_sessions').countDocuments({chargerId}),0);
+  });
+  await check('OCPP 2.0.1 start stores approved token hash, not raw token',async()=>{
+    const yes=await handle({chargerId},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Started',seqNo:0,transactionInfo:{transactionId:id},
+      timestamp:new Date().toISOString(),idToken:{idToken:token},
+      evse:{id:1,connectorId:1},meterValue:meter(1000)});
+    assert.equal(yes.idTokenInfo.status,'Accepted');
+    const doc=await db.collection('ocpp_sessions').findOne({chargerId,transactionId:id});
+    assert.equal(doc.idTokenHash,tokenHash);
+    assert.equal(doc.meterStartWh,1000);assert.equal(doc.status,'active');
+    assert.equal(JSON.stringify(doc).includes(token),false);
+  });
+  await check('OCPP 2.0.1 metering/stop yields source-backed unpaid AED-fils calculation',async()=>{
+    await handle({chargerId},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Updated',seqNo:1,transactionInfo:{transactionId:id},
+      timestamp:new Date().toISOString(),meterValue:meter(6000)});
+    await handle({chargerId},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Ended',seqNo:2,transactionInfo:{transactionId:id,stoppedReason:'EVDisconnected'},
+      timestamp:new Date().toISOString(),meterValue:meter(8000)});
+    const doc=await db.collection('ocpp_sessions').findOne({chargerId,transactionId:id});
+    assert.equal(doc.status,'ended');assert.equal(doc.energyWh,7000);assert.equal(doc.energyKwh,7);
+    assert.equal(doc.subtotalFils,525);assert.equal(doc.vatFils,26);assert.equal(doc.totalFils,551);
+    assert.equal(doc.billingStatus,'calculated_unpaid');assert.equal(doc.paymentStatus,'not_collected');
+  });
+  await check('OCPP 2.0.1 duplicate sequence cannot change finalized source meters',async()=>{
+    await handle({chargerId},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Updated',seqNo:1,transactionInfo:{transactionId:id},
+      meterValue:meter(900000)});
+    const doc=await db.collection('ocpp_sessions').findOne({chargerId,transactionId:id});
+    assert.equal(doc.energyWh,7000);assert.equal(doc.paymentStatus,'not_collected');
+  });
+  const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
+  const hash16=createHash('sha256').update(token16).digest('hex');
+  await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
+    enabled:true,expiresAt:new Date(Date.now()+3600000)});
+  await db.collection('ocpp_tariffs').insertOne({chargerId:charger16,enabled:true,rateFilsPerKwh:100,vatPercent:5});
+  await check('OCPP 1.6 authorized source start/stop produces a distinct unpaid transaction',async()=>{
+    const begin=await handle({chargerId:charger16},'ocpp1.6','StartTransaction',{
+      connectorId:1,meterStart:1000,idTag:token16,timestamp:new Date().toISOString()});
+    assert.equal(begin.idTagInfo.status,'Accepted');
+    assert.equal(typeof begin.transactionId,'number');
+    await handle({chargerId:charger16},'ocpp1.6','MeterValues',{
+      transactionId:begin.transactionId,meterValue:meter(2000)});
+    await handle({chargerId:charger16},'ocpp1.6','StopTransaction',{
+      transactionId:begin.transactionId,meterStop:4000,
+      timestamp:new Date().toISOString(),reason:'EVDisconnected'});
+    const doc=await db.collection('ocpp_sessions').findOne({chargerId:charger16,transactionId:begin.transactionId});
+    assert.equal(doc.idTagHash,hash16);assert.equal(doc.energyWh,3000);
+    assert.equal(doc.totalFils,315);assert.equal(doc.billingStatus,'calculated_unpaid');
+    assert.equal(doc.paymentStatus,'not_collected');
+  });
+ }
  console.log('ISOLATED_EXPRESS_DEMO_TESTS_PASSED '+passed);
 }finally{
  if(server)await new Promise(done=>server.close(done));
