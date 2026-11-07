@@ -95,7 +95,7 @@ def audit_manifest(
         # debug build. Reject the conventional Android debug certificate
         # even when its fingerprint is the caller's supplied "expected" one.
         if re.search(
-            r"(?mi)^Signer #\\d+ certificate DN:[^\\n]*\\bCN\\s*=\\s*Android Debug\\b",
+            r"(?mi)^Signer #\d+ certificate DN:[^\n]*\bCN\s*=\s*Android Debug\b",
             signer_output,
         ):
             raise AuditError("Distribution APK is signed with Android Debug")
