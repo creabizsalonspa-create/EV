@@ -75,8 +75,12 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertSame(0, app(ContinuousFaultObserver::class)->observe($f['binding'])['events']);
         $this->assertDatabaseCount('charging_status_observations', 101);
         $this->assertDatabaseCount('charging_fault_alerts', 1);
-        $this->assertDatabaseCount('inbox_notifications', 1);
-        $notification = InboxNotification::firstOrFail();
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $notification = InboxNotification::where('kind', 'charging.fault.simulated')->firstOrFail();
+        $recovered = InboxNotification::where('kind', 'charging.fault.recovered.simulated')->firstOrFail();
+        $this->assertSame($f['owner']->id, $recovered->user_id);
+        $this->assertSame($notification->metadata['alert_id'], $recovered->metadata['alert_id']);
+        $this->assertSame(false, $recovered->metadata['physical_verification']);
         $this->assertSame($f['owner']->id, $notification->user_id);
         $this->assertSame('charging.fault.simulated', $notification->kind);
         $this->assertSame('simulator', $notification->metadata['source']);
@@ -84,9 +88,10 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertSame($f['station']->id, $notification->metadata['station_id']);
         $this->assertSame(false, $notification->metadata['physical_verification']);
         $this->actingAs($f['owner'])->getJson('/api/v1/notifications/summary')
-            ->assertOk()->assertJsonPath('unread_count', 1);
+            ->assertOk()->assertJsonPath('unread_count', 2);
         $this->getJson('/api/v1/notifications?unread_only=1')
-            ->assertOk()->assertJsonPath('data.0.kind', 'charging.fault.simulated');
+            ->assertOk()->assertJsonPath('total', 2);
+        $this->assertDatabaseCount('inbox_notifications', 2); // cursor replay and post-recovery calls do not duplicate notices
         $alert = DB::table('charging_fault_alerts')->first();
         $this->assertNotNull($alert->recovery_observation_id);
         $path = '/api/vendor-ops/companies/'.$f['company']->id.'/chargers/'.$f['charger']->id;

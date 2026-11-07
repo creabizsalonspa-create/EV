@@ -250,6 +250,12 @@ class SupportViewState extends State<SupportView> {
                                     ? (row['metadata'] as Map)['station_id'] ?? '?'
                                     : '?',
                               })
+                            : row['kind'] == 'charging.fault.recovered.simulated'
+                                ? s.t('simulatedRecoveryAlert', {
+                                    'station': row['metadata'] is Map
+                                        ? (row['metadata'] as Map)['station_id'] ?? '?'
+                                        : '?',
+                                  })
                             : row['kind'] == 'vehicle.battery.simulated'
                                 ? '${Localizations.localeOf(context).languageCode == 'ar' ? 'محاكاة بطارية منخفضة' : 'Simulated low battery'} · #${row['metadata'] is Map ? row['metadata']['vehicle_id'] ?? '?' : '?'} · ${row['metadata'] is Map ? row['metadata']['battery_percent'] ?? '?' : '?'}%'
                                 : s.t(

@@ -1367,7 +1367,11 @@ async function support() {
                 ? ui("p", "Observed simulated charger fault · station #{id}", {
                     id: m.metadata?.station_id ?? "?",
                 })
-                : ui("p", "{kind} · ticket #{id}", {
+                : m.kind === "charging.fault.recovered.simulated"
+                    ? ui("p", "Simulator source reported recovery · station #{id}", {
+                        id: m.metadata?.station_id ?? "?",
+                    })
+                    : ui("p", "{kind} · ticket #{id}", {
                     kind: { translate: m.kind },
                     id: m.support_ticket_id,
                 });

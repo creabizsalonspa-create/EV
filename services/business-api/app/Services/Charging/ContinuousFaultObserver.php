@@ -74,22 +74,24 @@ class ContinuousFaultObserver
                 // The source observation, fault alert and vendor-only in-app
                 // notification commit atomically under the verified ownership lock.
                 // Historical replay never emits a second notification.
+                $notify = function (int $alertId, string $kind) use ($current, $ownerId): void {
+                    InboxNotification::create([
+                        'user_id' => $ownerId,
+                        'kind' => $kind,
+                        'metadata' => [
+                            'source' => 'simulator',
+                            'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                            'station_id' => $current->station_id,
+                            'alert_id' => $alertId,
+                            'physical_verification' => false,
+                        ],
+                    ]);
+                };
                 $created = app(FaultMonitor::class)->ingest(
                     $current,
                     ['source_generation' => $generation, 'events' => $events],
-                    function (int $alertId) use ($current, $ownerId): void {
-                        InboxNotification::create([
-                            'user_id' => $ownerId,
-                            'kind' => 'charging.fault.simulated',
-                            'metadata' => [
-                                'source' => 'simulator',
-                                'evidence' => 'SIMULATED_SOURCE_OBSERVED',
-                                'station_id' => $current->station_id,
-                                'alert_id' => $alertId,
-                                'physical_verification' => false,
-                            ],
-                        ]);
-                    },
+                    fn (int $alertId) => $notify($alertId, 'charging.fault.simulated'),
+                    fn (int $alertId) => $notify($alertId, 'charging.fault.recovered.simulated'),
                 );
                 $last = $events ? end($events)['id'] : $after;
                 DB::table('charging_fault_cursors')->updateOrInsert(['source_generation' => $generation], ['binding_id' => $current->id, 'source_station_id' => $sourceId, 'last_event_id' => $last, 'state' => $state, 'checked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);

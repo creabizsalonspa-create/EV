@@ -37,3 +37,7 @@ A follow-up additive migration creates a composite index on `inbox_notifications
 ## Individual acknowledgment integrity and localization
 
 The legacy single-notification read endpoint now updates only the current user's still-unread row in an atomic transaction, writing a scoped audit event exactly once. Repeated reads return the already-acknowledged record without duplicating audit events. The unread-category picker displays localized English/Arabic labels; tests cover native category requests, isolated read receipts and combined category/unread filters in the real browser. Read acknowledgments remain **in-app state only**, not external delivery receipts.
+
+### Source-observed recovery status (not physical repair)
+
+The simulator observer now also emits a distinct `charging.fault.recovered.simulated` notification **only** when the durable charging fault alert obtains its first qualifying source recovery observation. The conditional DB update (previous recovery must be NULL) and notification insert occur in the same owner-locked transaction. Replayed observations, restarted monitors and later source pages do not duplicate the recovery notice. All metadata remains simulator-only with `physical_verification=false`; observing `Available` in a simulator is neither proof of actual repair nor authorization to release charging capacity. EN/AR web and Flutter labels explicitly describe *simulator source reported recovery*.

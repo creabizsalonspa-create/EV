@@ -134,13 +134,24 @@ class FaultFixture extends FixtureApi {
     Map<String, String> query = const {},
   }) async {
     if (path == 'notifications/summary') {
-      return {'unread_count': 1, 'latest_id': 22, 'in_app_only': true};
+      return {'unread_count': 2, 'latest_id': 23, 'in_app_only': true};
     }
     final items = path == 'notifications'
         ? [
             {
               'id': 22,
               'kind': 'charging.fault.simulated',
+              'support_ticket_id': null,
+              'read_at': null,
+              'metadata': {
+                'source': 'simulator',
+                'station_id': 17,
+                'physical_verification': false,
+              },
+            },
+            {
+              'id': 23,
+              'kind': 'charging.fault.recovered.simulated',
               'support_ticket_id': null,
               'read_at': null,
               'metadata': {
@@ -326,6 +337,7 @@ void main() {
       await tester.tap(find.byKey(const Key('support-notifications')));
       await tester.pumpAndSettle();
       expect(find.text('Observed simulated charger fault · station #17'), findsOneWidget);
+      expect(find.text('Simulator source reported recovery · station #17'), findsOneWidget);
       expect(find.textContaining('Ticket #'), findsNothing);
     },
   );

@@ -1,4 +1,8 @@
 window.EV_MESSAGES = {
+    "Simulator source reported recovery · station #{id}": {
+        en: "Simulator source reported recovery · station #{id}",
+        ar: "أبلغ مصدر المحاكاة عن التعافي · المحطة #{id}",
+    },
     "Notification category": { en: "Notification category", ar: "فئة الإشعارات" },
     "All notification categories": { en: "All notification categories", ar: "جميع فئات الإشعارات" },
     "Support notifications": { en: "Support notifications", ar: "إشعارات الدعم" },
