@@ -85,5 +85,34 @@ class CITriggerTest(unittest.TestCase):
                 self.assertRegex(concurrency, r"(?m)^  cancel-in-progress: true$")
 
 
+    def test_all_required_jobs_have_bounded_runner_time(self):
+        # Ten concurrent agents can leave many queued jobs behind. Unbounded
+        # jobs consume scarce runners after they start and delay newer commits.
+        # Preserve every mandatory job; never skip tests to optimize the queue.
+        budgets = {
+            "ci.yml": {"business-platform": 120, "finance-postgres": 60,
+                       "connector-postgres": 40, "staging-image": 20},
+            "mobile.yml": {"native": 150},
+            "hasone-customer.yml": {"native": 90},
+            "finance-commercial.yml": {"financial-browser": 90},
+        }
+        for filename, jobs in budgets.items():
+            content = (ROOT / ".github/workflows" / filename).read_text()
+            section = top_level_section(content, "jobs")
+            for name, budget in jobs.items():
+                with self.subTest(workflow=filename, job=name):
+                    match = re.search(
+                        rf"(?ms)^  {re.escape(name)}:\\n(.*?)(?=^  [A-Za-z0-9_-]+:|\\Z)",
+                        section,
+                    )
+                    self.assertIsNotNone(match, f"Missing job {name}")
+                    configured = re.findall(
+                        r"(?m)^    timeout-minutes: ([0-9]+)$", match.group(1)
+                    )
+                    self.assertEqual([str(budget)], configured)
+                    self.assertLessEqual(budget, 180)
+                    self.assertGreaterEqual(budget, 20)
+
+
 if __name__ == "__main__":
     unittest.main()
