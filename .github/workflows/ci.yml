@@ -135,3 +135,22 @@ jobs:
           name: staging-disposable-recovery-evidence
           path: artifacts/agent3-recovery/validation.json
           if-no-files-found: warn
+
+  csms-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate isolated CSMS PostGIS recovery safety policy
+        run: |
+          bash -n scripts/csms-recovery-smoke
+          python3 -m unittest discover -s tests -p agent3_csms_recovery_policy_test.py
+      - name: Verify disposable pinned PostGIS data and recovery-point integrity
+        run: bash scripts/csms-recovery-smoke
+      - name: Retain non-secret CSMS synthetic recovery evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: csms-disposable-postgis-recovery-evidence
+          path: artifacts/agent3-csms-recovery/validation.json
+          if-no-files-found: warn
