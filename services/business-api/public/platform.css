@@ -792,3 +792,11 @@ form label {
     margin-inline: 0;
     accent-color: var(--accent);
 }
+
+/* Explicit, customer-supplied battery reports: no device telemetry. */
+#vehicle-manual-soc {max-width:55rem;padding-block:1rem;margin-block:1rem;border-block-start:1px solid var(--border,#888);overflow-wrap:anywhere;}
+#vehicle-manual-soc>button {margin:.3rem;}
+#vehicle-manual-soc [data-manual-soc-panel]{padding:1rem;border:1px solid var(--border,#888);border-radius:.7rem;}
+.vehicle-manual-soc-form{display:flex;flex-wrap:wrap;gap:.7rem;align-items:end;}
+.vehicle-manual-soc-form>label{min-width:12rem;max-width:22rem;}
+.vehicle-manual-soc-form input{max-width:12rem;}
