@@ -56,8 +56,10 @@
         routeSegments = [],
         routeLines;
     let records = [],
+        partnerRows = [],
         map,
         markers,
+        partnerMarkers,
         picked;
     const valid = (s) =>
         s.latitude !== null &&
@@ -85,6 +87,82 @@
         if (map) {
             if (picked) picked.remove();
             picked = L.circleMarker([lat, lng], { radius: 9 }).addTo(map);
+        }
+    }
+
+    // Partner markers reuse this exact map and its explicit tile-consent gate.
+    // Never infer booking, charging, live availability or route authority from OCPI.
+    const partnerSafe = (row) =>
+        row && Number.isSafeInteger(row.id) && row.id > 0 &&
+        row.evidence === "PARTNER_REPORTED_UNVERIFIED" &&
+        row.availability === "unknown" &&
+        row.remote_control === false &&
+        row.reservable === false &&
+        row.location_available !== false &&
+        row.location &&
+        row.location.availability === "unknown" &&
+        row.location.remote_control === false &&
+        row.location.reservable === false &&
+        valid(row.location);
+    function renderPartners() {
+        if (!map || !partnerMarkers) return;
+        partnerMarkers.clearLayers();
+        const buckets = new Map();
+        for (const row of partnerRows.filter(partnerSafe)) {
+            const place = row.location;
+            const point = map.latLngToContainerPoint([+place.latitude, +place.longitude]);
+            const key = `${Math.floor(point.x / 48)}:${Math.floor(point.y / 48)}`;
+            if (!buckets.has(key)) buckets.set(key, []);
+            buckets.get(key).push(row);
+        }
+        for (const group of buckets.values()) {
+            const first = group[0].location;
+            const popup = document.createElement("div");
+            for (const row of group) {
+                const place = row.location;
+                const name = document.createElement("strong");
+                name.textContent = String(place.name || place.id || "Partner location").slice(0, 255);
+                popup.append(name);
+                popup.append(make(
+                    "p",
+                    "Partner reported (unverified). Live availability unknown. No booking or remote control.",
+                    "بيانات الشريك غير متحقق منها. التوفر المباشر غير معروف. لا حجز أو تحكم عن بُعد.",
+                ));
+                const jump = make("button", "View partner location in list", "عرض موقع الشريك في القائمة");
+                jump.type = "button";
+                jump.onclick = () => {
+                    const card = document.querySelector(
+                        `[data-partner-location-id="${row.id}"]`,
+                    );
+                    if (card) {
+                        card.tabIndex = -1;
+                        card.focus();
+                        card.scrollIntoView({ block: "center" });
+                    }
+                };
+                const navigation = make(
+                    "a",
+                    "Open partner directions in Google Maps",
+                    "فتح اتجاهات موقع الشريك في خرائط Google",
+                );
+                navigation.href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${+place.latitude},${+place.longitude}`)}`;
+                navigation.target = "_blank";
+                navigation.rel = "noopener noreferrer";
+                navigation.onclick = (event) => {
+                    if (!window.confirm(text(
+                        "Send the partner destination to Google Maps? Its privacy policy applies; no route or travel time is verified.",
+                        "إرسال موقع الشريك إلى خرائط Google؟ تطبق سياسة الخصوصية للمزود؛ لا توجد مسافة قيادة أو مدة طريق متحقق منها.",
+                    ))) event.preventDefault();
+                };
+                popup.append(jump, navigation);
+            }
+            L.marker([+first.latitude, +first.longitude], {
+                icon: L.divIcon({
+                    className: "station-map-pin partner-map-pin",
+                    html: `P${group.length}`,
+                    iconSize: [36, 36],
+                }),
+            }).bindPopup(popup).addTo(partnerMarkers);
         }
     }
     function render() {
@@ -163,6 +241,7 @@
                 .bindPopup(popup)
                 .addTo(markers);
         }
+        renderPartners();
     }
     enable.onclick = () => {
         canvas.hidden = false;
@@ -181,11 +260,13 @@
                 );
             });
         markers = L.layerGroup().addTo(map);
+        partnerMarkers = L.layerGroup().addTo(map);
         routeLines = L.layerGroup().addTo(map);
         renderRoute();
-        const points = records
-            .filter(valid)
-            .map((s) => [+s.latitude, +s.longitude]);
+        const points = [
+            ...records.filter(valid).map((s) => [+s.latitude, +s.longitude]),
+            ...partnerRows.filter(partnerSafe).map((r) => [+r.location.latitude, +r.location.longitude]),
+        ];
         if (points.length)
             map.fitBounds(points, { maxZoom: 13, padding: [24, 24] });
         map.on("moveend zoomend", render);
@@ -259,6 +340,12 @@
         planner.update(records);
     });
     window.addEventListener("ev:locale", render);
+    window.addEventListener("roaming-map-data", (event) => {
+        partnerRows = Array.isArray(event.detail) && event.detail.length <= 25
+            ? event.detail.filter(partnerSafe)
+            : [];
+        render();
+    });
     window.addEventListener("catalog-map-data", (event) => {
         records = event.detail;
         planner?.update(records);
