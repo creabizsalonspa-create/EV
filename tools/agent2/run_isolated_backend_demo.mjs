@@ -279,6 +279,38 @@ try{
     const doc=await db.collection('ocpp_sessions').findOne({chargerId,transactionId:id});
     assert.equal(doc.energyWh,7000);assert.equal(doc.paymentStatus,'not_collected');
   });
+  const sourceDoc=await db.collection('ocpp_sessions').findOne({chargerId,transactionId:id});
+  // This is a disposable QA fixture, NOT evidence of a real paid transaction.
+  const approvedBooking=await BookingModel.create({userId:user._id,stationId:station._id,
+    date:'2026-11-10',time:'12:00 PM',slotStart:'12:00 PM',slotEnd:'01:00 PM',
+    totalAmount:63,isPaid:true,paymentStatus:'paid',hasArrived:true,status:'Upcoming',
+    ocppTokenHash:tokenHash});
+  await NearestStationModel.findByIdAndUpdate(station._id,{$set:{ocppChargerId:chargerId}});
+  const linked=await ChargingSessionModel.create({userId:user._id,bookingId:approvedBooking._id,
+    stationId:station._id,sourceType:'ocpp',sourceSessionId:String(sourceDoc._id),
+    sourceChargerId:chargerId,sourceTransactionId:id,status:'NotStarted'});
+  await check('customer charging screen reads exact OCPP metering, not a generated estimate',async()=>{
+    const r=await request('GET','/api/v1/ChargingSession/'+linked._id+'/status',undefined,true);
+    assert.equal(r.code,200);assert.equal(r.body.data.sourceVerified,true);
+    assert.equal(r.body.data.meterVerified,true);
+    assert.equal(r.body.data.kwhUsed,7);
+    assert.equal(r.body.data.chargingStatus,'Completed');
+    assert.equal(r.body.data.paymentStatus,'not_collected');
+    assert.equal(r.body.data.canStop,false);
+  });
+  await check('customer OCPP status becomes unverified if booking token proof changes',async()=>{
+    approvedBooking.ocppTokenHash='b'.repeat(64);await approvedBooking.save();
+    const r=await request('GET','/api/v1/ChargingSession/'+linked._id+'/status',undefined,true);
+    assert.equal(r.code,200);assert.equal(r.body.data.sourceVerified,false);
+    assert.equal(r.body.data.kwhUsed,null);
+    approvedBooking.ocppTokenHash=tokenHash;await approvedBooking.save();
+  });
+  await check('different source session identifier cannot expose another meter reading',async()=>{
+    linked.sourceSessionId=String(new mongoose.Types.ObjectId());await linked.save();
+    const r=await request('GET','/api/v1/ChargingSession/'+linked._id+'/status',undefined,true);
+    assert.equal(r.code,200);assert.equal(r.body.data.sourceVerified,false);
+    linked.sourceSessionId=String(sourceDoc._id);await linked.save();
+  });
   const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
   const hash16=createHash('sha256').update(token16).digest('hex');
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
