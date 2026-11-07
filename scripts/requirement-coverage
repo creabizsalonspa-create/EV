@@ -55,7 +55,7 @@ for name, checkpoint in checkpoints.items():
                 assert isinstance(check, dict) and isinstance(check.get('name'), str) and check['name'], f'{name}: CI check name required'
                 assert check.get('status', '').lower() == 'completed' and check.get('conclusion', '').lower() == 'success', f'{name}: mandatory CI checks must be successful'
                 url = check.get('details_url', check.get('detailsUrl', ''))
-                assert isinstance(url, str) and re.fullmatch(r'https://github\\.com/creabizsalonspa-create/EV/actions/runs/\\d+/job/\\d+', url), f'{name}: source-linked CI job URL required'
+                assert isinstance(url, str) and re.fullmatch(r'https://github[.]com/creabizsalonspa-create/EV/actions/runs/[0-9]+/job/[0-9]+', url), f'{name}: source-linked CI job URL required'
         assert record['source_sha'] == checkpoint['source_sha'], f'{name}: wrong source evidence'
         if checkpoint['merge_sha']:
             assert record.get('integrated_sha') == checkpoint['merge_sha'], f'{name}: wrong merged evidence'
