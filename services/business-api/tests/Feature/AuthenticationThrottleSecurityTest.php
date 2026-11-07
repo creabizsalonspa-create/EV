@@ -58,4 +58,32 @@ class AuthenticationThrottleSecurityTest extends TestCase
             'email' => 'unknown-qa-recovery@example.test',
         ])->assertAccepted();
     }
+
+    public function test_web_and_native_login_share_one_per_ip_attempt_budget(): void
+    {
+        // An attacker must not receive a second fresh budget merely by
+        // changing the HTTP client from browser to mobile app.
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.44']);
+        $credentials = [
+            'email' => 'unknown-qa-cross-client@example.test',
+            'password' => 'test-only-unknown-password',
+        ];
+
+        for ($attempt = 1; $attempt <= 6; $attempt++) {
+            $this->postJson('/api/login', $credentials)->assertUnprocessable();
+        }
+
+        for ($attempt = 1; $attempt <= 4; $attempt++) {
+            $this->postJson('/api/v1/login', $credentials)->assertUnprocessable();
+        }
+
+        $this->postJson('/api/v1/login', $credentials)
+            ->assertStatus(429)->assertHeader('Cache-Control', 'no-store, private');
+
+        // Exhausting one source IP must not prevent another IP from
+        // attempting a legitimate login.
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.45']);
+        $this->postJson('/api/v1/login', $credentials)->assertUnprocessable();
+    }
+
 }
