@@ -441,6 +441,13 @@ void main() {
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
       );
       expect(otherRequests, 0);
+      // A caller must not bypass logout fencing by requesting the same
+      // handshake endpoint as the internal logout operation.
+      await expectLater(
+        api.request('logout', method: 'POST'),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      expect(logouts, 0);
       gate.complete();
       await logout;
       expect(logouts, 1);
@@ -481,6 +488,22 @@ void main() {
       final login = api.signIn('current@example.test', 'synthetic');
       await expectLater(
         api.request('notes', method: 'POST', body: {'value': 'stale'}),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+      );
+      expect(forbiddenRequests, 0);
+      // The login and CSRF URLs are privileged only when this client calls
+      // them as part of its own transition, not by their path spelling.
+      for (final requestPath in ['csrf', 'login']) {
+        await expectLater(
+          api.request(
+            requestPath,
+            method: requestPath == 'login' ? 'POST' : 'GET',
+          ),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
+        );
+      }
+      await expectLater(
+        api.csrf(),
         throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
       );
       expect(forbiddenRequests, 0);
