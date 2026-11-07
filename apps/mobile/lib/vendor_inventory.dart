@@ -18,11 +18,13 @@ import 'vendor_operations_strings.dart';
 class VendorInventoryView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
+  final bool metadataEditor;
   final Map<String, dynamic>? company, site, charger;
   const VendorInventoryView({
     super.key,
     required this.api,
     required this.onExpired,
+    this.metadataEditor = false,
     this.company,
     this.site,
     this.charger,
@@ -109,6 +111,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
         builder: (_) => VendorInventoryView(
           api: widget.api,
           onExpired: widget.onExpired,
+          metadataEditor: widget.metadataEditor,
           company: level == 0 ? row : widget.company,
           site: level == 1 ? row : widget.site,
           charger: level == 2 ? row : widget.charger,
@@ -250,7 +253,7 @@ class _VendorInventoryViewState extends State<VendorInventoryView> {
               ),
 
             if (level == 0) ...[
-              OutlinedButton.icon(
+              if (widget.metadataEditor) OutlinedButton.icon(
                 key: const Key('vendor-station-information-open'),
                 icon: const Icon(Icons.info_outline),
                 label: Text(Localizations.localeOf(context).languageCode == 'ar'

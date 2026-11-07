@@ -62,6 +62,7 @@ void main() {
   testWidgets('Arabic customer view preserves an explicit unknown availability warning', (tester) async {
     await tester.pumpWidget(MaterialApp(
       locale: const Locale('ar'),
+      supportedLocales: const [Locale('en'), Locale('ar')],
       home: Scaffold(body: ListView(children: [
         StationInformationPanel(information: Station.fromJson(station()).information, timezone: 'Asia/Dubai'),
       ])),
