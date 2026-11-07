@@ -433,3 +433,32 @@ and Next build suites have NOT been rerun for this revision. Earlier counts
 Only the 94 local tests and syntax checks above are current evidence.
 Keep draft pending hosted checks and an authorized host rerun. No live source,
 credentials, customer data, financial settlement or physical charger was changed.
+
+
+## Protocol-sized booking credentials — 7 November 2026
+
+Initial issue and expired-unused reissue now call one CSPRNG generator that
+returns 20 uppercase hexadecimal characters from ten random bytes (80 bits).
+The previous 48-character output exceeded the OCPP 1.6 identifier field.
+The full 64-character SHA-256 stored digest, charger/booking scope, expiry,
+consumed-token retention and uncertain-write guards remain intact.
+
+Basis: Open Charge Alliance OCPP 1.6 edition 2, section 7.28 (IdToken /
+CiString20Type), authored OCA specification mirrored at:
+https://downloads.regulations.gov/FHWA-2022-0008-0403/attachment_6.pdf
+
+The Admin receipt validator and both mocked and actual-API browser runners use
+the new 20-character contract. The source stager copies the shared generator
+beside the controller. The staged OCPP 1.6 StartTransaction guard rejects an
+oversized tag before token consumption or source creation; its integration
+fixture now checks that rejection and retains the unused token.
+
+**Current executed evidence:** 97/97 local Node tests, including generator wire
+length/character format, SHA-256 identity and atomic single-use behavior.
+Changed JavaScript parses and both Python stagers compile. No old 48-character
+receipt assertion or randomBytes(24) issuance remains in the changed flows.
+
+**Not executed:** full Express/Mongo/OCPP and Admin build/browser reruns,
+including the new oversized-start integration test, because the authorized host
+remains offline. Prior runtime counts do not validate this revision. This fix
+does not certify a physical charger, enable controls, settle funds or deploy.

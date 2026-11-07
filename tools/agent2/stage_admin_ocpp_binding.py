@@ -28,7 +28,8 @@ def patch(root):
     reissue_helper=root/'src/utils/ocppReissuePolicy.mjs'
     binding_audit_helper=root/'src/utils/ocppSourceBindingIndexAudit.mjs'
     start_audit_helper=root/'src/utils/ocppStartAudit.mjs'
-    if not legacy.is_file() or multi.exists() or multi_helper.exists() or migration_helper.exists() or reissue_helper.exists() or binding_audit_helper.exists() or start_audit_helper.exists():
+    token_helper=root/'src/utils/ocppBookingToken.mjs'
+    if not legacy.is_file() or multi.exists() or multi_helper.exists() or migration_helper.exists() or reissue_helper.exists() or binding_audit_helper.exists() or start_audit_helper.exists() or token_helper.exists():
         raise RuntimeError('Multi-charger source missing or already patched')
     if not all(p.is_file() for p in (routes,booking,session)) or controller.exists():
         raise RuntimeError('Incomplete staged tree or controller already present')
@@ -40,7 +41,8 @@ def patch(root):
     reissue_source=integration/'ocppReissuePolicy.mjs'
     binding_audit_source=integration/'ocppSourceBindingIndexAudit.mjs'
     start_audit_source=integration/'ocppStartAudit.mjs'
-    if not all(p.is_file() for p in (source,multi_source,helper_source,migration_source,reissue_source,binding_audit_source,start_audit_source)):
+    token_source=integration/'ocppBookingToken.mjs'
+    if not all(p.is_file() for p in (source,multi_source,helper_source,migration_source,reissue_source,binding_audit_source,start_audit_source,token_source)):
         raise RuntimeError('Missing vetted multi-charger integration source')
     r,b,s=(f.read_text(encoding='utf8') for f in (routes,booking,session))
     original=legacy.read_text(encoding='utf8')
@@ -113,8 +115,10 @@ const ChargingSessionModel = mongoose.model("ChargingSession", ChargingSessionSc
     reissue_helper.write_text(reissue_source.read_text(encoding='utf8'),encoding='utf8')
     binding_audit_helper.write_text(binding_audit_source.read_text(encoding='utf8'),encoding='utf8')
     start_audit_helper.write_text(start_audit_source.read_text(encoding='utf8'),encoding='utf8')
+    token_helper.write_text(token_source.read_text(encoding='utf8'),encoding='utf8')
     print('STAGED_ADMIN_OCPP_BINDING_PATCHED; production not modified')
 
 if __name__=='__main__':
     if len(sys.argv)!=2:raise SystemExit('Usage: stage_admin_ocpp_binding.py STAGED_SOURCE_COPY')
     patch(Path(sys.argv[1]))
+

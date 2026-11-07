@@ -157,7 +157,7 @@ export default function OcppBookingWorkflow({
       if(path==="issue-token"||path==="reissue-token"){
         const result=response.data as IssueResponse;
         if(typeof result.data?.oneTimeToken!=="string" ||
-          !/^[a-f0-9]{48}$/.test(result.data.oneTimeToken)){
+          !/^[A-F0-9]{20}$/.test(result.data.oneTimeToken)){
           throw new Error("Authorization was accepted, but token delivery was incomplete. Contact your administrator.");
         }
         setSecret(result.data.oneTimeToken);
@@ -431,3 +431,4 @@ export default function OcppBookingWorkflow({
     </>
   );
 }
+

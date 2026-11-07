@@ -72,7 +72,7 @@ export async function runActualAdminBrowser({
      await page.waitForSelector('button[aria-label="Reveal token"]',{timeout:15000});
      await page.click('button[aria-label="Reveal token"]');
      rawToken=await page.$eval('code',x=>x.textContent.trim());
-     assert.match(rawToken,/^[a-f0-9]{48}$/);
+     assert.match(rawToken,/^[0-9A-F]{20}$/);
      const stored=await page.evaluate(()=>[...Object.values(localStorage),...Object.values(sessionStorage)]);
      assert.equal(stored.some(x=>x.includes(rawToken)),false);
    });

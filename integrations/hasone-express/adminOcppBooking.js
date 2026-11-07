@@ -4,6 +4,7 @@
  * binding. Does not initiate remote charging, capture money or generate invoices.
  */
 import crypto from 'node:crypto';
+import {createOcppBookingToken} from '../utils/ocppBookingToken.mjs';
 import mongoose from 'mongoose';
 import BookingModel from '../models/BookingModel.js';
 import ChargingSessionModel from '../models/ChargingSessionModel.js';
@@ -60,7 +61,7 @@ export async function AdminIssueBookingOcppToken(req,res){
    return fail(res,409,selected.reason==='explicit_selection_required'
      ? 'Select a specific approved charger for this multi-charger station.'
      : 'Requested charger is unavailable or does not match this booking.');
-  const token=crypto.randomBytes(24).toString('hex');
+  const token=createOcppBookingToken();
   const tokenHash=crypto.createHash('sha256').update(token).digest('hex');
   const issuedAt=new Date();
   const expiresAt=new Date(issuedAt.getTime()+20*60*1000);
@@ -118,7 +119,7 @@ export async function AdminReissueExpiredBookingOcppToken(req,res){
   }))return fail(res,409,'Token is active, already used or booking is not eligible for safe reissue');
 
   const oldHash=booking.ocppTokenHash,oldIssuedAt=booking.ocppTokenIssuedAt;
-  const newToken=crypto.randomBytes(24).toString('hex');
+  const newToken=createOcppBookingToken();
   const newHash=crypto.createHash('sha256').update(newToken).digest('hex');
   const expiresAt=new Date(now.getTime()+OCPP_TOKEN_TTL_MS);
   const changed=await BookingModel.findOneAndUpdate({

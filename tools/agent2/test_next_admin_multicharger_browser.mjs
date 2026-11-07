@@ -26,7 +26,7 @@ const sourceA='507f1f77bcf86cd799439013';
 const sourceB='507f1f77bcf86cd799439014';
 const chargerA='AGENT2-STATION-CHARGER-A';
 const chargerB='AGENT2-STATION-CHARGER-B';
-const fakeToken='abcdef123456'.repeat(4);
+const fakeToken='A1B2C3D4E5F60718293A';
 let stage=0,requestAuthorizationCount=0;
 let issuedTo=null;
 let auditPageFailure=true;
@@ -270,3 +270,4 @@ try{
 }finally{
  await browser.close();
 }
+

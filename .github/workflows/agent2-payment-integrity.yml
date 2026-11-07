@@ -32,6 +32,7 @@ jobs:
           node --check integrations/hasone-express/adminMultiCharger.js
           node --check integrations/hasone-express/ocppStartAudit.mjs
           node --check integrations/hasone-express/ocppStartAuthorization.mjs
+          node --check integrations/hasone-express/ocppBookingToken.mjs
           node --check integrations/hasone-express/ocppMultiCharger.mjs
           node --check integrations/hasone-express/migrateChargerStationIndex.mjs
           node --check integrations/hasone-express/ocppStartAuthorization.mjs
@@ -62,3 +63,4 @@ jobs:
           python3 -m py_compile tools/agent2/stage_ocpp_qr_safety.py
           python3 -m py_compile tools/agent2/stage_next_ocpp_report_page.py
           python3 -m py_compile tools/agent2/stage_next_ocpp_booking_workflow.py
+

@@ -48,7 +48,7 @@ def patch(path):
     if(!Number.isInteger(data.connectorId)||data.connectorId<1||data.connectorId>64 ||
       !Number.isFinite(data.meterStart)||data.meterStart<0||data.meterStart>maxWh)
       throw new Error("Invalid StartTransaction readings or connector");
-    if(typeof data.idTag!=="string" || data.idTag.length<8 || data.idTag.length>64)
+    if(typeof data.idTag!=="string" || data.idTag.length<8 || data.idTag.length>20)
       return {idTagInfo:{status:"Invalid"}};
     const idTagHash=hashOcppToken(data.idTag);
     // A retried StartTransaction may have lost its original response.
@@ -81,3 +81,4 @@ def patch(path):
 if __name__=='__main__':
     if len(sys.argv)!=2:raise SystemExit('Usage: stage_ocpp201_token_binding.py STAGED_HANDLERS_FILE')
     patch(Path(sys.argv[1]))
+

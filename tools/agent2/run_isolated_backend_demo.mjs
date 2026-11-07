@@ -428,7 +428,7 @@ try{
     assert.equal(z.body.status,'Success');
     assert.equal(z.body.data.chargerId,adminCharger);
     issuedToken=z.body.data.oneTimeToken;
-    assert.ok(typeof issuedToken==='string' && /^[0-9a-f]{48}$/.test(issuedToken));
+    assert.ok(typeof issuedToken==='string' && /^[0-9A-F]{20}$/.test(issuedToken));
     const hash=createHash('sha256').update(issuedToken).digest('hex');
     const saved=await BookingModel.findById(adminBooking._id);
     assert.equal(saved.ocppTokenHash,hash);
@@ -582,6 +582,7 @@ try{
     assert.equal(responses.filter(x=>x.code===201).length,1);
     assert.equal(responses.filter(x=>x.code===409).length,7);
     renewedToken=responses.find(x=>x.code===201).body.data.oneTimeToken;
+    assert.match(renewedToken,/^[0-9A-F]{20}$/);
     const newHash=createHash('sha256').update(renewedToken).digest('hex');
     const saved=await BookingModel.findById(expiredBooking._id);
     assert.equal(saved.ocppTokenHash,newHash);
@@ -850,6 +851,7 @@ try{
       {authorization:adminBearer});
     assert.equal(r.code,201);
     token20=r.body.data.oneTimeToken;
+    assert.match(token20,/^[0-9A-F]{20}$/);
     assert.equal(r.body.data.chargerId,adminCharger20);
   });
   const tx20='agent2-admin-ocpp201-source';
@@ -1066,6 +1068,7 @@ try{
     assert.equal(response.code,201);
     assert.equal(response.body.data.chargerId,multiSecond);
     multiToken=response.body.data.oneTimeToken;
+    assert.match(multiToken,/^[0-9A-F]{20}$/);
     const saved=await BookingModel.findById(multiBooking._id);
     assert.equal(saved.ocppChargerId,multiSecond);
     const ready=await request('GET',multiOps,undefined,false,{authorization:adminBearer});
@@ -1224,11 +1227,25 @@ try{
         {$set:{enabled:true}});
     }
   });
-  const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
+  const charger16='agent2-ocpp16-test',token16='0123456789ABCDEF0123';
   const hash16=createHash('sha256').update(token16).digest('hex');
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
     enabled:true,expiresAt:new Date(Date.now()+3600000)});
   await db.collection('ocpp_tariffs').insertOne({chargerId:charger16,enabled:true,rateFilsPerKwh:100,vatPercent:5});
+  await check('OCPP1.6 oversized start tag is rejected without source creation or token consumption',async()=>{
+    const raw='AGENT2-OVERSIZED-BOOKING-TOKEN';
+    const digest=createHash('sha256').update(raw).digest('hex');
+    await db.collection('ocpp_access_tokens').insertOne({
+      chargerId:charger16,tokenHash:digest,enabled:true,
+      expiresAt:new Date(Date.now()+3600000)
+    });
+    const result=await handle({chargerId:charger16},'ocpp1.6','StartTransaction',{
+      connectorId:1,meterStart:1000,idTag:raw,timestamp:new Date().toISOString()
+    });
+    assert.equal(result.idTagInfo.status,'Invalid');
+    assert.equal(await db.collection('ocpp_sessions').countDocuments({chargerId:charger16}),0);
+    assert.equal((await db.collection('ocpp_access_tokens').findOne({tokenHash:digest})).enabled,true);
+  });
   await check('OCPP1.6 authorization preflight does not consume credential',async()=>{
     const auth=await handle({chargerId:charger16},'ocpp1.6','Authorize',{idTag:token16});
     assert.equal(auth.idTagInfo.status,'Accepted');
