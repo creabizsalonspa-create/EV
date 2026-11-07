@@ -7,11 +7,29 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, \Laravel\Sanctum\HasApiTokens, Notifiable;
+
+    protected static function booted(): void
+    {
+        static::updated(function (self $account): void {
+            if (! $account->wasChanged('role')) {
+                return;
+            }
+
+            // A role change is a security epoch boundary: old browser sessions
+            // and existing native bearer tokens must not inherit new privileges.
+            // Callers changing roles must hold a row lock in a transaction.
+            $account->tokens()->delete();
+            DB::table('sessions')->where('user_id', $account->id)->delete();
+            DB::table('users')->where('id', $account->id)->update(['remember_token' => Str::random(60)]);
+        });
+    }
 
     protected $attributes = ['role' => 'customer', 'locale' => 'en'];
 

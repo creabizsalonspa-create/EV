@@ -97,7 +97,9 @@ class MaintenanceWindowTest extends TestCase
         $this->getJson($f['base'])->assertUnauthorized();
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->postJson($f['base'], $f['payload'])->assertNotFound();
         $this->actingAs($f['owner'])->postJson($f['base'], array_replace($f['payload'], ['ends_at' => $f['payload']['starts_at']]))->assertUnprocessable();
-        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
-        $this->getJson(str_replace('/api/', '/api/v1/', $f['base']))->assertOk()->assertJsonPath('total', 0);
+        $admin = User::factory()->create(['role' => 'admin']);
+        Sanctum::actingAs($admin);
+        $this->getJson(str_replace('/api/', '/api/v1/', $f['base']))->assertForbidden();
+        $this->actingAs($admin, 'web')->getJson($f['base'])->assertOk()->assertJsonPath('total', 0);
     }
 }

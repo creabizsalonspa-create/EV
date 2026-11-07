@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AdminOperatorRoleHistoryController;
 use App\Http\Controllers\ChargerCommandController;
 use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
@@ -44,6 +45,8 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::put('/api/simulations/{session}/meter', [SimulationController::class, 'meter']);
     Route::post('/api/simulations/{session}/stop', [SimulationController::class, 'stop']);
 });
+
+Route::get('/api/admin/operator-role-changes', [AdminOperatorRoleHistoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/admin/overview', function (Request $r) {
     abort_unless($r->user()->role === 'admin', 403);

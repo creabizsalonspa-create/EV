@@ -9,6 +9,7 @@ use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
+use App\Http\Middleware\RejectAdminPersonalAccessToken;
 use App\Http\Controllers\OcpiProtocolCredentialsController;
 use App\Http\Controllers\OcpiProtocolRecordsController;
 use App\Http\Controllers\OcpiRoamingProtocolController;
@@ -33,7 +34,7 @@ Route::prefix('v1')->group(function () {
     });
     Route::get('/stations', [P::class, 'stations'])->middleware('throttle:catalog');
     Route::get('/regions', [E::class, 'regions'])->middleware('throttle:catalog');
-    Route::middleware(['auth:sanctum', 'throttle:platform-api'])->group(function () {
+    Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(function () {
         Route::group([], __DIR__.'/finance.php');
         Route::prefix('vendor-ops')->group(__DIR__.'/vendor_ops.php');
         Route::get('/me', fn (Request $r) => response()->json($r->user()));
@@ -61,7 +62,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/fleet-invitations', [E::class, 'invitations']);
         Route::post('/fleet-invitations/{invitation}/accept', [E::class, 'accept']);
     });
-    Route::middleware(['auth:sanctum', 'throttle:support'])->group(function () {
+    Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:support'])->group(function () {
         Route::get('/support', [T::class, 'index']);
         Route::post('/support', [T::class, 'create']);
         Route::get('/support/{ticket}', [T::class, 'show']);
@@ -81,17 +82,17 @@ require __DIR__.'/subscription_webhooks.php';
 
 Route::get('/v1/stations/{station}/connectors', [ConnectorTopologyController::class, 'options'])->middleware('throttle:catalog');
 
-Route::post('/v1/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+Route::post('/v1/reservations/{reservation}/check-in', [ReservationLifecycleController::class, 'checkIn'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 
-Route::post('/v1/charging-sessions/{session}/reconcile', [CsmsSessionController::class, 'reconcile'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+Route::post('/v1/charging-sessions/{session}/reconcile', [CsmsSessionController::class, 'reconcile'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 
-Route::post('/v1/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start'])->middleware(['auth:sanctum', 'throttle:platform-api']);
-Route::post('/v1/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+Route::post('/v1/reservations/{reservation}/csms-start', [CsmsSessionController::class, 'start'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+Route::post('/v1/charging-sessions/{session}/csms-stop', [CsmsSessionController::class, 'stop'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 
 Route::post('/internal/charger-ingress/authenticate', [ChargerIngressController::class, 'authenticate'])->middleware('throttle:charger-admission');
 
-Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/charging_operations.php');
-Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/rider_access.php');
+Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/charging_operations.php');
+Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/rider_access.php');
 Route::post('/internal/rider-oauth/token', [RiderSourceController::class, 'token'])->middleware('throttle:charger-admission');
 Route::post('/internal/rider-authorize', [RiderSourceController::class, 'authorize'])->middleware('throttle:charger-admission');
 
@@ -99,7 +100,7 @@ require __DIR__.'/subscription_credit_webhooks.php';
 
 Route::post('/payment-enrollments/stripe-test/webhook', [RecurringPaymentController::class, 'webhook'])->middleware('throttle:platform-api');
 
-Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/favorites.php');
+Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/favorites.php');
 
 require __DIR__.'/payout_webhooks.php';
 require __DIR__.'/external_dispute_webhooks.php';
@@ -127,10 +128,10 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
     Route::match(['GET', 'POST', 'PUT', 'DELETE'], '2.2.1/credentials', [OcpiProtocolCredentialsController::class, 'handle'])->defaults('resource', 'credentials');
 });
 
-Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1/roaming')->group(__DIR__.'/roaming_orders.php');
-Route::get('v1/ocpi/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations'])->middleware(['auth:sanctum', 'throttle:platform-api']);
+Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1/roaming')->group(__DIR__.'/roaming_orders.php');
+Route::get('v1/ocpi/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
 Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->whereNumber('operation')->middleware('throttle:30,1');
 
 Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
-Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
+Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');

@@ -13,17 +13,19 @@ class MobileAuthController extends Controller
 {
     private function issue(User $u)
     {
-        abort_unless(in_array($u->role, ['customer', 'vendor']), 403, 'Admin accounts use the web administration portal.');
-
         return DB::transaction(function () use ($u) {
-            User::whereKey($u->id)->lockForUpdate()->firstOrFail();
-            $u->tokens()->where('created_at', '<', now()->subDay())->delete();
-            if ($u->tokens()->count() >= 5) {
-                $u->tokens()->oldest('id')->first()->delete();
-            }
-            $token = $u->createToken('mobile', ['platform'], now()->addDay());
+            // Check the *locked current role*, not a User instance retrieved
+            // before a concurrent promotion to Admin.
+            $account = User::whereKey($u->id)->lockForUpdate()->firstOrFail();
+            abort_unless(in_array($account->role, ['customer', 'vendor']), 403, 'Admin accounts use the web administration portal.');
 
-            return response()->json(['token' => $token->plainTextToken, 'expires_at' => $token->accessToken->expires_at, 'user' => $u]);
+            $account->tokens()->where('created_at', '<', now()->subDay())->delete();
+            if ($account->tokens()->count() >= 5) {
+                $account->tokens()->oldest('id')->first()->delete();
+            }
+            $token = $account->createToken('mobile', ['platform'], now()->addDay());
+
+            return response()->json(['token' => $token->plainTextToken, 'expires_at' => $token->accessToken->expires_at, 'user' => $account]);
         });
     }
 

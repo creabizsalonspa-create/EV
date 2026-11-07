@@ -101,13 +101,18 @@ class ChargerDiagnosticsTest extends TestCase
 
     public function test_native_admin_access_uses_same_scope_and_production_source_is_disabled(): void
     {
-        [, , , $url] = $this->fixture();
-        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
-        Http::fakeSequence()->push(['data' => ['ChargingStations' => []]]);
+        [$owner, , , $url] = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        Sanctum::actingAs($admin);
         $native = str_replace('/api/', '/api/v1/', $url);
-        $this->getJson($native)->assertOk()->assertJsonPath('source_registered', false);
+        // Admin is a web-only role; an artificial native Sanctum identity
+        // must not bypass the browser/MFA security boundary.
+        $this->getJson($native)->assertForbidden();
+        Http::assertNothingSent();
+        Http::fakeSequence()->push(['data' => ['ChargingStations' => []]]);
+        $this->actingAs($admin, 'web')->getJson($url)->assertOk()->assertJsonPath('source_registered', false);
         $this->app->instance('env', 'production');
-        $this->getJson($native)->assertServiceUnavailable()->assertJsonMissingPath('source_online');
+        $this->actingAs($owner, 'web')->getJson($url)->assertServiceUnavailable()->assertJsonMissingPath('source_online');
         Http::assertSentCount(1);
     }
 
