@@ -183,6 +183,63 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_explicit_admin_escalation_is_private_durable_and_independent_of_owner_opt_out(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $otherAdmin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $this->actingAs($f['owner'])->putJson('/api/notifications/preferences', [
+            'default_category' => 'charging',
+            'default_unread_only' => false,
+            'remind_unresolved_simulator_faults' => false,
+        ])->assertOk();
+        $service = app(FaultReminderEscalator::class);
+        $first = $service->scan();
+        $this->assertSame(0, $first['reminded']);
+        $this->assertSame(1, $first['escalated']);
+        $this->assertSame(0, $service->scan()['escalated']);
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 1);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'admin_user_id' => $admin->id,
+        ]);
+        $note = InboxNotification::firstOrFail();
+        $this->assertSame($admin->id, $note->user_id);
+        $this->assertSame('charging.fault.escalated.simulated', $note->kind);
+        $this->assertFalse($note->metadata['physical_verification']);
+        $this->assertTrue($note->metadata['admin_escalation_only']);
+        $this->actingAs($admin)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->actingAs($otherAdmin)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($f['owner'])->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_escalation_requires_valid_admin_and_unresolved_fault_over_sixty_minutes(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $service = app(FaultReminderEscalator::class);
+        // A configured vendor ID is never an escalation destination.
+        config(['csms.fault_escalation_admin_user_id' => $f['owner']->id]);
+        $this->assertSame(0, $service->scan()['escalated']);
+        // A valid Admin is too early at 21 minutes.
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        $this->assertSame(0, $service->scan()['escalated']);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(61)]);
+        $this->assertSame(1, $service->scan()['escalated']);
+        $this->assertSame(0, $service->scan()['escalated']);
+        $this->assertDatabaseCount('charging_fault_admin_escalations', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_owner_can_suppress_repeat_reminder_but_original_fault_remains_available(): void
     {
         $f = $this->fixture();

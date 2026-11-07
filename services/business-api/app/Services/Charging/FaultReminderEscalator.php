@@ -55,12 +55,13 @@ class FaultReminderEscalator
 
         $examined = 0;
         $reminded = 0;
+        $escalated = 0;
         $lastId = $after;
         foreach ($ids as $id) {
             $id = (int) $id;
             $lastId = $id;
             $examined++;
-            $created = DB::transaction(function () use ($id, $cutoff): bool {
+            $result = DB::transaction(function () use ($id, $cutoff) {
                 // Lookup is only a hint; all ownership, binding, preference,
                 // source generation and fault state checks happen again below
                 // under locks. Lock order matches existing vendor fault writes.
@@ -129,10 +130,51 @@ class FaultReminderEscalator
                 if ($occurredAt->greaterThan($cutoff)) {
                     return false;
                 }
+                // A 60+ minute unresolved *simulator* fault can also notify
+                // an explicitly designated, currently authorized Admin. The
+                // vendor's optional reminder opt-out never controls this
+                // independent operational oversight. An unset/invalid Admin
+                // ID disables this stage entirely.
+                $escalatedNow = false;
+                $adminId = filter_var(
+                    config('csms.fault_escalation_admin_user_id', 0),
+                    FILTER_VALIDATE_INT,
+                    ['options' => ['min_range' => 1]]
+                );
+                if ($adminId !== false &&
+                    $occurredAt->lessThanOrEqualTo(now()->subMinutes(60))) {
+                    $admin = DB::table('users')->where('id', $adminId)
+                        ->lockForUpdate()->first();
+                    if ($admin && $admin->role === 'admin') {
+                        $insertedEscalation = DB::table('charging_fault_admin_escalations')
+                            ->insertOrIgnore([
+                                'alert_id' => $alert->id,
+                                'admin_user_id' => $adminId,
+                                'created_at' => now(),
+                            ]);
+                        if ($insertedEscalation === 1) {
+                            InboxNotification::create([
+                                'user_id' => $adminId,
+                                'kind' => 'charging.fault.escalated.simulated',
+                                'metadata' => [
+                                    'source' => 'simulator',
+                                    'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                                    'physical_verification' => false,
+                                    'company_id' => $company->id,
+                                    'station_id' => $station->id,
+                                    'charger_id' => $charger->id,
+                                    'alert_id' => $alert->id,
+                                    'admin_escalation_only' => true,
+                                ],
+                            ]);
+                            $escalatedNow = true;
+                        }
+                    }
+                }
                 $preference = DB::table('notification_preferences')
                     ->where('user_id', $company->owner_id)->lockForUpdate()->first();
                 if ($preference && ! (bool) $preference->remind_unresolved_simulator_faults) {
-                    return false;
+                    return ['reminded' => false, 'escalated' => $escalatedNow];
                 }
                 // Per-owner delay can only lengthen the worker's global
                 // minimum. A corrupt value fails closed; it never shortens
@@ -140,7 +182,7 @@ class FaultReminderEscalator
                 $delay = (int) ($preference->fault_reminder_delay_minutes ?? 15);
                 if (! in_array($delay, [15, 30, 60], true)
                     || $occurredAt->greaterThan(now()->subMinutes($delay))) {
-                    return false;
+                    return ['reminded' => false, 'escalated' => $escalatedNow];
                 }
                 $inserted = DB::table('charging_fault_reminders')->insertOrIgnore([
                     'alert_id' => $alert->id,
@@ -148,7 +190,7 @@ class FaultReminderEscalator
                     'created_at' => now(),
                 ]);
                 if ($inserted !== 1) {
-                    return false;
+                    return ['reminded' => false, 'escalated' => $escalatedNow];
                 }
                 InboxNotification::create([
                     'user_id' => $company->owner_id,
@@ -165,10 +207,11 @@ class FaultReminderEscalator
                     ],
                 ]);
 
-                return true;
+                return ['reminded' => true, 'escalated' => $escalatedNow];
             }, 3);
-            if ($created) {
-                $reminded++;
+            if (is_array($result)) {
+                if ($result['reminded']) $reminded++;
+                if ($result['escalated']) $escalated++;
             }
         }
 
@@ -184,6 +227,7 @@ class FaultReminderEscalator
         return [
             'examined' => $examined,
             'reminded' => $reminded,
+            'escalated' => $escalated,
             'after' => $lastId,
             'in_app_only' => true,
             'physical_verification' => false,

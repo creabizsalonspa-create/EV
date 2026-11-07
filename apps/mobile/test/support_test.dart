@@ -1044,6 +1044,33 @@ void main() {
     expect(fixture.writes, 0);
   });
 
+  test('explicit on-call Admin escalation stays simulator scoped', () {
+    final notice = {
+      'kind': 'charging.fault.escalated.simulated',
+      'metadata': {
+        'source': 'simulator',
+        'physical_verification': false,
+        'company_id': 5,
+        'charger_id': 7,
+        'station_id': 17,
+        'alert_id': 9,
+        'admin_escalation_only': true,
+      },
+    };
+    expect(inboxNotificationTitle(notice, EvStrings(const Locale('en'))),
+        contains('on-call Admin'));
+    expect(inboxNotificationTitle(notice, EvStrings(const Locale('ar'))),
+        contains('المشرف المناوب'));
+    expect(simulatedFaultTarget(notice), {
+      'company_id': 5, 'charger_id': 7, 'alert_id': 9,
+    });
+    expect(simulatedFaultTarget({
+      ...notice,
+      'metadata': {...notice['metadata'] as Map<String, dynamic>,
+        'physical_verification': true},
+    }), isNull);
+  });
+
   test('optional simulator reminder is visibly distinct but uses the same read-only fault review', () {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));

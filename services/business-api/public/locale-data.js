@@ -1,4 +1,8 @@
 window.EV_MESSAGES = {
+    "Unresolved simulated charger fault escalated to on-call Admin · station #{id}": {
+        en: "Unresolved simulated charger fault escalated to on-call Admin · station #{id}",
+        ar: "تم تصعيد عطل الشاحن التجريبي غير المحلول للمشرف المناوب · المحطة #{id}",
+    },
     "Unacknowledged simulated charger fault reminder · station #{id}": {
         en: "Unacknowledged simulated charger fault reminder · station #{id}",
         ar: "تذكير بعطل شاحن تجريبي لم يتم الإقرار به · المحطة #{id}",
