@@ -240,7 +240,7 @@ void main() {
     for (final malformed in [
       '{unfinished:',
       '["array-is-not-an-account"]',
-      'x' * 33000,
+      List<String>.filled(33000, 'x').join(),
     ]) {
       await storage.setString(key, malformed);
       expect(await prefs.getUser(), isNull);
