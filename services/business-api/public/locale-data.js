@@ -1,4 +1,9 @@
 window.EV_MESSAGES = {
+    "Fleet invitation withdrawn · fleet #{id}": {
+        en: "Fleet invitation withdrawn · fleet #{id}",
+        ar: "تم سحب دعوة الأسطول · الأسطول #{id}",
+    },
+
     "Vehicle assigned to fleet #{id}": {
         en: "Vehicle assigned to fleet #{id}", ar: "تم تعيين مركبة للأسطول #{id}",
     },

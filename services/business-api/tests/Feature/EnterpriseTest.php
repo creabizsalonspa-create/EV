@@ -186,6 +186,44 @@ class EnterpriseTest extends TestCase
         ]);
     }
 
+    public function test_pending_invitation_withdrawal_is_distinct_from_active_revocation(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $fleet = Fleet::create([
+            'owner_id' => $owner->id,
+            'name' => 'Lifecycle type fixture',
+            'country' => 'AE',
+        ]);
+        $member = FleetMember::create([
+            'fleet_id' => $fleet->id,
+            'user_id' => $driver->id,
+            'role' => 'driver',
+            'status' => 'invited',
+        ]);
+        $url = '/api/fleets/'.$fleet->id.'/members/'.$member->id;
+        $this->actingAs($owner)->deleteJson($url)->assertNoContent();
+        $this->deleteJson($url)->assertNoContent();
+        $this->assertSame('revoked', $member->fresh()->status);
+        $this->assertSame(1, InboxNotification::where('user_id', $driver->id)
+            ->where('kind', 'fleet.invitation.withdrawn')->count());
+        $this->assertSame(0, InboxNotification::where('user_id', $driver->id)
+            ->where('kind', 'fleet.membership.revoked')->count());
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+            ->where('actor_id', $owner->id)
+            ->where('action', 'fleet.invitation_withdrawn')->count());
+
+        $this->postJson('/api/fleets/'.$fleet->id.'/invitations', [
+            'email' => $driver->email,
+        ])->assertAccepted();
+        $this->actingAs($driver)->postJson(
+            '/api/fleet-invitations/'.$member->id.'/accept'
+        )->assertOk();
+        $this->actingAs($owner)->deleteJson($url)->assertNoContent();
+        $this->assertSame(1, InboxNotification::where('user_id', $driver->id)
+            ->where('kind', 'fleet.membership.revoked')->count());
+    }
+
     public function test_fleet_invitation_rejects_revoked_state_until_owner_explicitly_reinvites(): void
     {
         $owner = User::factory()->create();

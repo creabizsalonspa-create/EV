@@ -246,6 +246,19 @@ class PendingSupport extends FixtureApi {
 }
 
 void main() {
+  test('pending invitation withdrawal is never presented as active-access revocation', () {
+    final en = EvStrings(const Locale('en'));
+    final ar = EvStrings(const Locale('ar'));
+    expect(inboxNotificationTitle({
+      'kind': 'fleet.invitation.withdrawn',
+      'metadata': {'fleet_id': 8},
+    }, en), 'Fleet invitation withdrawn · fleet #8');
+    expect(inboxNotificationTitle({
+      'kind': 'fleet.invitation.withdrawn',
+      'metadata': {'fleet_id': 8},
+    }, ar), contains('تم سحب'));
+  });
+
   test('driver assignment and cost-center owner alerts are localized safely', () {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));

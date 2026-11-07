@@ -1423,6 +1423,10 @@ async function refreshInbox() {
                                 ? ui("p", "Fleet access revoked · fleet #{id}", {
                                     id: m.metadata?.fleet_id ?? "?",
                                 })
+                                : m.kind === "fleet.invitation.withdrawn"
+                                    ? ui("p", "Fleet invitation withdrawn · fleet #{id}", {
+                                        id: m.metadata?.fleet_id ?? "?",
+                                    })
                                 : m.kind === "fleet.vehicle.assigned"
                                     ? ui("p", "Vehicle assigned to fleet #{id}", {
                                         id: m.metadata?.fleet_id ?? "?",

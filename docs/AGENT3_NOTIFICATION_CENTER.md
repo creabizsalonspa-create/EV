@@ -101,3 +101,7 @@ The fleet assignment path now obtains the same fleet-before-membership row locks
 ### Audited owner-visible driver assignment changes
 
 A driver's new vehicle assignment and an actual cost-center update now generate separate owner-only in-app notifications in the same database transaction as the audit and vehicle change. An identical retry is a no-op: no additional notification or audit. Self-actions by the owner do not generate redundant owner messages. Metadata contains internal identifiers, not private charger information or payment data. Backend tests verify exactly two owner notices, separate audit actions and no unrelated-user visibility. Web and Flutter format these events in English and Arabic with safe placeholders for invalid/missing IDs.
+
+### Accurate invitation withdrawal vs active membership revocation
+
+Canceling an *unaccepted* fleet invitation now emits `fleet.invitation.withdrawn` and audits `fleet.invitation_withdrawn`, whereas revoking an *active* membership emits `fleet.membership.revoked`, removes associated fleet-vehicle assignments and audits `fleet.revoked`. Repeated cancellation is idempotent. The restored state remains `revoked` internally so the owner may explicitly re-invite later; neither the client nor audit trail falsely claims active fleet access existed. Web and Flutter show separate localized labels, with backend and native coverage for withdrawal/reinvite/accept/revoke.

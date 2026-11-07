@@ -157,15 +157,24 @@ class EnterpriseController extends Controller
             $membership = FleetMember::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             abort_unless($membership->fleet_id === $current->id, 404);
             if ($membership->status !== 'revoked') {
+                // An unaccepted invitation is withdrawn, not a revoked active
+                // membership. Only active members can have fleet vehicles.
+                $wasInvited = $membership->status === 'invited';
                 $membership->update(['status' => 'revoked']);
-                FleetVehicle::where('fleet_id', $fleet->id)
-                    ->whereIn('vehicle_id', Vehicle::where('user_id', $membership->user_id)->select('id'))->delete();
+                if (! $wasInvited) {
+                    FleetVehicle::where('fleet_id', $fleet->id)
+                        ->whereIn('vehicle_id', Vehicle::where('user_id', $membership->user_id)->select('id'))->delete();
+                }
                 InboxNotification::create([
                     'user_id' => $membership->user_id,
-                    'kind' => 'fleet.membership.revoked',
+                    'kind' => $wasInvited ? 'fleet.invitation.withdrawn' : 'fleet.membership.revoked',
                     'metadata' => ['fleet_id' => $fleet->id, 'membership_id' => $membership->id],
                 ]);
-                $this->audit($r, 'fleet.revoked', (string) $membership->id);
+                $this->audit(
+                    $r,
+                    $wasInvited ? 'fleet.invitation_withdrawn' : 'fleet.revoked',
+                    (string) $membership->id
+                );
             }
 
             return response()->noContent();
