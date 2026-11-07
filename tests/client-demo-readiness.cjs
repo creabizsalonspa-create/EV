@@ -16,6 +16,7 @@ function synthetics(){
      production_accepted:false,
      results:ROLES.map(role=>({role,authenticated:true,read_only_features_verified:true,admin_authorized:role==='admin',post_logout_denied:true}))}),
    now:()=> '2026-11-07T13:00:00.000Z',
+   fingerprint:()=> 'f'.repeat(64),
  };
 }
 function temp(fn){
@@ -136,4 +137,14 @@ test('combined lab report refuses browser roles whose public synthetic stations 
  result.discovery_verified=false;
  deps.roles=async()=>result;
  assert.equal((await demo.inspect({manifest:'private'},deps)).status,'INCOMPLETE');
+});
+
+test('private demo report binds its reviewed synthetic fixture fingerprint without exposing passwords',async()=>{
+ await temp(async(file)=>{
+   const result=await demo.main(params(file),synthetics());
+   assert.equal(result,0);
+   const saved=JSON.parse(fs.readFileSync(file,'utf8'));
+   assert.equal(saved.fixture_sha256,'f'.repeat(64));
+   assert.equal(JSON.stringify(saved).includes('aA9!'),false);
+ });
 });
