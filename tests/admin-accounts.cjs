@@ -97,16 +97,98 @@ test('search and pagination are scoped to current admin identity and text-only',
   const selects = nodes(ui.root, 'select');
   selects[0].value = 'vendor';
   selects[1].value = 'no';
+  selects[2].value = 'suspended';
   const form = nodes(ui.root, 'form')[0];
   form.onsubmit({preventDefault() {}});
   await tick();
   assert.match(paths[1], /q=only\+my\+search/);
   assert.match(paths[1], /role=vendor/);
   assert.match(paths[1], /verified=no/);
+  assert.match(paths[1], /account_status=suspended/);
   const next = nodes(ui.root, 'button').find(button => button.textContent.includes('Next'));
   assert.equal(next.disabled, false);
   next.onclick();
   await tick();
   assert.match(paths[2], /page=2/);
   assert.equal(paths.length, 3);
+});
+
+
+test('Admin moderation requires confirmation, sends expected status and refreshes result', async () => {
+  const ui = fixture();
+  let state = 'active';
+  const calls = [];
+  const api = async (path, method = 'GET', payload) => {
+    calls.push({path, method, payload});
+    if (path.endsWith('/moderate')) {
+      assert.equal(method, 'PATCH');
+      assert.equal(payload.expected_status, 'active');
+      assert.equal(payload.account_status, 'suspended');
+      assert.equal(payload.reason, 'Verified security incident on vendor account');
+      state = payload.account_status;
+      return {id:42, account_status:state};
+    }
+    return {current_page:1, last_page:1, total:1,
+      data:[{...data.data[0], account_status:state}]};
+  };
+  ui.setActor({role:'admin'}, api);
+  await tick();
+  const suspend = nodes(ui.root, 'button').find(button => button.textContent.includes('Suspend'));
+  assert.ok(suspend, 'Suspend action should be available only for non-Admin accounts');
+  suspend.onclick();
+  const form = nodes(ui.root, 'form').find(x => nodes(x,'textarea').length);
+  assert.ok(form, 'Suspension must not occur from a single click');
+  assert.equal(calls.filter(x=>x.path.endsWith('/moderate')).length, 0);
+  nodes(form,'textarea')[0].value = 'Verified security incident on vendor account';
+  await form.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(calls.filter(x=>x.path.endsWith('/moderate')).length, 1);
+  assert.match(ui.root.textContent, /Suspended/);
+  assert.ok(nodes(ui.root, 'button').some(button => button.textContent.includes('Restore')));
+});
+
+test('Admin moderation history stays text-only and is cleared on signout', async () => {
+  const ui = fixture();
+  const marker = '<img src=x onerror=alert(1)>';
+  ui.setActor({role:'admin'}, async path => {
+    if (path.endsWith('/moderations')) {
+      return {data:[{id:2, from_status:'active', to_status:'suspended',
+        reason:marker, created_at:'2026-11-07T12:00:00Z'}]};
+    }
+    return {current_page:1, last_page:1, total:1,
+      data:[{...data.data[0], account_status:'suspended'}]};
+  });
+  await tick();
+  const history = nodes(ui.root, 'button').find(button => button.textContent.includes('Review history'));
+  assert.ok(history);
+  await history.onclick();
+  assert.match(ui.root.textContent, /<img src=x onerror=alert\(1\)>/);
+  assert.equal(nodes(ui.root, 'img').length, 0);
+  ui.setActor(null, async () => { throw Error('must not fetch'); });
+  assert.equal(ui.root.children.length, 0);
+  assert.equal(ui.root.textContent, '');
+});
+
+test('Pending moderation response cannot restore private UI after Admin logout', async () => {
+  const ui = fixture();
+  let release;
+  ui.setActor({role:'admin'}, async path => {
+    if (path.endsWith('/moderate')) {
+      return new Promise(resolve => { release = resolve; });
+    }
+    return {current_page:1, last_page:1, total:1,
+      data:[{...data.data[0], account_status:'active'}]};
+  });
+  await tick();
+  nodes(ui.root, 'button').find(button => button.textContent.includes('Suspend')).onclick();
+  const form = nodes(ui.root, 'form').find(x => nodes(x,'textarea').length);
+  nodes(form,'textarea')[0].value = 'Documented verified security review';
+  const pending = form.onsubmit({preventDefault(){}});
+  assert.equal(typeof release, 'function');
+  ui.setActor(null, async () => { throw Error('must not fetch'); });
+  release({id:42, account_status:'suspended'});
+  await pending;
+  await tick();
+  assert.equal(ui.root.textContent, '');
+  assert.equal(ui.root.children.length, 0);
 });
