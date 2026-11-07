@@ -27,6 +27,91 @@ class NotificationCenterTest extends TestCase
         ]);
     }
 
+    public function test_notification_defaults_are_private_and_external_delivery_is_not_claimed(): void
+    {
+        $user = User::factory()->create();
+        $this->getJson('/api/notifications/preferences')->assertUnauthorized();
+        $this->actingAs($user);
+        foreach (['/api/notifications/preferences', '/api/v1/notifications/preferences'] as $url) {
+            $this->getJson($url)->assertOk()
+                ->assertJsonPath('default_category', 'all')
+                ->assertJsonPath('default_unread_only', false)
+                ->assertJsonPath('remind_unresolved_simulator_faults', true)
+                ->assertJsonPath('in_app_only', true)
+                ->assertJsonPath('external_delivery_available', false)
+                ->assertJsonPath('critical_events_always_visible', true)
+                ->assertHeader('Cache-Control', 'private, no-store');
+        }
+        $this->assertDatabaseCount('notification_preferences', 0);
+    }
+
+    public function test_preferences_are_isolated_validated_and_idempotent_across_api_versions(): void
+    {
+        $first = User::factory()->create();
+        $second = User::factory()->create();
+        $original = $this->makeNotification($first, 'charging.fault.simulated');
+        $input = [
+            'default_category' => 'charging',
+            'default_unread_only' => true,
+            'remind_unresolved_simulator_faults' => false,
+        ];
+        $this->actingAs($first);
+        $this->putJson('/api/notifications/preferences', $input)->assertOk()
+            ->assertJsonPath('default_category', 'charging')
+            ->assertJsonPath('default_unread_only', true)
+            ->assertJsonPath('remind_unresolved_simulator_faults', false)
+            ->assertHeader('Cache-Control', 'private, no-store');
+        $this->putJson('/api/v1/notifications/preferences', $input)->assertOk();
+        $this->assertDatabaseCount('notification_preferences', 1);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('actor_id', $first->id)
+            ->where('action', 'notifications.preferences_changed')->count());
+
+        // Preferences change only the initial UI choice. Recorded critical
+        // events remain present, unread and accessible through either API.
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->assertNull($original->fresh()->read_at);
+        $this->getJson('/api/notifications/summary')
+            ->assertOk()->assertJsonPath('unread_by_category.charging', 1);
+
+        $this->actingAs($second)->getJson('/api/notifications/preferences')
+            ->assertOk()->assertJsonPath('default_category', 'all');
+        $this->putJson('/api/v1/notifications/preferences', [
+            'default_category' => 'fleet',
+            'default_unread_only' => false,
+            'remind_unresolved_simulator_faults' => true,
+        ])->assertOk();
+        $this->actingAs($first)->getJson('/api/notifications/preferences')
+            ->assertOk()->assertJsonPath('default_category', 'charging');
+        $this->assertDatabaseCount('notification_preferences', 2);
+    }
+
+    public function test_preference_validation_never_alters_saved_choices(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $valid = [
+            'default_category' => 'fleet',
+            'default_unread_only' => false,
+            'remind_unresolved_simulator_faults' => true,
+        ];
+        $this->putJson('/api/notifications/preferences', $valid)->assertOk();
+        foreach ([
+            ['default_category' => 'billing'],
+            ['default_unread_only' => 'sometimes'],
+            ['remind_unresolved_simulator_faults' => null],
+        ] as $override) {
+            $this->putJson('/api/notifications/preferences', array_replace($valid, $override))
+                ->assertUnprocessable();
+        }
+        $this->putJson('/api/notifications/preferences', [
+            'default_category' => 'charging',
+        ])->assertUnprocessable();
+        $this->getJson('/api/notifications/preferences')
+            ->assertOk()->assertJsonPath('default_category', 'fleet');
+    }
+
     public function test_heavy_inbox_read_traffic_cannot_exhaust_support_rate_limit(): void
     {
         $this->actingAs(User::factory()->create());

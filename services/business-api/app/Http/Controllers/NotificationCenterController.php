@@ -51,6 +51,76 @@ class NotificationCenterController extends Controller
         ])->header('Cache-Control', 'private, no-store');
     }
 
+    /** Persistent inbox defaults; never hides operational events or enables delivery. */
+    public function preferences(Request $request): JsonResponse
+    {
+        $record = DB::table('notification_preferences')
+            ->where('user_id', $request->user()->id)->first();
+
+        return response()->json($this->preferencePayload($record))
+            ->header('Cache-Control', 'private, no-store');
+    }
+
+    /** Desired-state replace; safe to retry when a prior response was lost. */
+    public function updatePreferences(Request $request): JsonResponse
+    {
+        $values = $request->validate([
+            'default_category' => 'required|in:all,support,vehicle,charging,fleet',
+            'default_unread_only' => 'required|boolean',
+            'remind_unresolved_simulator_faults' => 'required|boolean',
+        ]);
+        $desired = [
+            'default_category' => $values['default_category'],
+            'default_unread_only' => $request->boolean('default_unread_only'),
+            'remind_unresolved_simulator_faults' => $request->boolean('remind_unresolved_simulator_faults'),
+        ];
+
+        return DB::transaction(function () use ($request, $desired): JsonResponse {
+            $owner = $request->user()->id;
+            DB::table('notification_preferences')->insertOrIgnore([
+                'user_id' => $owner,
+                'default_category' => 'all',
+                'default_unread_only' => false,
+                'remind_unresolved_simulator_faults' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $current = DB::table('notification_preferences')
+                ->where('user_id', $owner)->lockForUpdate()->first();
+            abort_unless($current, 409);
+            $changed = $current->default_category !== $desired['default_category']
+                || (bool) $current->default_unread_only !== $desired['default_unread_only']
+                || (bool) $current->remind_unresolved_simulator_faults
+                    !== $desired['remind_unresolved_simulator_faults'];
+            if ($changed) {
+                DB::table('notification_preferences')->where('user_id', $owner)
+                    ->update($desired + ['updated_at' => now()]);
+                DB::table('audit_events')->insert([
+                    'actor_id' => $owner,
+                    'action' => 'notifications.preferences_changed',
+                    'subject' => (string) $owner,
+                    'created_at' => now(),
+                ]);
+            }
+            $record = DB::table('notification_preferences')->where('user_id', $owner)->first();
+
+            return response()->json($this->preferencePayload($record))
+                ->header('Cache-Control', 'private, no-store');
+        }, 3);
+    }
+
+    private function preferencePayload(?object $row): array
+    {
+        return [
+            'default_category' => $row?->default_category ?? 'all',
+            'default_unread_only' => (bool) ($row?->default_unread_only ?? false),
+            'remind_unresolved_simulator_faults' => (bool) ($row?->remind_unresolved_simulator_faults ?? true),
+            'in_app_only' => true,
+            'external_delivery_available' => false,
+            'critical_events_always_visible' => true,
+        ];
+    }
+
     /**
      * Mark only records that already exist at the customer's observed cursor.
      * Newly inserted notifications (higher IDs) remain unread. The operation

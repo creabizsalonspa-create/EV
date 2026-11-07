@@ -65,6 +65,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/notifications/{notification}/read', [T::class, 'read']);
         Route::post('/notifications/{notification}/unread', [NotificationCenterController::class, 'markUnread']);
         Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
+        Route::get('/notifications/preferences', [NotificationCenterController::class, 'preferences']);
+        Route::put('/notifications/preferences', [NotificationCenterController::class, 'updatePreferences']);
         Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
     });
     Route::middleware(['auth:sanctum', 'throttle:support'])->group(function () {
@@ -78,8 +80,10 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'throttle:notification-read'])->group(function () {
         Route::get('/notifications', [T::class, 'notifications']);
         Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
+        Route::get('/notifications/preferences', [NotificationCenterController::class, 'preferences']);
     });
     Route::middleware(['auth:sanctum', 'throttle:notification-write'])->group(function () {
+        Route::put('/notifications/preferences', [NotificationCenterController::class, 'updatePreferences']);
         Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
         Route::post('/notifications/{notification}/read', [T::class, 'read']);
         Route::post('/notifications/{notification}/unread', [NotificationCenterController::class, 'markUnread']);
