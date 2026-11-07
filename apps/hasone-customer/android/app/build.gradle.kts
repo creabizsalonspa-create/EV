@@ -105,7 +105,9 @@ val verifyReleaseApplicationId = tasks.register("verifyReleaseApplicationId") {
         val validIdentifier = identifier != null &&
             Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*){2,}$")
                 .matches(identifier) &&
-            !identifier.endsWith(".dev", ignoreCase = true)
+            !identifier.endsWith(".dev", ignoreCase = true) &&
+            !identifier.endsWith(".test", ignoreCase = true) &&
+            !identifier.endsWith(".debug", ignoreCase = true)
         if (!validIdentifier) {
             throw GradleException(
                 "HASONE release requires an explicitly approved " +
