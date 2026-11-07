@@ -39,7 +39,7 @@ class AdminSecondFactorController extends Controller
             'enrolled' => $enrolled,
             'verified' => $enrolled && AdminSecondFactorGate::verified($request),
             'authenticator_required' => true,
-            'recovery_reset_available' => $enrolled && AdminSecondFactorGate::verified($request) && $request->session()->get('admin_second_factor_recovery_used') === true,
+            'recovery_reset_available' => $enrolled && AdminSecondFactorGate::recoveryResetAvailable($request),
         ])->header('Cache-Control', 'no-store, private');
     }
 
@@ -183,10 +183,23 @@ class AdminSecondFactorController extends Controller
             return $encrypted;
         });
 
-        $this->grant($request, $account, $encrypted);
-        $request->session()->put('admin_second_factor_recovery_used', true);
+        // A recovered session is purpose-limited: it MUST NOT unlock Admin
+        // APIs until a fresh authenticator challenge succeeds.
+        $request->session()->regenerate();
+        $request->session()->forget([
+            'admin_second_factor_user_id',
+            'admin_second_factor_verified_at',
+            'admin_second_factor_enrollment_proof',
+            'admin_second_factor_pending',
+        ]);
+        $request->session()->put('admin_second_factor_recovery_user_id', $account->id);
+        $request->session()->put('admin_second_factor_recovery_at', now()->timestamp);
+        $request->session()->put(
+            'admin_second_factor_recovery_enrollment_proof',
+            hash('sha256', $encrypted)
+        );
 
-        return response()->json(['verified' => true, 'recovery_reset_available' => true])
+        return response()->json(['verified' => false, 'recovery_reset_available' => true])
             ->header('Cache-Control', 'no-store, private');
     }
 
@@ -194,8 +207,7 @@ class AdminSecondFactorController extends Controller
     {
         $account = $this->account($request);
         abort_unless(
-            AdminSecondFactorGate::verified($request)
-            && $request->session()->get('admin_second_factor_recovery_used') === true,
+            AdminSecondFactorGate::recoveryResetAvailable($request),
             403,
             'A recently used recovery code is required to replace an authenticator.'
         );
@@ -215,7 +227,9 @@ class AdminSecondFactorController extends Controller
             'admin_second_factor_verified_at',
             'admin_second_factor_enrollment_proof',
             'admin_second_factor_pending',
-            'admin_second_factor_recovery_used',
+            'admin_second_factor_recovery_user_id',
+            'admin_second_factor_recovery_at',
+            'admin_second_factor_recovery_enrollment_proof',
         ]);
         $request->session()->regenerate();
 
@@ -232,7 +246,11 @@ class AdminSecondFactorController extends Controller
     {
         // Promote to a fresh session identifier after successful MFA.
         $request->session()->regenerate();
-        $request->session()->forget('admin_second_factor_recovery_used');
+        $request->session()->forget([
+            'admin_second_factor_recovery_user_id',
+            'admin_second_factor_recovery_at',
+            'admin_second_factor_recovery_enrollment_proof',
+        ]);
         $request->session()->put('admin_second_factor_user_id', $account->id);
         $request->session()->put('admin_second_factor_verified_at', now()->timestamp);
         $request->session()->put('admin_second_factor_enrollment_proof', hash('sha256', $encrypted));
