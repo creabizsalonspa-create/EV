@@ -147,3 +147,10 @@ test('OCPI partner credentials and live PSP keys are barred without disclosure',
     assert.equal(JSON.stringify(errors).includes('very_private_not_for_staging'),false);
   }
 });
+
+test('Compose bare dollar interpolation cannot alter reviewed credentials', () => {
+  const payload='long_private_database_password_2026_'+'$'+'UNREVIEWED_PASSWORD';
+  const errors=checkValues({...defaults,DB_PASSWORD:payload});
+  assert.ok(errors.some(x=>x.startsWith('DB_PASSWORD: interpolation')));
+  assert.equal(JSON.stringify(errors).includes(payload),false);
+});
