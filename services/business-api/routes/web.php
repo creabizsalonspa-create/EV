@@ -28,6 +28,8 @@ Route::middleware(['auth', 'throttle:authentication'])->group(function () {
     Route::post('/api/admin/second-factor/begin', [AdminSecondFactorController::class, 'begin']);
     Route::post('/api/admin/second-factor/confirm', [AdminSecondFactorController::class, 'confirm']);
     Route::post('/api/admin/second-factor/verify', [AdminSecondFactorController::class, 'verify']);
+    Route::post('/api/admin/second-factor/recover', [AdminSecondFactorController::class, 'recover']);
+    Route::post('/api/admin/second-factor/reset-after-recovery', [AdminSecondFactorController::class, 'resetAfterRecovery']);
 });
 
 Route::get('/api/csrf', fn () => response()->json(['token' => csrf_token()]));
