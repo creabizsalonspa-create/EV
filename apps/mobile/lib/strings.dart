@@ -16,6 +16,7 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'unreadOnly': 'Unread only',
     'unreadNotificationCount': '{count} unread notifications',
     'markCurrentNotificationsRead': 'Mark all current notifications as read',
     'savedStations': 'Saved stations',
@@ -339,6 +340,7 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'unreadOnly': 'غير المقروءة فقط',
     'unreadNotificationCount': '{count} إشعار غير مقروء',
     'markCurrentNotificationsRead': 'تحديد الإشعارات الحالية كمقروءة',
     'savedStations': 'المحطات المحفوظة',

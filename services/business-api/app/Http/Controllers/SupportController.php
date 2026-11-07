@@ -87,7 +87,11 @@ class SupportController extends Controller
 
     public function notifications(Request $r)
     {
-        return InboxNotification::where('user_id', $r->user()->id)->orderByDesc('id')->paginate(25);
+        $r->validate(['unread_only' => 'sometimes|boolean']);
+
+        return InboxNotification::where('user_id', $r->user()->id)
+            ->when($r->boolean('unread_only'), fn ($q) => $q->whereNull('read_at'))
+            ->orderByDesc('id')->paginate(25);
     }
 
     public function read(Request $r, InboxNotification $notification)

@@ -61,6 +61,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/fleets/{fleet}', [E::class, 'show']);
         Route::get('/fleet-invitations', [E::class, 'invitations']);
         Route::post('/fleet-invitations/{invitation}/accept', [E::class, 'accept']);
+        Route::get('/notifications', [T::class, 'notifications']);
+        Route::post('/notifications/{notification}/read', [T::class, 'read']);
         Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
         Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
     });

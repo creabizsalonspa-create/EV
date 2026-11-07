@@ -15,7 +15,7 @@ class SupportView extends StatefulWidget {
 }
 
 class SupportViewState extends State<SupportView> {
-  bool notifications = false, loading = false;
+  bool notifications = false, unreadOnly = false, loading = false;
   int? unreadCount, latestNotificationId;
   Object? error;
   ApiPage<Map<String, dynamic>>? data;
@@ -37,7 +37,10 @@ class SupportViewState extends State<SupportView> {
     try {
       final response = await widget.api.request(
         notifications ? 'notifications' : 'support',
-        query: {'page': '$page'},
+        query: {
+          'page': '$page',
+          if (showingNotifications && unreadOnly) 'unread_only': '1',
+        },
       );
       final result = ApiPage.fromJson(response, (row) => row);
       final summary = showingNotifications
@@ -137,6 +140,21 @@ class SupportViewState extends State<SupportView> {
                         load();
                       },
               ),
+              if (notifications)
+                FilterChip(
+                  key: const Key('support-unread-only'),
+                  label: Text(s.t('unreadOnly')),
+                  selected: unreadOnly,
+                  onSelected: loading
+                      ? null
+                      : (value) {
+                          setState(() {
+                            unreadOnly = value;
+                            data = null;
+                          });
+                          load();
+                        },
+                ),
               ChoiceChip(
                 key: const Key('support-notifications'),
                 label: Text(s.t('notifications')),

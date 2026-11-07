@@ -99,6 +99,28 @@ class NotificationCenterTest extends TestCase
         $this->assertNull($foreign->fresh()->read_at);
     }
 
+    public function test_unread_only_filter_is_identical_for_both_apis_and_cannot_leak_foreign_messages(): void
+    {
+        $owner = User::factory()->create();
+        $foreign = User::factory()->create();
+        $read = $this->makeNotification($owner);
+        $unread = $this->makeNotification($owner);
+        $this->makeNotification($foreign);
+        $read->update(['read_at' => now()]);
+
+        $this->actingAs($owner)->getJson('/api/notifications?unread_only=1')
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $unread->id);
+        $this->getJson('/api/v1/notifications?unread_only=true')->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $unread->id);
+        $this->getJson('/api/v1/notifications?unread_only=0')->assertOk()
+            ->assertJsonCount(2, 'data');
+        $this->getJson('/api/notifications?unread_only=invalid')->assertUnprocessable();
+        $this->postJson('/api/v1/notifications/'.$read->id.'/read')->assertOk();
+        $this->actingAs($foreign)->getJson('/api/notifications?unread_only=1')
+            ->assertOk()->assertJsonCount(1, 'data');
+    }
+
     public function test_legacy_notification_routes_remain_available_and_scoped(): void
     {
         $owner = User::factory()->create();

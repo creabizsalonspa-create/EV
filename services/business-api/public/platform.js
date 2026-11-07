@@ -1,3 +1,4 @@
+let inboxUnreadOnly = false;
 let unconfirmedFavorite = null;
 let favoriteMode = false,
     previousCatalogQuery = "";
@@ -75,6 +76,7 @@ function clearIdentity() {
     return epoch;
 }
 function clearPrivateViews() {
+    inboxUnreadOnly = false;
     riderWorkspace.clear();
     vendorWorkspace.clear();
     roamingWorkspace.clear();
@@ -1282,11 +1284,27 @@ async function support() {
         b.onclick = () => ticketDetail(t.id).catch((e) => notice(e));
         el("ticket-list").append(b);
     }
-    const n = await api("notifications");
+    const n = await api("notifications" + (inboxUnreadOnly ? "?unread_only=1" : ""));
     const inbox = await api("notifications/summary");
     if (session !== client.sessionEpoch || account !== user?.id) return;
     const view = el("notifications");
     view.replaceChildren();
+    const filterButton = ui("button", inboxUnreadOnly ? "Show all notifications" : "Show unread only");
+    filterButton.type = "button";
+    filterButton.id = "notification-unread-filter";
+    filterButton.onclick = async () => {
+        if (session !== client.sessionEpoch || account !== user?.id) return;
+        inboxUnreadOnly = !inboxUnreadOnly;
+        filterButton.disabled = true;
+        try {
+            await support();
+        } catch (error) {
+            if (session === client.sessionEpoch && account === user?.id) notice(error);
+        } finally {
+            filterButton.disabled = false;
+        }
+    };
+    view.append(filterButton);
     if (Number.isSafeInteger(inbox.unread_count) && Number.isSafeInteger(inbox.latest_id)) {
         view.append(ui("p", "{count} unread notifications", { count: inbox.unread_count }));
         if (inbox.unread_count > 0 && inbox.latest_id > 0) {

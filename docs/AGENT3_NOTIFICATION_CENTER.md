@@ -19,3 +19,7 @@ This feature is **in-app only**; it does not claim external push, email, SMS del
 ## Verification and integration
 
 Run `./scripts/php artisan test --filter=NotificationCenterTest`, `flutter test test/support_test.dart`, related browser/navigation tests, static lints and exact-source hosted CI before merging. These are required gates, not presumed passes. No manual changes to live backend or production app instances are included.
+
+## Additional listing functionality
+
+Both account-scoped notification listing routes now accept an optional validated `unread_only=1` filter. The canonical `/api/v1/notifications` listing and individual read endpoint are aliases of the existing session API, with the same authorization, pagination and throttling. The web inbox adds a persistent-for-session unread-only toggle, cleared on account identity reset. Flutter SupportView offers the same filter with the existing refresh and page controls. Invalid filter values return 422; no record is modified simply by applying a filter.
