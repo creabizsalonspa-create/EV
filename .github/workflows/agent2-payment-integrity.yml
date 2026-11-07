@@ -10,6 +10,10 @@ on:
       - 'integrations/hasone-express/**'
       - 'tools/agent2/**'
       - '.github/workflows/agent2-payment-integrity.yml'
+# Avoid wasting runner slots on superseded Agent 2 commits.
+concurrency:
+  group: agent2-integration-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   integration-guards:
     runs-on: ubuntu-latest
