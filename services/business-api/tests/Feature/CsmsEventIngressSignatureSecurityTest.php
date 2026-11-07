@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
@@ -16,7 +17,7 @@ class CsmsEventIngressSignatureSecurityTest extends TestCase
 
     private const SECRET = 'agent9-isolated-event-ingress-signing-key-123456789';
 
-    private function submit(string $body, string $timestamp, string $signature): \Illuminate\Testing\TestResponse
+    private function submit(string $body, string $timestamp, string $signature): TestResponse
     {
         return $this->call('POST', '/api/internal/csms/events', [], [], [], [
             'HTTP_ACCEPT' => 'application/json',
