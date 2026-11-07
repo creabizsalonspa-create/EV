@@ -7,6 +7,33 @@ or stop merely because one commit or CI run exists. Do not infer production,
 physical charger or merchant acceptance. Agent 4 alone owns final integration
 and authoritative whole-product coverage.
 
+## Source-ended interruption review checkpoint
+
+Customer charging status now says Ended at source rather than implying charging
+succeeded. Bounded reported reasons such as power loss, emergency stop and reset
+are separated from final unpaid calculation. Unknown/malformed ended reasons
+require operator review; active records cannot claim an ended incident.
+The protected Admin booking workflow shows reported end reason and review need.
+No automatic restart/stop/payment, fault diagnosis or financial collection is added.
+
+Exact runtime/test verification:127 Node,13 callback,135 backend/OCPP,
+13 mocked Chrome,12 actual-API Chrome; Next TypeScript/production build pass.
+Backend plus browser or native reports136. Native51 pass/3 default opt-in skips;
+six actual API/native checks pass separately across both protocol active/ended
+states and history/booking. Six changed native files analyze cleanly.
+
+Isolated combination with Agent6 PR78 at20adfedf passes67 Flutter tests with3
+explicit skips and targeted analysis clean. All110 app Dart/config blobs match
+the intended combined source. Combined app tree:
+014c51a40ab45a57d48c77c48ff7b2285b0fdb61.
+This is compatibility evidence, not a branch merge or Android/iOS build.
+
+Evidence: companion source-end-review validation.json includes source blob
+manifest and restricted log digests. Full2.7.9 credit remains unclaimed.
+Next: ongoing fault-source incident presentation and canonical-compatible
+resource reservation/customer selection/expiry/paid reschedule integration.
+Required hosted/native gates and Agent4 integration remain outstanding.
+
 ## Owned workstream
 
 PR #50; branch development/agent2-live-demo-readiness. Express/Mongo source

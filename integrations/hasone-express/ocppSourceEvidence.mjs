@@ -22,6 +22,14 @@ const sourceDate=value=>{
   return Number.isFinite(parsed.valueOf())?parsed:null;
 };
 
+// Bounded presentation policy, not a fault diagnosis or permission to restart.
+const endReasons=new Set(['EmergencyStop','EVDisconnected','HardReset','Local','Other',
+  'PowerLoss','Reboot','Remote','SoftReset','UnlockCommand','DeAuthorized',
+  'EnergyLimitReached','GroundFault','ImmediateReset','LocalOutOfCredit',
+  'OvercurrentFault','PowerQuality','SOCLimitReached','StoppedByEV','TimeLimitReached','Timeout']);
+const interruptedReasons=new Set(['EmergencyStop','HardReset','PowerLoss','Reboot',
+  'SoftReset','GroundFault','ImmediateReset','OvercurrentFault','PowerQuality','Timeout']);
+
 export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash,resourceScope=null,now=new Date()}={}) {
   if(!source || typeof source!=='object' || !sourceId || !chargerId || !transactionId || !tokenHash)
     return null;
@@ -49,6 +57,10 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
     chargerId:source.chargerId,
     transactionId:String(source.transactionId),
     sessionEnded:ended,
+    sourceEnd:ended?{
+      reason:endReasons.has(source.stopReason)?source.stopReason:null,
+      reviewRequired:!endReasons.has(source.stopReason)||source.stopReason==='Other'||interruptedReasons.has(source.stopReason)
+    }:null,
     energyWh:null,
     energyKwh:null,
     totalFils:null,

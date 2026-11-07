@@ -102,6 +102,12 @@ export async function runActualAdminBrowser({
      await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>
        b.textContent?.includes('Finalize verified booking')&&!b.disabled),{timeout:15000});
    });
+   await step('operator sees source-ended power loss separately from successful charging',async()=>{
+     const text=await page.$eval('[aria-label="Source end report"]',element=>element.innerText);
+     assert.ok(text.includes('PowerLoss'));
+     assert.ok(text.includes('needs operator review'));
+     assert.ok(text.includes('does not confirm successful charging'));
+   });
    await click(page,'Finalize verified booking');
    await step('UI completion and persisted source agree without collected funds',async()=>{
      await page.waitForFunction(()=>document.body.innerText.includes('Booking finalized'),

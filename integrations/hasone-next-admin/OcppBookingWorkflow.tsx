@@ -21,6 +21,7 @@ type OpState={
   tokenIssuedAt:string|null;tokenExpiresAt:string|null;
   sourceSessionId:string|null;sourceTransactionId:string|null;
   sourceVerified:boolean;meterVerified:boolean;sourceEnded:boolean;
+  sourceEnd?:{reason:string|null;reviewRequired:boolean}|null;
   energyKwh:number|null;calculatedUnpaidAed:number|null;
   paymentStatus:string|null;canIssueToken:boolean;canReissueToken:boolean;
   canBindSource:boolean;canFinalizeSource:boolean;
@@ -528,6 +529,10 @@ export default function OcppBookingWorkflow({
                       <div>Energy: <strong>{state.energyKwh===null?"—":state.energyKwh+" kWh"}</strong></div>
                       <div>Calculated unpaid: <strong>{state.calculatedUnpaidAed===null?"—":"AED "+state.calculatedUnpaidAed.toFixed(2)}</strong></div>
                     </div>
+                    {state.sourceEnded&&<div aria-label="Source end report" className="text-xs space-y-1">
+                      <p>Source end reason: {typeof state.sourceEnd?.reason==="string"&&/^[A-Za-z]{1,30}$/.test(state.sourceEnd.reason)?state.sourceEnd.reason:"Unavailable"}</p>
+                      {state.sourceEnd?.reviewRequired!==false&&<p className="text-amber-600">Source end needs operator review. This calculation does not confirm successful charging.</p>}
+                    </div>}
                     <button type="button" disabled={!canOperate||!state.canFinalizeSource}
                       onClick={()=>void perform("finalize-source")}
                       className="rounded-lg bg-sky-600 px-4 py-2.5 font-semibold text-white text-sm disabled:opacity-40">

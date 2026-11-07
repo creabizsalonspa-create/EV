@@ -402,6 +402,7 @@ export async function AdminGetBookingOcppOperations(req,res){
     sourceVerified:proof?.sourceVerified===true,
     meterVerified:proof?.meterVerified===true,
     sourceEnded:proof?.sessionEnded===true,
+    sourceEnd:proof?.sourceVerified?proof.sourceEnd:null,
     energyKwh:proof?.meterVerified?proof.energyKwh:null,
     calculatedUnpaidAed:proof?.totalFils===null||!proof?null:proof.totalFils/100,
     paymentStatus:proof?.sourceVerified?'not_collected':null,

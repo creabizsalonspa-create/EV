@@ -124,3 +124,17 @@ test('accepted meter receipt ages from recent to stale without inventing a times
   assert.equal(p.meterReceivedAt,null);assert.equal(p.meterFreshness,'unknown');
  }
 });
+test('source-ended reasons distinguish operator review without claiming a successful charge',()=>{
+  for(const reason of ['EmergencyStop','HardReset','PowerLoss','Reboot','SoftReset','GroundFault','ImmediateReset','OvercurrentFault','PowerQuality','Timeout','Other']){
+    const value=verifyOcppSource({...doc(),stopReason:reason},binding());
+    assert.deepEqual(value.sourceEnd,{reason,reviewRequired:true});
+    assert.equal(value.totalFils,551);assert.equal(value.paymentStatus,'not_collected');
+  }
+  for(const reason of ['Local','Remote','EVDisconnected','StoppedByEV','EnergyLimitReached'])
+    assert.deepEqual(verifyOcppSource({...doc(),stopReason:reason},binding()).sourceEnd,{reason,reviewRequired:false});
+});
+test('unknown source end reasons remain bounded and active records cannot claim an end',()=>{
+  for(const reason of [null,undefined,'Unknown','<script>alert(1)</script>','Remote\n','x'.repeat(10000),{}])
+    assert.deepEqual(verifyOcppSource({...doc(),stopReason:reason},binding()).sourceEnd,{reason:null,reviewRequired:true});
+  assert.equal(verifyOcppSource({...doc(),status:'active',stopReason:'EmergencyStop'},binding()).sourceEnd,null);
+});

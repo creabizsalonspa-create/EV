@@ -27,6 +27,18 @@ if(process.env.AGENT2_REAL_ADMIN_UI_URL){
  const {loopbackBase}=await import('./isolatedAdminApiRelay.mjs');
  loopbackBase(process.env.AGENT2_REAL_ADMIN_UI_URL);
 }
+async function nativeSourceStatus(base,bearer,sessionId,ended){
+  if(!process.env.AGENT2_HISTORY_FLUTTER)return;
+  const env={...process.env,AGENT2_PROGRESS_API_URL:base,
+    AGENT2_PROGRESS_TOKEN:bearer,AGENT2_ACTIVE_SESSION:sessionId,
+    AGENT2_PROGRESS_ENDED:ended?'1':'0'};
+  delete env.AGENT2_HISTORY_API_URL;delete env.AGENT2_NEW_BOOKING_STATION;
+  const child=spawn(process.env.AGENT2_HISTORY_FLUTTER,
+    ['test','--no-pub','test/source_history_api_test.dart','--reporter','expanded'],{
+      cwd:process.env.AGENT2_HISTORY_APP,stdio:'inherit',env,timeout:180000});
+  const code=await new Promise((done,reject)=>{child.once('error',reject);child.once('exit',done);});
+  assert.equal(code,0,'Actual native source status failed');
+}
 async function freePort(){
  const s=createServer();await new Promise(resolveListen=>s.listen(0,'127.0.0.1',resolveListen));
  const port=s.address().port;await new Promise(done=>s.close(done));return port;
@@ -1573,16 +1585,7 @@ try{
       await feed([]);
       const noMeter=await db.collection('ocpp_sessions').findOne({_id:scopedSource._id});
       assert.equal(noMeter.lastMeterReceivedAt.valueOf(),stable.lastMeterReceivedAt.valueOf());
-      if(process.env.AGENT2_HISTORY_FLUTTER){
-        const env={...process.env,AGENT2_PROGRESS_API_URL:base,
-          AGENT2_PROGRESS_TOKEN:bearer,AGENT2_ACTIVE_SESSION:scopedSession};
-        delete env.AGENT2_HISTORY_API_URL;delete env.AGENT2_NEW_BOOKING_STATION;
-        const child=spawn(process.env.AGENT2_HISTORY_FLUTTER,
-          ['test','--no-pub','test/source_history_api_test.dart','--reporter','expanded'],{
-            cwd:process.env.AGENT2_HISTORY_APP,stdio:'inherit',env,timeout:180000});
-        const code=await new Promise((done,reject)=>{child.once('error',reject);child.once('exit',done);});
-        assert.equal(code,0,'Actual native active-source progress failed');
-      }
+      await nativeSourceStatus(base,bearer,scopedSession,false);
     });
     await check(protocol+' source binding and customer history qualify the selected connector',async()=>{
       if(protocol==='ocpp1.6'){
@@ -1590,10 +1593,10 @@ try{
           transactionId,meterStop:1000000000001,timestamp:new Date().toISOString()});
         assert.equal((await db.collection('ocpp_sessions').findOne({_id:scopedSource._id})).status,'active');
         await handle({chargerId:scopedCharger},protocol,'StopTransaction',{
-          transactionId,meterStop:5000,timestamp:new Date().toISOString()});
+          transactionId,meterStop:5000,reason:'PowerLoss',timestamp:new Date().toISOString()});
       }else{
         await handle({chargerId:scopedCharger},protocol,'TransactionEvent',{
-          eventType:'Ended',seqNo:++progressSeq,transactionInfo:{transactionId},
+          eventType:'Ended',seqNo:++progressSeq,transactionInfo:{transactionId,stoppedReason:'PowerLoss'},
           evse:{id:3,connectorId:2},timestamp:new Date().toISOString(),meterValue:meter(5000)});
       }
       scopedSource=await db.collection('ocpp_sessions').findOne({_id:scopedSource._id});
@@ -1606,6 +1609,12 @@ try{
       assert.equal(history.code,200);assert.equal(history.body.data.resourceVerified,true);
       assert.deepEqual(history.body.data.resourceScope,selectedScope);
       assert.equal(history.body.data.energyKwh,5);
+      const status=await request('GET','/api/v1/ChargingSession/'+scopedSession+'/status',undefined,true);
+      assert.equal(status.code,200);
+      assert.deepEqual(status.body.data.sourceEnd,{reason:'PowerLoss',reviewRequired:true});
+      assert.equal(status.body.data.totalFils,525);
+      assert.equal(status.body.data.paymentStatus,'not_collected');
+      await nativeSourceStatus(base,bearer,scopedSession,true);
     });
     await check(protocol+' changed source connector redacts reads and blocks finalization',async()=>{
       await db.collection('ocpp_sessions').updateOne({_id:scopedSource._id},{$set:{connectorId:3}});
@@ -1712,7 +1721,7 @@ try{
           });
           await handle({chargerId:uiCharger},'ocpp1.6','StopTransaction',{
             transactionId:start.transactionId,meterStop:6000,
-            timestamp:new Date().toISOString(),reason:'EVDisconnected'
+            timestamp:new Date().toISOString(),reason:'PowerLoss'
           });
           const stored=await db.collection('ocpp_sessions').findOne({
             chargerId:uiCharger,transactionId:start.transactionId

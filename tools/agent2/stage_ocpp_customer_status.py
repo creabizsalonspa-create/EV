@@ -121,7 +121,7 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
         provisionalVatFils:proof.provisionalVatFils,provisionalTotalFils:proof.provisionalTotalFils,
         subtotalFils:proof.subtotalFils,vatFils:proof.vatFils,totalFils:proof.totalFils,
         meterReceivedAt:proof.meterReceivedAt,meterReceiptAgeSeconds:proof.meterReceiptAgeSeconds,
-        meterFreshness:proof.meterFreshness,currency:"AED",
+        meterFreshness:proof.meterFreshness,sourceEnd:proof.sourceEnd,currency:"AED",
         readOnly:true,billingMode:"calculation_only_no_collection",
         canStop:false,canExtend:false}};
   } catch {
