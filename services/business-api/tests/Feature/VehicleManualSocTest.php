@@ -83,6 +83,9 @@ class VehicleManualSocTest extends TestCase
             ->assertJsonPath('data.0.battery_percent', 25)
             ->assertJsonPath('data.1.battery_percent', 100);
         $this->assertNotNull($history->json('data.0.reported_at'));
+        $this->assertStringEndsWith('+00:00', $history->json('data.0.reported_at'));
+        $this->assertStringEndsWith('+00:00', $history->json('data.1.reported_at'));
+        $this->assertStringEndsWith('+00:00', $this->actingAs($driver)->getJson($route)->json('reported_at'));
         $this->assertSame(2, DB::table('vehicle_manual_soc_reports')->count());
         $this->assertSame('CCS2', $vehicle->fresh()->connector_type);
     }

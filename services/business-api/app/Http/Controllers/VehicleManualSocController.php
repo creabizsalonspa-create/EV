@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Vehicle;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -27,7 +28,9 @@ final class VehicleManualSocController extends Controller
             'vehicle_id' => $vehicleId,
             'battery_percent' => $row ? (int) $row->battery_percent : null,
             'revision' => $row ? (int) $row->revision : 0,
-            'reported_at' => $row?->reported_at,
+            // Source time is server UTC, never an assumed phone/device timezone.
+            'reported_at' => $row?->reported_at === null ? null
+                : CarbonImmutable::parse($row->reported_at, 'UTC')->utc()->toIso8601String(),
             'source' => 'CUSTOMER_MANUAL_SELF_REPORT',
             'measured_by_vehicle_api' => false,
             'measured_by_phone' => false,
