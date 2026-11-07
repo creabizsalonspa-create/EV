@@ -38,7 +38,7 @@ app.use(express.json({ limit: '5mb', verify: (req, _res, buf) => {
         'import { validateSSLCommerzIPN, verifyStripeWebhook, retrieveStripePaymentIntent } from "../services/paymentService.js";',
         """import { validateSSLCommerzIPN, verifyStripeWebhook, getPaymentSettings } from "../services/paymentService.js";
 import { AuthVerification } from "../middlewares/authverification.js";
-import { verifiedSslSettlement, verifiedStripeSettlement, belongsToAuthenticatedUser } from "../utils/paymentIntegrity.mjs";""",
+import { verifiedSslSettlement, verifiedSslReplay, verifiedStripeSettlement, verifiedStripeReplay, belongsToAuthenticatedUser } from "../utils/paymentIntegrity.mjs";""",
         'payment validation imports')
     p = one(p, '    console.log("SSLCommerz SUCCESS:", req.body?.tran_id);\n    await handleSSLCommerzSuccess(req.body);',
         '    // Browser redirect is unverified: only a validated IPN settles payment.',
@@ -70,8 +70,10 @@ import { verifiedSslSettlement, verifiedStripeSettlement, belongsToAuthenticated
     const record = kind === 'booking' ? await BookingModel.findById(id)
       : kind === 'session' ? await ChargingSessionModel.findById(id) : null;
     const settings = await getPaymentSettings();
-    if (!verifiedSslSettlement({notice:req.body,gateway:validation,record,
-                               kind,currency:settings.currencyCode})) {
+    const proof = {notice:req.body,gateway:validation,record,
+                   kind,currency:settings.currencyCode};
+    if (verifiedSslReplay(proof)) return res.status(200).json({status:'already-verified'});
+    if (!verifiedSslSettlement(proof)) {
       return res.status(400).json({status:'rejected'});
     }
     await handleSSLCommerzSuccess(req.body);
@@ -102,8 +104,9 @@ import { verifiedSslSettlement, verifiedStripeSettlement, belongsToAuthenticated
     p = one(p, """        if (booking && !booking.isPaid) {
           booking.isPaid""",
         """        const settings = await getPaymentSettings();
-        if (!verifiedStripeSettlement({intent:pi,record:booking,
-                                      kind:'booking',currency:settings.currencyCode})) {
+        const proof = {intent:pi,record:booking,kind:'booking',currency:settings.currencyCode};
+        if (verifiedStripeReplay(proof)) return res.status(200).json({received:true,duplicate:true});
+        if (!verifiedStripeSettlement(proof)) {
           return res.status(400).json({received:false});
         }
         if (booking && !booking.isPaid) {
@@ -111,8 +114,9 @@ import { verifiedSslSettlement, verifiedStripeSettlement, belongsToAuthenticated
     p = one(p, """        if (session && session.status === "Stopped") {
           session.status""",
         """        const settings = await getPaymentSettings();
-        if (!verifiedStripeSettlement({intent:pi,record:session,
-                                      kind:'session',currency:settings.currencyCode})) {
+        const proof = {intent:pi,record:session,kind:'session',currency:settings.currencyCode};
+        if (verifiedStripeReplay(proof)) return res.status(200).json({received:true,duplicate:true});
+        if (!verifiedStripeSettlement(proof)) {
           return res.status(400).json({received:false});
         }
         if (session && session.status === "Stopped") {
