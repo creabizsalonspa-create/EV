@@ -6,6 +6,7 @@ use App\Models\InboxNotification;
 use App\Models\SupportTicket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class SupportTest extends TestCase
