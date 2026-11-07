@@ -162,8 +162,9 @@ export async function AdminBindBookingOcppSource(req,res){
  try{
   const booking=await BookingModel.findById(req.params.id);
   if(!booking)return fail(res,404,'Booking not found');
-  if(!booking.isPaid || !booking.hasArrived || !validHash(booking.ocppTokenHash))
-   return fail(res,409,'A paid, arrived and token-authorized booking is required');
+  if(!booking.isPaid || !booking.hasArrived || !validHash(booking.ocppTokenHash)
+      || !['Upcoming','Completed'].includes(booking.status))
+   return fail(res,409,'A paid, arrived and token-authorized active booking is required');
   const charger=await chargerFor(booking);
   if(!charger)return fail(res,409,'No approved charger registered for this station');
   const sourceId=String(req.body.sourceSessionId);

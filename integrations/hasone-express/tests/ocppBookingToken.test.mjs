@@ -31,7 +31,7 @@ test('protocol-sized credential still uses atomic charger-scoped single-use clai
    assert.ok(update.$set.consumedAt instanceof Date);
    assert.ok(Object.hasOwn(update.$unset,'expiresAt'));
    if(consumed)return null;
-   consumed=true;return {tokenHash:digest};
+   consumed=true;return {chargerId:query.chargerId,tokenHash:digest,...update.$set};
  }};
  assert.equal((await claimOcppStartToken(table,'charger-A',token)).accepted,true);
  assert.equal((await claimOcppStartToken(table,'charger-A',token)).accepted,false);

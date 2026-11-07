@@ -46,7 +46,7 @@ for patch in \
   stage_charging_source_safety.py stage_ocpp_customer_status.py \
   stage_ocpp_customer_summary.py stage_ocpp_charging_station_screen.py \
   stage_ocpp_qr_safety.py stage_admin_ocpp_binding.py \
-  stage_google_maps_config.py stage_ocpp_history.py
+  stage_google_maps_config.py stage_ocpp_history.py stage_booking_mutation_safety.py
 do
   python3 "$root/tools/agent2/$patch" "$work/express"
 done
@@ -59,7 +59,8 @@ for target in \
   src/models/ChargingSessionModel.js src/controllers/adminOcppBooking.js \
   src/controllers/adminMultiCharger.js src/utils/ocppSourceEvidence.mjs \
   src/utils/ocppReissuePolicy.mjs src/utils/ocppSourceBindingIndexAudit.mjs \
-  src/controllers/ocppHistory.js src/utils/ocppHistory.mjs
+  src/controllers/ocppHistory.js src/utils/ocppHistory.mjs \
+  src/services/bookingMutationService.js src/utils/bookingMutationPolicy.mjs
 do
   node --check "$work/express/$target"
 done

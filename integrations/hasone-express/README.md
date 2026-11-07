@@ -1,3 +1,23 @@
+## Latest staged customer booking safety — Agent 2
+
+Customer cancellation/rescheduling uses atomic booking-state comparisons and
+retains the existing station-slot unique index. The self-service path only
+changes unused unpaid bookings without arrival, session links or token/charger
+pins. Paid bookings require the canonical refund/re-quotation/operator workflow;
+this compatibility patch does not issue refunds. A selected reschedule slot must
+exist at an available station, match the display time and preserve the quote
+length. Concurrent target-slot requests have one winner. State changes after a
+read prevent stale writes. Cancelled legacy bookings cannot bind new OCPP sources.
+
+Reproduction adds `stage_booking_mutation_safety.py` after the existing ten
+patchers; `run_all_isolated_validation.sh` includes it. Node111 guard tests,
+13 callback HTTP checks and 117 backend/OCPP checks plus one actual Flutter
+history API test passed on disposable data (118 combined). PR70 contains the
+native history consumer and reproducible real-API wrapper. Exact blobs and logs:
+`docs/evidence/agent2-booking-mutations/validation.json`. No live source/index,
+PSP or physical charger was modified. Hosted checks and Agent4 integration remain
+required. Historical checkpoints below keep their original verification scope.
+
 # Agent 2: Express/Mongo payment-integrity staging patch
 
 **Status: staged and tested, NOT deployed.** This is exclusively for the owner's separately deployed Hasone V-CHARGE Express/Mongo application, not for the Laravel/CitrineOS application.

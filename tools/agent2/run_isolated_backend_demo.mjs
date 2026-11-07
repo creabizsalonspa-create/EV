@@ -213,6 +213,100 @@ try{
     slotStart:'12:00 PM',slotEnd:'01:00 PM',connectorType:'CCS'},true);
   assert.equal(res.code,200);
  });
+ // Booking mutation safety: actual HTTP, real Mongo indexes, synthetic data only.
+ const mutationStation=await NearestStationModel.create({name:'Mutation Test Only',
+   address:'Loopback',status:'Available',latitude:25.7,longitude:55.9,
+   pricePerHourValue:60,taxPercent:5,slots:[
+     {startTime:'11:00 AM',endTime:'12:00 PM'},
+     {startTime:'12:00 PM',endTime:'01:00 PM'},
+     {startTime:'02:00 PM',endTime:'02:30 PM'}]});
+ let mutationNumber=0;
+ const mutationFixture=overrides=>BookingModel.create({userId:user._id,
+   stationId:mutationStation._id,date:'mutation-date-'+(++mutationNumber),
+   time:'11:00 AM',slotStart:'11:00 AM',slotEnd:'12:00 PM',status:'Upcoming',
+   isPaid:false,hasArrived:false,totalAmount:63,...overrides});
+ const mutationBody=date=>({date,time:'12:00 PM',slotStart:'12:00 PM',slotEnd:'01:00 PM'});
+ const mutationPath=(row,action)=>'/api/v1/Bookings/'+row._id+'/'+action;
+ await check('unused unpaid booking reschedules with its original quote and exact slot',async()=>{
+   const row=await mutationFixture({});
+   const result=await request('PUT',mutationPath(row,'reschedule'),mutationBody('reschedule-ok'),true);
+   assert.equal(result.code,200);assert.equal(result.body.data.time,'12:00 PM');
+   const stored=await BookingModel.findById(row._id);
+   assert.equal(stored.date,'reschedule-ok');assert.equal(stored.totalAmount,63);
+   assert.equal(stored.isPaid,false);
+ });
+ await check('paid, arrived, pinned and uncertain-token bookings cannot release inventory',async()=>{
+   for(const fields of [{isPaid:true},{hasArrived:true},{ocppChargerId:'retained-pin'},
+       {ocppTokenHash:'a'.repeat(64)},{ocppTokenIssuedAt:new Date()}]){
+     const row=await mutationFixture(fields);
+     for(const action of ['reschedule','cancel']){
+       const result=await request('PUT',mutationPath(row,action),mutationBody('blocked-edit'),true);
+       assert.equal(result.code,400);
+     }
+     const stored=await BookingModel.findById(row._id);
+     assert.equal(stored.date,row.date);assert.equal(stored.status,'Upcoming');
+     assert.equal(stored.totalAmount,63);assert.equal(stored.isPaid,row.isPaid);
+   }
+ });
+ await check('any existing session link blocks customer booking mutation without deleting proof',async()=>{
+   const row=await mutationFixture({});
+   const linked=await ChargingSessionModel.create({userId:user._id,bookingId:row._id,
+     stationId:mutationStation._id,status:'NotStarted'});
+   for(const action of ['reschedule','cancel'])
+     assert.equal((await request('PUT',mutationPath(row,action),mutationBody('linked-edit'),true)).code,400);
+   assert.equal((await BookingModel.findById(row._id)).status,'Upcoming');
+   assert.ok(await ChargingSessionModel.findById(linked._id));
+ });
+ await check('mismatched display time, changed duration and unavailable station preserve booking',async()=>{
+   const row=await mutationFixture({});
+   for(const body of [{...mutationBody('bad-time'),time:'03:00 PM'},
+       {date:'bad-duration',time:'02:00 PM',slotStart:'02:00 PM',slotEnd:'02:30 PM'},
+       {...mutationBody('bad-date'),date:{$ne:'x'}}]){
+     assert.equal((await request('PUT',mutationPath(row,'reschedule'),body,true)).code,400);
+   }
+   await NearestStationModel.updateOne({_id:mutationStation._id},{$set:{status:'Unavailable'}});
+   try{
+     assert.equal((await request('PUT',mutationPath(row,'reschedule'),mutationBody('unavailable'),true)).code,400);
+   }finally{
+     await NearestStationModel.updateOne({_id:mutationStation._id},{$set:{status:'Available'}});
+   }
+   assert.equal((await BookingModel.findById(row._id)).date,row.date);
+ });
+ await check('foreign booking mutations fail without changing owner or slot',async()=>{
+   const row=await mutationFixture({userId:new mongoose.Types.ObjectId()});
+   for(const action of ['reschedule','cancel'])
+     assert.equal((await request('PUT',mutationPath(row,action),mutationBody('foreign-edit'),true)).code,400);
+   assert.equal((await BookingModel.findById(row._id)).date,row.date);
+ });
+ await check('concurrent reschedules into one slot retain atomic station uniqueness',async()=>{
+   const rows=await Promise.all([mutationFixture({}),mutationFixture({})]);
+   const responses=await Promise.all(rows.map(row=>request('PUT',mutationPath(row,'reschedule'),
+     mutationBody('one-target-slot'),true)));
+   assert.equal(responses.filter(r=>r.code===200).length,1);
+   assert.equal(responses.filter(r=>r.code===400).length,1);
+   assert.equal(await BookingModel.countDocuments({stationId:mutationStation._id,
+     date:'one-target-slot',slotStart:'12:00 PM',status:'Upcoming'}),1);
+ });
+ await check('late payment/arrival authorization wins against a stale customer cancellation',async()=>{
+   const row=await mutationFixture({});
+   const original=BookingModel.findOneAndUpdate;
+   let intercepted=false;
+   BookingModel.findOneAndUpdate=async function(filter,...args){
+     if(String(filter._id)===String(row._id) && !intercepted){
+       intercepted=true;
+       await BookingModel.updateOne({_id:row._id},{$set:{isPaid:true,hasArrived:true,
+         ocppTokenHash:'b'.repeat(64),ocppTokenIssuedAt:new Date()}});
+     }
+     return original.call(this,filter,...args);
+   };
+   try{
+     assert.equal((await request('PUT',mutationPath(row,'cancel'),{},true)).code,400);
+   }finally{BookingModel.findOneAndUpdate=original;}
+   assert.equal(intercepted,true);
+   const stored=await BookingModel.findById(row._id);
+   assert.equal(stored.status,'Upcoming');assert.equal(stored.isPaid,true);
+   assert.equal(stored.ocppTokenHash,'b'.repeat(64));
+ });
  await check('authenticated booking payment options hide card vault',async()=>{
   const r=await request('GET','/api/v1/Bookings/'+booking._id+'/payment',undefined,true);
   assert.equal(r.code,200);
@@ -701,6 +795,17 @@ try{
   await check('customer without AdminAuth cannot bind a charging source transaction',async()=>{
     const z=await request('POST',bindPath,{sourceSessionId:String(adminOcppSession._id)},true);
     assert.equal(z.code,401);
+  });
+  await check('cancelled legacy booking cannot acquire a new OCPP source binding',async()=>{
+    await BookingModel.updateOne({_id:adminBooking._id},{$set:{status:'Cancelled'}});
+    try{
+      const denied=await request('POST',bindPath,{sourceSessionId:String(adminOcppSession._id)},
+        false,{authorization:adminBearer});
+      assert.equal(denied.code,409);
+      assert.equal(await ChargingSessionModel.countDocuments({bookingId:adminBooking._id}),0);
+    }finally{
+      await BookingModel.updateOne({_id:adminBooking._id},{$set:{status:'Upcoming'}});
+    }
   });
   let adminLinkedSession;
   await check('twelve concurrent source-binding calls create exactly one booking session',async()=>{

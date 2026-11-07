@@ -16,7 +16,36 @@ disaster recovery belong to Agent 3; unrelated product features belong to Agent 
 Use current PRs before changing shared files. Never force-push or merge unverified
 source.
 
-## Current verified software
+## Current booking lifecycle continuation — November 7, 2026
+
+Staged customer cancellation/rescheduling now uses conditional booking updates
+against the exact inspected owner, status, slot, payment and authorization state.
+Only unused, unpaid, unarrived bookings without a session or charger/token pin
+can be changed through these legacy endpoints. Paid changes require operator
+review and the canonical refund/re-quotation workflow; no refund, repricing,
+credential reset or charger command is invented here. Rescheduling validates
+an existing station slot, matching display time and unchanged quote duration.
+The original station/date/slot unique index remains unchanged. Concurrent target
+claims retain one winner; late payment/arrival/token authority defeats stale
+cancellation. Cancelled legacy bookings cannot bind new OCPP sources.
+
+PR70 (`development/agent2-mobile-source-history`, 9422291) supplies the private
+customer mobile history consumer, stacked on PR52. Flutter27 tests and actual
+native/API acceptance pass; required hosted/native checks and integration remain
+pending. See docs/AGENT2_MOBILE_HISTORY_CONTINUATION.md on that branch.
+
+The stricter Mongo wrapper-result change from 9993cce is preserved. Its older
+protocol-sized-token fixture now returns the actual post-update document shape;
+no-match/replay and malformed-wrapper rejection assertions remain intact.
+
+Current booking-batch verification: Node111, disposable backend/OCPP117 plus
+one actual Flutter API check (118 combined), payment callback HTTP13. Python,
+JS and shell syntax pass; repeated staging refuses without modifying files.
+See docs/evidence/agent2-booking-mutations/validation.json for exact source blobs.
+Earlier Next/Admin browser/build evidence below belongs to 0c5c771; no fresh
+native platform build or full frontend runtime on this new head is claimed.
+
+## Previous verified software checkpoint
 
 Full disposable source/real-API browser acceptance, private customer source
 history APIs, bounded Admin history and evidence inspection in English/Arabic,
@@ -34,8 +63,8 @@ All synthetic/disposable; no production or physical/financial acceptance.
 
 ## Remaining assigned work
 
-- Customer mobile history UI consumes the new private API; avoid conflicting
-  edits with the active purchased-customer source-status PR #52.
+- Integrate PR70 customer mobile history, PR52 source status and PR50 private
+  APIs through Agent4 after exact-source hosted/native checks.
 - Connector-specific customer reservations, same-station concurrent separate
   resources, expiry/reschedule and source-to-selected-connector consistency still
   need a coherent compatibility batch. Existing legacy reservation uniqueness is
@@ -49,15 +78,14 @@ All synthetic/disposable; no production or physical/financial acceptance.
 
 ## Exact next executable task
 
-Fetch latest PR #50/#52 and shared integration head, inspect apps/hasone-customer
-history routes/model and ownership, then implement the customer-scoped history
-consumer with immutable cursor pagination, source-qualified state, redacted
-receipt handling and EN/AR presentation. Reuse the API in
-integrations/hasone-express/ocppHistoryController.js. Verify with a supported
-Flutter toolchain and the isolated API; do not duplicate apps/mobile canonical
-business rules. If native compilation remains unavailable, continue the
-charger/connector reservation compatibility design and executable backend tests
-after comparing Agent 1's canonical contract.
+Fetch latest PR50/52/70 and integration heads. Continue connector-specific
+Express reservation compatibility: compare canonical Laravel connector/EVSE
+capacity contracts and the legacy CreateBooking/index shape before implementing
+resource-level reservations and an audited migration. Do not drop the existing
+station-wide unique index or activate a second billing/charging authority.
+Also connect the legacy mobile booking mutation failure reason/authority refresh
+so a paid/authorized denial or uncertain outcome is explained to the customer.
+No complete 2.6 or 2.7.9 credit is claimed for the current safety subset.
 
 ## Environment and integration constraints
 
