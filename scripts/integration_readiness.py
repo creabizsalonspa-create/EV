@@ -136,13 +136,14 @@ class GitHub:
 
 def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
     github = GitHub(repo, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
-    if only_pr is not None:
-        prs = [github.get("/pulls/" + str(only_pr))]
-    else:
-        prs = github.pages("/pulls?state=open")
-    if len(prs) > limit:
+    open_prs = github.pages("/pulls?state=open")
+    if len(open_prs) > limit:
         raise ValueError("Open PR count exceeds --limit; review pagination explicitly")
-    parents = {p["head"]["ref"]: p["number"] for p in prs}
+    prs = ([github.get("/pulls/" + str(only_pr))]
+           if only_pr is not None else open_prs)
+    # Even a targeted child PR audit must resolve its parent from all open
+    # branches, rather than reporting a generic wrong-target warning.
+    parents = {p["head"]["ref"]: p["number"] for p in open_prs}
     results = []
     for item in prs:
         number = item["number"]
