@@ -145,6 +145,15 @@
                 }
                 recoveryList.textContent = result.recovery_codes.join("\n");
                 recoveryCodesPanel.hidden = false;
+                // The successful MFA challenge rotates the server session
+                // and CSRF token; refresh it before allowing same-page sign-out.
+                try {
+                    const fresh = await request("csrf");
+                    if (typeof fresh?.token === "string") csrf = fresh.token;
+                } catch {
+                    // Do not discard the one-time recovery codes on a transient
+                    // network failure; navigation still obtains a fresh token.
+                }
                 message("Save all recovery codes before continuing. They cannot be retrieved later.");
                 return;
             }
@@ -173,10 +182,10 @@
             const recoveryCode = recoverForm.elements.namedItem("recovery_code").value;
             await request("admin/second-factor/recover", "POST", {recovery_code: recoveryCode});
             recoverForm.reset();
-            recoverForm.hidden = true;
-            verifyForm.hidden = true;
-            resetForm.hidden = false;
-            message("Recovery code accepted and consumed. Set up a replacement authenticator.");
+            // Recovery rotates the browser session and CSRF token. Reload the
+            // challenge page before the password-confirmed replacement POST.
+            // The server retains a recovery-scoped session flag.
+            window.location.replace("/admin/second-factor");
         } catch (error) {
             message(error.message);
             recoverForm.elements.namedItem("recovery_code").value = "";
