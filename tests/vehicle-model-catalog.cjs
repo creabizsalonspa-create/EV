@@ -63,8 +63,11 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   view.renderGarage([{id:12,name:'Family EV',connector_type:'CCS2'}]);
   const selectButton=visit(customerRoot,n=>n.tag==='button'&&label(n).includes('Select catalog model'));
   assert.ok(selectButton);
-  await selectButton.onclick();
+  const loading = selectButton.onclick();
+  view.renderGarage([{id:12,name:'Family EV refreshed',connector_type:'CCS2'}]);
+  await loading;
   assert.match(label(customerRoot),/Curation test EV-A/);
+  assert.ok(customerRoot.querySelector('[data-vehicle-model-picker]'));
   assert.ok(sent.some(c=>c.path.includes('connector_type=CCS2')));
   const save=visit(customerRoot,n=>n.tag==='button'&&label(n).includes('Link selected model'));
   assert.ok(save);
@@ -73,6 +76,12 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
     model_id:7,expected_model_id:null,
   });
   assert.match(label(customerRoot),/Model linked/);
+  view.renderGarage([{id:12,name:'Family EV latest',connector_type:'CCS2'}]);
+  assert.match(label(customerRoot),/Model linked/);
+  assert.ok(customerRoot.querySelector('[data-vehicle-model-picker]'));
+  // When the vehicle disappears, discard panel and linked model immediately.
+  view.renderGarage([]);
+  assert.equal(customerRoot.querySelector('[data-vehicle-model-picker]'), null);
   assert.doesNotMatch(fs.readFileSync(path,'utf8'),/\.innerHTML\s*=/);
   actor={id:10,role:'admin'};epoch++;
   await view.setActor(actor);

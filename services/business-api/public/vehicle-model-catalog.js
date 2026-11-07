@@ -60,10 +60,21 @@
 
     function renderGarage(vehicles) {
       if (current?.role !== "customer" || actor() !== current) return;
-      // A garage refresh invalidates an in-flight catalog response from a
-      // previously selected vehicle; never reattach stale model details.
-      generation++;
-      selectedVehicle = selectedLink = null;
+      // Retain same-account in-flight selection when the garage refreshes
+      // independently (e.g. vehicle creation). A removed/changed vehicle
+      // invalidates all outstanding responses and drops its private panel.
+      const stillOwned = selectedVehicle && vehicles.find(v =>
+        String(v.id) === String(selectedVehicle.id) &&
+        v.connector_type === selectedVehicle.connector_type);
+      const status = stillOwned
+        ? customerRoot.querySelector("[data-vehicle-model-message]") : null;
+      const panel = stillOwned
+        ? customerRoot.querySelector("[data-vehicle-model-picker]") : null;
+      if (stillOwned) selectedVehicle = stillOwned;
+      else {
+        generation++;
+        selectedVehicle = selectedLink = null;
+      }
       customerRoot.replaceChildren(tr(
         "My vehicle model catalog", "كتالوج طراز مركبتي", "h3",
       ), tr(
@@ -83,6 +94,8 @@
         item.append(choose); list.append(item);
       }
       customerRoot.append(list);
+      if (status) customerRoot.append(status);
+      if (panel) customerRoot.append(panel);
     }
 
     async function openVehicle(vehicle) {
