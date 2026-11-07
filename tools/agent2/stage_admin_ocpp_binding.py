@@ -28,12 +28,13 @@ def patch(root):
     r,b,s=(f.read_text(encoding='utf8') for f in (routes,booking,session))
     r=once(r,'import { AdminAuth } from "../middlewares/adminAuth.js";',
         '''import { AdminAuth } from "../middlewares/adminAuth.js";
-import { AdminIssueBookingOcppToken, AdminBindBookingOcppSource, AdminListLinkedBookingOcppSessions } from "../controllers/adminOcppBooking.js";''',
+import { AdminIssueBookingOcppToken, AdminBindBookingOcppSource, AdminListLinkedBookingOcppSessions, AdminFinalizeBookingOcppSource } from "../controllers/adminOcppBooking.js";''',
         'admin import')
     r=once(r, '// Bookings & Reviews (read-only)',
         '''// Authorized source-bound OCPP customer booking lifecycle (no hardware commands).
 router.post("/admin/bookings/:id/ocpp/issue-token", AdminAuth, AdminIssueBookingOcppToken);
 router.post("/admin/bookings/:id/ocpp/bind-source", AdminAuth, AdminBindBookingOcppSource);
+router.post("/admin/bookings/:id/ocpp/finalize-source", AdminAuth, AdminFinalizeBookingOcppSource);
 router.get("/admin/ocpp/booking-sessions", AdminAuth, AdminListLinkedBookingOcppSessions);
 
 // Bookings & Reviews (read-only)''','Admin OCPP route placement')
