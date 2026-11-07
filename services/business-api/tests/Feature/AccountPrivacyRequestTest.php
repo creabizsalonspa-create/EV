@@ -140,6 +140,83 @@ class AccountPrivacyRequestTest extends TestCase
         $this->assertDatabaseCount('account_privacy_requests', 1);
     }
 
+    public function test_review_history_is_append_only_encrypted_and_only_visible_to_admin(): void
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($customer)->postJson(
+            '/api/account/privacy-requests', $this->submit()
+        )->assertCreated();
+        $id = DB::table('account_privacy_requests')->value('id');
+        $history = "/api/admin/privacy-requests/{$id}/reviews";
+
+        $this->getJson($history)->assertForbidden();
+        $this->actingAs($admin)->getJson($history)->assertOk()
+            ->assertJsonPath('total', 0)
+            ->assertHeader('Cache-Control', 'no-store, private');
+
+        $this->patchJson("/api/admin/privacy-requests/{$id}/review", [
+            'expected_status' => 'pending',
+            'status' => 'reviewing',
+            'review_note' => 'Initial independent privacy identity verification.',
+        ])->assertOk();
+
+        $this->patchJson("/api/admin/privacy-requests/{$id}/review", [
+            'expected_status' => 'reviewing',
+            'status' => 'blocked_external',
+            'review_note' => 'Pending third party retention and legal approval.',
+        ])->assertOk();
+
+        $this->assertDatabaseCount('account_privacy_request_reviews', 2);
+        $records = DB::table('account_privacy_request_reviews')->orderBy('id')->get();
+        $this->assertSame('pending', $records[0]->from_status);
+        $this->assertSame('reviewing', $records[0]->to_status);
+        $this->assertSame('reviewing', $records[1]->from_status);
+        $this->assertSame('blocked_external', $records[1]->to_status);
+        $this->assertStringNotContainsString(
+            'Initial independent privacy identity verification',
+            $records[0]->note_encrypted
+        );
+        $this->assertStringNotContainsString(
+            'Pending third party retention',
+            $records[1]->note_encrypted
+        );
+
+        $this->getJson($history)->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.to_status', 'blocked_external')
+            ->assertJsonPath('data.0.note', 'Pending third party retention and legal approval.')
+            ->assertJsonPath('data.1.from_status', 'pending')
+            ->assertJsonPath('data.1.note', 'Initial independent privacy identity verification.')
+            ->assertJsonMissingPath('data.0.note_encrypted');
+
+        $this->actingAs($customer)->getJson($history)->assertForbidden();
+        $this->getJson('/api/account/privacy-requests')->assertOk()
+            ->assertJsonPath('data.0.status', 'blocked_external')
+            ->assertDontSee('Pending third party retention');
+    }
+
+    public function test_failed_review_does_not_append_a_private_history_record(): void
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($customer)->postJson(
+            '/api/account/privacy-requests', $this->submit('correction')
+        )->assertCreated();
+        $id = DB::table('account_privacy_requests')->value('id');
+        $this->actingAs($admin)->patchJson(
+            "/api/admin/privacy-requests/{$id}/review",
+            [
+                'expected_status' => 'reviewing',
+                'status' => 'closed_review',
+                'review_note' => 'Incorrect prior status; must not append evidence.',
+            ]
+        )->assertStatus(409);
+        $this->assertDatabaseCount('account_privacy_request_reviews', 0);
+        $this->assertDatabaseHas('account_privacy_requests', [
+            'id' => $id, 'status' => 'pending',
+        ]);
+    }
+
     public function test_non_admin_and_self_review_are_forbidden(): void
     {
         $user = User::factory()->create(['role' => 'vendor']);
