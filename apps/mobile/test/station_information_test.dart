@@ -4,6 +4,46 @@ import 'package:creabiz_ev/station_information.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+
+/// Tenant-owned API contract fixture. Laravel feature tests cover real authorization.
+class _OwnedStationApi extends EvApi {
+  _OwnedStationApi() : super(Uri.parse('https://example.invalid'));
+  final writes = <Map<String, dynamic>>[];
+
+  @override
+  Future<dynamic> request(String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'vendor/stations' && method == 'GET') {
+      return {
+        'data': [{'id': 7, 'name': 'Local Plaza'}],
+        'current_page': 1, 'last_page': 1, 'total': 1,
+      };
+    }
+    if (path == 'stations/7/information' && method == 'GET') {
+      return {
+        'revision': 1,
+        'description_en': null, 'description_ar': null,
+        'access_en': null, 'access_ar': null,
+        'weekly_hours': {
+          for (final day in stationInfoDays)
+            day: {'open': day == 'fri' ? null : '08:00',
+                  'close': day == 'fri' ? null : '22:00'},
+        },
+        'closed_dates': [], 'amenities': [], 'accessibility': [],
+      };
+    }
+    if (path == 'stations/7/information' && method == 'PUT') {
+      final input = Map<String, dynamic>.from(body!);
+      writes.add(input);
+      return {...input, 'revision': 2};
+    }
+    throw ApiException(404, 'Unexpected station test route: $method $path');
+  }
+}
+
 void main() {
   Map<String, dynamic> station() => {
     'id': 14, 'name': 'Central Plaza', 'connector_type': 'CCS2',
@@ -79,4 +119,37 @@ void main() {
     expect(find.textContaining('البوابة ب'), findsOneWidget);
     expect(find.textContaining('غير معروف'), findsWidgets);
   });
+  testWidgets('vendor can edit owned station details without touching charger truth',
+      (tester) async {
+    final api = _OwnedStationApi();
+    try {
+      await tester.pumpWidget(MaterialApp(
+        home: VendorStationInformationView(api: api, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Local Plaza'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('station-info-description_en')),
+        'Roof deck');
+      await tester.enterText(find.byKey(const Key('station-info-access_en')),
+        'Gate A');
+      await tester.ensureVisible(find.text('Wi-Fi'));
+      await tester.tap(find.text('Wi-Fi'));
+      await tester.ensureVisible(find.byKey(const Key('station-info-save')));
+      await tester.tap(find.byKey(const Key('station-info-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(1));
+      expect(api.writes.single['revision'], 1);
+      expect(api.writes.single['description_en'], 'Roof deck');
+      expect(api.writes.single['access_en'], 'Gate A');
+      expect((api.writes.single['amenities'] as List), contains('wifi'));
+      final week = api.writes.single['weekly_hours'] as Map;
+      expect((week['fri'] as Map)['open'], isNull);
+      expect((week['mon'] as Map)['open'], '08:00');
+      expect(api.writes.single.containsKey('charging_status'), isFalse);
+      expect(api.writes.single.containsKey('tariff'), isFalse);
+    } finally {
+      api.close();
+    }
+  });
+
 }
