@@ -12,6 +12,7 @@ import 'package:get/get.dart';
 
 import '../../../../core/service/api_service/api_service.dart';
 import '../../../../core/service/shared_preferance/shared_prefarance.dart';
+import '../../../../core/service/session/session.dart';
 
 class ProfileController extends GetxController {
   final _net = NetworkService().client;
@@ -514,14 +515,24 @@ class ProfileController extends GetxController {
   /// GET /api/v1/UserLogout
   /// response: { status: "success" }
   Future<void> logout() async {
+    // Snapshot the original session BEFORE the logout HTTP request. Its
+    // response may arrive after another user has already signed in.
+    final generation = SharedPrefs.credentialGeneration;
+    final token = Session.accessToken;
     loading.value = true;
-    await _net.getRequest('/api/v1/UserLogout');
-    loading.value = false;
-
-    // Clear local data regardless of API result
-    await _prefs.clear();
-    profile.value = null;
-
-    Get.offAll(() => const LoginScreen());
+    try {
+      await _net.getRequest('/api/v1/UserLogout');
+      // Local logout still applies if the server does not respond successfully,
+      // but never clears credentials for a newer signed-in account.
+      final cleared = await _prefs.clearIfCurrent(
+        expectedGeneration: generation,
+        expectedToken: token,
+      );
+      if (!cleared) return;
+      profile.value = null;
+      Get.offAll(() => const LoginScreen());
+    } finally {
+      loading.value = false;
+    }
   }
 }
