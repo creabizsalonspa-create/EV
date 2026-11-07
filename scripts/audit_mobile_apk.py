@@ -47,9 +47,45 @@ def _required_false(manifest, name):
         raise AuditError("Compiled Android manifest must set " + name + "=false")
 
 
+BACKUP_DOMAINS = frozenset({
+    "root", "file", "database", "sharedpref", "external",
+    "device_root", "device_file", "device_database", "device_sharedpref",
+})
+
+
+def _assert_compiled_exclusions(xml, label):
+    if re.search(r"\bE: include\b", xml):
+        raise AuditError("Compiled " + label + " unexpectedly allows inclusions")
+    for domain in BACKUP_DOMAINS:
+        pair = (r'A:\s+domain="' + re.escape(domain) +
+                r'"[^\n]*\n\s*A:\s+path="\.\"')
+        if not re.search(pair, xml):
+            raise AuditError(
+                "Compiled " + label + " missing full " + domain + " exclusion"
+            )
+
+
+def _verify_compiled_backup_rules(legacy, extraction):
+    if not legacy or "E: full-backup-content" not in legacy:
+        raise AuditError("Compiled legacy backup rule document is unavailable")
+    _assert_compiled_exclusions(legacy, "legacy backup")
+    if not extraction or "E: data-extraction-rules" not in extraction:
+        raise AuditError("Compiled Android 12+ extraction rules are unavailable")
+    if "E: cloud-backup" not in extraction or \
+            "E: device-transfer" not in extraction:
+        raise AuditError("Compiled extraction rules lack cloud/device sections")
+    cloud = extraction.split("E: cloud-backup", 1)[1].split(
+        "E: device-transfer", 1
+    )[0]
+    transfer = extraction.split("E: device-transfer", 1)[1]
+    _assert_compiled_exclusions(cloud, "cloud backup")
+    _assert_compiled_exclusions(transfer, "device transfer")
+
+
 def audit_manifest(
     badging, manifest, *, expected_package, mode="debug",
     maps_required=False, expected_signer_sha256=None, signer_output=None,
+    backup_rules=None, extraction_rules=None,
 ):
     """Evaluate compiled aapt/apksigner output; safe to test with fixtures."""
     match = re.search(r"(?m)^package: name='([^']+)'", badging)
@@ -69,6 +105,7 @@ def audit_manifest(
         if not re.search(r"android:" + name + r"\([^)]*\)=@0x[0-9a-fA-F]+",
                          manifest):
             raise AuditError("Compiled Android manifest is missing " + name)
+    _verify_compiled_backup_rules(backup_rules, extraction_rules)
 
     if maps_required:
         maps = re.search(
@@ -82,6 +119,7 @@ def audit_manifest(
 
     result = {"package": package, "target_sdk": int(sdk.group(1)),
               "mode": mode, "backup_disabled": True,
+              "compiled_backup_exclusions_verified": True,
               "remote_cleartext_disabled": True}
     if mode == "release":
         if package.endswith((".dev", ".debug", ".test")):
@@ -119,6 +157,10 @@ def audit_file(args):
     aapt = _sdk_tool("aapt", args.aapt)
     badging = _run([aapt, "dump", "badging", str(apk)])
     manifest = _run([aapt, "dump", "xmltree", str(apk), "AndroidManifest.xml"])
+    legacy = _run([aapt, "dump", "xmltree", str(apk),
+                   "res/xml/ev_backup_rules.xml"])
+    extraction = _run([aapt, "dump", "xmltree", str(apk),
+                       "res/xml/ev_data_extraction_rules.xml"])
     signature = None
     if args.mode == "release":
         signer = _sdk_tool("apksigner", args.apksigner)
@@ -129,6 +171,8 @@ def audit_file(args):
         maps_required=args.require_maps_key,
         expected_signer_sha256=args.expected_signer_sha256,
         signer_output=signature,
+        backup_rules=legacy,
+        extraction_rules=extraction,
     )
     digest = hashlib.sha256()
     with apk.open("rb") as source:
