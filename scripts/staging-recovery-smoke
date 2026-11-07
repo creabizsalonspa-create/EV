@@ -134,6 +134,16 @@ CREATE TABLE ev_agent3_recovery_probe (
 INSERT INTO ev_agent3_recovery_probe VALUES
   ('alpha', 'integrity-checked'), ('beta', 'source-only-data');
 SQL_SEED
+# Distinct run-owned private file, never a real customer's document.
+docker exec --user www-data "$source_app" php -r '
+$p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
+if (file_put_contents($p, "synthetic-private-archive", LOCK_EX) === false) exit(1);
+if (!chmod($p, 0600)) exit(1);
+'
+docker exec "$source_app" tar -C /var/www/html/storage/app/private -czf -   agent3-recovery-probe.bin > "$scratch/private-probe.tar.gz"
+[[ -s "$scratch/private-probe.tar.gz" ]] || {
+  echo 'Synthetic private-storage archive is empty.' >&2; exit 1;
+}
 migration_count=$(query "$source_db" 'SELECT count(*) FROM migrations')
 [[ "$migration_count" =~ ^[0-9]+$ && "$migration_count" -gt 0 ]] || {
   echo 'Expected Laravel migration history before backup.' >&2; exit 1;
@@ -164,6 +174,13 @@ target_app=$(docker run -d --name "$review_id-app-target" --network "$target_net
   --env-file "$scratch/target-application.env" \
   --mount type=volume,target=/var/www/html/storage/app/private "$image")
 wait_for_app "$target_app"
+docker exec -i "$target_app" tar -C /var/www/html/storage/app/private -xzf -   < "$scratch/private-probe.tar.gz"
+docker exec --user www-data "$target_app" php -r '
+$p="/var/www/html/storage/app/private/agent3-recovery-probe.bin";
+if (!is_file($p) || !is_readable($p)) exit(1);
+if (!hash_equals(hash("sha256", "synthetic-private-archive"), hash_file("sha256", $p))) exit(1);
+if ((fileperms($p) & 0777) !== 0600) exit(1);
+'
 docker exec --user www-data "$target_app" php artisan migrate:status --no-interaction >/dev/null
 docker exec -i --user www-data "$target_app" php <<'PHP_HTTP'
 <?php
@@ -182,15 +199,17 @@ PHP_HTTP
 
 mkdir -p "$root/artifacts/agent3-recovery"
 archive_hash=$(sha256sum "$archive" | awk '{print $1}')
+private_archive_hash=$(sha256sum "$scratch/private-probe.tar.gz" | awk '{print $1}')
 python3 - "$root/artifacts/agent3-recovery/validation.json" \
-  "$archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" <<'PY_EVIDENCE'
+  "$archive_hash" "$private_archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" <<'PY_EVIDENCE'
 import json, os, sys
-path, archive_hash, count, migration_hash, probe_hash = sys.argv[1:]
+path, archive_hash, private_hash, count, migration_hash, probe_hash = sys.argv[1:]
 record = {
     'status': 'PASS',
     'classification': 'disposable staging software only',
     'postgresql': '17-alpine pinned image',
     'dump_sha256': archive_hash,
+    'synthetic_private_archive_sha256': private_hash,
     'laravel_migration_rows': int(count),
     'migration_history_md5': migration_hash,
     'synthetic_data_md5': probe_hash,
@@ -202,4 +221,4 @@ with os.fdopen(fd, 'w') as output:
     json.dump(record, output, indent=2, sort_keys=True)
     output.write('\n')
 PY_EVIDENCE
-echo 'PASS: isolated PostgreSQL17 custom-format backup, data+schema restore, independent Laravel boot and HTTP. No production resources touched.'
+echo 'PASS: isolated PostgreSQL17 custom-format backup, data+schema/private-file restore, independent Laravel boot and HTTP. No production resources touched.'
