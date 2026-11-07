@@ -25,6 +25,10 @@ node scripts/staging-release.cjs plan \
 
 This plan verifies current Compose health/network exposure, the existing deployment's immutable image ID, distinct candidate immutable ID, the candidate image's source SHA and review labels, and identical current application/worker/scheduler tags. It will refuse non-default/remote Docker contexts, publicly bound database/app ports, a missing/unsafe private `.env`, image tag reuse, changed source label, or an unready project. No containers are changed.
 
+### Gateway/Caddy prerequisite
+
+The stage reverse proxy now supplies a reviewed Content-Security-Policy in `infra/staging/Caddyfile`, required by `scripts/staging-health.cjs`. The application-only rollout **does not reload or restart the gateway**. An authorized staging operator must independently check that the running, trusted-TLS Caddy instance is serving this reviewed configuration before applying a new app image. If the gateway is stale or TLS is unavailable, the rollout will fail safely rather than certifying the environment.
+
 ## 2. Explicit operator-authorized staging apply
 
 Once Agent 4's exact-head CI and the application's schema-compatibility assessment are satisfactory, an operator may execute:
@@ -41,7 +45,7 @@ node scripts/staging-release.cjs apply \
 
 The approval marker is an explicit acknowledgement, **not** a secret or a replacement for organizational approval. Replace `FIRST_12_SHA_CHARACTERS` with the first 12 characters of the chosen exact SHA.
 
-The tool acquires a single exclusive local staging lock, records the old/new tags and immutable IDs **plus the original database/gateway container IDs** in an owner-only append-only JSONL journal, and runs **only** a local Docker Compose `up -d --no-deps --no-build --wait application worker scheduler` with `EV_IMAGE_TAG` set to the new tag. It never uses `down`, `rm`, `migrate`, removes a volume, changes PostgreSQL/gateway settings or updates the private `.env`. It then rechecks staging health, loopback-only gateway binding and **actual running immutable image ID** for all three application roles. It also refuses to certify the rollout or rollback if the original PostgreSQL or gateway container identity changed during the application-only update.
+The tool acquires a single exclusive local staging lock, records the old/new tags and immutable IDs **plus the original database/gateway container IDs** in an owner-only append-only JSONL journal, and runs **only** a local Docker Compose `up -d --no-deps --no-build --wait application worker scheduler` with `EV_IMAGE_TAG` set to the new tag. It never uses `down`, `rm`, `migrate`, removes a volume, changes PostgreSQL/gateway settings or updates the private `.env`. It then rechecks staging health, loopback-only gateway binding and **actual running immutable image ID** for all three application roles. It also refuses to certify the rollout or rollback if the original PostgreSQL or gateway container identity changed during the application-only update. **Before recording success, it runs the seven-route read-only HTTPS smoke** against the reviewed staging hostname at loopback port 8443 with normal certificate verification. A failed route, missing CSP/header, anonymous Admin access leak or unavailable TLS triggers automatic return to the former app image; if the former image cannot pass the same HTTP checks, recovery is marked uncertain. The manual rollback tool applies the same TLS check before declaring recovery verified.
 
 If the candidate is unhealthy or a command fails, the tool attempts to restore the exact previously recorded image ID/tag and logs `ROLLBACK_VERIFIED`. If prior image identity has changed or rollback verification fails, it records `OPERATOR_RECONCILIATION_REQUIRED` and exits nonzero. This means an operator must inspect retained state before doing anything else; never reset the journal or dismiss unknown sessions. A crash may leave only `RELEASE_STARTED`; such cases require manual recovery.
 
@@ -68,7 +72,7 @@ bash -n scripts/staging-image-build
 for p in scripts/*.cjs tests/*.cjs; do node --check "$p"; done
 node --test tests/staging-health.cjs tests/staging-runtime-gate.cjs tests/demo-fixture-guard.cjs \
   tests/staging-acceptance.cjs tests/staging-image-provenance.cjs \
-  tests/staging-image-build-identity.cjs tests/staging-release.cjs tests/staging-manual-rollback.cjs
+  tests/staging-image-build-identity.cjs tests/staging-release.cjs tests/staging-manual-rollback.cjs tests/staging-caddyfile-policy.cjs
 ```
 
 Exact GitHub-source Node 24.22.1 execution on an isolated test directory with deterministic mocked Docker calls: **145/145 tests passed**, zero failures or skips; Bash and Node syntax checks passed. Source hashes matched the GitHub blobs. No actual local or remote Docker deployment was performed by these tests. Tests include failure/recovery paths, source label and image ID mismatch, public DB/gateway bind refusal, active remote Docker context rejection, journal tampering, stale tag rejection and concurrent release locking.
