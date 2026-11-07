@@ -77,3 +77,7 @@ The browser inbox no longer spends support-ticket rate-limit capacity. Session-a
 ## Explicit unread-state reversal
 
 New account-scoped `POST /api[/v1]/notifications/{notification}/unread` reverses an earlier local read acknowledgement without recreating or resending an event. The update is atomic, idempotent and audits exactly one real transition. Both web and Flutter expose localized Mark unread controls; existing support/charging/fleet events and external delivery states do not change. Backend tests cover cross-account 404, stable record count and single audit; native widget tests cover read→unread round trips.
+
+### Category-level unread totals
+
+The single-query tenant-scoped summary now returns `unread_by_category` for `support`, `vehicle`, `charging`, `fleet`, and `other` using fixed SQL prefix parameters. `other` counts unrecognized event classes rather than hiding them. Category counts add up to the global unread count and cannot include foreign users. Web and Flutter show EN/AR category totals only if all category fields are valid nonnegative integers, while older clients can continue consuming the existing `unread_count`, `latest_id`, and `in_app_only` fields. Backend and native widget tests cover known categories, unknown types, another account's records, and summary presentation.

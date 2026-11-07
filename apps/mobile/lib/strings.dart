@@ -16,6 +16,7 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'notificationCategoryCounts': 'Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}',
     'notificationCategoryAll': 'All',
     'notificationCategorySupport': 'Support',
     'notificationCategoryVehicle': 'Vehicle',
@@ -353,6 +354,7 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'notificationCategoryCounts': 'دعم {support} · مركبة {vehicle} · شحن {charging} · أسطول {fleet} · أخرى {other}',
     'notificationCategoryAll': 'الكل',
     'notificationCategorySupport': 'الدعم',
     'notificationCategoryVehicle': 'المركبة',

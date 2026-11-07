@@ -1,4 +1,8 @@
 window.EV_MESSAGES = {
+    "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}": {
+        en: "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}",
+        ar: "غير مقروءة: دعم {support} · مركبة {vehicle} · شحن {charging} · أسطول {fleet} · أخرى {other}",
+    },
     "Mark unread": { en: "Mark unread", ar: "تحديد كغير مقروء" },
 
     "Review fleet invitation": { en: "Review fleet invitation", ar: "مراجعة دعوة الأسطول" },

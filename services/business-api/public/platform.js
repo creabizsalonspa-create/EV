@@ -1358,6 +1358,12 @@ async function refreshInbox() {
     view.append(categorySelect);
     if (Number.isSafeInteger(inbox.unread_count) && Number.isSafeInteger(inbox.latest_id)) {
         view.append(ui("p", "{count} unread notifications", { count: inbox.unread_count }));
+        const byCategory = inbox.unread_by_category;
+        if (byCategory && ["support", "vehicle", "charging", "fleet", "other"].every(
+            (key) => Number.isSafeInteger(byCategory[key]) && byCategory[key] >= 0
+        )) {
+            view.append(ui("p", "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}", byCategory));
+        }
         if (inbox.unread_count > 0 && inbox.latest_id > 0) {
             const throughId = inbox.latest_id;
             const button = ui("button", "Mark all current notifications as read");

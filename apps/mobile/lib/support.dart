@@ -62,6 +62,7 @@ class SupportViewState extends State<SupportView> {
   bool notifications = false, unreadOnly = false, loading = false;
   String category = 'all';
   int? unreadCount, latestNotificationId;
+  Map<String, int>? unreadByCategory;
   Object? error;
   ApiPage<Map<String, dynamic>>? data;
   int generation = 0;
@@ -100,6 +101,15 @@ class SupportViewState extends State<SupportView> {
               : null;
           latestNotificationId = summary is Map && summary['latest_id'] is int
               ? summary['latest_id'] as int
+              : null;
+          final counts = summary is Map ? summary['unread_by_category'] : null;
+          unreadByCategory = counts is Map &&
+                  ['support', 'vehicle', 'charging', 'fleet', 'other']
+                      .every((name) => counts[name] is int && counts[name] >= 0)
+              ? {
+                  for (final name in ['support', 'vehicle', 'charging', 'fleet', 'other'])
+                    name: counts[name] as int,
+                }
               : null;
         });
       }
@@ -282,6 +292,11 @@ class SupportViewState extends State<SupportView> {
             Text(
               s.t('unreadNotificationCount', {'count': unreadCount!}),
               key: const Key('notification-unread-count'),
+            ),
+          if (notifications && unreadByCategory != null)
+            Text(
+              s.t('notificationCategoryCounts', unreadByCategory!),
+              key: const Key('notification-category-counts'),
             ),
           if (notifications &&
               (unreadCount ?? 0) > 0 &&

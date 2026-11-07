@@ -78,6 +78,7 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertExactJson([
                 'unread_count' => 0,
                 'latest_id' => 0,
+                'unread_by_category' => ['support' => 0, 'vehicle' => 0, 'charging' => 0, 'fleet' => 0, 'other' => 0],
                 'in_app_only' => true,
             ]);
 
@@ -99,6 +100,35 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonPath('unread_count', 1);
     }
 
+    public function test_category_unread_summary_has_consistent_totals_and_excludes_other_accounts(): void
+    {
+        $owner = User::factory()->create();
+        $foreign = User::factory()->create();
+        $this->makeNotification($owner, 'support.reply');
+        $this->makeNotification($owner, 'vehicle.battery.simulated');
+        $this->makeNotification($owner, 'charging.fault.simulated');
+        $this->makeNotification($owner, 'fleet.invitation');
+        $unknown = $this->makeNotification($owner, 'platform.security.notice');
+        $this->makeNotification($foreign, 'fleet.invitation');
+        $unknown->update(['read_at' => now()]);
+        $this->actingAs($owner)->getJson('/api/v1/notifications/summary')
+            ->assertOk()
+            ->assertJsonPath('unread_count', 4)
+            ->assertJsonPath('unread_by_category.support', 1)
+            ->assertJsonPath('unread_by_category.vehicle', 1)
+            ->assertJsonPath('unread_by_category.charging', 1)
+            ->assertJsonPath('unread_by_category.fleet', 1)
+            ->assertJsonPath('unread_by_category.other', 0);
+        $this->actingAs($foreign)->getJson('/api/notifications/summary')
+            ->assertOk()->assertJsonPath('unread_count', 1)
+            ->assertJsonPath('unread_by_category.fleet', 1)
+            ->assertJsonPath('unread_by_category.charging', 0);
+        $unknown->update(['read_at' => null]);
+        $this->actingAs($owner)->getJson('/api/notifications/summary')
+            ->assertOk()->assertJsonPath('unread_count', 5)
+            ->assertJsonPath('unread_by_category.other', 1);
+    }
+
     public function test_summary_high_water_does_not_reset_after_read_and_is_single_account_scoped(): void
     {
         $owner = User::factory()->create();
@@ -113,12 +143,14 @@ class NotificationCenterTest extends TestCase
         $this->getJson('/api/notifications/summary')->assertOk()->assertExactJson([
             'unread_count' => 0,
             'latest_id' => $last->id,
+            'unread_by_category' => ['support' => 0, 'vehicle' => 0, 'charging' => 0, 'fleet' => 0, 'other' => 0],
             'in_app_only' => true,
         ]);
         $newer = $this->makeNotification($owner);
         $this->getJson('/api/v1/notifications/summary')->assertOk()->assertExactJson([
             'unread_count' => 1,
             'latest_id' => $newer->id,
+            'unread_by_category' => ['support' => 1, 'vehicle' => 0, 'charging' => 0, 'fleet' => 0, 'other' => 0],
             'in_app_only' => true,
         ]);
         $this->assertNotNull($first->fresh()->read_at);

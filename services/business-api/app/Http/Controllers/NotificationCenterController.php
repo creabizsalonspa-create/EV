@@ -16,16 +16,37 @@ class NotificationCenterController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        // One database snapshot for the count and high-water marker:
-        // separate SELECTs could span a newly inserted notification.
-        $snapshot = InboxNotification::query()
+        // All fields derive from the same tenant-scoped SQL snapshot. Unknown
+        // kinds are grouped in "other", not silently lost.
+        $fields = [
+            'support' => 'support.%',
+            'vehicle' => 'vehicle.%',
+            'charging' => 'charging.%',
+            'fleet' => 'fleet.%',
+        ];
+        $query = InboxNotification::query()
             ->where('user_id', $request->user()->id)
-            ->selectRaw('COALESCE(SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count, COALESCE(MAX(id), 0) AS latest_id')
-            ->first();
+            ->selectRaw('COALESCE(SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count, COALESCE(MAX(id), 0) AS latest_id');
+
+        foreach ($fields as $category => $prefix) {
+            $query->selectRaw(
+                "COALESCE(SUM(CASE WHEN read_at IS NULL AND kind LIKE ? THEN 1 ELSE 0 END), 0) AS unread_{$category}",
+                [$prefix]
+            );
+        }
+        $snapshot = $query->firstOrFail();
+        $totals = [];
+        foreach (array_keys($fields) as $category) {
+            $totals[$category] = (int) $snapshot->{"unread_{$category}"};
+        }
+        $classified = array_sum($totals);
+        $unread = (int) $snapshot->unread_count;
+        $totals['other'] = max(0, $unread - $classified);
 
         return response()->json([
-            'unread_count' => (int) $snapshot->unread_count,
+            'unread_count' => $unread,
             'latest_id' => (int) $snapshot->latest_id,
+            'unread_by_category' => $totals,
             'in_app_only' => true,
         ]);
     }

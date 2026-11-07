@@ -57,6 +57,13 @@ class SupportFixture extends FixtureApi {
       return {
         'unread_count': read ? 0 : 1,
         'latest_id': 2,
+        'unread_by_category': {
+          'support': read ? 0 : 1,
+          'vehicle': 0,
+          'charging': 0,
+          'fleet': 0,
+          'other': 0,
+        },
         'in_app_only': true,
       };
     }
@@ -390,6 +397,18 @@ void main() {
     await tester.tap(find.text('Charging').last);
     await tester.pumpAndSettle();
     expect(api.selectedCategory, 'charging');
+  });
+  testWidgets('category unread totals render from one scoped response', (tester) async {
+    final fixture = SupportFixture();
+    addTearDown(fixture.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: fixture, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notification-category-counts')), findsOneWidget);
+    expect(find.textContaining('Support 1'), findsOneWidget);
   });
   testWidgets('unread-only native filter requests scoped API rows', (tester) async {
     final fixture = SupportFixture();
