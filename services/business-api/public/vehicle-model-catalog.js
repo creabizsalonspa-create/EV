@@ -60,6 +60,10 @@
 
     function renderGarage(vehicles) {
       if (current?.role !== "customer" || actor() !== current) return;
+      // A garage refresh invalidates an in-flight catalog response from a
+      // previously selected vehicle; never reattach stale model details.
+      generation++;
+      selectedVehicle = selectedLink = null;
       customerRoot.replaceChildren(tr(
         "My vehicle model catalog", "كتالوج طراز مركبتي", "h3",
       ), tr(
