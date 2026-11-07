@@ -20,6 +20,7 @@ use App\Http\Controllers\RiderSourceController;
 use App\Http\Controllers\RoamingOrderController;
 use App\Http\Controllers\SimulationController as S;
 use App\Http\Controllers\SupportController as T;
+use App\Http\Controllers\VehicleBatteryController;
 use App\Models\Station;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -39,6 +40,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('/profile', [A::class, 'profile']);
         Route::get('/vehicles', [P::class, 'vehicles']);
         Route::post('/vehicles', [P::class, 'createVehicle']);
+        Route::post('/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
         Route::post('/stations', [P::class, 'createStation']);
         Route::get('/vendor/stations', function (Request $r) {
             abort_unless($r->user()->role === 'vendor', 403);
