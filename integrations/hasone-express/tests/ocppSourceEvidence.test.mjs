@@ -8,7 +8,7 @@ const doc=()=>({_id:sid,chargerId:charger,protocol:'ocpp1.6',transactionId:'tx-a
   idTagHash:token,status:'ended',startedAt:'2026-11-07T00:00:00Z',
   endedAt:'2026-11-07T00:10:00Z',meterStartWh:1000,meterLastWh:8000,
   energyWh:7000,energyKwh:7,subtotalFils:525,vatFils:26,totalFils:551,
-  tariff:{currency:'AED'},billingStatus:'calculated_unpaid',paymentStatus:'not_collected'});
+  tariff:{currency:'AED',rateFilsPerKwh:75,vatPercent:5},billingStatus:'calculated_unpaid',paymentStatus:'not_collected'});
 test('linked 1.6 source yields verified unpaid Wh, kWh and AED fils',()=>{
   const out=verifyOcppSource(doc(),binding());
   assert.equal(out.sourceVerified,true);assert.equal(out.meterVerified,true);
@@ -51,4 +51,17 @@ test('unclosed OCPP session may show metered kWh, never final bill',()=>{
 test('malformed or chronological session evidence is rejected',()=>{
   assert.equal(verifyOcppSource({...doc(),endedAt:'2026-11-06T23:59:00Z'},binding()),null);
   assert.equal(verifyOcppSource({...doc(),protocol:'unknown'},binding()),null);
+});
+
+test('tampered source tariff, subtotal or tax is never treated as payable',()=>{
+  assert.equal(verifyOcppSource({...doc(),subtotalFils:1},binding()).totalFils,null);
+  assert.equal(verifyOcppSource({...doc(),vatFils:1},binding()).totalFils,null);
+  assert.equal(verifyOcppSource({...doc(),tariff:{currency:'AED',rateFilsPerKwh:20,vatPercent:5}},binding()).totalFils,null);
+});
+test('verified AED rate, VAT and subtotal are available for the read-only summary',()=>{
+  const p=verifyOcppSource(doc(),binding());
+  assert.equal(p.subtotalFils,525);
+  assert.equal(p.vatFils,26);
+  assert.equal(p.rateAedPerKwh,.75);
+  assert.equal(p.vatPercent,5);
 });
