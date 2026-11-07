@@ -127,6 +127,9 @@ const reply = {
       await root.locator('[name="ocm_radius_km"]').fill("10");
       await root.locator('[name="ocm_min_reported_power_kw"]').fill("20");
       await root.locator('[name="ocm_reported_connector"]').fill("Type 2");
+      await root.locator('[name="ocm_operator_contains"]').fill("Unverified");
+      await root.locator('[name="ocm_reported_operational"]').selectOption("true");
+      await root.locator('[name="ocm_reported_membership_required"]').selectOption("true");
       await root.locator('[name="ocm_country"]').fill("ae");
       assert.equal(await root.locator('[name="ocm_country"]').inputValue(), "AE");
       assert.equal(searchRequests.length, 0, "Filling coordinates must not start a partner request");
@@ -160,6 +163,9 @@ const reply = {
         country: "AE",
         min_reported_power_kw: 20,
         reported_connector: "Type 2",
+        operator_contains: "Unverified",
+        reported_membership_required: true,
+        reported_operational: true,
       });
       assert.equal(await root.locator('input[type="checkbox"]').isChecked(), false);
       if (mode === "enabled") {
@@ -168,6 +174,8 @@ const reply = {
         assert.equal(await root.locator("article").textContent().then(s => s.includes("CC BY-SA 4.0")), true);
         assert.equal(await root.locator("article").textContent().then(s => s.includes("Type 2") && s.includes("22 kW")), true);
         await root.getByText("Crowd-reported operational at last update; unverified and not live.", { exact: true }).waitFor();
+        await root.getByText("Reported operator (unverified): Unverified network", { exact: true }).waitFor();
+        await root.getByText("Crowd report: membership required; unverified.", { exact: true }).waitFor();
         await root.getByText("Crowd-reported access (unverified): Membership Required · confirm with operator, not live.", { exact: true }).waitFor();
         assert.equal(await root.getByRole("button", { name: "Request charge" }).count(), 0);
         const source = root.getByRole("link", { name: "View source and license" });
@@ -204,6 +212,8 @@ const reply = {
           "Crowd-reported access (unverified): Membership Required. Check with operator.",
           { exact: true },
         ).waitFor();
+        await popup.getByText("Crowd-reported operator (unverified): Unverified network", { exact: true }).waitFor();
+        await popup.getByText("Crowd report: membership required; unverified.", { exact: true }).waitFor();
         assert.equal(await popup.getByRole("button", { name: "Add charging stop" }).count(), 0);
         assert.equal(await popup.getByRole("button", { name: "Request charge" }).count(), 0);
         assert.equal(await popup.getByRole("link", { name: "View Open Charge Map source" }).getAttribute("href"),
@@ -261,6 +271,9 @@ const reply = {
         assert.equal(await root.locator('[name="ocm_latitude"]').inputValue(), "");
         assert.equal(await root.locator('[name="ocm_min_reported_power_kw"]').inputValue(), "");
         assert.equal(await root.locator('[name="ocm_reported_connector"]').inputValue(), "");
+        assert.equal(await root.locator('[name="ocm_operator_contains"]').inputValue(), "");
+        assert.equal(await root.locator('[name="ocm_reported_operational"]').inputValue(), "");
+        assert.equal(await root.locator('[name="ocm_reported_membership_required"]').inputValue(), "");
       } else {
         assert.equal(await root.locator("article").count(), 0);
         assert.equal(await page.locator(".ocm-map-pin").count(), 0,

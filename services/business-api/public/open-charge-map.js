@@ -56,6 +56,42 @@
     connector.maxLength = 80;
     connectorRow.append(text('span', 'Reported connector type (optional, exact)', 'نوع الموصل المبلغ عنه (اختياري، تطابق تام)'), connector);
     form.append(powerRow, connectorRow);
+    const operatorRow = document.createElement('label');
+    const operatorQuery = document.createElement('input');
+    operatorQuery.name = 'ocm_operator_contains';
+    operatorQuery.type = 'text';
+    operatorQuery.maxLength = 120;
+    operatorRow.append(text('span', 'Reported operator contains (optional, unverified)',
+        'اسم المشغل حسب التقرير يحتوي على (اختياري، غير مؤكد)'), operatorQuery);
+    const reportedStatusRow = document.createElement('label');
+    const reportedStatusFilter = document.createElement('select');
+    reportedStatusFilter.name = 'ocm_reported_operational';
+    for (const [value, english, arabic] of [
+        ['', 'Any crowd-reported operating state', 'أي حالة تشغيل حسب التقرير'],
+        ['true', 'Reported operational at last update (not live)', 'أبلغ عن تشغيل عند آخر تحديث (ليس مباشراً)'],
+        ['false', 'Reported operational issue at last update (not live)', 'أبلغ عن مشكلة تشغيل (ليس مباشراً)'],
+    ]) {
+        const choice = text('option', english, arabic);
+        choice.value = value;
+        reportedStatusFilter.append(choice);
+    }
+    reportedStatusRow.append(text('span', 'Crowd-reported operating state (unverified)',
+        'حالة التشغيل المبلغ عنها (غير مؤكدة)'), reportedStatusFilter);
+    const membershipRow = document.createElement('label');
+    const membershipFilter = document.createElement('select');
+    membershipFilter.name = 'ocm_reported_membership_required';
+    for (const [value, english, arabic] of [
+        ['', 'Any reported membership requirement', 'أي اشتراط عضوية حسب التقرير'],
+        ['true', 'Membership reportedly required (unverified)', 'عضوية مطلوبة حسب التقرير (غير مؤكد)'],
+        ['false', 'Membership reportedly not required (unverified)', 'عضوية غير مطلوبة حسب التقرير (غير مؤكد)'],
+    ]) {
+        const choice = text('option', english, arabic);
+        choice.value = value;
+        membershipFilter.append(choice);
+    }
+    membershipRow.append(text('span', 'Crowd-reported membership requirement',
+        'اشتراط العضوية المبلغ عنه'), membershipFilter);
+    form.append(operatorRow, reportedStatusRow, membershipRow);
     const consent = document.createElement('input');
     consent.type = 'checkbox';
     consent.required = true;
@@ -146,10 +182,19 @@
                 : r.reported_operational === false
                     ? (ar() ? 'أبلغ المجتمع أن الموقع لا يعمل؛ غير مؤكد وليس مباشراً' : 'Crowd-reported non-operational at last update; unverified and not live.')
                     : (ar() ? 'الحالة التشغيلية المبلغ عنها غير معروفة؛ ليست مباشرة' : 'Crowd operational report unavailable; not live.');
+            const operatorInfo = document.createElement('p');
+            operatorInfo.textContent = (ar() ? 'المشغل حسب التقرير (غير مؤكد): ' : 'Reported operator (unverified): ') +
+                (r.operator_label || (ar() ? 'غير معروف' : 'unknown'));
             const access = document.createElement('p');
             access.textContent = (ar() ? 'الوصول حسب تقارير المجتمع (غير مؤكد): ' : 'Crowd-reported access (unverified): ') +
                 (r.reported_access || (ar() ? 'غير معروف' : 'unknown')) +
                 (ar() ? ' · تحقق مع المشغل، ليست حالة مباشرة.' : ' · confirm with operator, not live.');
+            const membership = document.createElement('p');
+            membership.textContent = r.reported_membership_required === true
+                ? (ar() ? 'العضوية مطلوبة حسب تقرير المجتمع؛ غير مؤكدة.' : 'Crowd report: membership required; unverified.')
+                : r.reported_membership_required === false
+                    ? (ar() ? 'العضوية غير مطلوبة حسب تقرير المجتمع؛ غير مؤكدة.' : 'Crowd report: membership not required; unverified.')
+                    : (ar() ? 'اشتراط العضوية غير معروف.' : 'Crowd-reported membership requirement unknown.');
             const license = document.createElement('p');
             license.textContent = (ar() ? 'المصدر والترخيص: ' : 'Source/license: ') + r.attribution + ' · ' + r.data_license;
             const connectors = document.createElement('p');
@@ -171,7 +216,7 @@
                     : 'Send this crowd-reported location to Google Maps? Its privacy policy applies. No route, ETA or live charger availability is verified.'))
                     event.preventDefault();
             };
-            card.append(heading, place, distance, age, reportedStatus, access, license, connectors,
+            card.append(heading, place, distance, age, reportedStatus, operatorInfo, access, membership, license, connectors,
                 text('p', 'Availability unknown. No remote charging, booking or payment.',
                     'التوفر غير معروف. لا شحن أو حجز أو دفع عن بُعد.'), link, directions);
             results.append(card);
@@ -194,6 +239,9 @@
         country.value = '';
         minimumPower.value = '';
         connector.value = '';
+        operatorQuery.value = '';
+        reportedStatusFilter.value = '';
+        membershipFilter.value = '';
         radius.value = '25';
         announce('', '');
     };
@@ -221,7 +269,10 @@
                 body: JSON.stringify({consent:true,latitude,longitude,radius_km:km,
                     ...(country.value.trim() ? {country:country.value.trim()} : {}),
                     ...(minPower !== null ? {min_reported_power_kw:minPower} : {}),
-                    ...(connector.value.trim() ? {reported_connector:connector.value.trim()} : {})}),
+                    ...(connector.value.trim() ? {reported_connector:connector.value.trim()} : {}),
+                    ...(operatorQuery.value.trim() ? {operator_contains:operatorQuery.value.trim()} : {}),
+                    ...(membershipFilter.value ? {reported_membership_required:membershipFilter.value === 'true'} : {}),
+                    ...(reportedStatusFilter.value ? {reported_operational:reportedStatusFilter.value === 'true'} : {})}),
                 signal: AbortSignal.any([current.signal, AbortSignal.timeout(15000)]),
             });
             if (epoch !== generation) return;

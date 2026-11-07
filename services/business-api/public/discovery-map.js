@@ -406,10 +406,28 @@
                             ? "التقرير المجتمعي: أبلغ عن مشكلة تشغيل؛ ليست حالة مباشرة."
                             : "الحالة التشغيلية المجتمعية غير معروفة؛ ليست مباشرة.",
                 );
+                const operatorInfo = make(
+                    "p",
+                    "Crowd-reported operator (unverified): " + (row.operator_label || "unknown"),
+                    "المشغل حسب التقرير (غير مؤكد): " + (row.operator_label || "غير معروف"),
+                );
                 const access = make(
                     "p",
                     "Crowd-reported access (unverified): " + (row.reported_access || "unknown") + ". Check with operator.",
                     "الوصول حسب تقارير المجتمع (غير مؤكد): " + (row.reported_access || "غير معروف") + ". تحقق مع المشغل.",
+                );
+                const membership = make(
+                    "p",
+                    row.reported_membership_required === true
+                        ? "Crowd report: membership required; unverified."
+                        : row.reported_membership_required === false
+                            ? "Crowd report: membership not required; unverified."
+                            : "Crowd membership requirement unknown.",
+                    row.reported_membership_required === true
+                        ? "العضوية مطلوبة حسب تقرير المجتمع؛ غير مؤكدة."
+                        : row.reported_membership_required === false
+                            ? "العضوية غير مطلوبة حسب تقرير المجتمع؛ غير مؤكدة."
+                            : "اشتراط العضوية في التقرير غير معروف.",
                 );
                 const attribution = document.createElement("p");
                 attribution.textContent = row.attribution + " · " + row.data_license;
@@ -448,7 +466,7 @@
                         "إرسال موقع المصدر المجتمعي إلى خرائط Google؟ تطبق سياسة خصوصية المزود، ولم يتم التحقق من المسار أو الوقت أو توفر الشاحن.",
                     ))) event.preventDefault();
                 };
-                popup.append(name, evidence, sourceAge, reported, access, attribution, jump, source, directions);
+                popup.append(name, evidence, sourceAge, reported, operatorInfo, access, membership, attribution, jump, source, directions);
             }
             L.marker([+first.latitude, +first.longitude], {
                 title: freshness === "ocm-pin-uncertain"

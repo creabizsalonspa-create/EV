@@ -39,6 +39,9 @@ final class OpenChargeMapDiscoveryController extends Controller
             'country' => 'nullable|string|regex:/^[A-Z]{2}$/',
             'min_reported_power_kw' => 'nullable|numeric|between:1,1000',
             'reported_connector' => 'nullable|string|min:1|max:80',
+            'operator_contains' => 'nullable|string|min:1|max:120',
+            'reported_membership_required' => 'nullable|boolean',
+            'reported_operational' => 'nullable|boolean',
         ]);
 
         if (! self::configured()) {
@@ -72,6 +75,9 @@ final class OpenChargeMapDiscoveryController extends Controller
                 $source,
                 isset($input['min_reported_power_kw']) ? (float) $input['min_reported_power_kw'] : null,
                 $input['reported_connector'] ?? null,
+                $input['operator_contains'] ?? null,
+                isset($input['reported_membership_required']) ? (bool) $input['reported_membership_required'] : null,
+                isset($input['reported_operational']) ? (bool) $input['reported_operational'] : null,
             );
 
             return self::privateResponse($result);

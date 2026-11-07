@@ -31,6 +31,7 @@ class OpenChargeMapDiscoveryTest extends TestCase
             ],
             'SubmissionStatusTypeID' => 200,
             'StatusType' => ['IsOperational' => true],
+            'OperatorInfo' => ['Title' => 'Synthetic Operator'],
             'UsageType' => ['Title' => 'Membership Required', 'IsMembershipRequired' => true, 'IsAccessKeyRequired' => false],
             'AddressInfo' => [
                 'Title' => 'Fixture open charge station',
@@ -122,6 +123,44 @@ class OpenChargeMapDiscoveryTest extends TestCase
         Http::fake(fn () => Http::response([$unlicensed, $unpublished, $invalid], 200, ['Content-Type' => 'application/json']));
         $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())
             ->assertOk()->assertJsonPath('count', 0)->assertJsonCount(0, 'results');
+    }
+
+    public function test_source_reported_operator_access_and_operational_filters_share_one_upstream_lookup(): void
+    {
+        $other = $this->point();
+        $other['ID'] = 23456;
+        $other['OperatorInfo']['Title'] = 'Other Network';
+        $other['UsageType']['IsMembershipRequired'] = false;
+        $other['StatusType']['IsOperational'] = false;
+        Http::fake(fn () => Http::response([$this->point(), $other], 200, ['Content-Type' => 'application/json']));
+        $this->postJson('/api/discovery/open-charge-map/search',
+            $this->input() + [
+                'operator_contains' => 'synthetic',
+                'reported_membership_required' => true,
+                'reported_operational' => true,
+            ])
+            ->assertOk()->assertJsonPath('count', 1)
+            ->assertJsonPath('results.0.id', 'ocm:12345')
+            ->assertJsonPath('results.0.availability', 'unknown');
+        $this->postJson('/api/discovery/open-charge-map/search',
+            $this->input() + [
+                'operator_contains' => 'OTHER',
+                'reported_membership_required' => false,
+                'reported_operational' => false,
+            ])
+            ->assertOk()->assertJsonPath('count', 1)
+            ->assertJsonPath('results.0.id', 'ocm:23456')
+            ->assertJsonPath('results.0.remote_control', false);
+        Http::assertSentCount(1);
+        foreach ([
+            ['operator_contains' => str_repeat('X', 121)],
+            ['reported_operational' => 'maybe'],
+            ['reported_membership_required' => 'maybe'],
+        ] as $invalid) {
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input() + $invalid)
+                ->assertUnprocessable();
+        }
+        Http::assertSentCount(1);
     }
 
     public function test_optional_connection_filters_are_bounded_and_match_the_same_unverified_connector(): void

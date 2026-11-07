@@ -94,11 +94,13 @@ final class OpenChargeMapAdapter
      * list. Can be run repeatedly on one short-lived cached discovery source.
      * This never upgrades historical reports to live charging privileges.
      */
-    public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null): array
+    public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null, ?string $operator = null, ?bool $membership = null, ?bool $operational = null): array
     {
         if (($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
             || ($connector !== null && (strlen($connector) < 1 || strlen($connector) > 80
-                || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))) {
+                || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))
+            || ($operator !== null && (strlen($operator) < 1 || strlen($operator) > 120
+                || trim($operator) !== $operator || preg_match('/[\x00-\x1F\x7F]/', $operator)))) {
             throw new LookupFailure('invalid_request', 422);
         }
         if (($source['provider'] ?? null) !== 'open_charge_map'
@@ -112,13 +114,25 @@ final class OpenChargeMapAdapter
             || count($source['results']) > 25) {
             throw new LookupFailure('invalid_response');
         }
-        if ($minPowerKw === null && $connector === null) {
+        if ($minPowerKw === null && $connector === null && $operator === null
+            && $membership === null && $operational === null) {
             return $source;
         }
         $values = [];
         foreach ($source['results'] as $item) {
             if (! is_array($item) || ! is_array($item['connections'] ?? null)) {
                 throw new LookupFailure('invalid_response');
+            }
+            if (($operator !== null && stripos((string) ($item['operator_label'] ?? ''), $operator) === false)
+                || ($membership !== null && ($item['reported_membership_required'] ?? null) !== $membership)
+                || ($operational !== null && ($item['reported_operational'] ?? null) !== $operational)) {
+                continue;
+            }
+            // Source metadata filters do not require a connector.
+            if ($minPowerKw === null && $connector === null) {
+                $values[] = $item;
+
+                continue;
             }
             foreach ($item['connections'] as $connection) {
                 if (! is_array($connection)
