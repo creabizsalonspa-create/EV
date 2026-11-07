@@ -75,7 +75,7 @@ def convert_ios_tar_to_zip(ios_wrapper, destination):
         raise BundleError('Simulator TAR is empty')
 
 
-def import_actions(output, source_sha, android_wrapper, android_digest, ios_wrapper, ios_digest):
+def import_actions(output, source_sha, android_wrapper, android_digest, ios_wrapper, ios_digest, workflow_evidence=None):
     android_wrapper = check_wrapper(android_wrapper, android_digest, 'app-debug.apk')
     ios_wrapper = check_wrapper(ios_wrapper, ios_digest, 'hasone-ios-simulator.tar.gz')
     output = Path(output)
@@ -89,7 +89,7 @@ def import_actions(output, source_sha, android_wrapper, android_digest, ios_wrap
         os.chmod(apk, 0o600)
         ios = work / 'converted-ios-simulator.zip'
         convert_ios_tar_to_zip(ios_wrapper, ios)
-        create(output, source_sha, apk, ios)
+        create(output, source_sha, apk, ios, workflow_evidence=workflow_evidence)
         return verify(output, source_sha)
 
 
