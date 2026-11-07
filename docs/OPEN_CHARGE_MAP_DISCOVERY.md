@@ -33,6 +33,8 @@ Owner: Agent 8. This does **not** provision chargers, authenticate an OCPI roami
 
 ## Verification and remaining gates
 
+CI runs the source-specific Chromium test as part of the existing npm run test:maps script (no change to shared GitHub Actions jobs), in addition to the full Laravel feature suite. The synthetic OCM test starts no real provider/network session.
+
 Standalone no-provider tests: `php tests/open-charge-map-projection.php`, `php tests/open-charge-map-adapter.php`, and `node tests/open-charge-map-ui.cjs`. The Laravel HTTP fake contract lives at `services/business-api/tests/Feature/OpenChargeMapDiscoveryTest.php`. It must pass on the integrated Laravel exact head before merging; hosted CI, real provider/credential/license approval, live source availability, PostgreSQL and mobile device acceptance are independent unresolved gates.
 
 Current availability is **disabled/unverified**: source code and synthetic offline tests do not establish that an authorized OCM provider key exists, that the upstream API has been called or that any live charger is actionable.

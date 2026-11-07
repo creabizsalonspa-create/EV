@@ -56,8 +56,11 @@ const reply = {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   try {
-    for (const mode of ["disabled", "enabled", "copy", "unicode", "overlong", "unsafe", "late", "late-filter"]) {
-      const context = await browser.newContext({ permissions: [] });
+    for (const mode of ["disabled", "enabled", "mobile-ar", "copy", "unicode", "overlong", "unsafe", "late", "late-filter"]) {
+      const context = await browser.newContext({
+        permissions: [],
+        ...(mode === "mobile-ar" ? { viewport: { width: 390, height: 844 } } : {}),
+      });
       const page = await context.newPage();
       if (mode === "late" || mode === "late-filter") await page.addInitScript(() => {
         const original = Response.prototype.json;
@@ -104,6 +107,9 @@ const reply = {
           } : mode === "overlong" ? {
             ...reply,
             results: [{ ...point, reported_cost_note: "🔌".repeat(241) }],
+          } : mode === "mobile-ar" ? {
+            ...reply,
+            results: [{ ...point, reported_cost_note: "ش".repeat(240) }],
           } : reply,
         });
       });
@@ -127,6 +133,31 @@ const reply = {
         return status && status.textContent.trim() !== "" &&
           stations && !stations.hasAttribute("aria-busy");
       });
+      if (mode === "mobile-ar") {
+        await page.locator("#language").click();
+        assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
+        await root.locator('[name="ocm_latitude"]').fill("25.2");
+        await root.locator('[name="ocm_longitude"]').fill("55.3");
+        await root.locator('input[type="checkbox"]').check();
+        assert.equal(searchRequests.length, 0, "RTL mobile form may not send coordinates before click");
+        await root.getByRole("button", { name: "البحث في المواقع ذات البيانات المفتوحة" }).click();
+        await root.locator("article").waitFor();
+        assert.equal(searchRequests.length, 1);
+        assert.equal(await root.locator("article").textContent().then(s => s.includes("ش".repeat(240))), true);
+        const bounds = await root.evaluate(el => ({
+          scroll: el.scrollWidth,
+          client: el.clientWidth,
+          right: el.getBoundingClientRect().right,
+          viewport: window.innerWidth,
+        }));
+        assert(bounds.scroll <= bounds.client + 2,
+          "OCM mobile RTL source card must not overflow its own panel: " + JSON.stringify(bounds));
+        assert(bounds.right <= bounds.viewport + 2, "OCM panel must fit 390px viewport");
+        assert.equal(await root.getByRole("button", { name: "Request charge" }).count(), 0);
+        assert.deepEqual(pageErrors, []);
+        await context.close();
+        continue;
+      }
       await page.getByRole("button", { name: "Enable interactive map" }).click();
       const layer = page.locator("#show-ocm-map-pins");
       assert.equal(await layer.isHidden(), true, "OCM overlay should not appear before a licensed search");
