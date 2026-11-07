@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\AdminSecondFactorGate;
 use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\ChargingSession;
@@ -49,8 +50,18 @@ class PlatformController extends Controller
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
         }
         $r->session()->regenerate();
+        // A new password sign-in must never inherit a prior Admin MFA grant
+        // from a different identity or an older browser session.
+        $r->session()->forget([
+            'admin_second_factor_user_id',
+            'admin_second_factor_verified_at',
+            'admin_second_factor_enrollment_proof',
+            'admin_second_factor_pending',
+        ]);
 
-        return response()->json($r->user());
+        return response()->json($r->user()->toArray() + [
+            'admin_second_factor_required' => $r->user()->role === 'admin' && AdminSecondFactorGate::required(),
+        ]);
     }
 
     public function logout(Request $r)
