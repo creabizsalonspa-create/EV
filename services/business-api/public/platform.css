@@ -792,3 +792,9 @@ form label {
     margin-inline: 0;
     accent-color: var(--accent);
 }
+
+/* Read-only aggregated simulator feedback for the authenticated vendor. */
+#vendor-feedback-analytics {max-width:65rem; padding-block:1.2rem; margin-block:1.2rem; overflow-wrap:anywhere;}
+#vendor-feedback-analytics>ul {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr));gap:.55rem;padding-inline-start:1.2rem;}
+#vendor-feedback-analytics li {overflow-wrap:anywhere;}
+#vendor-feedback-analytics label {display:flex;flex-wrap:wrap;gap:.7rem;align-items:center;}
