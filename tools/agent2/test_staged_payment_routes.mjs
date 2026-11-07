@@ -54,6 +54,22 @@ try{
   await test('unsigned Stripe event cannot settle',async()=>{const b=booking();b.paymentGateway='stripe';b.stripePaymentIntentId='pi_fixture';const res=await http('/stripe/webhook',event(6000));assert.equal(res.status,400);assert.equal(b.isPaid,false);assert.equal(h.saves,0);});
   await test('wrong Stripe amount cannot settle',async()=>{const b=booking();b.paymentGateway='stripe';b.stripePaymentIntentId='pi_fixture';const res=await http('/stripe/webhook',event(100),{'stripe-signature':'agent2-fixture-signature'});assert.equal(res.status,400);assert.equal(b.isPaid,false);});
   await test('verified Stripe event settles the correct booking',async()=>{const b=booking();b.paymentGateway='stripe';b.stripePaymentIntentId='pi_fixture';const res=await http('/stripe/webhook',event(6000),{'stripe-signature':'agent2-fixture-signature'});assert.equal(res.status,200);assert.equal(b.isPaid,true);assert.equal(h.saves,1);});
+  await test('verified duplicate SSL callback responds successfully without second DB write',async()=>{
+    const b=booking();h.ssl=valid();
+    const first=await http('/sslcommerz/ipn',note());
+    const second=await http('/sslcommerz/ipn',note());
+    assert.equal(first.status,200);assert.equal(second.status,200);
+    assert.equal((await second.json()).status,'already-verified');
+    assert.equal(b.isPaid,true);assert.equal(h.saves,1);
+  });
+  await test('verified duplicate Stripe webhook responds without second DB write',async()=>{
+    const b=booking();b.paymentGateway='stripe';b.stripePaymentIntentId='pi_fixture';
+    const first=await http('/stripe/webhook',event(6000),{'stripe-signature':'agent2-fixture-signature'});
+    const second=await http('/stripe/webhook',event(6000),{'stripe-signature':'agent2-fixture-signature'});
+    assert.equal(first.status,200);assert.equal(second.status,200);
+    assert.equal((await second.json()).duplicate,true);
+    assert.equal(b.isPaid,true);assert.equal(h.saves,1);
+  });
   console.log('STAGED_ROUTE_TESTS_PASSED '+passed);
  }finally{await new Promise((yes,no)=>server.close(e=>e?no(e):yes()));}
 }finally{rmSync(dir,{recursive:true,force:true});}
