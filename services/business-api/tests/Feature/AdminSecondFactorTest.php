@@ -83,8 +83,7 @@ class AdminSecondFactorTest extends TestCase
             'password' => 'password',
         ])->assertOk()->json('secret');
         $invalid = collect(['000000', '111111', '222222', '333333', '444444'])
-            ->first(fn ($candidate) =>
-                AdminTotp::matchingStep($secret, $candidate, now()->timestamp) === null);
+            ->first(fn ($candidate) => AdminTotp::matchingStep($secret, $candidate, now()->timestamp) === null);
         $this->assertNotNull($invalid);
         $this->postJson('/api/admin/second-factor/confirm', [
             'code' => $invalid,
