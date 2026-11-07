@@ -258,7 +258,7 @@ class SupportViewState extends State<SupportView> {
                   key: const Key('notification-preference-category'),
                   value: selected,
                   isExpanded: true,
-                  items: const ['all', 'support', 'vehicle', 'charging', 'fleet', 'other']
+                  items: const ['all', 'support', 'vehicle', 'charging', 'fleet']
                       .map((choice) => DropdownMenuItem<String>(
                             value: choice,
                             child: Text(s.t(

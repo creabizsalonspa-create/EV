@@ -1413,7 +1413,6 @@ async function refreshInbox() {
             ["vehicle", "Vehicle notifications"],
             ["charging", "Charging notifications"],
             ["fleet", "Fleet notifications"],
-        ["other", "Other notifications"],
         ]) {
             const option = ui("option", label);
             option.value = value;

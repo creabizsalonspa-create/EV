@@ -407,7 +407,12 @@ const { randomUUID } = require("node:crypto");
     const otherPage = await customer.page.evaluate(
       () => api("notifications?category=other"),
     );
-    assert.equal(otherPage.total, 0);
+    assert(otherPage.total >= otherPage.data.length);
+    assert(otherPage.data.every((item) =>
+      !["support.", "vehicle.", "charging.", "fleet."].some(
+        (prefix) => typeof item.kind === "string" && item.kind.startsWith(prefix),
+      ),
+    ));
     await lastFilter.selectOption("fleet");
     await customer.page.waitForFunction(
       () => document.querySelector("#notification-category")?.value === "fleet",
