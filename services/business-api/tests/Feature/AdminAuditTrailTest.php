@@ -72,6 +72,7 @@ class AdminAuditTrailTest extends TestCase
         $other = User::factory()->create(['role' => 'vendor']);
         $id = $this->event($other, 'vendor_ops.company.reviewed', 'customer:42');
         $this->event($admin, 'admin.account.suspended', 'customer:43');
+        $this->event($other, 'vendorXops.company.reviewed', 'customer:44');
 
         $this->actingAs($admin)->getJson('/api/admin/audit-events?action_prefix=vendor_ops.&actor_id='.$other->id)
             ->assertOk()->assertJsonCount(1, 'events')
@@ -95,7 +96,9 @@ class AdminAuditTrailTest extends TestCase
         $this->getJson('/api/admin/audit-events?before_id=-1')->assertUnprocessable();
         $this->getJson('/api/admin/audit-events?actor_id=0')->assertUnprocessable();
         $this->getJson('/api/admin/audit-events?action_prefix=%25')->assertUnprocessable();
-        $this->getJson('/api/admin/audit-events?action_prefix=%5F')->assertUnprocessable();
+        // A literal underscore is a valid event-name prefix, not a wildcard.
+        $this->getJson('/api/admin/audit-events?action_prefix=%5F')
+            ->assertOk()->assertJsonPath('events', []);
         $this->postJson('/api/admin/audit-events', ['action' => 'admin.fake'])->assertStatus(405);
     }
 }

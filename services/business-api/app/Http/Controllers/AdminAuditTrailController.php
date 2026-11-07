@@ -29,8 +29,11 @@ class AdminAuditTrailController extends Controller
         $query = DB::table('audit_events')
             ->select(['id', 'actor_id', 'action', 'subject', 'created_at']);
         if (isset($input['action_prefix'])) {
-            // No SQL wildcards may be provided by the caller; LIKE is bound.
-            $query->where('action', 'like', $input['action_prefix'].'%');
+            // An underscore is legal in event names but is a wildcard in
+            // SQL LIKE. Use a bound literal prefix, portable across SQLite,
+            // PostgreSQL and MySQL, so no event category leaks into a filter.
+            $prefix = $input['action_prefix'];
+            $query->whereRaw('SUBSTR(action, 1, ?) = ?', [strlen($prefix), $prefix]);
         }
         if (isset($input['actor_id'])) {
             $query->where('actor_id', (int) $input['actor_id']);
