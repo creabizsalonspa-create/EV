@@ -65,3 +65,7 @@ The browser inbox now provides a **Review fleet invitation** action that refresh
 ### Same-snapshot high-water summary
 
 The unread count and maximum observed notification ID are now derived from one aggregate SQL statement (portable conditional SUM and MAX), rather than two independently timed SELECT queries. This prevents a concurrent insert between separate reads from producing an internally inconsistent count/cutoff pair. The count is still per account, and the ID remains an observed database high-water mark, not proof that the user saw or received every item. Tests verify zero-unread-with-history and later-arrival behavior. The native fleet review regression also asserts that navigating from the notification performs no invitation acceptance POST.
+
+### In-account inbox request ordering
+
+In addition to the session epoch guard, the browser inbox now increments an `inboxGeneration` counter at the start of each refresh, and again when private views are cleared. A previous request (including one for a different page/category with the same account) is discarded if it finishes after a more recent request. This prevents a delayed older response from replacing the newest category/filter view. Requests still use existing `EvApi` session fencing and do not mutate notifications merely by refreshing.

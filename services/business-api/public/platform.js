@@ -1,6 +1,7 @@
 let inboxUnreadOnly = false;
 let inboxCategory = "all";
 let inboxPage = 1;
+let inboxGeneration = 0;
 let unconfirmedFavorite = null;
 let favoriteMode = false,
     previousCatalogQuery = "";
@@ -81,6 +82,7 @@ function clearPrivateViews() {
     inboxUnreadOnly = false;
     inboxCategory = "all";
     inboxPage = 1;
+    inboxGeneration++;
     riderWorkspace.clear();
     vendorWorkspace.clear();
     roamingWorkspace.clear();
@@ -1293,6 +1295,7 @@ async function support() {
 
 async function refreshInbox() {
     const session = client.sessionEpoch, account = user?.id;
+    const requestGeneration = ++inboxGeneration;
     if (!account) return;
     const notificationFilters = [
         "page=" + inboxPage,
@@ -1303,7 +1306,8 @@ async function refreshInbox() {
         api("notifications" + (notificationFilters ? "?" + notificationFilters : "")),
         api("notifications/summary"),
     ]);
-    if (session !== client.sessionEpoch || account !== user?.id) return;
+    if (session !== client.sessionEpoch || account !== user?.id ||
+        requestGeneration !== inboxGeneration) return;
     const view = el("notifications");
     view.replaceChildren();
     const filterButton = ui("button", inboxUnreadOnly ? "Show all notifications" : "Show unread only");

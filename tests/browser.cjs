@@ -359,6 +359,18 @@ const { randomUUID } = require("node:crypto");
     assert.equal(classified.data[0].kind, "support.reply");
     assert.equal(filtered.total, 1);
     assert.equal(filtered.data[0].id, afterBulk.summary.latest_id);
+    // Rapid filter changes must settle on the latest requested category,
+    // regardless of earlier network response completion order.
+    const lastFilter = customer.page.locator("#notification-category");
+    await lastFilter.selectOption("fleet");
+    await customer.page.waitForFunction(
+      () => document.querySelector("#notification-category")?.value === "fleet",
+    );
+    await lastFilter.selectOption("support");
+    await customer.page.waitForFunction(
+      () => document.querySelector("#notification-category")?.value === "support",
+    );
+    assert.equal(await lastFilter.inputValue(), "support");
     await customer.page.locator("#notification-unread-filter").click();
     await customer.page.waitForFunction(
       () => document.querySelector("#notification-unread-filter")?.textContent.includes(
