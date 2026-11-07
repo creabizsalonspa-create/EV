@@ -9,6 +9,7 @@ use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController as E;
 use App\Http\Controllers\MobileAuthController as M;
+use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\OcpiProtocolCredentialsController;
 use App\Http\Controllers\OcpiProtocolRecordsController;
 use App\Http\Controllers\OcpiRoamingProtocolController;
@@ -60,6 +61,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/fleets/{fleet}', [E::class, 'show']);
         Route::get('/fleet-invitations', [E::class, 'invitations']);
         Route::post('/fleet-invitations/{invitation}/accept', [E::class, 'accept']);
+        Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
+        Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
     });
     Route::middleware(['auth:sanctum', 'throttle:support'])->group(function () {
         Route::get('/support', [T::class, 'index']);
@@ -67,6 +70,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/support/{ticket}', [T::class, 'show']);
         Route::post('/support/{ticket}/messages', [T::class, 'reply']);
         Route::get('/notifications', [T::class, 'notifications']);
+        Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
+        Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
         Route::post('/notifications/{notification}/read', [T::class, 'read']);
     });
 });
