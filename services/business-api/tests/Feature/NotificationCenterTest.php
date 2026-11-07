@@ -40,7 +40,7 @@ class NotificationCenterTest extends TestCase
                 ->assertJsonPath('in_app_only', true)
                 ->assertJsonPath('external_delivery_available', false)
                 ->assertJsonPath('critical_events_always_visible', true)
-                ->assertHeader('Cache-Control', 'private, no-store');
+                ->assertHeader('Cache-Control', 'no-store, private');
         }
         $this->assertDatabaseCount('notification_preferences', 0);
     }
@@ -60,7 +60,7 @@ class NotificationCenterTest extends TestCase
             ->assertJsonPath('default_category', 'charging')
             ->assertJsonPath('default_unread_only', true)
             ->assertJsonPath('remind_unresolved_simulator_faults', false)
-            ->assertHeader('Cache-Control', 'private, no-store');
+            ->assertHeader('Cache-Control', 'no-store, private');
         $this->putJson('/api/v1/notifications/preferences', $input)->assertOk();
         $this->assertDatabaseCount('notification_preferences', 1);
         $this->assertSame(1, DB::table('audit_events')
@@ -156,15 +156,15 @@ class NotificationCenterTest extends TestCase
             '/api/v1/notifications/summary',
         ] as $url) {
             $this->getJson($url)->assertOk()
-                ->assertHeader('Cache-Control', 'private, no-store');
+                ->assertHeader('Cache-Control', 'no-store, private');
         }
         $this->postJson('/api/notifications/'.$note->id.'/read')
-            ->assertOk()->assertHeader('Cache-Control', 'private, no-store');
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private');
         $this->postJson('/api/v1/notifications/'.$note->id.'/unread')
-            ->assertOk()->assertHeader('Cache-Control', 'private, no-store');
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private');
         $this->postJson('/api/notifications/read-through', [
             'through_id' => $note->id,
-        ])->assertOk()->assertHeader('Cache-Control', 'private, no-store');
+        ])->assertOk()->assertHeader('Cache-Control', 'no-store, private');
     }
 
     public function test_bulk_cutoff_rejects_unrepresentable_large_database_ids(): void
