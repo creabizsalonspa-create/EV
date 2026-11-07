@@ -59,6 +59,15 @@ class PrivacyRequestTest extends TestCase
         $this->actingAs($admin)->patchJson($route, ['status' => 'in_review'])->assertOk()->assertJsonPath('status', 'in_review');
         $this->actingAs($admin)->patchJson($route, [
             'status' => 'closed', 'resolution' => 'referred',
+            'decision_note' => str_repeat(' ', 30),
+        ])->assertUnprocessable()->assertJsonValidationErrors('decision_note');
+        $this->actingAs($admin)->patchJson($route, [
+            'status' => 'closed', 'resolution' => 'referred',
+            'decision_note' => '   a few words   ',
+        ])->assertUnprocessable()->assertJsonValidationErrors('decision_note');
+        $this->assertSame('in_review', PrivacyRequest::findOrFail($id)->status);
+        $this->actingAs($admin)->patchJson($route, [
+            'status' => 'closed', 'resolution' => 'referred',
             'decision_note' => 'Passed to the compliance queue for further handling.',
         ])->assertOk()->assertJsonPath('status', 'closed');
         $this->actingAs($alice)->getJson('/api/privacy-requests')->assertOk()->assertJsonPath('data.0.resolution', 'referred');

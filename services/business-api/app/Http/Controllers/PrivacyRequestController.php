@@ -6,6 +6,7 @@ use App\Models\PrivacyRequest;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class PrivacyRequestController extends Controller
 {
@@ -100,6 +101,17 @@ final class PrivacyRequestController extends Controller
             'resolution' => 'required_if:status,closed|nullable|in:referred,declined,review_documented',
             'decision_note' => 'required_if:status,closed|nullable|string|min:15|max:2000',
         ]);
+        if ($v['status'] === 'closed') {
+            // The note becomes an auditable record of review, not an automated
+            // privacy fulfillment. Whitespace alone must not satisfy closure.
+            $note = trim((string) ($v['decision_note'] ?? ''));
+            if (mb_strlen($note) < 15) {
+                throw ValidationException::withMessages([
+                    'decision_note' => 'Provide at least 15 meaningful characters documenting the review.',
+                ]);
+            }
+            $v['decision_note'] = $note;
+        }
         return DB::transaction(function () use ($request, $privacyRequest, $v) {
             $row = PrivacyRequest::whereKey($privacyRequest->id)->lockForUpdate()->firstOrFail();
             if ($row->status === $v['status']) {
