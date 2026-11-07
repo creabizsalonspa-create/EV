@@ -110,8 +110,19 @@ class VehicleModelCatalogTest extends TestCase
         $this->actingAs($admin)->putJson('/api/vehicle-models/'.$model['id'], $edited)
             ->assertConflict();
         $edited['connector_type'] = 'CCS2';
+        $changedMake = $edited;
+        $changedMake['make'] = 'Different Make';
+        $this->actingAs($admin)->putJson('/api/vehicle-models/'.$model['id'], $changedMake)
+            ->assertConflict();
+        $changedYear = $edited;
+        $changedYear['model_year'] = 2027;
+        $this->actingAs($admin)->putJson('/api/vehicle-models/'.$model['id'], $changedYear)
+            ->assertConflict();
+        // Updating evidence URLs remains possible without relabeling a car.
+        $edited['source_url'] = 'https://example.com/vehicles/city-e-corrected';
         $this->actingAs($admin)->putJson('/api/vehicle-models/'.$model['id'], $edited)
-            ->assertOk()->assertJsonPath('revision', 2);
+            ->assertOk()->assertJsonPath('revision', 2)
+            ->assertJsonPath('source_url', $edited['source_url']);
         $this->actingAs($admin)->putJson('/api/vehicle-models/'.$model['id'], $edited)
             ->assertConflict();
         $this->assertSame(1, DB::table('vehicle_model_catalog')->count());

@@ -129,10 +129,20 @@ final class VehicleModelCatalogController extends Controller
                 'Catalog record changed; refresh before saving.');
             abort_if(DB::table('vehicle_model_catalog')->where('identity_hash', $v['identity_hash'])
                 ->where('id', '!=', $model)->exists(), 409, 'Vehicle model already exists.');
-            // A model's connector evidence must not silently change on customer vehicles.
-            if ($row->connector_type !== $v['connector_type']) {
-                abort_if(DB::table('vehicles')->where('vehicle_model_id', $model)->exists(), 409,
-                    'A linked model connector cannot change. Archive and create a new catalog entry.');
+            // Once a customer links this row, its vehicle identity and connector
+            // cannot silently become a different car. Editors may update source
+            // references or archive the record, but must create a replacement
+            // catalog entry for changed specs.
+            $hasLinkedVehicles = DB::table('vehicles')->where('vehicle_model_id', $model)->exists();
+            if ($hasLinkedVehicles) {
+                $immutable = ['make', 'model', 'variant', 'model_year', 'connector_type'];
+                foreach ($immutable as $key) {
+                    $old = $key === 'model_year'
+                        ? ($row->$key === null ? null : (int) $row->$key)
+                        : $row->$key;
+                    abort_if($old !== $v[$key], 409,
+                        'Linked model identity is immutable. Archive and create a new catalog entry.');
+                }
             }
             unset($v['revision']);
             DB::table('vehicle_model_catalog')->where('id', $model)->update($v + [
