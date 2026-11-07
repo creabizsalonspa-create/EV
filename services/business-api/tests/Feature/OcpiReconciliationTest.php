@@ -6,10 +6,12 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\CdrReconciler;
+use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class OcpiReconciliationTest extends TestCase
@@ -76,7 +78,34 @@ class OcpiReconciliationTest extends TestCase
         $reconciler = app(CdrReconciler::class);
         $this->assertContains('multiple_cdrs_for_session', $reconciler->inspect($provider, $first)['issues']);
         $this->assertContains('credit_requires_separate_reconciliation', $reconciler->inspect($provider, $second)['issues']);
+        $review = $reconciler->inspect($provider, $second)['credit_review'];
+        $this->assertSame('matched', $review['reference_state']);
+        $this->assertFalse($review['financial_authority']);
+        $this->assertFalse($review['automatic_refund']);
+        foreach (['cdr-2' => 'invalid_target', 'unreceived-cdr' => 'not_found'] as $reference => $expected) {
+            app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [array_replace($raw, ['id' => 'credit-'.$reference, 'credit' => true, 'credit_reference_id' => $reference])]);
+            $credit = OcpiRecord::where('external_id', 'credit-'.$reference)->firstOrFail();
+            $this->assertSame($expected, app(CdrReconciler::class)->inspect($provider, $credit)['credit_review']['reference_state']);
+        }
         $this->assertSame($raw, $first->fresh()->payload);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    #[TestWith([['credit' => true]])]
+    #[TestWith([['credit' => false, 'credit_reference_id' => 'cdr-1']])]
+    #[TestWith([['credit' => true, 'credit_reference_id' => ['cdr-1']]])]
+    public function test_malformed_credit_identity_is_rejected_atomically(array $changes): void
+    {
+        [$provider, $original] = $this->source();
+        $raw = array_replace($original->payload, ['id' => 'invalid-credit'], $changes);
+        try {
+            app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [$raw]);
+            $this->fail('Malformed credit identity was accepted.');
+        } catch (OcpiException $e) {
+            $this->assertStringContainsString('Invalid cdrs record fields', $e->getMessage());
+        }
+        $this->assertDatabaseMissing('ocpi_records', ['external_id' => 'invalid-credit']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
     }
 }

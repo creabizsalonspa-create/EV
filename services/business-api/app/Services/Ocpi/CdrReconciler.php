@@ -89,7 +89,25 @@ class CdrReconciler
         }
 
         return ['status' => $issues === [] ? 'source_consistent' : 'requires_review', 'issues' => $issues, 'session_record_id' => $session?->id,
-            'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'billing_eligible' => false, 'local_invoice_created' => false];
+            'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'billing_eligible' => false, 'local_invoice_created' => false, 'credit_review' => $this->creditReference($provider, $cdr)];
+    }
+
+    private function creditReference(OcpiProvider $provider, OcpiRecord $cdr): ?array
+    {
+        $raw = $cdr->payload;
+        if (($cdr->normalized['credit'] ?? (bool) ($raw['credit'] ?? false)) !== true) {
+            return null;
+        }
+        $reference = $raw['credit_reference_id'] ?? null;
+        $state = 'missing';
+        if (is_string($reference) && $reference !== '' && strlen($reference) <= 64) {
+            $original = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')->where('country_code', $cdr->country_code)->where('party_id', $cdr->party_id)->where('external_id', $reference)->first();
+            $state = ! $original ? 'not_found' : ($original->id === $cdr->id || ($original->payload['credit'] ?? false) || isset($original->payload['credit_reference_id']) ? 'invalid_target' : 'matched');
+        }
+
+        // A same-party source reference is not consent to change an invoice,
+        // approve a refund, settle a partner or release a financial hold.
+        return ['reference_state' => $state, 'financial_authority' => false, 'automatic_refund' => false];
     }
 
     private function decimal(mixed $value): ?string

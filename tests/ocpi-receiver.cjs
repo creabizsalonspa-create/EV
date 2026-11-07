@@ -122,6 +122,44 @@ withCredentialsFixture(
       assert(
         !(await operations.textContent()).includes("PRIVATE-SOURCE-DRIVER"),
       );
+      await request(
+        "cdrs",
+        "POST",
+        {
+          ...cdr,
+          id: "credit-" + f.run,
+          credit: true,
+          credit_reference_id: cdr.id,
+        },
+        201,
+      );
+      const credits = await client.request(
+        "ocpi/providers/" + f.provider_id + "/records/cdrs",
+      );
+      const credit = credits.data.find(
+        (row) => row.external_id === "credit-" + f.run,
+      );
+      assert.equal(
+        credit.reconciliation.credit_review.reference_state,
+        "matched",
+      );
+      assert.equal(
+        credit.reconciliation.credit_review.financial_authority,
+        false,
+      );
+      assert.equal(credit.reconciliation.credit_review.automatic_refund, false);
+      await operations
+        .getByRole("button", { name: "Charge detail records", exact: true })
+        .click();
+      await operations
+        .getByText("Credit CDR original reference matched", { exact: true })
+        .waitFor();
+      await operations
+        .getByText(
+          "A source reference does not approve a refund or change the original invoice.",
+          { exact: true },
+        )
+        .waitFor();
       await page.locator("#logout").click();
       await page.waitForFunction(
         () => document.querySelector("#roaming-operations").hidden,
