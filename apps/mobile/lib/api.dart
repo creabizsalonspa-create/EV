@@ -108,6 +108,10 @@ class EvApi {
   final SessionVault? vault;
   bool _remembered = false;
   int _epoch = 0;
+  // The current credential transition must never allow another UI action to
+  // send the former account's cookies while Keychain deletion is pending.
+  int? _authTransitionEpoch;
+  String? _authTransitionOperation;
   Future<void> _vaultTail = Future.value();
   // Capture the authenticated context across secure-storage or UI awaits.
   bool Function() sessionFence() {
@@ -428,8 +432,342 @@ class EvApi {
       'image/jpeg',
     ],
   }) async {
-    if (!RegExp(r'^[a-z0-9/-]+$').hasMatch(path)) {
+    if (!RegExp(r'^[a-z0-9/-]+
+    try {
+      _cookies.removeWhere(
+        (_, c) => c.expires != null && !c.expires!.isAfter(DateTime.now()),
+      );
+      final req = await _http.openUrl(
+        method,
+        base
+            .resolve('/api/$path')
+            .replace(queryParameters: query.isEmpty ? null : query),
+      );
+      if (epoch != _epoch) {
+        req.abort(const ApiException(409, 'Session changed.'));
+        throw const ApiException(409, 'Session changed.');
+      }
+      req.followRedirects = false;
+      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      req.headers.contentType = uploadType == null
+          ? ContentType.json
+          : ContentType.parse(uploadType);
+      req.cookies.addAll(
+        _cookies.values.where(
+          (cookie) => !cookie.secure || base.scheme == 'https',
+        ),
+      );
+      if (_csrf != null) req.headers.set('X-CSRF-TOKEN', _csrf!);
+      if (uploadBytes != null) {
+        req.contentLength = uploadBytes.length;
+        req.add(uploadBytes);
+      } else if (body != null)
+        req.write(jsonEncode(body));
+      final response = await req.close().timeout(const Duration(seconds: 25));
+      if (epoch != _epoch) {
+        await response.drain<void>();
+        throw const ApiException(409, 'Session changed.');
+      }
+      for (final cookie in response.cookies) {
+        if (!_validCookie(cookie)) continue;
+        if ((cookie.maxAge != null && cookie.maxAge! <= 0) ||
+            (cookie.expires?.isBefore(DateTime.now()) ?? false)) {
+          _cookies.remove(cookie.name);
+        } else {
+          _cookies[cookie.name] = cookie;
+        }
+      }
+      final chunks = BytesBuilder(copy: false);
+      await for (final chunk in response.timeout(const Duration(seconds: 25))) {
+        if (chunks.length + chunk.length >
+            (binary ? binaryLimit : 8 * 1024 * 1024))
+          throw const ApiException(502, 'Response exceeds the supported size.');
+        chunks.add(chunk);
+      }
+      final bytes = chunks.takeBytes();
+      // Logout/forget may run while a response body is streaming. Recheck
+      // before returning private data or scheduling a rotated-cookie save.
+      if (epoch != _epoch) {
+        throw const ApiException(409, 'Session changed.');
+      }
+      if ([401, 419].contains(response.statusCode)) {
+        _cookies.clear();
+        _csrf = null;
+        try {
+          await forgetSession();
+        } on SessionStorageException {
+          // Remote authentication has failed, but the encrypted credential
+          // may still be on the device. Do not falsely mark it as erased.
+          // The next explicit sign-in/logout must retry secure deletion.
+        }
+        throw ApiException(
+          response.statusCode,
+          'Your session ended. Please sign in again.',
+        );
+      }
+      if (_remembered &&
+          response.statusCode >= 200 &&
+          response.statusCode < 300)
+        await rememberSession();
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      if (binary && response.statusCode >= 200 && response.statusCode < 300) {
+        final mime = response.headers.contentType?.mimeType;
+        if (!binaryTypes.contains(mime))
+          throw const ApiException(502, 'Unsupported private document type.');
+        return PrivateDocument(bytes, mime!);
+      }
+      final text = utf8.decode(bytes, allowMalformed: true);
+      if (response.statusCode == 204) return null;
+      dynamic data;
+      try {
+        data = jsonDecode(text);
+      } on FormatException {
+        throw ApiException(
+          response.statusCode,
+          'The service returned an unreadable response.',
+        );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException(
+          response.statusCode,
+          data is Map
+              ? (data['message'] as String? ?? 'Request failed.')
+              : 'Request failed.',
+        );
+      }
+      return data;
+    } on TimeoutException {
+      throw const ApiException(
+        0,
+        'Connection timed out. Refresh before trying an action again.',
+      );
+    } on SocketException {
+      throw const ApiException(0, 'Unable to connect. Check your connection.');
+    }
+  }
+
+  Future<void> csrf() async {
+    final epoch = _epoch;
+    final data = await request('csrf');
+    // A stale response cannot overwrite a different user's CSRF token.
+    if (epoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
+    _csrf = data['token'] as String;
+  }
+
+  Future<Account> signIn(String email, String password, {String? name}) async {
+    // A second sign-in supersedes this one immediately, even if the first is
+    // still waiting for an encrypted Keystore deletion to finish.
+    final signInEpoch = _epoch + 1;
+    _authTransitionEpoch = signInEpoch;
+    _authTransitionOperation = 'login';
+    // Do not retain previously authenticated cookies while waiting for the
+    // secure platform to delete the prior persisted snapshot.
+    _cookies.clear();
+    _csrf = null;
+    try {
+      await forgetSession();
+      if (signInEpoch != _epoch)
+        throw const ApiException(409, 'Session changed.');
+      await csrf();
+    if (signInEpoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
+    final data = await request(
+      name == null ? 'login' : 'register',
+      method: 'POST',
+      body: {
+        'email': email,
+        'password': password,
+        if (name != null) 'name': name,
+      },
+    );
+    if (signInEpoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
+    await csrf();
+    if (signInEpoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
+      return Account.fromJson(Map<String, dynamic>.from(data as Map));
+    } finally {
+      if (signInEpoch == _epoch) {
+        _authTransitionEpoch = null;
+        _authTransitionOperation = null;
+      }
+    }
+  }
+
+  Future<void> signOut() async {
+    // Local revocation comes first; never send an old logout using cookies
+    // belonging to an account that signed in during secure-storage deletion.
+    final logoutEpoch = _epoch + 1;
+    _authTransitionEpoch = logoutEpoch;
+    _authTransitionOperation = 'logout';
+    try {
+      await forgetSession();
+      if (logoutEpoch != _epoch) return;
+      await request('logout', method: 'POST');
+    } finally {
+      // Even if encrypted deletion fails, do not keep exposing the previous
+      // identity's cookies. The platform failure still propagates to the UI.
+      // Never wipe the newer identity if sign-in superseded this logout.
+      if (logoutEpoch == _epoch) {
+        _cookies.clear();
+        _csrf = null;
+        _authTransitionEpoch = null;
+        _authTransitionOperation = null;
+      }
+    }
+  }
+
+  Future<bool> setFavorite(int station, bool desired) async {
+    final data = await request(
+      'favorites/$station',
+      method: desired ? 'PUT' : 'DELETE',
+    );
+    if (data is! Map || data['is_favorite'] is! bool)
+      throw const ApiException(502, 'Unreadable preference response.');
+    return data['is_favorite'] as bool;
+  }
+
+  Future<ApiPage<Station>> favorites({int page = 1}) async {
+    final epoch = _epoch;
+    var result = ApiPage<Station>.fromJson(
+      await request('favorites', query: {'page': '$page'}),
+      Station.fromJson,
+    );
+    if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+    // A removal on another client may have removed the last page. Only GETs
+    // are repeated, once, using the authoritative last-page number.
+    if (result.items.isEmpty && result.current > result.last) {
+      result = ApiPage<Station>.fromJson(
+        await request('favorites', query: {'page': '${result.last}'}),
+        Station.fromJson,
+      );
+    }
+    if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+    return result;
+  }
+
+  Future<ApiPage<Station>> catalog({
+    CatalogFilter filter = const CatalogFilter(),
+    int page = 1,
+    bool includeFavorites = false,
+  }) async {
+    final epoch = _epoch;
+    final data = await request(
+      'stations',
+      query: {...filter.query, 'page': '$page'},
+    );
+    var result = ApiPage<Station>.fromJson(data, Station.fromJson);
+    if (includeFavorites && result.items.isNotEmpty) {
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      final query = <String, String>{};
+      for (var i = 0; i < result.items.length; i++)
+        query['station_ids[$i]'] = '${result.items[i].id}';
+      final status = await request('favorites/status', query: query);
+      if (epoch != _epoch) throw const ApiException(409, 'Session changed.');
+      if (status is! Map ||
+          status['favorite_station_ids'] is! List ||
+          !(status['favorite_station_ids'] as List).every(
+            (v) => v is int && v > 0,
+          ))
+        throw const ApiException(502, 'Unreadable preference response.');
+      final saved = (status['favorite_station_ids'] as List).toSet();
+      result = ApiPage(
+        items: result.items
+            .map((s) => Station.withFavorite(s, saved.contains(s.id)))
+            .toList(),
+        current: result.current,
+        last: result.last,
+        total: result.total,
+      );
+    }
+    return result;
+  }
+
+  Future<List<Station>> stations() async {
+    final data = await request('stations');
+    return (data['data'] as List)
+        .map((j) => Station.fromJson(Map<String, dynamic>.from(j as Map)))
+        .toList();
+  }
+
+  void close() {
+    _epoch++;
+    _remembered = false;
+    _cookies.clear();
+    _csrf = null;
+    _http.close(force: true);
+  }
+}
+
+class CatalogFilter {
+  final String search;
+  final String connector;
+  final String country;
+  final int? minimumPower;
+  final double? latitude, longitude, radiusKm;
+  const CatalogFilter({
+    this.search = '',
+    this.connector = '',
+    this.country = '',
+    this.minimumPower,
+    this.latitude,
+    this.longitude,
+    this.radiusKm,
+  });
+  Map<String, String> get query => {
+    if (search.trim().isNotEmpty) 'q': search.trim(),
+    if (connector.isNotEmpty) 'connector_type': connector,
+    if (country.trim().isNotEmpty) 'country': country.trim().toUpperCase(),
+    if (minimumPower != null) 'min_power_kw': '$minimumPower',
+    if (latitude != null) 'latitude': '$latitude',
+    if (longitude != null) 'longitude': '$longitude',
+    if (radiusKm != null) 'radius_km': '$radiusKm',
+  };
+}
+
+class ApiPage<T> {
+  final List<T> items;
+  final int current;
+  final int last;
+  final int total;
+  const ApiPage({
+    required this.items,
+    required this.current,
+    required this.last,
+    required this.total,
+  });
+  factory ApiPage.fromJson(
+    dynamic data,
+    T Function(Map<String, dynamic>) parse,
+  ) {
+    if (data is! Map ||
+        data['data'] is! List ||
+        data['current_page'] is! int ||
+        data['last_page'] is! int ||
+        data['total'] is! int) {
+      throw const ApiException(502, 'Invalid pagination response.');
+    }
+    return ApiPage(
+      items: (data['data'] as List)
+          .map((row) => parse(Map<String, dynamic>.from(row as Map)))
+          .toList(),
+      current: data['current_page'] as int,
+      last: data['last_page'] as int,
+      total: data['total'] as int,
+    );
+  }
+}
+).hasMatch(path)) {
       throw ArgumentError('Invalid API path');
+    }
+    // During an account transition, permit only the internally required
+    // login/CSRF or logout handshake. Do not dispatch old-identity writes.
+    if (_authTransitionEpoch == _epoch &&
+        !(_authTransitionOperation == 'login' &&
+            (path == 'csrf' || path == 'login' || path == 'register')) &&
+        !(_authTransitionOperation == 'logout' && path == 'logout')) {
+      throw const ApiException(409, 'Session changed.');
     }
     final epoch = _epoch;
     try {
