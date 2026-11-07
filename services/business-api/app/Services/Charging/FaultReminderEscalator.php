@@ -134,6 +134,14 @@ class FaultReminderEscalator
                 if ($preference && ! (bool) $preference->remind_unresolved_simulator_faults) {
                     return false;
                 }
+                // Per-owner delay can only lengthen the worker's global
+                // minimum. A corrupt value fails closed; it never shortens
+                // the reminder interval or exposes another owner's notice.
+                $delay = (int) ($preference->fault_reminder_delay_minutes ?? 15);
+                if (! in_array($delay, [15, 30, 60], true)
+                    || $occurredAt->greaterThan(now()->subMinutes($delay))) {
+                    return false;
+                }
                 $inserted = DB::table('charging_fault_reminders')->insertOrIgnore([
                     'alert_id' => $alert->id,
                     'user_id' => $company->owner_id,

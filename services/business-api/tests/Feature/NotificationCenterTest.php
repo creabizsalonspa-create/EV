@@ -37,6 +37,7 @@ class NotificationCenterTest extends TestCase
                 ->assertJsonPath('default_category', 'all')
                 ->assertJsonPath('default_unread_only', false)
                 ->assertJsonPath('remind_unresolved_simulator_faults', true)
+                ->assertJsonPath('fault_reminder_delay_minutes', 15)
                 ->assertJsonPath('in_app_only', true)
                 ->assertJsonPath('external_delivery_available', false)
                 ->assertJsonPath('critical_events_always_visible', true)
@@ -85,6 +86,40 @@ class NotificationCenterTest extends TestCase
         $this->actingAs($first)->getJson('/api/notifications/preferences')
             ->assertOk()->assertJsonPath('default_category', 'charging');
         $this->assertDatabaseCount('notification_preferences', 2);
+    }
+
+    public function test_reminder_delay_is_per_account_and_legacy_put_preserves_choice(): void
+    {
+        $a = User::factory()->create();
+        $b = User::factory()->create();
+        $payload = [
+            'default_category' => 'charging',
+            'default_unread_only' => false,
+            'remind_unresolved_simulator_faults' => true,
+            'fault_reminder_delay_minutes' => 60,
+        ];
+        $this->actingAs($a)->putJson('/api/notifications/preferences', $payload)
+            ->assertOk()->assertJsonPath('fault_reminder_delay_minutes', 60);
+        $this->putJson('/api/v1/notifications/preferences', $payload)
+            ->assertOk()->assertJsonPath('fault_reminder_delay_minutes', 60);
+        // An older deployed client knows only the original three fields.
+        $this->putJson('/api/notifications/preferences', array_diff_key(
+            $payload, ['fault_reminder_delay_minutes' => true]
+        ))->assertOk()->assertJsonPath('fault_reminder_delay_minutes', 60);
+        $this->getJson('/api/v1/notifications/preferences')
+            ->assertOk()->assertJsonPath('fault_reminder_delay_minutes', 60);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('actor_id', $a->id)->where('action', 'notifications.preferences_changed')->count());
+        foreach ([0, 5, 16, 45, 1440, 'not-a-number', null] as $bad) {
+            $this->putJson('/api/notifications/preferences', array_replace(
+                $payload, ['fault_reminder_delay_minutes' => $bad]
+            ))->assertUnprocessable();
+        }
+        $this->getJson('/api/notifications/preferences')
+            ->assertOk()->assertJsonPath('fault_reminder_delay_minutes', 60);
+        $this->actingAs($b)->getJson('/api/notifications/preferences')
+            ->assertOk()->assertJsonPath('fault_reminder_delay_minutes', 15);
+        $this->assertDatabaseCount('notification_preferences', 1);
     }
 
     public function test_preference_validation_never_alters_saved_choices(): void

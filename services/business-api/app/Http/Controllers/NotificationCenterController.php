@@ -68,6 +68,9 @@ class NotificationCenterController extends Controller
             'default_category' => 'required|in:all,support,vehicle,charging,fleet',
             'default_unread_only' => 'required|boolean',
             'remind_unresolved_simulator_faults' => 'required|boolean',
+            // Optional for older mobile/web clients; omit to preserve the
+            // existing account choice rather than resetting it on PUT.
+            'fault_reminder_delay_minutes' => 'sometimes|integer|in:15,30,60',
         ]);
         $desired = [
             'default_category' => $values['default_category'],
@@ -75,23 +78,30 @@ class NotificationCenterController extends Controller
             'remind_unresolved_simulator_faults' => $request->boolean('remind_unresolved_simulator_faults'),
         ];
 
-        return DB::transaction(function () use ($request, $desired): JsonResponse {
+        return DB::transaction(function () use ($request, $desired, $values): JsonResponse {
             $owner = $request->user()->id;
             DB::table('notification_preferences')->insertOrIgnore([
                 'user_id' => $owner,
                 'default_category' => 'all',
                 'default_unread_only' => false,
                 'remind_unresolved_simulator_faults' => true,
+                'fault_reminder_delay_minutes' => 15,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
             $current = DB::table('notification_preferences')
                 ->where('user_id', $owner)->lockForUpdate()->first();
             abort_unless($current, 409);
+            $desired['fault_reminder_delay_minutes'] = array_key_exists(
+                'fault_reminder_delay_minutes', $values
+            ) ? (int) $values['fault_reminder_delay_minutes']
+              : (int) $current->fault_reminder_delay_minutes;
             $changed = $current->default_category !== $desired['default_category']
                 || (bool) $current->default_unread_only !== $desired['default_unread_only']
                 || (bool) $current->remind_unresolved_simulator_faults
-                    !== $desired['remind_unresolved_simulator_faults'];
+                    !== $desired['remind_unresolved_simulator_faults']
+                || (int) $current->fault_reminder_delay_minutes
+                    !== $desired['fault_reminder_delay_minutes'];
             if ($changed) {
                 DB::table('notification_preferences')->where('user_id', $owner)
                     ->update($desired + ['updated_at' => now()]);
@@ -115,6 +125,7 @@ class NotificationCenterController extends Controller
             'default_category' => $row?->default_category ?? 'all',
             'default_unread_only' => (bool) ($row?->default_unread_only ?? false),
             'remind_unresolved_simulator_faults' => (bool) ($row?->remind_unresolved_simulator_faults ?? true),
+            'fault_reminder_delay_minutes' => (int) ($row?->fault_reminder_delay_minutes ?? 15),
             'in_app_only' => true,
             'external_delivery_available' => false,
             'critical_events_always_visible' => true,

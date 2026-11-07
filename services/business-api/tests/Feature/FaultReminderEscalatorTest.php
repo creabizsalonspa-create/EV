@@ -147,6 +147,42 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame(0, app(FaultReminderEscalator::class)->scan(2)['reminded']);
     }
 
+    public function test_each_owner_delay_is_respected_without_starving_other_vendors(): void
+    {
+        $slow = $this->fixture();
+        $this->actingAs($slow['owner'])->putJson('/api/notifications/preferences', [
+            'default_category' => 'charging',
+            'default_unread_only' => false,
+            'remind_unresolved_simulator_faults' => true,
+            'fault_reminder_delay_minutes' => 30,
+        ])->assertOk();
+        $fast = $this->fixture();
+        $this->actingAs($fast['owner'])->putJson('/api/v1/notifications/preferences', [
+            'default_category' => 'charging',
+            'default_unread_only' => false,
+            'remind_unresolved_simulator_faults' => true,
+            'fault_reminder_delay_minutes' => 15,
+        ])->assertOk();
+
+        $worker = app(FaultReminderEscalator::class);
+        $scan = $worker->scan(2);
+        $this->assertSame(2, $scan['examined']);
+        $this->assertSame(1, $scan['reminded']);
+        $this->assertSame($fast['owner']->id, InboxNotification::where(
+            'kind', 'charging.fault.reminder.simulated')->firstOrFail()->user_id);
+        $this->assertDatabaseCount('charging_fault_reminders', 1);
+
+        DB::table('charging_status_observations')->where('id', $slow['observation'])
+            ->update(['occurred_at' => now()->subMinutes(31)]);
+        $this->assertSame(1, $worker->scan(2)['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 2);
+        $this->assertSame(1, InboxNotification::where('user_id', $slow['owner']->id)
+            ->where('kind', 'charging.fault.reminder.simulated')->count());
+        $this->assertSame(0, $worker->scan(2)['reminded']);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_owner_can_suppress_repeat_reminder_but_original_fault_remains_available(): void
     {
         $f = $this->fixture();
