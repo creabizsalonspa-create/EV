@@ -436,6 +436,59 @@ try{
       {sourceSessionId:String(adminOcppSession._id)},false,{authorization:adminBearer});
     assert.notEqual(z.code,200);
   });
+  const station20=await NearestStationModel.create({name:'Agent 2 OCPP201 Admin-Bound Station',
+    address:'Loopback Only',status:'Available',latitude:25.75,longitude:55.94,
+    pricePerHourValue:75,slots:[{startTime:'04:00 PM',endTime:'05:00 PM'}]});
+  const adminCharger20='agent2-admin-bound-ocpp201';
+  await db.collection('ocpp_chargers').insertOne({stationId:String(station20._id),
+    chargerId:adminCharger20,enabled:true,protocol:'ocpp2.0.1',controlApproved:false});
+  await db.collection('ocpp_tariffs').insertOne({chargerId:adminCharger20,enabled:true,
+    rateFilsPerKwh:90,vatPercent:5});
+  const booking20=await BookingModel.create({userId:user._id,stationId:station20._id,
+    date:'2026-11-14',time:'04:00 PM',slotStart:'04:00 PM',slotEnd:'05:00 PM',
+    totalAmount:77,isPaid:true,hasArrived:true,status:'Upcoming'});
+  let token20;
+  await check('Admin issues OCPP 2.0.1 booking-scoped authorization token',async()=>{
+    const r=await request('POST','/api/v1/admin/bookings/'+booking20._id+'/ocpp/issue-token',{},false,
+      {authorization:adminBearer});
+    assert.equal(r.code,201);
+    token20=r.body.data.oneTimeToken;
+    assert.equal(r.body.data.chargerId,adminCharger20);
+  });
+  const tx20='agent2-admin-ocpp201-source';
+  await check('OCPP 2.0.1 accepts authorized Admin booking token and metered stop',async()=>{
+    const start=await handle({chargerId:adminCharger20},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Started',seqNo:0,transactionInfo:{transactionId:tx20},
+      timestamp:new Date().toISOString(),idToken:{idToken:token20},
+      evse:{id:1,connectorId:1},meterValue:meter(1000)});
+    assert.equal(start.idTokenInfo.status,'Accepted');
+    await handle({chargerId:adminCharger20},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Updated',seqNo:1,transactionInfo:{transactionId:tx20},
+      timestamp:new Date().toISOString(),meterValue:meter(6500)});
+    await handle({chargerId:adminCharger20},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Ended',seqNo:2,transactionInfo:{transactionId:tx20,stoppedReason:'EVDisconnected'},
+      timestamp:new Date().toISOString(),meterValue:meter(9000)});
+    const source=await db.collection('ocpp_sessions').findOne({
+      chargerId:adminCharger20,transactionId:tx20});
+    assert.equal(source.energyKwh,8);
+    assert.equal(source.totalFils,756);
+    assert.equal(source.paymentStatus,'not_collected');
+  });
+  await check('Admin binds 2.0.1 source to correct customer and customer reads 8 kWh',async()=>{
+    const source=await db.collection('ocpp_sessions').findOne({
+      chargerId:adminCharger20,transactionId:tx20});
+    const binding=await request('POST','/api/v1/admin/bookings/'+booking20._id+'/ocpp/bind-source',
+      {sourceSessionId:String(source._id)},false,{authorization:adminBearer});
+    assert.equal(binding.code,200);
+    assert.equal(binding.body.data.meterVerified,true);
+    const status=await request('GET','/api/v1/ChargingSession/'+binding.body.data.sessionId+'/status',
+      undefined,true);
+    assert.equal(status.code,200);
+    assert.equal(status.body.data.sourceVerified,true);
+    assert.equal(status.body.data.protocol,'ocpp2.0.1');
+    assert.equal(status.body.data.kwhUsed,8);
+    assert.equal(status.body.data.paymentStatus,'not_collected');
+  });
   const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
   const hash16=createHash('sha256').update(token16).digest('hex');
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
