@@ -1,5 +1,7 @@
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/vehicle_driver_preferences.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,6 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 class _PreferencesApi extends EvApi {
   _PreferencesApi() : super(Uri.parse('https://example.invalid'));
   final writes = <Map<String, dynamic>>[];
+  final requests = <String>[];
+  Completer<void>? holdVehicle12;
   int revision = 0;
 
   @override
@@ -15,21 +19,26 @@ class _PreferencesApi extends EvApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
-    if (path != 'vehicles/12/driver-preferences') {
-      throw ApiException(404, 'Unexpected test endpoint: $path');
-    }
+    requests.add('$method $path');
+    final id = path == 'vehicles/12/driver-preferences' ? 12
+        : path == 'vehicles/13/driver-preferences' ? 13 : null;
+    if (id == null) throw ApiException(404, 'Unexpected test endpoint: $path');
     if (method == 'GET') {
+      if (id == 12 && holdVehicle12 != null) await holdVehicle12!.future;
       return {
-        'vehicle_id': 12, 'revision': revision, 'preferred_power_kw': null,
-        'charging_goal': 'balanced', 'accessible_site_required': false,
-        'avoid_paid_parking': false, 'applied_to_charging': false,
+        'vehicle_id': id, 'revision': id == 12 ? revision : 4,
+        'preferred_power_kw': id == 12 ? null : 80,
+        'charging_goal': id == 12 ? 'balanced' : 'fastest',
+        'accessible_site_required': false, 'avoid_paid_parking': false,
+        'applied_to_charging': false,
       };
     }
     if (method == 'PUT') {
       writes.add(Map<String, dynamic>.from(body!));
-      if (body['revision'] != revision) throw const ApiException(409, 'stale');
-      revision++;
-      return {...body, 'revision': revision, 'vehicle_id': 12,
+      final expected = id == 12 ? revision : 4;
+      if (body!['revision'] != expected) throw const ApiException(409, 'stale');
+      if (id == 12) revision++;
+      return {...body, 'revision': expected + 1, 'vehicle_id': id,
         'applied_to_charging': false};
     }
     throw ApiException(405, 'Unexpected method: $method');
@@ -62,4 +71,38 @@ void main() {
       api.close();
     }
   });
+  testWidgets('reused native editor reloads a new vehicle and ignores late old GET',
+      (tester) async {
+    final api = _PreferencesApi()..holdVehicle12 = Completer<void>();
+    try {
+      await tester.pumpWidget(MaterialApp(
+        home: VehicleDriverPreferencesView(api: api, vehicleId: 12, onExpired: () {}),
+      ));
+      await tester.pump();
+      expect(api.requests, contains('GET vehicles/12/driver-preferences'));
+      // Same widget type and key; a parent can switch the vehicle ID in place.
+      await tester.pumpWidget(MaterialApp(
+        home: VehicleDriverPreferencesView(api: api, vehicleId: 13, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requests, contains('GET vehicles/13/driver-preferences'));
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('driver-preferences-power'))).controller!.text, '80');
+      api.holdVehicle12!.complete();
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('driver-preferences-power'))).controller!.text, '80');
+      await tester.ensureVisible(find.byKey(const Key('driver-preferences-save')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('driver-preferences-save')));
+      await tester.pumpAndSettle();
+      expect(api.requests.last, 'PUT vehicles/13/driver-preferences');
+      expect(api.writes.last['revision'], 4);
+      expect(api.writes.last['preferred_power_kw'], 80);
+    } finally {
+      if (!(api.holdVehicle12?.isCompleted ?? true)) api.holdVehicle12!.complete();
+      api.close();
+    }
+  });
+
 }
