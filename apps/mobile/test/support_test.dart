@@ -171,6 +171,42 @@ class FaultFixture extends FixtureApi {
   }
 }
 
+class FleetFixture extends FixtureApi {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'notifications/summary') {
+      return {'unread_count': 3, 'latest_id': 43, 'in_app_only': true};
+    }
+    final items = path == 'notifications'
+        ? [
+            for (final row in [
+              ['fleet.invitation', 41],
+              ['fleet.invitation.accepted', 42],
+              ['fleet.membership.revoked', 43],
+            ])
+              {
+                'id': row[1],
+                'kind': row[0],
+                'support_ticket_id': null,
+                'read_at': null,
+                'metadata': {'fleet_id': 31},
+              },
+          ]
+        : <Map<String, dynamic>>[];
+    return {
+      'data': items,
+      'current_page': 1,
+      'last_page': 1,
+      'total': items.length,
+    };
+  }
+}
+
 class PendingSupport extends FixtureApi {
   final response = Completer<dynamic>();
   @override
@@ -341,6 +377,22 @@ void main() {
       expect(find.textContaining('Ticket #'), findsNothing);
     },
   );
+  testWidgets('fleet lifecycle notices render without a fake support link', (
+    tester,
+  ) async {
+    final api = FleetFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    expect(find.text('Fleet invitation · fleet #31'), findsOneWidget);
+    expect(find.text('Fleet invitation accepted · fleet #31'), findsOneWidget);
+    expect(find.text('Fleet access revoked · fleet #31'), findsOneWidget);
+    expect(find.textContaining('Ticket #'), findsNothing);
+  });
   testWidgets(
     'battery notification labels simulation without a support ticket link',
     (tester) async {

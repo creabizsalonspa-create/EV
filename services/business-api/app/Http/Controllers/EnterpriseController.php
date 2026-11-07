@@ -6,6 +6,7 @@ use App\Models\CostCenter;
 use App\Models\Fleet;
 use App\Models\FleetMember;
 use App\Models\FleetVehicle;
+use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Http\Request;
@@ -81,9 +82,31 @@ class EnterpriseController extends Controller
         // Same response whether the address is registered; no account-enumeration signal.
         if ($u && $u->id !== $r->user()->id) {
             DB::transaction(function () use ($r, $fleet, $u) {
-                FleetMember::firstOrCreate(['fleet_id' => $fleet->id, 'user_id' => $u->id], ['role' => 'driver', 'status' => 'invited']);
-                $this->audit($r, 'fleet.invited', (string) $fleet->id);
-            });
+                $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
+                abort_unless($current->owner_id === $r->user()->id, 404);
+                $member = FleetMember::where('fleet_id', $current->id)
+                    ->where('user_id', $u->id)->lockForUpdate()->first();
+                if ($member && $member->status !== 'revoked') {
+                    // Invited or active: no new invitation and no repeat notice.
+                    return;
+                }
+                if ($member) {
+                    $member->update(['status' => 'invited']);
+                } else {
+                    $member = FleetMember::create([
+                        'fleet_id' => $current->id,
+                        'user_id' => $u->id,
+                        'role' => 'driver',
+                        'status' => 'invited',
+                    ]);
+                }
+                InboxNotification::create([
+                    'user_id' => $u->id,
+                    'kind' => 'fleet.invitation',
+                    'metadata' => ['fleet_id' => $current->id, 'membership_id' => $member->id],
+                ]);
+                $this->audit($r, 'fleet.invited', (string) $current->id);
+            }, 3);
         }
 
         return response()->json(['message' => 'Invitation recorded if the account is eligible.'], 202);
@@ -102,8 +125,16 @@ class EnterpriseController extends Controller
         return DB::transaction(function () use ($r, $invitation) {
             $invitation = FleetMember::whereKey($invitation->id)->lockForUpdate()->firstOrFail();
             abort_unless(in_array($invitation->status, ['invited', 'active']), 409);
-            $invitation->update(['status' => 'active']);
-            $this->audit($r, 'fleet.accepted', (string) $invitation->id);
+            if ($invitation->status === 'invited') {
+                $invitation->update(['status' => 'active']);
+                $ownerId = Fleet::whereKey($invitation->fleet_id)->firstOrFail()->owner_id;
+                InboxNotification::create([
+                    'user_id' => $ownerId,
+                    'kind' => 'fleet.invitation.accepted',
+                    'metadata' => ['fleet_id' => $invitation->fleet_id, 'membership_id' => $invitation->id],
+                ]);
+                $this->audit($r, 'fleet.accepted', (string) $invitation->id);
+            }
 
             return response()->json($invitation);
         });
@@ -116,9 +147,19 @@ class EnterpriseController extends Controller
 
         return DB::transaction(function () use ($r, $membership, $fleet) {
             $membership = FleetMember::whereKey($membership->id)->lockForUpdate()->firstOrFail();
-            $membership->update(['status' => 'revoked']);
-            FleetVehicle::where('fleet_id', $fleet->id)->whereIn('vehicle_id', Vehicle::where('user_id', $membership->user_id)->select('id'))->delete();
-            $this->audit($r, 'fleet.revoked', (string) $membership->id);
+            $current = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
+            abort_unless($current->owner_id === $r->user()->id, 404);
+            if ($membership->status !== 'revoked') {
+                $membership->update(['status' => 'revoked']);
+                FleetVehicle::where('fleet_id', $fleet->id)
+                    ->whereIn('vehicle_id', Vehicle::where('user_id', $membership->user_id)->select('id'))->delete();
+                InboxNotification::create([
+                    'user_id' => $membership->user_id,
+                    'kind' => 'fleet.membership.revoked',
+                    'metadata' => ['fleet_id' => $fleet->id, 'membership_id' => $membership->id],
+                ]);
+                $this->audit($r, 'fleet.revoked', (string) $membership->id);
+            }
 
             return response()->noContent();
         });

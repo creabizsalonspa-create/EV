@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\CostCenter;
 use App\Models\Fleet;
 use App\Models\FleetMember;
+use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -64,6 +65,48 @@ class EnterpriseTest extends TestCase
         $this->assertDatabaseCount('fleet_vehicles', 0);
         $this->actingAs($driver)->getJson('/api/fleets/'.$f->id)->assertNotFound();
         $this->postJson('/api/fleet-invitations/'.$m->id.'/accept')->assertConflict();
+    }
+
+    public function test_fleet_inbox_lifecycle_is_account_scoped_and_transition_idempotent(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $outsider = User::factory()->create();
+        $fleet = Fleet::create(['owner_id' => $owner->id, 'name' => 'Notification fleet', 'country' => 'AE']);
+        $url = '/api/fleets/'.$fleet->id.'/invitations';
+        $body = ['email' => $driver->email];
+
+        $this->actingAs($owner)->postJson($url, $body)->assertAccepted();
+        $this->postJson($url, $body)->assertAccepted();
+        $this->postJson($url, ['email' => 'absent@example.test'])
+            ->assertAccepted()->assertExactJson(['message' => 'Invitation recorded if the account is eligible.']);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $invite = FleetMember::where('fleet_id', $fleet->id)->where('user_id', $driver->id)->firstOrFail();
+        $this->actingAs($driver)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'fleet.invitation');
+        $this->actingAs($outsider)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($driver)->postJson('/api/fleet-invitations/'.$invite->id.'/accept')->assertOk();
+        $this->postJson('/api/fleet-invitations/'.$invite->id.'/accept')->assertOk();
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->actingAs($owner)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'fleet.invitation.accepted');
+
+        $this->deleteJson('/api/fleets/'.$fleet->id.'/members/'.$invite->id)->assertNoContent();
+        $this->deleteJson('/api/fleets/'.$fleet->id.'/members/'.$invite->id)->assertNoContent();
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        $this->actingAs($driver)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.kind', 'fleet.membership.revoked');
+        $this->actingAs($owner)->postJson($url, $body)->assertAccepted();
+        $this->assertSame('invited', $invite->fresh()->status);
+        $this->assertDatabaseCount('inbox_notifications', 4);
+        $this->actingAs($driver)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 3)
+            ->assertJsonPath('data.0.kind', 'fleet.invitation');
+
+        $this->assertSame(3, InboxNotification::where('user_id', $driver->id)->count());
+        $this->assertSame(1, InboxNotification::where('user_id', $owner->id)->count());
     }
 
     public function test_invites_do_not_disclose_whether_email_exists(): void

@@ -1,4 +1,14 @@
 window.EV_MESSAGES = {
+    "Fleet notifications": { en: "Fleet notifications", ar: "إشعارات الأسطول" },
+    "Fleet invitation · fleet #{id}": {
+        en: "Fleet invitation · fleet #{id}", ar: "دعوة للأسطول · الأسطول #{id}",
+    },
+    "Fleet invitation accepted · fleet #{id}": {
+        en: "Fleet invitation accepted · fleet #{id}", ar: "تم قبول دعوة الأسطول · الأسطول #{id}",
+    },
+    "Fleet access revoked · fleet #{id}": {
+        en: "Fleet access revoked · fleet #{id}", ar: "تم إلغاء الوصول إلى الأسطول · الأسطول #{id}",
+    },
     "Simulator source reported recovery · station #{id}": {
         en: "Simulator source reported recovery · station #{id}",
         ar: "أبلغ مصدر المحاكاة عن التعافي · المحطة #{id}",

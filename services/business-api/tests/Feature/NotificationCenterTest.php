@@ -145,6 +145,7 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonPath('remaining_unread', 2);
         $this->getJson('/api/v1/notifications?category=support&unread_only=1')
             ->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/v1/notifications?category=fleet')->assertOk()->assertJsonPath('total', 0);
         $this->getJson('/api/v1/notifications?category=charger')
             ->assertUnprocessable();
         $this->getJson('/api/notifications?category=charging%25')

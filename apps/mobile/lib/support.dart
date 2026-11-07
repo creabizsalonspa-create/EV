@@ -146,7 +146,7 @@ class SupportViewState extends State<SupportView> {
                 DropdownButton<String>(
                   key: const Key('support-category'),
                   value: category,
-                  items: const ['all', 'support', 'vehicle', 'charging']
+                  items: const ['all', 'support', 'vehicle', 'charging', 'fleet']
                       .map(
                         (value) => DropdownMenuItem<String>(
                           value: value,
@@ -158,7 +158,9 @@ class SupportViewState extends State<SupportView> {
                                   ? 'notificationCategorySupport'
                                   : value == 'vehicle'
                                   ? 'notificationCategoryVehicle'
-                                  : 'notificationCategoryCharging',
+                                  : value == 'charging'
+                                  ? 'notificationCategoryCharging'
+                                  : 'notificationCategoryFleet',
                             ),
                           ),
                         ),
@@ -256,6 +258,24 @@ class SupportViewState extends State<SupportView> {
                                         ? (row['metadata'] as Map)['station_id'] ?? '?'
                                         : '?',
                                   })
+                                : row['kind'] == 'fleet.invitation'
+                                    ? s.t('fleetInvitationAlert', {
+                                        'fleet': row['metadata'] is Map
+                                            ? (row['metadata'] as Map)['fleet_id'] ?? '?'
+                                            : '?',
+                                      })
+                                    : row['kind'] == 'fleet.invitation.accepted'
+                                        ? s.t('fleetAcceptedAlert', {
+                                            'fleet': row['metadata'] is Map
+                                                ? (row['metadata'] as Map)['fleet_id'] ?? '?'
+                                                : '?',
+                                          })
+                                        : row['kind'] == 'fleet.membership.revoked'
+                                            ? s.t('fleetRevokedAlert', {
+                                                'fleet': row['metadata'] is Map
+                                                    ? (row['metadata'] as Map)['fleet_id'] ?? '?'
+                                                    : '?',
+                                              })
                             : row['kind'] == 'vehicle.battery.simulated'
                                 ? '${Localizations.localeOf(context).languageCode == 'ar' ? 'محاكاة بطارية منخفضة' : 'Simulated low battery'} · #${row['metadata'] is Map ? row['metadata']['vehicle_id'] ?? '?' : '?'} · ${row['metadata'] is Map ? row['metadata']['battery_percent'] ?? '?' : '?'}%'
                                 : s.t(

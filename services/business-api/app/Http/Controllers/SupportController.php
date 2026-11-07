@@ -89,7 +89,7 @@ class SupportController extends Controller
     {
         $filters = $r->validate([
             'unread_only' => 'sometimes|boolean',
-            'category' => 'sometimes|in:support,vehicle,charging',
+            'category' => 'sometimes|in:support,vehicle,charging,fleet',
         ]);
 
         return InboxNotification::where('user_id', $r->user()->id)

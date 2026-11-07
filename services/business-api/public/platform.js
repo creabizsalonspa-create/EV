@@ -1319,6 +1319,7 @@ async function support() {
         ["support", "Support notifications"],
         ["vehicle", "Vehicle notifications"],
         ["charging", "Charging notifications"],
+        ["fleet", "Fleet notifications"],
     ]) {
         const option = ui("option", label);
         option.value = value;
@@ -1371,7 +1372,19 @@ async function support() {
                     ? ui("p", "Simulator source reported recovery · station #{id}", {
                         id: m.metadata?.station_id ?? "?",
                     })
-                    : ui("p", "{kind} · ticket #{id}", {
+                    : m.kind === "fleet.invitation"
+                        ? ui("p", "Fleet invitation · fleet #{id}", {
+                            id: m.metadata?.fleet_id ?? "?",
+                        })
+                        : m.kind === "fleet.invitation.accepted"
+                            ? ui("p", "Fleet invitation accepted · fleet #{id}", {
+                                id: m.metadata?.fleet_id ?? "?",
+                            })
+                            : m.kind === "fleet.membership.revoked"
+                                ? ui("p", "Fleet access revoked · fleet #{id}", {
+                                    id: m.metadata?.fleet_id ?? "?",
+                                })
+                                : ui("p", "{kind} · ticket #{id}", {
                     kind: { translate: m.kind },
                     id: m.support_ticket_id,
                 });
