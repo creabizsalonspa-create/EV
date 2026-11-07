@@ -65,6 +65,8 @@ const assert = require("node:assert/strict");
           data: showPartner
             ? [{
                 id: 19, provider_id: 9,
+                provider_label: "Unverified Network_50%!",
+                provider_label_evidence: "PROVIDER_CONFIGURED_UNVERIFIED",
                 evidence: "PARTNER_REPORTED_UNVERIFIED",
                 availability: unsafePartner ? "available" : "unknown", remote_control: false, reservable: false,
                 source_timestamp_evidence: "PARTNER_REPORTED_ONLY",
@@ -175,6 +177,7 @@ const assert = require("node:assert/strict");
     const partnerPopup = page.locator(".leaflet-popup-content");
     await partnerPopup.getByText(/Partner reported \(unverified\)/).waitFor();
     await partnerPopup.getByText("Partner source age: 120 min; live status unverified.", { exact: true }).waitFor();
+    await partnerPopup.getByText("Configured provider (unverified): Unverified Network_50%!", { exact: true }).waitFor();
     assert.equal(await partnerPopup.locator("img").count(), 0);
     assert.equal(await partnerPopup.getByRole("button", { name: "Add charging stop" }).count(), 0);
     assert.match(await partnerPopup.locator("a").getAttribute("href"), /destination=25.21%2C55.31/);
