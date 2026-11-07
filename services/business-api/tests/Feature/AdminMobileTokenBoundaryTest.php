@@ -47,13 +47,14 @@ class AdminMobileTokenBoundaryTest extends TestCase
         $vendor->forceFill(['role' => 'admin'])->save();
         $this->app['auth']->forgetGuards();
 
-        $this->withToken($token)->getJson('/api/v1/me')->assertForbidden();
-        $this->withToken($token)->getJson('/api/v1/vendor-ops/companies')->assertForbidden();
-        $this->withToken($token)->getJson('/api/v1/finance/invoices')->assertForbidden();
-        $this->withToken($token)->getJson('/api/v1/notifications')->assertForbidden();
-
-        // A now-forbidden token can still revoke itself without privileges.
-        $this->withToken($token)->postJson('/api/v1/logout')->assertNoContent();
+        // Role change atomically deletes all previously issued tokens.
+        // The revoked bearer is unauthenticated (401), not merely forbidden.
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+        $this->withToken($token)->getJson('/api/v1/me')->assertUnauthorized();
+        $this->withToken($token)->getJson('/api/v1/vendor-ops/companies')->assertUnauthorized();
+        $this->withToken($token)->getJson('/api/v1/finance/invoices')->assertUnauthorized();
+        $this->withToken($token)->getJson('/api/v1/notifications')->assertUnauthorized();
+        $this->withToken($token)->postJson('/api/v1/logout')->assertUnauthorized();
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
@@ -66,6 +67,10 @@ class AdminMobileTokenBoundaryTest extends TestCase
         $token = $admin->createToken('legacy', ['platform'], now()->addDay())->plainTextToken;
         $this->app['auth']->forgetGuards();
         $this->withToken($token)->getJson('/api/v1/me')->assertForbidden();
+        // A legacy Admin token that escaped revocation may still erase
+        // itself without obtaining any privileged API access.
+        $this->withToken($token)->postJson('/api/v1/logout')->assertNoContent();
+        $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
     public function test_customer_and_vendor_tokens_remain_valid_and_admin_web_session_stays_separate(): void
