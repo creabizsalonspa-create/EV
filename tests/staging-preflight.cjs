@@ -154,3 +154,20 @@ test('Compose bare dollar interpolation cannot alter reviewed credentials', () =
   assert.ok(errors.some(x=>x.startsWith('DB_PASSWORD: interpolation')));
   assert.equal(JSON.stringify(errors).includes(payload),false);
 });
+
+test('loopback-only Caddy staging uses internal CA, not unreachable public ACME', () => {
+  const caddy=fs.readFileSync(path.resolve(__dirname,'../infra/staging/Caddyfile'),'utf8');
+  assert.match(caddy,/^\s*tls internal\s*$/m);
+  assert.match(caddy,/^\{\$STAGING_HOST\} \{$/m);
+  assert.match(caddy,/^\s*admin off\s*$/m);
+  assert.match(caddy,/^\s*reverse_proxy application:80\s*$/m);
+  assert.doesNotMatch(caddy,/^\s*tls\s+(?:\S+)\.crt/m);
+  assert.doesNotMatch(caddy,/^\s*issuer\s+(?:acme|zerossl)\b/m);
+});
+test('staging Compose continues to publish only the private gateway', () => {
+  const yaml=fs.readFileSync(path.resolve(__dirname,'../infra/staging/compose.yaml'),'utf8');
+  assert.match(yaml,/STAGING_BIND_IP:-127\.0\.0\.1/);
+  assert.match(yaml,/8443:443/);
+  assert.match(yaml,/certificates:\/data/);
+  assert.doesNotMatch(yaml,/\b443:443['"]?\s*$/m);
+});
