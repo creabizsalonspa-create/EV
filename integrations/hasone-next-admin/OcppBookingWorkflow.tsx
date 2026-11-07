@@ -55,6 +55,7 @@ export default function OcppBookingWorkflow({
   const [sessions,setSessions]=useState<SourceSession[]>([]);
   const [chosen,setChosen]=useState("");
   const [chargerChoice,setChargerChoice]=useState("");
+  const [refreshOnClose,setRefreshOnClose]=useState(false);
   const [secret,setSecret]=useState("");
   const [showSecret,setShowSecret]=useState(false);
 
@@ -104,6 +105,8 @@ export default function OcppBookingWorkflow({
     setMessage("");
     setError("");
     setState(null);
+    if(refreshOnClose)void onUpdated();
+    setRefreshOnClose(false);
   }
 
   useEffect(()=>{
@@ -151,7 +154,9 @@ export default function OcppBookingWorkflow({
         setMessage("Booking finalized from verified OCPP stop. Charging charge remains unpaid.");
       }
       await read();
-      await onUpdated();
+      // Reloading the bookings table here would unmount this dialog and
+      // lose the one-time authorization token before Admin can copy it.
+      if(path==="finalize-source")setRefreshOnClose(true);
     }catch(e){setError(errorText(e));}
     finally{setWorking(false);}
   }
