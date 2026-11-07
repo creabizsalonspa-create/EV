@@ -19,6 +19,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Run after the web session/auth middleware so Admin identity and
         // challenge proof are both available before protected handlers execute.
         $middleware->web(append: [AdminSecondFactorGate::class]);
+        // Resolve Sanctum Admin identity on v1 routes before route handlers.
+        // The same gate denies unverified Admin cookie/API sessions.
+        $middleware->api(append: [AdminSecondFactorGate::class]);
         $middleware->redirectGuestsTo(fn (Request $request) => $request->routeIs('verification.verify') ? '/?verification=signin' : '/');
         //
     })
