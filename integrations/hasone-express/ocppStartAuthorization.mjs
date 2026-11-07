@@ -27,8 +27,17 @@ export async function claimOcppStartToken(tokens,chargerId,raw,now=new Date()){
   return {accepted:!!claimed,tokenHash:claimed?tokenHash:null};
 }
 /** Reuse only the SAME active OCPP1.6 source session after lost reply. */
-export function sameActiveOcpp16Retry(session,{chargerId,tokenHash,connectorId,meterStart}={}){
-  return !!session && session.status==='active' && session.protocol==='ocpp1.6'
+export function sameActiveOcpp16Retry(session,{
+  chargerId,tokenHash,connectorId,meterStart,now=new Date()
+}={}){
+  // A retry is only justified shortly after the original start response.
+  // No stale active source may be re-authorized hours later with the old tag.
+  const createdAt=session?.createdAt instanceof Date
+    ?session.createdAt:new Date(session?.createdAt??NaN);
+  const age=now instanceof Date && Number.isFinite(now.valueOf())
+    ?now.getTime()-createdAt.getTime():NaN;
+  return Number.isFinite(age) && age>=0 && age<=120000
+    && !!session && session.status==='active' && session.protocol==='ocpp1.6'
     && session.chargerId===chargerId && session.idTagHash===tokenHash
     && Number.isInteger(connectorId) && connectorId>=1 && connectorId<=64
     && session.connectorId===connectorId
