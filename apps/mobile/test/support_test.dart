@@ -8,6 +8,7 @@ import 'test_support.dart';
 class SupportFixture extends FixtureApi {
   String status = 'open';
   bool read = false;
+  int? lastBulkThroughId;
   final publicMessages = ['Original public message'];
   @override
   Future<dynamic> request(
@@ -37,6 +38,23 @@ class SupportFixture extends FixtureApi {
           'total': publicMessages.length,
         },
       };
+    if (path == 'notifications/summary') {
+      return {
+        'unread_count': read ? 0 : 1,
+        'latest_id': 2,
+        'in_app_only': true,
+      };
+    }
+    if (path == 'notifications/read-through') {
+      lastBulkThroughId = body?['through_id'] as int?;
+      read = true;
+      return {
+        'through_id': lastBulkThroughId,
+        'marked_read': 1,
+        'remaining_unread': 0,
+        'in_app_only': true,
+      };
+    }
     if (path == 'notifications/2/read') {
       read = true;
       return {};
@@ -69,7 +87,9 @@ class BatteryFixture extends FixtureApi {
     String method = 'GET',
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
-  }) async => {
+  }) async => path == 'notifications/summary'
+      ? {'unread_count': 1, 'latest_id': 9, 'in_app_only': true}
+      : {
     'data': path == 'notifications'
         ? [
             {
@@ -180,6 +200,31 @@ void main() {
       await tester.tap(find.text('Ticket #1'));
       await tester.pumpAndSettle();
       expect(find.text('Original public message'), findsOneWidget);
+    },
+  );
+  testWidgets(
+    'bulk read uses exact observed server high-water and updates unread UI',
+    (tester) async {
+      final api = SupportFixture();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SupportView(api: api, onSessionExpired: () {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('support-notifications')));
+      await tester.pumpAndSettle();
+      expect(find.text('1 unread notifications'), findsOneWidget);
+      expect(find.byKey(const Key('mark-current-notifications-read')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('mark-current-notifications-read')));
+      await tester.pumpAndSettle();
+      expect(api.lastBulkThroughId, 2);
+      expect(api.read, true);
+      expect(find.text('0 unread notifications'), findsOneWidget);
+      expect(find.byKey(const Key('mark-current-notifications-read')), findsNothing);
     },
   );
   testWidgets(
