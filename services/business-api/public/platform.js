@@ -1777,13 +1777,28 @@ async function ticketDetail(id) {
             label.append(check);
             f.append(label);
         }
+        // Retain the same key across a lost acknowledgement, but generate a
+        // fresh key when the user changes the reply body or internal flag.
+        let pendingReply = null;
         f.onsubmit = async (e) => {
             e.preventDefault();
+            const payload = {
+                body: body.value,
+                internal: !!f.elements.internal?.checked,
+            };
+            const signature = JSON.stringify(payload);
+            if (!pendingReply || pendingReply.signature !== signature) {
+                pendingReply = {
+                    signature,
+                    key: crypto.randomUUID().replace(/-/g, ""),
+                };
+            }
             try {
                 await api("support/" + id + "/messages", "POST", {
-                    body: body.value,
-                    internal: !!f.elements.internal?.checked,
+                    ...payload,
+                    idempotency_key: pendingReply.key,
                 });
+                pendingReply = null;
                 await support();
                 await ticketDetail(id);
             } catch (e) {

@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -771,6 +772,15 @@ class _TicketPageState extends State<TicketPage> {
   Object? error;
   final reply = TextEditingController();
   final form = GlobalKey<FormState>();
+  String? pendingReplyBody;
+  String? pendingReplyKey;
+
+  String freshReplyKey() {
+    final rng = Random.secure();
+    return List.generate(16,
+      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+  }
   @override
   void initState() {
     super.initState();
@@ -813,11 +823,18 @@ class _TicketPageState extends State<TicketPage> {
       error = null;
     });
     try {
+      final text = reply.text.trim();
+      if (pendingReplyKey == null || pendingReplyBody != text) {
+        pendingReplyBody = text;
+        pendingReplyKey = freshReplyKey();
+      }
       await widget.api.request(
         'support/${widget.id}/messages',
         method: 'POST',
-        body: {'body': reply.text.trim()},
+        body: {'body': text, 'idempotency_key': pendingReplyKey},
       );
+      pendingReplyBody = null;
+      pendingReplyKey = null;
       if (!mounted) return;
       reply.clear();
       await load(page: messages?.last ?? 1);

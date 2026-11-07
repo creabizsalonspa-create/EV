@@ -22,6 +22,7 @@ class SupportFixture extends FixtureApi {
   };
   int preferenceWrites = 0;
   final publicMessages = ['Original public message'];
+  String? lastReplyKey;
   @override
   Future<dynamic> request(
     String path, {
@@ -37,6 +38,7 @@ class SupportFixture extends FixtureApi {
       return preferences;
     }
     if (path == 'support/1/messages') {
+      lastReplyKey = body?['idempotency_key'] as String?;
       publicMessages.add(body!['body'] as String);
       return {'id': 3};
     }
@@ -119,6 +121,29 @@ class SupportFixture extends FixtureApi {
       'last_page': 1,
       'total': items.length,
     };
+  }
+}
+
+class LostAckSupportFixture extends SupportFixture {
+  int attempts = 0;
+  String? firstRequestKey;
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path == 'support/1/messages' && method == 'POST') {
+      attempts++;
+      final key = body?['idempotency_key'] as String?;
+      if (attempts == 1) {
+        firstRequestKey = key;
+        throw const ApiException(503, 'response lost');
+      }
+      expect(key, firstRequestKey);
+    }
+    return super.request(path, method: method, body: body, query: query);
   }
 }
 
@@ -742,6 +767,7 @@ void main() {
       await tester.tap(find.text('Send reply'));
       await tester.pumpAndSettle();
       expect(api.publicMessages.last, 'Customer public follow-up');
+      expect(api.lastReplyKey, matches(RegExp(r'^[a-f0-9]{32}$')));
       expect(find.text('Customer public follow-up'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       api.status = 'closed';
@@ -755,6 +781,27 @@ void main() {
       expect(find.byKey(const Key('ticket-reply')), findsNothing);
     },
   );
+  testWidgets('lost support reply acknowledgement retries the same key', (tester) async {
+    final api = LostAckSupportFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: TicketPage(api: api, id: 1, onSessionExpired: () {}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('ticket-reply')),
+        'One reply after lost acknowledgement');
+    await tester.ensureVisible(find.text('Send reply'));
+    await tester.tap(find.text('Send reply'));
+    await tester.pumpAndSettle();
+    expect(api.attempts, 1);
+    expect(api.firstRequestKey, matches(RegExp(r'^[a-f0-9]{32}$')));
+    await tester.tap(find.text('Send reply'));
+    await tester.pumpAndSettle();
+    expect(api.attempts, 2);
+    expect(api.publicMessages.where((m) =>
+        m == 'One reply after lost acknowledgement').length, 1);
+  });
+
   testWidgets(
     'inbox read actions update actual API state and notification opens its thread',
     (tester) async {

@@ -72,6 +72,78 @@ class SupportTest extends TestCase
         $this->assertNotNull($n->fresh()->read_at);
     }
 
+    public function test_reply_replay_reuses_message_and_does_not_duplicate_owner_notification(): void
+    {
+        $owner = User::factory()->create();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $ticket = SupportTicket::create(['user_id' => $owner->id, 'subject' => 'Safe reply replay']);
+        $key = str_repeat('a', 32);
+        $body = [
+            'body' => 'Public response after remote source investigation',
+            'internal' => false,
+            'idempotency_key' => $key,
+        ];
+
+        $this->actingAs($admin);
+        $first = $this->postJson('/api/support/'.$ticket->id.'/messages', $body)
+            ->assertCreated()->assertJsonMissingPath('idempotency_key');
+        $second = $this->postJson('/api/support/'.$ticket->id.'/messages', $body)
+            ->assertOk()->assertJsonPath('id', $first->json('id'))
+            ->assertJsonMissingPath('idempotency_key');
+        $this->assertDatabaseCount('ticket_messages', 1);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'support.replied')
+            ->where('actor_id', $admin->id)->count());
+        $this->postJson('/api/support/'.$ticket->id.'/messages',
+            [...$body, 'body' => 'Changed response under the same key'])
+            ->assertConflict();
+        $this->assertDatabaseCount('ticket_messages', 1);
+
+        // Once resolved then closed, an uncertain network acknowledgement
+        // remains replay-safe; a different key cannot reopen a closed ticket.
+        $this->patchJson('/api/support/'.$ticket->id.'/status', [
+            'status' => 'resolved', 'reason' => 'Confirmed investigation',
+        ])->assertOk();
+        $this->patchJson('/api/support/'.$ticket->id.'/status', [
+            'status' => 'closed', 'reason' => 'Confirmed closure',
+        ])->assertOk();
+        $this->postJson('/api/support/'.$ticket->id.'/messages', $body)
+            ->assertOk()->assertJsonPath('id', $first->json('id'));
+        $this->postJson('/api/support/'.$ticket->id.'/messages',
+            [...$body, 'idempotency_key' => str_repeat('b', 32)])
+            ->assertConflict();
+
+        // Another actor can reuse the same random key on this ticket but
+        // cannot read or replay the Admin's private request identity.
+        $this->actingAs($owner)->postJson('/api/support/'.$ticket->id.'/messages', $body)
+            ->assertConflict();
+        $this->assertDatabaseCount('ticket_messages', 3);
+    }
+
+    public function test_idempotency_key_format_and_payload_scope_are_validated(): void
+    {
+        $owner = User::factory()->create();
+        $ticket = SupportTicket::create(['user_id' => $owner->id, 'subject' => 'Replay validation']);
+        $this->actingAs($owner);
+        foreach (['short', str_repeat('a', 31), str_repeat('z', 32),
+                  str_repeat('a', 33)] as $invalid) {
+            $this->postJson('/api/v1/support/'.$ticket->id.'/messages', [
+                'body' => 'No unsafe duplicates', 'idempotency_key' => $invalid,
+            ])->assertUnprocessable();
+        }
+        $this->postJson('/api/v1/support/'.$ticket->id.'/messages', [
+            'body' => 'One safe public reply',
+            'idempotency_key' => str_repeat('c', 32),
+        ])->assertCreated();
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => 'One safe public reply',
+            'idempotency_key' => str_repeat('c', 32),
+        ])->assertOk();
+        $this->assertDatabaseCount('ticket_messages', 1);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+    }
+
     public function test_resolution_close_and_reopen_have_explicit_transition_rules(): void
     {
         $u = User::factory()->create();

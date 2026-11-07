@@ -51,13 +51,44 @@ class SupportController extends Controller
     public function reply(Request $r, SupportTicket $ticket)
     {
         $this->access($r, $ticket);
-        $v = $r->validate(['body' => 'required|string|max:5000', 'internal' => 'sometimes|boolean']);
+        $v = $r->validate([
+            'body' => 'required|string|max:5000',
+            'internal' => 'sometimes|boolean',
+            // Optional for older clients; new clients retry an uncertain
+            // reply with the same cryptographically random request key.
+            'idempotency_key' => ['sometimes', 'string', 'regex:/^[a-f0-9]{32}$/'],
+        ]);
         abort_if(($v['internal'] ?? false) && $r->user()->role !== 'admin', 403);
 
         return DB::transaction(function () use ($r, $ticket, $v) {
             $t = SupportTicket::whereKey($ticket->id)->lockForUpdate()->firstOrFail();
+            // Ticket lock serializes concurrent same-key requests on
+            // PostgreSQL. The composite unique index is a second safeguard.
+            // Existing clients without a key preserve their old behavior.
+            if (isset($v['idempotency_key'])) {
+                $previous = TicketMessage::where('support_ticket_id', $t->id)
+                    ->where('author_id', $r->user()->id)
+                    ->where('idempotency_key', $v['idempotency_key'])->first();
+                if ($previous) {
+                    abort_unless(
+                        hash_equals((string) $previous->body, $v['body'])
+                            && (bool) $previous->internal === (bool) ($v['internal'] ?? false),
+                        409,
+                        'Request key was already used with different reply content.'
+                    );
+                    // A replay after resolution/closure is still the original
+                    // committed reply, not a new mutation or notification.
+                    return response()->json($previous);
+                }
+            }
             abort_if($t->status === 'closed', 409, 'Closed tickets cannot receive replies.');
-            $m = TicketMessage::create(['support_ticket_id' => $t->id, 'author_id' => $r->user()->id, 'body' => $v['body'], 'internal' => $v['internal'] ?? false]);
+            $m = TicketMessage::create([
+                'support_ticket_id' => $t->id,
+                'author_id' => $r->user()->id,
+                'body' => $v['body'],
+                'internal' => $v['internal'] ?? false,
+                'idempotency_key' => $v['idempotency_key'] ?? null,
+            ]);
             if ($r->user()->role !== 'admin' && $t->status === 'resolved') {
                 $t->update(['status' => 'open']);
             }
