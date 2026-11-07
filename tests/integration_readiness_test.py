@@ -22,7 +22,8 @@ def pr(number=57, base=gate.TARGET, draft=False, mergeable=True):
 def checks(names=None):
     names = names or sorted(gate.CORE)
     return [{"name": n, "head_sha": "a" * 40,
-             "status": "completed", "conclusion": "success"}
+             "status": "completed", "conclusion": "success",
+             "pull_requests": [{"number": 57}]}
             for n in names]
 
 
@@ -112,6 +113,23 @@ class IntegrationReadinessTest(unittest.TestCase):
         self.assertEqual("blocked", result["status"])
         self.assertIn("no_pr_associated_exact_head_checks", result["blockers"])
         self.assertEqual(len(push_checks), result["ignored_unassociated_checks"])
+
+    def test_missing_pr_association_is_never_accepted_as_ci_evidence(self):
+        unassociated = checks()
+        for run in unassociated:
+            del run["pull_requests"]
+        result = gate.assess(pr(), unassociated, ["README.md"])
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("no_pr_associated_exact_head_checks", result["blockers"])
+        self.assertEqual(len(unassociated), result["ignored_unassociated_checks"])
+
+    def test_missing_sha_cannot_be_counted_as_exact_source_validation(self):
+        case = checks()
+        del case[0]["head_sha"]
+        result = gate.assess(pr(), case, ["README.md"])
+        self.assertEqual("blocked", result["status"])
+        self.assertTrue(any(reason.startswith("wrong_source_checks:")
+                            for reason in result["blockers"]))
 
     def test_unrelated_cancelled_push_does_not_poison_valid_pr_checks(self):
         pr_checks = checks()
