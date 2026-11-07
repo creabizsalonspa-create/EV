@@ -25,10 +25,17 @@ function withFixture(fn){
  const file=path.join(run,'access.json');fs.writeFileSync(file,JSON.stringify(fixture()),{mode:0o600});
  try{return fn(file);}finally{fs.rmSync(root,{recursive:true,force:true});}
 }
-function mockSend({adminStatus,logoutStatus,postLogoutStatus,wrongLoginRole,wrongMeId,featureStatus,foreignReservation=false,track=[]}={}) {
+function mockSend({adminStatus,logoutStatus,postLogoutStatus,wrongLoginRole,wrongMeId,featureStatus,foreignReservation=false,catalogMissing=false,catalogPhysical=false,track=[]}={}) {
  let role='',loggedIn=false,sequence=0;
  return async function(route,method,payload,jar) {
    track.push({route,method,jar});
+   if(route==='/api/stations?q='+RUN) {
+     return {status:200,body:{total:catalogMissing?1:2,data:
+       (catalogMissing?[{id:1}]:[{id:1},{id:2}]).map(row=>({
+         ...row,name:'LOCAL SIMULATOR '+RUN,source:catalogPhysical?'physical':'simulator',
+         evidence:'SIMULATED',availability:'unknown',remote_control:false
+       }))}};
+   }
    if(route==='/api/csrf') {
      jar.set('laravel_session','test-session-'+(++sequence));
      return {status:200,body:{token:'0123456789abcdef1234'}};
@@ -71,6 +78,7 @@ test('three local synthetic roles pass login, scope and logout independently',as
  assert.equal(result.ok,true);assert.equal(result.results.length,3);
  assert.deepEqual(result.results.map(x=>x.role),['customer','vendor','admin']);
  assert.equal(result.production_accepted,false);
+ assert.equal(result.discovery_verified,true);
  assert.equal(result.real_money_moved,false);
  assert.equal(result.physical_charging_verified,false);
 });
@@ -210,4 +218,34 @@ test('synthetic browser feature error fails rather than claiming demo readiness'
 });
 test('customer synthetic reservations must not include another account ID',async()=>{
  await assert.rejects(()=>roleSmoke.checkRole('customer',fixture().accounts.customer,mockSend({foreignReservation:true})));
+});
+
+test('public discovery must include two exact synthetic charger stations before login',async()=>{
+ await withFixture(async(file)=>{
+   const track=[];
+   const result=await roleSmoke.run(file,mockSend({track}));
+   assert.equal(result.discovery_verified,true);
+   assert.equal(track[0].route,'/api/stations?q='+RUN);
+   assert.equal(track[0].method,'GET');
+   assert.ok(track.slice(1).some(x=>x.route==='/api/login'));
+ });
+});
+test('missing synthetic station in public discovery prevents any authentication',async()=>{
+ await withFixture(async(file)=>{
+   const track=[];
+   await assert.rejects(()=>roleSmoke.run(file,mockSend({catalogMissing:true,track})));
+   assert.equal(track.some(x=>x.route==='/api/login'),false);
+ });
+});
+test('physical source masquerading as simulator never passes discovery',async()=>{
+ await withFixture(async(file)=>{
+   const track=[];
+   await assert.rejects(()=>roleSmoke.run(file,mockSend({catalogPhysical:true,track})));
+   assert.equal(track.some(x=>x.route==='/api/login'),false);
+ });
+});
+test('dynamic discovery filter accepts only an exact synthetic run identifier',()=>{
+ assert.throws(()=>roleSmoke.jsonRequest('/api/stations?q=../../prod','GET'));
+ assert.throws(()=>roleSmoke.jsonRequest('/api/stations?q=12345678&country=US','GET'));
+ assert.throws(()=>roleSmoke.jsonRequest('/api/stations?q=12345678','POST'));
 });
