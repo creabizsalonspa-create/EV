@@ -31,7 +31,7 @@ test('all eight external payment webhook routes use POST plus a bounded throttle
     assert.ok(!seen.has(uri), `duplicate known webhook URI ${uri}`);
     seen.add(uri);
     const source = load(path.join(routeRoot, file));
-    const escaped = uri.replace(/[.*+?^${}()|[\]\\]/g, '\\const escaped = uri.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');');
+    const escaped = uri.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const declaration = new RegExp(
       `^[ \\t]*Route::post\\(['"]${escaped}['"],[^\\r\\n]*\\)->middleware\\(['"]throttle:([A-Za-z0-9_,-]+)['"]\\)[;]?[ \\t]*$`,
       'gm',
