@@ -1,6 +1,16 @@
 # Agent 2 mobile source-history checkpoint
 
-Latest native follow-up explains booking-mutation denials and unknown outcomes,
+Current resource-scope follow-up consumes PR50 at d4165dd. Customer history shows
+verified OCPP1.6 connector identity or OCPP2.0.1 EVSE/connector identity in EN/AR.
+Malformed verified scope claims fail closed; legacy unscoped rows never invent a
+connector from raw metadata. Native35 tests pass; the separately executed real
+private API test checks both protocols and the combined backend/native harness
+passes130 checks. The four changed/new native source/test files analyze cleanly.
+Evidence: docs/evidence/agent2-mobile-resource-scope/validation.json. Independent
+parallel reservation capacity remains unfinished; scope is identity, not proof
+of charger availability or commissioned hardware.
+
+Previous native follow-up explains booking-mutation denials and unknown outcomes,
 refreshes authoritative bookings after every write result, and never resends a
 write automatically. A successful HTTP response without an application success
 receipt does not confirm cancellation/rescheduling. Pending mutation screens

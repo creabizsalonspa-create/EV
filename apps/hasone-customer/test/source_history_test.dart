@@ -103,6 +103,60 @@ void main() {
       }
     },
   );
+  test(
+    'verified connector scope preserves protocol and both physical locators',
+    () {
+      for (final protocol in ['ocpp1.6', 'ocpp2.0.1']) {
+        final entry = SourceHistoryEntry.fromJson({
+          ...record(),
+          'protocol': protocol,
+          'resourceVerified': true,
+          'resourceScope': {
+            'protocol': protocol,
+            'connectorId': 2,
+            'evseId': protocol == 'ocpp2.0.1' ? 3 : null,
+          },
+        });
+        expect(entry.resource!.connectorId, 2);
+        expect(entry.resource!.evseId, protocol == 'ocpp2.0.1' ? 3 : null);
+        expect(entry.energyWh, 5000);
+      }
+    },
+  );
+  test(
+    'malformed verified resource cannot be presented as connector proof',
+    () {
+      for (final scope in [
+        null,
+        {},
+        {'protocol': 'ocpp2.0.1', 'connectorId': 2, 'evseId': 3},
+        {'protocol': 'ocpp1.6', 'connectorId': '2'},
+        {'protocol': 'ocpp1.6', 'connectorId': 0},
+        {'protocol': 'ocpp1.6', 'connectorId': 2, 'evseId': 3},
+      ]) {
+        expect(
+          () => SourceHistoryEntry.fromJson({
+            ...record(),
+            'resourceVerified': true,
+            'resourceScope': scope,
+          }),
+          throwsFormatException,
+        );
+      }
+    },
+  );
+  test(
+    'legacy unscoped rows never invent a connector from raw source metadata',
+    () {
+      final entry = SourceHistoryEntry.fromJson({
+        ...record(),
+        'resourceVerified': false,
+        'resourceScope': {'protocol': 'ocpp1.6', 'connectorId': 7},
+      });
+      expect(entry.resource, isNull);
+      expect(entry.energyWh, 5000);
+    },
+  );
   test('missing proof and malformed meters never present legacy estimates', () {
     for (final changed in [
       {'protocol': 'unknown'},
@@ -334,6 +388,39 @@ void main() {
       dio.close();
     },
   );
+  testWidgets('verified physical resource is shown in English and Arabic', (
+    tester,
+  ) async {
+    final controller = SourceHistoryController(
+      identity: () => 'A',
+      load: (_) async => SourceHistoryPage.fromJson(
+        envelope(
+          rows: [
+            {
+              ...record(),
+              'protocol': 'ocpp2.0.1',
+              'resourceVerified': true,
+              'resourceScope': {
+                'protocol': 'ocpp2.0.1',
+                'connectorId': 2,
+                'evseId': 3,
+              },
+            },
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: SourceHistoryScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('EVSE 3 · Connector 2'), findsOneWidget);
+    await tester.tap(find.text('العربية'));
+    await tester.pumpAndSettle();
+    expect(find.text('وحدة الشحن 3 · الموصل 2'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets(
     'narrow history is read only, unpaid, Arabic RTL and clears on background',
     (tester) async {

@@ -12,6 +12,26 @@ DateTime? _instant(Object? value) =>
     ? DateTime.tryParse(value)?.toUtc()
     : null;
 
+class SourceHistoryResource {
+  final String protocol;
+  final int connectorId;
+  final int? evseId;
+  const SourceHistoryResource._(this.protocol, this.connectorId, this.evseId);
+
+  static SourceHistoryResource? parse(Object? value, String protocol) {
+    if (value is! Map || value['protocol'] != protocol) return null;
+    final connector = value['connectorId'], evse = value['evseId'];
+    if (connector is! int || connector < 1 || connector > 64) return null;
+    if (protocol == 'ocpp1.6' && evse == null) {
+      return SourceHistoryResource._(protocol, connector, null);
+    }
+    if (protocol == 'ocpp2.0.1' && evse is int && evse >= 1 && evse <= 64) {
+      return SourceHistoryResource._(protocol, connector, evse);
+    }
+    return null;
+  }
+}
+
 /// Private, immutable projection; no authorization credentials or raw proof
 /// are retained. Meters and money require independent source qualification.
 class SourceHistoryEntry {
@@ -20,6 +40,7 @@ class SourceHistoryEntry {
   final bool sourceVerified, meterVerified, chargerEnabled;
   final int? energyWh, totalFils;
   final DateTime? startedAt, endedAt;
+  final SourceHistoryResource? resource;
 
   const SourceHistoryEntry._({
     required this.sessionId,
@@ -35,6 +56,7 @@ class SourceHistoryEntry {
     required this.totalFils,
     required this.startedAt,
     required this.endedAt,
+    required this.resource,
   });
 
   factory SourceHistoryEntry.fromJson(Map<String, dynamic> json) {
@@ -47,6 +69,12 @@ class SourceHistoryEntry {
     final source =
         json['sourceVerified'] == true &&
         (protocol == 'ocpp1.6' || protocol == 'ocpp2.0.1');
+    final resource = source && json['resourceVerified'] == true
+        ? SourceHistoryResource.parse(json['resourceScope'], protocol as String)
+        : null;
+    if (json['resourceVerified'] == true && resource == null) {
+      throw const FormatException('Invalid verified connector identity');
+    }
     final wh = _nonnegativeInt(json['energyWh']);
     final kwh = json['energyKwh'];
     final meter =
@@ -94,6 +122,7 @@ class SourceHistoryEntry {
       totalFils: calculated ? total : null,
       startedAt: start,
       endedAt: ended ? end : null,
+      resource: resource,
     );
   }
 }

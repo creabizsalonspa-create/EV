@@ -37,15 +37,27 @@ void main() {
         final seen = <String>{};
         String? cursor;
         SourceHistoryEntry? matched;
+        final scopedProtocols = <String>{};
         do {
           final page = await api.load(cursor);
           for (final entry in page.entries) {
             expect(seen.add(entry.sessionId), true);
             if (entry.sessionId == expected) matched = entry;
+            if (entry.resource != null) {
+              scopedProtocols.add(entry.resource!.protocol);
+              expect(entry.resource!.connectorId, 2);
+              expect(
+                entry.resource!.evseId,
+                entry.resource!.protocol == 'ocpp2.0.1' ? 3 : null,
+              );
+            }
           }
           cursor = page.nextCursor;
           expect(seen.length, lessThan(500));
         } while (cursor != null);
+        if (Platform.environment['AGENT2_EXPECT_RESOURCE_HISTORY'] == '1') {
+          expect(scopedProtocols, {'ocpp1.6', 'ocpp2.0.1'});
+        }
         expect(matched, isNotNull);
         expect(matched!.energyWh, 7000);
         expect(matched.state, 'ended');

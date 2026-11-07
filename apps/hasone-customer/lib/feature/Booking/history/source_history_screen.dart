@@ -83,6 +83,13 @@ class _SourceHistoryScreenState extends State<SourceHistoryScreen>
               style: Theme.of(context).textTheme.titleMedium,
             ),
             _row(_t('Source status', 'حالة المصدر'), state),
+            _row(
+              _t('Connector scope', 'نطاق الموصل'),
+              entry.resource == null
+                  ? _t('Connector scope unverified', 'نطاق الموصل غير متحقق')
+                  : '${entry.resource!.evseId == null ? '' : '${_t('EVSE', 'وحدة الشحن')} ${entry.resource!.evseId} · '}'
+                        '${_t('Connector', 'الموصل')} ${entry.resource!.connectorId}',
+            ),
             if (!entry.chargerEnabled)
               Text(
                 _t(
