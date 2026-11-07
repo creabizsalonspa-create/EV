@@ -1,0 +1,26 @@
+name: Agent 2 payment integrity
+on:
+  push:
+    paths:
+      - "integrations/hasone-express/**"
+      - "tools/agent2/stage_payment_safety.py"
+      - ".github/workflows/agent2-payment-integrity.yml"
+  pull_request:
+    paths:
+      - "integrations/hasone-express/**"
+      - "tools/agent2/stage_payment_safety.py"
+      - ".github/workflows/agent2-payment-integrity.yml"
+jobs:
+  settlement-guards:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify settlement guard syntax
+        run: node --check integrations/hasone-express/paymentIntegrity.mjs
+      - name: Verify 13 settlement and ownership cases
+        run: node --test integrations/hasone-express/tests/paymentIntegrity.test.mjs
