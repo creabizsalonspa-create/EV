@@ -64,13 +64,20 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   view.setActor(account);
   view.renderGarage([{id:5,name:'Family car'}]);
   const start=find(root,n=>n.tag==='button'&&visible(n).includes('Report battery for'));
-  assert.ok(start);await start.onclick();
+  assert.ok(start);
+  // A real app may refresh the garage while this GET is still pending.
+  const loading = start.onclick();
+  view.renderGarage([{id:5,name:'Family car (refreshed)'}]);
+  await loading;
+  assert.ok(root.querySelector('[data-manual-soc-panel]'));
   assert.match(visible(root),/phone, vehicle API or charger/);
   const form=find(root,n=>n.tag==='form');
   find(form,n=>n.name==='battery_percent').value='77';
   await form.onsubmit({preventDefault(){}});
   assert.equal(writes.length,1);
   assert.match(visible(root),/Result uncertain/);
+  // Persist the pending operation identity across a same-owner garage refresh.
+  view.renderGarage([{id:5,name:'Family car (refreshed again)'}]);
   const retry=find(root,n=>n.tag==='button'&&visible(n).includes('Retry the same report'));
   assert.ok(retry);await retry.onclick();
   assert.equal(writes.length,2);

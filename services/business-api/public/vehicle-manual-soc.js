@@ -36,7 +36,16 @@
     }
     function renderGarage(vehicles) {
       if (account?.role!=="customer"||actor()!==account)return;
-      generation++;chosen=latest=history=pending=null;page=1;
+      // A background garage refresh must not discard an in-flight report or
+      // pending idempotency key for a vehicle that still belongs to this user.
+      const sameVehicle = chosen && vehicles.find(v => String(v.id) === String(chosen.id));
+      const previousStatus = sameVehicle ? root.querySelector("[data-manual-soc-status]") : null;
+      const previousPanel = sameVehicle ? root.querySelector("[data-manual-soc-panel]") : null;
+      if (sameVehicle) {
+        chosen = sameVehicle;
+      } else {
+        generation++;chosen=latest=history=pending=null;page=1;
+      }
       root.replaceChildren(tr("Manual battery reports","تقارير البطارية اليدوية","h3"),
         tr("Battery values are your own estimates, never measured by the phone, vehicle API or charger. Reports are not used to start/stop charging, authorize reservations or calculate invoices.",
         "قيم البطارية تقديرات منك وليست قياسات الهاتف أو واجهة المركبة أو الشاحن. لا تستخدم التقارير لبدء أو إيقاف الشحن أو السماح بالحجز أو احتساب الفواتير.","p"));
@@ -45,6 +54,8 @@
       for (const vehicle of vehicles)
         root.append(button("Report battery for "+vehicle.name,"تسجيل بطارية "+vehicle.name,
           ()=>open(vehicle)));
+      if (previousStatus) root.append(previousStatus);
+      if (previousPanel) root.append(previousPanel);
     }
     async function open(vehicle) {
       if (actor()?.role!=="customer"||!account)return;
