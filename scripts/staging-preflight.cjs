@@ -84,6 +84,47 @@ function checkValues(values) {
   if (values.APP_ENV && values.APP_ENV !== 'staging') errors.push('APP_ENV: must be staging');
   if (values.APP_DEBUG && values.APP_DEBUG !== 'false') errors.push('APP_DEBUG: must be false');
   if (values.CSMS_SIMULATOR_ENABLED && values.CSMS_SIMULATOR_ENABLED !== 'false') errors.push('CSMS_SIMULATOR_ENABLED: must be false');
+
+  // The default private staging environment is a review environment, not live infrastructure.
+  // In particular Laravel DB_URL overrides DB_* settings even when Compose pins DB_HOST.
+  for (const name of ['DB_URL','DATABASE_URL']) {
+    if (values[name] && values[name] !== 'null') errors.push(name + ': external database URLs are not permitted in isolated staging');
+  }
+  for (const [name,expected] of [['DB_CONNECTION','pgsql'],['DB_HOST','database'],
+    ['DB_DATABASE','ev_business'],['PAYMENT_PROVIDER','mock'],['MAIL_MAILER','log']]) {
+    if (values[name] && values[name] !== expected) {
+      errors.push(name + ': non-isolated service configuration requires separate approval');
+    }
+  }
+  // These are opt-in source/device commands, partner network or money-moving workflows.
+  // They must stay disabled during anonymous or synthetic customer demonstrations.
+  const disabledFlags = [
+    'SUBSCRIPTION_COLLECTION_ENABLED','PAYMENT_RECOVERY_PROVIDER_POLL',
+    'PAYOUT_TEST_ENABLED','OCPI_TEST_COMMANDS_ENABLED',
+    'CSMS_COMMAND_WORKER_ENABLED','CSMS_REMOTE_AUTHORIZATION_ENABLED',
+    'CSMS_SESSION_BRIDGE_ENABLED','CSMS_INGRESS_AUTH_ENABLED',
+    'CSMS_INGRESS_ALLOW_LOCAL_HTTP','CSMS_RIDER_AUTH_ENABLED',
+    'CSMS_SAFE_RESET_ENABLED','CSMS_SIGNED_FIRMWARE_ENABLED',
+    'CSMS_FIRMWARE_ENABLED','CSMS_DIAGNOSTIC_LOGS_ENABLED',
+    'CSMS_FAULT_WORKER_ENABLED','CSMS_CONFIGURATION_READ_ENABLED',
+    'COMMERCIAL_CAMPAIGNS_ENABLED','DISCOVERY_GEOCODING_ENABLED',
+    'DISCOVERY_ROUTING_ENABLED','EV_BATTERY_SIMULATOR_ENABLED',
+  ];
+  for (const name of disabledFlags) {
+    if (Object.hasOwn(values,name) && values[name] !== 'false') {
+      errors.push(name + ': isolated staging activation must remain false');
+    }
+  }
+  for (const name of ['OCPI_CONNECTIONS_JSON','OCPI_LOCAL_CREDENTIALS_JSON']) {
+    if (values[name] && values[name] !== '{}') {
+      errors.push(name + ': external partner connections are not authorized in isolated staging');
+    }
+  }
+  // A stray real PSP credential should never enter a synthetic staging container.
+  for (const name of ['STRIPE_SECRET','STRIPE_LIVE_SECRET','STRIPE_SECRET_KEY',
+    'PAYPAL_CLIENT_SECRET','AWS_SECRET_ACCESS_KEY']) {
+    if (values[name]) errors.push(name + ': real provider credentials are not permitted in isolated staging');
+  }
   for (const name of ['APP_KEY', 'DB_PASSWORD', 'STAGING_HOST', 'ACME_EMAIL', 'EV_IMAGE_TAG', 'STAGING_BIND_IP']) {
     if (values[name] && /\$\{|\$\(|\x60|[\r\n]/.test(values[name])) {
       errors.push(`${name}: interpolation or control syntax is not permitted`);
