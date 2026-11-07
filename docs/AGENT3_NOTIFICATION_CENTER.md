@@ -69,3 +69,7 @@ The unread count and maximum observed notification ID are now derived from one a
 ### In-account inbox request ordering
 
 In addition to the session epoch guard, the browser inbox now increments an `inboxGeneration` counter at the start of each refresh, and again when private views are cleared. A previous request (including one for a different page/category with the same account) is discarded if it finishes after a more recent request. This prevents a delayed older response from replacing the newest category/filter view. Requests still use existing `EvApi` session fencing and do not mutate notifications merely by refreshing.
+
+### Independent authenticated notification traffic budget
+
+The browser inbox no longer spends support-ticket rate-limit capacity. Session-authenticated `GET /api/notifications` and `/summary` use a dedicated **120/minute per-account notification-read** limiter; `POST /api/notifications/read-through` and individual read actions use a separate **30/minute notification-write** limiter. Support ticket reads/writes keep their existing **30/minute** allowance. The canonical `/api/v1` endpoints remain under their pre-existing `platform-api` limiter, preserving existing native API throttling. Tests issue 70 actual inbox read requests, then confirm support creation still works; another test confirms the 31st notification-write returns 429 while the read and support routes remain available.

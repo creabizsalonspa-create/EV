@@ -27,6 +27,37 @@ class NotificationCenterTest extends TestCase
         ]);
     }
 
+    public function test_heavy_inbox_read_traffic_cannot_exhaust_support_rate_limit(): void
+    {
+        $this->actingAs(User::factory()->create());
+        // More than the 30/min support-action budget but under the dedicated
+        // notification-read budget; no entries or mutations are required.
+        for ($i = 0; $i < 35; $i++) {
+            $this->getJson('/api/notifications/summary')->assertOk();
+            $this->getJson('/api/notifications')->assertOk();
+        }
+        $this->getJson('/api/support')->assertOk();
+        $this->postJson('/api/support', [
+            'subject' => 'Can still contact support',
+            'body' => 'Inbox views must not consume my support rate limit.',
+        ])->assertCreated();
+    }
+
+    public function test_notification_writes_have_independent_bounded_rate_limit(): void
+    {
+        $this->actingAs(User::factory()->create());
+        for ($i = 0; $i < 30; $i++) {
+            $this->postJson('/api/notifications/read-through', [
+                'through_id' => 1,
+            ])->assertOk()->assertJsonPath('marked_read', 0);
+        }
+        $this->postJson('/api/notifications/read-through', [
+            'through_id' => 1,
+        ])->assertStatus(429);
+        $this->getJson('/api/notifications/summary')->assertOk();
+        $this->getJson('/api/support')->assertOk();
+    }
+
     public function test_anonymous_access_and_invalid_cutoff_are_rejected(): void
     {
         $this->getJson('/api/v1/notifications/summary')->assertUnauthorized();

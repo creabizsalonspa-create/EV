@@ -71,8 +71,14 @@ Route::prefix('v1')->group(function () {
         Route::post('/support', [T::class, 'create']);
         Route::get('/support/{ticket}', [T::class, 'show']);
         Route::post('/support/{ticket}/messages', [T::class, 'reply']);
+    });
+    // Inbox navigation cannot consume the customer's 30/minute support-action
+    // allowance. Writes have a distinct, tighter authenticated limiter.
+    Route::middleware(['auth:sanctum', 'throttle:notification-read'])->group(function () {
         Route::get('/notifications', [T::class, 'notifications']);
         Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
+    });
+    Route::middleware(['auth:sanctum', 'throttle:notification-write'])->group(function () {
         Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
         Route::post('/notifications/{notification}/read', [T::class, 'read']);
     });
