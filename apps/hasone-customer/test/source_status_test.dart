@@ -61,6 +61,23 @@ void main() {
       expect(zero.hasVerifiedMeter, true);
     },
   );
+  test('verified OCPP energy cannot authenticate injected EV battery SOC', () {
+    for (final protocol in ['ocpp1.6', 'ocpp2.0.1']) {
+      for (final soc in [0, 1, 57, 99, 100]) {
+        final value = Data.fromJson({
+          ...contract(),
+          'protocol': protocol,
+          'batteryPercent': soc,
+        });
+        expect(value.hasSourceProof, true);
+        expect(value.hasVerifiedMeter, true);
+        expect(value.kwhUsed, 5);
+        expect(value.batteryPercent, null);
+        expect(value.toJson()['batteryPercent'], null);
+      }
+    }
+  });
+
   test('mismatched, negative and unverified meters remain unavailable', () {
     for (final fields in [
       {'energyWh': 1},
