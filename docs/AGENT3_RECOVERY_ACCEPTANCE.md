@@ -89,3 +89,7 @@ The guard now rejects any regular file whose path is used as an ancestor of anot
 ### Unprivileged private-volume restoration
 
 The disposable Laravel staging drill now extracts its verified private archive as `www-data` inside the **new target-only container**, not as Docker's default root user, with `umask 077`, `--no-same-owner` and `--no-same-permissions`. This reduces the risk that archive-controlled numeric ownership or mode bits are applied with elevated privileges. The script retains the subsequent application-user readability, mode and cryptographic private-file checks; a new static policy test fails if the extraction regresses to default-root execution. The actual container image/volume permissions and full restore path still require exact-head hosted Docker CI to verify.
+
+### Stable archive descriptors and in-check mutation detection
+
+Archive fingerprints now use `os.open(O_NOFOLLOW)` plus `fstat` on the actual open descriptor, rejecting symlink substitution between a preliminary path lookup and hashing. The private archive is fingerprinted both before and after full tar/gzip inspection; a replacement or modification during that check fails closed. Local synthetic candidate checks accepted the ordinary archive, rejected symlinks and detected deliberately appended bytes during inspection. This reduces validation-time races but **does not make the later independent restore/extraction atomic**, and it is not signed backup or production acceptance evidence.

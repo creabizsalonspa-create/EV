@@ -12,12 +12,19 @@ def require(ok, reason):
 
 def fingerprint(path, magic):
     path=Path(path)
-    require(not path.is_symlink(), 'Symlink archive denied')
-    info=path.stat()
-    require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 8*1024**3,
-            'Archive type or size invalid')
-    h=hashlib.sha256()
-    with path.open('rb') as stream:
+    flags = os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0)
+    # The file must not turn into a symlink between a path test and open.
+    require(hasattr(os, 'O_NOFOLLOW'), 'No-follow archive reads unavailable')
+    flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags)
+    except OSError as error:
+        raise ArchiveError(f'Archive cannot be opened safely: {error.strerror}') from None
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 8*1024**3,
+                'Archive type or size invalid')
+        h = hashlib.sha256()
         require(stream.read(len(magic)) == magic, 'Archive magic mismatch')
         stream.seek(0)
         for block in iter(lambda: stream.read(1048576), b''):
@@ -109,7 +116,11 @@ def inspect(pg_dump, private_tar=None):
         'production_ready':False,
     }
     if private_tar is not None:
-        result['private']={**fingerprint(private_tar,b'\x1f\x8b'),**safe_tar(private_tar)}
+        before = fingerprint(private_tar, b'\x1f\x8b')
+        structure = safe_tar(private_tar)
+        require(fingerprint(private_tar, b'\x1f\x8b') == before,
+                'Private archive changed during validation')
+        result['private'] = {**before, **structure}
     return result
 
 def main(argv=None):

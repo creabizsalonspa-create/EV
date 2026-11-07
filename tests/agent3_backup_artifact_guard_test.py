@@ -1,5 +1,6 @@
 """No-Docker backup integrity negative cases."""
 import importlib.util, io, tarfile, tempfile, unittest
+from unittest.mock import patch
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('guard',ROOT/'scripts/backup-artifact-guard.py')
@@ -29,6 +30,36 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual(guard.main(['check']+args),0)
             db.write_bytes(db.read_bytes()+b'changed')
             self.assertEqual(guard.main(['check']+args),1)
+
+    def test_private_archive_replacement_during_validation_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump = root / 'db.dump'
+            private = root / 'private.tar.gz'
+            sample_db(dump)
+            sample_tar(private)
+            original_inspector = guard.safe_tar
+
+            def mutate_after_read(path):
+                result = original_inspector(path)
+                with open(path, 'ab') as stream:
+                    stream.write(b'changed-during-validation')
+                return result
+
+            with patch.object(guard, 'safe_tar', side_effect=mutate_after_read):
+                with self.assertRaises(guard.ArchiveError):
+                    guard.inspect(dump, private)
+
+    def test_regular_archives_are_read_using_no_follow_file_descriptors(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            dump = root / 'db.dump'
+            sample_db(dump)
+            self.assertEqual(len(guard.fingerprint(dump, b'PGDMP')['sha256']), 64)
+            link = root / 'archive-link.dump'
+            link.symlink_to(dump)
+            with self.assertRaises(guard.ArchiveError):
+                guard.fingerprint(link, b'PGDMP')
 
     def test_header_and_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as d:
