@@ -495,6 +495,61 @@ void main() {
     }
   });
 
+  test('failed post-login CSRF refresh never retains partial account cookies', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var csrfCalls = 0;
+    var partialCookieSent = false;
+    final subscription = server.listen((req) async {
+      req.response.headers.contentType = ContentType.json;
+      switch (req.uri.path) {
+        case '/api/csrf':
+          csrfCalls++;
+          if (csrfCalls == 1) {
+            req.response.write(jsonEncode({'token': 'initial-csrf'}));
+          } else {
+            req.response.statusCode = 503;
+            req.response.write(jsonEncode({'message': 'CSRF unavailable'}));
+          }
+        case '/api/login':
+          req.response.cookies.add(
+            Cookie('session', 'partial-login')..httpOnly = true,
+          );
+          req.response.write(jsonEncode({
+            'id': 17, 'name': 'Partial user', 'role': 'customer',
+          }));
+        case '/api/me':
+          partialCookieSent = req.cookies.any(
+            (c) => c.name == 'session' && c.value == 'partial-login',
+          );
+          req.response.write(jsonEncode({
+            'id': 18, 'name': 'Anonymous', 'role': 'customer',
+          }));
+        default:
+          req.response.statusCode = 404;
+          req.response.write('{}');
+      }
+      await req.response.close();
+    });
+    final api = EvApi(Uri.parse('http://127.0.0.1:${server.port}'));
+    try {
+      await expectLater(
+        api.signIn('partial@example.test', 'synthetic-only'),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 503)),
+      );
+      expect(csrfCalls, 2);
+      await api.request('me');
+      expect(
+        partialCookieSent,
+        isFalse,
+        reason: 'A failed login may not authorize a later UI request.',
+      );
+    } finally {
+      api.close();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
   test('plaintext origins never persist credentials', () async {
     final vault = MemoryVault();
     final api = EvApi(Uri.parse('http://127.0.0.1:8000'), vault: vault);
