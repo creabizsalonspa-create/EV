@@ -33,3 +33,7 @@ Notification metadata contains only simulator provenance, the source-evidence cl
 ## High-volume indexing and category filtering
 
 A follow-up additive migration creates a composite index on `inbox_notifications(user_id, read_at, id)` for tenant-scoped unread count and cursor-cutoff updates. Both account notification listing routes accept an allowlisted `category=support|vehicle|charging` parameter, filtering by the corresponding fixed `kind` namespace. No user-controlled SQL wildcard enters a query, invalid categories return HTTP 422, and the category combines with `unread_only=1` and existing 25-row pagination. Web and Flutter expose the same category selection in their inboxes. No notification gets changed solely by filtering.
+
+## Individual acknowledgment integrity and localization
+
+The legacy single-notification read endpoint now updates only the current user's still-unread row in an atomic transaction, writing a scoped audit event exactly once. Repeated reads return the already-acknowledged record without duplicating audit events. The unread-category picker displays localized English/Arabic labels; tests cover native category requests, isolated read receipts and combined category/unread filters in the real browser. Read acknowledgments remain **in-app state only**, not external delivery receipts.

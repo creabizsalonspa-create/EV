@@ -101,10 +101,24 @@ class SupportController extends Controller
     public function read(Request $r, InboxNotification $notification)
     {
         abort_unless($notification->user_id === $r->user()->id, 404);
-        if (! $notification->read_at) {
-            $notification->update(['read_at' => now()]);
-        }
 
-        return $notification;
+        return DB::transaction(function () use ($r, $notification) {
+            $changed = InboxNotification::whereKey($notification->id)
+                ->where('user_id', $r->user()->id)
+                ->whereNull('read_at')
+                ->update(['read_at' => now()]);
+
+            if ($changed > 0) {
+                DB::table('audit_events')->insert([
+                    'actor_id' => $r->user()->id,
+                    'action' => 'notifications.read_one',
+                    'subject' => (string) $notification->id,
+                    'created_at' => now(),
+                ]);
+            }
+
+            return InboxNotification::whereKey($notification->id)
+                ->where('user_id', $r->user()->id)->firstOrFail();
+        });
     }
 }

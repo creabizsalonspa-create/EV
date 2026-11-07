@@ -154,6 +154,27 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonPath('total', 1);
     }
 
+    public function test_single_read_acknowledgement_is_audited_once_and_owner_scoped(): void
+    {
+        $owner = User::factory()->create();
+        $foreign = User::factory()->create();
+        $note = $this->makeNotification($owner);
+        $outsiderNote = $this->makeNotification($foreign);
+
+        $this->actingAs($owner)->postJson('/api/v1/notifications/'.$note->id.'/read')
+            ->assertOk()->assertJsonPath('id', $note->id);
+        $this->postJson('/api/notifications/'.$note->id.'/read')
+            ->assertOk()->assertJsonPath('id', $note->id);
+
+        $this->postJson('/api/v1/notifications/'.$outsiderNote->id.'/read')->assertNotFound();
+        $this->assertNull($outsiderNote->fresh()->read_at);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('actor_id', $owner->id)
+            ->where('action', 'notifications.read_one')
+            ->where('subject', (string) $note->id)
+            ->count());
+    }
+
     public function test_legacy_notification_routes_remain_available_and_scoped(): void
     {
         $owner = User::factory()->create();

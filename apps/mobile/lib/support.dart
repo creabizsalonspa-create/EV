@@ -150,7 +150,17 @@ class SupportViewState extends State<SupportView> {
                       .map(
                         (value) => DropdownMenuItem<String>(
                           value: value,
-                          child: Text(value),
+                          child: Text(
+                            s.t(
+                              value == 'all'
+                                  ? 'notificationCategoryAll'
+                                  : value == 'support'
+                                  ? 'notificationCategorySupport'
+                                  : value == 'vehicle'
+                                  ? 'notificationCategoryVehicle'
+                                  : 'notificationCategoryCharging',
+                            ),
+                          ),
                         ),
                       )
                       .toList(),

@@ -10,6 +10,7 @@ class SupportFixture extends FixtureApi {
   bool read = false;
   int? lastBulkThroughId;
   bool unreadFilterRequested = false;
+  String? selectedCategory;
   final publicMessages = ['Original public message'];
   @override
   Future<dynamic> request(
@@ -39,6 +40,7 @@ class SupportFixture extends FixtureApi {
           'total': publicMessages.length,
         },
       };
+    if (path == 'notifications') selectedCategory = query['category'];
     if (path == 'notifications' && query['unread_only'] == '1') {
       unreadFilterRequested = true;
       if (read) {
@@ -274,6 +276,21 @@ void main() {
       expect(find.byKey(const Key('mark-current-notifications-read')), findsNothing);
     },
   );
+  testWidgets('native category dropdown sends allowlisted filter', (tester) async {
+    final api = SupportFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: api, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Charging').last);
+    await tester.pumpAndSettle();
+    expect(api.selectedCategory, 'charging');
+  });
   testWidgets('unread-only native filter requests scoped API rows', (tester) async {
     final fixture = SupportFixture();
     addTearDown(fixture.close);

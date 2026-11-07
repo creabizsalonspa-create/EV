@@ -352,6 +352,11 @@ const { randomUUID } = require("node:crypto");
     const filtered = await customer.page.evaluate(
       () => api("notifications?unread_only=1"),
     );
+    const classified = await customer.page.evaluate(
+      () => api("notifications?category=support&unread_only=1"),
+    );
+    assert.equal(classified.total, 1);
+    assert.equal(classified.data[0].kind, "support.reply");
     assert.equal(filtered.total, 1);
     assert.equal(filtered.data[0].id, afterBulk.summary.latest_id);
     await customer.page.locator("#notification-unread-filter").click();
