@@ -152,3 +152,28 @@ explicitly mocked localhost API responses; it does not prove a live user
 login, real merchant payment or physical Teltonika charging. Production
 remains unchanged, and this PR should remain draft pending operational
 readiness and Agent 1 canonical platform integration.
+
+
+## Staged OCPP start authorization hardening (pending isolated rerun)
+
+A further patch in `tools/agent2/stage_ocpp201_token_binding.py` now:
+- keeps OCPP `Authorize` preflight **read-only**; merely checking an authorization cannot use it up;
+- atomically changes a valid `ocpp_access_tokens` entry from enabled to consumed
+  when **StartTransaction (OCPP 1.6)** or **TransactionEvent Started (OCPP 2.0.1)** is accepted;
+- rejects another transaction attempting to reuse the same booking credential,
+  even if its 20-minute expiry has not elapsed;
+- permits a narrowly scoped OCPP 1.6 retry to receive the original *active*
+  transaction ID only when charger ID, token hash, connector ID and initial
+  meter value all match. This is not permission to open a second transaction;
+- preserves the OCPP 2.0.1 `idTokenHash` source evidence field without retaining raw credentials.
+
+The regression cases in `tools/agent2/run_isolated_backend_demo.mjs` include
+OCPP 1.6 preflight, retry and post-stop replay rejection and OCPP 2.0.1
+second-transaction rejection.
+
+**Current verification limitation:** The authorized Desktop Commander server
+stopped responding during the sync/test call. The code and tests have been
+committed but the modified staged gateway has **not** been rerun successfully
+this turn. Do not claim the new single-use behavior is deployed or validated,
+and keep the live Teltonika gateway untouched. Previous passing 73/73,
+36/36, 13/13 and 8/8 checkpoints predate this patch.
