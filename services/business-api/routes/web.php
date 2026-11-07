@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\ChargerCommandController;
 use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
@@ -50,6 +51,8 @@ Route::get('/api/admin/overview', function (Request $r) {
 
     return response()->json(['users' => User::count(), 'stations' => Station::count(), 'reservations' => Reservation::count(), 'simulations' => ChargingSession::count(), 'audit_events' => DB::table('audit_events')->orderByDesc('id')->limit(50)->get()]);
 })->middleware(['auth', 'throttle:platform-api']);
+
+Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/regions', [EnterpriseController::class, 'regions'])->middleware('throttle:catalog');
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
