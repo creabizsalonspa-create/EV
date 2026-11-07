@@ -92,6 +92,16 @@
     membershipRow.append(text('span', 'Crowd-reported membership requirement',
         'اشتراط العضوية المبلغ عنه'), membershipFilter);
     form.append(operatorRow, reportedStatusRow, membershipRow);
+    const ageRow = document.createElement('label');
+    const maxSourceAge = document.createElement('input');
+    maxSourceAge.name = 'ocm_max_source_age_hours';
+    maxSourceAge.type = 'number';
+    maxSourceAge.min = '1';
+    maxSourceAge.max = '168';
+    maxSourceAge.step = '1';
+    ageRow.append(text('span', 'Maximum crowd-report age in hours (optional; not live)',
+        'الحد الأقصى لعمر التقرير المجتمعي بالساعات (اختياري؛ ليس مباشراً)'), maxSourceAge);
+    form.append(ageRow);
     const consent = document.createElement('input');
     consent.type = 'checkbox';
     consent.required = true;
@@ -242,6 +252,7 @@
         operatorQuery.value = '';
         reportedStatusFilter.value = '';
         membershipFilter.value = '';
+        maxSourceAge.value = '';
         radius.value = '25';
         announce('', '');
     };
@@ -253,6 +264,8 @@
             Math.abs(latitude) > 90 || Math.abs(longitude) > 180 || km < 1 || km > 200) return;
         const minPower = minimumPower.value.trim() ? Number(minimumPower.value) : null;
         if (minPower !== null && (!Number.isFinite(minPower) || minPower < 1 || minPower > 1000)) return;
+        const maxAge = maxSourceAge.value.trim() ? Number(maxSourceAge.value) : null;
+        if (maxAge !== null && (!Number.isSafeInteger(maxAge) || maxAge < 1 || maxAge > 168)) return;
         const epoch = ++generation;
         current?.abort();
         current = new AbortController();
@@ -272,7 +285,8 @@
                     ...(connector.value.trim() ? {reported_connector:connector.value.trim()} : {}),
                     ...(operatorQuery.value.trim() ? {operator_contains:operatorQuery.value.trim()} : {}),
                     ...(membershipFilter.value ? {reported_membership_required:membershipFilter.value === 'true'} : {}),
-                    ...(reportedStatusFilter.value ? {reported_operational:reportedStatusFilter.value === 'true'} : {})}),
+                    ...(reportedStatusFilter.value ? {reported_operational:reportedStatusFilter.value === 'true'} : {}),
+                    ...(maxAge !== null ? {max_source_age_hours:maxAge} : {})}),
                 signal: AbortSignal.any([current.signal, AbortSignal.timeout(15000)]),
             });
             if (epoch !== generation) return;

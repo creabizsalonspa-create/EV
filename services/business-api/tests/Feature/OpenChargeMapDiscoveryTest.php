@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -123,6 +124,37 @@ class OpenChargeMapDiscoveryTest extends TestCase
         Http::fake(fn () => Http::response([$unlicensed, $unpublished, $invalid], 200, ['Content-Type' => 'application/json']));
         $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input())
             ->assertOk()->assertJsonPath('count', 0)->assertJsonCount(0, 'results');
+    }
+
+    public function test_cached_source_age_is_recomputed_and_optional_time_filter_excludes_stale_reports(): void
+    {
+        $originalClock = now()->startOfMinute();
+        Carbon::setTestNow($originalClock);
+        try {
+            $poi = $this->point();
+            $poi['DateLastStatusUpdate'] = $originalClock->copy()->subMinutes(59)->format('Y-m-d\TH:i:s\Z');
+            Http::fake(fn () => Http::response([$poi], 200, ['Content-Type' => 'application/json']));
+            $this->postJson('/api/discovery/open-charge-map/search',
+                $this->input() + ['max_source_age_hours' => 1])
+                ->assertOk()->assertJsonPath('count', 1)
+                ->assertJsonPath('results.0.source_age_minutes', 59);
+            Carbon::setTestNow($originalClock->copy()->addMinutes(3));
+            $this->postJson('/api/discovery/open-charge-map/search',
+                $this->input() + ['max_source_age_hours' => 1])
+                ->assertOk()->assertJsonPath('count', 0);
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input())
+                ->assertOk()->assertJsonPath('count', 1)
+                ->assertJsonPath('results.0.source_age_minutes', 62);
+            Http::assertSentCount(1);
+            foreach ([0, 169, 'invalid'] as $age) {
+                $this->postJson('/api/discovery/open-charge-map/search',
+                    $this->input() + ['max_source_age_hours' => $age])
+                    ->assertUnprocessable();
+            }
+            Http::assertSentCount(1);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_source_reported_operator_access_and_operational_filters_share_one_upstream_lookup(): void

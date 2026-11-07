@@ -3,6 +3,7 @@
 namespace App\Services\Discovery;
 
 use Closure;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -94,13 +95,14 @@ final class OpenChargeMapAdapter
      * list. Can be run repeatedly on one short-lived cached discovery source.
      * This never upgrades historical reports to live charging privileges.
      */
-    public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null, ?string $operator = null, ?bool $membership = null, ?bool $operational = null): array
+    public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null, ?string $operator = null, ?bool $membership = null, ?bool $operational = null, ?int $maxSourceAgeHours = null): array
     {
         if (($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
             || ($connector !== null && (strlen($connector) < 1 || strlen($connector) > 80
                 || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))
             || ($operator !== null && (strlen($operator) < 1 || strlen($operator) > 120
-                || trim($operator) !== $operator || preg_match('/[\x00-\x1F\x7F]/', $operator)))) {
+                || trim($operator) !== $operator || preg_match('/[\x00-\x1F\x7F]/', $operator)))
+            || ($maxSourceAgeHours !== null && ($maxSourceAgeHours < 1 || $maxSourceAgeHours > 168))) {
             throw new LookupFailure('invalid_request', 422);
         }
         if (($source['provider'] ?? null) !== 'open_charge_map'
@@ -114,14 +116,34 @@ final class OpenChargeMapAdapter
             || count($source['results']) > 25) {
             throw new LookupFailure('invalid_response');
         }
-        if ($minPowerKw === null && $connector === null && $operator === null
-            && $membership === null && $operational === null) {
-            return $source;
-        }
         $values = [];
+        $currentTime = class_exists(Carbon::class)
+            ? Carbon::now()->getTimestamp()
+            : (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->getTimestamp();
         foreach ($source['results'] as $item) {
             if (! is_array($item) || ! is_array($item['connections'] ?? null)) {
                 throw new LookupFailure('invalid_response');
+            }
+            // The provider response is cached for 5 minutes. Recompute its
+            // sourced age for every request, including unfiltered requests,
+            // so a recent->stale transition is never frozen in the cache.
+            $sourceTime = $item['source_updated_at'] ?? null;
+            $seconds = null;
+            if (is_string($sourceTime) && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/D', $sourceTime) === 1) {
+                try {
+                    $seconds = (new \DateTimeImmutable($sourceTime))->getTimestamp();
+                } catch (\Throwable) {
+                    // Unknown/malformed source time never implies freshness.
+                }
+            }
+            $item['source_age_minutes'] = $seconds !== null && $seconds <= $currentTime
+                ? intdiv($currentTime - $seconds, 60) : null;
+            $item['source_clock_evidence'] = $seconds === null
+                ? 'SOURCE_TIME_UNKNOWN'
+                : ($seconds > $currentTime ? 'SOURCE_CLOCK_AHEAD' : 'CROWD_REPORTED_TIME');
+            if ($maxSourceAgeHours !== null && ($item['source_age_minutes'] === null
+                || $item['source_age_minutes'] > 60 * $maxSourceAgeHours)) {
+                continue;
             }
             if (($operator !== null && stripos((string) ($item['operator_label'] ?? ''), $operator) === false)
                 || ($membership !== null && ($item['reported_membership_required'] ?? null) !== $membership)

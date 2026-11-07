@@ -42,6 +42,7 @@ final class OpenChargeMapDiscoveryController extends Controller
             'operator_contains' => 'nullable|string|min:1|max:120',
             'reported_membership_required' => 'nullable|boolean',
             'reported_operational' => 'nullable|boolean',
+            'max_source_age_hours' => 'nullable|integer|between:1,168',
         ]);
 
         if (! self::configured()) {
@@ -78,6 +79,7 @@ final class OpenChargeMapDiscoveryController extends Controller
                 $input['operator_contains'] ?? null,
                 isset($input['reported_membership_required']) ? (bool) $input['reported_membership_required'] : null,
                 isset($input['reported_operational']) ? (bool) $input['reported_operational'] : null,
+                isset($input['max_source_age_hours']) ? (int) $input['max_source_age_hours'] : null,
             );
 
             return self::privateResponse($result);
