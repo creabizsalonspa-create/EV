@@ -1,49 +1,61 @@
-# CURRENT OWNER DIRECTIVE — FIVE ACTIVE AGENTS (7 November 2026)
+# CURRENT OWNER DIRECTIVE — TEN ACTIVE AGENTS (7 November 2026)
 
-This is the authoritative **current** assignment. All earlier "sole owner",
-"Agent 1 takeover", "Agent 2 takeover", or unavailable-agent instructions later
-in this file are preserved as history and must **not** override this directive.
-The fixed original 42-category / 312-subfeature scope remains mandatory.
+This is the **latest authoritative owner assignment** and supersedes prior
+five-agent, single-owner, unavailable-agent, and takeover instructions in the
+preserved historical text below. Original 42 categories and 312 software
+subfeatures are unchanged; do not invent completion or rewrite their scope.
 
-- **Agent 1 — canonical backend:** Laravel/PostgreSQL, CitrineOS/OCPP 1.6 and
-  2.0.1, OCPI, source authority, reservation/session reconciliation, charging,
-  finance, payment recovery and ledgers.
-- **Agent 2 — customer/OCPP integration:** separately staged Express/Mongo and
-  existing HAS.ONE customer/Admin integration, multi-charger operations,
-  booking-token safety, verified status/history, PR #50 and related web/mobile.
-  Do not introduce a second authoritative ledger or replace Agent 1's platform.
-- **Agent 3 — operations/reliability:** notifications, alerts, disaster
-  recovery and isolated PostgreSQL/CSMS restoration; owns PRs #54 and #55.
-- **Agent 4 — integration:** GitHub PR review and verified merges, merge
-  conflicts, CI/CD, build/release regression, cross-platform contracts, and
-  authoritative evidence-based requirement coverage. Agent 4 does not
-  overwrite independent feature branches.
-- **Agent 5 — unowned product gaps:** independent customer, vendor,
-  discovery, business functionality, web/Flutter, accessibility and
-  localization requirements not already assigned to Agents 1–4.
+| Agent | Primary ownership | Boundary |
+|---|---|---|
+| **1** | Canonical Laravel/PostgreSQL/CitrineOS OCPP 1.6/2.0.1, OCPI core, source authority, billing, PSP/recovery, settlements and subscriptions | Sole canonical finance and source-of-truth authority |
+| **2** | Staged Express/Mongo OCPP gateway and Next.js/customer charging integration, multi-charger, booking-token, status/history/recovery; PR #50 | No duplicate Laravel finance/charging ledger |
+| **3** | Notification center, operational/fault alerts, disaster recovery, isolated PostgreSQL restore and recovery acceptance; PRs #54/#55 | Own operational recovery/notifications, not feature finance |
+| **4** | Sole PR integration coordinator, merge conflicts, shared CI/CD, cross-platform contracts, source-verified merges, authoritative coverage, release integration | Do not overwrite active feature-agent branches |
+| **5** | Unowned customer/vendor business features, station hours/amenities/accessibility, privacy requests, usability/localization; PRs #58/#60 | Coordinate discovery/identity work with Agents 7/8 |
+| **6** | Shared customer/vendor Android/iOS infrastructure, native API/session/lifecycle, Flutter navigation/localization, release build configuration and artifacts | Feature-specific screens remain with owners 1/2/3/5 |
+| **7** | Admin accounts/KYC/verification/2FA, RBAC/staff permissions, approvals, audit and compliance | Do not duplicate Agent 5 privacy requests or canonical finance |
+| **8** | Licensed discovery/maps/provider adapters, catalog sync, search filters, provenance and accuracy of network availability | Agent 1 owns OCPI protocol and charging authority |
+| **9** | Independent end-to-end/browser/security/load/tenant isolation/concurrency/reconciliation test infrastructure and defect repairs | Agent 4 retains CI coordinator and merge authority |
+| **10** | Reproducible private staging, backend/web orchestration, demos, synthetic delivery fixtures, rollback/release packaging and smoke checks | Agent 6 owns mobile builds; Agent 3 owns backups; Agent 4 owns integration |
 
-## Permanent CONTINUE behavior
+## Permanent CONTINUE command
 
-When the owner says `CONTINUE`, resume the latest verified branch/PR and
-execute successive coherent development, testing and PR batches within the
-current session; do not ask to restart from prior context or stop after
-a trivial change. This does not authorize background execution after a
-session ends or blind merges while CI is queued.
+`CONTINUE` means resume the latest verified owned branch/PR, implement and
+test coherent substantial batches, push real code, hand off to Agent 4, and
+continue independent useful development in the current execution session.
+Do not request repeated permission for ordinary work; do not claim background
+execution after the session ends or infer completion from a pending PR.
 
-The integration target is `development/fullstack-continuation`. Before
-modifying code, check ownership/PR overlap and base refs; use isolated branches.
-Required exact-head platform, PostgreSQL, finance, Android, iOS, security and
-charging checks must pass as applicable. Agent 4 alone coordinates final merges.
-No force pushes, bypasses, fabricated green checks, or test removal.
-PR #3 has a different base (`development/universal-integration`) and must
-not be blindly merged. Stacked PRs must respect their parent dependencies.
+## Integration rules and priority
 
-Physical charger commands, live PSP captures, production writes/deployment,
-live OCPI partner activation and store distribution remain prohibited absent
-separate approval and real acceptance. Simulators are software evidence only.
-Use `scripts/requirement-coverage` and original category weights to track
-coded/tested/merged/production-accepted stages separately; do not claim
-production readiness from source code, CI or check counts.
+- **Target branch:** `development/fullstack-continuation`. All feature agents
+  preserve active branches and open focused PRs; Agent 4 coordinates merging.
+- Inspect open PRs, exact head commits, checks and overlap before editing.
+  Stacked PRs #56 (base: battery discovery) and #61 (base: OCPI test invoices)
+  must land after their respective verified parent PRs, not directly out of order.
+  Historical PR #3 has another target; never merge blindly.
+- Priority one: reproducible **customer/vendor/Admin/charging demo** with
+  truthful synthetic/source evidence; priority two: remaining original
+  software; priority three: complete regression and release integration.
+  Work on these in parallel only across non-overlapping owners.
+- Preserve all security, finance, charging, tenant, Android/iOS and
+  PostgreSQL verification. Do not force push, bypass required checks,
+  fabricate results, or merge pending/failed exact-source checks.
+- No physical charger commands, live captures, provider activation, production
+  deployment, public exposure or unsigned artifact misrepresentation without
+  explicit separate authorization and acceptance.
+- The original 42-category /312-atom checklist is measured with
+  `scripts/requirement-coverage`. Track **coded, tested, merged, and
+  production accepted** separately. Missing evidence never earns credit.
+
+## End-of-session status
+
+If any assigned scope or exact-source integration is incomplete, report:
+**STATUS: INCOMPLETE — CONTINUE REQUIRED**, with latest commit/branch,
+verified tests, blockers and next executable task. Only if all assigned
+software is implemented, tested and merged may an individual agent report
+**MY ASSIGNED WORK IS 100% COMPLETE — NO CONTINUE NEEDED**. Agent 4 alone
+verifies combined full-scope completion; production acceptance is separate.
 
 ---
 
