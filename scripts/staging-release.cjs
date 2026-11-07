@@ -101,6 +101,15 @@ function inspectPlan(config, deps = {}) {
   const candidateRef='creabiz-ev-business:'+config.tag;
   if (candidateRef===oldRef) throw Error('Candidate must differ from running release tag');
   const currentImage=inspectImage(oldRef,run);
+  // Rollback is a release operation too: preserve *both* immutable image ID
+  // and the reviewed source revision of the original deployment.
+  const formerLabels=currentImage.Config?.Labels||{};
+  const oldSourceSha=formerLabels['org.opencontainers.image.revision'];
+  if(!SHA.test(oldSourceSha||'') ||
+     formerLabels['org.opencontainers.image.source']!==SOURCE ||
+     formerLabels['com.creabiz.ev.staging.review']!=='true'){
+    throw Error('Existing release lacks verifiable staging image source metadata');
+  }
   const candidateImage=inspectImage(candidateRef,run);
   if (currentImage.Id===candidateImage.Id) throw Error('Candidate image ID equals old deployment');
   const labels=candidateImage.Config?.Labels||{};
@@ -119,7 +128,8 @@ function inspectPlan(config, deps = {}) {
   }
   if(protectedServices.database===protectedServices.gateway)throw Error('Protected service identity collision');
   return { project:PROJECT, source_sha:config.sha, old_ref:oldRef,
-    old_id:currentImage.Id, candidate_ref:candidateRef, candidate_id:candidateImage.Id,
+    old_id:currentImage.Id, old_source_sha:oldSourceSha,
+    candidate_ref:candidateRef, candidate_id:candidateImage.Id,
     roles:ROLES, protected_services:protectedServices,
     database_and_gateway_unchanged:true, automatic_migrations:false,
     external_services_or_payments_invoked:false };
@@ -181,10 +191,16 @@ function probePostDeploy(plan,deps={}) {
   return true;
 }
 function verifyFormerTag(plan,deps={}) {
-  // The old image is the only automated rollback target. A release must never
-  // proceed when that reviewed image has been removed or re-pointed.
+  // Never roll back to an image just because its tag and Docker image ID match.
+  // Require the original reviewed OCI source metadata at every safe point too.
   const old=inspectImage(plan.old_ref,deps.run||execFileSync);
-  if(old.Id!==plan.old_id)throw Error('Previous staging image is no longer the reviewed rollback target');
+  const labels=old.Config?.Labels||{};
+  if(old.Id!==plan.old_id || !SHA.test(plan.old_source_sha||'') ||
+     labels['org.opencontainers.image.revision']!==plan.old_source_sha ||
+     labels['org.opencontainers.image.source']!==SOURCE ||
+     labels['com.creabiz.ev.staging.review']!=='true') {
+    throw Error('Previous staging image identity or reviewed source changed');
+  }
   return true;
 }
 function verifyCandidateTag(plan,deps={}) {

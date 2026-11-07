@@ -95,6 +95,7 @@ test('healthy staging candidate produces read-only image-ID plan',()=>sandbox((d
   const deps=mock(envFile);
   const result=release.inspectPlan(release.parseArgs(argv('plan')),deps);
   assert.equal(result.old_id,OLD_ID);
+  assert.equal(result.old_source_sha,'0'.repeat(40));
   assert.equal(result.candidate_id,NEW_ID);
   assert.equal(result.source_sha,SHA);
   assert.equal(result.automatic_migrations,false);
@@ -166,6 +167,43 @@ test('candidate has to differ from current source image ID',()=>sandbox((dir,env
     return run(cmd,args,options);
   };
   assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),deps));
+}));
+test('old release without reviewed source labels cannot be planned as a rollback target',()=>sandbox((dir,envFile)=>{
+  for(const change of [
+    labels=>delete labels['org.opencontainers.image.revision'],
+    labels=>labels['org.opencontainers.image.revision']='bad',
+    labels=>labels['org.opencontainers.image.source']='https://other.example.org/EV',
+    labels=>labels['com.creabiz.ev.staging.review']='false'
+  ]) {
+    const deps=mock(envFile),run=deps.run;
+    deps.run=(cmd,args,options)=>{
+      const result=run(cmd,args,options);
+      if(args[0]==='image'&&args[2]===oldRef) {
+        const items=JSON.parse(result);change(items[0].Config.Labels);
+        return JSON.stringify(items);
+      }
+      return result;
+    };
+    assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),deps));
+    assert.equal(deps.state.mutations,0);
+  }
+}));
+test('old image source label change blocks apply before any Compose up',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),run=deps.run;
+  let oldReads=0;
+  deps.run=(cmd,args,options)=>{
+    const result=run(cmd,args,options);
+    if(args[0]==='image'&&args[2]===oldRef && ++oldReads>1){
+      const items=JSON.parse(result);
+      items[0].Config.Labels['org.opencontainers.image.revision']='d'.repeat(40);
+      return JSON.stringify(items);
+    }
+    return result;
+  };
+  const journal=path.join(dir,'before-up.jsonl');
+  assert.equal(release.main(argv('apply',journal),deps),2);
+  assert.equal(deps.state.mutations,0);
+  assert.deepEqual(fs.readFileSync(journal,'utf8').trim().split('\n').map(JSON.parse).map(x=>x.event),['PREPARED']);
 }));
 test('candidate source label mismatch blocks staging',()=>sandbox((dir,envFile)=>{
   const deps=mock(envFile),run=deps.run;

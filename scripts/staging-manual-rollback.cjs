@@ -38,7 +38,8 @@ function loadJournal(file) {
   if(events.some(x=>!x || typeof x!=='object' || typeof x.event!=='string')) throw Error('Invalid journal events');
   const prepared=events[0], p=prepared.plan;
   if(prepared.event!=='PREPARED' || !p || p.project!=='ev-staging' ||
-     !SHA.test(p.source_sha) || !REF.test(p.old_ref) || !REF.test(p.candidate_ref) ||
+     !SHA.test(p.source_sha) || !SHA.test(p.old_source_sha||'') ||
+     !REF.test(p.old_ref) || !REF.test(p.candidate_ref) ||
      p.old_ref===p.candidate_ref || !ID.test(p.old_id) || !ID.test(p.candidate_id) ||
      p.old_id===p.candidate_id || p.database_and_gateway_unchanged!==true ||
      !p.protected_services || !/^[a-f0-9]{12,64}$/.test(p.protected_services.database||'') ||

@@ -15,6 +15,7 @@ function temp(body){
   try{return body(dir);} finally {fs.rmSync(dir,{recursive:true,force:true});}
 }
 function plan(){return {project:'ev-staging',source_sha:SHA,old_ref:oldRef,old_id:OLD,
+  old_source_sha:'0'.repeat(40),
   candidate_ref:newRef,candidate_id:NEW,roles:['application','worker','scheduler'],
   protected_services:{database:'4'.repeat(64),gateway:'5'.repeat(64)},
   database_and_gateway_unchanged:true,automatic_migrations:false,external_services_or_payments_invoked:false};}
@@ -26,7 +27,7 @@ function setup(dir,events=['RELEASE_STARTED']) {
 }
 function mock(dir){
   const state={tag:'new',up:0,badGateway:false,badDatabase:false,foreign:false,
-    staleOld:false,failOld:false,appUnhealthy:true,seen:[]};
+    staleOld:false,poisonOldSource:false,failOld:false,appUnhealthy:true,seen:[]};
   const options={lockPath:path.join(dir,'operation.lock'),env:{},envFile:path.join(dir,'private.env'),preflight:()=>({ok:true,errors:[]}),effectiveConfig:()=>true,checkHttp:()=>true};
   fs.writeFileSync(options.envFile,'DB_PASSWORD=SYNTHETIC\nAPP_KEY=local_fake_not_real\n',{mode:0o600});
   const rows=()=> ['application','worker','scheduler','database','gateway'].map((service,i)=>({
@@ -44,7 +45,11 @@ function mock(dir){
     if(args[0]==='context')return args[1]==='show'?'default\n':'unix:///var/run/docker.sock\n';
     if(args[0]==='image'){
       assert.equal(args[2],oldRef);
-      return JSON.stringify([{Id:state.staleOld?NEW:OLD,RepoTags:[oldRef],Config:{Labels:{}}}]);
+      return JSON.stringify([{Id:state.staleOld?NEW:OLD,RepoTags:[oldRef],Config:{Labels:{
+        'org.opencontainers.image.revision':state.poisonOldSource?'e'.repeat(40):'0'.repeat(40),
+        'org.opencontainers.image.source':'https://github.com/creabizsalonspa-create/EV',
+        'com.creabiz.ev.staging.review':'true',
+      }}}]);
     }
     if(args[0]==='container'){
       return JSON.stringify(args.slice(2).map(id=>({Id:id,Image:state.tag==='old'?OLD:NEW,State:{Running:true,Status:'running'}})));
@@ -111,6 +116,20 @@ test('database unhealthy blocks rollback instead of hiding environment failure',
 }));
 test('unrecognized newer running tag cannot be overwritten',()=>temp(dir=>{
   const file=setup(dir),deps=mock(dir);deps.state.foreign=true;
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+}));
+test('tampered journal with missing prior source revision cannot authorize rollback',()=>temp(dir=>{
+  const file=setup(dir),contents=fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse);
+  delete contents[0].plan.old_source_sha;
+  fs.writeFileSync(file,contents.map(x=>JSON.stringify(x)).join('\n')+'\n');
+  const deps=mock(dir);
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+}));
+test('unchanged prior image ID with changed source label cannot be restored',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.state.poisonOldSource=true;
   assert.equal(recovery.main(cli(file),deps),2);
   assert.equal(deps.state.up,0);
 }));
