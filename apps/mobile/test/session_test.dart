@@ -10,6 +10,7 @@ class MemoryVault implements SessionVault {
   final entries = <String, String>{};
   bool failDelete = false;
   bool failWrite = false;
+  bool failRead = false;
   int writes = 0;
   Future<void>? deleteWait;
   Future<void>? readWait;
@@ -22,6 +23,7 @@ class MemoryVault implements SessionVault {
       readStarted!.complete();
     }
     if (readWait != null) await readWait;
+    if (failRead) throw StateError('secure platform read failed');
     return captured;
   }
   @override
@@ -141,6 +143,44 @@ void main() {
       expect(api.remembered, isFalse);
     } finally {
       if (!release.isCompleted) release.complete();
+      api.close();
+    }
+  });
+
+  test('obsolete secure storage read failure cannot escape after logout', () async {
+    final origin = Uri.parse('https://example.test');
+    final vault = MemoryVault();
+    final release = Completer<void>();
+    final started = Completer<void>();
+    vault.entries[origin.origin] = 'opaque-old-secret';
+    vault.readWait = release.future;
+    vault.readStarted = started;
+    vault.failRead = true;
+    final api = EvApi(origin, vault: vault);
+    try {
+      final pendingRestore = api.restoreSession();
+      await started.future;
+      final forgetting = api.forgetSession();
+      release.complete();
+      expect(await pendingRestore, isNull);
+      await forgetting;
+      expect(vault.entries, isEmpty);
+    } finally {
+      if (!release.isCompleted) release.complete();
+      api.close();
+    }
+  });
+
+  test('active secure storage read failure remains visible', () async {
+    final origin = Uri.parse('https://example.test');
+    final vault = MemoryVault()..failRead = true;
+    final api = EvApi(origin, vault: vault);
+    try {
+      await expectLater(
+        api.restoreSession(),
+        throwsA(isA<SessionStorageException>()),
+      );
+    } finally {
       api.close();
     }
   });
