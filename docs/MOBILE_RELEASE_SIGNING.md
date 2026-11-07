@@ -5,6 +5,26 @@ Both native Flutter apps previously assigned `signingConfigs.debug` to Android
 release APK/AAB tasks now fail without an explicit, private signing keystore.
 Neither application identity nor production distribution permissions were changed.
 
+## Additional mobile platform protections
+
+Both Android apps now set `android:allowBackup="false"` and explicitly exclude
+credential-protected and device-protected storage from legacy cloud backup,
+Android 12+ cloud backup and device-to-device transfer. These are release
+privacy boundaries; test fixtures and credentials must not be migrated to
+another device.
+
+The separate HAS.ONE customer iOS app now declares photo-library access for
+its profile image picker, in addition to camera and location descriptions.
+
+**Local demo transport:** Both Android apps permit HTTP only to the exact
+`localhost` and `127.0.0.1` hosts in debug manifests with debug-only
+network-security rules. Both iOS apps select `Info-Debug.plist` for the Debug
+configuration and permit those same exact loopback hosts. Release iOS targets
+retain the ordinary `Info.plist` (without ATS cleartext exceptions), and
+release Android manifests do not reference debug network policy. Real mobile
+builds still require the correct private service configuration and platform
+verification: these policies are not a public staging deployment.
+
 ## Secrets supplied by the authorized release operator
 
 Set four **Gradle project properties** for each app through a secured CI secret
