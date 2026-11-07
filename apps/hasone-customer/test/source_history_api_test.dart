@@ -15,7 +15,7 @@ void main() {
   final url = Platform.environment['AGENT2_HISTORY_API_URL'];
   final progressUrl = Platform.environment['AGENT2_PROGRESS_API_URL'];
   test(
-    'actual native active-source progress separates provisional unpaid cost and receipt age',
+    'actual native source progress distinguishes active cost and interrupted source end',
     () async {
       final uri = Uri.parse(progressUrl!);
       if (uri.scheme != 'http' || uri.host != '127.0.0.1') {
@@ -39,9 +39,12 @@ void main() {
         expect(response.isSuccess, true);
         final value = progress.Data.fromJson(response.responseData['data']);
         expect(value.hasVerifiedMeter, true);
-        expect(value.energyWh, 3000);
-        expect(value.provisionalCostFils, 315);
-        expect(value.finalCostFils, isNull);
+        final ended = Platform.environment['AGENT2_PROGRESS_ENDED'] == '1';
+        expect(value.energyWh, ended ? 5000 : 3000);
+        expect(value.provisionalCostFils, ended ? isNull : 315);
+        expect(value.finalCostFils, ended ? 525 : isNull);
+        expect(value.sourceEndNeedsReview, ended);
+        expect(value.sourceEndReason, ended ? 'PowerLoss' : isNull);
         expect(value.paymentStatus, 'not_collected');
         expect(value.meterReceivedAt, isNotNull);
         expect(value.meterReceiptAgeSeconds, isNotNull);

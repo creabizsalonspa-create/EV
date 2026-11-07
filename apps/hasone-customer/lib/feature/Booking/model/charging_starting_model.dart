@@ -40,6 +40,8 @@ class Data {
   int? provisionalCostFils, finalCostFils, meterReceiptAgeSeconds;
   DateTime? meterReceivedAt;
   String meterFreshness = 'unknown';
+  String? sourceEndReason;
+  bool sourceEndNeedsReview = false;
   bool get hasSourceProof =>
       sourceVerified &&
       source == 'ocpp' &&
@@ -83,6 +85,56 @@ class Data {
         (kwh * 1000 - wh).abs() < 0.0001) {
       energyWh = wh;
       kwhUsed = kwh.toDouble();
+    }
+    if (hasSourceProof && chargingStatus == 'Completed') {
+      // An ended transaction is not proof that the intended charge succeeded.
+      sourceEndNeedsReview = true;
+      const reasons = {
+        'EmergencyStop',
+        'EVDisconnected',
+        'HardReset',
+        'Local',
+        'Other',
+        'PowerLoss',
+        'Reboot',
+        'Remote',
+        'SoftReset',
+        'UnlockCommand',
+        'DeAuthorized',
+        'EnergyLimitReached',
+        'GroundFault',
+        'ImmediateReset',
+        'LocalOutOfCredit',
+        'OvercurrentFault',
+        'PowerQuality',
+        'SOCLimitReached',
+        'StoppedByEV',
+        'TimeLimitReached',
+        'Timeout',
+      };
+      const review = {
+        'EmergencyStop',
+        'HardReset',
+        'PowerLoss',
+        'Reboot',
+        'SoftReset',
+        'GroundFault',
+        'ImmediateReset',
+        'OvercurrentFault',
+        'PowerQuality',
+        'Timeout',
+        'Other',
+      };
+      final end = json['sourceEnd'];
+      if (json['readOnly'] == true &&
+          end is Map &&
+          end['reason'] is String &&
+          reasons.contains(end['reason']) &&
+          end['reviewRequired'] is bool &&
+          end['reviewRequired'] == review.contains(end['reason'])) {
+        sourceEndReason = end['reason'];
+        sourceEndNeedsReview = review.contains(sourceEndReason);
+      }
     }
     final readOnlyCost =
         hasVerifiedMeter &&

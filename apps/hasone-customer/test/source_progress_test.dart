@@ -126,6 +126,62 @@ void main() {
       }
     },
   );
+  test(
+    'source end is independent from successful completion and financial collection',
+    () {
+      for (final reason in [
+        'PowerLoss',
+        'EmergencyStop',
+        'GroundFault',
+        'OvercurrentFault',
+        'PowerQuality',
+        'Timeout',
+        'Reboot',
+        'Other',
+      ]) {
+        final value = Data.fromJson({
+          ...progressContract(),
+          'chargingStatus': 'Completed',
+          'sourceEnd': {'reason': reason, 'reviewRequired': true},
+          'billingStatus': 'calculated_unpaid',
+          'subtotalFils': 500,
+          'vatFils': 25,
+          'totalFils': 525,
+        });
+        expect(value.sourceEndNeedsReview, true);
+        expect(value.sourceEndReason, reason);
+        expect(value.finalCostFils, 525);
+        expect(value.paymentStatus, 'not_collected');
+      }
+      final normal = Data.fromJson({
+        ...progressContract(),
+        'chargingStatus': 'Completed',
+        'sourceEnd': {'reason': 'EVDisconnected', 'reviewRequired': false},
+      });
+      expect(normal.sourceEndReason, 'EVDisconnected');
+      expect(normal.sourceEndNeedsReview, false);
+      for (final end in [
+        null,
+        {'reason': 'PowerLoss', 'reviewRequired': false},
+        {'reason': '<script>', 'reviewRequired': true},
+        {'reason': 'Remote', 'reviewRequired': 'false'},
+      ]) {
+        final value = Data.fromJson({
+          ...progressContract(),
+          'chargingStatus': 'Completed',
+          'sourceEnd': end,
+        });
+        expect(value.sourceEndReason, isNull);
+        expect(value.sourceEndNeedsReview, true);
+      }
+      final active = Data.fromJson({
+        ...progressContract(),
+        'sourceEnd': {'reason': 'PowerLoss', 'reviewRequired': true},
+      });
+      expect(active.sourceEndReason, isNull);
+      expect(active.sourceEndNeedsReview, false);
+    },
+  );
   testWidgets(
     'calculated progress stays unpaid, fits narrow screen and clears in background',
     (tester) async {

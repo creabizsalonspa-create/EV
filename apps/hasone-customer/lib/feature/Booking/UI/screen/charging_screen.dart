@@ -55,6 +55,8 @@ class _ChargingScreenState extends State<ChargingScreen>
   int _generation = 0, _request = 0;
   late final String? _owner;
   String _readState = 'loading';
+  bool _endNeedsReview = false;
+  String? _endReason;
   String? get _identity =>
       (widget.accountIdentity ?? (() => Session.accessToken))();
   bool get _sameOwner => _owner == _identity;
@@ -66,6 +68,10 @@ class _ChargingScreenState extends State<ChargingScreen>
     'unavailable' => _t(
       'Status could not be read. Charging may still be active. Retry only checks status.',
       'تعذر قراءة الحالة. قد يستمر الشحن. إعادة المحاولة تتحقق من الحالة فقط.',
+    ),
+    'ended_review' => _t(
+      'The source reported the session ended. Ask the operator to review it before starting again.',
+      'أبلغ المصدر بانتهاء الجلسة. اطلب من المشغل مراجعتها قبل بدء جلسة جديدة.',
     ),
     'unverified' => _t(
       'No verified source status is available. Ask the operator to review this session.',
@@ -81,6 +87,40 @@ class _ChargingScreenState extends State<ChargingScreen>
     ),
   };
 
+  String? get _endReasonText => switch (_endReason) {
+    'EmergencyStop' => _t(
+      'Source reason: emergency stop',
+      'سبب المصدر: توقف طارئ',
+    ),
+    'PowerLoss' => _t('Source reason: power loss', 'سبب المصدر: انقطاع الطاقة'),
+    'GroundFault' => _t('Source reason: ground fault', 'سبب المصدر: عطل أرضي'),
+    'OvercurrentFault' => _t(
+      'Source reason: overcurrent',
+      'سبب المصدر: تيار زائد',
+    ),
+    'PowerQuality' => _t(
+      'Source reason: power quality',
+      'سبب المصدر: جودة الطاقة',
+    ),
+    'Timeout' => _t('Source reason: timeout', 'سبب المصدر: انتهاء المهلة'),
+    'Reboot' || 'HardReset' || 'SoftReset' || 'ImmediateReset' => _t(
+      'Source reason: charger reset',
+      'سبب المصدر: إعادة تشغيل الشاحن',
+    ),
+    'EVDisconnected' => _t(
+      'Source reason: vehicle disconnected',
+      'سبب المصدر: فصل المركبة',
+    ),
+    null =>
+      _chargingStatus == 'Ended at source'
+          ? _t('Source end reason unavailable', 'سبب انتهاء الجلسة غير متاح')
+          : null,
+    _ => _t(
+      'Source reported an end reason',
+      'أبلغ المصدر عن سبب لانتهاء الجلسة',
+    ),
+  };
+
   void _clearTelemetry() {
     _batteryPercent = null;
     _timeRemaining = 'Unavailable';
@@ -90,6 +130,8 @@ class _ChargingScreenState extends State<ChargingScreen>
     _chargingStatus = 'Source status unverified';
     _canStop = false;
     _canExtend = false;
+    _endNeedsReview = false;
+    _endReason = null;
   }
 
   @override
@@ -171,7 +213,12 @@ class _ChargingScreenState extends State<ChargingScreen>
           _readState = 'ready';
           _batteryPercent = result.batteryPercent;
           _kwhUsed = result.hasVerifiedMeter ? result.kwhUsed : null;
-          _chargingStatus = result.chargingStatus ?? 'Source status unverified';
+          _chargingStatus = result.chargingStatus == 'Completed'
+              ? 'Ended at source'
+              : result.chargingStatus ?? 'Source status unverified';
+          _endNeedsReview = result.sourceEndNeedsReview;
+          _endReason = result.sourceEndReason;
+          if (_endNeedsReview) _readState = 'ended_review';
           final cost = result.provisionalCostFils ?? result.finalCostFils;
           if (cost != null) {
             final amount =
@@ -701,6 +748,8 @@ class _ChargingScreenState extends State<ChargingScreen>
                           ),
                           SizedBox(height: 10.h),
                           Text(_recoveryNote, textAlign: TextAlign.center),
+                          if (_endReasonText != null)
+                            Text(_endReasonText!, textAlign: TextAlign.center),
                           TextButton.icon(
                             onPressed: _fetching || !_foreground || !_sameOwner
                                 ? null

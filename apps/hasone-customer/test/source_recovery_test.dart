@@ -232,4 +232,33 @@ void main() {
       expect(find.text('Charging'), findsOneWidget);
     },
   );
+  testWidgets(
+    'power loss is shown as ended needing review and never as completed success',
+    (tester) async {
+      final c = RecoveringStatus();
+      await show(tester, c);
+      c.pending[0].complete(
+        Data.fromJson({
+          'sessionId': 's',
+          'bookingId': 'b',
+          'source': 'ocpp',
+          'protocol': 'ocpp2.0.1',
+          'sourceVerified': true,
+          'meterVerified': true,
+          'energyWh': 5000,
+          'kwhUsed': 5,
+          'chargingStatus': 'Completed',
+          'readOnly': true,
+          'sourceEnd': {'reason': 'PowerLoss', 'reviewRequired': true},
+        }),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Ended at source'), findsOneWidget);
+      expect(find.text('Completed'), findsNothing);
+      expect(find.text('Source reason: power loss'), findsOneWidget);
+      expect(find.textContaining('before starting again'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

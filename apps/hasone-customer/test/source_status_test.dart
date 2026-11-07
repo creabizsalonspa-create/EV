@@ -122,7 +122,7 @@ void main() {
       );
       await tester.pump();
       await tester.pump();
-      expect(find.text('Completed'), findsOneWidget);
+      expect(find.text('Ended at source'), findsOneWidget);
       expect(find.text('99%'), findsNothing);
       expect(find.text('Unavailable'), findsWidgets);
       await tester.pumpWidget(const SizedBox());
@@ -164,7 +164,7 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       controller.response.complete(Data.fromJson(contract()));
       await tester.pump();
-      expect(find.text('Completed'), findsNothing);
+      expect(find.text('Ended at source'), findsNothing);
       expect(find.textContaining('Energy Used:'), findsNothing);
       await tester.pumpWidget(const SizedBox());
       Get.reset();
