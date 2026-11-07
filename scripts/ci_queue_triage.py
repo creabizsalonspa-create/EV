@@ -135,7 +135,7 @@ class Github:
         for index in range(1, limit + 1):
             sep = "&" if "?" in suffix else "?"
             payload = self.request(suffix + sep + "per_page=100&page=" + str(index))
-            rows = payload.get(key)
+            rows = payload if isinstance(payload, list) else payload.get(key)
             if not isinstance(rows, list):
                 raise ValueError("Unexpected GitHub pagination response")
             out.extend(rows)
