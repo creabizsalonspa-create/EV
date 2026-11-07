@@ -44,6 +44,32 @@ class ArchiveTests(unittest.TestCase):
                 sample_db(db);sample_tar(t,name,link)
                 with self.assertRaises(guard.ArchiveError):guard.inspect(db,t)
 
+    def test_archive_members_are_fully_read_and_digest_is_stable(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            database = root / 'db.dump'
+            archive = root / 'private.tar.gz'
+            sample_db(database)
+            sample_tar(archive)
+            first = guard.inspect(database, archive)
+            second = guard.inspect(database, archive)
+            self.assertEqual(first, second)
+            self.assertEqual(len(first['private']['expanded_sha256']), 64)
+            self.assertTrue(first['private']['full_member_read_verified'])
+            self.assertGreater(first['private']['expanded_bytes'], 0)
+
+    def test_truncated_compressed_archive_is_rejected_not_just_its_headers(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            database = root / 'db.dump'
+            archive = root / 'private.tar.gz'
+            sample_db(database)
+            sample_tar(archive)
+            original = archive.read_bytes()
+            archive.write_bytes(original[:-8])
+            with self.assertRaises(guard.ArchiveError):
+                guard.inspect(database, archive)
+
     def test_stale_record_removed_on_failure(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);m=root/'manifest.json';m.write_text('{"status":"PASS"}')

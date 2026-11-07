@@ -25,24 +25,48 @@ def fingerprint(path, magic):
     return {'sha256':h.hexdigest(),'bytes':info.st_size}
 
 def safe_tar(path):
-    count=0
-    expanded=0
+    count = 0
+    expanded = 0
+    content_hash = hashlib.sha256()
     try:
-        with tarfile.open(path,mode='r:gz') as arc:
-            for entry in arc:
-                count+=1
+        with tarfile.open(path, mode='r:gz') as archive:
+            for member in archive:
+                count += 1
                 require(count <= 10000, 'Too many private archive members')
-                parts=entry.name.replace('\\','/').split('/')
-                require(entry.name and not entry.name.startswith(('/', '\\')) and
+                parts = member.name.replace('\\', '/').split('/')
+                require(member.name and not member.name.startswith(('/', '\\')) and
                         '..' not in parts and all(parts),
                         'Unsafe private archive member path')
-                require(entry.isfile() or entry.isdir(), 'Private links/devices denied')
-                expanded+=entry.size
-                require(0 <= expanded <= 2*1024**3, 'Expanded private data exceeds limit')
-    except (tarfile.TarError, OSError, EOFError):
+                require(member.isfile() or member.isdir(), 'Private links/devices denied')
+                require(member.size >= 0, 'Invalid private archive member size')
+                expanded += member.size
+                require(expanded <= 2 * 1024**3, 'Expanded private data exceeds limit')
+
+                # Parsing headers alone does not verify compressed file contents.
+                # Read every member fully before the recovery script can extract it.
+                content_hash.update(member.name.encode('utf-8', errors='surrogateescape'))
+                content_hash.update(b'\0')
+                content_hash.update(str(member.size).encode('ascii'))
+                content_hash.update(b'\0')
+                if member.isfile():
+                    reader = archive.extractfile(member)
+                    require(reader is not None, 'Private archive member is unreadable')
+                    read_bytes = 0
+                    with reader:
+                        for chunk in iter(lambda: reader.read(1024 * 1024), b''):
+                            read_bytes += len(chunk)
+                            require(read_bytes <= member.size, 'Archive member exceeds declared size')
+                            content_hash.update(chunk)
+                    require(read_bytes == member.size, 'Truncated private archive member')
+    except (tarfile.TarError, OSError, EOFError, UnicodeError):
         raise ArchiveError('Invalid private gzip/tar archive') from None
     require(count > 0, 'Private archive empty')
-    return {'entries':count,'expanded_bytes':expanded}
+    return {
+        'entries': count,
+        'expanded_bytes': expanded,
+        'expanded_sha256': content_hash.hexdigest(),
+        'full_member_read_verified': True,
+    }
 
 def inspect(pg_dump, private_tar=None):
     result={
