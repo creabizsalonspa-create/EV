@@ -78,7 +78,8 @@ test('hash preflight is read-only and cannot consume the token',()=>{
  assert.equal(c.rows[0].consumedAt,undefined);
 });
 const session={chargerId:charger,protocol:'ocpp1.6',idTagHash:hashOcppToken(raw),
- connectorId:2,meterStartWh:1000,status:'active',transactionId:12};
+ connectorId:2,meterStartWh:1000,status:'active',transactionId:12,
+ createdAt:new Date(now.getTime()-1000)};
 test('same active OCPP1.6 source is reusable for exact lost response retry',()=>{
  assert.equal(sameActiveOcpp16Retry(session,{
    chargerId:charger,tokenHash:hashOcppToken(raw),connectorId:2,meterStart:1000}),true);
@@ -92,6 +93,19 @@ test('different charger, token, connector, start meter or completed session not 
  assert.equal(sameActiveOcpp16Retry(session,{...baseline,meterStart:900}),false);
  assert.equal(sameActiveOcpp16Retry(session,{...baseline,connectorId:0}),false);
  assert.equal(sameActiveOcpp16Retry(null,baseline),false);
+});
+test('old active sessions cannot accept delayed duplicate OCPP1.6 starts',()=>{
+ const input={chargerId:charger,tokenHash:hashOcppToken(raw),
+   connectorId:2,meterStart:1000,now};
+ assert.equal(sameActiveOcpp16Retry({...session,
+   createdAt:new Date(now.getTime()-120001)},input),false);
+ assert.equal(sameActiveOcpp16Retry({...session,
+   createdAt:new Date(now.getTime()-120000)},input),true);
+ assert.equal(sameActiveOcpp16Retry({...session,
+   createdAt:new Date(now.getTime()+1000)},input),false);
+ assert.equal(sameActiveOcpp16Retry({...session,createdAt:null},input),false);
+ assert.equal(sameActiveOcpp16Retry({...session,createdAt:'not-a-date'},input),false);
+ assert.equal(sameActiveOcpp16Retry(session,{...input,now:new Date('bad')}),false);
 });
 test('a reused active source never creates a second session or charges again',()=>{
  const c=fresh(); const before=c.rows.length;
