@@ -143,7 +143,7 @@ class AdminAccountModerationTest extends TestCase
         $this->actingAs($admin)->patchJson($route, $this->decision('suspended', 'active', 'short'))
             ->assertUnprocessable();
         $this->patchJson($route, $this->decision('active'))->assertUnprocessable();
-        $this->patchJson($route, $this->decision('suspended', 'suspended'))
+        $this->patchJson($route, $this->decision('active', 'suspended'))
             ->assertStatus(409);
         $this->assertDatabaseCount('admin_account_moderations', 0);
         $this->assertDatabaseCount('audit_events', 0);
