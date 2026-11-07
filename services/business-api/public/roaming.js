@@ -85,7 +85,7 @@ window.createRoamingWorkspace = ({
         ])
             button(parent, label, () => load(target)).disabled = !enabled;
     }
-    function location(parent, item) {
+    function location(parent, item, metadata = null) {
         const card = document.createElement("article");
         card.className = "station-card";
         card.append(raw("h3", item.name || item.id));
@@ -103,6 +103,10 @@ window.createRoamingWorkspace = ({
             `${item.latitude}, ${item.longitude}`,
         );
         line(card, "Roaming source updated", item.last_updated);
+        if (metadata?.distance_basis === "great_circle" && Number.isFinite(Number(metadata.distance_km)))
+            line(card, "Roaming straight-line distance", `${Number(metadata.distance_km).toFixed(2)} km`);
+        if (Number.isSafeInteger(metadata?.reported_source_age_minutes) && metadata.reported_source_age_minutes >= 0)
+            line(card, "Roaming partner source age", `${metadata.reported_source_age_minutes} min · not live availability`);
         for (const evse of item.evses || []) {
             const group = document.createElement("div");
             line(group, "Roaming EVSE", evse.uid);
@@ -152,6 +156,30 @@ window.createRoamingWorkspace = ({
         }
         connector.value = catalogFilters.connector_standard || "";
         field("Connector", connector);
+        // Optional coordinates are a single grouped filter. They never request device location.
+        const latitude = document.createElement("input");
+        const longitude = document.createElement("input");
+        const radius = document.createElement("input");
+        for (const [input, name, min, max, value, label] of [
+            [latitude, "latitude", -90, 90, catalogFilters.latitude, "Partner search latitude"],
+            [longitude, "longitude", -180, 180, catalogFilters.longitude, "Partner search longitude"],
+            [radius, "radius_km", 1, 200, catalogFilters.radius_km, "Partner search radius km"],
+        ]) {
+            input.name = name;
+            input.type = "number";
+            input.step = "any";
+            input.min = String(min);
+            input.max = String(max);
+            input.value = value ?? "";
+            field(label, input);
+        }
+        const nearby = [latitude, longitude, radius];
+        const requireGroup = () => {
+            const used = nearby.some(input => input.value.trim() !== "");
+            for (const input of nearby) input.required = used;
+        };
+        for (const input of nearby) input.addEventListener("input", requireGroup);
+        requireGroup();
         const submit = ui("button", "Search partner locations");
         submit.type = "submit";
         form.append(submit);
@@ -166,6 +194,11 @@ window.createRoamingWorkspace = ({
                 ...(connector.value
                     ? { connector_standard: connector.value }
                     : {}),
+                ...(nearby.every(input => input.value.trim() !== "") ? {
+                    latitude: latitude.value,
+                    longitude: longitude.value,
+                    radius_km: radius.value,
+                } : {}),
             };
             await catalog(1);
         };
@@ -265,7 +298,7 @@ window.createRoamingWorkspace = ({
                     );
                     list.append(card);
                 } else {
-                    location(list, row.location);
+                    location(list, row.location, row);
                     line(
                         list.lastElementChild,
                         "Roaming received",
