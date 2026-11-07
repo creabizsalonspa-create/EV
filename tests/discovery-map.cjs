@@ -15,6 +15,7 @@ const assert = require("node:assert/strict");
     let tiles = 0;
     let showPartner = true;
     let unsafePartner = false;
+    let partnerAgeMinutes = 120;
     const partnerQueries = [];
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -67,7 +68,7 @@ const assert = require("node:assert/strict");
                 evidence: "PARTNER_REPORTED_UNVERIFIED",
                 availability: unsafePartner ? "available" : "unknown", remote_control: false, reservable: false,
                 source_timestamp_evidence: "PARTNER_REPORTED_ONLY",
-                reported_source_age_minutes: 120,
+                reported_source_age_minutes: partnerAgeMinutes,
                 received_at: "2026-11-07T12:00:00Z",
                 location: {
                   id: "partner-mock",
@@ -162,6 +163,14 @@ const assert = require("node:assert/strict");
     assert.match(await partnerPopup.locator("a").getAttribute("href"), /destination=25.21%2C55.31/);
     await partnerPopup.getByRole("button", { name: "View partner location in list" }).click();
     assert.equal(await page.locator("[data-partner-location-id='19']").count(), 1);
+    // Repeated partner reports older than 24 hours receive an explicit
+    // non-live stale-record warning, without creating charging authority.
+    partnerAgeMinutes = 2000;
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator(".partner-map-pin").click();
+    await page.locator(".leaflet-popup-content")
+      .getByText("Partner source age: 2000 min (older than 24 hours); live status unverified.", { exact: true }).waitFor();
+    await page.locator(".leaflet-popup-close-button").click();
     // Identity/session reset removes every old map marker immediately.
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
     assert.equal(await page.locator(".partner-map-pin").count(), 0);
