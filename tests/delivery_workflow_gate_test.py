@@ -84,6 +84,13 @@ class VerifiedWorkflowHandoffTests(unittest.TestCase):
         package_from_workflow(self.root / 'bundle', SHA, RUN_ID, run, artifacts, self.android, self.ios)
         manifest = verify(self.root / 'bundle', SHA)
         self.assertEqual(manifest['acceptance']['production_accepted'], False)
+        proof = manifest['workflow_evidence']
+        self.assertEqual(proof['run_id'], RUN_ID)
+        self.assertEqual(proof['head_sha'], SHA)
+        self.assertEqual(proof['android']['artifact_id'], 13569331617)
+        self.assertEqual(proof['ios']['artifact_id'], 13565252105)
+        self.assertEqual(proof['android']['wrapper_sha256'], self.listing['artifacts'][0]['digest'][7:])
+        self.assertEqual(proof['snapshot_authenticated'], False)
 
     def test_declared_source_must_equal_run_head_sha(self):
         with self.assertRaises(BundleError):
@@ -172,6 +179,51 @@ class VerifiedWorkflowHandoffTests(unittest.TestCase):
         ]
         self.assertEqual(main(command), 0)
         self.assertEqual(main(command), 1)
+
+
+    def test_delivery_bundle_refuses_forged_workflow_source_without_tampering_binary(self):
+        run, artifacts = self.snapshots()
+        bundle = self.root / 'bundle'
+        package_from_workflow(bundle, SHA, RUN_ID, run, artifacts, self.android, self.ios)
+        file = bundle / 'manifest.json'
+        data = json.loads(file.read_text('utf-8'))
+        data['workflow_evidence']['head_sha'] = 'b' * 40
+        file.write_text(json.dumps(data))
+        with self.assertRaises(BundleError):
+            verify(bundle, SHA)
+
+    def test_delivery_bundle_refuses_false_signing_or_authenticated_metadata_claim(self):
+        run, artifacts = self.snapshots()
+        bundle = self.root / 'bundle'
+        package_from_workflow(bundle, SHA, RUN_ID, run, artifacts, self.android, self.ios)
+        file = bundle / 'manifest.json'
+        data = json.loads(file.read_text('utf-8'))
+        data['workflow_evidence']['snapshot_authenticated'] = True
+        file.write_text(json.dumps(data))
+        with self.assertRaises(BundleError):
+            verify(bundle, SHA)
+
+    def test_delivery_bundle_refuses_duplicate_github_artifact_identity(self):
+        run, artifacts = self.snapshots()
+        bundle = self.root / 'bundle'
+        package_from_workflow(bundle, SHA, RUN_ID, run, artifacts, self.android, self.ios)
+        file = bundle / 'manifest.json'
+        data = json.loads(file.read_text('utf-8'))
+        data['workflow_evidence']['ios']['artifact_id'] = data['workflow_evidence']['android']['artifact_id']
+        file.write_text(json.dumps(data))
+        with self.assertRaises(BundleError):
+            verify(bundle, SHA)
+
+    def test_delivery_bundle_refuses_forged_git_wrapper_digest_after_import(self):
+        run, artifacts = self.snapshots()
+        bundle = self.root / 'bundle'
+        package_from_workflow(bundle, SHA, RUN_ID, run, artifacts, self.android, self.ios)
+        file = bundle / 'manifest.json'
+        data = json.loads(file.read_text('utf-8'))
+        data['workflow_evidence']['android']['wrapper_sha256'] = 'unverified'
+        file.write_text(json.dumps(data))
+        with self.assertRaises(BundleError):
+            verify(bundle, SHA)
 
 
 if __name__ == '__main__':
