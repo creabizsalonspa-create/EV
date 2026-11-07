@@ -16,6 +16,8 @@ const dir=mkdtempSync(join(tmpdir(),'agent2-route-test-'));
 function make(p,content){const dest=join(dir,p);mkdirSync(dirname(dest),{recursive:true});writeFileSync(dest,content);}
 try{
  make('package.json','{"type":"module"}');
+ mkdirSync(join(dir,'src/routes'),{recursive:true});
+ mkdirSync(join(dir,'src/utils'),{recursive:true});
  copyFileSync(src,join(dir,'src/routes/paymentRoutes.js')); // parent directories from make below
  copyFileSync(guard,join(dir,'src/utils/paymentIntegrity.mjs'));
  symlinkSync(join(dependencies,'node_modules'),join(dir,'node_modules'),'dir');
