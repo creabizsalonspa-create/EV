@@ -218,6 +218,11 @@ python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --pr
 docker exec -i "$target_db" pg_restore -U ev_recovery_review -d ev_recovery_review \
   --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --private-tar "$scratch/private-probe.tar.gz" --manifest "$scratch/backup-proof.json"
+# Confirm effective isolation again after the atomic target restore.
+docker inspect "$source_db" "$target_db" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-db-source" --target-name "$review_id-db-target"
 [[ "$(query "$target_db" 'SELECT count(*) FROM migrations')" == "$migration_count" ]] || {
   echo 'Migration count changed after restore.' >&2; exit 1;
 }

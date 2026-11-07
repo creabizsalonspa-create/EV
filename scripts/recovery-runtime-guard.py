@@ -70,16 +70,21 @@ def validate_containers(rows, source, target, source_names, target_names):
         state = row.get('NetworkSettings')
         require(isinstance(host, dict) and isinstance(state, dict),
                 'Incomplete Docker isolation configuration')
-        require(host.get('NetworkMode') == netid,
-                'Container escaped its dedicated network')
         attachments = state.get('Networks')
         require(isinstance(attachments, dict) and len(attachments) == 1,
                 'Unexpected additional network attachment')
-        attached = next(iter(attachments.values()))
+        attached_name, attached = next(iter(attachments.items()))
         require(isinstance(attached, dict) and attached.get('NetworkID') == netid,
                 'Container attached to an unreviewed network')
+        # Docker may report either the passed ID or the resolved network
+        # name. Both are valid only for the single verified NetworkID.
+        require(host.get('NetworkMode') in (netid, attached_name),
+                'Container escaped its dedicated network')
+        ports = state.get('Ports')
+        require(ports is None or isinstance(ports, dict),
+                'Invalid container port publication metadata')
         require(host.get('PortBindings') in (None, {}) and
-                all(value is None for value in (state.get('Ports') or {}).values()),
+                all(value is None for value in (ports or {}).values()),
                 'Recovery container has a host-published port')
         require(host.get('Privileged') is False and
                 host.get('CapAdd') in (None, []) and

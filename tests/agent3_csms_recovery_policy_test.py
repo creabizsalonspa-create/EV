@@ -63,7 +63,7 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
     def test_effective_runtime_isolation_is_required_before_restore(self):
         code = self.source
         self.assertIn('recovery-runtime-guard.py" networks', code)
-        self.assertIn('recovery-runtime-guard.py" containers', code)
+        self.assertEqual(code.count('recovery-runtime-guard.py" containers'), 2)
         self.assertLess(code.index('recovery-runtime-guard.py" containers'),
                         code.index('pg_restore -U ev_csms_recovery'))
         self.assertIn("'isolated_runtime_verified': True", code)

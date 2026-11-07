@@ -110,7 +110,7 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
     def test_effective_docker_runtime_must_be_verified_before_any_restore(self):
         code = self.source
         self.assertIn('recovery-runtime-guard.py" networks', code)
-        self.assertEqual(code.count('recovery-runtime-guard.py" containers'), 2)
+        self.assertEqual(code.count('recovery-runtime-guard.py" containers'), 3)
         self.assertLess(code.index('recovery-runtime-guard.py" networks'),
                         code.index('pg_restore -U ev_recovery_review'))
         self.assertLess(code.index('recovery-runtime-guard.py" containers'),

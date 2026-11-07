@@ -135,6 +135,11 @@ python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --ma
 docker exec -i "$target_db" pg_restore -U ev_csms_recovery -d ev_csms_recovery \
   --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
 python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json"
+# Re-verify Docker runtime after restore in case networking or mounts changed.
+docker inspect "$source_db" "$target_db" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-source-db" --target-name "$review_id-target-db"
 
 restored_count=$(query "$target_db" 'SELECT count(*) FROM ev_agent3_recovery.synthetic_locations')
 restored_fingerprint=$(query "$target_db" "$fingerprint_sql")

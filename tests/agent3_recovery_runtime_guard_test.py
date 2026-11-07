@@ -1,5 +1,6 @@
 """No-Docker synthetic runtime negative tests for recovery container isolation."""
 import copy
+from contextlib import redirect_stdout, redirect_stderr
 import importlib.util
 import io
 import json
@@ -55,6 +56,9 @@ class RecoveryIsolationTests(unittest.TestCase):
         rows = [container('source-db', S, 'private-source'),
                 container('target-db', T, 'private-target')]
         g.validate_containers(rows, S, T, ['source-db'], ['target-db'])
+        resolved_name = copy.deepcopy(rows)
+        resolved_name[0]['HostConfig']['NetworkMode'] = 'recovery-net'
+        g.validate_containers(resolved_name, S, T, ['source-db'], ['target-db'])
         tests = [
             ('Name', '/unexpected'),
             ('HostConfig.NetworkMode', 'host'),
@@ -70,6 +74,7 @@ class RecoveryIsolationTests(unittest.TestCase):
             ('HostConfig.UsernsMode', 'host'),
             ('NetworkSettings.Networks', {'x': {'NetworkID': T}}),
             ('NetworkSettings.Ports', {'5432/tcp': [{'HostPort': '5432'}]}),
+            ('NetworkSettings.Ports', ['malformed-list']),
             ('Mounts', [{'Type': 'bind', 'Source': '/etc', 'Destination': '/host'}]),
             ('Mounts', [{'Type': 'volume', 'Name': 'private-target'}]),
         ]
@@ -101,6 +106,15 @@ class RecoveryIsolationTests(unittest.TestCase):
         self.assertEqual(g.main(['containers', '--source-network', S,
                                  '--target-network', T, '--source-name', 'source-db',
                                  '--target-name', 'target-db'], good), 0)
+        bad = copy.deepcopy(rows)
+        bad[0]['HostConfig']['Privileged'] = True
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            self.assertEqual(g.main(['containers', '--source-network', S,
+                                     '--target-network', T, '--source-name', 'source-db',
+                                     '--target-name', 'target-db'],
+                                    io.BytesIO(json.dumps(bad).encode())), 1)
+        self.assertNotIn('SUPER_SECRET_DO_NOT_PRINT', output.getvalue() + errors.getvalue())
         for invalid in (b'null', b'{}', b'not-json', b'[' + b'a'*1048576):
             with self.subTest(length=len(invalid)):
                 self.assertEqual(g.main(['networks', '--source-network', S,
