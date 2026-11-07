@@ -34,6 +34,10 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
     energyWh:null,
     energyKwh:null,
     totalFils:null,
+    subtotalFils:null,
+    vatFils:null,
+    rateAedPerKwh:null,
+    vatPercent:null,
     billingStatus:source.billingStatus??'unverified',
     paymentStatus:'not_collected'
   };
@@ -47,8 +51,18 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
   if(ended && source.billingStatus==='calculated_unpaid'
       && fils(source.subtotalFils) && fils(source.vatFils) && fils(source.totalFils)
       && source.totalFils===source.subtotalFils+source.vatFils
-      && source.tariff?.currency==='AED') {
+      && source.tariff?.currency==='AED'
+      && Number.isInteger(source.tariff.rateFilsPerKwh)
+      && source.tariff.rateFilsPerKwh>=0
+      && Number.isFinite(source.tariff.vatPercent)
+      && source.tariff.vatPercent>=0 && source.tariff.vatPercent<=100
+      && source.subtotalFils===Math.round(delta*source.tariff.rateFilsPerKwh/1000)
+      && source.vatFils===Math.round(source.subtotalFils*source.tariff.vatPercent/100)) {
     evidence.totalFils=source.totalFils;
+    evidence.subtotalFils=source.subtotalFils;
+    evidence.vatFils=source.vatFils;
+    evidence.rateAedPerKwh=source.tariff.rateFilsPerKwh/100;
+    evidence.vatPercent=source.tariff.vatPercent;
     evidence.billingStatus='calculated_unpaid';
   }
   return evidence;
