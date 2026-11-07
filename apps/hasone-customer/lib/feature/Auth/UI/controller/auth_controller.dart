@@ -134,6 +134,12 @@ class AuthController extends GetxController {
   /// response: { status, message, token, userId, name, email }
   Future<bool> login(String email, String password) async {
     final attempt = ++_credentialAttempt;
+    // Profile persistence and user-model decoding are part of login's
+    // completion boundary. If either fails after vault commit, revoke only
+    // this attempt's token before reporting failure.
+    int? committedGeneration;
+    String? committedToken;
+    user.value = null;
     loading.value = true;
     try {
       // Supersede earlier login responses and invalidate any old cached
@@ -167,6 +173,8 @@ class AuthController extends GetxController {
             savedGeneration != SharedPrefs.credentialGeneration) {
           return false;
         }
+        committedGeneration = savedGeneration;
+        committedToken = token;
         final userData = <String, dynamic>{
           'fullName': res.responseData?['name']?.toString(),
           'email': res.responseData?['email']?.toString(),
@@ -194,6 +202,19 @@ class AuthController extends GetxController {
       return false;
     } catch (_) {
       if (attempt == _credentialAttempt) {
+        if (committedGeneration != null) {
+          try {
+            await _prefs.clearIfCurrent(
+              expectedGeneration: committedGeneration,
+              expectedToken: committedToken,
+            );
+          } catch (_) {
+            // clear() invalidates the in-memory token before the platform
+            // deletion and persists its fail-closed marker when available.
+            // A newer login must never be revoked by this old failure.
+          }
+        }
+        user.value = null;
         Get.snackbar('Sign-in unavailable', 'Could not safely save this session.',
             snackPosition: SnackPosition.TOP);
       }
