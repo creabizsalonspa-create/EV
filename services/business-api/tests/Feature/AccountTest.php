@@ -70,6 +70,23 @@ class AccountTest extends TestCase
         $this->getJson('/api/vehicles')->assertOk();
     }
 
+    public function test_password_reset_invalidates_first_party_native_cookie_session(): void
+    {
+        $user = User::factory()->create(['role' => 'customer']);
+        $resetToken = Password::createToken($user);
+        $this->postJson('/api/reset-password', [
+            'email' => $user->email,
+            'token' => $resetToken,
+            'password' => 'new-password-after-reset',
+            'password_confirmation' => 'new-password-after-reset',
+        ])->assertOk();
+        $this->assertSame(1, $user->fresh()->auth_epoch);
+
+        $this->actingAs($user->fresh(), 'web')
+            ->withSession(['account_auth_epoch' => 0])
+            ->getJson('/api/v1/me')->assertUnauthorized();
+    }
+
     public function test_reset_rejects_wrong_user_and_weak_or_expired_token(): void
     {
         $u = User::factory()->create();

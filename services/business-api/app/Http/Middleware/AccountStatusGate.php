@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\TransientToken;
 use Symfony\Component\HttpFoundation\Response;
 
 class AccountStatusGate
@@ -40,7 +41,13 @@ class AccountStatusGate
         // After a moderation action, rotating account_auth_epoch invalidates
         // old file/array/Redis sessions, not just database-backed sessions.
         // Existing unmoderated accounts (epoch=0) remain compatible.
-        if (! $native && $account && (int) $account->auth_epoch > 0
+        // Sanctum may authenticate first-party API requests using a browser
+        // session, not a mobile bearer token. Those requests must observe the
+        // same auth epoch as regular web routes. Genuine personal access tokens
+        // are revoked separately and do not carry browser session epochs.
+        $usesBrowserSession = ! $native || ($account
+            && $account->currentAccessToken() instanceof TransientToken);
+        if ($usesBrowserSession && $account && (int) $account->auth_epoch > 0
             && (! $request->hasSession()
                 || (int) $request->session()->get('account_auth_epoch', -1)
                     !== (int) $account->auth_epoch)) {

@@ -192,6 +192,35 @@ class AdminAccountModerationTest extends TestCase
         $this->getJson('/api/vehicles')->assertOk();
     }
 
+    public function test_cookie_authenticated_native_api_cannot_bypass_stale_browser_epoch(): void
+    {
+        $account = User::factory()->create(['role' => 'customer']);
+        $account->forceFill(['role' => 'vendor'])->save();
+        $this->assertSame(1, $account->fresh()->auth_epoch);
+
+        // Sanctum's first-party cookie mode must not skip browser-epoch
+        // invalidation merely because the requested route starts /api/v1/.
+        $this->actingAs($account->fresh(), 'web')
+            ->withSession(['account_auth_epoch' => 0])
+            ->getJson('/api/v1/me')->assertUnauthorized();
+
+        $this->postJson('/api/login', [
+            'email' => $account->email, 'password' => 'password',
+        ])->assertOk();
+        $this->getJson('/api/v1/me')->assertOk()
+            ->assertJsonPath('role', 'vendor');
+    }
+
+    public function test_new_genuine_native_token_is_compatible_with_nonzero_browser_epoch(): void
+    {
+        $account = User::factory()->create(['role' => 'customer']);
+        $account->forceFill(['auth_epoch' => 3])->save();
+        $token = $account->createToken('mobile', ['platform'], now()->addDay())
+            ->plainTextToken;
+        $this->withToken($token)->getJson('/api/v1/me')->assertOk()
+            ->assertJsonPath('role', 'customer');
+    }
+
     public function test_account_directory_can_filter_moderation_state_without_exposing_reason(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
