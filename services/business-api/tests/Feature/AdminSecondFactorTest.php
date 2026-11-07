@@ -102,6 +102,61 @@ class AdminSecondFactorTest extends TestCase
         $this->assertDatabaseCount('admin_second_factors', 0);
     }
 
+    public function test_recovery_codes_are_single_use_private_and_require_password_to_replace_device(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $secret = $this->postJson('/api/admin/second-factor/begin', ['password' => 'password'])
+            ->assertOk()->json('secret');
+        $confirm = $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk();
+        $codes = $confirm->json('recovery_codes');
+        $this->assertCount(8, $codes);
+        $this->assertCount(8, array_unique($codes));
+        $this->assertDatabaseCount('admin_second_factor_recovery_codes', 8);
+        $this->assertDatabaseMissing('admin_second_factor_recovery_codes', ['code_digest' => $codes[0]]);
+        $this->getJson('/api/admin/second-factor/status')->assertJsonMissingPath('recovery_codes');
+
+        $this->postJson('/api/logout')->assertNoContent();
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => str_repeat('0', 20)])
+            ->assertUnprocessable();
+        $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => $codes[0]])
+            ->assertOk()->assertJsonPath('recovery_reset_available', true);
+        $this->getJson('/api/admin/second-factor/status')->assertJsonPath('recovery_reset_available', true);
+        $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => $codes[0]])
+            ->assertUnprocessable();
+        $this->assertSame(1, DB::table('admin_second_factor_recovery_codes')
+            ->whereNotNull('used_at')->count());
+        $this->postJson('/api/admin/second-factor/reset-after-recovery', ['password' => 'wrong'])
+            ->assertUnprocessable();
+        $this->postJson('/api/admin/second-factor/reset-after-recovery', ['password' => 'password'])
+            ->assertOk()->assertJsonPath('enrolled', false);
+        $this->assertDatabaseCount('admin_second_factors', 0);
+        $this->assertDatabaseCount('admin_second_factor_recovery_codes', 0);
+        $this->getJson('/api/admin/overview')->assertForbidden();
+        $this->postJson('/api/admin/second-factor/begin', ['password' => 'password'])->assertOk();
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.second_factor.reset_for_reenrollment',
+        ]);
+    }
+
+    public function test_password_alone_cannot_reset_enrolled_factor_without_used_recovery_code(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $secret = $this->postJson('/api/admin/second-factor/begin', ['password' => 'password'])
+            ->assertOk()->json('secret');
+        $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk();
+        $this->postJson('/api/admin/second-factor/reset-after-recovery', ['password' => 'password'])
+            ->assertForbidden();
+        $this->assertDatabaseCount('admin_second_factors', 1);
+    }
+
     public function test_customer_and_vendor_web_login_are_not_interrupted_by_admin_challenge(): void
     {
         foreach (['customer', 'vendor'] as $role) {
