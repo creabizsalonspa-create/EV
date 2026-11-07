@@ -11,7 +11,7 @@ return new class extends Migration
     {
         Schema::create('privacy_requests', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('user_id')->constrained()->restrictOnDelete();
+            $t->foreignId('user_id')->nullable()->constrained()->nullOnDelete(); // Retained review record must not introduce an account-erasure blocker.
             $t->string('request_type', 32);
             $t->longText('reason')->nullable(); // Eloquent encrypted at rest.
             $t->string('idempotency_key', 100);
