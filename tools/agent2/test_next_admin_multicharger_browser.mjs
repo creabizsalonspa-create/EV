@@ -252,7 +252,7 @@ try{
  });
  await clickText(page,'Finalize verified booking');
  await step('finalization shows completed booking without collected charge',async()=>{
-   await page.waitForFunction(()=>document.body.innerText.includes('Booking finalized'),{timeout:15000});
+   await page.waitForFunction(()=>document.body.innerText.includes('Booking finalized') && document.body.innerText.includes('Completed'),{timeout:15000});
    assert.equal(stage,3);
    assert.ok((await page.content()).includes('Completed'));
    assert.ok((await page.content()).includes('not collected'));

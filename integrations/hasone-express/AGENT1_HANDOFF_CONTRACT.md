@@ -462,3 +462,28 @@ receipt assertion or randomBytes(24) issuance remains in the changed flows.
 including the new oversized-start integration test, because the authorized host
 remains offline. Prior runtime counts do not validate this revision. This fix
 does not certify a physical charger, enable controls, settle funds or deploy.
+
+
+## Full disposable runtime acceptance — 7 November 2026
+
+The authorized host returned online. All 51 parent d145b17 PR files were
+verified against Git blob SHA-1 before isolated materialization. The complete
+wrapper ran with RUN_AGENT2_BROWSER=1 and RUN_AGENT2_REAL_BROWSER=1.
+Two harness-only defects were corrected: an unrelated-charger fixture retained
+an oversized legacy token, and the mocked finalization test checked the DOM
+before the completed-state refresh finished. No application protections were weakened.
+
+Passed: 97 Node guards; 13 callback HTTP checks; 102 backend/OCPP checks;
+Next TypeScript and optimized Webpack build; 11 mocked Chrome checks;
+7 actual-API Chrome assertions. The second fresh disposable backend reports
+103 checks including the real browser journey. Wrapper exited 0 and port 3453
+was released. Actual UI calls exercised JWT-protected Express, disposable Mongo
+and real staged OCPP handlers; 5 kWh and 525 unpaid fils agreed with persisted
+and customer read-only records. This is synthetic loopback evidence, not live
+hardware or PSP acceptance.
+
+Restricted host log /home/hasio/agent2-work/pr50-runtime-v3.log, SHA-256
+27b8780926d63665b5f1f4e44ad90b84c9f8b12367b6c878fef7ecaf926e7d5c.
+Agent 4: review the exact pushed revision and required hosted checks before
+integration; hosted checks remain separately queued/pending. Do not infer
+production deployment, canonical-ledger migration or physical commissioning.

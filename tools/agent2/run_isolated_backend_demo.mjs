@@ -1088,7 +1088,7 @@ try{
       timestamp:new Date().toISOString(),reason:'EVDisconnected'});
   });
   await check('unrelated valid first-charger transaction cannot be bound to second-charger booking',async()=>{
-    const otherToken='agent2-unrelated-first-charger-token';
+    const otherToken='0123456789ABCDEF0456';
     await db.collection('ocpp_access_tokens').insertOne({
       chargerId:multiPrimary,tokenHash:createHash('sha256').update(otherToken).digest('hex'),
       enabled:true,expiresAt:new Date(Date.now()+3600000)
