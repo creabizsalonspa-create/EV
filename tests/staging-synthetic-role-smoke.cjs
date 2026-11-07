@@ -173,3 +173,22 @@ test('CLI never prints account or credential details on failure',async()=>{
  const result=await roleSmoke.main(['--manifest','/private/not-present/access.json']);
  assert.equal(result,1);
 });
+
+test('local demo cannot issue wrong HTTP method for an allowed route',()=>{
+ for(const [route,method] of [
+   ['/api/me','POST'],['/api/login','GET'],['/api/csrf','POST'],
+   ['/api/admin/overview','POST'],['/api/logout','GET']
+ ]) assert.throws(()=>roleSmoke.jsonRequest(route,method));
+});
+test('local demo rejects added payload on read-only routes and logout',()=>{
+ assert.throws(()=>roleSmoke.jsonRequest('/api/me','GET',{unexpected:1}));
+ assert.throws(()=>roleSmoke.jsonRequest('/api/logout','POST',{unexpected:1}));
+ assert.throws(()=>roleSmoke.jsonRequest('/api/login','POST',{email:'a'.repeat(10000)}));
+});
+test('browser cookie jar refuses suspicious overload before network requests',()=>{
+ const jar=new Map();
+ assert.throws(()=>roleSmoke.readCookies(jar,{'set-cookie':Array.from({length:17},(_,i)=>'cookie'+i+'=value')}));
+ assert.throws(()=>roleSmoke.readCookies(jar,{'set-cookie':[false]}));
+ const more=new Map(Array.from({length:8},(_,i)=>['a'+i,'value']));
+ assert.throws(()=>roleSmoke.readCookies(more,{'set-cookie':['ninth=value']}));
+});
