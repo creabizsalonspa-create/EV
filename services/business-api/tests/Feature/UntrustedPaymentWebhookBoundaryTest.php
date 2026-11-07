@@ -119,5 +119,4 @@ class UntrustedPaymentWebhookBoundaryTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
         Http::assertNothingSent();
     }
-
 }
