@@ -140,11 +140,14 @@ test('combined lab report refuses browser roles whose public synthetic stations 
 });
 
 test('private demo report binds its reviewed synthetic fixture fingerprint without exposing passwords',async()=>{
- await temp(async(file)=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ev-fingerprint-report-'));
+ fs.chmodSync(dir,0o700);
+ try {
+   const file=path.join(dir,'proof.json');
    const result=await demo.main(params(file),synthetics());
    assert.equal(result,0);
    const saved=JSON.parse(fs.readFileSync(file,'utf8'));
    assert.equal(saved.fixture_sha256,'f'.repeat(64));
    assert.equal(JSON.stringify(saved).includes('aA9!'),false);
- });
+ } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
