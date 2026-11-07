@@ -1,3 +1,4 @@
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/station_information.dart';
 import 'package:flutter/material.dart';
@@ -63,6 +64,11 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       locale: const Locale('ar'),
       supportedLocales: const [Locale('en'), Locale('ar')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: Scaffold(body: ListView(children: [
         StationInformationPanel(information: Station.fromJson(station()).information, timezone: 'Asia/Dubai'),
       ])),

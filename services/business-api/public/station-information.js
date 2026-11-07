@@ -50,10 +50,15 @@
         const hourLines = [];
         for (let i = 0; i < days.length; i++) {
             const range = hours[days[i]] || {};
-            const timing = range.open && range.close ? (range.open === range.close
-                ? (isArabic() ? "٢٤ ساعة" : "24 hours")
-                : range.open + "–" + range.close + (range.open > range.close ? (isArabic() ? " (لليوم التالي)" : " (next day)") : "")) : null;
-            hourLines.push([dayEn[i] + ": " + (timing || "Closed"), dayAr[i] + ": " + (timing || "مغلق")]);
+            const open = typeof range.open === "string" ? range.open : null;
+            const close = typeof range.close === "string" ? range.close : null;
+            const twentyFour = open && close && open === close;
+            const overnight = open && close && open > close;
+            const en = !open || !close ? "Closed" : twentyFour ? "24 hours"
+                : open + "–" + close + (overnight ? " (next day)" : "");
+            const ar = !open || !close ? "مغلق" : twentyFour ? "٢٤ ساعة"
+                : open + "–" + close + (overnight ? " (لليوم التالي)" : "");
+            hourLines.push([dayEn[i] + ": " + en, dayAr[i] + ": " + ar]);
         }
         for (const [en, ar] of hourLines) appendText(details, en, ar);
         if (Array.isArray(info.closed_dates) && info.closed_dates.length)
