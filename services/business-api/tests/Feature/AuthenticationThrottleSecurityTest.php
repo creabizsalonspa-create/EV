@@ -85,5 +85,4 @@ class AuthenticationThrottleSecurityTest extends TestCase
         $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.45']);
         $this->postJson('/api/v1/login', $credentials)->assertUnprocessable();
     }
-
 }
