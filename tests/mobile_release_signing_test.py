@@ -47,7 +47,18 @@ class MobileReleaseSigningTest(unittest.TestCase):
                         'tasks.register("verifyReleaseMapsApiKey")', config
                     )
                     self.assertIn(
-                        'dependsOn(verifyReleaseSigning, verifyReleaseMapsApiKey)',
+                        'tasks.register("verifyReleaseApplicationId")', config
+                    )
+                    self.assertIn(
+                        'providers.gradleProperty("HASONE_ANDROID_APPLICATION_ID")',
+                        config,
+                    )
+                    self.assertIn(
+                        '!identifier.endsWith(".dev", ignoreCase = true)',
+                        config,
+                    )
+                    self.assertIn(
+                        'dependsOn(verifyReleaseSigning, verifyReleaseMapsApiKey, verifyReleaseApplicationId)',
                         config,
                     )
                     self.assertIn(
