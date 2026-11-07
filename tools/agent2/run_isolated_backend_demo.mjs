@@ -447,6 +447,90 @@ try{
     assert.equal(await db.collection('ocpp_access_tokens').countDocuments({
       chargerId:adminCharger,bookingId:String(other._id)}),1);
   });
+  await check('active unused booking token cannot be reissued early',async()=>{
+    const response=await request('POST',
+      '/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/reissue-token',
+      {},false,{authorization:adminBearer});
+    assert.equal(response.code,409);
+    assert.equal((await BookingModel.findById(adminBooking._id)).ocppTokenHash,
+      createHash('sha256').update(issuedToken).digest('hex'));
+  });
+  const expiredHash=createHash('sha256').update('agent2-expired-unused-booking-token').digest('hex');
+  const expiredBooking=await BookingModel.create({
+    userId:user._id,stationId:adminStation._id,
+    date:'2026-11-15',time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+    status:'Upcoming',isPaid:true,hasArrived:true,totalAmount:63,
+    ocppChargerId:adminCharger,ocppTokenHash:expiredHash,
+    ocppTokenIssuedAt:new Date(Date.now()-26*60000)
+  });
+  await db.collection('ocpp_access_tokens').insertOne({
+    chargerId:adminCharger,tokenHash:expiredHash,enabled:true,
+    expiresAt:new Date(Date.now()-60000),bookingId:String(expiredBooking._id)
+  });
+  const renewPath='/api/v1/admin/bookings/'+expiredBooking._id+'/ocpp/reissue-token';
+  await check('Admin operation state identifies truly expired unused token',async()=>{
+    const op=await request('GET',
+      '/api/v1/admin/bookings/'+expiredBooking._id+'/ocpp/operations',
+      undefined,false,{authorization:adminBearer});
+    assert.equal(op.code,200);
+    assert.equal(op.body.data.canReissueToken,true);
+    assert.equal(op.body.data.canIssueToken,false);
+  });
+  await check('unprivileged customer cannot reissue booking charger authorization',async()=>{
+    const response=await request('POST',renewPath,{},true);
+    assert.equal(response.code,401);
+  });
+  let renewedToken='';
+  await check('eight simultaneous reissue requests rotate expired token exactly once',async()=>{
+    const responses=await Promise.all(Array.from({length:8},()=>request('POST',
+      renewPath,{},false,{authorization:adminBearer})));
+    assert.equal(responses.filter(x=>x.code===201).length,1);
+    assert.equal(responses.filter(x=>x.code===409).length,7);
+    renewedToken=responses.find(x=>x.code===201).body.data.oneTimeToken;
+    const newHash=createHash('sha256').update(renewedToken).digest('hex');
+    const saved=await BookingModel.findById(expiredBooking._id);
+    assert.equal(saved.ocppTokenHash,newHash);
+    assert.equal(saved.ocppChargerId,adminCharger);
+    assert.equal(await db.collection('ocpp_access_tokens').countDocuments({
+      chargerId:adminCharger,tokenHash:newHash,enabled:true}),1);
+    assert.equal(await db.collection('ocpp_access_tokens').countDocuments({
+      chargerId:adminCharger,tokenHash:expiredHash,enabled:true}),0);
+  });
+  await check('revoked old token stays invalid while renewed token authorizes',async()=>{
+    const old=await handle({chargerId:adminCharger},'ocpp1.6','Authorize',
+      {idTag:'agent2-expired-unused-booking-token'});
+    const current=await handle({chargerId:adminCharger},'ocpp1.6','Authorize',
+      {idTag:renewedToken});
+    assert.equal(old.idTagInfo.status,'Invalid');
+    assert.equal(current.idTagInfo.status,'Accepted');
+    const op=await request('GET','/api/v1/admin/bookings/'+expiredBooking._id+'/ocpp/operations',
+      undefined,false,{authorization:adminBearer});
+    assert.equal(op.body.data.canReissueToken,false);
+    assert.equal(JSON.stringify(op.body).includes(renewedToken),false);
+  });
+  const consumedHash=createHash('sha256').update('agent2-already-consumed-booking-token').digest('hex');
+  const consumedBooking=await BookingModel.create({
+    userId:user._id,stationId:adminStation._id,
+    date:'2026-11-16',time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+    status:'Upcoming',isPaid:true,hasArrived:true,totalAmount:63,
+    ocppChargerId:adminCharger,ocppTokenHash:consumedHash,
+    ocppTokenIssuedAt:new Date(Date.now()-30*60000)
+  });
+  await db.collection('ocpp_access_tokens').insertOne({
+    chargerId:adminCharger,tokenHash:consumedHash,enabled:false,
+    consumedAt:new Date(Date.now()-25*60000),
+    expiresAt:new Date(Date.now()-10*60000),
+    bookingId:String(consumedBooking._id)
+  });
+  await check('consumed token blocks reissue even if source linkage is delayed',async()=>{
+    const op=await request('GET','/api/v1/admin/bookings/'+consumedBooking._id+'/ocpp/operations',
+      undefined,false,{authorization:adminBearer});
+    assert.equal(op.code,200);assert.equal(op.body.data.canReissueToken,false);
+    const response=await request('POST',
+      '/api/v1/admin/bookings/'+consumedBooking._id+'/ocpp/reissue-token',
+      {},false,{authorization:adminBearer});
+    assert.equal(response.code,409);
+  });
   let adminOcppSession;
   await check('real OCPP 1.6 handler accepts Admin booking token and persists source meter events',async()=>{
     const starting=await handle({chargerId:adminCharger},'ocpp1.6','StartTransaction',{
