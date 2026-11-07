@@ -44,8 +44,9 @@ function jsonRequest(route, method='GET', payload=undefined,jar=new Map(),client
   const body=payload===undefined?null:JSON.stringify(payload);
   const headers={Accept:'application/json','Cache-Control':'no-store'};
   if(body!==null){headers['Content-Type']='application/json';headers['Content-Length']=Buffer.byteLength(body);}
-  if(jar.size)headers.Cookie=[...jar].map(([k,v])=>k+'='+v).join('; ');
-  if(jar.get('XSRF-TOKEN')) headers['X-XSRF-TOKEN']=decodeURIComponent(jar.get('XSRF-TOKEN'));
+  const cookies=[...jar].filter(([k])=>k!=='__csrf_token');
+  if(cookies.length)headers.Cookie=cookies.map(([k,v])=>k+'='+v).join('; ');
+  if(jar.has('__csrf_token')) headers['X-CSRF-TOKEN']=jar.get('__csrf_token');
   return new Promise((resolve,reject)=>{
     const request=client.request({host:BASE,port:PORT,path:route,method,headers,agent:false,timeout:TIMEOUT},response=>{
       const chunks=[];let size=0;
