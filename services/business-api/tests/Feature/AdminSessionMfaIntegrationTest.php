@@ -16,7 +16,7 @@ class AdminSessionMfaIntegrationTest extends TestCase
         // PR72 is independently testable before Agent4 integrates PR80. This
         // cross-PR acceptance test executes in the combined source tree, and
         // explicitly reports the missing integration dependency in isolation.
-        if (! class_exists(\App\Security\AdminTotp::class)) {
+        if (! is_file(app_path('Security/AdminTotp.php'))) {
             $this->markTestSkipped('Admin TOTP source from PR80 is not yet integrated.');
         }
         config()->set('admin_security.enforce_in_local_tests', true);
