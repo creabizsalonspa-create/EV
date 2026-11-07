@@ -1048,6 +1048,43 @@ try{
     assert.equal(customer.body.data.kwhUsed,7);
     assert.equal(customer.body.data.paymentStatus,'not_collected');
   });
+  await check('customer cannot read station OCPP start exception report',async()=>{
+    const path='/api/v1/admin/stations/'+multiStation._id+'/ocpp/start-exceptions';
+    const response=await request('GET',path,undefined,true);
+    assert.equal(response.code,401);
+  });
+  await check('Admin start audit ignores consumed tokens with existing OCPP source',async()=>{
+    const tokenHash=createHash('sha256').update(multiToken).digest('hex');
+    const used=await db.collection('ocpp_access_tokens').findOne({
+      chargerId:multiSecond,tokenHash});
+    assert.equal(used.enabled,false);
+    assert.ok(used.consumedAt instanceof Date);
+    const path='/api/v1/admin/stations/'+multiStation._id+'/ocpp/start-exceptions';
+    const response=await request('GET',path,undefined,false,
+      {authorization:adminBearer});
+    assert.equal(response.code,200);
+    assert.equal(response.body.data.readOnly,true);
+    assert.ok(response.body.data.matchedSourceCount>=1);
+    assert.equal(JSON.stringify(response.body).includes(tokenHash),false);
+    assert.equal(JSON.stringify(response.body).includes(multiToken),false);
+  });
+  await check('Admin flags orphaned consumed credential without re-enabling it',async()=>{
+    const orphanHash=createHash('sha256').update('agent2-intentionally-orphaned-credential').digest('hex');
+    await db.collection('ocpp_access_tokens').insertOne({
+      chargerId:multiPrimary,tokenHash:orphanHash,enabled:false,
+      consumedAt:new Date(Date.now()-180000),bookingId:String(multiBooking._id)
+    });
+    const path='/api/v1/admin/stations/'+multiStation._id+'/ocpp/start-exceptions';
+    const response=await request('GET',path,undefined,false,
+      {authorization:adminBearer});
+    assert.equal(response.code,200);
+    assert.ok(response.body.data.orphanCount>=1);
+    assert.ok(response.body.data.exceptions.some(x=>
+      x.chargerId===multiPrimary && x.credentialRestored===false));
+    assert.equal(JSON.stringify(response.body).includes(orphanHash),false);
+    const record=await db.collection('ocpp_access_tokens').findOne({tokenHash:orphanHash});
+    assert.equal(record.enabled,false);
+  });
   const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
   const hash16=createHash('sha256').update(token16).digest('hex');
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
