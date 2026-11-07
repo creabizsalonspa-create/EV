@@ -74,7 +74,9 @@ class SharedPrefs {
       if (!await prefs.setBool(_kBlocked, true)) {
         throw StateError('Unable to protect the on-device credential');
       }
-      await prefs.remove(_kUser);
+      if (!await prefs.remove(_kUser)) {
+        throw StateError('Unable to clear the previous cached account');
+      }
       if (generation != _generation) return;
       await _vault.write(key: _kAccess, value: token);
       if (generation != _generation) return;
@@ -172,8 +174,12 @@ class SharedPrefs {
       if (!await prefs.setBool(_kBlocked, true)) {
         throw StateError('Unable to block the on-device credential');
       }
-      await prefs.remove(_kUser);
+      // Remove the credential first: a failed profile-cache operation must
+      // not leave an authenticated bearer unnecessarily on the device.
       await _vault.delete(key: _kAccess);
+      if (!await prefs.remove(_kUser)) {
+        throw StateError('Unable to clear the previous cached account');
+      }
       if (generation == _generation) Session.clear();
     });
   }
