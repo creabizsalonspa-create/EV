@@ -166,6 +166,10 @@
         option.value = String(model.id); option.textContent = title(model);
         select.append(option);
       }
+      // Preserve the linked model after a refresh or successful save rather
+      // than silently selecting a different (first) model in the list.
+      if (models.some(model => model.id === linked?.id))
+        select.value = String(linked.id);
       panel.append(select);
       const reference = document.createElement("a");
       reference.target = "_blank";

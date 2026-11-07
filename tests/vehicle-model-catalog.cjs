@@ -46,14 +46,19 @@ const model={
   connector_type:'CCS2',source_url:'https://example.com/ev-a',
   revision:1,published:true,provenance:'ADMIN_CURATED_UNVERIFIED',
 };
+const secondModel={...model,id:8,model:'EV-B',source_url:'https://example.com/ev-b'};
 const adminRoot=document.createElement('section'),customerRoot=document.createElement('section');
 let actor={id:3,role:'customer'},epoch=1;
 const sent=[];
+let activeModelId=null;
 const api=async(path,method='GET',body)=>{
   sent.push({path,method,body});
-  if(path==='vehicles/12/model'&&method==='GET')return {vehicle_id:12,vehicle_connector_type:'CCS2',model_id:null,model:null};
-  if(path.startsWith('vehicle-models?'))return {data:[model],last_page:1,current_page:1};
-  if(path==='vehicles/12/model'&&method==='PUT')return {vehicle_id:12,model_id:body.model_id,model};
+  if(path==='vehicles/12/model'&&method==='GET')return {vehicle_id:12,vehicle_connector_type:'CCS2',model_id:activeModelId,model:activeModelId===8?secondModel:activeModelId===7?model:null};
+  if(path.startsWith('vehicle-models?'))return {data:[model,secondModel],last_page:1,current_page:1};
+  if(path==='vehicles/12/model'&&method==='PUT'){
+    activeModelId=body.model_id;
+    return {vehicle_id:12,model_id:body.model_id,model:activeModelId===8?secondModel:activeModelId===7?model:null};
+  }
   if(path==='vehicle-models'&&method==='POST')return {...body,id:9,revision:1};
   throw Error('unexpected API path '+path);
 };
@@ -76,9 +81,20 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
     model_id:7,expected_model_id:null,
   });
   assert.match(label(customerRoot),/Model linked/);
+  // Link the second option, then ensure the picker stays on it after the PUT
+  // and after a same-owner garage refresh (not the first catalog entry).
+  const secondSelect=visit(customerRoot,n=>n.tag==='select');
+  secondSelect.value='8';
+  const secondSave=visit(customerRoot,n=>n.tag==='button'&&label(n).includes('Link selected model'));
+  await secondSave.onclick();
+  assert.equal(activeModelId,8);
+  const afterSave=visit(customerRoot,n=>n.tag==='select');
+  assert.equal(afterSave.value,'8');
+  assert.match(label(customerRoot),/EV-B/);
   view.renderGarage([{id:12,name:'Family EV latest',connector_type:'CCS2'}]);
   assert.match(label(customerRoot),/Model linked/);
   assert.ok(customerRoot.querySelector('[data-vehicle-model-picker]'));
+  assert.equal(visit(customerRoot,n=>n.tag==='select').value,'8');
   // When the vehicle disappears, discard panel and linked model immediately.
   view.renderGarage([]);
   assert.equal(customerRoot.querySelector('[data-vehicle-model-picker]'), null);
