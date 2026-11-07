@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+from recovery_proof_writer import publish
 
 class EvidenceError(Exception):
     pass
@@ -165,14 +166,7 @@ def main(argv=None):
     except (OSError, EvidenceError) as exc:
         print(f'FAIL: {exc}', file=sys.stderr)
         return 1
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    temp = args.output.with_suffix('.recovery-tmp')
-    temp.unlink(missing_ok=True)
-    fd = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    with os.fdopen(fd, 'w') as output:
-        json.dump(result, output, sort_keys=True, indent=2)
-        output.write('\n')
-    os.replace(temp, args.output)
+    publish(args.output, result)
     print('PASS: same-run dual synthetic recovery evidence; NOT production acceptance')
     return 0
 

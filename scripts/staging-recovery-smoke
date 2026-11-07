@@ -349,11 +349,12 @@ drill_completed_epoch=$(date -u +%s)
 mkdir -p "$root/artifacts/agent3-recovery"
 archive_hash=$(sha256sum "$archive" | awk '{print $1}')
 private_archive_hash=$(sha256sum "$scratch/private-probe.tar.gz" | awk '{print $1}')
-python3 - "$root/artifacts/agent3-recovery/validation.json" \
+PYTHONPATH="$root/scripts" python3 - "$root/artifacts/agent3-recovery/validation.json" \
   "$archive_hash" "$private_archive_hash" "$migration_count" "$migration_fingerprint" "$probe_fingerprint" \
   "$drill_started_epoch" "$snapshot_started_epoch" "$snapshot_completed_epoch" \
   "$restore_started_epoch" "$drill_completed_epoch" <<'PY_EVIDENCE'
-import json, os, sys
+import os, sys
+from recovery_proof_writer import publish
 path, archive_hash, private_hash, count, migration_hash, probe_hash, \
     drill_start, snapshot_start, snapshot_end, restore_start, drill_end = sys.argv[1:]
 record = {
@@ -388,9 +389,6 @@ record = {
     'restored_http_catalog': '200 and empty',
     'external_acceptance': 'not tested',
 }
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-with os.fdopen(fd, 'w') as output:
-    json.dump(record, output, indent=2, sort_keys=True)
-    output.write('\n')
+publish(path, record)
 PY_EVIDENCE
 echo 'PASS: isolated PostgreSQL17 custom-format backup, data+schema/private-file restore, independent Laravel boot and HTTP. No production resources touched.'

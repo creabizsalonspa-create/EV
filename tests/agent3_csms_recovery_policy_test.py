@@ -125,6 +125,12 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
                         code.index('pg_restore -U ev_csms_recovery'))
         self.assertIn("'run_local_manifest_hmac_verified': True", code)
 
+    def test_success_evidence_is_written_atomically(self):
+        code = self.source
+        self.assertIn('from recovery_proof_writer import publish', code)
+        self.assertIn('publish(path, record)', code)
+        self.assertNotIn('os.O_TRUNC, 0o600', code)
+
     def test_redacted_artifact(self):
         record = self.source.split("record = {", 1)[1].split("\n}", 1)[0]
         self.assertNotRegex(record, re.compile(r"secret|password|token|app_key", re.I))

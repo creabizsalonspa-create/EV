@@ -117,3 +117,7 @@ Both the local backup manifest verifier and the combined same-run evidence gate 
 ### Stale success cleanup before prerequisite failures
 
 Both disposable restore entrypoints now remove only their own previous `validation.json` immediately after establishing the script-root path, **before** argument validation, local Docker discovery, image inspection, or runtime readiness. Negative tests create a prior synthetic PASS in an isolated temporary repository, then deliberately fail early (invalid staging image or a restricted PATH without Docker) and require the artifact to be absent. This prevents an old local success file surviving an unsuccessful rerun; it does not change or remove unrelated artifacts and is not a production recovery claim.
+
+### Atomic private recovery proof publication
+
+The Laravel, PostGIS and combined same-run evidence publishers now use one shared bounded JSON writer. It removes prior PASS output before publishing, serializes strict standard JSON, writes to an owner-private (0600) temporary file, flushes and fsyncs its contents, and atomically replaces the destination. A failed write or replacement leaves no success artifact or partial temporary file. Failure-injection unit tests cover interrupted replacement, oversized evidence, non-finite JSON fields and repeated publication. This improves synthetic proof integrity only; a successful artifact is not a production restore acceptance.

@@ -185,11 +185,12 @@ drill_completed_epoch=$(date -u +%s)
 root=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$root/artifacts/agent3-csms-recovery"
 dump_hash=$(sha256sum "$archive" | awk '{print $1}')
-python3 - "$root/artifacts/agent3-csms-recovery/validation.json" \
+PYTHONPATH="$root/scripts" python3 - "$root/artifacts/agent3-csms-recovery/validation.json" \
   "$dump_hash" "$source_fingerprint" "$restored_count" \
   "$drill_started_epoch" "$snapshot_started_epoch" "$snapshot_completed_epoch" \
   "$restore_started_epoch" "$drill_completed_epoch" <<'PY_EVIDENCE'
-import json, os, sys
+import os, sys
+from recovery_proof_writer import publish
 path, archive_hash, fingerprint, count, \
     drill_start, snapshot_start, snapshot_end, restore_start, drill_end = sys.argv[1:]
 record = {
@@ -217,9 +218,6 @@ record = {
     'rabbitmq_broker_restored': False,
     'physical_charger_or_money': False,
 }
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-with os.fdopen(fd, 'w') as f:
-    json.dump(record, f, indent=2, sort_keys=True)
-    f.write('\n')
+publish(path, record)
 PY_EVIDENCE
 echo 'PASS: disposable pinned PostGIS backup/restore, geospatial integrity, independent recovery point; no real CSMS or RabbitMQ touched.'

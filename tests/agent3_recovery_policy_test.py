@@ -172,6 +172,12 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
                         code.index('pg_restore -U ev_recovery_review'))
         self.assertIn("'run_local_manifest_hmac_verified': True", code)
 
+    def test_success_evidence_is_written_atomically_through_shared_publisher(self):
+        code = self.source
+        self.assertIn('from recovery_proof_writer import publish', code)
+        self.assertIn('publish(path, record)', code)
+        self.assertNotIn('os.O_TRUNC, 0o600', code)
+
     def test_no_sensitive_data_in_artifact_schema(self):
         code = self.source
         artifact = code.split("record = {", 1)[1].split("\n}", 1)[0]
