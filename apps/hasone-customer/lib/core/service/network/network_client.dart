@@ -62,7 +62,9 @@ class NetworkClient {
               path.contains('/payment') || path.endsWith('/pay');
           final chargerWrite =
               path.contains('/chargingsession/') &&
-              (path.endsWith('/start') || path.endsWith('/stop'));
+              (path.endsWith('/start') ||
+                  path.endsWith('/stop') ||
+                  path.endsWith('/extend'));
           if (options.method != 'GET' &&
               options.method != 'HEAD' &&
               (paymentWrite || chargerWrite)) {
@@ -83,6 +85,22 @@ class NetworkClient {
           final headers = commonHeaders();
           for (final entry in headers.entries) {
             options.headers.putIfAbsent(entry.key, () => entry.value);
+          }
+          final sessionAuth = commonHeaders()['Authorization'];
+          if (sessionAuth != null &&
+              options.headers.entries.any(
+                (entry) =>
+                    entry.key.toLowerCase() == 'authorization' &&
+                    entry.value != sessionAuth,
+              )) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.cancel,
+                message: 'Session changed; discard stale credentials',
+              ),
+            );
+            return;
           }
           _logRequest(options);
           handler.next(options);
