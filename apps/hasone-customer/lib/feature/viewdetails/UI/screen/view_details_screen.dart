@@ -1,3 +1,4 @@
+import 'package:evcharg/feature/Booking/UI/screen/reservation_charger_picker.dart';
 import 'package:evcharg/core/utils/reservation_date.dart';
 import 'package:evcharg/app/assets.dart';
 import 'package:evcharg/app/resource.dart';
@@ -27,6 +28,7 @@ class ViewDetailsScreen extends StatefulWidget {
 class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
   DateTime _selectedDate = DateTime.now();
   int? _selectedSlotIndex;
+  String? _selectedChargerId;
   late final ProfileController _profileController;
   late final MapController _mapController;
 
@@ -533,6 +535,12 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
             ),
           ),
 
+          ReservationChargerPicker(
+            key: ValueKey(station?.sId ?? ''),
+            stationId: station?.sId ?? '',
+            onChanged: (value) { if (mounted) _selectedChargerId = value; },
+          ),
+
           // ── Book Now Button ──
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
@@ -552,12 +560,16 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                     : () async {
                         final slots = _mapController.dateSlots;
                         // Validate slot selection
-                        if (_selectedSlotIndex == null || slots.isEmpty) {
+                        if (_selectedSlotIndex == null || slots.isEmpty || _selectedSlotIndex! >= slots.length) {
                           Get.snackbar('Error', 'Please select a time slot',
                               snackPosition: SnackPosition.BOTTOM);
                           return;
                         }
 
+                        if (_selectedChargerId == null) {
+                          Get.snackbar('Booking update', 'Choose an approved charger before booking.', snackPosition: SnackPosition.BOTTOM);
+                          return;
+                        }
                         final stationId = station?.sId;
                         if (stationId == null || stationId.isEmpty) return;
 
@@ -567,6 +579,7 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                         final result = await bookingCtrl.createBooking(
                           stationId: stationId,
                           date: dateStr,
+                          reservedChargerId: _selectedChargerId,
                           slotStart: slot.startTime ?? '',
                           slotEnd: slot.endTime ?? '',
                         );

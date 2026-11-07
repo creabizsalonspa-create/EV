@@ -1,3 +1,4 @@
+import 'package:evcharg/feature/Booking/model/reservation_chargers.dart';
 import 'package:evcharg/feature/Booking/model/charging_starting_model.dart'
     as progress;
 import 'package:evcharg/feature/Booking/UI/controller/booking_controller.dart';
@@ -14,6 +15,49 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final url = Platform.environment['AGENT2_HISTORY_API_URL'];
   final progressUrl = Platform.environment['AGENT2_PROGRESS_API_URL'];
+  test(
+    'actual native customer charger choice is persisted and cannot be silently redirected',
+    () async {
+      final station = Platform.environment['AGENT2_CHOICE_STATION']!;
+      final selected = Platform.environment['AGENT2_CHOICE_CHARGER']!;
+      final uri = Uri.parse(url!);
+      if (uri.scheme != 'http' || uri.host != '127.0.0.1') {
+        throw StateError('Disposable loopback API required');
+      }
+      final dio = Dio(BaseOptions(baseUrl: url, validateStatus: (_) => true));
+      final client = NetworkClient(
+        dio: dio,
+        onUnAuthorize: () {},
+        commonHeaders: () => {
+          'Authorization': Platform.environment['AGENT2_HISTORY_TOKEN']!,
+        },
+      );
+      try {
+        final catalog = await loadReservationChargers(client, station);
+        expect(catalog.choices.any((c) => c.id == selected), true);
+        final controller = BookingController(client: client);
+        final receipt = await controller.createBooking(
+          stationId: station,
+          date: '2033-03-03',
+          slotStart: '10:00 AM',
+          slotEnd: '11:00 AM',
+          reservedChargerId: selected,
+        );
+        expect(receipt, isNotNull, reason: controller.bookingError.value);
+        expect(receipt!.reservedChargerId, selected);
+        expect(receipt.isPaid, false);
+        expect(receipt.connectorType, 'Not verified');
+        expect(receipt.energyKwh, 'Not measured');
+      } finally {
+        dio.close(force: true);
+      }
+    },
+    skip:
+        url == null ||
+            (Platform.environment['AGENT2_CHOICE_STATION'] ?? '').isEmpty
+        ? 'Requires the disposable explicit charger-choice fixture'
+        : false,
+  );
   test(
     'actual native source progress distinguishes active cost and interrupted source end',
     () async {

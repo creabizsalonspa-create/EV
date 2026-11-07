@@ -1,4 +1,5 @@
 import '../../../../core/utils/reservation_date.dart';
+import '../../model/reservation_chargers.dart';
 import '../../../../core/service/network/network_client.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -46,6 +47,7 @@ class BookingController extends GetxController {
     String energyKwh = '110 kw/h',
     String chargingSlot = 'Slot A',
     String chargerType = 'CCS - 150 kW',
+    String? reservedChargerId,
   }) async {
     if (loading.value) {
       bookingError.value =
@@ -59,6 +61,11 @@ class BookingController extends GetxController {
           'Choose a complete reservation date including the year.';
       return null;
     }
+    if (reservedChargerId != null &&
+        !validReservationCharger(reservedChargerId)) {
+      bookingError.value = 'Choose a valid approved charger.';
+      return null;
+    }
     loading.value = true;
 
     final body = {
@@ -70,6 +77,7 @@ class BookingController extends GetxController {
       'energyKwh': energyKwh,
       'chargingSlot': chargingSlot,
       'chargerType': chargerType,
+      if (reservedChargerId != null) 'reservedChargerId': reservedChargerId,
     };
 
     try {
@@ -79,7 +87,9 @@ class BookingController extends GetxController {
           response is Map<String, dynamic> &&
           response['status'] == 'Success') {
         final model = BookingDetailsModel.fromJson(response);
-        if (model.data != null) {
+        if (model.data != null &&
+            (reservedChargerId == null ||
+                model.data!.reservedChargerId == reservedChargerId)) {
           bookingData.value = model.data;
           return model.data;
         }
