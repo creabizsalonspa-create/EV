@@ -43,7 +43,7 @@ const info = {
   accessibility: ['step_free'],
 };
 const en = output({information: info});
-assert.match(en, /Vendor-reported details/);
+assert.match(en, /Operator-reported details/);
 assert.match(en, /Monday: 08:00–22:00/);
 assert.match(en, /Friday: Closed/);
 const overnight = output({information: {...info, weekly_hours: {...info.weekly_hours, mon: {open: '20:00', close: '02:00'}, tue: {open: '00:00', close: '00:00'}}}});
