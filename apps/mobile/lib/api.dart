@@ -541,15 +541,26 @@ class EvApi {
   }
 
   Future<void> csrf() async {
+    final epoch = _epoch;
     final data = await request('csrf');
+    // A stale response cannot overwrite a different user's CSRF token.
+    if (epoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
     _csrf = data['token'] as String;
   }
 
   Future<Account> signIn(String email, String password, {String? name}) async {
+    // A second sign-in supersedes this one immediately, even if the first is
+    // still waiting for an encrypted Keystore deletion to finish.
+    final signInEpoch = _epoch + 1;
     await forgetSession();
+    if (signInEpoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
     _cookies.clear();
     _csrf = null;
     await csrf();
+    if (signInEpoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
     final data = await request(
       name == null ? 'login' : 'register',
       method: 'POST',
@@ -559,7 +570,11 @@ class EvApi {
         if (name != null) 'name': name,
       },
     );
+    if (signInEpoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
     await csrf();
+    if (signInEpoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
     return Account.fromJson(Map<String, dynamic>.from(data as Map));
   }
 
