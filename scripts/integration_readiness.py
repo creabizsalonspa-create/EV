@@ -89,7 +89,7 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
         "status": "candidate_for_manual_review" if not reasons else "blocked",
         "blockers": reasons,
         "merge_executed": False,
-        "warning": "Candidates require human/code review and exact-source PR-event "
+        "warning": "Candidates require manual human/code review and exact-source PR-event "
                    "CI verification; this is not automated merge authorization.",
     }
 
