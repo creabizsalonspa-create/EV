@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <application
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/ev_backup_rules"
+        android:dataExtractionRules="@xml/ev_data_extraction_rules"
         android:label="Ev Charging"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
