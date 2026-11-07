@@ -139,6 +139,7 @@ test('completed private evidence is owner-only and never overwrites an existing 
  const args=['--manifest',manifest,'--output',target];
  assert.equal(await audit.main(args,{send:fake()}),0);
  assert.equal((fs.statSync(target).mode&0o077),0);
+ assert.match(JSON.parse(fs.readFileSync(target)).fixture_sha256,/^[a-f0-9]{64}$/);
  assert.equal(await audit.main(args,{send:fake()}),2);
  assert.equal(JSON.parse(fs.readFileSync(target)).completion_count,2);
 }));
