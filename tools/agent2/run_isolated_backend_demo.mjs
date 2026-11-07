@@ -407,6 +407,31 @@ try{
     assert.equal(z.body.data.kwhUsed,5);
     assert.equal(z.body.data.paymentStatus,'not_collected');
   });
+  await check('customer booking stays Upcoming until source-backed Admin finalization',async()=>{
+    const before=await BookingModel.findById(adminBooking._id);
+    assert.equal(before.status,'Upcoming');
+    const notAllowed=await request('POST',
+      '/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/finalize-source',{},true);
+    assert.equal(notAllowed.code,401);
+  });
+  await check('Admin finalizes only a verified stopped OCPP1.6 transaction',async()=>{
+    const r=await request('POST',
+      '/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/finalize-source',
+      {},false,{authorization:adminBearer});
+    assert.equal(r.code,200);
+    assert.equal(r.body.data.bookingStatus,'Completed');
+    assert.equal(r.body.data.paymentStatus,'not_collected');
+    assert.equal(r.body.data.calculatedUnpaidAed,5.25);
+    assert.equal((await BookingModel.findById(adminBooking._id)).status,'Completed');
+  });
+  await check('repeated verified finalization cannot create duplicate billing',async()=>{
+    const r=await request('POST',
+      '/api/v1/admin/bookings/'+adminBooking._id+'/ocpp/finalize-source',
+      {},false,{authorization:adminBearer});
+    assert.equal(r.code,200);
+    assert.equal(r.body.data.reused,true);
+    assert.equal(r.body.data.paymentStatus,'not_collected');
+  });
   await check('unauthorized user cannot access Admin source billing report',async()=>{
     const z=await request('GET','/api/v1/admin/ocpp/booking-sessions',undefined,true);
     assert.equal(z.code,401);
@@ -474,6 +499,11 @@ try{
     assert.equal(zeroMeter.code,200);
     assert.equal(zeroMeter.body.data.chargingStatus,'Charging');
     assert.equal(zeroMeter.body.data.kwhUsed,0);
+    const premature=await request('POST',
+      '/api/v1/admin/bookings/'+booking20._id+'/ocpp/finalize-source',
+      {},false,{authorization:adminBearer});
+    assert.equal(premature.code,409);
+    assert.equal((await BookingModel.findById(booking20._id)).status,'Upcoming');
     await handle({chargerId:adminCharger20},'ocpp2.0.1','TransactionEvent',{
       eventType:'Updated',seqNo:1,transactionInfo:{transactionId:tx20},
       timestamp:new Date().toISOString(),meterValue:meter(6500)});
@@ -507,6 +537,13 @@ try{
     assert.equal(status.body.data.protocol,'ocpp2.0.1');
     assert.equal(status.body.data.kwhUsed,8);
     assert.equal(status.body.data.paymentStatus,'not_collected');
+    const completed=await request('POST',
+      '/api/v1/admin/bookings/'+booking20._id+'/ocpp/finalize-source',
+      {},false,{authorization:adminBearer});
+    assert.equal(completed.code,200);
+    assert.equal(completed.body.data.bookingStatus,'Completed');
+    assert.equal(completed.body.data.calculatedUnpaidAed,7.56);
+    assert.equal((await BookingModel.findById(booking20._id)).status,'Completed');
   });
   const charger16='agent2-ocpp16-test',token16='agent2-disposable-token-16';
   const hash16=createHash('sha256').update(token16).digest('hex');
