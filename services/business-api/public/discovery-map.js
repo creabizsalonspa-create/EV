@@ -30,6 +30,16 @@
     const searchPartners = make("button", "Find partners near selected point", "البحث عن شركاء قرب النقطة المحددة");
     searchPartners.type = "button";
     searchPartners.hidden = true;
+    const partnerLayerLabel = document.createElement("label");
+    const showPartnerLayer = document.createElement("input");
+    showPartnerLayer.id = "show-partner-map-pins";
+    showPartnerLayer.type = "checkbox";
+    showPartnerLayer.checked = true;
+    partnerLayerLabel.append(
+        showPartnerLayer,
+        make("span", "Show unverified partner pins", "عرض مواقع الشركاء غير المؤكدة"),
+    );
+    partnerLayerLabel.hidden = true;
     enable.type = locate.type = disable.type = focus.type = "button";
     disable.hidden = focus.hidden = true;
     const consent = document.createElement("label");
@@ -55,7 +65,7 @@
     canvas.id = "station-map";
     canvas.hidden = true;
     canvas.setAttribute("aria-label", "Station map / خريطة المحطات");
-    root.append(intro, enable, disable, focus, searchPartners, consent, locate, status, canvas);
+    root.append(intro, enable, disable, focus, searchPartners, partnerLayerLabel, consent, locate, status, canvas);
     let locationGeneration = 0;
     let planner,
         selectedCentre = null,
@@ -139,6 +149,7 @@
     function renderPartners() {
         if (!map || !partnerMarkers) return;
         partnerMarkers.clearLayers();
+        if (!showPartnerLayer.checked) return;
         const buckets = new Map();
         for (const row of partnerRows.filter(partnerSafe)) {
             const place = row.location;
@@ -203,6 +214,8 @@
             }
             L.marker([+first.latitude, +first.longitude], {
                 title: text("Unverified partner locations", "مواقع الشركاء غير المؤكدة"),
+                // Canonical station pins must remain reachable at shared coordinates.
+                zIndexOffset: -500,
                 icon: L.divIcon({
                     className: "station-map-pin partner-map-pin",
                     html: `P${group.length}`,
@@ -291,8 +304,14 @@
     }
     const loadedPoints = () => [
         ...records.filter(valid).map((s) => [+s.latitude, +s.longitude]),
-        ...partnerRows.filter(partnerSafe).map((r) => [+r.location.latitude, +r.location.longitude]),
+        ...(showPartnerLayer.checked
+            ? partnerRows.filter(partnerSafe).map((r) => [+r.location.latitude, +r.location.longitude])
+            : []),
     ];
+    showPartnerLayer.onchange = () => {
+        // Purely local presentation toggle: no API, location or tile request.
+        renderPartners();
+    };
     function fitLoaded(announce = false) {
         if (!map) return;
         const points = loadedPoints();
@@ -324,7 +343,7 @@
         map = markers = partnerMarkers = routeLines = picked = null;
         canvas.hidden = true;
         enable.hidden = false;
-        disable.hidden = focus.hidden = true;
+        disable.hidden = focus.hidden = partnerLayerLabel.hidden = true;
         setStatus(
             "Interactive map disabled. Results remain available in the lists.",
             "تم إيقاف الخريطة التفاعلية. لا تزال النتائج متاحة في القوائم.",
@@ -334,7 +353,7 @@
         if (map) return;
         canvas.hidden = false;
         enable.hidden = true;
-        disable.hidden = focus.hidden = false;
+        disable.hidden = focus.hidden = partnerLayerLabel.hidden = false;
         map = L.map(canvas, { worldCopyJump: true }).setView([24.45, 54.38], 6);
         L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
