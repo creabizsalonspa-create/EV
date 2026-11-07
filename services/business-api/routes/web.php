@@ -53,6 +53,8 @@ Route::get('/api/admin/overview', function (Request $r) {
 })->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::patch('/api/admin/accounts/{target}/moderate', [AdminAccountDirectoryController::class, 'moderate'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/accounts/{target}/moderations', [AdminAccountDirectoryController::class, 'moderationHistory'])->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/regions', [EnterpriseController::class, 'regions'])->middleware('throttle:catalog');
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
