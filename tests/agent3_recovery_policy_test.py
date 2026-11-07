@@ -107,6 +107,16 @@ class Agent3RecoveryPolicyTest(unittest.TestCase):
         self.assertNotIn('docker exec -i "$target_app" tar -C', code)
         self.assertIn('fileperms($p) & 0777', code)
 
+    def test_effective_docker_runtime_must_be_verified_before_any_restore(self):
+        code = self.source
+        self.assertIn('recovery-runtime-guard.py" networks', code)
+        self.assertEqual(code.count('recovery-runtime-guard.py" containers'), 2)
+        self.assertLess(code.index('recovery-runtime-guard.py" networks'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertLess(code.index('recovery-runtime-guard.py" containers'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertIn("'isolated_runtime_verified': True", code)
+
     def test_no_sensitive_data_in_artifact_schema(self):
         code = self.source
         artifact = code.split("record = {", 1)[1].split("\n}", 1)[0]

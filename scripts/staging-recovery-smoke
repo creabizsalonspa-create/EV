@@ -90,10 +90,17 @@ PY_SETUP
 postgres_image='postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b'
 source_net=$(docker network create --internal "$review_id-net-source")
 target_net=$(docker network create --internal "$review_id-net-target")
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net"
 source_db=$(docker run -d --name "$review_id-db-source" --network "$source_net" \
   --env-file "$scratch/source-database.env" "$postgres_image")
 target_db=$(docker run -d --name "$review_id-db-target" --network "$target_net" \
   --env-file "$scratch/target-database.env" "$postgres_image")
+docker inspect "$source_db" "$target_db" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-db-source" --target-name "$review_id-db-target"
 
 wait_for_postgres() {
   local id="$1" ready=false
@@ -234,6 +241,12 @@ target_app=$(docker run -d --name "$review_id-app-target" --network "$target_net
   --env-file "$scratch/target-application.env" \
   --mount type=volume,target=/var/www/html/storage/app/private "$image")
 wait_for_app "$target_app"
+# Recheck source/target isolation and distinct private volumes before extraction.
+docker inspect "$source_db" "$source_app" "$target_db" "$target_app" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-db-source" --source-name "$review_id-app-source" \
+    --target-name "$review_id-db-target" --target-name "$review_id-app-target"
 # Extract as the unprivileged application owner, never as Docker's default
 # root user. The isolated source file is mode 0600 and the target directory
 # must already be writable by the www-data application account.
@@ -318,6 +331,7 @@ record = {
     'post_snapshot_private_write_excluded': True,
     'archive_tamper_rejected': True,
     'single_transaction_restore': True,
+    'isolated_runtime_verified': True,
     'private_archive_tamper_rejected': True,
     'queue_worker_started': True,
     'scheduler_bootstrapped': True,

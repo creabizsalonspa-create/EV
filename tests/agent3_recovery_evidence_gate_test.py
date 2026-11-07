@@ -33,6 +33,7 @@ def evidence():
         'post_snapshot_private_write_excluded': True,
         'archive_tamper_rejected': True,
         'single_transaction_restore': True,
+        'isolated_runtime_verified': True,
         'private_archive_tamper_rejected': True,
         'queue_worker_started': True,
         'scheduler_bootstrapped': True,
@@ -50,6 +51,7 @@ def evidence():
         'physical_charger_or_money': False,
         'archive_tamper_rejected': True,
         'single_transaction_restore': True,
+        'isolated_runtime_verified': True,
     }
     return business, csms
 
@@ -73,6 +75,7 @@ class GateTest(unittest.TestCase):
             ('post_snapshot_private_write_excluded',False),
             ('archive_tamper_rejected',False),
             ('single_transaction_restore',False),
+            ('isolated_runtime_verified',False),
             ('private_archive_tamper_rejected',False),
             ('queue_worker_started',False),
             ('scheduler_bootstrapped',False),('external_acceptance','yes'),
@@ -96,6 +99,7 @@ class GateTest(unittest.TestCase):
             ('physical_charger_or_money',True),
             ('archive_tamper_rejected',False),
             ('single_transaction_restore',False),
+            ('isolated_runtime_verified',False),
         ]
         for field,value in cases:
             with self.subTest(field=field,value=value):

@@ -46,10 +46,17 @@ PY_SETUP
 
 source_net=$(docker network create --internal "$review_id-source")
 target_net=$(docker network create --internal "$review_id-target")
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net"
 source_db=$(docker run -d --name "$review_id-source-db" --network "$source_net" \
   --env-file "$scratch/source.env" "$image")
 target_db=$(docker run -d --name "$review_id-target-db" --network "$target_net" \
   --env-file "$scratch/target.env" "$image")
+docker inspect "$source_db" "$target_db" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-source-db" --target-name "$review_id-target-db"
 
 wait_for_postgres() {
   local id="$1" ready=false
@@ -168,6 +175,7 @@ record = {
     'post_snapshot_write_excluded': True,
     'archive_tamper_rejected': True,
     'single_transaction_restore': True,
+    'isolated_runtime_verified': True,
     'real_citrineos_schema_restored': False,
     'rabbitmq_broker_restored': False,
     'physical_charger_or_money': False,

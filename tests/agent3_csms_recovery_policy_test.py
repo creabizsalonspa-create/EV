@@ -60,6 +60,14 @@ class CsmsRecoveryPolicyTest(unittest.TestCase):
         ):
             self.assertIn(guard, code)
 
+    def test_effective_runtime_isolation_is_required_before_restore(self):
+        code = self.source
+        self.assertIn('recovery-runtime-guard.py" networks', code)
+        self.assertIn('recovery-runtime-guard.py" containers', code)
+        self.assertLess(code.index('recovery-runtime-guard.py" containers'),
+                        code.index('pg_restore -U ev_csms_recovery'))
+        self.assertIn("'isolated_runtime_verified': True", code)
+
     def test_redacted_artifact(self):
         record = self.source.split("record = {", 1)[1].split("\n}", 1)[0]
         self.assertNotRegex(record, re.compile(r"secret|password|token|app_key", re.I))
