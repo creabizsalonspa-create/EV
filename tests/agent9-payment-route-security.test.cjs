@@ -39,7 +39,7 @@ test('all eight external payment webhook routes use POST plus a bounded throttle
     const match = source.match(declaration);
     assert.ok(match && match.length === 1, `${file} must define exactly one throttled POST ${uri}`);
     assert.ok(!source.includes(`Route::get('${uri}'`), `${uri} must never be a GET operation`);
-    assert.ok(!source.includes(`Route::match(['GET'`), `${uri} must never expose GET`);
+    assert.ok(!source.split(/\\r?\\n/).some(line => line.includes(uri) && line.includes('Route::match(') && /\\bGET\\b/.test(line)), \`${uri} must never expose GET\`);
   }
   assert.equal(seen.size, 8);
 });
