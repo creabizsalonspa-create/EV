@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 """Synthetic dump integrity guard: not a signature, encryption or production backup."""
-import argparse, gzip, hashlib, hmac, json, os, stat, sys, tarfile
+import argparse, gzip, hashlib, hmac, importlib.util, json, os, stat, sys, tarfile
 from contextlib import contextmanager
 from pathlib import Path
+
+# A failed or interrupted backup manifest must not leave a visible PASS
+# candidate. Load the same atomic publisher used by combined DR evidence,
+# even when this script is imported directly by isolated audit tests.
+_publisher_spec = importlib.util.spec_from_file_location(
+    'agent3_backup_manifest_writer',
+    Path(__file__).with_name('recovery_proof_writer.py'))
+_publisher = importlib.util.module_from_spec(_publisher_spec)
+_publisher_spec.loader.exec_module(_publisher)
+publish = _publisher.publish
 
 class ArchiveError(Exception):
     pass
@@ -143,8 +153,9 @@ def signed_manifest(record, key):
 def read_auth_key(path):
     with open_regular_archive(path) as stream:
         info = os.fstat(stream.fileno())
-        require(info.st_size == 32 and info.st_mode & 0o077 == 0,
-                'Run-local HMAC key must be an owner-only 32-byte file')
+        require(info.st_size == 32 and info.st_mode & 0o077 == 0
+                and info.st_uid == os.geteuid() and info.st_nlink == 1,
+                'Run-local HMAC key must be an owner-held, unlinked 32-byte file')
         key = stream.read(33)
         require(len(key) == 32, 'Run-local HMAC key changed during reading')
     return key
@@ -180,14 +191,7 @@ def main(argv=None):
             actual=inspect(args.pg_dump,args.private_tar)
             if args.auth_key_file is not None:
                 actual = signed_manifest(actual, read_auth_key(args.auth_key_file))
-            args.manifest.parent.mkdir(parents=True,exist_ok=True)
-            tmp=args.manifest.with_suffix('.pending-manifest')
-            tmp.unlink(missing_ok=True)
-            fd=os.open(tmp,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
-            with os.fdopen(fd,'w') as f:
-                json.dump(actual,f,sort_keys=True,indent=2)
-                f.write('\n')
-            os.replace(tmp,args.manifest)
+            publish(args.manifest, actual)
         else:
             with open_regular_archive(args.manifest) as proof:
                 info = os.fstat(proof.fileno())

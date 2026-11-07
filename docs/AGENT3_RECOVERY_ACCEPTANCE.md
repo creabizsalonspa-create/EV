@@ -137,3 +137,7 @@ The disposable network/container inspector treats Docker's JSON output as an unt
 ### Blocking device and FIFO rejection
 
 The archive, local HMAC-key, backup-manifest, and combined synthetic recovery-evidence readers use a Linux/POSIX nonblocking no-follow file descriptor before their regular-file `fstat` checks. Opening an unexpected FIFO can otherwise wait indefinitely for a writer *before* the existing type filter executes. New tests create a local named pipe with no writer and require immediate rejection by each reader, without starting Docker or contacting any external service. This is a denial-of-service safety control for synthetic review tooling; production restore acceptance is unchanged.
+
+### Atomic local backup manifests and key-link rejection
+
+The run-local HMAC backup manifest now uses the same strict-JSON, 0600 temporary-file and atomic replacement writer as the combined synthetic recovery evidence. If serialization or replacement fails, the previous manifest is removed rather than leaving an apparently valid stale record; interrupted temporary files are cleaned up. In addition to no-follow/regular-file/size/mode checks, the HMAC key must be owned by the current effective user and have exactly one hard link. Local negative fixtures test a linked key and simulated failed atomic replacement, followed by successful retry. This does **not** make the ephemeral key an independent production backup signature.

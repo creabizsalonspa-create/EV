@@ -51,6 +51,46 @@ class ArchiveTests(unittest.TestCase):
             private.write_bytes(private.read_bytes() + b'mutation')
             self.assertEqual(guard.main(['check'] + signed), 1)
 
+    def test_hardlinked_run_local_hmac_key_is_rejected(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            db, manifest = root/'db.dump', root/'manifest.json'
+            key, alias = root/'key', root/'another-hard-link'
+            sample_db(db)
+            key.write_bytes(os.urandom(32))
+            os.chmod(key, 0o600)
+            os.link(key, alias)
+            self.assertEqual(guard.main([
+                'record', '--pg-dump', str(db), '--manifest', str(manifest),
+                '--auth-key-file', str(key),
+            ]), 1)
+            self.assertFalse(manifest.exists())
+            alias.unlink()
+            self.assertEqual(guard.main([
+                'record', '--pg-dump', str(db), '--manifest', str(manifest),
+                '--auth-key-file', str(key),
+            ]), 0)
+
+    def test_failed_manifest_publisher_erases_old_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            db, manifest = root/'db.dump', root/'manifest.json'
+            sample_db(db)
+            args = ['--pg-dump', str(db), '--manifest', str(manifest)]
+            self.assertEqual(guard.main(['record'] + args), 0)
+            original = guard.publish
+            def fail_replace(path, record):
+                with patch.object(guard._publisher.os, 'replace',
+                                  side_effect=OSError('simulated atomic failure')):
+                    original(path, record)
+            with patch.object(guard, 'publish', side_effect=fail_replace):
+                self.assertEqual(guard.main(['record'] + args), 1)
+            self.assertFalse(manifest.exists())
+            self.assertFalse(list(root.glob('.*.pending')))
+            self.assertEqual(guard.main(['record'] + args), 0)
+            self.assertEqual(guard.main(['check'] + args), 0)
+
     def test_run_local_key_permissions_and_symlink_swap_fail_closed(self):
         import os
         with tempfile.TemporaryDirectory() as d:
