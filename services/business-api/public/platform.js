@@ -1268,7 +1268,10 @@ el("profile-form").onsubmit = async (e) => {
     }
 };
 async function support() {
+    const session = client.sessionEpoch, account = user?.id;
+    if (!account) return;
     const j = await api("support");
+    if (session !== client.sessionEpoch || account !== user?.id) return;
     el("ticket-list").replaceChildren();
     for (const t of j.data) {
         const b = ui("button", "#{id} · {subject} · {status}", {
@@ -1280,7 +1283,31 @@ async function support() {
         el("ticket-list").append(b);
     }
     const n = await api("notifications");
-    el("notifications").replaceChildren();
+    const inbox = await api("notifications/summary");
+    if (session !== client.sessionEpoch || account !== user?.id) return;
+    const view = el("notifications");
+    view.replaceChildren();
+    if (Number.isSafeInteger(inbox.unread_count) && Number.isSafeInteger(inbox.latest_id)) {
+        view.append(ui("p", "{count} unread notifications", { count: inbox.unread_count }));
+        if (inbox.unread_count > 0 && inbox.latest_id > 0) {
+            const throughId = inbox.latest_id;
+            const button = ui("button", "Mark all current notifications as read");
+            button.type = "button";
+            button.onclick = async () => {
+                button.disabled = true;
+                try {
+                    await api("notifications/read-through", "POST", { through_id: throughId });
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    await support();
+                } catch (error) {
+                    if (session === client.sessionEpoch && account === user?.id) notice(error);
+                } finally {
+                    button.disabled = false;
+                }
+            };
+            view.append(button);
+        }
+    }
     for (const m of n.data) {
         const row = m.kind === "vehicle.battery.simulated"
             ? node("p", (user.locale === "ar" ? "محاكاة بطارية منخفضة · المركبة " : "Simulated low battery · Vehicle ") + m.metadata.vehicle_id + " · " + m.metadata.battery_percent + "%")

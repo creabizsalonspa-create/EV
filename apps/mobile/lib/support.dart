@@ -16,6 +16,7 @@ class SupportView extends StatefulWidget {
 
 class SupportViewState extends State<SupportView> {
   bool notifications = false, loading = false;
+  int? unreadCount, latestNotificationId;
   Object? error;
   ApiPage<Map<String, dynamic>>? data;
   int generation = 0;
@@ -28,6 +29,7 @@ class SupportViewState extends State<SupportView> {
 
   Future<void> load({int page = 1}) async {
     final request = ++generation;
+    final showingNotifications = notifications;
     setState(() {
       loading = true;
       error = null;
@@ -38,7 +40,20 @@ class SupportViewState extends State<SupportView> {
         query: {'page': '$page'},
       );
       final result = ApiPage.fromJson(response, (row) => row);
-      if (mounted && request == generation) setState(() => data = result);
+      final summary = showingNotifications
+          ? await widget.api.request('notifications/summary')
+          : null;
+      if (mounted && request == generation) {
+        setState(() {
+          data = result;
+          unreadCount = summary is Map && summary['unread_count'] is int
+              ? summary['unread_count'] as int
+              : null;
+          latestNotificationId = summary is Map && summary['latest_id'] is int
+              ? summary['latest_id'] as int
+              : null;
+        });
+      }
     } catch (e) {
       if (mounted &&
           request == generation &&
@@ -48,6 +63,34 @@ class SupportViewState extends State<SupportView> {
       if (mounted && request == generation) setState(() => error = e);
     } finally {
       if (mounted && request == generation) setState(() => loading = false);
+    }
+  }
+
+  Future<void> markCurrentRead() async {
+    final throughId = latestNotificationId;
+    if (!notifications || loading || throughId == null || throughId <= 0) return;
+    final request = ++generation;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      await widget.api.request(
+        'notifications/read-through',
+        method: 'POST',
+        body: {'through_id': throughId},
+      );
+      if (mounted && request == generation) await load(page: 1);
+    } catch (e) {
+      if (mounted && request == generation) {
+        if (e is ApiException && [401, 419].contains(e.status)) {
+          widget.onSessionExpired();
+        }
+        setState(() {
+          error = e;
+          loading = false;
+        });
+      }
     }
   }
 
@@ -110,6 +153,19 @@ class SupportViewState extends State<SupportView> {
               ),
             ],
           ),
+          if (notifications && unreadCount != null)
+            Text(
+              s.t('unreadNotificationCount', {'count': unreadCount!}),
+              key: const Key('notification-unread-count'),
+            ),
+          if (notifications &&
+              (unreadCount ?? 0) > 0 &&
+              (latestNotificationId ?? 0) > 0)
+            TextButton(
+              key: const Key('mark-current-notifications-read'),
+              onPressed: loading ? null : markCurrentRead,
+              child: Text(s.t('markCurrentNotificationsRead')),
+            ),
           if (loading) const LinearProgressIndicator(),
           if (error != null)
             Column(

@@ -1,4 +1,12 @@
 window.EV_MESSAGES = {
+    "{count} unread notifications": {
+        en: "{count} unread notifications",
+        ar: "{count} إشعار غير مقروء",
+    },
+    "Mark all current notifications as read": {
+        en: "Mark all current notifications as read",
+        ar: "تحديد الإشعارات الحالية كمقروءة",
+    },
     "Roaming credential state superseded": {
         en: "Enrollment replaced",
         ar: "تم استبدال التسجيل",
