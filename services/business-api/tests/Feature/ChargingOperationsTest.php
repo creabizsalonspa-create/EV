@@ -179,6 +179,14 @@ class ChargingOperationsTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->postJson($url.'/inspect-source')->assertNotFound();
         app(SessionBridge::class)->ingest($this->event($session));
         $this->actingAs($vendor)->patchJson($url.'/case', ['state' => 'resolved', 'note' => 'Authenticated source start observed'])->assertOk()->assertJsonPath('capacity_release_forced', false);
+        $this->patchJson($url.'/case', ['state' => 'resolved', 'note' => 'Repeated source-evidence review closure'])->assertOk();
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.operational_case.review_resolved')->count());
+        $notice = InboxNotification::where('kind', 'charging.operational_case.review_resolved')->firstOrFail();
+        $this->assertSame($vendor->id, $notice->user_id);
+        $this->assertSame(false, $notice->metadata['physical_verification']);
+        $this->assertSame(true, $notice->metadata['source_observed']);
+        $this->actingAs($customer)->getJson('/api/v1/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
         $this->assertSame('charging', $session->fresh()->status);
         $this->assertSame('source_observed', $command->fresh()->status);
         $this->assertDatabaseCount('command_source_observations', 1);

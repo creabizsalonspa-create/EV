@@ -1419,6 +1419,10 @@ async function refreshInbox() {
                             ? ui("p", "Charging command source evidence recorded · station #{id}", {
                                 id: m.metadata?.station_id ?? "?",
                             })
+                            : m.kind === "charging.operational_case.review_resolved"
+                                ? ui("p", "Source-based operator review closed · station #{id}", {
+                                    id: m.metadata?.station_id ?? "?",
+                                })
                             : m.kind === "charging.monitor.requires_review.simulated"
                                 ? ui("p", "Simulator charger monitor requires review · station #{id}", {
                                     id: m.metadata?.station_id ?? "?",
@@ -1516,7 +1520,8 @@ async function refreshInbox() {
             }
         }
         if (["charging.operational_case.opened",
-             "charging.operational_case.source_observed"].includes(m.kind)) {
+             "charging.operational_case.source_observed",
+             "charging.operational_case.review_resolved"].includes(m.kind)) {
             const meta = m.metadata;
             if (meta?.physical_verification === false &&
                 Number.isSafeInteger(meta.command_id) && meta.command_id > 0 &&

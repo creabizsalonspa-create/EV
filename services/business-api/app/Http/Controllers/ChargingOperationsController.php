@@ -97,12 +97,30 @@ class ChargingOperationsController extends Controller
 
         return DB::transaction(function () use ($r, $command, $v) {
             $c = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
+            $station = Station::whereKey($c->station_id)->lockForUpdate()->firstOrFail();
             $this->authorizeOperator($r, $c);
+            if ($r->user()->role !== 'admin') {
+                abort_unless($station->vendor_id === $r->user()->id, 404);
+            }
             $case = OperationalCase::where('command_id', $c->id)->lockForUpdate()->firstOrFail();
             $hasProof = DB::table('command_source_observations')->where('command_id', $c->id)->exists();
             abort_if($v['state'] === 'resolved' && ! $hasProof, 409, 'No applied source evidence; manual resolution cannot release charging capacity.');
+            $previousState = $case->state;
             $case->update(['state' => $v['state'], 'operator_note' => $v['note'], 'reviewed_by' => $r->user()->id]);
             $this->event($case, $r->user()->id, $v['state'], $v['note']);
+            if ($v['state'] === 'resolved' && $previousState !== 'resolved') {
+                InboxNotification::create([
+                    'user_id' => $station->vendor_id,
+                    'kind' => 'charging.operational_case.review_resolved',
+                    'metadata' => [
+                        'station_id' => $station->id,
+                        'command_id' => $c->id,
+                        'case_id' => $case->id,
+                        'source_observed' => true,
+                        'physical_verification' => false,
+                    ],
+                ]);
+            }
 
             return response()->json(['case' => $case, 'command_resent' => false, 'capacity_release_forced' => false]);
         }, 3);

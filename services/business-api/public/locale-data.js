@@ -1,4 +1,9 @@
 window.EV_MESSAGES = {
+    "Source-based operator review closed · station #{id}": {
+        en: "Source-based operator review closed · station #{id}",
+        ar: "أُغلقت مراجعة المشغل المستندة إلى المصدر · المحطة #{id}",
+    },
+
     "Charging command requires operator recovery · station #{id}": {
         en: "Charging command requires operator recovery · station #{id}",
         ar: "يتطلب أمر الشحن استرداداً تشغيلياً · المحطة #{id}",

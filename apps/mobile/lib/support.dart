@@ -32,6 +32,8 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
       return strings.t('chargingOperationalCaseOpened', {'station': id('station_id')});
     case 'charging.operational_case.source_observed':
       return strings.t('chargingOperationalSourceObserved', {'station': id('station_id')});
+    case 'charging.operational_case.review_resolved':
+      return strings.t('chargingOperationalReviewClosed', {'station': id('station_id')});
     case 'fleet.invitation':
       return strings.t('fleetInvitationAlert', {'fleet': id('fleet_id')});
     case 'fleet.invitation.accepted':
@@ -109,7 +111,8 @@ Map<String, int>? simulatedMonitorTarget(Map<String, dynamic> row) {
 /// physical hardware acceptance or a charging command.
 int? operationalCaseTarget(Map<String, dynamic> notice) {
   if (notice['kind'] != 'charging.operational_case.opened' &&
-      notice['kind'] != 'charging.operational_case.source_observed') {
+      notice['kind'] != 'charging.operational_case.source_observed' &&
+      notice['kind'] != 'charging.operational_case.review_resolved') {
     return null;
   }
   final metadata = notice['metadata'];

@@ -353,6 +353,28 @@ class PendingSupport extends FixtureApi {
 }
 
 void main() {
+  test('source-based operator closure never presents itself as physical repair', () {
+    final en = EvStrings(const Locale('en'));
+    final ar = EvStrings(const Locale('ar'));
+    final notice = {
+      'kind': 'charging.operational_case.review_resolved',
+      'metadata': {
+        'station_id': 2, 'command_id': 7, 'case_id': 8,
+        'source_observed': true, 'physical_verification': false,
+      },
+    };
+    expect(inboxNotificationTitle(notice, en),
+        'Source-based operator review closed · station #2');
+    expect(inboxNotificationTitle(notice, ar), contains('المحطة #2'));
+    expect(operationalCaseTarget(notice), 7);
+    expect(operationalCaseTarget({
+      ...notice, 'metadata': {
+        ...notice['metadata'] as Map<String, dynamic>,
+        'physical_verification': true,
+      },
+    }), isNull);
+  });
+
   test('operational notice deep-link requires a trustworthy local command reference', () {
     final valid = {
       'kind': 'charging.operational_case.opened',

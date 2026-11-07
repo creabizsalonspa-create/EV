@@ -141,3 +141,7 @@ The two operational case notice kinds now have localized EN/AR titles in both cl
 ### Focused read-only native regression evidence
 
 Flutter fixture coverage now verifies that opening an operational case notice issues a GET for the *exact referenced command* (`charging-operations/7/case`), renders its returned status, and sends **zero write requests**. It also checks invalid case IDs, non-physical provenance mismatches and unrelated notification kinds cannot form a deep-link target. The operational recovery widget fixture independently checks the focused case GET request and read-only state display. Native test execution on the exact pushed revision remains pending hosted CI; fixtures alone are not build acceptance.
+
+### Operator case source-based review closure notification
+
+Reviewing a command recovery case as `resolved` continues to require canonical applied source evidence. The transition from any non-resolved state to `resolved` now inserts one vendor-owned `charging.operational_case.review_resolved` notice inside the existing locked transaction. Repeating a resolved review is not a new transition, so no duplicate closure notice is emitted. The case remains purely a source-evidence review; metadata always states `source_observed=true` and `physical_verification=false`. EN/AR web and native labels explicitly say *source-based operator review closed*, with owner-only visibility and repeated-resolution regression coverage.
