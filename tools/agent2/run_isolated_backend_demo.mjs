@@ -354,6 +354,18 @@ try{
     assert.equal(z.code,409);
     assert.equal(await db.collection('ocpp_access_tokens').countDocuments({chargerId:adminCharger}),1);
   });
+  await check('simultaneous Admin token requests issue exactly one authorized credential',async()=>{
+    const other=await BookingModel.create({userId:user._id,stationId:adminStation._id,
+      date:'2026-11-13',time:'03:00 PM',slotStart:'03:00 PM',slotEnd:'04:00 PM',
+      totalAmount:63,status:'Upcoming',isPaid:true,hasArrived:true});
+    const responses=await Promise.all(Array.from({length:8},()=>request('POST',
+      '/api/v1/admin/bookings/'+other._id+'/ocpp/issue-token',{},false,
+      {authorization:adminBearer})));
+    assert.equal(responses.filter(x=>x.code===201).length,1);
+    assert.equal(responses.filter(x=>x.code===409).length,7);
+    assert.equal(await db.collection('ocpp_access_tokens').countDocuments({
+      chargerId:adminCharger,bookingId:String(other._id)}),1);
+  });
   let adminOcppSession;
   await check('real OCPP 1.6 handler accepts Admin booking token and persists source meter events',async()=>{
     const starting=await handle({chargerId:adminCharger},'ocpp1.6','StartTransaction',{
