@@ -156,6 +156,54 @@ class ChargingRepairTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_scoped_repair_notification_focus_finds_older_order_page(): void
+    {
+        [$owner, , , $url, $alert, $binding] = $this->repairFixture();
+        $this->actingAs($owner);
+        $firstId = $this->postJson($url, $this->intent($alert, 0, 'open'))
+            ->assertOk()->json('id');
+        // Synthetic historical order rows only. Never create hardware or
+        // financial state. Force a real second-page focus target.
+        for ($i = 1; $i <= 26; $i++) {
+            $observation = DB::table('charging_status_observations')->insertGetId([
+                'binding_id' => $binding->id,
+                'source_generation' => FaultMonitor::generation($binding),
+                'source_event_id' => 100 + $i,
+                'fingerprint' => hash('sha256', 'repair-focus-'.$i),
+                'evse_number' => 1, 'connector_number' => 1,
+                'status' => 'Faulted', 'error_code' => 'GroundFailure',
+                'occurred_at' => now()->subMinutes(5), 'created_at' => now(),
+            ]);
+            $newAlert = DB::table('charging_fault_alerts')->insertGetId([
+                'observation_id' => $observation,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('charging_repair_orders')->insert([
+                'alert_id' => $newAlert, 'created_by' => $owner->id,
+                'state' => 'open', 'version' => 1,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $this->getJson($url.'?focus_order_id='.$firstId)
+            ->assertOk()->assertJsonPath('focus_page', 2)
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('total', 27)
+            ->assertJsonPath('data.1.id', $firstId);
+        $this->getJson(str_replace('/api/', '/api/v1/', $url)
+            .'?focus_order_id='.$firstId)
+            ->assertOk()->assertJsonPath('focus_page', 2);
+        $this->getJson($url.'?focus_order_id=0')->assertUnprocessable();
+        $this->getJson($url.'?focus_order_id=not-a-number')->assertUnprocessable();
+        $this->getJson($url.'?focus_order_id=900000000')->assertNotFound();
+        $outsider = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($outsider)->getJson($url.'?focus_order_id='.$firstId)
+            ->assertNotFound();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_owner_repair_updates_do_not_generate_self_notices(): void
     {
         [$owner, , , $url, $alert, $binding] = $this->repairFixture();

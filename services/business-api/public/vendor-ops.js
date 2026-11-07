@@ -3282,7 +3282,17 @@ window.createVendorWorkspace = ({
         const pane = document.createElement("section");
         pane.dataset.notificationRepairReview = String(orderId);
         host.append(pane);
-        await repairOrders(company, { id: chargerId }, pane, epoch);
+        const target = await api(
+            base + "companies/" + companyId + "/chargers/" + chargerId +
+            "/repair-orders?focus_order_id=" + orderId,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        if (!Number.isSafeInteger(target?.focus_page) || target.focus_page < 1 ||
+            target.physical_repair_verified !== false ||
+            target.commands_sent !== false) {
+            throw new Error("Unable to verify the scoped repair work order.");
+        }
+        await repairOrders(company, { id: chargerId }, pane, epoch, target.focus_page);
         if (!valid(epoch) || !pane.isConnected) return;
         const found = Array.from(pane.querySelectorAll("[data-repair-order-id]")).find(
             (node) => Number(node.dataset.repairOrderId) === orderId,

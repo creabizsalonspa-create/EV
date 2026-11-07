@@ -35,11 +35,28 @@ class ChargingRepairController extends Controller
 
     public function index(Request $r, VendorCompany $company, VendorCharger $charger)
     {
-        $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+        $r->validate([
+            'page' => 'sometimes|integer|min:1|max:100000',
+            'focus_order_id' => 'sometimes|integer|min:1',
+        ]);
         $b = $this->scope($r, $company, $charger);
-        $rows = $this->alerts($b)->join('charging_repair_orders as w', 'w.alert_id', '=', 'a.id')->select('w.id', 'w.alert_id', 'w.state', 'w.version', 'w.created_at', 'w.updated_at', 'o.evse_number', 'o.connector_number', 'a.recovery_observation_id')->orderByDesc('w.id')->paginate(25)->toArray();
+        $query = $this->alerts($b)->join('charging_repair_orders as w', 'w.alert_id', '=', 'a.id');
+        $focusPage = null;
+        if ($r->filled('focus_order_id')) {
+            $focus = $r->integer('focus_order_id');
+            // The focus must belong to this caller's canonical binding.
+            // Never reveal another vendor's order or its list position.
+            abort_unless((clone $query)->where('w.id', $focus)->exists(), 404);
+            $newer = (clone $query)->where('w.id', '>', $focus)->count();
+            $focusPage = intdiv($newer, 25) + 1;
+        }
+        $page = $focusPage ?? $r->integer('page', 1);
+        $rows = $query->select('w.id', 'w.alert_id', 'w.state', 'w.version',
+            'w.created_at', 'w.updated_at', 'o.evse_number', 'o.connector_number',
+            'a.recovery_observation_id')
+            ->orderByDesc('w.id')->paginate(25, ['*'], 'page', $page)->toArray();
 
-        return $this->reply($rows + ['can_manage' => $r->user()->role === 'admin' || $r->user()->id === $company->owner_id, 'commands_sent' => false, 'capacity_changed' => false, 'physical_repair_verified' => false]);
+        return $this->reply($rows + ['focus_page' => $focusPage, 'can_manage' => $r->user()->role === 'admin' || $r->user()->id === $company->owner_id, 'commands_sent' => false, 'capacity_changed' => false, 'physical_repair_verified' => false]);
     }
 
     public function history(Request $r, VendorCompany $company, VendorCharger $charger, int $order)

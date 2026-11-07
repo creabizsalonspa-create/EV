@@ -1104,6 +1104,7 @@ void main() {
         'company_id': 5, 'charger_id': 7,
         'alert_id': 9, 'repair_order_id': 22,
       });
+      expect(simulatedRepairTarget(notice)?['repair_order_id'], 22);
       expect(simulatedRepairTarget({
         ...notice,
         'metadata': {

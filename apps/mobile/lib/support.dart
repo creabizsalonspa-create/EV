@@ -850,6 +850,7 @@ class SupportViewState extends State<SupportView> {
                                             companyId: target['company_id']!,
                                             chargerId: target['charger_id']!,
                                             initialAlertId: target['alert_id'],
+                                            initialOrderId: target['repair_order_id'],
                                             onExpired: widget.onSessionExpired,
                                           ),
                                         ),
