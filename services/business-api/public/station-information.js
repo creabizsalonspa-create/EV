@@ -50,7 +50,9 @@
         const hourLines = [];
         for (let i = 0; i < days.length; i++) {
             const range = hours[days[i]] || {};
-            const timing = range.open && range.close ? range.open + "–" + range.close : null;
+            const timing = range.open && range.close ? (range.open === range.close
+                ? (isArabic() ? "٢٤ ساعة" : "24 hours")
+                : range.open + "–" + range.close + (range.open > range.close ? (isArabic() ? " (لليوم التالي)" : " (next day)") : "")) : null;
             hourLines.push([dayEn[i] + ": " + (timing || "Closed"), dayAr[i] + ": " + (timing || "مغلق")]);
         }
         for (const [en, ar] of hourLines) appendText(details, en, ar);
@@ -179,8 +181,8 @@
                 const weekly = {};
                 for (const day of days) {
                     const w = inputs[day];
-                    if (!w.closed.checked && (!w.open.value || !w.close.value || w.open.value >= w.close.value)) {
-                        status(isArabic() ? "تحقق من أوقات الفتح والإغلاق" : "Opening and closing times must be valid and ordered.", true);
+                    if (!w.closed.checked && (!w.open.value || !w.close.value)) {
+                        status(isArabic() ? "تحقق من أوقات الفتح والإغلاق" : "Opening and closing times are both required for open days.", true);
                         return;
                     }
                     weekly[day] = w.closed.checked ? {open: null, close: null} : {open: w.open.value, close: w.close.value};

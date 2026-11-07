@@ -45,8 +45,8 @@ final class StationInformationController extends Controller
             $hours = $v['weekly_hours'][$day];
             $open = $hours['open'];
             $close = $hours['close'];
-            if (($open === null) !== ($close === null) || ($open !== null && strcmp($open, $close) >= 0)) {
-                $errors['weekly_hours.'.$day] = 'Provide opening and closing times in order, or mark the day closed.';
+            if (($open === null) !== ($close === null)) {
+                $errors['weekly_hours.'.$day] = 'Provide both opening and closing times or mark the day closed.';
             }
         }
         if ($errors) {

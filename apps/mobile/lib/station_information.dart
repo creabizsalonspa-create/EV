@@ -61,7 +61,9 @@ class StationInformationPanel extends StatelessWidget {
               final h = day is Map ? day : <String, dynamic>{};
               final start = h['open'], end = h['close'];
               final times = start is String && end is String
-                  ? start + '–' + end
+                  ? (start == end
+                      ? stationInfoT(context, '24 hours', '٢٤ ساعة')
+                      : start + '–' + end + (start.compareTo(end) > 0 ? stationInfoT(context, ' (next day)', ' (لليوم التالي)') : ''))
                   : stationInfoT(context, 'Closed', 'مغلق');
               return Text((ar ? stationInfoDaysAr[i] : stationInfoDaysEn[i]) + ': ' + times);
             }),
@@ -175,7 +177,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
     for (final day in stationInfoDays) {
       if (closed.contains(day)) {week[day] = {'open': null, 'close': null}; continue;}
       final start = starts[day]!.text.trim(), end = ends[day]!.text.trim();
-      if (!valid.hasMatch(start) || !valid.hasMatch(end) || start.compareTo(end) >= 0) {
+      if (!valid.hasMatch(start) || !valid.hasMatch(end)) {
         setState(() => error = t('Invalid opening/closing time.', 'وقت فتح أو إغلاق غير صالح.'));
         return;
       }

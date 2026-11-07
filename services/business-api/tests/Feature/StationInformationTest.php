@@ -65,19 +65,32 @@ class StationInformationTest extends TestCase
         $this->assertSame(2, DB::table('audit_events')->where('action', 'station.information.updated')->count());
     }
 
-    public function test_invalid_time_range_or_holiday_does_not_replace_existing_record(): void
+    public function test_invalid_partial_hours_or_holiday_does_not_replace_existing_record(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
         $station = $this->station($owner);
         $route = '/api/v1/stations/'.$station->id.'/information';
         $this->actingAs($owner, 'sanctum')->putJson($route, $this->details())->assertOk();
         $bad = $this->details(1);
-        $bad['weekly_hours']['mon'] = ['open' => '22:00', 'close' => '08:00'];
+        $bad['weekly_hours']['mon'] = ['open' => '22:00', 'close' => null];
         $this->actingAs($owner, 'sanctum')->putJson($route, $bad)->assertUnprocessable();
         $bad = $this->details(1);
         $bad['closed_dates'] = ['2027-02-30'];
         $this->actingAs($owner, 'sanctum')->putJson($route, $bad)->assertUnprocessable();
         $this->getJson($route)->assertOk()->assertJsonPath('revision', 1);
+    }
+
+    public function test_overnight_and_twenty_four_hour_schedules_are_preserved_without_claiming_live_availability(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $details = $this->details();
+        $details['weekly_hours']['mon'] = ['open' => '20:00', 'close' => '02:00'];
+        $details['weekly_hours']['tue'] = ['open' => '00:00', 'close' => '00:00'];
+        $this->actingAs($vendor)->putJson('/api/stations/'.$station->id.'/information', $details)
+            ->assertOk()->assertJsonPath('weekly_hours.mon.close', '02:00')
+            ->assertJsonPath('weekly_hours.tue.close', '00:00');
+        $this->getJson('/api/stations')->assertOk()->assertJsonPath('data.0.availability', 'unknown');
     }
 
     public function test_injected_station_or_status_fields_cannot_change_authoritative_state(): void
