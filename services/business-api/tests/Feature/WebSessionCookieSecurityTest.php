@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Http\Request;
 use Tests\TestCase;
 
 /**
