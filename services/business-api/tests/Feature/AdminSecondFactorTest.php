@@ -157,6 +157,28 @@ class AdminSecondFactorTest extends TestCase
         $this->assertDatabaseCount('admin_second_factors', 1);
     }
 
+    public function test_admin_factor_grant_expires_after_twelve_hours_and_requires_new_code(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $secret = $this->postJson('/api/admin/second-factor/begin', ['password' => 'password'])
+            ->assertOk()->json('secret');
+        $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk();
+        $this->getJson('/api/admin/overview')->assertOk();
+
+        $this->travel(13)->hours();
+        $this->getJson('/api/admin/overview')->assertForbidden();
+        $this->getJson('/api/admin/second-factor/status')->assertOk()
+            ->assertJsonPath('verified', false);
+
+        $this->postJson('/api/admin/second-factor/verify', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk();
+        $this->getJson('/api/admin/overview')->assertOk();
+    }
+
     public function test_customer_and_vendor_web_login_are_not_interrupted_by_admin_challenge(): void
     {
         foreach (['customer', 'vendor'] as $role) {
