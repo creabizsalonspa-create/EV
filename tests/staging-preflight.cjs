@@ -172,6 +172,12 @@ test('staging Compose continues to publish only the private gateway', () => {
   assert.doesNotMatch(yaml,/\b443:443['"]?\s*$/m);
 });
 
+test('private staging database and TLS gateway use reviewed exact registry digests', () => {
+  const yaml=fs.readFileSync(path.resolve(__dirname,'../infra/staging/compose.yaml'),'utf8');
+  assert.match(yaml,/image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b/);
+  assert.match(yaml,/image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9/);
+  assert.doesNotMatch(yaml,/^\s+image: (?:postgres:17-alpine|caddy:2-alpine)\s*$/m);
+});
 test('private staging Laravel origin includes the only published TLS gateway port', () => {
   const compose=fs.readFileSync(path.resolve(__dirname,'../infra/staging/compose.yaml'),'utf8');
   assert.match(compose,/APP_URL: https:\/\/\$\{STAGING_HOST:\?Set an authorized staging hostname\}:8443/);
