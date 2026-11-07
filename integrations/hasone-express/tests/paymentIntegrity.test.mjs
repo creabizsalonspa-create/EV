@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {verifiedSslSettlement, verifiedStripeSettlement, belongsToAuthenticatedUser} from '../paymentIntegrity.mjs';
+import {verifiedSslSettlement, verifiedSslReplay, verifiedStripeSettlement, verifiedStripeReplay, belongsToAuthenticatedUser} from '../paymentIntegrity.mjs';
 const id = '5dafe9c3f2e48b1234aabcd1';
 const who = '5dafe9c3f2e48b1234aabcd2';
 const trx = `booking_${id}_1794021000000`;
@@ -46,4 +46,24 @@ test('Stripe completed booking cannot be billed again',()=>assert.equal(st({reco
 test('invalid amount and missing receipt currency always fail closed',()=>{
  assert.equal(ssl({gateway:{...gateway(),amount:'not-a-number'}}),false);
  assert.equal(ssl({gateway:{...gateway(),currency:undefined}}),false);
+});
+
+test('verified SSL retry acknowledges a settled booking without creating a new settlement',()=>{
+  const paid={...booking(),isPaid:true,paymentStatus:'paid'};
+  assert.equal(verifiedSslReplay({notice:notice(),gateway:gateway(),record:paid,kind:'booking',currency:'AED'}),true);
+  assert.equal(verifiedSslSettlement({notice:notice(),gateway:gateway(),record:paid,kind:'booking',currency:'AED'}),false);
+});
+test('SSL retry rejects mismatched transaction and forged currency',()=>{
+  const paid={...booking(),isPaid:true,paymentStatus:'paid'};
+  assert.equal(verifiedSslReplay({notice:{...notice(),tran_id:'fake'},gateway:gateway(),record:paid,kind:'booking',currency:'AED'}),false);
+  assert.equal(verifiedSslReplay({notice:notice(),gateway:{...gateway(),currency:'USD'},record:paid,kind:'booking',currency:'AED'}),false);
+});
+test('verified Stripe retry acknowledges settled booking with matching transaction',()=>{
+  const paid={...stripe(),isPaid:true,paymentStatus:'paid',transactionId:piId};
+  assert.equal(verifiedStripeReplay({intent:intent(),record:paid,kind:'booking',currency:'AED'}),true);
+  assert.equal(verifiedStripeSettlement({intent:intent(),record:paid,kind:'booking',currency:'AED'}),false);
+});
+test('Stripe retry rejects a different settled transaction',()=>{
+  const paid={...stripe(),isPaid:true,paymentStatus:'paid',transactionId:'pi_other'};
+  assert.equal(verifiedStripeReplay({intent:intent(),record:paid,kind:'booking',currency:'AED'}),false);
 });
