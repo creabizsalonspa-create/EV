@@ -79,3 +79,12 @@ mandatory CI or PSP/hardware acceptance.
 ### Latest clean-staging reproducibility
 
 Rebuilt from the deployed Express source snapshot with all ten stage patchers and the OCPP 2.0.1 handler patch; validated Node syntax, compiled Python patchers, and ran 55/55 integrated, 28/28 pure source/payment and 13/13 real-route payment callback tests on a disposable localhost MongoDB. The full tested staging tree remains only under `/home/hasio/agent2-work/repro-customer-admin-20261107` on the authorized server. It is **not** exposed publicly or deployed into the live app.
+
+## Authenticated source-backed Next Admin reporting
+
+Agent 2 created `integrations/hasone-next-admin/ocpp-sessions-page.tsx` plus
+`tools/agent2/stage_next_ocpp_report_page.py`. The isolated Next.js 16.1.6
+frontend passed TypeScript and a full production Webpack build, including the
+new `/ocpp-sessions` route and sidebar navigation. The existing admin token
+interceptor is reused; there is no embedded API secret or browser-side payment
+collection. The page is staging-only, not deployed or public.
