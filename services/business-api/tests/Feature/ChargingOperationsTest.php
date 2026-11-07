@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ChargerCommand;
+use App\Models\InboxNotification;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -98,6 +99,70 @@ class ChargingOperationsTest extends TestCase
             'command_id' => $command->id,
             'state' => 'open',
         ]);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_operational_case_open_notice_is_owner_scoped_and_replay_idempotent(): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $url = '/api/charging-operations/'.$command->id;
+
+        $this->actingAs($vendor)->postJson($url.'/case', [
+            'note' => 'Investigating source evidence absence',
+        ])->assertCreated();
+        $this->postJson($url.'/case', [
+            'note' => 'Duplicate case-open attempt',
+        ])->assertOk();
+
+        $note = InboxNotification::where('kind', 'charging.operational_case.opened')
+            ->firstOrFail();
+        $this->assertSame($vendor->id, $note->user_id);
+        $this->assertSame($command->id, $note->metadata['command_id']);
+        $this->assertSame(false, $note->metadata['physical_verification']);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.operational_case.opened')->count());
+
+        $this->getJson('/api/v1/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->actingAs($customer)->getJson('/api/v1/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_first_source_observation_notifies_vendor_once_without_hardware_actions(): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $url = '/api/charging-operations/'.$command->id;
+        $this->actingAs($vendor)->postJson($url.'/case', [
+            'note' => 'Checking source for uncertain command',
+        ])->assertCreated();
+
+        app(SessionBridge::class)->ingest($this->event($session));
+        $source = \Mockery::mock(SourceConsumer::class);
+        $source->shouldReceive('consume')->twice()->andReturn(0);
+        $reconciler = \Mockery::mock(CommandReconciler::class);
+        $reconciler->shouldReceive('forSession')->twice()->andReturn(0);
+        $this->app->instance(SourceConsumer::class, $source);
+        $this->app->instance(CommandReconciler::class, $reconciler);
+
+        $this->postJson($url.'/inspect-source')->assertOk()
+            ->assertJsonPath('source_observed', true)
+            ->assertJsonPath('command_resent', false)
+            ->assertJsonPath('capacity_release_forced', false);
+        $this->postJson($url.'/inspect-source')->assertOk()
+            ->assertJsonPath('source_observed', true);
+
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.operational_case.opened')->count());
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.operational_case.source_observed')->count());
+        $this->assertSame(1, DB::table('charging_operational_case_events')
+            ->where('action', 'source_observed_notice')->count());
+        $this->actingAs($customer)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
         $this->assertDatabaseCount('finance_invoices', 0);
         Http::assertNothingSent();
     }

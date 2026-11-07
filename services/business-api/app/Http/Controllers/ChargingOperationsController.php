@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ChargerCommand;
+use App\Models\InboxNotification;
 use App\Models\Charging\OperationalCase;
 use App\Models\Charging\SessionLink;
 use App\Models\Station;
@@ -62,13 +63,28 @@ class ChargingOperationsController extends Controller
 
         return DB::transaction(function () use ($r, $command, $v) {
             $c = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
+            $station = Station::whereKey($c->station_id)->lockForUpdate()->firstOrFail();
             $this->authorizeOperator($r, $c);
+            if ($r->user()->role !== 'admin') {
+                abort_unless($station->vendor_id === $r->user()->id, 404);
+            }
             if ($old = OperationalCase::where('command_id', $c->id)->first()) {
                 return response()->json($old);
             }
             abort_unless(in_array($c->status, self::UNCERTAIN, true), 409, 'Only admitted or uncertain commands need this recovery queue.');
             $case = OperationalCase::create(['command_id' => $c->id, 'state' => 'open', 'operator_note' => $v['note'], 'opened_by' => $r->user()->id]);
             $this->event($case, $r->user()->id, 'opened', $v['note']);
+            InboxNotification::create([
+                'user_id' => $station->vendor_id,
+                'kind' => 'charging.operational_case.opened',
+                'metadata' => [
+                    'station_id' => $station->id,
+                    'command_id' => $c->id,
+                    'case_id' => $case->id,
+                    'source_observed' => false,
+                    'physical_verification' => false,
+                ],
+            ]);
 
             return response()->json($case, 201);
         }, 3);
@@ -117,11 +133,36 @@ class ChargingOperationsController extends Controller
                 abort_unless($station->vendor_id === $r->user()->id, 404);
             }
             $current = OperationalCase::whereKey($case->id)->lockForUpdate()->firstOrFail();
+            abort_unless($current->command_id === $lockedCommand->id, 409);
             if ($current->state !== 'resolved') {
                 $current->update(['state' => $hasProof ? 'source_observed' : 'awaiting_source']);
             }
+            // The case row is locked, so concurrent inspections cannot create
+            // duplicate source-observed notices. Preserve a durable marker in
+            // the existing encrypted operational event log.
+            if ($hasProof && ! DB::table('charging_operational_case_events')
+                ->where('case_id', $current->id)
+                ->where('action', 'source_observed_notice')->exists()) {
+                InboxNotification::create([
+                    'user_id' => $station->vendor_id,
+                    'kind' => 'charging.operational_case.source_observed',
+                    'metadata' => [
+                        'station_id' => $station->id,
+                        'command_id' => $lockedCommand->id,
+                        'case_id' => $current->id,
+                        'source_observed' => true,
+                        'physical_verification' => false,
+                    ],
+                ]);
+                $this->event(
+                    $current,
+                    $r->user()->id,
+                    'source_observed_notice',
+                    'Applied canonical source evidence observed; no physical charger acceptance.'
+                );
+            }
             $this->event($current, $r->user()->id, 'source_inspected', $hasProof ? 'Applied source evidence is present.' : 'No applied source evidence; command remains quarantined.');
-        });
+        }, 3);
 
         return response()->json(['events_received' => $events, 'reconciled' => $reconciled, 'source_observed' => $hasProof, 'command_resent' => false, 'capacity_release_forced' => false, 'physical_charging_verified' => false]);
     }
