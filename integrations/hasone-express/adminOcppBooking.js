@@ -8,12 +8,18 @@ import mongoose from 'mongoose';
 import BookingModel from '../models/BookingModel.js';
 import ChargingSessionModel from '../models/ChargingSessionModel.js';
 import {verifyOcppSource} from '../utils/ocppSourceEvidence.mjs';
+import {chooseBookingCharger} from '../utils/ocppMultiCharger.mjs';
 
 const fail=(res,code,message)=>res.status(code).json({status:'fail',message});
 const validHash=value=>typeof value==='string' && /^[a-f0-9]{64}$/i.test(value);
-const chargerFor=async booking=>mongoose.connection.db.collection('ocpp_chargers').findOne({
- stationId:String(booking.stationId),enabled:true
+const chargersFor=async booking=>mongoose.connection.db.collection('ocpp_chargers')
+  .find({stationId:String(booking.stationId),enabled:true})
+  .sort({chargerId:1}).toArray();
+const chargerSelection=async (booking, requestedId='')=>chooseBookingCharger({
+  bookedChargerId:booking.ocppChargerId||'',requestChargerId:requestedId,
+  chargers:await chargersFor(booking)
 });
+const chargerFor=async booking=>(await chargerSelection(booking)).charger;
 
 /** POST /admin/bookings/:id/ocpp/issue-token */
 export async function AdminIssueBookingOcppToken(req,res){
@@ -27,9 +33,12 @@ export async function AdminIssueBookingOcppToken(req,res){
    return fail(res,409,'A confirmed, paid and arrived booking is required');
   if(validHash(booking.ocppTokenHash))
    return fail(res,409,'A one-time authorization token was already issued');
-  const charger=await chargerFor(booking);
-  if(!charger || !/^[A-Za-z0-9_-]{1,64}$/.test(charger.chargerId))
-   return fail(res,409,'Booking station has no approved active OCPP charger');
+  const selected=await chargerSelection(booking,req.body?.chargerId||'');
+  const charger=selected.charger;
+  if(!charger)
+   return fail(res,409,selected.reason==='explicit_selection_required'
+     ? 'Select a specific approved charger for this multi-charger station.'
+     : 'Requested charger is unavailable or does not match this booking.');
   const token=crypto.randomBytes(24).toString('hex');
   const tokenHash=crypto.createHash('sha256').update(token).digest('hex');
   const issuedAt=new Date();
@@ -37,7 +46,9 @@ export async function AdminIssueBookingOcppToken(req,res){
   const updated=await BookingModel.findOneAndUpdate({
     _id:booking._id,isPaid:true,hasArrived:true,status:'Upcoming',
     ocppTokenHash:{$in:['',null]},
-  },{$set:{ocppTokenHash:tokenHash,ocppTokenIssuedAt:issuedAt}},{returnDocument:'after'});
+    ocppChargerId:{$in:['',null,charger.chargerId]},
+  },{$set:{ocppTokenHash:tokenHash,ocppTokenIssuedAt:issuedAt,
+           ocppChargerId:charger.chargerId}},{returnDocument:'after'});
   if(!updated)return fail(res,409,'Booking token already issued or booking status changed');
   try{
    await mongoose.connection.db.collection('ocpp_access_tokens').insertOne({
@@ -46,7 +57,8 @@ export async function AdminIssueBookingOcppToken(req,res){
    });
   }catch{
    await BookingModel.updateOne({_id:booking._id,ocppTokenHash:tokenHash},
-    {$set:{ocppTokenHash:'',ocppTokenIssuedAt:null}});
+    {$set:{ocppTokenHash:'',ocppTokenIssuedAt:null,
+            ocppChargerId:booking.ocppChargerId||''}});
    return fail(res,503,'Authorization token could not be registered');
   }
   return res.status(201).json({status:'Success',
@@ -230,7 +242,11 @@ export async function AdminGetBookingOcppOperations(req,res){
  try{
   const booking=await BookingModel.findById(req.params.id);
   if(!booking)return fail(res,404,'Booking not found');
-  const charger=await chargerFor(booking);
+  const candidates=await chargersFor(booking);
+  const selection=chooseBookingCharger({
+    bookedChargerId:booking.ocppChargerId||'',chargers:candidates
+  });
+  const charger=selection.charger;
   const authorized=validHash(booking.ocppTokenHash);
   const eligible=booking.isPaid===true && booking.hasArrived===true;
   const record=await ChargingSessionModel.findOne({
@@ -251,11 +267,19 @@ export async function AdminGetBookingOcppOperations(req,res){
   const ready=!!(proof?.sourceVerified && proof?.meterVerified
       && proof?.sessionEnded && proof.totalFils!==null
       && proof.billingStatus==='calculated_unpaid');
-  const canIssue=eligible && booking.status==='Upcoming' && !!charger && !authorized;
+  const canIssue=eligible && booking.status==='Upcoming'
+    && selection.choices.length>0 && !authorized;
   return res.status(200).json({status:'Success',data:{
     bookingId:String(booking._id),stationId:String(booking.stationId),
     bookingStatus:booking.status,bookingPrepaymentRecorded:!!booking.isPaid,
     arrivalRecorded:!!booking.hasArrived,approvedChargerId:charger?.chargerId??null,
+    selectedChargerId:booking.ocppChargerId||null,
+    requiresChargerSelection:!booking.ocppChargerId && selection.choices.length>1,
+    approvedChargers:selection.choices.map(c=>({
+      chargerId:c.chargerId,protocol:c.protocol||'ocpp1.6',
+      online:!!c.online && !!c.lastSeenAt &&
+        Date.now()-new Date(c.lastSeenAt).getTime()<120000
+    })),
     authorizationIssued:authorized,
     tokenIssuedAt:booking.ocppTokenIssuedAt??null,
     tokenExpiresAt:booking.ocppTokenIssuedAt
