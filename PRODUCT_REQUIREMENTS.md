@@ -1,20 +1,40 @@
 # Crea-Biz EV Charging Aggregator & Management System — Complete Product Requirements
 
-## Active five-agent ownership — 7 November 2026 (Dubai)
+## Active ten-agent ownership — 7 November 2026 (Dubai)
 
-The owner's latest directive establishes five concurrent agents and supersedes
-historical exclusive-agent assignments. Agent 1 owns canonical Laravel,
-PostgreSQL, CitrineOS/OCPP, OCPI, sessions, billing and payments; Agent 2 owns
-staged Express/Mongo and HAS.ONE customer/charging integration; Agent 3 owns
-notifications, operations, disaster recovery and recovery acceptance; Agent 4
-owns shared CI/CD, integration, verified PR merges and coverage; Agent 5 owns
-independent unassigned customer/vendor/discovery/web/Flutter product gaps.
+The latest owner directive assigns ten concurrent agents, superseding all
+historical single-agent/five-agent assignments. Original product functionality
+and the 42-category / 312-subfeature inventory **are not changed**:
 
-The authoritative integration branch is `development/fullstack-continuation`.
-Feature agents isolate branches and preserve each other's work. No physical
-charging, live money, partner activation or production deployment is authorized
-by this assignment; only explicit later approval plus genuine acceptance can
-establish those claims. Original product requirements below are unchanged.
+- **Agent 1:** canonical Laravel/CitrineOS/OCPP/OCPI, charging, finance and payments.
+- **Agent 2:** independently staged Express/Mongo/Next.js, customer charging,
+  multi-charger and booking-token integrations.
+- **Agent 3:** notification center, operational alerts and backup/restore recovery.
+- **Agent 4:** **single integration coordinator** for reviewed merges, shared
+  CI/CD, compatibility, authoritative coverage and release integration.
+- **Agent 5:** station facilities/hours, customer/vendor business features,
+  privacy requests and independent usability gaps.
+- **Agent 6:** customer/vendor shared Flutter infrastructure, Android/iOS
+  reliability, release build configuration and artifacts.
+- **Agent 7:** Admin workflows, identity, KYC, verification, 2FA, RBAC and access.
+- **Agent 8:** licensed discovery/maps, normalized provider catalogs and search.
+- **Agent 9:** cross-platform end-to-end, security, authorization, concurrency,
+  load regression and independent reproducible defect verification.
+- **Agent 10:** nonproduction staging, synthetic end-to-end demos, health,
+  rollout/rollback tooling and delivery/release packaging.
+
+The authoritative integration branch remains
+`development/fullstack-continuation`. Feature agents own isolated branches
+and preserve existing work; Agent 4 alone coordinates the final integration.
+Parent and child PRs must land in verified dependency order.
+
+The immediate customer-delivery priority is a reproducible, integrated
+customer/vendor/Admin charging demonstration with source-backed/synthetic
+evidence, followed by all remaining software requirements, then complete
+cross-platform release verification. Neither demos nor tests authorize live
+financial captures, physical charger commands, partner activation, public
+deployment or store distribution. These need separate acceptance. Software
+coded, tested, merged and production accepted scores remain separate.
 
 ## 1. Scope
 Develop a complete commercial SaaS/mobility ecosystem with both **direct management of authorized physical charging stations via OCPP** and **aggregation of third-party charging networks via OCPI and authorized operator APIs**. Initial market: UAE (seven emirates); expansion-ready for GCC/international markets. The owner explicitly requires the **full platform**, not an MVP-only deliverable.
