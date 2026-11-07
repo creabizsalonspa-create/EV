@@ -3,8 +3,11 @@
 Both native Flutter apps previously assigned `signingConfigs.debug` to Android
 `release` tasks. This is development-only and must not be shipped. Android
 release APK/AAB tasks now fail without an explicit, private signing keystore.
-A release build now requires owner-approved Android identity in the
-separate HAS.ONE customer app; development identities remain isolated.
+Release builds of **both** Android apps now also require explicitly
+owner-approved package IDs, instead of silently reusing development defaults.
+Debug builds retain their previous IDs unless a release ID was supplied;
+a build with an approved release ID uses a `.dev` debug suffix so debug
+signing cannot impersonate the production package.
 
 ## Additional mobile platform protections
 
@@ -52,6 +55,25 @@ Do not use a public staging service with this demo flag or consider this
 proof of authenticated API/charger operation. Store/release builds must
 use an authorized HTTPS origin.
 
+## Shared EV Android application identity
+
+The shared Flutter EV client retains its existing
+`com.creabiz.creabiz_ev` package in ordinary debug builds. To prevent
+accidentally shipping an unapproved Android identity, its release
+`assembleRelease`, `bundleRelease` and `packageRelease` Gradle tasks
+require the explicitly owner-approved project property
+`EV_ANDROID_APPLICATION_ID`. A release ID must have at least three dotted
+segments and must not end in `.dev`, `.test`, or `.debug`.
+
+The approved value may be the existing package ID if the release owner
+confirms it, or a new properly registered ID. Supplying the property alone
+does not prove Play Store registration or approval. When the property is
+supplied in a debug build, that debug APK receives a `.dev` suffix and
+cannot replace the production package. Protected CI environments can supply
+`ORG_GRADLE_PROJECT_EV_ANDROID_APPLICATION_ID` along with the already
+required private `EV_ANDROID_*` signing properties. Do not commit a
+production signing keystore or invent an ID for customer delivery.
+
 ## Google Maps native SDK provisioning
 
 The separate HAS.ONE customer app uses Google Maps on Android and iOS. An
@@ -61,7 +83,8 @@ Android API key is not interchangeable with an iOS bundle-restricted key.
 `com.creabiz.hasone.customer.dev`, intended for development. A production
 Android release now also requires an explicit, approved
 `HASONE_ANDROID_APPLICATION_ID` Gradle project property: a dotted Android
-package ID with at least three segments that does not end in `.dev`.
+package ID with at least three segments that does not end in
+`.dev`, `.test`, or `.debug`.
 Debug builds retain the current ID if no property is given. CI can pass
 `ORG_GRADLE_PROJECT_HASONE_ANDROID_APPLICATION_ID` as a protected build
 variable. Before distributing to stores, the owner must approve that package
