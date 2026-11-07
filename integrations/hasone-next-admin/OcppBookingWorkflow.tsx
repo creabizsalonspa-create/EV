@@ -20,7 +20,7 @@ type OpState={
   sourceSessionId:string|null;sourceTransactionId:string|null;
   sourceVerified:boolean;meterVerified:boolean;sourceEnded:boolean;
   energyKwh:number|null;calculatedUnpaidAed:number|null;
-  paymentStatus:string|null;canIssueToken:boolean;
+  paymentStatus:string|null;canIssueToken:boolean;canReissueToken:boolean;
   canBindSource:boolean;canFinalizeSource:boolean;
   needsPaymentReconciliation:boolean;
 };
@@ -128,7 +128,7 @@ export default function OcppBookingWorkflow({
   },[open,working]);
 
   async function perform(
-    path:"issue-token"|"bind-source"|"finalize-source",
+    path:"issue-token"|"reissue-token"|"bind-source"|"finalize-source",
     body:Record<string,string>={}
   ){
     if(working || !state)return;
@@ -136,10 +136,11 @@ export default function OcppBookingWorkflow({
     setError("");
     setMessage("");
     try{
-      const payload=path==="issue-token"?{...body,chargerId:chargerChoice}:body;
+      const payload=(path==="issue-token"||path==="reissue-token")
+        ?{...body,chargerId:chargerChoice}:body;
       const response=await api.post("/admin/bookings/"+booking._id+"/ocpp/"+path,payload);
       if(response.data?.status!=="Success")throw new Error("Operation was not accepted");
-      if(path==="issue-token"){
+      if(path==="issue-token"||path==="reissue-token"){
         const result=response.data as IssueResponse;
         if(typeof result.data?.oneTimeToken!=="string" ||
           !/^[a-f0-9]{48}$/.test(result.data.oneTimeToken)){
@@ -147,7 +148,9 @@ export default function OcppBookingWorkflow({
         }
         setSecret(result.data.oneTimeToken);
         setShowSecret(false);
-        setMessage("A one-time token was issued. Copy it securely now; it will not be shown after closing.");
+        setMessage(path==="reissue-token"
+          ?"Expired unused token replaced. Copy the new credential securely now."
+          :"A one-time token was issued. Copy it securely now; it will not be shown after closing.");
       }else if(path==="bind-source"){
         setMessage("Verified OCPP transaction linked to this booking.");
       }else{
@@ -260,6 +263,19 @@ export default function OcppBookingWorkflow({
                       className="rounded-lg bg-sky-600 px-4 py-2.5 font-semibold text-white text-sm disabled:opacity-40">
                       {working?"Working…":"Issue one-time authorization token"}
                     </button>
+                    {state.authorizationIssued&&(
+                      <div className="space-y-2">
+                        <button type="button" disabled={!canOperate||!state.canReissueToken}
+                          onClick={()=>void perform("reissue-token")}
+                          className="rounded-lg border border-sky-400 px-4 py-2.5 font-semibold text-sky-600 text-sm disabled:opacity-40">
+                          Reissue expired unused token
+                        </button>
+                        <p className={"text-xs "+muted}>
+                          Renewal is allowed only after expiry and a safety grace period,
+                          with no consumed credential or OCPP charging transaction.
+                        </p>
+                      </div>
+                    )}
                     {secret&&(
                       <div className="space-y-2 rounded-lg border border-amber-300 p-3">
                         <p className="text-xs text-amber-600 font-bold">Sensitive one-time token — not saved in browser storage</p>
