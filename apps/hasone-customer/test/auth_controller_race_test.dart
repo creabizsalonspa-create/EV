@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:evcharg/core/service/network/network_client.dart';
 import 'package:evcharg/core/service/session/session.dart';
@@ -65,14 +63,14 @@ void main() {
     Session.clear();
   });
 
-  testWidgets('failed profile cache save cannot leave a live login token',
-      (tester) async {
-    await tester.pumpWidget(const GetMaterialApp(home: Scaffold()));
+  test('failed profile cache save cannot leave a live login token', () async {
     final vault = _MemoryVault();
     final network = _HeldAuthenticationNetwork();
+    final feedback = <String>[];
     final auth = AuthController(
       client: network,
       prefs: _FailingUserCache(vault),
+      authFeedback: (title, message) => feedback.add('$title: $message'),
     );
 
     final pending = auth.login('synthetic@example.test', 'synthetic-only');
@@ -94,10 +92,7 @@ void main() {
     expect(vault.value, isNull,
         reason: 'Secure vault must not retain a partial login');
     expect(auth.user.value, isNull);
-    // GetX's failure snackbar schedules a 3-second overlay timer and a
-    // closing ticker. Drain both before disposing this widget test.
-    await tester.pump(const Duration(seconds: 4));
-    await tester.pumpAndSettle();
+    expect(feedback, contains(contains('Sign-in unavailable')));
   });
 
   test('late successful login after explicit logout never republishes token',
