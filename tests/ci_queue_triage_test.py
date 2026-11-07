@@ -159,9 +159,10 @@ class QueueTriageTest(unittest.TestCase):
                     raise AssertionError("Cancellation must not occur")
                 return dict(r, status="in_progress")
         g = Fake()
-        cancelled, skipped = triage.cancel_candidates(g, report, 1)
+        cancelled, skipped, errors = triage.cancel_candidates(g, report, 1)
         self.assertEqual([], cancelled)
         self.assertEqual([1], skipped)
+        self.assertEqual([], errors)
         self.assertFalse(g.posted)
 
     def test_operator_apply_refuses_if_branch_head_catches_up(self):
@@ -184,10 +185,43 @@ class QueueTriageTest(unittest.TestCase):
                     raise AssertionError("Unsafe cancellation")
                 return r
         g = Fake()
-        cancelled, skipped = triage.cancel_candidates(g, report, 1)
+        cancelled, skipped, errors = triage.cancel_candidates(g, report, 1)
         self.assertEqual([], cancelled)
         self.assertEqual([1], skipped)
+        self.assertEqual([], errors)
         self.assertFalse(g.posted)
+
+
+    def test_later_api_failure_preserves_exact_prior_cancelled_ids(self):
+        from urllib.error import HTTPError
+        r1, r2 = run(1), run(2)
+        report = {"queue_scan_truncated": False, "candidates": [
+            {"id": 1, "reason": "superseded_feature_push",
+             "sha": SHA_A, "event": "push"},
+            {"id": 2, "reason": "superseded_feature_push",
+             "sha": SHA_A, "event": "push"},
+        ]}
+        class Fake:
+            token, repo = "synthetic", REPO
+            def pages(self, suffix, key):
+                if suffix.startswith("/pulls?"):
+                    return [pr()], False
+                if suffix.startswith("/actions/runs?"):
+                    return [r1, r2], False
+                raise AssertionError(suffix)
+            def request(self, suffix, method="GET"):
+                if method == "GET":
+                    return r1 if suffix.endswith("/1") else r2
+                if suffix.endswith("/1/cancel"):
+                    return 202
+                raise HTTPError("https://example.invalid", 403,
+                                "Actions permission missing", {}, None)
+        done, skipped, errors = triage.cancel_candidates(Fake(), report, 2)
+        self.assertEqual([1], done)
+        self.assertEqual([], skipped)
+        self.assertEqual([{"id": 2, "type": "HTTPError", "http_status": 403}],
+                         errors)
+
 
 
 if __name__ == "__main__":
