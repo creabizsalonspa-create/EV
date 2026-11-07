@@ -89,12 +89,22 @@ class SupportController extends Controller
     {
         $filters = $r->validate([
             'unread_only' => 'sometimes|boolean',
-            'category' => 'sometimes|in:support,vehicle,charging,fleet',
+            'category' => 'sometimes|in:support,vehicle,charging,fleet,other',
         ]);
 
         $page = InboxNotification::where('user_id', $r->user()->id)
             ->when($r->boolean('unread_only'), fn ($q) => $q->whereNull('read_at'))
-            ->when(isset($filters['category']), fn ($q) => $q->where('kind', 'like', $filters['category'].'.%'))
+            ->when(isset($filters['category']), function ($q) use ($filters) {
+                if ($filters['category'] === 'other') {
+                    // This is exactly the complement of the four fixed
+                    // category prefixes used by notification summary counts.
+                    foreach (['support', 'vehicle', 'charging', 'fleet'] as $category) {
+                        $q->where('kind', 'not like', $category.'.%');
+                    }
+                } else {
+                    $q->where('kind', 'like', $filters['category'].'.%');
+                }
+            })
             ->orderByDesc('id')->paginate(25);
 
         return response()->json($page)->header('Cache-Control', 'private, no-store');

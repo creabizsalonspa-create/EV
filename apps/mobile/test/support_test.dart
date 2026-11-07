@@ -809,6 +809,11 @@ void main() {
     await tester.tap(find.text('Charging').last);
     await tester.pumpAndSettle();
     expect(api.selectedCategory, 'charging');
+    await tester.tap(find.byKey(const Key('support-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Other').last);
+    await tester.pumpAndSettle();
+    expect(api.selectedCategory, 'other');
   });
   testWidgets('category unread totals render from one scoped response', (tester) async {
     final fixture = SupportFixture();

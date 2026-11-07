@@ -89,6 +89,7 @@ window.EV_MESSAGES = {
         ar: "صفحة الإشعارات {page} من {last}",
     },
     "Fleet notifications": { en: "Fleet notifications", ar: "إشعارات الأسطول" },
+    "Other notifications": { en: "Other notifications", ar: "إشعارات أخرى" },
     "Fleet invitation · fleet #{id}": {
         en: "Fleet invitation · fleet #{id}", ar: "دعوة للأسطول · الأسطول #{id}",
     },

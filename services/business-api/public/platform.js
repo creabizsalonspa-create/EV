@@ -1298,7 +1298,7 @@ async function support() {
         try {
             const prefs = await api("notifications/preferences");
             if (session !== client.sessionEpoch || account !== user?.id) return;
-            if (prefs && ["all", "support", "vehicle", "charging", "fleet"].includes(
+            if (prefs && ["all", "support", "vehicle", "charging", "fleet", "other"].includes(
                 prefs.default_category
             ) && typeof prefs.default_unread_only === "boolean" &&
                 typeof prefs.remind_unresolved_simulator_faults === "boolean" &&
@@ -1377,6 +1377,7 @@ async function refreshInbox() {
         ["vehicle", "Vehicle notifications"],
         ["charging", "Charging notifications"],
         ["fleet", "Fleet notifications"],
+        ["other", "Other notifications"],
     ]) {
         const option = ui("option", label);
         option.value = value;
@@ -1412,6 +1413,7 @@ async function refreshInbox() {
             ["vehicle", "Vehicle notifications"],
             ["charging", "Charging notifications"],
             ["fleet", "Fleet notifications"],
+        ["other", "Other notifications"],
         ]) {
             const option = ui("option", label);
             option.value = value;

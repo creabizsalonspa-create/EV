@@ -65,7 +65,7 @@ class NotificationCenterController extends Controller
     public function updatePreferences(Request $request): JsonResponse
     {
         $values = $request->validate([
-            'default_category' => 'required|in:all,support,vehicle,charging,fleet',
+            'default_category' => 'required|in:all,support,vehicle,charging,fleet,other',
             'default_unread_only' => 'required|boolean',
             'remind_unresolved_simulator_faults' => 'required|boolean',
         ]);

@@ -400,6 +400,14 @@ const { randomUUID } = require("node:crypto");
     // Rapid filter changes must settle on the latest requested category,
     // regardless of earlier network response completion order.
     const lastFilter = customer.page.locator("#notification-category");
+    await lastFilter.selectOption("other");
+    await customer.page.waitForFunction(
+      () => document.querySelector("#notification-category")?.value === "other",
+    );
+    const otherPage = await customer.page.evaluate(
+      () => api("notifications?category=other"),
+    );
+    assert.equal(otherPage.total, 0);
     await lastFilter.selectOption("fleet");
     await customer.page.waitForFunction(
       () => document.querySelector("#notification-category")?.value === "fleet",

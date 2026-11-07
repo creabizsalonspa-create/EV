@@ -361,6 +361,40 @@ class NotificationCenterTest extends TestCase
             ->assertOk()->assertJsonPath('total', 1);
     }
 
+    public function test_other_category_exposes_only_unclassified_notifications_and_can_be_saved(): void
+    {
+        $owner = User::factory()->create();
+        $outsider = User::factory()->create();
+        $system = $this->makeNotification($owner, 'platform.security.notice');
+        $unknown = $this->makeNotification($owner, 'operations.dispatch.review');
+        $this->makeNotification($owner, 'support.reply');
+        $this->makeNotification($owner, 'charging.fault.simulated');
+        $this->makeNotification($outsider, 'platform.security.notice');
+
+        $this->actingAs($owner);
+        foreach (['/api/notifications', '/api/v1/notifications'] as $base) {
+            $this->getJson($base.'?category=other')->assertOk()
+                ->assertJsonPath('total', 2)
+                ->assertJsonPath('data.0.id', $unknown->id)
+                ->assertJsonPath('data.1.id', $system->id);
+        }
+        $this->getJson('/api/notifications/summary')->assertOk()
+            ->assertJsonPath('unread_by_category.other', 2);
+        $this->putJson('/api/notifications/preferences', [
+            'default_category' => 'other',
+            'default_unread_only' => true,
+            'remind_unresolved_simulator_faults' => true,
+        ])->assertOk()->assertJsonPath('default_category', 'other');
+        $system->update(['read_at' => now()]);
+        $this->getJson('/api/v1/notifications?category=other&unread_only=1')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $unknown->id);
+        $this->getJson('/api/v1/notifications/preferences')->assertOk()
+            ->assertJsonPath('default_category', 'other');
+        $this->actingAs($outsider)->getJson('/api/notifications?category=other')
+            ->assertOk()->assertJsonPath('total', 1);
+    }
+
     public function test_inbox_pages_are_bounded_sorted_and_never_expose_another_account(): void
     {
         $owner = User::factory()->create();

@@ -172,7 +172,7 @@ class SupportViewState extends State<SupportView> {
         final prefs = await widget.api.request('notifications/preferences');
         if (!mounted || request != generation) return;
         if (prefs is! Map ||
-            !['all', 'support', 'vehicle', 'charging', 'fleet']
+            !['all', 'support', 'vehicle', 'charging', 'fleet', 'other']
                 .contains(prefs['default_category']) ||
             prefs['default_unread_only'] is! bool ||
             prefs['remind_unresolved_simulator_faults'] is! bool ||
@@ -252,7 +252,7 @@ class SupportViewState extends State<SupportView> {
                   key: const Key('notification-preference-category'),
                   value: selected,
                   isExpanded: true,
-                  items: const ['all', 'support', 'vehicle', 'charging', 'fleet']
+                  items: const ['all', 'support', 'vehicle', 'charging', 'fleet', 'other']
                       .map((choice) => DropdownMenuItem<String>(
                             value: choice,
                             child: Text(s.t(
@@ -264,7 +264,9 @@ class SupportViewState extends State<SupportView> {
                                           ? 'notificationCategoryVehicle'
                                           : choice == 'charging'
                                               ? 'notificationCategoryCharging'
-                                              : 'notificationCategoryFleet',
+                                              : choice == 'fleet'
+                                          ? 'notificationCategoryFleet'
+                                          : 'notificationCategoryOther',
                             )),
                           ))
                       .toList(),
@@ -449,7 +451,7 @@ class SupportViewState extends State<SupportView> {
                 DropdownButton<String>(
                   key: const Key('support-category'),
                   value: category,
-                  items: const ['all', 'support', 'vehicle', 'charging', 'fleet']
+                  items: const ['all', 'support', 'vehicle', 'charging', 'fleet', 'other']
                       .map(
                         (value) => DropdownMenuItem<String>(
                           value: value,
@@ -463,7 +465,9 @@ class SupportViewState extends State<SupportView> {
                                   ? 'notificationCategoryVehicle'
                                   : value == 'charging'
                                   ? 'notificationCategoryCharging'
-                                  : 'notificationCategoryFleet',
+                                  : value == 'fleet'
+                                      ? 'notificationCategoryFleet'
+                                      : 'notificationCategoryOther',
                             ),
                           ),
                         ),
