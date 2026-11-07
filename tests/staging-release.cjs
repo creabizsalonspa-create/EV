@@ -343,3 +343,39 @@ test('previous image tag replaced after rollback HTTP verification blocks false 
   assert.equal(release.main(argv('apply',journal),deps),3);
   assert.ok(fs.readFileSync(journal,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
 }));
+
+test('former rollback image retarget between plan and application mutation blocks deployment',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  let seen=0;
+  deps.run=(cmd,args,opts)=>{
+    const response=original(cmd,args,opts);
+    if(args[0]==='image' && args[2]===oldRef && ++seen===2){
+      const images=JSON.parse(response);
+      images[0].Id='sha256:'+'d'.repeat(64);
+      return JSON.stringify(images);
+    }
+    return response;
+  };
+  const file=path.join(dir,'former-image-retargeted.jsonl');
+  assert.equal(release.main(argv('apply',file),deps),2);
+  assert.equal(deps.state.mutations,0);
+  const events=fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(events.map(x=>x.event),['PREPARED']);
+}));
+test('former rollback tag replaced after successful candidate startup prevents false recovery guarantee',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),original=deps.run;
+  let seen=0;
+  deps.run=(cmd,args,opts)=>{
+    const response=original(cmd,args,opts);
+    if(args[0]==='image' && args[2]===oldRef && ++seen>=3){
+      const items=JSON.parse(response);
+      items[0].Id='sha256:'+'d'.repeat(64);
+      return JSON.stringify(items);
+    }
+    return response;
+  };
+  const file=path.join(dir,'old-tag-retarget-after-startup.jsonl');
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.ok(!fs.readFileSync(file,'utf8').includes('"event":"RELEASE_VERIFIED"'));
+}));
