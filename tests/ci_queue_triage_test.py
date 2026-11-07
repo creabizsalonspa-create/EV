@@ -297,5 +297,46 @@ class QueueTriageTest(unittest.TestCase):
         self.assertIsNone(classify([pending]))
 
 
+    def test_actions_api_1000_result_ceiling_is_reported_incomplete(self):
+        github = triage.Github()
+        def fake_request(suffix):
+            page = int(suffix.rsplit("=", 1)[-1])
+            if page <= 10:
+                return {"total_count": 1360, "workflow_runs": [
+                    run(id=page * 100 + offset) for offset in range(100)
+                ]}
+            # GitHub sometimes returns an empty page beyond its hard cap,
+            # despite reporting >1,000 queued runs on earlier pages.
+            return {"total_count": 0, "workflow_runs": []}
+        github.request = fake_request
+        rows, incomplete = github.pages(
+            "/actions/runs?status=queued", "workflow_runs")
+        self.assertEqual(1000, len(rows))
+        self.assertTrue(incomplete,
+                        "Partial GitHub scan must not authorize cancellation")
+        github.token = "synthetic-not-used"
+        with self.assertRaises(ValueError):
+            triage.cancel_candidates(
+                github, {"queue_scan_truncated": incomplete,
+                         "candidates": []}, 1)
+
+    def test_actions_reported_total_may_not_be_smaller_than_returned_page(self):
+        github = triage.Github()
+        github.request = lambda suffix: {
+            "total_count": 2, "workflow_runs": [run(id=1)]
+        }
+        rows, incomplete = github.pages(
+            "/actions/runs?status=queued", "workflow_runs")
+        self.assertEqual(1, len(rows))
+        self.assertTrue(incomplete)
+
+    def test_plain_pr_list_still_pages_without_total_count(self):
+        github = triage.Github()
+        github.request = lambda suffix: [pr()]
+        prs, incomplete = github.pages("/pulls?state=open", "pull_requests")
+        self.assertEqual(1, len(prs))
+        self.assertFalse(incomplete)
+
+
 if __name__ == "__main__":
     unittest.main()
