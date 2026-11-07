@@ -14,7 +14,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,statSync,rmSync,chmodSy
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const root='/home/hasio/ev-deployment/backups';
-const supplied=process.env.MONGO_URL;
+const supplied=process.env.MONGODB_URI || process.env.MONGO_URL;
 if (process.argv[2] !== '--run') {
  console.log('Read-only snapshot utility. Run with --run from the authorized Express project with --env-file=.env');
  process.exit(0);
