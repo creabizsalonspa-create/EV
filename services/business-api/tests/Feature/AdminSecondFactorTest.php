@@ -123,8 +123,15 @@ class AdminSecondFactorTest extends TestCase
         $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => str_repeat('0', 20)])
             ->assertUnprocessable();
         $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => $codes[0]])
-            ->assertOk()->assertJsonPath('recovery_reset_available', true);
-        $this->getJson('/api/admin/second-factor/status')->assertJsonPath('recovery_reset_available', true);
+            ->assertOk()->assertJsonPath('verified', false)->assertJsonPath('recovery_reset_available', true);
+        $this->getJson('/api/admin/second-factor/status')
+            ->assertJsonPath('verified', false)->assertJsonPath('recovery_reset_available', true);
+        // Critical boundary: a recovered session can replace its factor, but
+        // cannot access privileged Admin APIs before a fresh TOTP challenge.
+        $this->getJson('/api/admin/overview')->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
+        $this->getJson('/api/vendor-ops/companies')->assertForbidden();
+        $this->get('/')->assertRedirect('/admin/second-factor');
         $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => $codes[0]])
             ->assertUnprocessable();
         $this->assertSame(1, DB::table('admin_second_factor_recovery_codes')
@@ -141,6 +148,52 @@ class AdminSecondFactorTest extends TestCase
             'actor_id' => $admin->id,
             'action' => 'admin.second_factor.reset_for_reenrollment',
         ]);
+    }
+
+    public function test_recovery_only_authorization_expires_and_cannot_be_renewed_without_an_unused_code(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $secret = $this->postJson('/api/admin/second-factor/begin', ['password' => 'password'])
+            ->assertOk()->json('secret');
+        $codes = $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk()->json('recovery_codes');
+        $this->postJson('/api/logout')->assertNoContent();
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => $codes[0]])
+            ->assertOk()->assertJsonPath('verified', false);
+        $this->travel(11)->minutes();
+        $this->getJson('/api/admin/second-factor/status')
+            ->assertJsonPath('recovery_reset_available', false)
+            ->assertJsonPath('verified', false);
+        $this->postJson('/api/admin/second-factor/reset-after-recovery', ['password' => 'password'])
+            ->assertForbidden();
+        $this->getJson('/api/admin/overview')->assertForbidden();
+        $this->assertDatabaseCount('admin_second_factors', 1);
+        $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => $codes[0]])
+            ->assertUnprocessable();
+    }
+
+    public function test_fresh_password_login_discards_recovery_only_authorization(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $secret = $this->postJson('/api/admin/second-factor/begin', ['password' => 'password'])
+            ->assertOk()->json('secret');
+        $codes = $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk()->json('recovery_codes');
+        $this->postJson('/api/logout')->assertNoContent();
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $this->postJson('/api/admin/second-factor/recover', ['recovery_code' => $codes[0]])
+            ->assertOk();
+        $this->postJson('/api/login', ['email' => $admin->email, 'password' => 'password'])->assertOk();
+        $this->getJson('/api/admin/second-factor/status')
+            ->assertJsonPath('verified', false)
+            ->assertJsonPath('recovery_reset_available', false);
+        $this->postJson('/api/admin/second-factor/reset-after-recovery', ['password' => 'password'])
+            ->assertForbidden();
     }
 
     public function test_password_alone_cannot_reset_enrolled_factor_without_used_recovery_code(): void
