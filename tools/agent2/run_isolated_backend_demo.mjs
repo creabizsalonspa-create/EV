@@ -303,6 +303,19 @@ try{
     assert.equal(doc.meterStartWh,1000);assert.equal(doc.status,'active');
     assert.equal(JSON.stringify(doc).includes(token),false);
   });
+  await check('OCPP 2.0.1 consumed start token cannot start a second transaction',async()=>{
+    const authorization=await handle({chargerId},'ocpp2.0.1','Authorize',
+      {idToken:{idToken:token}});
+    assert.equal(authorization.idTokenInfo.status,'Invalid');
+    const reused=await handle({chargerId},'ocpp2.0.1','TransactionEvent',{
+      eventType:'Started',seqNo:0,transactionInfo:{transactionId:'second-transaction-for-same-token'},
+      idToken:{idToken:token},meterValue:meter(2000)});
+    assert.equal(reused.idTokenInfo.status,'Invalid');
+    assert.equal(await db.collection('ocpp_sessions').countDocuments({chargerId}),1);
+    const stored=await db.collection('ocpp_access_tokens').findOne({chargerId,tokenHash});
+    assert.equal(stored.enabled,false);
+    assert.ok(stored.consumedAt instanceof Date);
+  });
   await check('OCPP 2.0.1 metering/stop yields source-backed unpaid AED-fils calculation',async()=>{
     await handle({chargerId},'ocpp2.0.1','TransactionEvent',{
       eventType:'Updated',seqNo:1,transactionInfo:{transactionId:id},
@@ -832,11 +845,25 @@ try{
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
     enabled:true,expiresAt:new Date(Date.now()+3600000)});
   await db.collection('ocpp_tariffs').insertOne({chargerId:charger16,enabled:true,rateFilsPerKwh:100,vatPercent:5});
+  await check('OCPP1.6 authorization preflight does not consume credential',async()=>{
+    const auth=await handle({chargerId:charger16},'ocpp1.6','Authorize',{idTag:token16});
+    assert.equal(auth.idTagInfo.status,'Accepted');
+    const stored=await db.collection('ocpp_access_tokens').findOne({chargerId:charger16,tokenHash:hash16});
+    assert.equal(stored.enabled,true);
+    assert.equal(stored.consumedAt,undefined);
+  });
   await check('OCPP 1.6 authorized source start/stop produces a distinct unpaid transaction',async()=>{
     const begin=await handle({chargerId:charger16},'ocpp1.6','StartTransaction',{
       connectorId:1,meterStart:1000,idTag:token16,timestamp:new Date().toISOString()});
     assert.equal(begin.idTagInfo.status,'Accepted');
     assert.equal(typeof begin.transactionId,'number');
+    const retry=await handle({chargerId:charger16},'ocpp1.6','StartTransaction',{
+      connectorId:1,meterStart:1000,idTag:token16,timestamp:new Date().toISOString()});
+    assert.equal(retry.idTagInfo.status,'Accepted');
+    assert.equal(retry.transactionId,begin.transactionId);
+    const differentConnector=await handle({chargerId:charger16},'ocpp1.6','StartTransaction',{
+      connectorId:2,meterStart:1000,idTag:token16,timestamp:new Date().toISOString()});
+    assert.equal(differentConnector.idTagInfo.status,'Invalid');
     await handle({chargerId:charger16},'ocpp1.6','MeterValues',{
       transactionId:begin.transactionId,meterValue:meter(2000)});
     await handle({chargerId:charger16},'ocpp1.6','StopTransaction',{
@@ -846,6 +873,12 @@ try{
     assert.equal(doc.idTagHash,hash16);assert.equal(doc.energyWh,3000);
     assert.equal(doc.totalFils,315);assert.equal(doc.billingStatus,'calculated_unpaid');
     assert.equal(doc.paymentStatus,'not_collected');
+  });
+  await check('OCPP1.6 completed token cannot start another paid transaction',async()=>{
+    const reused=await handle({chargerId:charger16},'ocpp1.6','StartTransaction',{
+      connectorId:1,meterStart:1000,idTag:token16,timestamp:new Date().toISOString()});
+    assert.equal(reused.idTagInfo.status,'Invalid');
+    assert.equal(await db.collection('ocpp_sessions').countDocuments({chargerId:charger16}),1);
   });
  }
  console.log('ISOLATED_EXPRESS_DEMO_TESTS_PASSED '+passed);
