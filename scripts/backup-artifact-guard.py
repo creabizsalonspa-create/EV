@@ -29,6 +29,7 @@ def safe_tar(path):
     regular_files = 0
     expanded = 0
     names = set()
+    file_names = set()
     content_hash = hashlib.sha256()
     try:
         with tarfile.open(path, mode='r:gz') as archive:
@@ -41,8 +42,18 @@ def safe_tar(path):
                         '\\' not in member.name,
                         'Unsafe private archive member path')
                 require(member.name not in names, 'Duplicate private archive member')
-                names.add(member.name)
                 require(member.isfile() or member.isdir(), 'Private links/devices denied')
+                # Tar extraction must never have to replace a file with a
+                # directory, or create children below an existing regular
+                # file. This check works regardless of member ordering.
+                ancestors = ('/'.join(parts[:n]) for n in range(1, len(parts)))
+                require(not any(parent in file_names for parent in ancestors),
+                        'Private member descends from a regular file')
+                if member.isfile():
+                    require(not any(existing.startswith(member.name + '/') for existing in names),
+                            'Private file collides with an archive parent path')
+                    file_names.add(member.name)
+                names.add(member.name)
                 require(member.mode & 0o7077 == 0,
                         'Private archive members must have owner-only permissions')
                 require(member.size >= 0, 'Invalid private archive member size')

@@ -81,3 +81,7 @@ The synthetic archive guard now rejects duplicate tar member names, ambiguous `.
 ### Owner-only private backup file permissions
 
 The synthetic private-file archive checker now rejects **all group and other permission bits**, in addition to setuid/setgid/sticky permissions and links/devices. Private files archived as `0644` or `0640`, and directories archived as `0755`, are rejected even if they would not be writable to outsiders. The isolated staging drill's own payload is deliberately archived mode `0600`. New negative unit fixtures cover both file and directory permission leakage. This is a private-data safety prerequisite, not an independent signature or proof of actual production backup restoration.
+
+### Archive path conflict negative test
+
+The guard now rejects any regular file whose path is used as an ancestor of another archive member, in either tar-entry ordering, as well as existing exact duplicates and traversal paths. This prevents a backup that passes preflight but fails or has order-dependent effects at `tar -xzf` time. Added synthetic tests cover both parent-before-child and child-before-parent collisions, plus a normal single-file archive matching the isolated staging recovery smoke. The guard still does not claim signed/offsite backup verification or cross-service snapshot consistency.

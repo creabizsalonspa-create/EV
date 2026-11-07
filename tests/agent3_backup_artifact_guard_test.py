@@ -57,6 +57,32 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaises(guard.ArchiveError):
                 guard.inspect(db, archive)
 
+    def test_file_and_parent_path_collisions_rejected_regardless_of_tar_order(self):
+        for members in (
+            [('config', b'file'), ('config/token', b'child')],
+            [('config/token', b'child'), ('config', b'file')],
+        ):
+            with self.subTest(members=[name for name, _ in members]), tempfile.TemporaryDirectory() as d:
+                root = Path(d); dump = root/'db.dump'; private = root/'private.tar.gz'
+                sample_db(dump)
+                with tarfile.open(private, 'w:gz') as output:
+                    for name, payload in members:
+                        entry = tarfile.TarInfo(name)
+                        entry.mode = 0o600
+                        entry.size = len(payload)
+                        output.addfile(entry, io.BytesIO(payload))
+                with self.assertRaises(guard.ArchiveError):
+                    guard.inspect(dump, private)
+
+    def test_regular_private_archive_remains_accepted(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); dump = root/'db.dump'; private = root/'private.tar.gz'
+            sample_db(dump)
+            sample_tar(private, 'agent3-recovery-probe.bin')
+            proof = guard.inspect(dump, private)
+            self.assertEqual(proof['private']['regular_files'], 1)
+            self.assertTrue(proof['private']['gzip_trailer_verified'])
+
     def test_dot_segments_and_privileged_modes_are_rejected(self):
         for name, mode in [
             ('nested/./secret.txt', 0o600),
