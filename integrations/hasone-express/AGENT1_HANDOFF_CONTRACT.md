@@ -27,7 +27,10 @@ Customer JWT required unless marked public:
 | POST | /api/v1/MyVehicles | Customer garage registration with active model |
 | POST | /api/v1/Bookings | Date/slot booking with atomic duplicate rejection |
 | POST | /api/v1/Bookings/:id/payment | Provider-bound payment contract; **not live PSP accepted** |
+| GET | /api/v1/ChargingStation/:bookingId | Source-backed first charging screen; blocks QR replay after source binding |
+| POST | /api/v1/ChargingSession/validate-qr | Authenticated station QR check; does not claim real charging has started |
 | GET | /api/v1/ChargingSession/:id/status | Read source-backed metering bound to customer booking/charger/token, no mutation |
+| GET | /api/v1/ChargingSession/:id/summary | Ended OCPP source with verified kWh, AED rate, VAT and calculated-unpaid total |
 | POST | /api/v1/ChargingSession/:id/start | Reject while no verified canonical hardware start adapter |
 | POST | /api/v1/ChargingSession/:id/stop | Reject while no verified canonical hardware stop adapter |
 | GET | /api/v1/payment/status/booking/:id | JWT and record-ownership enforced |
@@ -100,6 +103,9 @@ python3 tools/agent2/stage_ocpp201_token_binding.py STAGED_OCPP_HANDLERS_COPY
 
 node tools/agent2/run_isolated_backend_demo.mjs \
   STAGED_SOURCE_COPY EXISTING_EXPRESS_DEPENDENCY_ROOT STAGED_OCPP_HANDLERS_COPY
+python3 tools/agent2/stage_ocpp_customer_summary.py STAGED_SOURCE_COPY
+python3 tools/agent2/stage_ocpp_charging_station_screen.py STAGED_SOURCE_COPY
+python3 tools/agent2/stage_ocpp_qr_safety.py STAGED_SOURCE_COPY
 node --test integrations/hasone-express/tests/*.test.mjs
 ```
 
@@ -124,3 +130,9 @@ release or complete production acceptance.
 ### Booking completion rule
 
 The authorized Admin finalize endpoint rejects an active OCPP session or missing meter/tariff proof. After an OCPP source-confirmed stop it updates only the **operational** booking status to `Completed`; `paymentStatus` remains `not_collected` for the metered session, and a repeated finalize is idempotent. Flutter should refresh booking history from the backend instead of inferring completion from client timers.
+
+## Customer screen behavior (staging)
+
+The QR validator confirms station identity only; it returns `canStartCharging:false` and `requiresOcppConfirmation:true` until the authorized gateway reports an actual source transaction. The station detail and active status APIs derive session state from OCPP events, rather than the booked slot clock; a source-bound station cannot be scanned again. A verified stopped session exposes `energyDelivered`, `costPerKwh`, `vatAed`, `totalAmount`, `billingStatus:'calculated_unpaid'`, and `paymentStatus:'not_collected'`. Legacy extension payment is blocked to avoid duplicate settlement against a prepaid reservation.
+
+**Latest reproducibility check:** 55/55 Express/Mongo/OCPP tests, 28/28 guard tests and 13/13 HTTP callback tests passed after a clean patch rebuild on the authorized server. No production deployment or real charger command occurred.
