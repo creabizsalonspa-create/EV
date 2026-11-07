@@ -495,7 +495,9 @@ class EvApi {
         try {
           await forgetSession();
         } on SessionStorageException {
-          _remembered = false;
+          // Remote authentication has failed, but the encrypted credential
+          // may still be on the device. Do not falsely mark it as erased.
+          // The next explicit sign-in/logout must retry secure deletion.
         }
         throw ApiException(
           response.statusCode,
