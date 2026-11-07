@@ -114,16 +114,16 @@ class ChargingOperationsTest extends TestCase
         foreach (['0', '-1', 'garbage', '1000001', '1.5'] as $invalid) {
             $this->getJson('/api/charging-operations?page='.$invalid)
                 ->assertUnprocessable();
-            $this->getJson('/api/charging-operations/'.$command->id.'?page='.$invalid)
+            $this->getJson('/api/charging-operations/'.$command->id.'/case?page='.$invalid)
                 ->assertUnprocessable();
         }
         $this->getJson('/api/charging-operations?page=1')->assertOk()
             ->assertJsonPath('total', 1);
-        $this->getJson('/api/charging-operations/'.$command->id.'?page=1')
+        $this->getJson('/api/charging-operations/'.$command->id.'/case?page=1')
             ->assertOk()->assertJsonPath('events.total', 1);
 
         $outsider = User::factory()->create(['role' => 'vendor']);
-        $this->actingAs($outsider)->getJson('/api/charging-operations/'.$command->id.'?page=bad')
+        $this->actingAs($outsider)->getJson('/api/charging-operations/'.$command->id.'/case?page=bad')
             ->assertNotFound();
         $this->getJson('/api/charging-operations?page=1')
             ->assertOk()->assertJsonPath('total', 0);
