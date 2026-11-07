@@ -138,6 +138,8 @@ class BatteryFixture extends FixtureApi {
 }
 
 class FaultFixture extends FixtureApi {
+  final List<String> reviewReads = [];
+  int writes = 0;
   @override
   Future<dynamic> request(
     String path, {
@@ -145,6 +147,29 @@ class FaultFixture extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (method != 'GET') writes++;
+    if (path == 'vendor-ops/companies/5/chargers/7/source-diagnostics') {
+      reviewReads.add(path);
+      return {
+        'protocol': '1.6', 'events': <Map<String, dynamic>>[],
+        'automatic_monitor': {'state': 'caught_up'},
+        'source_registered': true, 'source_online': false,
+      };
+    }
+    if (path == 'vendor-ops/companies/5/chargers/7/fault-alerts') {
+      reviewReads.add(path);
+      return {
+        'data': [
+          {
+            'id': 9, 'evse_number': 1, 'connector_number': 1,
+            'status': 'Faulted', 'error_code': 'GroundFailure',
+            'occurred_at': '2026-11-07T10:00:00Z',
+            'recovery_observed_at': null, 'acknowledged_at': null,
+          }
+        ],
+        'current_page': 1, 'last_page': 1, 'can_manage_faults': false,
+      };
+    }
     if (path == 'notifications/summary') {
       return {'unread_count': 2, 'latest_id': 23, 'in_app_only': true};
     }
@@ -158,6 +183,9 @@ class FaultFixture extends FixtureApi {
               'metadata': {
                 'source': 'simulator',
                 'station_id': 17,
+                'company_id': 5,
+                'charger_id': 7,
+                'alert_id': 9,
                 'physical_verification': false,
               },
             },
@@ -169,6 +197,9 @@ class FaultFixture extends FixtureApi {
               'metadata': {
                 'source': 'simulator',
                 'station_id': 17,
+                'company_id': 5,
+                'charger_id': 7,
+                'alert_id': 9,
                 'physical_verification': false,
               },
             },
@@ -459,6 +490,64 @@ void main() {
     expect(fixture.read, isTrue);
     expect(find.text('0 unread notifications'), findsOneWidget);
   });
+  test('only verified simulator source metadata can link operational review', () {
+    final complete = {
+      'kind': 'charging.fault.simulated',
+      'metadata': {
+        'source': 'simulator',
+        'physical_verification': false,
+        'company_id': 5,
+        'charger_id': 7,
+        'alert_id': 9,
+      },
+    };
+    expect(simulatedFaultTarget(complete), {
+      'company_id': 5, 'charger_id': 7, 'alert_id': 9,
+    });
+    expect(simulatedFaultTarget({
+      ...complete, 'metadata': {
+        ...complete['metadata'] as Map<String, dynamic>,
+        'source': 'physical',
+      },
+    }), isNull);
+    expect(simulatedFaultTarget({
+      ...complete, 'metadata': {
+        ...complete['metadata'] as Map<String, dynamic>,
+        'physical_verification': true,
+      },
+    }), isNull);
+    expect(simulatedFaultTarget({
+      ...complete, 'metadata': {
+        ...complete['metadata'] as Map<String, dynamic>,
+        'charger_id': -1,
+      },
+    }), isNull);
+    expect(simulatedFaultTarget({'kind': 'support.reply'}), isNull);
+  });
+
+  testWidgets('fault inbox opens authorized diagnostics without sending any command', (
+    tester,
+  ) async {
+    final fixture = FaultFixture();
+    addTearDown(fixture.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: fixture, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('review-simulated-fault')), findsNWidgets(2));
+    await tester.tap(find.byKey(const Key('review-simulated-fault')).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Source diagnostics'), findsOneWidget);
+    expect(find.text('#9'), findsOneWidget);
+    expect(fixture.reviewReads, [
+      'vendor-ops/companies/5/chargers/7/source-diagnostics',
+      'vendor-ops/companies/5/chargers/7/fault-alerts',
+    ]);
+    expect(fixture.writes, 0);
+  });
+
   testWidgets(
     'source-observed simulated fault is visible to owner without invented ticket or physical claim',
     (tester) async {

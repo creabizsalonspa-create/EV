@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'fleet.dart';
+import 'charger_diagnostics.dart';
 
 /// Presentation-only: all values are text, never an authorization or charging
 /// command. Unknown or malformed event metadata cannot crash the inbox.
@@ -49,6 +50,30 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
   }
 }
 
+
+/// Navigate only unambiguous, simulator-scoped owner notifications. Backend
+/// VendorAccess still re-authorizes the selected charger on every request.
+Map<String, int>? simulatedFaultTarget(Map<String, dynamic> row) {
+  if (row['kind'] != 'charging.fault.simulated' &&
+      row['kind'] != 'charging.fault.recovered.simulated') {
+    return null;
+  }
+  final details = row['metadata'];
+  if (details is! Map ||
+      details['source'] != 'simulator' ||
+      details['physical_verification'] != false) {
+    return null;
+  }
+  final company = details['company_id'];
+  final charger = details['charger_id'];
+  final alert = details['alert_id'];
+  if (company is! int || company <= 0 ||
+      charger is! int || charger <= 0 ||
+      alert is! int || alert <= 0) {
+    return null;
+  }
+  return {'company_id': company, 'charger_id': charger, 'alert_id': alert};
+}
 
 class SupportView extends StatefulWidget {
   final EvApi api;
@@ -368,6 +393,29 @@ class SupportViewState extends State<SupportView> {
                                       if (mounted) await refresh();
                                     },
                               child: Text(s.t('reviewFleetInvitation')),
+                            ),
+                          if (simulatedFaultTarget(row) != null)
+                            TextButton(
+                              key: const Key('review-simulated-fault'),
+                              onPressed: loading
+                                  ? null
+                                  : () async {
+                                      final target = simulatedFaultTarget(row);
+                                      if (target == null) return;
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => ChargerDiagnosticsView(
+                                            api: widget.api,
+                                            companyId: target['company_id']!,
+                                            chargerId: target['charger_id']!,
+                                            onExpired: widget.onSessionExpired,
+                                            openFaultAlerts: true,
+                                          ),
+                                        ),
+                                      );
+                                      if (mounted) await refresh();
+                                    },
+                              child: Text(s.t('reviewSimulatedFault')),
                             ),
                           if (row['support_ticket_id'] != null)
                             TextButton(
