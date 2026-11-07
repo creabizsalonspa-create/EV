@@ -11,6 +11,14 @@ window.EV_MESSAGES = {
         en: "Repeat unresolved simulator fault reminders",
         ar: "تكرار تذكيرات أعطال المحاكاة غير المحلولة",
     },
+    "Simulated fault reminder delay": {
+        en: "Simulated fault reminder delay",
+        ar: "مهلة تذكير عطل الشاحن التجريبي",
+    },
+    "After {minutes} minutes": {
+        en: "After {minutes} minutes",
+        ar: "بعد {minutes} دقيقة",
+    },
     "Critical in-app notifications always remain visible. External notification delivery is not active.": {
         en: "Critical in-app notifications always remain visible. External notification delivery is not active.",
         ar: "تبقى الإشعارات الداخلية الحرجة ظاهرة دائماً. إرسال الإشعارات خارج التطبيق غير مفعل.",

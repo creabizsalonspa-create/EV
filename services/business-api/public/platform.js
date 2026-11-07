@@ -1440,6 +1440,22 @@ async function refreshInbox() {
             "Repeat unresolved simulator fault reminders",
             prefs.remind_unresolved_simulator_faults,
         );
+        const delayLabel = document.createElement("label");
+        delayLabel.append(ui("span", "Simulated fault reminder delay"));
+        const delaySelect = document.createElement("select");
+        delaySelect.id = "notification-fault-delay";
+        for (const minutes of [15, 30, 60]) {
+            const option = ui("option", "After {minutes} minutes", { minutes });
+            option.value = String(minutes);
+            delaySelect.append(option);
+        }
+        const currentDelay = prefs.fault_reminder_delay_minutes ?? 15;
+        if (![15, 30, 60].includes(currentDelay)) {
+            throw new Error("Invalid simulator fault reminder delay");
+        }
+        delaySelect.value = String(currentDelay);
+        delayLabel.append(delaySelect);
+        settings.append(delayLabel);
         settings.append(ui("p", "Critical in-app notifications always remain visible. External notification delivery is not active."));
         const save = ui("button", "Save notification preferences");
         save.id = "notification-preference-save";
@@ -1453,13 +1469,15 @@ async function refreshInbox() {
                 default_category: defaultCategory.value,
                 default_unread_only: unreadDefault.checked,
                 remind_unresolved_simulator_faults: reminders.checked,
+                fault_reminder_delay_minutes: Number(delaySelect.value),
             };
             try {
                 const accepted = await api("notifications/preferences", "PUT", desired);
                 if (session !== client.sessionEpoch || account !== user?.id) return;
                 if (!accepted || accepted.default_category !== desired.default_category ||
                     accepted.default_unread_only !== desired.default_unread_only ||
-                    accepted.remind_unresolved_simulator_faults !== desired.remind_unresolved_simulator_faults) {
+                    accepted.remind_unresolved_simulator_faults !== desired.remind_unresolved_simulator_faults ||
+                    accepted.fault_reminder_delay_minutes !== desired.fault_reminder_delay_minutes) {
                     throw new Error("Notification preference update could not be confirmed.");
                 }
                 inboxPreferences = accepted;

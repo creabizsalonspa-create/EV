@@ -361,6 +361,11 @@ class SupportViewState extends State<SupportView> {
     var selected = current['default_category'] as String;
     var unread = current['default_unread_only'] as bool;
     var repeat = current['remind_unresolved_simulator_faults'] as bool;
+    var delay = current['fault_reminder_delay_minutes'] is int
+        ? current['fault_reminder_delay_minutes'] as int : 15;
+    if (![15, 30, 60].contains(delay)) {
+      delay = 15;
+    }
     final s = EvStrings.of(context);
 
     final desired = await showDialog<Map<String, dynamic>>(
@@ -411,6 +416,23 @@ class SupportViewState extends State<SupportView> {
                   onChanged: (value) => updateDialog(() => repeat = value ?? false),
                   title: Text(s.t('notificationRepeatSimulatorReminders')),
                 ),
+                Text(s.t('notificationReminderDelayTitle')),
+                DropdownButton<int>(
+                  key: const Key('notification-preference-delay'),
+                  value: delay,
+                  isExpanded: true,
+                  items: const [15, 30, 60].map((minutes) =>
+                    DropdownMenuItem<int>(
+                      value: minutes,
+                      child: Text(s.t('notificationReminderDelayChoice', {
+                        'minutes': minutes,
+                      })),
+                    ),
+                  ).toList(),
+                  onChanged: (choice) {
+                    if (choice != null) updateDialog(() => delay = choice);
+                  },
+                ),
                 Text(s.t('notificationDeliveryUnavailable')),
               ],
             ),
@@ -426,6 +448,7 @@ class SupportViewState extends State<SupportView> {
                 'default_category': selected,
                 'default_unread_only': unread,
                 'remind_unresolved_simulator_faults': repeat,
+                'fault_reminder_delay_minutes': delay,
               }),
               child: Text(s.t('save')),
             ),
@@ -453,6 +476,7 @@ class SupportViewState extends State<SupportView> {
           accepted['default_unread_only'] != desired['default_unread_only'] ||
           accepted['remind_unresolved_simulator_faults'] !=
               desired['remind_unresolved_simulator_faults'] ||
+          accepted['fault_reminder_delay_minutes'] != desired['fault_reminder_delay_minutes'] ||
           accepted['external_delivery_available'] != false) {
         throw const FormatException('Preference update not confirmed');
       }

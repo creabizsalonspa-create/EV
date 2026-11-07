@@ -511,6 +511,7 @@ const { randomUUID } = require("node:crypto");
     await customer.page.locator("#notification-default-category").selectOption("charging");
     await customer.page.locator("#notification-default-unread").check();
     await customer.page.locator("#notification-repeat-reminders").uncheck();
+    await customer.page.locator("#notification-fault-delay").selectOption("60");
     const savedPreferences = customer.page.waitForResponse(
       (response) => response.url().endsWith("/api/notifications/preferences") &&
         response.request().method() === "PUT",
@@ -523,6 +524,7 @@ const { randomUUID } = require("node:crypto");
     assert.equal(configured.default_category, "charging");
     assert.equal(configured.default_unread_only, true);
     assert.equal(configured.remind_unresolved_simulator_faults, false);
+    assert.equal(configured.fault_reminder_delay_minutes, 60);
     assert.equal(configured.external_delivery_available, false);
     const stillRecorded = await customer.page.evaluate(
       () => api("notifications/summary"),
@@ -538,6 +540,9 @@ const { randomUUID } = require("node:crypto");
     );
     assert.equal(
       await customer.page.locator("#notification-repeat-reminders").isChecked(), false,
+    );
+    assert.equal(
+      await customer.page.locator("#notification-fault-delay").inputValue(), "60",
     );
     await vendor.page.setViewportSize({ width: 390, height: 844 });
     assert(

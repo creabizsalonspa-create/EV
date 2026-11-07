@@ -16,6 +16,7 @@ class SupportFixture extends FixtureApi {
     'default_category': 'all',
     'default_unread_only': false,
     'remind_unresolved_simulator_faults': true,
+    'fault_reminder_delay_minutes': 15,
     'in_app_only': true,
     'external_delivery_available': false,
     'critical_events_always_visible': true,
@@ -562,6 +563,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('notification-preference-unread')));
     await tester.tap(find.byKey(const Key('notification-preference-repeat')));
+    await tester.tap(find.byKey(const Key('notification-preference-delay')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('After 30 minutes').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('notification-preferences-confirm')));
     await tester.pumpAndSettle();
 
@@ -569,6 +574,7 @@ void main() {
     expect(fixture.preferences['default_category'], 'charging');
     expect(fixture.preferences['default_unread_only'], true);
     expect(fixture.preferences['remind_unresolved_simulator_faults'], false);
+    expect(fixture.preferences['fault_reminder_delay_minutes'], 30);
     expect(fixture.selectedCategory, 'charging');
 
     // Simulate a fresh screen instance using the same backend fixture.
