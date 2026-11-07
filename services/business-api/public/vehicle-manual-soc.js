@@ -110,7 +110,7 @@
           expected_revision:latest.revision,
           battery_percent:number,
         };
-        submitReport();
+        return submitReport();
       };
       panel.append(form);
       panel.append(tr("Previous manual reports","التقارير اليدوية السابقة","h4"));

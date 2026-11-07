@@ -1,6 +1,7 @@
 // Isolated frontend contract fixtures; never a production station-data source.
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
+require("./vehicle-manual-soc.cjs");
 (async () => {
   const browser = await chromium.launch({
     headless: true,
