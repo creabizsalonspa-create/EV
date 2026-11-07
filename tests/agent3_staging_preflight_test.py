@@ -120,5 +120,28 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaises(p.PreflightError):
                 p.check_policy(root)
 
+    def test_service_override_and_public_gateway_ports_cannot_bypass_anchor_policy(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            stage = root/'infra/staging'
+            stage.mkdir(parents=True)
+            source = (ROOT/'infra/staging'/'compose.yaml').read_text()
+            for name in ('Caddyfile', 'Dockerfile'):
+                (stage/name).write_text((ROOT/'infra/staging'/name).read_text())
+            for mutated in (
+                source.replace('  application:\n    <<: *application',
+                    '  application:\n    <<: *application\n    environment:\n      APP_ENV: production'),
+                source.replace('  scheduler:\n    <<: *application',
+                    '  scheduler:\n    <<: *application\n    ports:\n      - 0.0.0.0:9900:9900'),
+                source.replace("      - '${STAGING_BIND_IP:-127.0.0.1}:8443:443'",
+                    "      - '${STAGING_BIND_IP:-127.0.0.1}:8443:443'\n      - '0.0.0.0:443:443'"),
+                source.replace('  volumes:\n    - private-storage:',
+                    '  ports:\n    - 0.0.0.0:8080:80\n  volumes:\n    - private-storage:', 1),
+            ):
+                with self.subTest(mutated=mutated[:45]):
+                    (stage/'compose.yaml').write_text(mutated)
+                    with self.assertRaises(p.PreflightError):
+                        p.check_policy(root)
+
 if __name__ == '__main__':
     unittest.main()

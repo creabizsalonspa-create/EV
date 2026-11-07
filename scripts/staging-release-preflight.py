@@ -117,8 +117,216 @@ def check_policy(root):
     compose = (root / 'compose.yaml').read_text()
     caddy = (root / 'Caddyfile').read_text()
     image = (root / 'Dockerfile').read_text()
-    require('name: ev-staging' in compose and "APP_DEBUG: 'false'" in compose
-            and 'APP_ENV: staging' in compose, 'Invalid staging environment')
+    require(compose.count('x-application: &application') == 1 and
+            len(re.findall(r'^services:\s*
+    for field in ("SESSION_ENCRYPT: 'true'", "SESSION_SECURE_COOKIE: 'true'",
+                  'DB_CONNECTION: pgsql', 'DB_HOST: database'):
+        require(field in compose, 'Required isolation or secure session field missing')
+    for key in DISABLED:
+        require(re.search(r'^    ' + re.escape(key) + r": 'false'\s*$", compose, re.M),
+                f'Staging compose must disable: {key}')
+    services = extract_services(compose)
+    for name in ('application', 'worker', 'scheduler', 'database', 'gateway'):
+        require(name in services, f'Missing staging service: {name}')
+    for name in ('application', 'worker', 'scheduler'):
+        body = services[name]
+        require(re.search(r'^    <<: \*application\s*
+    for value in ('reverse_proxy application:80', 'admin off',
+                  'X-Content-Type-Options nosniff', 'X-Frame-Options DENY',
+                  'Referrer-Policy strict-origin-when-cross-origin'):
+        require(value in caddy, 'Missing Caddy isolation/header policy')
+    require(re.search(r'FROM php:[^\s]+@sha256:[a-f0-9]{64}', image) is not None and
+            'chmod 0700 storage/app/private' in image and 'HEALTHCHECK' in image,
+            'Staging runtime must have pinned PHP, private storage and healthcheck')
+    return sorted(services)
+
+def audit(root, env_path=None):
+    services = check_policy(root)
+    if env_path is not None:
+        validate_env(read_env(env_path))
+    return {
+        'status': 'PASS',
+        'classification': 'staging configuration review only',
+        'staging_env_checked': env_path is not None,
+        'private_secret_values_logged': False,
+        'services_checked': services,
+        'external_provider_or_production_accepted': False,
+    }
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument('--env', type=Path)
+    parser.add_argument('--output', type=Path)
+    args = parser.parse_args(argv)
+    if args.output:
+        args.output.unlink(missing_ok=True)
+    try:
+        result = audit(args.root, args.env)
+    except (OSError, UnicodeError, PreflightError) as exc:
+        print(f'FAIL: {exc}', file=sys.stderr)
+        return 1
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = args.output.with_suffix('.preflight-tmp')
+        temporary.unlink(missing_ok=True)
+        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(result, f, sort_keys=True, indent=2)
+            f.write('\n')
+        os.replace(temporary, args.output)
+    print('PASS: staging configuration only; NOT production acceptance')
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
+, compose, re.M)) == 1,
+            'Ambiguous staging Compose anchors or service sections')
+    anchor = compose.split('x-application: &application', 1)[1].split('\nservices:', 1)[0]
+    require('APP_ENV: staging' in anchor and "APP_DEBUG: 'false'" in anchor,
+            'Invalid anchored staging environment')
+    # Environment overrides in one service silently replace the merged YAML
+    # anchor. The old substring policy would approve those unsafe effective
+    # values even though the original secure defaults still existed.
+    require(not re.search(r'^  (ports|network_mode|privileged|extra_hosts):',
+                          anchor, re.M), 'Shared application anchor exposes host settings')
+    for field in ("SESSION_ENCRYPT: 'true'", "SESSION_SECURE_COOKIE: 'true'",
+                  'DB_CONNECTION: pgsql', 'DB_HOST: database'):
+        require(field in compose, 'Required isolation or secure session field missing')
+    for key in DISABLED:
+        require(re.search(r'^    ' + re.escape(key) + r": 'false'\s*$", compose, re.M),
+                f'Staging compose must disable: {key}')
+    services = extract_services(compose)
+    for name in ('application', 'worker', 'scheduler', 'database', 'gateway'):
+        require(name in services, f'Missing staging service: {name}')
+    for name in ('application', 'worker', 'scheduler', 'database'):
+        require(not re.search(r'^    ports:', services[name], re.M),
+                f'Internal service must not publish ports: {name}')
+    require(POSTGRES_IMAGE in services['database'], 'Postgres must use pinned reviewed image')
+    require("'${STAGING_BIND_IP:-127.0.0.1}:8443:443'" in services['gateway'],
+            'Gateway port must default to loopback')
+    for value in ('reverse_proxy application:80', 'admin off',
+                  'X-Content-Type-Options nosniff', 'X-Frame-Options DENY',
+                  'Referrer-Policy strict-origin-when-cross-origin'):
+        require(value in caddy, 'Missing Caddy isolation/header policy')
+    require(re.search(r'FROM php:[^\s]+@sha256:[a-f0-9]{64}', image) is not None and
+            'chmod 0700 storage/app/private' in image and 'HEALTHCHECK' in image,
+            'Staging runtime must have pinned PHP, private storage and healthcheck')
+    return sorted(services)
+
+def audit(root, env_path=None):
+    services = check_policy(root)
+    if env_path is not None:
+        validate_env(read_env(env_path))
+    return {
+        'status': 'PASS',
+        'classification': 'staging configuration review only',
+        'staging_env_checked': env_path is not None,
+        'private_secret_values_logged': False,
+        'services_checked': services,
+        'external_provider_or_production_accepted': False,
+    }
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument('--env', type=Path)
+    parser.add_argument('--output', type=Path)
+    args = parser.parse_args(argv)
+    if args.output:
+        args.output.unlink(missing_ok=True)
+    try:
+        result = audit(args.root, args.env)
+    except (OSError, UnicodeError, PreflightError) as exc:
+        print(f'FAIL: {exc}', file=sys.stderr)
+        return 1
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = args.output.with_suffix('.preflight-tmp')
+        temporary.unlink(missing_ok=True)
+        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(result, f, sort_keys=True, indent=2)
+            f.write('\n')
+        os.replace(temporary, args.output)
+    print('PASS: staging configuration only; NOT production acceptance')
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
+, body, re.M) is not None,
+                f'Service must inherit secure application defaults: {name}')
+        require(not re.search(
+            r'^    (ports|network_mode|privileged|extra_hosts|environment|env_file|image|build):',
+            body, re.M),
+            f'Service cannot override secure application defaults: {name}')
+    require(not re.search(r'^    ports:', services['database'], re.M),
+            'Database must not publish ports')
+    require(POSTGRES_IMAGE in services['database'], 'Postgres must use pinned reviewed image')
+    gateway = services['gateway']
+    ports = re.findall(r'^    ports:\s*\n((?:      - [^\n]*\n?)+)', gateway, re.M)
+    require(len(ports) == 1 and ports[0].strip() ==
+            "- '${STAGING_BIND_IP:-127.0.0.1}:8443:443'", 
+            'Gateway must expose exactly one loopback-only port')
+    for value in ('reverse_proxy application:80', 'admin off',
+                  'X-Content-Type-Options nosniff', 'X-Frame-Options DENY',
+                  'Referrer-Policy strict-origin-when-cross-origin'):
+        require(value in caddy, 'Missing Caddy isolation/header policy')
+    require(re.search(r'FROM php:[^\s]+@sha256:[a-f0-9]{64}', image) is not None and
+            'chmod 0700 storage/app/private' in image and 'HEALTHCHECK' in image,
+            'Staging runtime must have pinned PHP, private storage and healthcheck')
+    return sorted(services)
+
+def audit(root, env_path=None):
+    services = check_policy(root)
+    if env_path is not None:
+        validate_env(read_env(env_path))
+    return {
+        'status': 'PASS',
+        'classification': 'staging configuration review only',
+        'staging_env_checked': env_path is not None,
+        'private_secret_values_logged': False,
+        'services_checked': services,
+        'external_provider_or_production_accepted': False,
+    }
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument('--env', type=Path)
+    parser.add_argument('--output', type=Path)
+    args = parser.parse_args(argv)
+    if args.output:
+        args.output.unlink(missing_ok=True)
+    try:
+        result = audit(args.root, args.env)
+    except (OSError, UnicodeError, PreflightError) as exc:
+        print(f'FAIL: {exc}', file=sys.stderr)
+        return 1
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = args.output.with_suffix('.preflight-tmp')
+        temporary.unlink(missing_ok=True)
+        fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(result, f, sort_keys=True, indent=2)
+            f.write('\n')
+        os.replace(temporary, args.output)
+    print('PASS: staging configuration only; NOT production acceptance')
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
+, compose, re.M)) == 1,
+            'Ambiguous staging Compose anchors or service sections')
+    anchor = compose.split('x-application: &application', 1)[1].split('\nservices:', 1)[0]
+    require('APP_ENV: staging' in anchor and "APP_DEBUG: 'false'" in anchor,
+            'Invalid anchored staging environment')
+    # Environment overrides in one service silently replace the merged YAML
+    # anchor. The old substring policy would approve those unsafe effective
+    # values even though the original secure defaults still existed.
+    require(not re.search(r'^  (ports|network_mode|privileged|extra_hosts):',
+                          anchor, re.M), 'Shared application anchor exposes host settings')
     for field in ("SESSION_ENCRYPT: 'true'", "SESSION_SECURE_COOKIE: 'true'",
                   'DB_CONNECTION: pgsql', 'DB_HOST: database'):
         require(field in compose, 'Required isolation or secure session field missing')
