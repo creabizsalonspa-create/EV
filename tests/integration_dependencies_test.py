@@ -60,7 +60,7 @@ class DependenciesTest(unittest.TestCase):
             {"dependencies": {"070": [50]}},
             {"dependencies": {"70": []}},
             {"dependencies": {"70": ["50"]}},
-            {"dependencies": {} if False else {"70": [0]}},
+            {"dependencies": {"70": [0]}},
         ]
         for patch_data in modifications:
             with self.subTest(change=patch_data):
@@ -159,7 +159,7 @@ class DependenciesTest(unittest.TestCase):
     def test_targeted_audit_handles_more_than_thirty_active_prs(self):
         # Ten agents routinely produce 30+ drafts. Targeted audits must still
         # inspect a selected PR and its separate API dependency edges.
-        active = [pr(n) for n in range(1, 34)]
+        active = [pr(n) for n in range(1, 34)] + [pr(50), pr(52)]
 
         class FakeGitHub:
             def __init__(self, *args, **kwargs):
