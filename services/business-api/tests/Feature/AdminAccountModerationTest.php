@@ -173,6 +173,25 @@ class AdminAccountModerationTest extends TestCase
         $this->getJson('/api/vehicles')->assertOk();
     }
 
+    public function test_upgrading_account_role_invalidates_old_browser_authorization_version(): void
+    {
+        $account = User::factory()->create(['role' => 'customer']);
+        $this->assertSame(0, $account->auth_epoch);
+        // Production KYC approval must save the locked Eloquent model so the
+        // role transition invalidation event fires; bulk SQL skips it.
+        $account->forceFill(['role' => 'vendor'])->save();
+        $this->assertSame(1, $account->fresh()->auth_epoch);
+
+        $this->actingAs($account->fresh(), 'web')
+            ->withSession(['account_auth_epoch' => 0])
+            ->getJson('/api/vehicles')->assertUnauthorized();
+
+        $this->postJson('/api/login', [
+            'email' => $account->email, 'password' => 'password',
+        ])->assertOk()->assertJsonPath('role', 'vendor');
+        $this->getJson('/api/vehicles')->assertOk();
+    }
+
     public function test_account_directory_can_filter_moderation_state_without_exposing_reason(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

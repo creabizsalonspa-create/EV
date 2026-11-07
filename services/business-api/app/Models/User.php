@@ -13,6 +13,19 @@ class User extends Authenticatable implements MustVerifyEmail
     /** @use HasFactory<UserFactory> */
     use HasFactory, \Laravel\Sanctum\HasApiTokens, Notifiable;
 
+    /**
+     * Changing user role must invalidate prior browser grants, including on
+     * file/Redis sessions. PR #76 independently revokes bearer credentials.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (self $account): void {
+            if ($account->isDirty('role')) {
+                $account->auth_epoch = (int) $account->auth_epoch + 1;
+            }
+        });
+    }
+
     protected $attributes = ['role' => 'customer', 'locale' => 'en', 'account_status' => 'active', 'auth_epoch' => 0];
 
     /**
