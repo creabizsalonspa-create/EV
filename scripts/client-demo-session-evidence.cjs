@@ -32,7 +32,8 @@ function validateCompleted(fixture,userId,reservations,sessions) {
       s.csms_linked===true&&s.payment_status==='not_processed'&&
       Number.isSafeInteger(s.energy_wh)&&s.energy_wh>0&&s.energy_wh<=1000000&&
       Number.isSafeInteger(s.total_minor)&&s.total_minor>=0&&
-      s.currency==='AED'&&s.physical_charging_verified!==true);
+      s.currency==='AED'&&
+      (s.physical_charging_verified===undefined||s.physical_charging_verified===false));
     if(!complete.length)throw Error('Missing completed source-linked simulation');
     // Prefer newest actual completed synthetic source session (API is ordered descending).
     const selected=complete[0];
@@ -62,9 +63,10 @@ async function inspect(manifest,send=jsonRequest,now=()=>new Date().toISOString(
       throw Error('Local CSRF bootstrap failed');
     jar.set('__csrf_token',csrf.body.token);
     const login=await send('/api/login','POST',{email:account.email,password:account.password},jar);
+    // If a 200 login activated any session, revoke it even when identity is unexpected.
+    if(login.status===200)loggedIn=true;
     if(login.status!==200||login.body?.role!=='customer'||login.body.email!==account.email||
       !Number.isSafeInteger(login.body.id))throw Error('Synthetic customer login mismatch');
-    loggedIn=true;
     const reservations=await send('/api/reservations','GET',undefined,jar);
     const sessions=await send('/api/simulations','GET',undefined,jar);
     if(reservations.status!==200||sessions.status!==200)throw Error('Local session read failed');
