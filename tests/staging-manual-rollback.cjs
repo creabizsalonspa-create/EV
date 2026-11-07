@@ -16,6 +16,7 @@ function temp(body){
 }
 function plan(){return {project:'ev-staging',source_sha:SHA,old_ref:oldRef,old_id:OLD,
   candidate_ref:newRef,candidate_id:NEW,roles:['application','worker','scheduler'],
+  protected_services:{database:'4'.repeat(64),gateway:'5'.repeat(64)},
   database_and_gateway_unchanged:true,automatic_migrations:false,external_services_or_payments_invoked:false};}
 function setup(dir,events=['RELEASE_STARTED']) {
   const file=path.join(dir,'release.jsonl');
@@ -160,4 +161,25 @@ test('manual rollback refuses unsafe resolved Compose even with approved journal
   assert.equal(recovery.main(cli(file),deps),2);
   assert.equal(deps.state.up,0);
   assert.equal(deps.state.seen.length,0);
+}));
+
+test('manual recovery rejects changed database identity after first release',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir),original=deps.run;
+  deps.run=(cmd,args,opts)=>{
+    if(args[0]==='compose'&&args.includes('ps')){
+      const rows=JSON.parse(original(cmd,args,opts));
+      rows.find(x=>x.Service==='database').ID='9'.repeat(64);
+      return JSON.stringify(rows);
+    }
+    return original(cmd,args,opts);
+  };
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+}));
+test('recovery provenance requires stable protected container IDs',()=>temp(dir=>{
+  const file=setup(dir);
+  const records=fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse);
+  delete records[0].plan.protected_services;
+  fs.writeFileSync(file,records.map(x=>JSON.stringify(x)).join('\n')+'\n');
+  assert.throws(()=>recovery.loadJournal(file));
 }));
