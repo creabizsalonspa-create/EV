@@ -430,15 +430,23 @@ class EvApi {
       'image/png',
       'image/jpeg',
     ],
+    bool internalAuthHandshake = false,
   }) async {
     if (!RegExp(r'^[a-z0-9/-]+$').hasMatch(path)) {
       throw ArgumentError('Invalid API path');
     }
-    // During account changes only internal auth handshakes are permitted.
-    if (_authTransitionEpoch == _epoch &&
-        !(_authTransitionOperation == 'login' &&
-            (path == 'csrf' || path == 'login' || path == 'register')) &&
-        !(_authTransitionOperation == 'logout' && path == 'logout')) {
+    // Only this client's private handshake calls may pass the transition
+    // fence. Path matching alone would allow external UI requests to send
+    // another login, logout or CSRF request before old credentials are erased.
+    final allowedHandshake = internalAuthHandshake &&
+        ((_authTransitionOperation == 'login' &&
+                ((path == 'csrf' && method == 'GET') ||
+                    ((path == 'login' || path == 'register') &&
+                        method == 'POST'))) ||
+            (_authTransitionOperation == 'logout' &&
+                path == 'logout' &&
+                method == 'POST'));
+    if (_authTransitionEpoch == _epoch && !allowedHandshake) {
       throw const ApiException(409, 'Session changed.');
     }
     final epoch = _epoch;
@@ -555,9 +563,14 @@ class EvApi {
     }
   }
 
-  Future<void> csrf() async {
+  Future<void> csrf() => _refreshCsrf(internalAuthHandshake: false);
+
+  Future<void> _refreshCsrf({required bool internalAuthHandshake}) async {
     final epoch = _epoch;
-    final data = await request('csrf');
+    final data = await _request(
+      'csrf',
+      internalAuthHandshake: internalAuthHandshake,
+    );
     // A stale response cannot overwrite a different user's CSRF token.
     if (epoch != _epoch)
       throw const ApiException(409, 'Session changed.');
@@ -575,10 +588,10 @@ class EvApi {
       await forgetSession();
       if (signInEpoch != _epoch)
         throw const ApiException(409, 'Session changed.');
-      await csrf();
+      await _refreshCsrf(internalAuthHandshake: true);
       if (signInEpoch != _epoch)
         throw const ApiException(409, 'Session changed.');
-      final data = await request(
+      final data = await _request(
         name == null ? 'login' : 'register',
         method: 'POST',
         body: {
@@ -586,10 +599,11 @@ class EvApi {
           'password': password,
           if (name != null) 'name': name,
         },
+        internalAuthHandshake: true,
       );
       if (signInEpoch != _epoch)
         throw const ApiException(409, 'Session changed.');
-      await csrf();
+      await _refreshCsrf(internalAuthHandshake: true);
       if (signInEpoch != _epoch)
         throw const ApiException(409, 'Session changed.');
       return Account.fromJson(Map<String, dynamic>.from(data as Map));
@@ -624,7 +638,11 @@ class EvApi {
     try {
       await forgetSession();
       if (logoutEpoch != _epoch) return;
-      await request('logout', method: 'POST');
+      await _request(
+        'logout',
+        method: 'POST',
+        internalAuthHandshake: true,
+      );
     } finally {
       // Even if platform deletion fails, don't retain active cookies.
       // Never wipe a newer login's cookie jar when superseded.
