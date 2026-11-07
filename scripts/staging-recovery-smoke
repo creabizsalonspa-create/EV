@@ -18,6 +18,9 @@ command -v python3 >/dev/null
 docker image inspect "$image" >/dev/null
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+# Never expose an old PASS artifact when a subsequent rehearsal fails.
+mkdir -p "$root/artifacts/agent3-recovery"
+rm -f -- "$root/artifacts/agent3-recovery/validation.json"
 review_id="ev-recovery-$RANDOM-$$"
 scratch=$(mktemp -d /tmp/ev-recovery.XXXXXXXX)
 source_net= target_net= source_db= target_db= source_app= target_app=
