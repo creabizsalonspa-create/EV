@@ -24,6 +24,8 @@ const assert = require("node:assert/strict");
                         {
                             id: 19,
                             provider_id: 9,
+                            provider_label: "Unverified Network_50%!",
+                            provider_label_evidence: "PROVIDER_CONFIGURED_UNVERIFIED",
                             evidence: "PARTNER_REPORTED_UNVERIFIED",
                             availability: "unknown",
                             remote_control: false,
@@ -87,6 +89,13 @@ const assert = require("node:assert/strict");
         assert.equal(queried.searchParams.get("radius_km"), "10");
         assert.equal(await root.locator("form").count(), 1);
         assert.equal(await root.locator('button[data-command="remote-start"]').count(), 0);
+        await root.getByText("Configured provider (not operator-certified):", { exact: true }).waitFor();
+        await root.locator("[name=partner_provider]").fill("Network_50%!");
+        await root.getByRole("button", { name: "Search partner locations", exact: true }).click();
+        await root.getByText("Unverified Network_50%!", { exact: true }).waitFor();
+        const providerUri = urls.at(-1);
+        assert.equal(providerUri.searchParams.get("provider"), "Network_50%!");
+        assert.equal(providerUri.searchParams.get("radius_km"), "10");
 
         await page.locator("#language").click();
         await root.getByText("المسافة بخط مستقيم (ليست مسافة قيادة):", { exact: true }).waitFor();
