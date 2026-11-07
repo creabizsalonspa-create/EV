@@ -115,6 +115,43 @@ try{
   const x=await request('GET','/api/v1/StationDetails/'+station._id,undefined,true);
   assert.equal(x.code,200);assert.equal(x.body.status,'Success');
  });
+ const qrStation=await NearestStationModel.create({
+   name:'Agent 2 Station QR Safeguard',address:'Test Only',status:'Available',
+   latitude:25.753,longitude:55.948,qrToken:'agent2-qr-token-test',
+   pricePerHourValue:45,slots:[{startTime:'11:00 AM',endTime:'12:00 PM'}],
+ });
+ const qrBooking=await BookingModel.create({
+   userId:user._id,stationId:qrStation._id,stationName:qrStation.name,
+   date:'2030-11-07',time:'11:00 AM',slotStart:'11:00 AM',slotEnd:'12:00 PM',
+   totalAmount:45,isPaid:true,paymentStatus:'paid',hasArrived:true,status:'Upcoming',
+ });
+ await check('unpaid or incorrect QR token fails without starting a charger',async()=>{
+   const wrong=await request('POST','/api/v1/ChargingSession/validate-qr',
+     {stationId:String(qrStation._id),qrToken:'invalid-qr'},true);
+   assert.equal(wrong.code,400);
+   assert.equal(await ChargingSessionModel.countDocuments({bookingId:qrBooking._id}),0);
+ });
+ let qrSessionId;
+ await check('valid QR verifies station but never claims charging has started',async()=>{
+   const result=await request('POST','/api/v1/ChargingSession/validate-qr',
+     {stationId:String(qrStation._id),qrToken:'agent2-qr-token-test'},true);
+   assert.equal(result.code,200);
+   assert.equal(result.body.data.requiresOcppConfirmation,true);
+   assert.equal(result.body.data.canStartCharging,false);
+   assert.equal(result.body.data.meterVerified,false);
+   assert.equal(result.body.data.status,'NotStarted');
+   qrSessionId=result.body.data.sessionId;
+   const stored=await ChargingSessionModel.findById(qrSessionId);
+   assert.equal(stored.status,'NotStarted');
+ });
+ await check('valid QR does not bypass physical start adapter or booked slot timing',async()=>{
+   const start=await request('POST','/api/v1/ChargingSession/'+qrSessionId+'/start',{},true);
+   assert.equal(start.code,400);
+   const details=await request('GET','/api/v1/ChargingStation/'+qrBooking._id,
+     undefined,true);
+   assert.equal(details.code,400);
+   assert.equal(details.body.data.tooEarly,true);
+ });
  await check('customer can add an EV to the isolated garage',async()=>{
   const x=await request('POST','/api/v1/MyVehicles',{modelId:String(model._id),connectorType:'CCS',
                          batteryCapacityKwh:75},true);
