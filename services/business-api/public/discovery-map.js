@@ -181,6 +181,15 @@
                     "Partner reported (unverified). Live availability unknown. No booking or remote control.",
                     "بيانات الشريك غير متحقق منها. التوفر المباشر غير معروف. لا حجز أو تحكم عن بُعد.",
                 ));
+                if (row.provider_label_evidence === "PROVIDER_CONFIGURED_UNVERIFIED" &&
+                    typeof row.provider_label === "string" && row.provider_label.trim()) {
+                    const label = row.provider_label.trim().slice(0, 120);
+                    popup.append(make(
+                        "p",
+                        `Configured provider (unverified): ${label}`,
+                        `اسم مقدم الخدمة المُسجل (غير مؤكد): ${label}`,
+                    ));
+                }
                 const age = Number.isSafeInteger(row.reported_source_age_minutes) &&
                     row.reported_source_age_minutes >= 0
                     ? row.reported_source_age_minutes : null;
