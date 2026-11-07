@@ -22,9 +22,13 @@ use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'platform');
 
-Route::middleware(['auth', 'throttle:authentication'])->group(function () {
+// Status/page refreshes are safe and should not consume password/code
+// challenge attempts. Every factor mutation uses the tighter auth limiter.
+Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::get('/admin/second-factor', [AdminSecondFactorController::class, 'page']);
     Route::get('/api/admin/second-factor/status', [AdminSecondFactorController::class, 'status']);
+});
+Route::middleware(['auth', 'throttle:authentication'])->group(function () {
     Route::post('/api/admin/second-factor/begin', [AdminSecondFactorController::class, 'begin']);
     Route::post('/api/admin/second-factor/confirm', [AdminSecondFactorController::class, 'confirm']);
     Route::post('/api/admin/second-factor/verify', [AdminSecondFactorController::class, 'verify']);
