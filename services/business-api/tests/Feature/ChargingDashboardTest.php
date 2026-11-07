@@ -8,6 +8,9 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorSite;
+use App\Models\VendorOps\VendorCharger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -66,6 +69,7 @@ class ChargingDashboardTest extends TestCase
     {
         $owner = User::factory()->create(['role' => 'vendor']);
         $stranger = User::factory()->create(['role' => 'vendor']);
+        $firstStationId = null;
         foreach ([$owner, $stranger] as $offset => $vendor) {
             $station = Station::create([
                 'vendor_id' => $vendor->id,
@@ -79,8 +83,37 @@ class ChargingDashboardTest extends TestCase
                 'connector_type' => 'CCS2',
                 'power_kw' => 50,
             ]);
+            if ($offset === 0) $firstStationId = $station->id;
+            $company = VendorCompany::create([
+                'owner_id' => $vendor->id,
+                'legal_name' => 'Synthetic vendor '.$offset,
+                'country' => 'AE',
+                'trade_license_number' => 'TEST-'.$offset,
+                'license_expires_on' => now()->addYear()->toDateString(),
+                'status' => 'approved',
+            ]);
+            $site = VendorSite::create([
+                'company_id' => $company->id,
+                'station_id' => $station->id,
+                'name' => 'Simulator site '.$offset,
+                'country' => 'AE',
+                'timezone' => 'Asia/Dubai',
+                'address' => 'Synthetic only',
+                'latitude' => 25,
+                'longitude' => 55,
+            ]);
+            $charger = VendorCharger::create([
+                'company_id' => $company->id,
+                'site_id' => $site->id,
+                'asset_reference' => 'SIM-'.$offset,
+                'manufacturer' => 'Synthetic',
+                'model' => 'Fixture',
+                'source' => 'simulator',
+                'ocpp_protocol' => '1.6',
+            ]);
             $binding = DB::table('csms_bindings')->insertGetId([
                 'station_id' => $station->id,
+                'vendor_charger_id' => $charger->id,
                 'identifier' => 'ev-test-observer-'.$station->id,
                 'protocol' => '1.6',
                 'created_at' => now(),
@@ -130,6 +163,20 @@ class ChargingDashboardTest extends TestCase
             ->assertJsonPath('unacknowledged_fault_alert_count', 2);
         $this->actingAs($stranger)
             ->getJson('/api/v1/charging-operations/dashboard')
+            ->assertOk()->assertJsonPath('recorded_monitor_review_count', 1)
+            ->assertJsonPath('unacknowledged_fault_alert_count', 1);
+        // An ownership transfer invalidates the original company/site/charger
+        // mapping. Neither the original vendor nor the new station owner may
+        // read the previous company's archived fault workload.
+        Station::whereKey($firstStationId)->update(['vendor_id' => $stranger->id]);
+        $this->actingAs($owner)->getJson('/api/charging-operations/dashboard')
+            ->assertOk()->assertJsonPath('recorded_monitor_review_count', 0)
+            ->assertJsonPath('unacknowledged_fault_alert_count', 0);
+        $this->actingAs($stranger)->getJson('/api/charging-operations/dashboard')
+            ->assertOk()->assertJsonPath('recorded_monitor_review_count', 1)
+            ->assertJsonPath('unacknowledged_fault_alert_count', 1);
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson('/api/charging-operations/dashboard')
             ->assertOk()->assertJsonPath('recorded_monitor_review_count', 1)
             ->assertJsonPath('unacknowledged_fault_alert_count', 1);
     }

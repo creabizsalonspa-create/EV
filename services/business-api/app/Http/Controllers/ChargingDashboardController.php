@@ -24,14 +24,32 @@ class ChargingDashboardController extends Controller
         $missing = static fn ($q) => $q->whereNull('last_event_at')->orWhere('last_event_at', '<', $cutoff);
         $counts = (clone $commands)->selectRaw('status, COUNT(*) as total')->groupBy('status')->pluck('total', 'status')->map(fn ($count) => (int) $count);
         $cases = DB::table('charging_operational_cases')->whereIn('command_id', (clone $commands)->select('id'))->where('state', '!=', 'resolved')->count();
-        // These are historical records owned by the station's current
-        // vendor, not live charger states or physical fault verification.
+        // Source fault metrics are scoped to the *currently valid* simulator
+        // company/site/charger ownership mapping. A station reassignment must
+        // not expose the previous vendor's archived fault workload to its new
+        // owner, even as aggregate counts.
+        $faultBindingIds = DB::table('csms_bindings as b')
+            ->join('stations as st', 'st.id', '=', 'b.station_id')
+            ->join('vendor_chargers as vc', 'vc.id', '=', 'b.vendor_charger_id')
+            ->join('vendor_sites as vs', 'vs.id', '=', 'vc.site_id')
+            ->join('vendor_companies as co', 'co.id', '=', 'vc.company_id')
+            ->whereColumn('vs.company_id', 'co.id')
+            ->whereColumn('vs.station_id', 'st.id')
+            ->whereColumn('st.vendor_id', 'co.owner_id')
+            ->whereColumn('vc.ocpp_protocol', 'b.protocol')
+            ->where('vc.source', 'simulator')
+            ->where('st.source', 'simulator')
+            ->when($request->user()->role !== 'admin',
+                fn ($q) => $q->where('co.owner_id', $request->user()->id))
+            ->select('b.id');
+        // These are historical operator-attention records, not live physical
+        // charger health, connectivity, or verified fault repair.
         $monitorReviewCount = DB::table('charging_fault_cursors')
-            ->whereIn('binding_id', clone $bindingIds)
+            ->whereIn('binding_id', clone $faultBindingIds)
             ->where('state', 'requires_review')->count();
         $faults = DB::table('charging_fault_alerts as f')
             ->join('charging_status_observations as o', 'o.id', '=', 'f.observation_id')
-            ->whereIn('o.binding_id', clone $bindingIds)
+            ->whereIn('o.binding_id', clone $faultBindingIds)
             ->whereNull('f.acknowledged_at');
         $faultAttentionCount = (clone $faults)->count();
         $faultRecoveredCount = (clone $faults)->whereNotNull('f.recovery_observation_id')->count();
