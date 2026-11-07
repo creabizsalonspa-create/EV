@@ -104,6 +104,32 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET):
     }
 
 
+def shared_changed_files(changes):
+    """Read-only overlap map: overlapping paths need coordination, not auto-blocks."""
+    owners = {}
+    for number, paths in changes.items():
+        for path in set(paths):
+            owners.setdefault(path, set()).add(number)
+    return {path: sorted(numbers)
+            for path, numbers in sorted(owners.items())
+            if len(numbers) > 1}
+
+
+def risk_rank(path):
+    if path.startswith(("services/business-api/database/migrations/",
+                        "services/business-api/app/Services/Finance/",
+                        "services/business-api/routes/",
+                        ".github/workflows/",
+                        "apps/mobile/lib/",
+                        "apps/hasone-customer/lib/",
+                        "integrations/hasone-express/")):
+        return "shared_code_or_schema"
+    if path.startswith("docs/"):
+        return "shared_documentation"
+    return "shared_source"
+
+
+
 class GitHub:
     def __init__(self, repo, token=None):
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
@@ -146,12 +172,14 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
     # branches, rather than reporting a generic wrong-target warning.
     parents = {p["head"]["ref"]: p["number"] for p in open_prs}
     results = []
+    changed_by_pr = {}
     for item in prs:
         number = item["number"]
         # Re-read detail: list results do not expose reliable mergeability.
         before = github.get("/pulls/" + str(number))
         files = github.pages("/pulls/" + str(number) + "/files")
         paths = [f["filename"] for f in files]
+        changed_by_pr[number] = paths
         checks = github.pages("/commits/" + before["head"]["sha"] +
                               "/check-runs", key="check_runs")
         evaluated = assess(before, checks, paths, parents=parents, target=target)
@@ -162,9 +190,23 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
             evaluated["status"] = "blocked"
             evaluated["blockers"].append("head_or_base_changed_during_inspection")
         results.append(evaluated)
+    overlap = shared_changed_files(changed_by_pr)
+    for evaluated in results:
+        own = evaluated["pr"]
+        matches = [path for path, numbers in overlap.items() if own in numbers]
+        evaluated["shared_changed_files"] = len(matches)
+        evaluated["overlapping_prs"] = sorted({
+            number for path in matches for number in overlap[path]
+            if number != own
+        })
+    conflicts = [
+        {"path": path, "prs": numbers, "risk": risk_rank(path)}
+        for path, numbers in overlap.items()
+    ]
     return {"repository": repo, "target": target, "audited_prs": len(results),
             "ready_for_manual_review": sum(r["status"] == "candidate_for_manual_review"
                                             for r in results), "prs": results,
+            "shared_file_conflicts": conflicts,
             "merge_executed": False}
 
 
