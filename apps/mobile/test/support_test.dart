@@ -246,6 +246,23 @@ class PendingSupport extends FixtureApi {
 }
 
 void main() {
+  test('driver assignment and cost-center owner alerts are localized safely', () {
+    final en = EvStrings(const Locale('en'));
+    final ar = EvStrings(const Locale('ar'));
+    expect(inboxNotificationTitle({
+      'kind': 'fleet.vehicle.assigned',
+      'metadata': {'fleet_id': 31},
+    }, en), 'Vehicle assigned to fleet #31');
+    expect(inboxNotificationTitle({
+      'kind': 'fleet.vehicle.cost_center_changed',
+      'metadata': {'fleet_id': 31},
+    }, ar), contains('الأسطول #31'));
+    expect(inboxNotificationTitle({
+      'kind': 'fleet.vehicle.assigned',
+      'metadata': null,
+    }, en), 'Vehicle assigned to fleet #?');
+  });
+
   test('localized titles are safe for incomplete simulator/fleet metadata', () {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));

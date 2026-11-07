@@ -1423,7 +1423,15 @@ async function refreshInbox() {
                                 ? ui("p", "Fleet access revoked · fleet #{id}", {
                                     id: m.metadata?.fleet_id ?? "?",
                                 })
-                                : ui("p", "{kind} · ticket #{id}", {
+                                : m.kind === "fleet.vehicle.assigned"
+                                    ? ui("p", "Vehicle assigned to fleet #{id}", {
+                                        id: m.metadata?.fleet_id ?? "?",
+                                    })
+                                    : m.kind === "fleet.vehicle.cost_center_changed"
+                                        ? ui("p", "Fleet vehicle cost center changed · fleet #{id}", {
+                                            id: m.metadata?.fleet_id ?? "?",
+                                        })
+                                        : ui("p", "{kind} · ticket #{id}", {
                     kind: { translate: m.kind },
                     id: m.support_ticket_id,
                 });

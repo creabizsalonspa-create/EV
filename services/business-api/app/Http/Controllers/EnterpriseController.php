@@ -202,12 +202,38 @@ class EnterpriseController extends Controller
             $existing = FleetVehicle::where('vehicle_id', $vehicle->id)->first();
             if ($existing) {
                 abort_unless($existing->fleet_id === $current->id, 409, 'Vehicle belongs to a different fleet.');
-                $existing->update(['cost_center_id' => $v['cost_center_id']]);
+                if ((int) $existing->cost_center_id !== (int) $v['cost_center_id']) {
+                    $existing->update(['cost_center_id' => $v['cost_center_id']]);
+                    $this->audit($r, 'fleet.vehicle_cost_center_changed', (string) $existing->id);
+                    if ($current->owner_id !== $r->user()->id) {
+                        InboxNotification::create([
+                            'user_id' => $current->owner_id,
+                            'kind' => 'fleet.vehicle.cost_center_changed',
+                            'metadata' => [
+                                'fleet_id' => $current->id,
+                                'vehicle_id' => $vehicle->id,
+                                'assignment_id' => $existing->id,
+                            ],
+                        ]);
+                    }
+                }
 
                 return response()->json($existing);
             }
+
             $assignment = FleetVehicle::create($v + ['fleet_id' => $current->id]);
             $this->audit($r, 'fleet.vehicle_assigned', (string) $assignment->id);
+            if ($current->owner_id !== $r->user()->id) {
+                InboxNotification::create([
+                    'user_id' => $current->owner_id,
+                    'kind' => 'fleet.vehicle.assigned',
+                    'metadata' => [
+                        'fleet_id' => $current->id,
+                        'vehicle_id' => $vehicle->id,
+                        'assignment_id' => $assignment->id,
+                    ],
+                ]);
+            }
 
             return response()->json($assignment, 201);
         }, 3);

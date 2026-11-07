@@ -97,3 +97,7 @@ The fleet acceptance transaction now acquires the owning fleet row **before** th
 ### Vehicle-assignment authorization and fleet lock continuity
 
 The fleet assignment path now obtains the same fleet-before-membership row locks as invitation, acceptance and revocation. The driver's active membership, vehicle ownership and cost-center fleet association are all checked **inside the locked transaction**, not only against pre-transaction snapshots. The assignment transaction also retries transient deadlocks up to three times. A new test demonstrates that a driver's own vehicle is assigned while active, is detached on revocation, and cannot be assigned again after revocation; foreign-user vehicles are rejected.
+
+### Audited owner-visible driver assignment changes
+
+A driver's new vehicle assignment and an actual cost-center update now generate separate owner-only in-app notifications in the same database transaction as the audit and vehicle change. An identical retry is a no-op: no additional notification or audit. Self-actions by the owner do not generate redundant owner messages. Metadata contains internal identifiers, not private charger information or payment data. Backend tests verify exactly two owner notices, separate audit actions and no unrelated-user visibility. Web and Flutter format these events in English and Arabic with safe placeholders for invalid/missing IDs.

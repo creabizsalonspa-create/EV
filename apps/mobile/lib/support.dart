@@ -28,6 +28,10 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
       return strings.t('fleetAcceptedAlert', {'fleet': id('fleet_id')});
     case 'fleet.membership.revoked':
       return strings.t('fleetRevokedAlert', {'fleet': id('fleet_id')});
+    case 'fleet.vehicle.assigned':
+      return strings.t('fleetVehicleAssignedAlert', {'fleet': id('fleet_id')});
+    case 'fleet.vehicle.cost_center_changed':
+      return strings.t('fleetCostCenterChangedAlert', {'fleet': id('fleet_id')});
     case 'vehicle.battery.simulated':
       final percent = metadata['battery_percent'];
       return strings.t('simulatedBatteryAlert', {

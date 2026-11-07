@@ -109,6 +109,46 @@ class EnterpriseTest extends TestCase
         $this->assertSame(1, InboxNotification::where('user_id', $owner->id)->count());
     }
 
+    public function test_driver_assignment_notifications_and_cost_center_change_audit_are_idempotent(): void
+    {
+        $owner = User::factory()->create();
+        $driver = User::factory()->create();
+        $thirdParty = User::factory()->create();
+        $fleet = Fleet::create(['owner_id' => $owner->id, 'name' => 'Audit fixture', 'country' => 'AE']);
+        FleetMember::create([
+            'fleet_id' => $fleet->id, 'user_id' => $driver->id,
+            'status' => 'active', 'role' => 'driver',
+        ]);
+        $first = CostCenter::create(['fleet_id' => $fleet->id, 'code' => 'A', 'name' => 'Alpha']);
+        $second = CostCenter::create(['fleet_id' => $fleet->id, 'code' => 'B', 'name' => 'Beta']);
+        $vehicle = Vehicle::create([
+            'user_id' => $driver->id, 'name' => 'Driver EV', 'connector_type' => 'CCS2',
+        ]);
+        $endpoint = '/api/fleets/'.$fleet->id.'/vehicles';
+        $input = ['vehicle_id' => $vehicle->id, 'cost_center_id' => $first->id];
+
+        $this->actingAs($driver)->postJson($endpoint, $input)->assertCreated();
+        $this->postJson($endpoint, $input)->assertOk();
+        $this->assertSame(1, InboxNotification::where('user_id', $owner->id)->count());
+
+        $input['cost_center_id'] = $second->id;
+        $this->postJson($endpoint, $input)->assertOk();
+        $this->postJson($endpoint, $input)->assertOk();
+        $this->assertSame(2, InboxNotification::where('user_id', $owner->id)->count());
+
+        $this->actingAs($owner)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.kind', 'fleet.vehicle.cost_center_changed')
+            ->assertJsonPath('data.1.kind', 'fleet.vehicle.assigned');
+        $this->actingAs($thirdParty)->getJson('/api/v1/notifications?category=fleet')
+            ->assertOk()->assertJsonPath('total', 0);
+
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+            ->where('actor_id', $driver->id)->where('action', 'fleet.vehicle_assigned')->count());
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+            ->where('actor_id', $driver->id)->where('action', 'fleet.vehicle_cost_center_changed')->count());
+    }
+
     public function test_revoked_driver_cannot_assign_vehicle_even_after_previous_membership_access(): void
     {
         $owner = User::factory()->create();

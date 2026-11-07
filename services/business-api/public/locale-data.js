@@ -1,4 +1,12 @@
 window.EV_MESSAGES = {
+    "Vehicle assigned to fleet #{id}": {
+        en: "Vehicle assigned to fleet #{id}", ar: "تم تعيين مركبة للأسطول #{id}",
+    },
+    "Fleet vehicle cost center changed · fleet #{id}": {
+        en: "Fleet vehicle cost center changed · fleet #{id}",
+        ar: "تم تغيير مركز تكلفة مركبة الأسطول · الأسطول #{id}",
+    },
+
     "Refresh notifications": { en: "Refresh notifications", ar: "تحديث الإشعارات" },
 
     "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}": {
