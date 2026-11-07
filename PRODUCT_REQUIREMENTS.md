@@ -1,9 +1,20 @@
 # Crea-Biz EV Charging Aggregator & Management System — Complete Product Requirements
 
-## Active ownership — final owner directive, 28 October 2026 (Dubai)
+## Active five-agent ownership — 7 November 2026 (Dubai)
 
-Agent 2 is the sole active owner of all remaining Crea-Biz EV development, including financial and non-financial software, until the project owner explicitly changes the assignment. This supersedes previous exclusive finance ownership; the records below remain historical. Continue the canonical financial architecture, preserve both agents’ verified work and merge tested changes through pull requests. Full original scope remains required; simulator/contract tests do not establish hardware, merchant, roaming-partner or store acceptance.
+The owner's latest directive establishes five concurrent agents and supersedes
+historical exclusive-agent assignments. Agent 1 owns canonical Laravel,
+PostgreSQL, CitrineOS/OCPP, OCPI, sessions, billing and payments; Agent 2 owns
+staged Express/Mongo and HAS.ONE customer/charging integration; Agent 3 owns
+notifications, operations, disaster recovery and recovery acceptance; Agent 4
+owns shared CI/CD, integration, verified PR merges and coverage; Agent 5 owns
+independent unassigned customer/vendor/discovery/web/Flutter product gaps.
 
+The authoritative integration branch is `development/fullstack-continuation`.
+Feature agents isolate branches and preserve each other's work. No physical
+charging, live money, partner activation or production deployment is authorized
+by this assignment; only explicit later approval plus genuine acceptance can
+establish those claims. Original product requirements below are unchanged.
 
 ## 1. Scope
 Develop a complete commercial SaaS/mobility ecosystem with both **direct management of authorized physical charging stations via OCPP** and **aggregation of third-party charging networks via OCPI and authorized operator APIs**. Initial market: UAE (seven emirates); expansion-ready for GCC/international markets. The owner explicitly requires the **full platform**, not an MVP-only deliverable.
