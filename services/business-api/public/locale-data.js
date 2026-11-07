@@ -1471,6 +1471,14 @@ window.EV_MESSAGES = {
         en: "Partner-reported locations are unverified. Availability is unknown; reservations, remote charging and payments are unavailable here.",
         ar: "المواقع واردة من الشريك وغير متحقق منها. التوافر غير معروف؛ الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.",
     },
+    "Partner network label (unverified)": {
+        en: "Provider/network label (unverified)",
+        ar: "اسم مقدم الخدمة أو الشبكة (غير مؤكد)",
+    },
+    "Roaming configured provider": {
+        en: "Configured provider (not operator-certified):",
+        ar: "مقدم الخدمة المُسجل (دون اعتماد من المشغل):",
+    },
     "Roaming coordinates": { en: "Coordinates:", ar: "الإحداثيات:" },
     "Roaming straight-line distance": {
         en: "Straight-line distance (not driving distance):",
