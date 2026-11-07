@@ -176,6 +176,7 @@ concurrency:
 
 jobs:
   native:
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
