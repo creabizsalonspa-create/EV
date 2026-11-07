@@ -265,6 +265,46 @@ class MobileReleaseSigningTest(unittest.TestCase):
                 self.assertGreater(len(value.strip()), 20)
                 self.assertNotIn("TODO", value.upper())
 
+    def test_customer_ios_release_uses_private_approved_bundle_id(self):
+        project = (
+            ROOT / "apps/hasone-customer/ios/Runner.xcodeproj/project.pbxproj"
+        ).read_text()
+        ids = re.findall(r"PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);", project)
+        # Xcode configuration order: Runner Profile, RunnerTests
+        # Debug/Release/Profile, Runner Debug, Runner Release.
+        self.assertEqual(
+            [
+                '"$(EV_HASONE_IOS_RELEASE_BUNDLE_ID)"',
+                "com.creabiz.hasone.customer.dev.RunnerTests",
+                '"$(EV_HASONE_IOS_RELEASE_BUNDLE_ID).RunnerTests"',
+                '"$(EV_HASONE_IOS_RELEASE_BUNDLE_ID).RunnerTests"',
+                "com.creabiz.hasone.customer.dev",
+                '"$(EV_HASONE_IOS_RELEASE_BUNDLE_ID)"',
+            ],
+            ids,
+        )
+        release_config = (
+            ROOT / "apps/hasone-customer/ios/Flutter/Release.xcconfig"
+        ).read_text()
+        self.assertIn('#include? "MapsKeys.xcconfig"', release_config)
+        self.assertIn(
+            "Flutter/MapsKeys.xcconfig",
+            (ROOT / "apps/hasone-customer/ios/.gitignore").read_text(),
+        )
+
+    def test_debug_android_id_cannot_impersonate_approved_release_id(self):
+        gradle = PROJECTS["HASONE"].read_text()
+        self.assertIn(
+            'applicationId = approvedApplicationId?.takeIf { it.isNotBlank() }',
+            gradle,
+        )
+        self.assertIn(
+            '''debug {
+            // Even if CI also supplies the approved release ID''',
+            gradle,
+        )
+        self.assertIn('applicationIdSuffix = ".dev"', gradle)
+
     def test_app_identity_is_not_silently_rebranded(self):
         self.assertIn(
             'applicationId = "com.creabiz.creabiz_ev"',
