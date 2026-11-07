@@ -5,19 +5,19 @@ physical charger, live payment, or partner-network authorization.
 
 ## Enforcement
 
-- Staging/production browser sessions with \`role=admin\` must enroll and
+- Staging/production browser sessions with `role=admin` must enroll and
   complete an authenticator challenge before any protected web/API operation.
 - Existing local simulator and PHPUnit fixtures remain unaffected by default.
   To exercise the production gate locally, explicitly set
-  \`ADMIN_2FA_LOCAL_TEST=true\`. There is no environment flag that disables
+  `ADMIN_2FA_LOCAL_TEST=true`. There is no environment flag that disables
   enforcement in staging/production.
 - Admin authentication continues to use the established password login and
   server-side session. On login, old second-factor grants and pending secrets
   are discarded and the session ID rotates.
-- \`GET /api/me\`, \`GET /api/csrf\`, login, logout and dedicated MFA routes are
+- `GET /api/me`, `GET /api/csrf`, login, logout and dedicated MFA routes are
   the minimal pre-verification exceptions. Protected JSON requests receive
-  403 + \`admin_second_factor_required\`, page navigation redirects to
-  \`/admin/second-factor\`. Guest and customer/vendor behavior is unchanged.
+  403 + `admin_second_factor_required`, page navigation redirects to
+  `/admin/second-factor`. Guest and customer/vendor behavior is unchanged.
 - A successful challenge rotates the session ID and binds a 12-hour approval
   to the current user and encrypted authenticator enrollment version. Removing
   or replacing the enrollment invalidates prior approvals.
@@ -41,13 +41,13 @@ physical charger, live payment, or partner-network authorization.
    deleted transactionally, then the account must enroll a new authenticator.
 6. Enrollment, verification, recovery and reset emit bounded audit event types
    without codes/secrets. Code attempts are limited by the existing
-   \`throttle:authentication\`; page/status reads use \`throttle:platform-api\`.
+   `throttle:authentication`; page/status reads use `throttle:platform-api`.
 
 ## Security boundaries
 
 - No plaintext authenticator secret or recovery code is written to audit,
   logging, User JSON or persistent browser storage. The server-side temporary
-  setup value is encrypted and the response has \`Cache-Control: no-store\`.
+  setup value is encrypted and the response has `Cache-Control: no-store`.
 - An attacker with a password alone cannot complete an enrolled Admin login,
   recover a device, or reset enrollment. A lost authenticator **and** all lost
   recovery codes needs a separately authorized, identity-verified operator
@@ -64,8 +64,9 @@ physical charger, live payment, or partner-network authorization.
 
 ## Reproduction and integration
 
-- \`php artisan test --filter=AdminSecondFactorTest\`
-- Existing \`MobileAuthTest\`, \`AccountTest\`, \`VendorOpsTest\`, and the full
+- `php tests/admin_totp_standalone.php` (dependency-free RFC and replay check)
+- `php artisan test --filter=AdminSecondFactorTest`
+- Existing `MobileAuthTest`, `AccountTest`, `VendorOpsTest`, and the full
   required platform/web/browser/financial/native CI matrix.
 - When testing against actual staging, enable an approved Admin test account,
   confirm TOTP enrollment and one-time recovery replacement with a private
@@ -73,5 +74,5 @@ physical charger, live payment, or partner-network authorization.
   inspect HTTP caching/referrer/CSRF controls. Never upload real codes or
   credentials to GitHub Actions artifacts.
 - Agent 4 owns conflict resolution and merging with active changes to
-  \`routes/web.php\` and \`public/platform.js\`; never overwrite other agents'
+  `routes/web.php` and `public/platform.js`; never overwrite other agents'
   customer, notification or vendor workflows.
