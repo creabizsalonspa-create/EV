@@ -25,6 +25,32 @@ release Android manifests do not reference debug network policy. Real mobile
 builds still require the correct private service configuration and platform
 verification: these policies are not a public staging deployment.
 
+### Separate customer app: local debug API origin
+
+The HAS.ONE customer Flutter `ApiConfig` now accepts an HTTP origin only
+when **both** `EV_LOCAL_DEMO=true` and a non-production Flutter build are
+active, and only for exact `localhost` or `127.0.0.1`. The default API
+origin remains HTTPS. `dart.vm.product` forces HTTPS even if a production
+build was accidentally given a demo flag. Remote HTTP, URL credentials,
+paths, query parameters, and fragments remain rejected.
+
+A disposable local-demo invocation:
+
+```sh
+cd apps/hasone-customer
+flutter run --debug --dart-define=EV_LOCAL_DEMO=true \
+  --dart-define=EV_API_BASE_URL=http://127.0.0.1:8000
+flutter test test/api_config_test.dart
+```
+
+For Android emulators, loopback means the **device's** own loopback.
+An authorized `adb reverse tcp:8000 tcp:8000` forwarding tunnel is needed
+for this exact origin to reach a development machine's API. The iOS
+simulator can reach the Mac's localhost if a local service is running.
+Do not use a public staging service with this demo flag or consider this
+proof of authenticated API/charger operation. Store/release builds must
+use an authorized HTTPS origin.
+
 ## Secrets supplied by the authorized release operator
 
 Set four **Gradle project properties** for each app through a secured CI secret
