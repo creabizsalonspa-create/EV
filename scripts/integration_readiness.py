@@ -278,8 +278,9 @@ class GitHub:
         raise ValueError("Pagination exceeded safe review limit")
 
 
-def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
+def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None):
     github = GitHub(repo, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
+    dependency_graph = load_pr_dependencies(target=target)
     open_prs = github.pages("/pulls?state=open")
     if len(open_prs) > limit:
         raise ValueError("Open PR count exceeds --limit; review pagination explicitly")
@@ -288,6 +289,20 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
     # Even a targeted child PR audit must resolve its parent from all open
     # branches, rather than reporting a generic wrong-target warning.
     parents = {p["head"]["ref"]: p["number"] for p in open_prs}
+    active = {p["number"]: p for p in open_prs}
+    required_parents = {
+        n for p in prs for n in dependency_graph.get(p["number"], ())
+    }
+    # Exact merged-ancestor attestation is needed only for prerequisites that
+    # have disappeared from the open list; open prerequisites are blocked.
+    target_sha = None
+    if any(n not in active for n in required_parents):
+        info = github.get("/branches/" + target)
+        target_sha = info["commit"]["sha"]
+    verified_dependencies = {
+        n: dependency_status(github, n, target, target_sha, active)
+        for n in sorted(required_parents)
+    }
     results = []
     changed_by_pr = {}
     for item in prs:
@@ -306,9 +321,12 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
             "&event=pull_request", key="workflow_runs")
         pr_event_ids = verified_pr_event_ids(
             workflows, number, before["head"]["sha"])
-        evaluated = assess(before, checks, paths, parents=parents,
-                           target=target, pr_event_run_ids=pr_event_ids,
-                           repo=repo)
+        evaluated = assess(
+            before, checks, paths, parents=parents, target=target,
+            pr_event_run_ids=pr_event_ids, repo=repo,
+            prerequisites=dependency_graph.get(number, ()),
+            prerequisite_status=verified_dependencies,
+        )
         # Guard against moving heads while reading separate API resources.
         after = github.get("/pulls/" + str(number))
         if (after["head"]["sha"] != before["head"]["sha"]
@@ -332,6 +350,8 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=30, only_pr=None):
     return {"repository": repo, "target": target, "audited_prs": len(results),
             "ready_for_manual_review": sum(r["status"] == "candidate_for_manual_review"
                                             for r in results), "prs": results,
+            "declared_dependency_edges": sum(len(x) for x in
+                                              dependency_graph.values()),
             "shared_file_overlaps": conflicts,
             "merge_executed": False}
 
@@ -341,7 +361,7 @@ def main(argv=None):
     p.add_argument("--repo", default=REPOSITORY)
     p.add_argument("--target", default=TARGET)
     p.add_argument("--pr", type=int)
-    p.add_argument("--limit", type=int, default=30)
+    p.add_argument("--limit", type=int, default=100)
     args = p.parse_args(argv)
     try:
         result = inspect_live(repo=args.repo, target=args.target,
