@@ -177,3 +177,89 @@ committed but the modified staged gateway has **not** been rerun successfully
 this turn. Do not claim the new single-use behavior is deployed or validated,
 and keep the live Teltonika gateway untouched. Previous passing 73/73,
 36/36, 13/13 and 8/8 checkpoints predate this patch.
+
+
+## Security/recovery hardening — 7 November 2026, latest follow-up
+
+All work described here is committed in **draft PR #50**, on
+`development/agent2-live-demo-readiness`, not deployed.
+
+### 1. Durable single-use OCPP start authorization
+
+`integrations/hasone-express/ocppStartAuthorization.mjs` provides an atomic
+MongoDB token claim for OCPP 1.6 `StartTransaction` and OCPP 2.0.1
+`TransactionEvent Started`. The read-only `Authorize` request does not
+consume tokens. Once claimed, the token record is marked
+`enabled:false`, given `consumedAt` and its TTL `expiresAt` field is
+**removed atomically**. This matters: MongoDB's TTL cleanup must not
+erase proof that a credential was already used, otherwise an expired
+booking could be reissued after a source persistence delay.
+
+A narrowly defined OCPP 1.6 retry may receive the existing **active**
+transaction ID only when the charger ID, token hash, connector and
+initial meter are identical. No second source session or invoice is
+created. The gateway staging patch copies the helper beside the
+staged OCPP handler; it never writes into production.
+
+### 2. Expired, never-used token recovery
+
+`ocppReissuePolicy.mjs` implements a 20-minute authorization TTL plus
+a 2-minute settling grace. The new AdminAuth route
+`POST /api/v1/admin/bookings/:id/ocpp/reissue-token` reissues a
+one-time credential only if:
+- the booking is paid, arrived, Upcoming and pinned to an approved charger;
+- the previous credential is expired both by booking issue time and
+  actual MongoDB token expiration;
+- there is **no consumed token**, **no observed OCPP 1.6 or 2.0.1 source**
+  using that token hash, and **no linked source session**;
+- a conditional booking update can replace the previous hash, stopping
+  simultaneous operators from issuing more than one credential.
+
+Old credentials are revoked before a new one is enabled, and uncertain
+insert failures cause fail-closed revocation/rollback. The protected
+Admin Bookings modal offers a **Reissue expired unused token** action
+only when the backend says it is eligible. The new raw credential is
+kept in volatile browser state and cleared when the dialog closes.
+
+### 3. Concurrency and uniqueness for source booking links
+
+`AdminBindBookingOcppSource` now uses an atomic conditional update and
+a partial MongoDB unique index on `{bookingId,userId}` for source-bound
+OCPP charging sessions. The separate source-session ID index also
+remains unique, so a physical transaction cannot be assigned to
+two bookings. `ocppSourceBindingIndexAudit.mjs` runs a read-only audit
+for preexisting duplicate source/session-to-booking relationships
+before indexes are created; its index-mutating utility requires
+explicit approval and rejects non-disposable databases.
+
+### 4. Charger registration URI correctness
+
+The new station-charger registration route no longer invents
+`wss://api.hasone.io/ocpp/...`. It exposes a WSS URL only when
+an explicit, validated `OCPP_PUBLIC_WS_BASE` environment setting
+is present. Otherwise it returns `url:null` with
+`gatewayUrlConfigured:false`; hardware onboarding still requires
+actual gateway/charger configuration.
+
+### Verification separation
+
+- **Last completed full staging checkpoint (before latest changes):**
+  73/73 Express/JWT/Mongo/OCPP tests, 36/36 pure guard tests,
+  13/13 payment callback-route HTTP checks, 8/8 mocked-API
+  headless Chrome Admin UI checks, and Next.js production build.
+- **New pure policy validations executed during this follow-up:**
+  11/11 migration/rollback, 10/10 atomic token policy
+  (with deterministic test hash in the local tool runtime),
+  10/10 token reissue policy, 9/9 source-binding index preflight,
+  totaling 40/40 independent policy tests.
+- **Expanded integration harness:** now contains **90** cases,
+  **not yet executed** against the newly patched Express/OCPP gateway.
+- **Blocked:** `host.crea-biz.com` Desktop Commander was offline
+  during this follow-up. GitHub Actions for the latest branch
+  were queued. No physical charger, customer, vendor, PSP transaction,
+  database migration or production deployment was changed.
+
+Reverify all backend/browser cases, required source hashes and exact
+WebSocket gateway endpoint when the authorized machine is available,
+then coordinate acceptance with Agent 1 and the canonical Laravel
+charging/finance ledger.
