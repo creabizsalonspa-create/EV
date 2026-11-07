@@ -191,5 +191,51 @@ class DependenciesTest(unittest.TestCase):
         self.assertEqual(7, report["declared_dependency_edges"])
 
 
+    def test_non_draft_target_audit_avoids_fetching_thirty_plus_drafts(self):
+        # Staged and dependent PRs remain in the global PR graph, but only
+        # non-draft integration candidates consume full check-run API calls.
+        active = [pr(n) for n in range(1, 36)]
+        for item in active:
+            item["draft"] = True
+        active.extend([pr(52), pr(57)])
+        visited = []
+
+        class FakeGitHub:
+            def __init__(self, *args, **kwargs):
+                pass
+            def get(self, suffix):
+                visited.append(suffix)
+                if suffix in ("/pulls/52", "/pulls/57"):
+                    return pr(int(suffix.rsplit("/", 1)[-1]))
+                raise AssertionError("Draft unexpectedly fetched: " + suffix)
+            def pages(self, suffix, key=None):
+                if suffix == "/pulls?state=open":
+                    return active
+                if suffix in ("/pulls/52/files", "/pulls/57/files"):
+                    return [{"filename": "README.md"}]
+                if suffix.startswith("/commits/"):
+                    return evidence(52) + evidence(57)
+                if suffix.startswith("/actions/runs?"):
+                    return [{
+                        "id": 54321, "event": "pull_request",
+                        "head_sha": SHA,
+                        "pull_requests": [{"number": 52}, {"number": 57}],
+                    }]
+                raise AssertionError(suffix)
+        with patch.object(gate, "GitHub", FakeGitHub):
+            report = gate.inspect_live(non_draft_target=True)
+        self.assertEqual(37, report["open_prs_discovered"])
+        self.assertEqual(2, report["audited_prs"])
+        self.assertEqual("non_draft_target", report["audit_scope"])
+        self.assertEqual({52, 57}, {item["pr"] for item in report["prs"]})
+        self.assertEqual(4, len(visited))
+        self.assertEqual(2, report["ready_for_manual_review"])
+        self.assertFalse(report["merge_executed"])
+
+    def test_selected_single_pr_and_non_draft_mode_are_exclusive(self):
+        with self.assertRaises(ValueError):
+            gate.inspect_live(only_pr=70, non_draft_target=True)
+
+
 if __name__ == "__main__":
     unittest.main()
