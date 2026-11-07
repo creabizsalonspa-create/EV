@@ -127,6 +127,7 @@ const assert = require("node:assert/strict");
       await page.locator(".leaflet-popup-content a").getAttribute("href"),
       /destination=25.2%2C55.3/,
     );
+    await page.locator(".leaflet-popup-close-button").click();
     await page.locator(".partner-map-pin").click();
     const partnerPopup = page.locator(".leaflet-popup-content");
     await partnerPopup.getByText(/Partner reported \(unverified\)/).waitFor();
