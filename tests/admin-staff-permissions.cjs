@@ -177,3 +177,56 @@ test('stale revoke reply cannot repopulate private controls after identity chang
   assert.equal(ui.root.children.length,0);
   assert.equal(ui.root.textContent,'');
 });
+
+
+test('Admin security hold cannot be lifted with one click and does not silently restore grant', async () => {
+  const ui=fixture();
+  const calls=[];
+  let held=true;
+  ui.setActor({role:'admin'},async (p,method='GET',body)=>{
+    calls.push({p,method,body});
+    if(p.endsWith('/release')){
+      assert.equal(method,'POST');
+      assert.equal(body.expected_version,5);
+      assert.equal(body.reason,'Independent compliance review cleared security hold');
+      held=false;
+      return {id:17,status:'revoked',admin_emergency_hold:false,requires_fresh_invitation:true};
+    }
+    return page([{...grant,status:'revoked',invitation_version:held?5:6,admin_emergency_hold:held}]);
+  });
+  await tick();
+  const release=nodes(ui.root,'button').find(n=>n.textContent.includes('Release Admin hold'));
+  assert.ok(release);
+  assert.match(ui.root.textContent,/owner cannot re-invite/);
+  release.onclick();
+  assert.equal(calls.filter(x=>x.p.endsWith('/release')).length,0);
+  const form=nodes(ui.root,'form').find(f=>nodes(f,'textarea').length);
+  nodes(form,'textarea')[0].value='short';
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.filter(x=>x.p.endsWith('/release')).length,0);
+  nodes(form,'textarea')[0].value='Independent compliance review cleared security hold';
+  await form.onsubmit({preventDefault(){}});
+  await tick();
+  assert.equal(calls.filter(x=>x.p.endsWith('/release')).length,1);
+  assert.match(ui.root.textContent,/Permission status: revoked/);
+  assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Release Admin hold')).length,0);
+  assert.equal(nodes(ui.root,'button').filter(x=>x.textContent.includes('Emergency revoke')).length,0);
+});
+
+test('Admin hold history distinguishes release from revoke without HTML rendering', async () => {
+  const ui=fixture();
+  ui.setActor({role:'admin'},async p=>{
+    if(p.endsWith('/revocations'))return {data:[
+      {action:'released',created_at:'2026-11-07',reason:'<img onerror=alert(1)>',replaced_version:5},
+      {action:'revoked',created_at:'2026-11-06',reason:'Incident review',replaced_version:4},
+    ]};
+    return page([{...grant,status:'revoked',admin_emergency_hold:false}]);
+  });
+  await tick();
+  const history=nodes(ui.root,'button').find(x=>x.textContent.includes('Private revocation history'));
+  await history.onclick();
+  assert.match(ui.root.textContent,/Admin hold released/);
+  assert.match(ui.root.textContent,/Admin revoked/);
+  assert.match(ui.root.textContent,/<img onerror=alert\(1\)>/);
+  assert.equal(nodes(ui.root,'img').length,0);
+});

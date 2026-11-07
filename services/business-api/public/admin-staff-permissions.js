@@ -110,6 +110,53 @@ window.EvAdminStaffPermissions = (() => {
                     card.append(actionHost);
                 }
 
+                if (grant.admin_emergency_hold === true && grant.status === "revoked") {
+                    card.append(node("p", "Admin security hold active. The company owner cannot re-invite this person."));
+                    const actions = node("div");
+                    const release = button("Release Admin hold / رفع التعليق", () => {
+                        if (!active(epoch, controller.signal)) return;
+                        const form = node("form");
+                        form.setAttribute("aria-label", "Release permission hold " + staffId);
+                        const reason = node("textarea");
+                        reason.minLength = 10;
+                        reason.maxLength = 2000;
+                        reason.required = true;
+                        reason.setAttribute("aria-label", "Private hold release reason");
+                        const confirm = button("Confirm hold release / تأكيد رفع التعليق", () => {});
+                        confirm.type = "submit";
+                        const cancel = button("Cancel / إلغاء", () => actions.replaceChildren(release));
+                        form.append(field("Reason for releasing hold", reason), confirm, cancel);
+                        form.onsubmit = async event => {
+                            event.preventDefault();
+                            if (!active(epoch, controller.signal)) return;
+                            if (reason.value.trim().length < 10) {
+                                message.textContent = "A documented review reason is required.";
+                                return;
+                            }
+                            confirm.disabled = true;
+                            try {
+                                await request("admin/permission-grants/" + staffId + "/release", "POST", {
+                                    expected_version: grant.invitation_version,
+                                    reason: reason.value.trim(),
+                                }, controller.signal);
+                                if (active(epoch, controller.signal)) {
+                                    message.textContent = "Hold released; company owner must re-invite staff.";
+                                    await load(page);
+                                }
+                            } catch {
+                                if (active(epoch, controller.signal)) {
+                                    message.textContent = "Hold was not released. Refresh the permission version.";
+                                }
+                            } finally {
+                                confirm.disabled = false;
+                            }
+                        };
+                        actions.replaceChildren(form);
+                    });
+                    actions.append(release);
+                    card.append(actions);
+                }
+
                 const history = button("Private revocation history / السجل", async () => {
                     if (!active(epoch, controller.signal)) return;
                     try {
@@ -119,7 +166,8 @@ window.EvAdminStaffPermissions = (() => {
                         const list = node("ul");
                         for (const record of response.data || []) {
                             list.append(node("li", record.created_at + " · " +
-                                record.reason + " · prior version " + record.replaced_version));
+                                (record.action === "released" ? "Admin hold released" : "Admin revoked") +
+                                " · " + record.reason + " · prior version " + record.replaced_version));
                         }
                         if (!response.data?.length) list.append(node("li", "No revocation events"));
                         historyHost.replaceChildren(list);
