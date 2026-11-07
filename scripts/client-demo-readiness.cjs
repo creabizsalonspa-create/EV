@@ -5,6 +5,7 @@
 const {run:simulatorReadiness}=require('./staging-simulator-readiness.cjs');
 const {run:syntheticRoleSmoke}=require('./staging-synthetic-role-smoke.cjs');
 const {checkOutputDestination,writeEvidence}=require('./staging-acceptance.cjs');
+const {fixtureSha256}=require('./client-demo-evidence-fingerprint.cjs');
 
 const ROLES=['customer','vendor','admin'];
 const OCPP=['1.6','2.0.1'];
@@ -66,6 +67,7 @@ async function main(argv=process.argv.slice(2),deps={}){
     const config=parseArgs(argv);
     checkOutputDestination(config.output);
     const result=await inspect(config,deps);
+    result.fixture_sha256=(deps.fingerprint||fixtureSha256)(config.manifest);
     writeEvidence(config.output,result);
     if(result.status!=='PRIVATE_LAB_DEMO_READY'){
       process.stderr.write('FAIL: private synthetic demo readiness incomplete; no sensitive details printed.\n');
