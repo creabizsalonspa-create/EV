@@ -72,7 +72,7 @@ function mock(envFile) {
     }
     throw Error('Unexpected Docker command');
   }
-  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock'),preflight:()=>({ok:true,errors:[]}),effectiveConfig:()=>true};
+  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock'),preflight:()=>({ok:true,errors:[]}),effectiveConfig:()=>true,checkHttp:()=>true};
 }
 const argv=(mode,journal)=>[mode,'--candidate-tag','new','--source-sha',SHA,
   ...(mode==='apply'?['--journal',journal,'--approval','APPLY_PRIVATE_STAGING_'+SHA.slice(0,12)]:[])];
@@ -245,4 +245,30 @@ test('gateway replacement during staging rollout is detected as unverified recov
   const file=path.join(dir,'gateway-changed.jsonl');
   assert.equal(release.main(argv('apply',file),deps),3);
   assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+}));
+
+test('candidate staging application requires private HTTP route readiness before release is verified',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);let inspected=0;
+  deps.checkHttp=()=>{inspected++;return deps.state.tag==='old';};
+  const file=path.join(dir,'private-http-failed.jsonl');
+  assert.equal(release.main(argv('apply',file),deps),1);
+  assert.equal(deps.state.tag,'old');
+  assert.equal(inspected,2);
+  const events=fs.readFileSync(file,'utf8');
+  assert.ok(events.includes('ROLLBACK_VERIFIED'));
+  assert.ok(!events.includes('"event":"RELEASE_VERIFIED"'));
+}));
+test('failed candidate and old-release HTTP smoke leave operator reconciliation',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  deps.checkHttp=()=>false;
+  const file=path.join(dir,'both-http-failed.jsonl');
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+}));
+test('no HTTP request is issued until candidate runtime and protected services pass',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);deps.state.failCandidate=true;
+  let called=0;
+  deps.checkHttp=()=>{called++;return true;};
+  assert.equal(release.main(argv('apply',path.join(dir,'unhealthy.jsonl')),deps),1);
+  assert.equal(called,1);
 }));
