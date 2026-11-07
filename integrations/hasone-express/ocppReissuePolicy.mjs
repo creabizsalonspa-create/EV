@@ -7,7 +7,7 @@ export const OCPP_TOKEN_TTL_MS=20*60*1000;
 export const OCPP_TOKEN_REISSUE_GRACE_MS=2*60*1000;
 export function canReissueOcppToken({
   booking,approvedChargerId,sourceLinked=false,
-  sourceObserved=false,tokenConsumed=false,now=new Date()
+  sourceObserved=false,tokenConsumed=false,tokenStillValid=false,now=new Date()
 }={}){
   if(!booking || !approvedChargerId
       || booking.ocppChargerId!==approvedChargerId
@@ -22,6 +22,6 @@ export function canReissueOcppToken({
       || !(now instanceof Date) || !Number.isFinite(now.valueOf()))return false;
   if(now.valueOf()<issued.valueOf()+OCPP_TOKEN_TTL_MS+OCPP_TOKEN_REISSUE_GRACE_MS)
     return false;
-  if(sourceLinked || sourceObserved || tokenConsumed)return false;
+  if(sourceLinked || sourceObserved || tokenConsumed || tokenStillValid)return false;
   return true;
 }
