@@ -6,10 +6,11 @@
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>Administrator verification · Crea-Biz EV</title>
   <link rel="stylesheet" href="/platform.css">
+  <link rel="stylesheet" href="/admin-second-factor.css">
   <script src="/admin-second-factor.js" defer></script>
 </head>
 <body>
-<main id="workspace" style="max-width:42rem;margin:2rem auto;padding:1rem">
+<main id="workspace" class="admin-factor-wrap">
   <section aria-labelledby="factor-title">
     <h1 id="factor-title">Administrator verification / التحقق من هوية المشرف</h1>
     <p>Required for administrator operations. Use a six-digit code from an authenticator app; this is not physical charger or payment authorization.</p>
