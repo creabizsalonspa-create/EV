@@ -270,10 +270,17 @@ class MobileReleaseSigningTest(unittest.TestCase):
             'applicationId = "com.creabiz.creabiz_ev"',
             PROJECTS["EV"].read_text(),
         )
+        hasone = PROJECTS["HASONE"].read_text()
         self.assertIn(
-            'applicationId = "com.creabiz.hasone.customer.dev"',
-            PROJECTS["HASONE"].read_text(),
+            'val defaultApplicationId = "com.creabiz.hasone.customer.dev"',
+            hasone,
         )
+        self.assertIn(
+            "applicationId = approvedApplicationId?.takeIf { it.isNotBlank() }",
+            hasone,
+        )
+        self.assertIn("?: defaultApplicationId", hasone)
+        self.assertIn("verifyReleaseApplicationId", hasone)
 
 
 if __name__ == "__main__":
