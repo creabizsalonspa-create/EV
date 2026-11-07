@@ -133,8 +133,10 @@ void main() {
       await tester.enterText(find.byKey(const Key('station-info-access_en')),
         'Gate A');
       await tester.ensureVisible(find.text('Wi-Fi'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Wi-Fi'));
       await tester.ensureVisible(find.byKey(const Key('station-info-save')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('station-info-save')));
       await tester.pumpAndSettle();
       expect(api.writes, hasLength(1));
