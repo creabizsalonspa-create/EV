@@ -170,7 +170,13 @@ class VendorOpsController extends Controller
             }VendorCompanyReview::create(['company_id' => $c->id, 'reviewer_id' => $r->user()->id, 'from_status' => $c->status, 'to_status' => $v['status'], 'reason' => $v['reason'], 'created_at' => now()]);
             $c->update(['status' => $v['status'], 'review_reason' => $v['reason'], 'reviewed_by' => $r->user()->id, 'reviewed_at' => now()]);
             if ($v['status'] === 'approved') {
-                User::whereKey($c->owner_id)->where('role', 'customer')->update(['role' => 'vendor']);
+                // Eloquent save fires the central role-change invalidation; a
+                // raw query update would retain customer tokens after promotion.
+                $owner = User::whereKey($c->owner_id)->lockForUpdate()->firstOrFail();
+                if ($owner->role === 'customer') {
+                    $owner->role = 'vendor';
+                    $owner->save();
+                }
             }$this->access->audit($r->user(), 'company.'.$v['status'], $c->id);
 
             return response()->json($c->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $c)]);
