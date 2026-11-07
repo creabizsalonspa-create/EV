@@ -13,6 +13,11 @@ const assert = require("node:assert/strict");
     });
     const page = await context.newPage();
     let tiles = 0;
+    let showPartner = true;
+    let unsafePartner = false;
+    let partnerAgeMinutes = 120;
+    let partnerClockAhead = false;
+    const partnerQueries = [];
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.route("https://tile.openstreetmap.org/**", (r) => {
@@ -54,9 +59,45 @@ const assert = require("node:assert/strict");
         },
       }),
     );
+    await page.route("**/api/roaming/locations*", (r) => {
+      partnerQueries.push(new URL(r.request().url()));
+      return r.fulfill({
+        json: {
+          data: showPartner
+            ? [{
+                id: 19, provider_id: 9,
+                provider_label: "Unverified Network_50%!",
+                provider_label_evidence: "PROVIDER_CONFIGURED_UNVERIFIED",
+                evidence: "PARTNER_REPORTED_UNVERIFIED",
+                availability: unsafePartner ? "available" : "unknown", remote_control: false, reservable: false,
+                source_timestamp_evidence: "PARTNER_REPORTED_ONLY",
+                reported_source_age_minutes: partnerClockAhead ? null : partnerAgeMinutes,
+                source_clock_evidence: partnerClockAhead ? "PARTNER_CLOCK_AHEAD" : "PARTNER_REPORTED_TIME",
+                received_at: "2026-11-07T12:00:00Z",
+                location: {
+                  id: "partner-mock",
+                  name: "<img src=x onerror=alert(2)>",
+                  address: "Fixture partner address",
+                  city: "Fixture city", country: "ARE",
+                  latitude: "25.21", longitude: "55.31",
+                  last_updated: "2026-11-07T10:00:00Z",
+                  availability: "unknown", remote_control: false, reservable: false,
+                  evses: [],
+                },
+              }]
+            : [],
+          total: showPartner ? 1 : 0,
+          current_page: 1,
+          last_page: 1,
+          next_page_url: null,
+        },
+      });
+    });
     await page.goto(process.env.EV_TEST_URL || "http://127.0.0.1:8000");
     await page.locator("#stations h3").first().waitFor();
+    await page.locator("#roaming-discovery article").first().waitFor();
     assert.equal(tiles, 0);
+    assert.equal(await page.locator(".partner-map-pin").count(), 0);
     await page
       .getByRole("button", { name: "Use my location once", exact: true })
       .click();
@@ -77,12 +118,52 @@ const assert = require("node:assert/strict");
       await page.locator("#filters [name=longitude]").inputValue(),
       "55.300000",
     );
+    // A GPS selection alone must not send coordinates to the partner API.
+    const priorPartnerRequests = partnerQueries.length;
+    await page.waitForTimeout(100);
+    assert.equal(partnerQueries.length, priorPartnerRequests);
+    const partnerRequest = page.waitForRequest((r) => {
+      const url = new URL(r.url());
+      return url.pathname === "/api/roaming/locations" && url.searchParams.has("latitude");
+    });
+    await page.getByRole("button", { name: "Find partners near selected point" }).click();
+    const nearbyUri = new URL((await partnerRequest).url());
+    assert.equal(nearbyUri.searchParams.get("latitude"), "25.200000");
+    assert.equal(nearbyUri.searchParams.get("longitude"), "55.300000");
+    assert.equal(nearbyUri.searchParams.get("radius_km"), "25");
+    await page.locator("#roaming-discovery [name=latitude]").waitFor();
+    assert.equal(await page.locator("#roaming-discovery [name=latitude]").inputValue(), "25.200000");
     await page
       .getByRole("button", { name: "Enable interactive map", exact: true })
       .click();
-    await page.locator(".station-map-pin").waitFor();
-    assert.equal(await page.locator(".station-map-pin").count(), 1);
-    await page.locator(".station-map-pin").click();
+    await page.locator(".station-map-pin:not(.partner-map-pin)").waitFor();
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
+    assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    const platformLayerToggle = page.locator("#show-platform-map-pins");
+    const layerToggle = page.locator("#show-partner-map-pins");
+    assert.equal(await platformLayerToggle.isChecked(), true);
+    assert.equal(await layerToggle.isChecked(), true);
+    const mapRequestsBeforeToggle = partnerQueries.length;
+    await layerToggle.uncheck();
+    assert.equal(await page.locator(".partner-map-pin").count(), 0);
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
+    await layerToggle.check();
+    assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    assert.equal(partnerQueries.length, mapRequestsBeforeToggle, "Layer toggle must remain local and never refetch partner data");
+    await platformLayerToggle.uncheck();
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 0);
+    assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    await platformLayerToggle.check();
+    assert.equal(await page.locator(".station-map-pin:not(.partner-map-pin)").count(), 1);
+    assert.equal(partnerQueries.length, mapRequestsBeforeToggle, "Switching map sources must never issue API requests");
+    // Refit requires explicit interaction; never creates new inventory.
+    await page.getByRole("button", { name: "Show loaded locations on map" }).click();
+    await page.getByText("Map fitted to loaded results only. Other nearby sites may not be listed.", { exact: true }).waitFor();
+    const stationPinColor = await page.locator(".station-map-pin:not(.partner-map-pin)").evaluate(node => getComputedStyle(node).backgroundColor);
+    const partnerPinColor = await page.locator(".partner-map-pin").evaluate(node => getComputedStyle(node).backgroundColor);
+    assert.notEqual(partnerPinColor, stationPinColor, "Unverified partner pins must look distinct");
+    assert.equal(await page.locator(".partner-map-pin").getAttribute("title"), "Unverified partner locations");
+    await page.locator(".station-map-pin:not(.partner-map-pin)").click();
     await page.locator(".leaflet-popup-content").waitFor();
     assert.equal(await page.locator(".leaflet-popup-content img").count(), 0);
     assert.match(
@@ -93,11 +174,110 @@ const assert = require("node:assert/strict");
       await page.locator(".leaflet-popup-content a").getAttribute("href"),
       /destination=25.2%2C55.3/,
     );
+    await page.locator(".leaflet-popup-close-button").click();
+    await page.locator(".partner-map-pin").click();
+    const partnerPopup = page.locator(".leaflet-popup-content");
+    await partnerPopup.getByText(/Partner reported \(unverified\)/).waitFor();
+    await partnerPopup.getByText("Partner source age: 120 min; live status unverified.", { exact: true }).waitFor();
+    await partnerPopup.getByText("Configured provider (unverified): Unverified Network_50%!", { exact: true }).waitFor();
+    assert.equal(await partnerPopup.locator("img").count(), 0);
+    assert.equal(await partnerPopup.getByRole("button", { name: "Add charging stop" }).count(), 0);
+    assert.match(await partnerPopup.locator("a").getAttribute("href"), /destination=25.21%2C55.31/);
+    await partnerPopup.getByRole("button", { name: "View partner location in list" }).click();
+    assert.equal(await page.locator("[data-partner-location-id='19']").count(), 1);
+    // Repeated partner reports older than 24 hours receive an explicit
+    // non-live stale-record warning, without creating charging authority.
+    partnerAgeMinutes = 2000;
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator(".partner-map-pin.partner-pin-stale").waitFor();
+    assert.equal(await page.locator(".partner-map-pin").getAttribute("title"), "Unverified partner — old reported data");
+    await page.locator("#roaming-discovery").getByText("Warning: partner record is more than 24 hours old; it may be outdated.", { exact: true }).waitFor();
+    await page.locator(".partner-map-pin").click();
+    await page.locator(".leaflet-popup-content")
+      .getByText("Partner source age: 2000 min (older than 24 hours); live status unverified.", { exact: true }).waitFor();
+    partnerClockAhead = true;
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator(".partner-map-pin.partner-pin-uncertain").waitFor();
+    assert.equal(await page.locator(".partner-map-pin").getAttribute("title"), "Unverified partner — source time uncertain");
+    await page.locator("#roaming-discovery").getByText("Warning: partner's reported timestamp is in the future; freshness cannot be confirmed.", { exact: true }).waitFor();
+    await page.locator(".partner-map-pin").click();
+    await page.locator(".leaflet-popup-content").getByText("Partner's reported timestamp is in the future; freshness unknown.", { exact: true }).waitFor();
+    partnerClockAhead = false;
+    // Identity/session reset removes every old map marker immediately.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-clear")));
+    assert.equal(await page.locator(".partner-map-pin").count(), 0);
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator(".partner-map-pin").waitFor();
+    showPartner = false;
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.getByText("No matching partner locations", { exact: true }).waitFor();
+    assert.equal(await page.locator(".partner-map-pin").count(), 0);
+    // A future API advertising unsupported live charging capabilities is rejected
+    // before any partner marker can be displayed, even after a valid prior page.
+    showPartner = true;
+    unsafePartner = true;
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.locator("#roaming-discovery").getByRole("button", { name: "Retry", exact: true }).waitFor();
+    assert.equal(await page.locator(".partner-map-pin").count(), 0);
     await page.locator("#language").click();
     assert.match(
       await page.locator("#discovery-map").textContent(),
       /استخدام موقعي/,
     );
+    await page.getByRole("button", { name: "إيقاف الخريطة التفاعلية" }).click();
+    assert.equal(await page.locator("#station-map").isHidden(), true);
+    assert.equal(await page.locator(".station-map-pin").count(), 0);
+    assert.equal(await page.locator("#location-consent").isChecked(), false);
+    assert.equal(await page.getByRole("button", { name: "البحث عن شركاء قرب النقطة المحددة" }).isHidden(), true);
+    assert.equal(await page.getByRole("button", { name: "البحث في تقارير الشركاء حول مركز الخريطة" }).isHidden(), true);
+    assert.equal(await page.getByRole("button", { name: "إظهار المواقع المحملة على الخريطة" }).isHidden(), true);
+    assert.equal(await layerToggle.isHidden(), true);
+    assert.equal(await platformLayerToggle.isHidden(), true);
+    assert.equal(await page.getByRole("button", { name: "تفعيل الخريطة التفاعلية" }).isVisible(), true);
+    // A second consent must create a fresh Leaflet instance cleanly.
+    await page.getByRole("button", { name: "تفعيل الخريطة التفاعلية" }).click();
+    assert.equal(await page.locator("#station-map").isVisible(), true);
+    await page.getByRole("button", { name: "إظهار المواقع المحملة على الخريطة" }).click();
+    await page.getByText("لا توجد إحداثيات صالحة للمواقع المحملة على الخريطة.", { exact: true }).waitFor();
+    const requestsBeforeMapClick = partnerQueries.length;
+    await page.locator("#station-map").click({ position: { x: 120, y: 95 } });
+    await page.getByRole("button", { name: "البحث عن شركاء قرب النقطة المحددة" }).waitFor();
+    assert.equal(partnerQueries.length, requestsBeforeMapClick, "Map click must not silently disclose coordinates to partner API");
+    const clickedMapQuery = page.waitForRequest((r) => {
+      const url = new URL(r.url());
+      return url.pathname === "/api/roaming/locations" && url.searchParams.has("latitude");
+    });
+    await page.getByRole("button", { name: "البحث عن شركاء قرب النقطة المحددة" }).click();
+    const mapSelectionUri = new URL((await clickedMapQuery).url());
+    assert.notEqual(mapSelectionUri.searchParams.get("latitude"), "25.200000");
+    assert.equal(mapSelectionUri.searchParams.get("radius_km"), "25");
+    const beforeViewSearch = partnerQueries.length;
+    await page.locator("#station-map").hover();
+    await page.mouse.wheel(0, 240);
+    await page.waitForTimeout(150);
+    assert.equal(partnerQueries.length, beforeViewSearch, "Map wheel/zoom must not transmit partner location");
+    const viewRequest = page.waitForRequest(req => {
+      const url = new URL(req.url());
+      return url.pathname === "/api/roaming/locations" && url.searchParams.has("latitude");
+    });
+    await page.getByRole("button", { name: "البحث في تقارير الشركاء حول مركز الخريطة" }).click();
+    const mapUri = new URL((await viewRequest).url());
+    assert(Number(mapUri.searchParams.get("radius_km")) >= 1);
+    assert.equal(mapUri.searchParams.get("radius_km"), "200", "Wide viewport must explicitly cap partner-radius to 200 km");
+    await page.getByText("مساحة الخريطة أوسع من 200 كم؛ البحث في تقارير الشركاء ضمن 200 كم فقط من المركز. ليس توافراً مباشراً.", { exact: true }).waitFor();
+    assert(Math.abs(Number(mapUri.searchParams.get("latitude"))) <= 90);
+    assert(Math.abs(Number(mapUri.searchParams.get("longitude"))) <= 180);
+    // Web Mercator stops at +/-85.0511. Valid polar GPS coordinates must
+    // remain usable for list search without corrupting the Leaflet map.
+    const queriesBeforePolarGps = partnerQueries.length;
+    await context.setGeolocation({ latitude: 89.99, longitude: 10 });
+    await page.locator("#location-consent").check();
+    await page.getByRole("button", { name: "استخدام موقعي مرة واحدة" }).click();
+    await page.waitForFunction(() =>
+      document.querySelector("#filters [name=latitude]").value === "89.990000");
+    await page.getByText("خط العرض المحدد خارج نطاق عرض الخريطة. يبقى البحث القريب في القائمة متاحاً.", { exact: true }).waitFor();
+    assert.equal(partnerQueries.length, queriesBeforePolarGps, "Polar GPS must not auto-disclose coordinates to partner API");
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
       await page.evaluate(
@@ -107,7 +287,7 @@ const assert = require("node:assert/strict");
     );
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: map consent, GPS opt-in, null-coordinate exclusion, literal marker content, external destination, Arabic and mobile layout. Synthetic tiles/location only.",
+      "PASS: consented mixed map, disable/re-enable privacy and map refit, unverified partner capability checks, revocation, GPS opt-in, safe popups, Arabic and mobile layout. Synthetic only.",
     );
   } finally {
     await browser.close();

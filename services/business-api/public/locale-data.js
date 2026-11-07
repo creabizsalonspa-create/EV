@@ -1471,7 +1471,59 @@ window.EV_MESSAGES = {
         en: "Partner-reported locations are unverified. Availability is unknown; reservations, remote charging and payments are unavailable here.",
         ar: "المواقع واردة من الشريك وغير متحقق منها. التوافر غير معروف؛ الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.",
     },
+    "Partner network label (unverified)": {
+        en: "Provider/network label (unverified)",
+        ar: "اسم مقدم الخدمة أو الشبكة (غير مؤكد)",
+    },
+    "Roaming configured provider": {
+        en: "Configured provider (not operator-certified):",
+        ar: "مقدم الخدمة المُسجل (دون اعتماد من المشغل):",
+    },
+    "Maximum reported source age (hours, not live)": {
+        en: "Reported source updated within (hours, 1–168; not live)",
+        ar: "آخر تحديث مبلغ عنه من الشريك (بالساعات، 1–168؛ ليس حالة مباشرة)",
+    },
+    "Roaming receipt age": {
+        en: "Our last receipt age (not live):",
+        ar: "الوقت منذ الاستلام (ليس حالة مباشرة):",
+    },
+    "Roaming partner clock ahead warning": {
+        en: "Warning: partner's reported timestamp is in the future; freshness cannot be confirmed.",
+        ar: "تحذير: طابع وقت الشريك في المستقبل؛ لا يمكن تأكيد حداثة البيانات.",
+    },
+    "Partner-reported EVSE state (unverified, not live)": {
+        en: "Partner-reported EVSE status (unverified, not live)",
+        ar: "حالة نقطة الشحن حسب الشريك (غير مؤكدة وليست مباشرة)",
+    },
+    "Any partner-reported state": {
+        en: "All reported states (not live)",
+        ar: "جميع الحالات المبلغ عنها (ليست مباشرة)",
+    },
+    "Clear partner filters": {
+        en: "Clear partner filters",
+        ar: "مسح مرشحات مواقع الشركاء",
+    },
+    "Roaming stale partner source warning": {
+        en: "Warning: partner record is more than 24 hours old; it may be outdated.",
+        ar: "تحذير: سجل الشريك أقدم من 24 ساعة وقد لا يكون محدثاً.",
+    },
+    "Roaming partner time unknown warning": {
+        en: "Warning: partner source update time is unavailable.",
+        ar: "تحذير: وقت تحديث بيانات الشريك غير متاح.",
+    },
     "Roaming coordinates": { en: "Coordinates:", ar: "الإحداثيات:" },
+    "Roaming straight-line distance": {
+        en: "Straight-line distance (not driving distance):",
+        ar: "المسافة بخط مستقيم (ليست مسافة قيادة):",
+    },
+    "Roaming partner source age": {
+        en: "Partner record age (not live availability):",
+        ar: "عمر سجل الشريك (ليس توافراً مباشراً):",
+    },
+    "Partner search latitude": { en: "Nearby latitude", ar: "خط العرض للبحث القريب" },
+    "Partner search longitude": { en: "Nearby longitude", ar: "خط الطول للبحث القريب" },
+    "Partner search radius km": { en: "Radius in km (1–200)", ar: "نطاق البحث بالكيلومتر (1–200)" },
+
     "Roaming source updated": {
         en: "Source updated (UTC):",
         ar: "تحديث المصدر (UTC):",

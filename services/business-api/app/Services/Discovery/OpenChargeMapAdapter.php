@@ -1,0 +1,215 @@
+<?php
+
+namespace App\Services\Discovery;
+
+use Closure;
+use Illuminate\Support\Facades\Http;
+
+/**
+ * Read-only, license-filtered OCM discovery. Never inserts canonical charging
+ * stations or enables commands, reservations, finance or OCPI authorizations.
+ */
+final class OpenChargeMapAdapter
+{
+    private const ORIGIN = 'https://api.openchargemap.io/v3/poi/';
+
+    /**
+     * Optional injected transport is solely for deterministic acceptance tests.
+     * It receives the bounded API parameters and must return decoded JSON.
+     */
+    public function __construct(private readonly ?Closure $fixtureTransport = null) {}
+
+    public function search(float $latitude, float $longitude, float $radiusKm, string $key, ?string $country = null, ?float $minPowerKw = null, ?string $connector = null): array
+    {
+        if (! is_finite($latitude) || ! is_finite($longitude) || ! is_finite($radiusKm)
+            || abs($latitude) > 90 || abs($longitude) > 180
+            || $radiusKm < 1 || $radiusKm > 200 || trim($key) === ''
+            || ($country !== null && preg_match('/^[A-Z]{2}$/D', $country) !== 1)
+            || ($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
+            || ($connector !== null && (strlen($connector) < 1 || strlen($connector) > 80
+                || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))) {
+            throw new LookupFailure('invalid_request', 422);
+        }
+
+        $parameters = [
+            'output' => 'json',
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'distance' => $radiusKm,
+            'distanceunit' => 'km',
+            'maxresults' => 25,
+            'opendata' => 'true',
+            'includecomments' => 'false',
+            'verbose' => 'true',
+            'compact' => 'false',
+        ];
+        if ($country !== null) {
+            $parameters['countrycode'] = $country;
+        }
+        $records = $this->fixtureTransport !== null
+            ? ($this->fixtureTransport)($parameters)
+            : $this->fetch($parameters, $key);
+        if (! is_array($records) || ! array_is_list($records) || count($records) > 25) {
+            throw new LookupFailure('invalid_response');
+        }
+        $data = [];
+        foreach ($records as $raw) {
+            if (! is_array($raw)) {
+                continue;
+            }
+            $item = OpenChargeMapProjection::item($raw);
+            if ($item === null || isset($data[$item['id']])
+                || ($country !== null && $item['country'] !== $country)) {
+                continue;
+            }
+            $distance = self::distance($latitude, $longitude, $item['latitude'], $item['longitude']);
+            if ($distance > $radiusKm + 0.0001) {
+                continue;
+            }
+            $item['distance_km'] = round($distance, 3);
+            $item['distance_basis'] = 'great_circle';
+            $data[$item['id']] = $item;
+        }
+        $values = array_values($data);
+        usort($values, static fn (array $a, array $b) => ($a['distance_km'] <=> $b['distance_km']) ?: strcmp($a['id'], $b['id']));
+
+        $source = [
+            'provider' => 'open_charge_map',
+            'evidence' => 'OPEN_LICENSED_DISCOVERY_ONLY',
+            'availability' => 'unknown',
+            'remote_control' => false,
+            'reservable' => false,
+            'billing_eligible' => false,
+            'distance_basis' => 'great_circle',
+            'license_policy' => 'PER_RECORD_ATTRIBUTION_REQUIRED',
+            'count' => count($values),
+            'results' => $values,
+        ];
+
+        return $this->filterReported($source, $minPowerKw, $connector);
+    }
+
+    /**
+     * Pure, connection-level source filters over a capped and preauthorized
+     * list. Can be run repeatedly on one short-lived cached discovery source.
+     * This never upgrades historical reports to live charging privileges.
+     */
+    public function filterReported(array $source, ?float $minPowerKw = null, ?string $connector = null, ?string $operator = null, ?bool $membership = null, ?bool $operational = null): array
+    {
+        if (($minPowerKw !== null && (! is_finite($minPowerKw) || $minPowerKw < 1 || $minPowerKw > 1000))
+            || ($connector !== null && (strlen($connector) < 1 || strlen($connector) > 80
+                || trim($connector) !== $connector || preg_match('/[\x00-\x1F\x7F]/', $connector)))
+            || ($operator !== null && (strlen($operator) < 1 || strlen($operator) > 120
+                || trim($operator) !== $operator || preg_match('/[\x00-\x1F\x7F]/', $operator)))) {
+            throw new LookupFailure('invalid_request', 422);
+        }
+        if (($source['provider'] ?? null) !== 'open_charge_map'
+            || ($source['evidence'] ?? null) !== 'OPEN_LICENSED_DISCOVERY_ONLY'
+            || ($source['availability'] ?? null) !== 'unknown'
+            || ($source['remote_control'] ?? null) !== false
+            || ($source['reservable'] ?? null) !== false
+            || ($source['billing_eligible'] ?? null) !== false
+            || ! is_array($source['results'] ?? null)
+            || ! array_is_list($source['results'])
+            || count($source['results']) > 25) {
+            throw new LookupFailure('invalid_response');
+        }
+        if ($minPowerKw === null && $connector === null && $operator === null
+            && $membership === null && $operational === null) {
+            return $source;
+        }
+        $values = [];
+        foreach ($source['results'] as $item) {
+            if (! is_array($item) || ! is_array($item['connections'] ?? null)) {
+                throw new LookupFailure('invalid_response');
+            }
+            if (($operator !== null && stripos((string) ($item['operator_label'] ?? ''), $operator) === false)
+                || ($membership !== null && ($item['reported_membership_required'] ?? null) !== $membership)
+                || ($operational !== null && ($item['reported_operational'] ?? null) !== $operational)) {
+                continue;
+            }
+            // Source metadata filters do not require a connector.
+            if ($minPowerKw === null && $connector === null) {
+                $values[] = $item;
+
+                continue;
+            }
+            foreach ($item['connections'] as $connection) {
+                if (! is_array($connection)
+                    || ! is_string($connection['reported_connector_type'] ?? null)) {
+                    throw new LookupFailure('invalid_response');
+                }
+                $power = $connection['reported_power_kw'] ?? null;
+                if (($minPowerKw === null || (is_numeric($power) && (float) $power >= $minPowerKw))
+                    && ($connector === null || strcasecmp($connection['reported_connector_type'], $connector) === 0)) {
+                    $values[] = $item;
+                    break;
+                }
+            }
+        }
+
+        return [...$source, 'count' => count($values), 'results' => $values];
+    }
+
+    private function fetch(array $parameters, string $key): array
+    {
+        $stream = null;
+        try {
+            $response = Http::acceptJson()->connectTimeout(3)->timeout(8)
+                ->withHeaders(['X-API-Key' => $key, 'User-Agent' => 'CreaBiz-EV-Discovery/1.0'])
+                ->withOptions(['stream' => true, 'allow_redirects' => false])
+                ->get(self::ORIGIN, $parameters);
+            if ($response->status() === 429) {
+                throw new LookupFailure('provider_busy', 503);
+            }
+            if (! $response->successful()) {
+                throw new LookupFailure('provider_unavailable', 503);
+            }
+            $type = strtolower(trim(explode(';', $response->header('Content-Type'))[0]));
+            if ($type !== 'application/json' || (int) $response->header('Content-Length') > 2097152) {
+                throw new LookupFailure('invalid_response');
+            }
+            $stream = $response->toPsrResponse()->getBody();
+            $body = '';
+            while (! $stream->eof()) {
+                $chunk = $stream->read(min(16384, 2097152 - strlen($body) + 1));
+                if ($chunk === '' && ! $stream->eof()) {
+                    throw new LookupFailure('provider_unavailable', 503);
+                }
+                $body .= $chunk;
+                if (strlen($body) > 2097152) {
+                    throw new LookupFailure('invalid_response');
+                }
+            }
+            $json = json_decode($body, true, 48, JSON_THROW_ON_ERROR);
+            if (! is_array($json) || ! array_is_list($json)) {
+                throw new LookupFailure('invalid_response');
+            }
+
+            return $json;
+        } catch (LookupFailure $exception) {
+            throw $exception;
+        } catch (\Throwable) {
+            // HTTP exceptions may embed coordinates, API keys or raw provider
+            // addresses. Never expose them to a requester or application log.
+            throw new LookupFailure('provider_unavailable', 503);
+        } finally {
+            try {
+                $stream?->close();
+            } catch (\Throwable) {
+                // Connection cleanup must not expose upstream details.
+            }
+        }
+    }
+
+    private static function distance(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $earthKm = 6371.0088;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+        $a = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) ** 2;
+
+        return 2 * $earthKm * asin(sqrt(max(0, min(1, $a))));
+    }
+}
