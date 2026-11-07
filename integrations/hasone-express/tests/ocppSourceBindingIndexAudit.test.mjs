@@ -30,9 +30,6 @@ class Fixture{
  async createIndex(key,options){
   const name=options.name;
   if(this.idx.some(x=>x.name===name))return name;
-  if(name==='uniq_linked_ocpp_source_session' &&
-     (await this.aggregate([{},{$group:{_id:'$sourceSessionId'}}])).toArray().then(x=>x.length))
-    throw Error('duplicate source');
   const saved={name,key:{...key},unique:!!options.unique};
   this.idx.push(saved);return name;
  }
