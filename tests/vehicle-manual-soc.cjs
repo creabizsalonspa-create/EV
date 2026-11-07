@@ -128,6 +128,54 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   assert.match(visible(root),/No report yet/);
   assert.doesNotMatch(visible(root),/Latest self-reported battery: 85%/);
   assert.doesNotMatch(visible(root),/Manual report saved/);
+  // POST can commit successfully while its subsequent read-back GET fails.
+  // Keep the SAME operation key available until latest state AND history load.
+  const retryRoot=document.createElement('section');
+  const retryActor={id:51,role:'customer'};
+  let accepted=false,readbackFailsOnce=true;
+  const committedAttempts=[];
+  const uncertainApi=async(path,method,body)=>{
+    if(path==='vehicles/8/manual-soc'&&method==='POST'){
+      committedAttempts.push(JSON.parse(JSON.stringify(body)));
+      accepted=true;
+      return {battery_percent:61,revision:1,source:'CUSTOMER_MANUAL_SELF_REPORT'};
+    }
+    if(path==='vehicles/8/manual-soc'){
+      if(accepted&&readbackFailsOnce){
+        readbackFailsOnce=false;
+        throw Error('readback unavailable after successful POST');
+      }
+      return {battery_percent:accepted?61:null,revision:accepted?1:0,
+        reported_at:accepted?'server timestamp':null,source:'CUSTOMER_MANUAL_SELF_REPORT'};
+    }
+    if(path==='vehicles/8/manual-soc/history?page=1')return {
+      data:accepted?[{battery_percent:61,revision:1,reported_at:'server timestamp'}]:[],
+      current_page:1,last_page:1,
+    };
+    throw Error('unexpected uncertain readback endpoint '+path);
+  };
+  const retryView=window.VehicleManualSoc.create({
+    root:retryRoot,api:uncertainApi,actor:()=>retryActor,epoch:()=>1,
+  });
+  retryView.setActor(retryActor);
+  retryView.renderGarage([{id:8,name:'Retry after readback'}]);
+  await retryView.open({id:8,name:'Retry after readback'});
+  const retryForm=find(retryRoot,n=>n.tag==='form');
+  find(retryForm,n=>n.name==='battery_percent').value='61';
+  await retryForm.onsubmit({preventDefault(){}});
+  assert.equal(committedAttempts.length,1);
+  assert.match(visible(retryRoot),/Result uncertain/);
+  const retryAfterReadback=find(retryRoot,n=>n.tag==='button'&&visible(n).includes('Retry the same report'));
+  assert.equal(retryAfterReadback.disabled,false,
+    'Committed POST with failed readback must allow same-key retry');
+  await retryAfterReadback.onclick();
+  assert.equal(committedAttempts.length,2);
+  assert.deepEqual(committedAttempts[0],committedAttempts[1],
+    'Retry after uncertain readback must preserve original idempotency key');
+  assert.match(visible(retryRoot),/Latest self-reported battery: 61%/);
+  const doneRetry=find(retryRoot,n=>n.tag==='button'&&visible(n).includes('Retry the same report'));
+  assert.equal(doneRetry.disabled,true,'Successful readback must clear the pending retry');
+  retryView.clear();
   account={id:32,role:'customer'};epoch++;
   view.setActor(account);
   assert.equal(root.children.length,0);
