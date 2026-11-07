@@ -15,6 +15,7 @@ const assert = require("node:assert/strict");
     let tiles = 0;
     let showPartner = true;
     let unsafePartner = false;
+    const partnerQueries = [];
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.route("https://tile.openstreetmap.org/**", (r) => {
@@ -56,8 +57,9 @@ const assert = require("node:assert/strict");
         },
       }),
     );
-    await page.route("**/api/roaming/locations*", (r) =>
-      r.fulfill({
+    await page.route("**/api/roaming/locations*", (r) => {
+      partnerQueries.push(new URL(r.request().url()));
+      return r.fulfill({
         json: {
           data: showPartner
             ? [{
@@ -84,8 +86,8 @@ const assert = require("node:assert/strict");
           last_page: 1,
           next_page_url: null,
         },
-      }),
-    );
+      });
+    });
     await page.goto(process.env.EV_TEST_URL || "http://127.0.0.1:8000");
     await page.locator("#stations h3").first().waitFor();
     await page.locator("#roaming-discovery article").first().waitFor();
@@ -111,6 +113,21 @@ const assert = require("node:assert/strict");
       await page.locator("#filters [name=longitude]").inputValue(),
       "55.300000",
     );
+    // A GPS selection alone must not send coordinates to the partner API.
+    const priorPartnerRequests = partnerQueries.length;
+    await page.waitForTimeout(100);
+    assert.equal(partnerQueries.length, priorPartnerRequests);
+    const partnerRequest = page.waitForRequest((r) => {
+      const url = new URL(r.url());
+      return url.pathname === "/api/roaming/locations" && url.searchParams.has("latitude");
+    });
+    await page.getByRole("button", { name: "Find partners near selected point" }).click();
+    const nearbyUri = new URL((await partnerRequest).url());
+    assert.equal(nearbyUri.searchParams.get("latitude"), "25.200000");
+    assert.equal(nearbyUri.searchParams.get("longitude"), "55.300000");
+    assert.equal(nearbyUri.searchParams.get("radius_km"), "25");
+    await page.locator("#roaming-discovery [name=latitude]").waitFor();
+    assert.equal(await page.locator("#roaming-discovery [name=latitude]").inputValue(), "25.200000");
     await page
       .getByRole("button", { name: "Enable interactive map", exact: true })
       .click();
@@ -170,6 +187,7 @@ const assert = require("node:assert/strict");
     assert.equal(await page.locator("#station-map").isHidden(), true);
     assert.equal(await page.locator(".station-map-pin").count(), 0);
     assert.equal(await page.locator("#location-consent").isChecked(), false);
+    assert.equal(await page.getByRole("button", { name: "البحث عن شركاء قرب النقطة المحددة" }).isHidden(), true);
     assert.equal(await page.getByRole("button", { name: "إظهار المواقع المحملة على الخريطة" }).isHidden(), true);
     assert.equal(await page.getByRole("button", { name: "تفعيل الخريطة التفاعلية" }).isVisible(), true);
     // A second consent must create a fresh Leaflet instance cleanly.
