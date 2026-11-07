@@ -697,6 +697,7 @@ try{
     slots:[{startTime:'10:00 AM',endTime:'11:00 AM'}]});
   const multiPrimary='agent2-multi-primary',multiSecond='agent2-multi-secondary';
   const chargerTable=db.collection('ocpp_chargers');
+  await chargerTable.createIndex({chargerId:1},{unique:true,name:'chargerId_1'});
   await chargerTable.createIndex({stationId:1},{unique:true,
     partialFilterExpression:{stationId:{$type:'string'}},name:'stationId_1'});
   await chargerTable.insertOne({stationId:String(multiStation._id),
