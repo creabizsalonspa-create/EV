@@ -173,4 +173,28 @@ void main() {
     }
   });
 
+  testWidgets('catalog scroll offset cannot deserialize as station expansion bool',
+      (tester) async {
+    final bucket = PageStorageBucket();
+    await tester.pumpWidget(MaterialApp(home: Scaffold(
+      body: PageStorage(bucket: bucket, child: ListView(
+        key: const PageStorageKey<String>('catalog-scroll'),
+        children: [
+          Builder(builder: (context) {
+            // Reproduce catalog's numeric scroll state in this page bucket.
+            bucket.writeState(context, 137.0);
+            return const StationInformationPanel(
+              information: null, timezone: 'UTC');
+          }),
+        ],
+      )),
+    )));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull,
+        reason: 'Station expansion must not cast numeric scroll state to bool');
+    await tester.tap(find.text('Hours, access & facilities'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('has not published'), findsOneWidget);
+  });
+
 }

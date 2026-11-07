@@ -40,8 +40,13 @@ class StationInformationPanel extends StatelessWidget {
     final ar = stationInfoArabic(context);
     final published = info['source_label'] == 'VENDOR_REPORTED_UNVERIFIED';
     final weekly = info['weekly_hours'] is Map ? info['weekly_hours'] as Map : <String, dynamic>{};
-    return ExpansionTile(
+    // The catalog's numeric scroll offset may already occupy its
+    // PageStorage bucket. Scope expansion state to this station's metadata
+    // instead of reading that double as a bool and crashing on refresh.
+    return KeyedSubtree(
       key: const Key('station-information-panel'),
+      child: ExpansionTile(
+        key: PageStorageKey<Object>(information ?? Object()),
       title: Text(stationInfoT(context, 'Hours, access & facilities', 'ساعات العمل والدخول والمرافق')),
       childrenPadding: const EdgeInsets.all(16),
       expandedCrossAxisAlignment: CrossAxisAlignment.start,
@@ -84,6 +89,7 @@ class StationInformationPanel extends StatelessWidget {
           Text(stationInfoT(context, 'Published hours do not guarantee reservation or charger availability.', 'الساعات المنشورة لا تضمن الحجز أو توفر الشاحن.')),
         ],
       ],
+      ),
     );
   }
 }
