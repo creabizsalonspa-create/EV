@@ -57,6 +57,8 @@ try{
  const {default:AppSettingsModel}=await import(pathToFileURL(join(source,'src/models/AppSettingsModel.js')).href);
  const {default:ChargingSessionModel}=await import(pathToFileURL(join(source,'src/models/ChargingSessionModel.js')).href);
  await ChargingSessionModel.init(); // Wait for the one-source-session-per-booking constraint.
+ const {auditOcppSourceBindingIndexes}=await import(
+   pathToFileURL(join(source,'src/utils/ocppSourceBindingIndexAudit.mjs')).href);
  const {default:AdminModel}=await import(pathToFileURL(join(source,'src/models/AdminModel.js')).href);
  const jwt=(await import(pathToFileURL(join(dependencies,'node_modules/jsonwebtoken/index.js')).href)).default;
  const {default:PaymentCardModel}=await import(pathToFileURL(join(source,'src/models/PaymentCardModel.js')).href);
@@ -92,6 +94,13 @@ try{
   return {code:res.status,body:json,text:bodyText};
  }
  async function check(label,fn){await fn();passed++;console.log('PASS '+label);}
+ await check('OCPP source-bound booking indexes are unique and audit clean',async()=>{
+   const audit=await auditOcppSourceBindingIndexes(
+     mongoose.connection.db.collection(ChargingSessionModel.collection.name));
+   assert.equal(audit.ready,true);
+   assert.equal(audit.hasUniqueSourceIndex,true);
+   assert.equal(audit.hasUniqueBookingIndex,true);
+ });
  await check('health uses isolated Mongo connection',async()=>{
   const r=await request('GET','/health');assert.equal(r.code,200);assert.equal(r.body.database,'connected');
  });
