@@ -95,3 +95,14 @@ test('CLI accepts only explicit live or snapshot', () => {
   assert.deepEqual(parseArgs(['--snapshot','/private/snapshot.json']),{mode:'snapshot',file:'/private/snapshot.json'});
   for (const args of [[],['--execute'],['--live','--delete'],['--snapshot','--live']]) assert.throws(()=>parseArgs(args));
 });
+
+test('exposed internal ports with PublishedPort zero are not public bindings', () => {
+  const data = sample();
+  for (let i = 0; i < 4; i++) data[i].Publishers.push({URL:'',TargetPort:i === 3 ? 5432 : 80,PublishedPort:0,Protocol:'tcp'});
+  data[4].Publishers.push({URL:'',TargetPort:80,PublishedPort:0,Protocol:'tcp'});
+  assert.equal(checkSnapshot(data).ok,true);
+});
+test('malformed or negative published host ports are denied', () => {
+  checkChange(x => x[0].Publishers.push({URL:'',TargetPort:80,PublishedPort:-1,Protocol:'tcp'}), 'invalid published port');
+  checkChange(x => x[4].Publishers[0].PublishedPort='not-a-port', 'invalid published port');
+});
