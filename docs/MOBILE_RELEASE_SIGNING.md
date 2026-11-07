@@ -56,6 +56,18 @@ use an authorized HTTPS origin.
 The separate HAS.ONE customer app uses Google Maps on Android and iOS. An
 Android API key is not interchangeable with an iOS bundle-restricted key.
 
+**Android store application ID:** the committed HAS.ONE customer ID is
+`com.creabiz.hasone.customer.dev`, intended for development. A production
+Android release now also requires an explicit, approved
+`HASONE_ANDROID_APPLICATION_ID` Gradle project property: a dotted Android
+package ID with at least three segments that does not end in `.dev`.
+Debug builds retain the current ID if no property is given. CI can pass
+`ORG_GRADLE_PROJECT_HASONE_ANDROID_APPLICATION_ID` as a protected build
+variable. Before distributing to stores, the owner must approve that package
+ID **and** bind the Google Maps Android API key to it and its final signing
+certificate fingerprint. This source guard does not provision or confirm
+an approved ID; it simply prevents distributing the known demo identity.
+
 **Android:** the existing `MAPS_API_KEY` Gradle project property supplies
 the manifest's Google Maps SDK key. Approved release `assembleRelease`,
 `bundleRelease` and `packageRelease` tasks now reject a missing key;
