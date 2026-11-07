@@ -8,6 +8,7 @@ approval is still required before using GitHub's merge API.
 import argparse
 import json
 import os
+from pathlib import Path
 import re
 import sys
 from urllib.error import HTTPError, URLError
@@ -21,6 +22,73 @@ NATIVE = frozenset(("native (ubuntu-latest)", "native (macos-15)"))
 HASONE_NATIVE = frozenset(("hasone-native (ubuntu-latest)",
                           "hasone-native (macos-15)"))
 CHECK_LIMIT = 300
+
+
+
+def load_pr_dependencies(path=None, target=TARGET):
+    """Validate a reviewed dependency DAG; stale/invalid manifests fail closed."""
+    filename = (Path(path) if path is not None else
+                Path(__file__).resolve().parents[1] /
+                "docs/integration/pr-dependencies.json")
+    data = json.loads(filename.read_text())
+    if (not isinstance(data, dict) or
+            data.get("schema_version") != 1 or
+            data.get("target_branch") != target or
+            not isinstance(data.get("dependencies"), dict)):
+        raise ValueError("Invalid ten-agent PR dependency manifest")
+    graph = {}
+    for raw_id, values in data["dependencies"].items():
+        if not isinstance(raw_id, str) or not re.fullmatch(r"[1-9][0-9]*", raw_id):
+            raise ValueError("Invalid PR dependency identity")
+        number = int(raw_id)
+        if (not isinstance(values, list) or not values or
+                any(type(value) is not int or value <= 0 or value == number
+                    for value in values) or len(values) != len(set(values))):
+            raise ValueError("Invalid or self-referencing PR dependency")
+        graph[number] = tuple(values)
+    completed, visiting = set(), set()
+
+    def visit(number):
+        if number in visiting:
+            raise ValueError("Cyclic PR dependency graph")
+        if number in completed:
+            return
+        visiting.add(number)
+        for parent in graph.get(number, ()):
+            visit(parent)
+        visiting.remove(number)
+        completed.add(number)
+
+    for number in graph:
+        visit(number)
+    return graph
+
+
+def dependency_status(github, number, target, target_sha, active_prs):
+    """Require GitHub merge AND an ancestor of the actual integration head."""
+    if number in active_prs:
+        return {"number": number, "integrated": False, "reason": "pr_still_open"}
+    pr = github.get("/pulls/" + str(number))
+    if (pr.get("merged_at") is None or
+            pr.get("base", {}).get("ref") != target):
+        return {"number": number, "integrated": False,
+                "reason": "not_merged_into_integration_target"}
+    merge_sha = pr.get("merge_commit_sha")
+    if (not isinstance(merge_sha, str) or
+            not re.fullmatch(r"[a-fA-F0-9]{40}", merge_sha)):
+        return {"number": number, "integrated": False,
+                "reason": "missing_verified_merge_sha"}
+    if not isinstance(target_sha, str) or not re.fullmatch(
+            r"[a-fA-F0-9]{40}", target_sha):
+        return {"number": number, "integrated": False,
+                "reason": "integration_head_unknown"}
+    ancestry = github.get("/compare/" + merge_sha + "..." + target_sha)
+    if ancestry.get("status") not in ("ahead", "identical"):
+        return {"number": number, "integrated": False,
+                "reason": "merge_not_in_integration_history"}
+    return {"number": number, "integrated": True,
+            "reason": "verified_merged_ancestor"}
+
 
 
 def required_checks(paths):
@@ -60,7 +128,8 @@ def verified_pr_event_ids(workflows, number, head):
 
 
 def assess(pr, check_runs, paths, parents=None, target=TARGET,
-           pr_event_run_ids=None, repo=REPOSITORY):
+           pr_event_run_ids=None, repo=REPOSITORY,
+           prerequisites=(), prerequisite_status=None):
     """Pure, deliberately conservative eligibility evaluation."""
     parents = parents or {}
     number = pr["number"]
@@ -78,6 +147,14 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET,
                        if dependency else "wrong_merge_target:" + base)
     if pr.get("mergeable") is not True:
         reasons.append("conflict_or_mergeability_unknown")
+    prerequisite_status = prerequisite_status or {}
+    if prerequisites and any(n not in prerequisite_status for n in prerequisites):
+        reasons.append("missing_pr_dependency_verification")
+    unresolved = sorted(n for n in prerequisites if
+                        not prerequisite_status.get(n, {}).get("integrated"))
+    if unresolved:
+        reasons.append("unintegrated_pr_dependencies:" +
+                       ",".join(str(n) for n in unresolved))
     if not paths:
         reasons.append("missing_changed_file_inventory")
     # The check-runs API lists PUSH jobs associated with open PRs, too.
@@ -126,7 +203,12 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET,
 
     return {
         "pr": number, "title": pr.get("title"), "head_sha": head,
-        "base": base, "dependency_pr": dependency, "draft": bool(pr.get("draft")),
+        "base": base, "dependency_pr": dependency,
+        "prerequisites": list(prerequisites),
+        "dependency_evidence": [prerequisite_status.get(n, {"number": n,
+                                 "integrated": False, "reason": "not_checked"})
+                                for n in prerequisites],
+        "draft": bool(pr.get("draft")),
         "mergeable": pr.get("mergeable"), "changed_file_count": len(paths),
         "check_count": len(relevant), "ignored_unassociated_checks":
             len(check_runs) - len(linked), "ignored_non_pr_event_checks":
