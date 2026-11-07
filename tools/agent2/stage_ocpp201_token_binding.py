@@ -16,7 +16,14 @@ def patch(path):
     if path==Path('/home/hasio/ev-deployment') or str(path).startswith('/home/hasio/ev-deployment/'):
         raise RuntimeError('Never modify the deployed OCPP gateway')
     if not path.is_file():raise RuntimeError('Staged ocpp-handlers.mjs not found')
+    helper=Path(__file__).resolve().parents[2]/'integrations/hasone-express/ocppStartAuthorization.mjs'
+    out=path.parent/'ocppStartAuthorization.mjs'
+    if not helper.is_file() or out.exists():
+        raise RuntimeError('Required single-use authorization helper missing or already staged')
     data=path.read_text(encoding='utf8')
+    data=once(data,'const maxWh = 1e12;',
+      'import {claimOcppStartToken,hashOcppToken,sameActiveOcpp16Retry} from "./ocppStartAuthorization.mjs";\nconst maxWh = 1e12;',
+      'token helper import')
     data=once(data,
         '''        lastSeqNo:data.seqNo,tariff:await tariff(chargerId),status:"active",''',
         '''        lastSeqNo:data.seqNo,tariff:await tariff(chargerId),status:"active",
@@ -24,18 +31,10 @@ def patch(path):
           .update(data.idToken.idToken).digest("hex"),''',
         '2.0.1 token evidence')
     marker='''  async function open16(chargerId,data) {'''
-    consumption='''  // One booking credential can start at most one physical transaction.
-  // The authorization preflight (Authorize) is read-only. The actual start
-  // atomically consumes the token so concurrent starts cannot both succeed.
+    consumption='''  // Transaction start consumes the scoped credential atomically.
+  // An OCPP Authorize preflight remains read-only and does not call this.
   async function consumeToken(chargerId,value) {
-    if(typeof value!=="string"||value.length<8||value.length>64)return false;
-    const tokenHash=(await import("node:crypto")).createHash("sha256")
-      .update(value).digest("hex");
-    const used=await tokens.findOneAndUpdate({
-      chargerId,tokenHash,enabled:true,consumedAt:{$exists:false},
-      expiresAt:{$gt:new Date()}
-    },{$set:{enabled:false,consumedAt:new Date()}},{returnDocument:"after"});
-    return Boolean(used);
+    return (await claimOcppStartToken(tokens,chargerId,value)).accepted;
   }
 '''
     data=once(data,marker,consumption+marker,'consume function insertion')
@@ -51,8 +50,7 @@ def patch(path):
       throw new Error("Invalid StartTransaction readings or connector");
     if(typeof data.idTag!=="string" || data.idTag.length<8 || data.idTag.length>64)
       return {idTagInfo:{status:"Invalid"}};
-    const idTagHash=(await import("node:crypto")).createHash("sha256")
-      .update(data.idTag).digest("hex");
+    const idTagHash=hashOcppToken(data.idTag);
     // A retried StartTransaction may have lost its original response.
     // Return the existing active transaction only for the same charger,
     // connector, token hash, and exact initial meter reading.
@@ -61,7 +59,9 @@ def patch(path):
       connectorId:data.connectorId,meterStartWh:Math.round(data.meterStart),
       status:"active"
     });
-    if(prior)return {transactionId:prior.transactionId,idTagInfo:{status:"Accepted"}};
+    if(prior && sameActiveOcpp16Retry(prior,{
+      chargerId,tokenHash:idTagHash,connectorId:data.connectorId,meterStart:data.meterStart
+    }))return {transactionId:prior.transactionId,idTagInfo:{status:"Accepted"}};
     if(!await consumeToken(chargerId,data.idTag))
       return {idTagInfo:{status:"Invalid"}};
     const counter='''
@@ -75,6 +75,7 @@ def patch(path):
       '''const valid=data.idToken?.idToken && await consumeToken(chargerId,data.idToken.idToken);''',
       '2.0.1 consume at start')
     path.write_text(data,encoding='utf8')
+    out.write_text(helper.read_text(encoding='utf8'),encoding='utf8')
     print('STAGED_OCPP_START_TOKENS_ATOMIC_SINGLE_USE; live gateway unchanged')
 
 if __name__=='__main__':
