@@ -23,7 +23,7 @@ const chargerSelection=async (booking, requestedId='')=>chooseBookingCharger({
 const chargerFor=async booking=>(await chargerSelection(booking)).charger;
 const tokenReissueEvidence=async (booking,charger)=>{
   if(!charger || !validHash(booking.ocppTokenHash))
-    return {sourceLinked:true,sourceObserved:true,tokenConsumed:true};
+    return {sourceLinked:true,sourceObserved:true,tokenConsumed:true,tokenStillValid:true};
   const db=mongoose.connection.db;
   const [bound,source,existing]=await Promise.all([
     ChargingSessionModel.findOne({bookingId:booking._id,userId:booking.userId,
@@ -33,10 +33,13 @@ const tokenReissueEvidence=async (booking,charger)=>{
            {idTokenHash:booking.ocppTokenHash}]},{projection:{_id:1}}),
     db.collection('ocpp_access_tokens').findOne({
       chargerId:charger.chargerId,tokenHash:booking.ocppTokenHash
-    },{projection:{consumedAt:1}})
+    },{projection:{consumedAt:1,expiresAt:1,enabled:1}})
   ]);
   return {sourceLinked:!!bound,sourceObserved:!!source,
-    tokenConsumed:!!existing?.consumedAt};
+    tokenConsumed:!!existing?.consumedAt,
+    tokenStillValid:existing?.enabled===true &&
+      Number.isFinite(new Date(existing.expiresAt).valueOf()) &&
+      new Date(existing.expiresAt)>new Date()};
 };
 
 /** POST /admin/bookings/:id/ocpp/issue-token */
@@ -328,7 +331,7 @@ export async function AdminGetBookingOcppOperations(req,res){
   const eligible=booking.isPaid===true && booking.hasArrived===true;
   const renewalEvidence=authorized && charger
     ?await tokenReissueEvidence(booking,charger)
-    :{sourceLinked:true,sourceObserved:true,tokenConsumed:true};
+    :{sourceLinked:true,sourceObserved:true,tokenConsumed:true,tokenStillValid:true};
   const canReissue=canReissueOcppToken({
     booking,approvedChargerId:charger?.chargerId||'',...renewalEvidence,now:new Date()
   });
