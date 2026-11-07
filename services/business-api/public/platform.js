@@ -1479,6 +1479,34 @@ async function refreshInbox() {
                 row.append(review);
             }
         }
+        if (["charging.monitor.requires_review.simulated",
+             "charging.monitor.resumed.simulated"].includes(m.kind)) {
+            const meta = m.metadata;
+            if (meta?.source === "simulator" && meta?.physical_verification === false &&
+                ["company_id", "charger_id"].every(
+                    (key) => Number.isSafeInteger(meta[key]) && meta[key] > 0,
+                ) && ["vendor", "admin"].includes(user?.role)) {
+                const review = ui("button", "Review simulator source monitor");
+                review.type = "button";
+                review.onclick = async () => {
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    review.disabled = true;
+                    try {
+                        await vendorWorkspace.openMonitorNotice(meta.company_id, meta.charger_id);
+                        if (session !== client.sessionEpoch || account !== user?.id) return;
+                        el("vendor-operations").scrollIntoView({
+                            behavior: "smooth", block: "center",
+                        });
+                    } catch (error) {
+                        if (session === client.sessionEpoch && account === user?.id)
+                            notice(error);
+                    } finally {
+                        review.disabled = false;
+                    }
+                };
+                row.append(review);
+            }
+        }
         if (m.kind === "fleet.invitation") {
             const review = ui("button", "Review fleet invitation");
             review.type = "button";

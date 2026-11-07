@@ -79,6 +79,27 @@ Map<String, int>? simulatedFaultTarget(Map<String, dynamic> row) {
   return {'company_id': company, 'charger_id': charger, 'alert_id': alert};
 }
 
+/// Strictly separate monitor navigation from fault acknowledgment navigation.
+Map<String, int>? simulatedMonitorTarget(Map<String, dynamic> row) {
+  if (row['kind'] != 'charging.monitor.requires_review.simulated' &&
+      row['kind'] != 'charging.monitor.resumed.simulated') {
+    return null;
+  }
+  final meta = row['metadata'];
+  if (meta is! Map ||
+      meta['source'] != 'simulator' ||
+      meta['physical_verification'] != false) {
+    return null;
+  }
+  final company = meta['company_id'];
+  final charger = meta['charger_id'];
+  if (company is! int || company <= 0 ||
+      charger is! int || charger <= 0) {
+    return null;
+  }
+  return {'company_id': company, 'charger_id': charger};
+}
+
 class SupportView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onSessionExpired;
@@ -397,6 +418,28 @@ class SupportViewState extends State<SupportView> {
                                       if (mounted) await refresh();
                                     },
                               child: Text(s.t('reviewFleetInvitation')),
+                            ),
+                          if (simulatedMonitorTarget(row) != null)
+                            TextButton(
+                              key: const Key('review-simulator-monitor'),
+                              onPressed: loading
+                                  ? null
+                                  : () async {
+                                      final target = simulatedMonitorTarget(row);
+                                      if (target == null) return;
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => ChargerDiagnosticsView(
+                                            api: widget.api,
+                                            companyId: target['company_id']!,
+                                            chargerId: target['charger_id']!,
+                                            onExpired: widget.onSessionExpired,
+                                          ),
+                                        ),
+                                      );
+                                      if (mounted) await refresh();
+                                    },
+                              child: Text(s.t('reviewSimulatorMonitor')),
                             ),
                           if (simulatedFaultTarget(row) != null)
                             TextButton(

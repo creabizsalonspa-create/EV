@@ -171,7 +171,7 @@ class FaultFixture extends FixtureApi {
       };
     }
     if (path == 'notifications/summary') {
-      return {'unread_count': 2, 'latest_id': 23, 'in_app_only': true};
+      return {'unread_count': 3, 'latest_id': 24, 'in_app_only': true};
     }
     final items = path == 'notifications'
         ? [
@@ -200,6 +200,19 @@ class FaultFixture extends FixtureApi {
                 'company_id': 5,
                 'charger_id': 7,
                 'alert_id': 9,
+                'physical_verification': false,
+              },
+            },
+            {
+              'id': 24,
+              'kind': 'charging.monitor.requires_review.simulated',
+              'support_ticket_id': null,
+              'read_at': null,
+              'metadata': {
+                'source': 'simulator',
+                'station_id': 17,
+                'company_id': 5,
+                'charger_id': 7,
                 'physical_verification': false,
               },
             },
@@ -503,6 +516,58 @@ void main() {
     expect(fixture.read, isTrue);
     expect(find.text('0 unread notifications'), findsOneWidget);
   });
+  test('simulator monitor navigation rejects forged or incomplete metadata', () {
+    final notice = {
+      'kind': 'charging.monitor.requires_review.simulated',
+      'metadata': {
+        'source': 'simulator',
+        'physical_verification': false,
+        'company_id': 5,
+        'charger_id': 7,
+      },
+    };
+    expect(simulatedMonitorTarget(notice), {
+      'company_id': 5,
+      'charger_id': 7,
+    });
+    expect(simulatedMonitorTarget({
+      ...notice,
+      'metadata': {
+        ...notice['metadata'] as Map<String, dynamic>,
+        'physical_verification': true,
+      },
+    }), isNull);
+    expect(simulatedMonitorTarget({
+      ...notice,
+      'metadata': {
+        ...notice['metadata'] as Map<String, dynamic>,
+        'charger_id': -1,
+      },
+    }), isNull);
+    expect(simulatedMonitorTarget({'kind': 'charging.fault.simulated'}), isNull);
+  });
+
+  testWidgets('monitor inbox review reads source diagnostics without source-inspect POST', (
+    tester,
+  ) async {
+    final fixture = FaultFixture();
+    addTearDown(fixture.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: fixture, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('review-simulator-monitor')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('review-simulator-monitor')));
+    await tester.pumpAndSettle();
+    expect(find.text('Source diagnostics'), findsOneWidget);
+    expect(fixture.reviewReads, [
+      'vendor-ops/companies/5/chargers/7/source-diagnostics',
+    ]);
+    expect(fixture.writes, 0);
+  });
+
   test('only verified simulator source metadata can link operational review', () {
     final complete = {
       'kind': 'charging.fault.simulated',

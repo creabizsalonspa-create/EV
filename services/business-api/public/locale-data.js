@@ -1,4 +1,9 @@
 window.EV_MESSAGES = {
+    "Review simulator source monitor": {
+        en: "Review simulator source monitor",
+        ar: "مراجعة مراقبة مصدر المحاكاة",
+    },
+
     "Simulator charger monitor requires review · station #{id}": {
         en: "Simulator charger monitor requires review · station #{id}",
         ar: "مراقبة شاحن المحاكاة تتطلب مراجعة · المحطة #{id}",
