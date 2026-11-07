@@ -145,32 +145,47 @@ function verifyRunning(expectedRef,expectedId,deps={}) {
   return true;
 }
 
-function apply(config,deps={}) {
-  // Never mutate until all preflight checks and the private journal exist.
-  const target=outputJournal(config.journal);
-  const plan=inspectPlan(config,deps);
-  const saved=createJournal(target,plan);
-  journal(saved,'RELEASE_STARTED');
+function acquireLock(deps={}) {
+  // Exclusive lock prevents two independent staging app updates from interleaving.
+  // A crash deliberately leaves a lock requiring operator inspection, not an unsafe timeout unlock.
+  const file=deps.lockPath || '/tmp/ev-staging-agent10-release.lock';
+  if (fs.existsSync(file)) throw Error('A staging release is already active or requires operator reconciliation');
+  const fd=fs.openSync(file,'wx',0o600);
   try {
-    composeUp(config.tag,deps);
-    verifyRunning(plan.candidate_ref,plan.candidate_id,deps);
-    journal(saved,'RELEASE_VERIFIED',{service_count:3,production_accepted:false});
-    return {ok:true,rollback_verified:false,plan};
-  } catch {
-    journal(saved,'RELEASE_UNCERTAIN_ROLLBACK_STARTED');
-    // Refuse to roll back to a mutable tag that has been re-pointed.
+    fs.writeSync(fd,JSON.stringify({project:PROJECT,pid:process.pid,started:new Date().toISOString()})+'\n');
+    fs.fsyncSync(fd);
+  } catch(error) {fs.closeSync(fd);fs.unlinkSync(file);throw error;}
+  return () => {fs.closeSync(fd);fs.unlinkSync(file);};
+}
+function apply(config,deps={}) {
+  // Acquire a shared release lock before inspecting the local deployment.
+  const unlock=acquireLock(deps);
+  try {
+    const target=outputJournal(config.journal);
+    const plan=inspectPlan(config,deps);
+    const saved=createJournal(target,plan);
+    journal(saved,'RELEASE_STARTED');
     try {
-      const old=inspectImage(plan.old_ref,deps.run||execFileSync);
-      if(old.Id!==plan.old_id) throw Error('Former image identity changed');
-      composeUp(plan.old_ref.split(':').slice(1).join(':'),deps);
-      verifyRunning(plan.old_ref,plan.old_id,deps);
-      journal(saved,'ROLLBACK_VERIFIED',{production_accepted:false});
-      return {ok:false,rollback_verified:true,plan};
+      composeUp(config.tag,deps);
+      verifyRunning(plan.candidate_ref,plan.candidate_id,deps);
+      journal(saved,'RELEASE_VERIFIED',{service_count:3,production_accepted:false});
+      return {ok:true,rollback_verified:false,plan};
     } catch {
-      journal(saved,'OPERATOR_RECONCILIATION_REQUIRED',{production_accepted:false});
-      return {ok:false,rollback_verified:false,plan};
+      journal(saved,'RELEASE_UNCERTAIN_ROLLBACK_STARTED');
+      // Refuse to roll back to a mutable tag that has been re-pointed.
+      try {
+        const old=inspectImage(plan.old_ref,deps.run||execFileSync);
+        if(old.Id!==plan.old_id) throw Error('Former image identity changed');
+        composeUp(plan.old_ref.split(':').slice(1).join(':'),deps);
+        verifyRunning(plan.old_ref,plan.old_id,deps);
+        journal(saved,'ROLLBACK_VERIFIED',{production_accepted:false});
+        return {ok:false,rollback_verified:true,plan};
+      } catch {
+        journal(saved,'OPERATOR_RECONCILIATION_REQUIRED',{production_accepted:false});
+        return {ok:false,rollback_verified:false,plan};
+      }
     }
-  }
+  } finally {unlock();}
 }
 
 function main(args=process.argv.slice(2),deps={}) {
@@ -195,4 +210,4 @@ function main(args=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)process.exitCode=main();
-module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,composeUp,verifyRunning,apply,main};
+module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,composeUp,verifyRunning,apply,main};
