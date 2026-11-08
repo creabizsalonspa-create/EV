@@ -211,15 +211,15 @@
             model_id:modelId, expected_model_id:expectedModelId,
           });
           // Never apply a former vehicle's response to a newly selected one.
-          if (!valid(ticket) || selectedVehicle?.id !== vehicleId) return;
+          if (!activePanel() || selectedVehicle?.id !== vehicleId) return;
           selectedLink = updated;
           renderCustomerModels(list);
           message(customerRoot,isAr() ? "تم ربط الطراز." : "Model linked.");
         } catch (e) {
-          if (valid(ticket)) message(customerRoot,e.status === 409
+          if (activePanel()) message(customerRoot,e.status === 409
             ? (isAr() ? "تغير الربط؛ حدّث قبل الحفظ." : "Link changed; refresh before saving.")
             : text(e.message) || String(e));
-        } finally {save.disabled=false;}
+        } finally {if (activePanel()) save.disabled=false;}
       });
       save.disabled = !models.length;
       panel.append(save);
@@ -231,12 +231,12 @@
           const updated = await api("vehicles/" + vehicleId + "/model","PUT",{
             model_id:null,expected_model_id:expectedModelId,
           });
-          if (!valid(ticket) || selectedVehicle?.id !== vehicleId) return;
+          if (!activePanel() || selectedVehicle?.id !== vehicleId) return;
           selectedLink = updated;
           renderCustomerModels(list);
           message(customerRoot,isAr() ? "تمت إزالة ارتباط الطراز." : "Model link removed.");
         } catch (e) {
-          if (valid(ticket)) message(customerRoot,text(e.message) || String(e));
+          if (activePanel()) message(customerRoot,text(e.message) || String(e));
         }
       }));
       if (modelPage > 1) panel.append(button("Previous", "السابق", () => {
@@ -249,7 +249,10 @@
         if (activePanel()) return openVehicle(selectedVehicle);
       }));
       panel.append(button("Close model picker", "إغلاق", () => {
-        if (activePanel()) panel.remove();
+        if (!activePanel()) return;
+        // Closing the panel revokes detached form actions.
+        renderVersion++;
+        panel.remove();
       }));
       customerRoot.append(panel);
     }
@@ -351,15 +354,15 @@
         try {
           await api(adminEdit ? "vehicle-models/"+adminEdit.id : "vehicle-models",
             adminEdit ? "PUT" : "POST",body);
-          if (!valid(ticket)) return;
+          if (!activeScreen()) return;
           adminEdit=null;await adminList(adminPage);
           if (current===account && session===loginEpoch && epoch()===loginEpoch)
             message(adminRoot,isAr()?"تم حفظ السجل." : "Catalog entry saved.");
         } catch (e) {
-          if (valid(ticket))message(adminRoot,e.status === 409
+          if (activeScreen())message(adminRoot,e.status === 409
             ? (isAr()?"تعارض نسخة السجل؛ حدث الصفحة." : "Catalog record changed; refresh before saving.")
             : text(e.message)||String(e));
-        } finally {submit.disabled=false;}
+        } finally {if (activeScreen()) submit.disabled=false;}
       };
       adminRoot.append(form);
       if (!result.data.length) adminRoot.append(tr("No model records found.", "لا توجد سجلات طرازات.", "p"));

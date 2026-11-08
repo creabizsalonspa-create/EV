@@ -51,6 +51,7 @@ const adminRoot=document.createElement('section'),customerRoot=document.createEl
 let actor={id:3,role:'customer'},epoch=1;
 const sent=[];
 let activeModelId=null, delayNextLink=false, releasePendingLink=null;
+let delayNextCreate=false, releasePendingCreate=null;
 const api=async(path,method='GET',body)=>{
   sent.push({path,method,body});
   if(path==='vehicles/12/model'&&method==='GET')return {vehicle_id:12,vehicle_connector_type:'CCS2',model_id:activeModelId,model:activeModelId===8?secondModel:activeModelId===7?model:null};
@@ -62,10 +63,21 @@ const api=async(path,method='GET',body)=>{
       delayNextLink=false;
       await new Promise(resolve=>{releasePendingLink=resolve;});
     }
+    // Mirror backend optimistic revision ownership for delayed writes.
+    if(body.expected_model_id!==activeModelId){
+      const conflict=new Error('Model link changed');
+      conflict.status=409;throw conflict;
+    }
     activeModelId=body.model_id;
     return {vehicle_id:12,model_id:body.model_id,model:activeModelId===8?secondModel:activeModelId===7?model:null};
   }
-  if(path==='vehicle-models'&&method==='POST')return {...body,id:9,revision:1};
+  if(path==='vehicle-models'&&method==='POST'){
+    if(delayNextCreate){
+      delayNextCreate=false;
+      await new Promise(resolve=>{releasePendingCreate=resolve;});
+    }
+    return {...body,id:9,revision:1};
+  }
   throw Error('unexpected API path '+path);
 };
 const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:()=>actor,epoch:()=>epoch});
@@ -158,6 +170,36 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   assert.equal(sent.filter(c=>c.method==='PUT').length,beforeLink,
     'Former customer session may not write a model association');
   await view.setActor(actor);
+  // A delayed customer link conflict must not override a newer unlink UI.
+  view.renderGarage([{id:12,name:'Concurrency car',connector_type:'CCS2'}]);
+  const openConcurrency=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Select catalog model'));
+  await openConcurrency.onclick();
+  const heldLink=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Link selected model'));
+  delayNextLink=true;
+  const heldPromise=heldLink.onclick();
+  assert.equal(typeof releasePendingLink,'function');
+  const unlink=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Remove model association'));
+  await unlink.onclick();
+  assert.match(label(customerRoot),/Model link removed/);
+  releasePendingLink();
+  await heldPromise;
+  assert.match(label(customerRoot),/Model link removed/,
+    'Stale link error must not hide latest unlink');
+  assert.doesNotMatch(label(customerRoot),/Link changed; refresh before saving/,
+    'Stale error must not overwrite latest model panel');
+  const closedLink=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Link selected model'));
+  const closePicker=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Close model picker'));
+  assert.ok(closedLink&&closePicker);
+  const beforeClosePut=sent.filter(c=>c.method==='PUT').length;
+  closePicker.onclick();
+  await closedLink.onclick();
+  assert.equal(sent.filter(c=>c.method==='PUT').length,beforeClosePut,
+    'Closed picker must revoke detached model-link actions');
   actor={id:10,role:'admin'};epoch++;
   await view.setActor(actor);
   assert.equal(customerRoot.children.length,0);
@@ -170,6 +212,23 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   await form.onsubmit({preventDefault(){}});
   assert.ok(sent.find(c=>c.path==='vehicle-models'&&c.method==='POST'));
   assert.match(label(adminRoot),/Catalog entry saved/);
+  // Deferred Admin create must not dismiss a more recent edit form.
+  const pendingForm=visit(adminRoot,n=>n.tag==='form'&&
+    n.className==='vehicle-model-admin-form');
+  visit(pendingForm,n=>n.name==='make').value='Deferred brand';
+  visit(pendingForm,n=>n.name==='model').value='Pending record';
+  visit(pendingForm,n=>n.name==='source_url').value='https://example.com/pending';
+  delayNextCreate=true;
+  const pendingCreate=pendingForm.onsubmit({preventDefault(){}});
+  assert.equal(typeof releasePendingCreate,'function');
+  const editOther=visit(adminRoot,n=>n.tag==='button'&&label(n).trim()==='Edit');
+  assert.ok(editOther);
+  editOther.onclick();
+  assert.match(label(adminRoot),/Edit catalog record/);
+  releasePendingCreate();
+  await pendingCreate;
+  assert.match(label(adminRoot),/Edit catalog record/,
+    'Earlier create response must not discard newly selected Admin edit');
   const postAfterCreate=sent.filter(c=>c.path==='vehicle-models'&&c.method==='POST').length;
   await form.onsubmit({preventDefault(){}});
   assert.equal(sent.filter(c=>c.path==='vehicle-models'&&c.method==='POST').length,postAfterCreate,
