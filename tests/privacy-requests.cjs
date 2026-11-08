@@ -20,7 +20,7 @@ const path = 'services/business-api/public/privacy-requests.js';
 vm.runInNewContext(fs.readFileSync(path,'utf8'),{document:doc,window,Object,Uint8Array},{filename:path});
 assert.equal(typeof window.createPrivacyWorkspace, 'function');
 const user1 = {role:'customer',id:1}, user2 = {role:'customer',id:2};
-let actor = user1;
+let actor = user1, epoch = 1;
 const calls = [];
 const api = async path => {
   calls.push(path);
@@ -34,7 +34,7 @@ const api = async path => {
   };
 };
 const mine = doc.createElement('section'), admin = doc.createElement('section');
-const ui = window.createPrivacyWorkspace({selfRoot:mine,adminRoot:admin,api,actor:()=>actor});
+const ui = window.createPrivacyWorkspace({selfRoot:mine,adminRoot:admin,api,actor:()=>actor,epoch:()=>epoch});
 const content = root => {
   function walk(node) {return [node.textContent, ...node.children.flatMap(walk)].join(' ');}
   return walk(root);
@@ -44,6 +44,24 @@ const content = root => {
   assert.match(content(mine), /secret-private-note/);
   assert.match(content(mine), /not instant account deletion/);
   assert.match(content(mine), /Withdraw request/);
+  const initialCalls = calls.length;
+  const find = (node, predicate) => predicate(node) ? node :
+    node.children.map(child => find(child, predicate)).find(Boolean);
+  const staleForm = find(mine, node => node.tag === 'form');
+  assert.ok(staleForm);
+  epoch++;
+  await staleForm.onsubmit({preventDefault(){}});
+  assert.equal(calls.length, initialCalls,
+    'Detached previous-session form may not POST private data');
+  await ui.setActor(user1);
+  assert.ok(calls.length > initialCalls,
+    'Same actor object in a new session must perform a fresh private request');
+  epoch++;
+  await ui.refreshMine();
+  assert.equal(mine.children.length, 0,
+    'Old-session private request view must be cleared before stale refresh');
+  await ui.setActor(user1);
+  assert.match(content(mine), /secret-private-note/);
   actor = user2;
   await ui.setActor(user2);
   assert.doesNotMatch(content(mine), /secret-private-note/);

@@ -1147,6 +1147,7 @@ const privacyWorkspace = createPrivacyWorkspace({
     adminRoot: el("privacy-admin"),
     api,
     actor: () => user,
+    epoch: () => client.sessionEpoch,
 });
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),

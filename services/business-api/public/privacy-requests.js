@@ -24,11 +24,12 @@
     return [...globalThis.crypto.getRandomValues(new Uint8Array(16))]
       .map(n => n.toString(16).padStart(2, "0")).join("");
   };
-  function createPrivacyWorkspace({selfRoot, adminRoot, api, actor}) {
-    let current = null, sequence = 0, pending = null, ownPage = 1, adminPage = 1;
-    const alive = (owner, ticket) => owner === current && actor() === owner && ticket === sequence;
+  function createPrivacyWorkspace({selfRoot, adminRoot, api, actor, epoch = () => 0}) {
+    let current = null, session = 0, sequence = 0, pending = null, ownPage = 1, adminPage = 1;
+    const alive = (owner, ticket) => owner === current && actor() === owner &&
+      session === epoch() && ticket === sequence;
     function clear() {
-      sequence++; current = pending = null; ownPage = adminPage = 1;
+      sequence++; current = pending = null; session = 0; ownPage = adminPage = 1;
       selfRoot.replaceChildren(); adminRoot.replaceChildren();
     }
     function errorOn(root, message) {
@@ -65,7 +66,7 @@
     }
     async function refreshMine(target = ownPage) {
       const owner = current, ticket = ++sequence;
-      if (!owner) return;
+      if (!owner || actor() !== owner || session !== epoch()) {clear();return;}
       ownPage = target; selfRoot.replaceChildren();
       selfRoot.append(text("Privacy and data requests", "طلبات الخصوصية والبيانات", "h3"));
       selfRoot.append(p("Request your personal data or ask for account deletion review. Submitting does not delete accounts, invoices or records.", "اطلب بياناتك أو مراجعة حذف الحساب. تقديم الطلب لا يحذف الحسابات أو الفواتير أو السجلات."));
@@ -93,7 +94,10 @@
       form.append(consentLabel);
       const submit = document.createElement("button");
       submit.type = "submit"; submit.append(text("Submit request", "إرسال الطلب")); form.append(submit);
-      form.append(btn("Start a different request", "بدء طلب مختلف", () => {pending = null; form.reset(); errorOn(selfRoot,"");}));
+      form.append(btn("Start a different request", "بدء طلب مختلف", () => {
+        if (!alive(owner, ticket)) return;
+        pending = null; form.reset(); errorOn(selfRoot,"");
+      }));
       form.onsubmit = async event => {
         event.preventDefault();
         if (!alive(owner, ticket)) return;
@@ -117,9 +121,10 @@
           // original idempotency key. Only clear it after the committed row
           // has been observed again in the authoritative account list.
           const refreshed = await refreshMine(1);
-          if (recorded && refreshed?.some(row => String(row.id) === String(recorded.id))) {
+          if (recorded && current === owner && session === epoch() &&
+              refreshed?.some(row => String(row.id) === String(recorded.id))) {
             pending = null;
-          } else if (actor() === owner) {
+          } else if (current === owner && session === epoch()) {
             errorOn(selfRoot, ar()
               ? "تم إرسال الطلب، لكن التحقق من القائمة فشل. أعد محاولة الطلب نفسه."
               : "Request may be recorded, but list verification failed. Retry the same request.");
@@ -129,7 +134,9 @@
         } finally {submit.disabled = false;}
       };
       selfRoot.append(form);
-      selfRoot.append(btn("Refresh my requests", "تحديث طلباتي", () => refreshMine(ownPage)));
+      selfRoot.append(btn("Refresh my requests", "تحديث طلباتي", () => {
+        if (alive(owner, ticket)) return refreshMine(ownPage);
+      }));
       const list = document.createElement("div"); list.className = "privacy-request-list"; selfRoot.append(list);
       try {
         const result = await api("privacy-requests?page=" + ownPage);
@@ -137,14 +144,18 @@
         if (!result.data?.length) list.append(p("No privacy requests submitted.", "لم يتم تقديم أي طلبات خصوصية."));
         for (const row of result.data || []) {
           const withdraw = async id => {
-            if (actor() !== owner) return;
-            try {await api("privacy-requests/" + id + "/withdraw", "POST", {});if (actor() === owner) await refreshMine(ownPage);}
-            catch (e) {if (actor() === owner) errorOn(selfRoot, safe(e.message) || String(e));}
+            if (!alive(owner, ticket)) return;
+            try {await api("privacy-requests/" + id + "/withdraw", "POST", {});if (current === owner && session === epoch()) await refreshMine(ownPage);}
+            catch (e) {if (current === owner && session === epoch()) errorOn(selfRoot, safe(e.message) || String(e));}
           };
           list.append(oneRow(row, withdraw));
         }
-        if (ownPage > 1) selfRoot.append(btn("Previous", "السابق", () => refreshMine(ownPage - 1)));
-        if (ownPage < result.last_page) selfRoot.append(btn("Next", "التالي", () => refreshMine(ownPage + 1)));
+        if (ownPage > 1) selfRoot.append(btn("Previous", "السابق", () => {
+          if (alive(owner, ticket)) return refreshMine(ownPage - 1);
+        }));
+        if (ownPage < result.last_page) selfRoot.append(btn("Next", "التالي", () => {
+          if (alive(owner, ticket)) return refreshMine(ownPage + 1);
+        }));
         return result.data || [];
       } catch (e) {
         if (alive(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
@@ -153,11 +164,14 @@
     }
     async function refreshAdmin(target = adminPage) {
       const owner = current, ticket = ++sequence;
+      if (owner && (actor() !== owner || session !== epoch())) {clear();return;}
       if (owner?.role !== "admin") {adminRoot.replaceChildren();return;}
       adminPage = target;
       adminRoot.replaceChildren(text("Privacy request reviews", "مراجعة طلبات الخصوصية", "h3"));
       adminRoot.append(p("Administrative review does not erase customer data or establish legal fulfillment.", "المراجعة الإدارية لا تحذف بيانات العميل ولا تثبت الوفاء القانوني."));
-      adminRoot.append(btn("Refresh review queue", "تحديث قائمة المراجعة", () => refreshAdmin(adminPage)));
+      adminRoot.append(btn("Refresh review queue", "تحديث قائمة المراجعة", () => {
+        if (alive(owner, ticket)) return refreshAdmin(adminPage);
+      }));
       const list = document.createElement("div"); adminRoot.append(list);
       try {
         const result = await api("admin/privacy-requests?page=" + adminPage);
@@ -167,9 +181,9 @@
           const card = oneRow(row);
           card.append(p("Request from: " + safe(row.user?.email), "طلب من: " + safe(row.user?.email)));
           if (row.status === "submitted") card.append(btn("Start review", "بدء المراجعة", async () => {
-            if (actor() !== owner) return;
-            try {await api("admin/privacy-requests/" + row.id, "PATCH", {status:"in_review"}); await refreshAdmin(adminPage);}
-            catch (e) {if (actor() === owner) errorOn(adminRoot, safe(e.message) || String(e));}
+            if (!alive(owner, ticket)) return;
+            try {await api("admin/privacy-requests/" + row.id, "PATCH", {status:"in_review"}); if (current === owner && session === epoch()) await refreshAdmin(adminPage);}
+            catch (e) {if (current === owner && session === epoch()) errorOn(adminRoot, safe(e.message) || String(e));}
           }));
           if (row.status === "in_review") {
             const f = document.createElement("form"); f.className = "privacy-review-form";
@@ -188,28 +202,32 @@
             f.append(choices,note,submit);
             f.onsubmit = async event => {
               event.preventDefault();
-              if (actor() !== owner) return;
+              if (!alive(owner, ticket)) return;
               submit.disabled = true;
               try {await api("admin/privacy-requests/" + row.id,"PATCH", {
                 status:"closed",resolution:choices.value,decision_note:note.value.trim(),
-              });if (actor() === owner) await refreshAdmin(adminPage);}
-              catch (e) {if (actor() === owner) errorOn(adminRoot, safe(e.message) || String(e));submit.disabled=false;}
+              });if (current === owner && session === epoch()) await refreshAdmin(adminPage);}
+              catch (e) {if (current === owner && session === epoch()) errorOn(adminRoot, safe(e.message) || String(e));submit.disabled=false;}
             };
             card.append(f);
           }
           list.append(card);
         }
-        if (adminPage > 1) adminRoot.append(btn("Previous", "السابق", () => refreshAdmin(adminPage - 1)));
-        if (adminPage < result.last_page) adminRoot.append(btn("Next", "التالي", () => refreshAdmin(adminPage + 1)));
+        if (adminPage > 1) adminRoot.append(btn("Previous", "السابق", () => {
+          if (alive(owner, ticket)) return refreshAdmin(adminPage - 1);
+        }));
+        if (adminPage < result.last_page) adminRoot.append(btn("Next", "التالي", () => {
+          if (alive(owner, ticket)) return refreshAdmin(adminPage + 1);
+        }));
       } catch (e) {if (alive(owner, ticket)) errorOn(adminRoot, safe(e.message) || String(e));}
     }
     async function setActor(value) {
       if (!value) {clear();return;}
-      if (current === value) return;
-      clear(); current = value;
+      if (current === value && session === epoch()) return;
+      clear(); current = value; session = epoch();
       // Separate session-scoped requests; no cross-user response may modify a new account.
       await refreshMine();
-      if (actor() === value && value.role === "admin") await refreshAdmin();
+      if (current === value && session === epoch() && value.role === "admin") await refreshAdmin();
     }
     return {clear, setActor, refreshMine, refreshAdmin};
   }
