@@ -54,12 +54,28 @@ let activeModelId=null, delayNextLink=false, releasePendingLink=null;
 let delayNextCreate=false, releasePendingCreate=null;
 let delayNextUnlink=false, releasePendingUnlink=null;
 let delayNextArchive=false, releasePendingArchive=null;
+let poisonNextVehicleGet=false, poisonNextCatalogGet=false, poisonNextLink=false;
+let holdNextCatalogGet=false,releaseCatalogGet=null;
 const api=async(path,method='GET',body)=>{
   sent.push({path,method,body});
-  if(path==='vehicles/12/model'&&method==='GET')return {vehicle_id:12,vehicle_connector_type:'CCS2',model_id:activeModelId,model:activeModelId===8?secondModel:activeModelId===7?model:null};
-  if(path.startsWith('vehicle-models?'))return {data:[model,secondModel],last_page:1,current_page:1};
+  if(path==='vehicles/12/model'&&method==='GET'){
+    const bad=poisonNextVehicleGet;poisonNextVehicleGet=false;
+    return {vehicle_id:bad?999:12,vehicle_connector_type:'CCS2',
+      does_not_override_connector:true,
+      model_id:activeModelId,model:activeModelId===8?secondModel:activeModelId===7?model:null};
+  }
+  if(path.startsWith('vehicle-models?')){
+    if(holdNextCatalogGet){
+      holdNextCatalogGet=false;
+      await new Promise(resolve=>{releaseCatalogGet=resolve;});
+    }
+    const bad=poisonNextCatalogGet;poisonNextCatalogGet=false;
+    return {data:bad?[{...model,provenance:'MANUFACTURER_CERTIFIED'}]:[model,secondModel],
+      last_page:1,current_page:1};
+  }
   if(path==='vehicles/13/model'&&method==='GET')
-    return {vehicle_id:13,vehicle_connector_type:'CCS2',model_id:null,model:null};
+    return {vehicle_id:13,vehicle_connector_type:'CCS2',does_not_override_connector:true,
+      model_id:null,model:null};
   if(path==='vehicles/12/model'&&method==='PUT'){
     if(delayNextLink){
       delayNextLink=false;
@@ -75,7 +91,10 @@ const api=async(path,method='GET',body)=>{
       conflict.status=409;throw conflict;
     }
     activeModelId=body.model_id;
-    return {vehicle_id:12,model_id:body.model_id,model:activeModelId===8?secondModel:activeModelId===7?model:null};
+    const bad=poisonNextLink;poisonNextLink=false;
+    return {vehicle_id:bad?999:12,vehicle_connector_type:'CCS2',
+      does_not_override_connector:true,model_id:body.model_id,
+      model:activeModelId===8?secondModel:activeModelId===7?model:null};
   }
   if(path==='vehicle-models/7'&&method==='PUT'){
     if(delayNextArchive){
@@ -223,6 +242,41 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   await closedLink.onclick();
   assert.equal(sent.filter(c=>c.method==='PUT').length,beforeClosePut,
     'Closed picker must revoke detached model-link actions');
+  // Mismatched vehicle links and invalid catalog provenance must never
+  // appear as a successful association or certified connector claim.
+  view.renderGarage([{id:12,name:'Source validation EV',connector_type:'CCS2'}]);
+  const validationOpen=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Select catalog model'));
+  assert.ok(validationOpen);
+  poisonNextVehicleGet=true;
+  await validationOpen.onclick();
+  assert.match(label(customerRoot),/Unexpected vehicle model response/,
+    'Mismatched vehicle GET must be rejected');
+  assert.equal(customerRoot.querySelector('[data-vehicle-model-picker]'),null);
+  poisonNextCatalogGet=true;
+  await validationOpen.onclick();
+  assert.match(label(customerRoot),/Unexpected curated model catalog/,
+    'Unverified model provenance cannot masquerade as curated');
+  assert.equal(customerRoot.querySelector('[data-vehicle-model-picker]'),null);
+  await validationOpen.onclick();
+  assert.ok(customerRoot.querySelector('[data-vehicle-model-picker]'));
+  const refreshedSearch=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Search catalog'));
+  holdNextCatalogGet=true;
+  refreshedSearch.onclick();
+  assert.equal(customerRoot.querySelector('[data-vehicle-model-picker]'),null,
+    'Previous model choices must hide synchronously while filtering');
+  assert.equal(typeof releaseCatalogGet,'function');
+  releaseCatalogGet();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(customerRoot.querySelector('[data-vehicle-model-picker]'),
+    'Latest valid catalog results should render after their response');
+  const poisonLink=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Link selected model'));
+  poisonNextLink=true;
+  await poisonLink.onclick();
+  assert.match(label(customerRoot),/Unexpected vehicle model response/,
+    'Wrong-vehicle PUT response must not display successful link');
   actor={id:10,role:'admin'};epoch++;
   await view.setActor(actor);
   assert.equal(customerRoot.children.length,0);

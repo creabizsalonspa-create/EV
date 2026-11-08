@@ -15,6 +15,21 @@
   };
   const text = v => typeof v === "string" ? v : "";
   const title = row => [row.make, row.model, row.variant, row.model_year].filter(v=>v !== null && v !== "").join(" ") + " · " + row.connector_type;
+  // Laravel only exposes administrator-curated model claims. A stale or
+  // misrouted response must not override the actual vehicle connector.
+  const validModel = m => Number.isInteger(m?.id) && m.id > 0 &&
+    m.provenance === "ADMIN_CURATED_UNVERIFIED" &&
+    ["CCS2","Type2","CHAdeMO"].includes(m.connector_type) &&
+    typeof m.published === "boolean" &&
+    typeof m.source_url === "string" && m.source_url.startsWith("https://");
+  const validLink = (link, vehicle) => link &&
+    link.vehicle_id === vehicle.id &&
+    link.vehicle_connector_type === vehicle.connector_type &&
+    link.does_not_override_connector === true &&
+    (link.model_id === null ? link.model === null :
+      Number.isInteger(link.model_id) && validModel(link.model) &&
+      link.model.id === link.model_id &&
+      link.model.connector_type === vehicle.connector_type);
   const controls = [
     ["make","Make / brand","العلامة التجارية","text",80],
     ["model","Model","الطراز","text",100],
@@ -109,10 +124,14 @@
       selectedVehicle = vehicle;
       selectedLink = null;
       modelPage = 1; modelQuery = "";
+      // Hide the previous vehicle's private details before a new GET.
+      customerRoot.querySelector("[data-vehicle-model-picker]")?.remove();
       message(customerRoot, isAr() ? "جارٍ تحميل طراز المركبة..." : "Loading vehicle model…");
       try {
         const info = await api("vehicles/" + vehicle.id + "/model");
         if (!valid(ticket) || owner !== current || e !== session) return;
+        if (!validLink(info,vehicle))
+          throw Error("Unexpected vehicle model response; refresh before editing.");
         selectedLink = info;
         await modelList(1);
       } catch (err) {
@@ -125,6 +144,9 @@
       if (!selectedVehicle || current?.role !== "customer") return;
       const ticket = ++generation;
       modelPage = page;
+      // Invalidate and hide the former page immediately. Never leave a
+      // previous compatible-model list visible after a new search begins.
+      customerRoot.querySelector("[data-vehicle-model-picker]")?.remove();
       message(customerRoot, isAr() ? "جارٍ تحميل النماذج..." : "Loading curated models…");
       try {
         const query = new URLSearchParams({page:String(page)});
@@ -132,8 +154,11 @@
         query.set("connector_type", selectedVehicle.connector_type);
         const list = await api("vehicle-models?" + query.toString());
         if (!valid(ticket)) return;
-        models = list.data.filter(m=>m.published === true &&
-          m.connector_type === selectedVehicle.connector_type);
+        if (!Array.isArray(list?.data) || !list.data.every(m =>
+          validModel(m) && m.published === true &&
+          m.connector_type === selectedVehicle.connector_type))
+          throw Error("Unexpected curated model catalog; refresh before editing.");
+        models = list.data;
         renderCustomerModels(list);
       } catch (err) {
         if (valid(ticket)) message(customerRoot, text(err.message) || String(err));
@@ -212,6 +237,8 @@
           });
           // Never apply a former vehicle's response to a newly selected one.
           if (!activePanel() || selectedVehicle?.id !== vehicleId) return;
+          if (!validLink(updated,selectedVehicle) || updated.model_id !== modelId)
+            throw Error("Unexpected vehicle model response; refresh before editing.");
           selectedLink = updated;
           renderCustomerModels(list);
           message(customerRoot,isAr() ? "تم ربط الطراز." : "Model linked.");
@@ -233,6 +260,8 @@
             model_id:null,expected_model_id:expectedModelId,
           });
           if (!activePanel() || selectedVehicle?.id !== vehicleId) return;
+          if (!validLink(updated,selectedVehicle) || updated.model_id !== null)
+            throw Error("Unexpected vehicle model response; refresh before editing.");
           selectedLink = updated;
           renderCustomerModels(list);
           message(customerRoot,isAr() ? "تمت إزالة ارتباط الطراز." : "Model link removed.");
