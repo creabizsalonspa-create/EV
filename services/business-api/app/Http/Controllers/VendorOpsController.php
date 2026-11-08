@@ -161,9 +161,22 @@ class VendorOpsController extends Controller
             'image/png' => 'png','image/jpeg' => 'jpg',default => 'pdf'
         };
 
-        $contents = Crypt::decryptString(
-            Storage::disk('local')->get($document->getRawOriginal('storage_path'))
-        );
+        $encrypted = Storage::disk('local')->get($document->getRawOriginal('storage_path'));
+        if (! is_string($encrypted) || $encrypted === '') {
+            $this->rejectCorruptEvidence($r, $document);
+        }
+        try {
+            $contents = Crypt::decryptString($encrypted);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+            $this->rejectCorruptEvidence($r, $document);
+        }
+        // Encryption authenticates the payload, but not the document-to-file
+        // association. Verify the original upload digest and length to prevent
+        // accidental cross-company substitution of valid encrypted evidence.
+        if (! hash_equals((string) $document->sha256, hash('sha256', $contents))
+            || (int) $document->size_bytes !== strlen($contents)) {
+            $this->rejectCorruptEvidence($r, $document);
+        }
         // Log only a successful authorized access, without storage paths,
         // plaintext document contents, trade-license IDs or download URLs.
         // Fail closed if the compliance audit cannot be recorded.
@@ -175,6 +188,14 @@ class VendorOpsController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'no-store, private',
         ]);
+    }
+
+    private function rejectCorruptEvidence(Request $request, VendorKycDocument $document): never
+    {
+        // Audit the access attempt without exposing file paths, user-provided
+        // document contents, stored digests or cross-tenant evidence.
+        $this->access->audit($request->user(), 'document.integrity_failed', $document->id);
+        abort(409, 'KYC document is unavailable or has failed integrity verification.');
     }
 
     public function submit(Request $r, VendorCompany $company)
