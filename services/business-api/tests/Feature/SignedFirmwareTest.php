@@ -150,7 +150,8 @@ class SignedFirmwareTest extends TestCase
         $token = Crypt::decryptString($op->download_token_ciphertext);
         $url = '/api/internal/firmware/'.$token;
         $this->get($url)->assertOk()->assertHeader('Content-Type', 'application/octet-stream');
-        // The guarded BinaryFileResponse serves the validated local artifact.\n        // Check accessibility without assuming an in-memory response body.
+        // The guarded BinaryFileResponse serves the validated local artifact.
+        // Check accessibility without assuming an in-memory response body.
 
         $before = Http::recorded()->count();
         $this->actingAs($f['admin'])->deleteJson($f['releases'].'/'.$release, [
