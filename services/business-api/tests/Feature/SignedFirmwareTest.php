@@ -131,6 +131,38 @@ class SignedFirmwareTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_revoked_signed_firmware_download_capability_fails_closed_without_device_action(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve private synthetic artifact for revoked-download regression',
+        ])->assertCreated()->json('id');
+
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], [
+            'release_id' => $release,
+            'reason' => 'Submit simulated source request for capability revocation',
+            'idempotency_key' => 'revoked-download-regression',
+        ])->assertCreated()->assertJsonPath('status', 'transport_submitted')->json('id');
+
+        $op = DB::table('charger_firmware_operations')->find($id);
+        $token = Crypt::decryptString($op->download_token_ciphertext);
+        $url = '/api/internal/firmware/'.$token;
+        $this->get($url)->assertOk()->assertHeader('Content-Type', 'application/octet-stream');
+        $this->assertSame($f['bytes'], $this->get($url)->getContent());
+
+        $before = Http::recorded()->count();
+        $this->actingAs($f['admin'])->deleteJson($f['releases'].'/'.$release, [
+            'note' => 'Revoke synthetic release and immediately invalidate download',
+        ])->assertOk()->assertJsonPath('device_commands_sent', false)
+            ->assertJsonPath('existing_holds_released', false);
+        $this->get($url)->assertNotFound();
+        $this->assertDatabaseHas('charger_firmware_releases', ['id' => $release, 'revoked_by' => $f['admin']->id]);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'firmware.release_revoked')->where('subject', (string) $release)->count());
+        $this->assertSame($before, Http::recorded()->count(), 'Revocation and denial cannot contact the upstream charger/source');
+    }
+
     public static function protocols(): array
     {
         return [['1.6'], ['2.0.1']];
