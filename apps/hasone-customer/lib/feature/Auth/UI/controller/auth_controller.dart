@@ -42,6 +42,9 @@ class AuthController extends GetxController {
   // Shared across controller instances: whichever sign-in or OTP verification
   // starts most recently is the only attempt permitted to publish credentials.
   static int _credentialAttempt = 0;
+  // Credential authority is global, but each controller owns its loading UI.
+  // Superseding an attempt in another controller must not strand this spinner.
+  int _localCredentialAttempt = 0;
 
   Rxn<UserModel> user = Rxn<UserModel>();
   RxBool loading = false.obs;
@@ -95,6 +98,7 @@ class AuthController extends GetxController {
   /// response: { status: "Success", message: "...", token: "..." }
   Future<bool> verifyOtp(String email, String otp) async {
     final attempt = ++_credentialAttempt;
+    final localAttempt = ++_localCredentialAttempt;
     int? committedGeneration;
     String? committedToken;
     loading.value = true;
@@ -168,7 +172,7 @@ class AuthController extends GetxController {
       }
       return false;
     } finally {
-      if (attempt == _credentialAttempt) loading.value = false;
+      if (localAttempt == _localCredentialAttempt) loading.value = false;
     }
   }
 
@@ -178,6 +182,7 @@ class AuthController extends GetxController {
   /// response: { status, message, token, userId, name, email }
   Future<bool> login(String email, String password) async {
     final attempt = ++_credentialAttempt;
+    final localAttempt = ++_localCredentialAttempt;
     // Profile persistence and user-model decoding are part of login's
     // completion boundary. If either fails after vault commit, revoke only
     // this attempt's token before reporting failure.
@@ -270,7 +275,7 @@ class AuthController extends GetxController {
       }
       return false;
     } finally {
-      if (attempt == _credentialAttempt) loading.value = false;
+      if (localAttempt == _localCredentialAttempt) loading.value = false;
     }
   }
 
