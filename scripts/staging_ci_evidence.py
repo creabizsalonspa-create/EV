@@ -103,7 +103,9 @@ def verify(run, listing, source):
     rid, attempt = run.get('id'), run.get('run_attempt')
     if type(rid) is not int or rid <= 0 or type(attempt) is not int or attempt <= 0:
         raise EvidenceError('Run ID or attempt invalid')
-    if run.get('workflow_id') != WORKFLOW['id'] or run.get('name') != WORKFLOW['name'] or run.get('path') != WORKFLOW['path']:
+    if (type(run.get('workflow_id')) is not int or
+            run['workflow_id'] != WORKFLOW['id'] or
+            run.get('name') != WORKFLOW['name'] or run.get('path') != WORKFLOW['path']):
         raise EvidenceError('Wrong platform workflow')
     if run.get('head_sha') != source or run.get('status') != 'completed' or run.get('conclusion') != 'success':
         raise EvidenceError('Source-mismatched or unverified workflow run')
@@ -111,7 +113,10 @@ def verify(run, listing, source):
         raise EvidenceError('Unreviewed workflow trigger')
     repository = run.get('repository')
     head_repo = run.get('head_repository')
-    if not isinstance(repository, dict) or not isinstance(head_repo, dict) or repository.get('full_name') != REPO or head_repo.get('full_name') != REPO or type(repository.get('id')) is not int or repository['id'] <= 0 or head_repo.get('id') != repository['id']:
+    if (not isinstance(repository, dict) or not isinstance(head_repo, dict) or
+            repository.get('full_name') != REPO or head_repo.get('full_name') != REPO or
+            type(repository.get('id')) is not int or repository['id'] <= 0 or
+            type(head_repo.get('id')) is not int or head_repo['id'] != repository['id']):
         raise EvidenceError('Workflow originates from another repository')
     jobs = listing.get('jobs')
     if type(listing.get('total_count')) is not int or listing['total_count'] != len(EXPECTED) or not isinstance(jobs, list) or len(jobs) != len(EXPECTED):
@@ -124,7 +129,11 @@ def verify(run, listing, source):
         name, jid = job.get('name'), job.get('id')
         if name not in EXPECTED or name in names or type(jid) is not int or jid <= 0 or jid in job_ids:
             raise EvidenceError('Unknown, repeated or invalid job')
-        if job.get('run_id') != rid or job.get('run_attempt') != attempt or job.get('workflow_name') != WORKFLOW['name'] or job.get('head_sha') != source or job.get('status') != 'completed' or job.get('conclusion') != 'success':
+        if (type(job.get('run_id')) is not int or job['run_id'] != rid or
+                type(job.get('run_attempt')) is not int or job['run_attempt'] != attempt or
+                job.get('workflow_name') != WORKFLOW['name'] or
+                job.get('head_sha') != source or job.get('status') != 'completed' or
+                job.get('conclusion') != 'success'):
             raise EvidenceError('Incomplete, skipped, mismatched or failed job')
         names.add(name)
         job_ids.add(jid)

@@ -64,6 +64,25 @@ class PlatformGateTests(unittest.TestCase):
         with self.assertRaises(EvidenceError):private_json(alias)
         fifo=self.folder/'fifo.json';os.mkfifo(fifo)
         with self.assertRaises(EvidenceError):private_json(fifo)
+    def test_workflow_numeric_identity_rejects_equivalent_float(self):
+        bad=dict(self.run,workflow_id=float(self.run['workflow_id']))
+        with self.assertRaises(EvidenceError):verify(bad,self.jobs,SHA)
+
+    def test_head_repository_id_rejects_equivalent_float(self):
+        bad=copy.deepcopy(self.run)
+        bad['head_repository']['id']=float(bad['repository']['id'])
+        with self.assertRaises(EvidenceError):verify(bad,self.jobs,SHA)
+
+    def test_job_run_id_rejects_equivalent_float(self):
+        bad=copy.deepcopy(self.jobs)
+        bad['jobs'][0]['run_id']=float(RID)
+        with self.assertRaises(EvidenceError):verify(self.run,bad,SHA)
+
+    def test_job_attempt_rejects_boolean_true(self):
+        bad=copy.deepcopy(self.jobs)
+        bad['jobs'][0]['run_attempt']=True
+        with self.assertRaises(EvidenceError):verify(self.run,bad,SHA)
+
     def test_snapshot_refuses_a_hardlinked_metadata_file(self):
         path=self.folder/'run.json'
         path.write_text(json.dumps(self.run));path.chmod(0o600)
