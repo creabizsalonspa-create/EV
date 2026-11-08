@@ -36,6 +36,9 @@
             return wrapper;
         }
         function render(vehicle) {
+            const renderTicket = seq, renderVehicleId = vehicleId;
+            const renderedForCurrentVehicle = () =>
+                current(renderTicket) && vehicleId === renderVehicleId;
             root.replaceChildren();
             root.append(words(
                 "Driver preferences · " + vehicle.name,
@@ -51,7 +54,9 @@
                 const retry = document.createElement("button");
                 retry.type = "button";
                 retry.append(words("Retry", "إعادة المحاولة"));
-                retry.onclick = () => open(vehicle);
+                retry.onclick = () => {
+                    if (renderedForCurrentVehicle()) return open(vehicle);
+                };
                 root.append(retry);
                 return;
             }
@@ -101,6 +106,7 @@
             apply.append(words("Use preferred kW in station search", "استخدم القدرة المفضلة في بحث المحطات"));
             apply.disabled = !(data.preferred_power_kw > 0);
             apply.onclick = () => {
+                if (!renderedForCurrentVehicle()) return;
                 const input = document.querySelector('#filters [name="min_power_kw"]');
                 const filters = document.getElementById("filters");
                 if (!input || !filters || !(data.preferred_power_kw > 0)) return;
@@ -112,13 +118,15 @@
             const dismiss = document.createElement("button");
             dismiss.type = "button";
             dismiss.append(words("Close", "إغلاق"));
-            dismiss.onclick = clear;
+            dismiss.onclick = () => {
+                if (renderedForCurrentVehicle()) clear();
+            };
             form.append(dismiss);
             root.append(form);
             status("");
             form.onsubmit = async event => {
                 event.preventDefault();
-                if (!current(seq) || submit.disabled) return;
+                if (!renderedForCurrentVehicle() || submit.disabled) return;
                 const raw = power.value.trim();
                 const value = raw === "" ? null : Number(raw);
                 if (value !== null && (!Number.isInteger(value) || value < 1 || value > 1000)) {

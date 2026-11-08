@@ -76,6 +76,27 @@ function visible(node) {
   });
   assert.equal(submitted.path,"vehicles/9/driver-preferences");
   assert.match(visible(root),/Preferences saved/);
+  // Opening another vehicle in the same account may reuse this workspace.
+  // A detached form must not write its old values against the new vehicle.
+  const oldForm=locate(root,n=>n.tag==="form");
+  const oldApply=locate(oldForm,n=>n.tag==="button"&&visible(n).includes("Use preferred kW"));
+  const oldClose=locate(oldForm,n=>n.tag==="button"&&visible(n).includes("Close"));
+  await editor.open({id:10,name:"Other family car"});
+  assert.match(visible(root),/Other family car/);
+  const writesBefore=calls.filter(c=>c.method==="PUT").length;
+  const oldPower=locate(oldForm,n=>n.name==="preferred_power_kw");
+  oldPower.value="500";
+  await oldForm.onsubmit({preventDefault(){}});
+  assert.equal(calls.filter(c=>c.method==="PUT").length,writesBefore,
+    "Detached vehicle form must not PUT preferences to the newly opened vehicle");
+  let lookupCount=0;
+  document.querySelector=()=>{lookupCount++;return null;};
+  oldApply.onclick();
+  assert.equal(lookupCount,0,
+    "Detached preference control must not apply previous vehicle filters");
+  oldClose.onclick();
+  assert.match(visible(root),/Other family car/,
+    "Detached close button must not clear a newly opened vehicle");
   actor = {id:8,role:"customer"}; generation++;
   editor.clear();
   assert.equal(root.children.length,0);
