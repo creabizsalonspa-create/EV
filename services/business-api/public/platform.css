@@ -815,3 +815,18 @@ form label {
 .vehicle-manual-soc-form{display:flex;flex-wrap:wrap;gap:.7rem;align-items:end;}
 .vehicle-manual-soc-form>label{min-width:12rem;max-width:22rem;}
 .vehicle-manual-soc-form input{max-width:12rem;}
+/* Operator-supplied station information, separated from charger source truth. */
+.station-information { margin-block: .75rem; overflow-wrap:anywhere; }
+#station-information-vendor { margin-block: 1.5rem; padding-block: 1rem; border-block-start:1px solid var(--border, #888); }
+#station-information-vendor > select { display:block; width:100%; max-width:36rem; margin-block:.75rem; }
+#station-information-vendor > button { margin-inline-end:.5rem; }
+.station-information-form { display:grid; grid-template-columns:minmax(0,1fr); gap:.75rem; max-width:62rem; }
+.station-information-form > * { min-width:0; }
+.station-information-form textarea { width:100%; resize:vertical; }
+.station-information-form fieldset { display:grid; grid-template-columns:minmax(0,1fr); gap:.5rem; padding:1rem; max-width:100%; }
+.station-information-form fieldset label:has(input[type=checkbox]) { display:flex; flex-direction:row; align-items:center; gap:.65rem; }
+.station-information-form input[type=checkbox] { width:auto; min-width:1.2rem; }
+.station-hours-row { display:grid; grid-template-columns: minmax(0,2fr) repeat(2,minmax(0,1fr)); gap:.75rem; align-items:end; }
+.station-hours-row label { min-width:0; }
+.station-hours-row input[type=time] { min-width:0; width:100%; }
+@media(max-width:640px) {.station-hours-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.station-hours-row label:first-child{grid-column:1/-1}}

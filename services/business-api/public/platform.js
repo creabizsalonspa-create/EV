@@ -79,6 +79,7 @@ function clearPrivateViews() {
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
     vehicleManualSoc.clear();
+    stationInfo.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
     invoiceHistory.clear();
@@ -254,6 +255,7 @@ async function identity() {
         await support();
     }
     await vendorWorkspace.setActor(user);
+    await stationInfo.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
     await chargingReviews.setActor(user);
@@ -544,6 +546,7 @@ async function stations(query = "") {
             ),
         );
         a.append(details);
+        StationInformation.attachCard(a, s);
         const feedback = document.createElement("button");
         feedback.type = "button";
         feedback.dataset.en = "Charging feedback";
@@ -1153,6 +1156,7 @@ el("station-form").onsubmit = async (e) => {
             Object.fromEntries(new FormData(e.target)),
         );
         await stations();
+        await stationInfo.reload();
         notice("Station registered.");
     } catch (e) {
         notice(e);
@@ -1161,6 +1165,12 @@ el("station-form").onsubmit = async (e) => {
 const vehicleModelCatalog = VehicleModelCatalog.create({
     adminRoot: el("vehicle-model-admin"),
     customerRoot: el("vehicle-model-customer"),
+    api,
+    actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
+const stationInfo = StationInformation.createVendorWorkspace({
+    root: el("station-information-vendor"),
     api,
     actor: () => user,
     epoch: () => client.sessionEpoch,

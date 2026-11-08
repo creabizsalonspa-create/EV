@@ -22,6 +22,7 @@ use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RiderSourceController;
 use App\Http\Controllers\RoamingOrderController;
 use App\Http\Controllers\SimulationController as S;
+use App\Http\Controllers\StationInformationController;
 use App\Http\Controllers\SupportController as T;
 use App\Http\Controllers\VehicleBatteryController;
 use App\Models\Station;
@@ -140,3 +141,7 @@ Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, '
 Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
 Route::prefix('v1')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/vehicle_model_catalog.php');
 Route::prefix('v1')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/vehicle_manual_soc.php');
+
+// Operator-supplied station access information is not charger-source availability.
+Route::get('/v1/stations/{station}/information', [StationInformationController::class, 'show'])->whereNumber('station')->middleware('throttle:catalog');
+Route::put('/v1/stations/{station}/information', [StationInformationController::class, 'save'])->whereNumber('station')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
