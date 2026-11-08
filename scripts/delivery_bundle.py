@@ -367,7 +367,11 @@ def secure_copy_developer_source(source, target, platform):
         # The CRC and copied bytes must originate from this same immutable fd.
         archive_check(input_file, platform)
         input_file.seek(0)
-        with open(target, 'xb') as output_file:
+        # Create mode 0600 on the initial syscall, rather than exposing a
+        # default-mode output until a later chmod (even inside a 0700 folder).
+        output_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                            os.O_NOFOLLOW, 0o600)
+        with os.fdopen(output_fd, 'wb') as output_file:
             shutil.copyfileobj(input_file, output_file, length=1024 * 1024)
             output_file.flush()
             os.fsync(output_file.fileno())
@@ -382,8 +386,6 @@ def secure_copy_developer_source(source, target, platform):
                     getattr(before, field) != getattr(current, field)
                     for field in fields)):
             raise BundleError('Developer source file changed during copy')
-        os.chmod(target, 0o600)
-
 
 def create(output, source_sha, android, ios, workflow_evidence=None):
     if not SHA.fullmatch(source_sha):
@@ -414,10 +416,16 @@ def create(output, source_sha, android, ios, workflow_evidence=None):
         if workflow_evidence is not None:
             verify_workflow_reference(workflow_evidence, source_sha)
             manifest['workflow_evidence'] = workflow_evidence
-        with open(target / 'manifest.json', 'x', encoding='utf-8') as out:
+        # Manifest must also be owner-only from the first write, not chmodded
+        # after potentially exposing an incomplete security/provenance record.
+        manifest_fd = os.open(target / 'manifest.json',
+                              os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                              os.O_NOFOLLOW, 0o600)
+        with os.fdopen(manifest_fd, 'w', encoding='utf-8') as out:
             json.dump(manifest, out, indent=2, sort_keys=True)
             out.write('\n')
-        os.chmod(target / 'manifest.json', 0o600)
+            out.flush()
+            os.fsync(out.fileno())
         verify(target, source_sha)
     except BaseException:
         shutil.rmtree(target)

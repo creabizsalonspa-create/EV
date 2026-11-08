@@ -520,6 +520,72 @@ class DeliveryBundleTests(unittest.TestCase):
         self.assertNotIn(str(bundle), output.getvalue())
         self.assertNotIn('Traceback', output.getvalue())
 
+    def test_binary_output_is_private_before_first_byte_written(self):
+        import shutil
+        real_copy = shutil.copyfileobj
+        modes = []
+
+        def inspect_copy(source_file, target_file, length):
+            modes.append(stat.S_IMODE(os.fstat(target_file.fileno()).st_mode))
+            return real_copy(source_file, target_file, length)
+
+        previous = os.umask(0)
+        try:
+            with patch('delivery_bundle.shutil.copyfileobj', side_effect=inspect_copy):
+                bundle = self.bundle()
+        finally:
+            os.umask(previous)
+        self.assertEqual(modes, [0o600, 0o600])
+        self.assertEqual(verify(bundle, SHA)['source_sha'], SHA)
+
+    def test_manifest_output_is_private_during_initial_json_write(self):
+        import json as json_module
+        real_dump = json_module.dump
+        modes = []
+
+        def inspect_dump(document, output, **options):
+            modes.append(stat.S_IMODE(os.fstat(output.fileno()).st_mode))
+            return real_dump(document, output, **options)
+
+        previous = os.umask(0)
+        try:
+            with patch('delivery_bundle.json.dump', side_effect=inspect_dump):
+                bundle = self.bundle()
+        finally:
+            os.umask(previous)
+        self.assertEqual(modes, [0o600])
+        self.assertEqual(verify(bundle, SHA)['source_sha'], SHA)
+
+    def test_binary_private_creation_failure_removes_incomplete_bundle(self):
+        import delivery_bundle
+        real_open = delivery_bundle.os.open
+        result = self.root / 'delivery'
+
+        def deny_binary(path, flags, *args, **kwargs):
+            if Path(path).name == 'android-development.apk':
+                raise PermissionError('synthetic denied private file open')
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch('delivery_bundle.os.open', side_effect=deny_binary):
+            with self.assertRaises(PermissionError):
+                create(result, SHA, self.android, self.ios)
+        self.assertFalse(result.exists())
+
+    def test_manifest_private_creation_failure_removes_incomplete_bundle(self):
+        import delivery_bundle
+        real_open = delivery_bundle.os.open
+        result = self.root / 'delivery'
+
+        def deny_manifest(path, flags, *args, **kwargs):
+            if Path(path).name == 'manifest.json':
+                raise PermissionError('synthetic denied manifest creation')
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch('delivery_bundle.os.open', side_effect=deny_manifest):
+            with self.assertRaises(PermissionError):
+                create(result, SHA, self.android, self.ios)
+        self.assertFalse(result.exists())
+
     def test_cli_success_and_failure(self):
         bundle = self.bundle()
         self.assertEqual(main(['verify','--bundle',str(bundle),'--expected-source-sha',SHA]),0)
