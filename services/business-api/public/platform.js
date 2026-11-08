@@ -1148,6 +1148,7 @@ const stationInfo = StationInformation.createVendorWorkspace({
     root: el("station-information-vendor"),
     api,
     actor: () => user,
+    epoch: () => client.sessionEpoch,
 });
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),

@@ -86,12 +86,15 @@
         appendText(details, "These hours are informational, not a booking eligibility or charger status guarantee.", "ساعات العمل للعلم فقط ولا تضمن إمكانية الحجز أو حالة الشاحن.");
         card.append(details);
     }
-    function createVendorWorkspace({root, api, actor}) {
-        let currentActor = null, selected = null, information = null, generation = 0, page = 1, loading = false;
-        const state = () => actor() === currentActor && currentActor?.role === "vendor";
+    function createVendorWorkspace({root, api, actor, epoch = () => 0}) {
+        let currentActor = null, selected = null, information = null, generation = 0,
+            session = 0, listVersion = 0, page = 1, loading = false;
+        const state = () => actor() === currentActor &&
+            session === epoch() && currentActor?.role === "vendor";
         function clear() {
-            generation++;
-            currentActor = null; selected = information = null; loading = false;
+            generation++; listVersion++;
+            currentActor = null; session = 0; selected = information = null;
+            page = 1; loading = false;
             root.replaceChildren();
         }
         function status(message, error = false) {
@@ -118,7 +121,11 @@
             form.append(wrap);
             return input;
         };
-        async function selectStation(station) {
+        async function selectStation(station, expectedListVersion = listVersion) {
+            // A detached station picker must not load another tenant's data or
+            // overwrite a newly selected station after a list refresh.
+            if (!state()) { clear(); return; }
+            if (expectedListVersion !== listVersion) return;
             const ticket = ++generation, owner = currentActor;
             // Remove the previous station's form before starting a new GET.
             // Otherwise its old submit closure could write stale content into
@@ -260,15 +267,19 @@
                             : String(e.message || e), true);
                     }
                 } finally {
-                    loading = false;
-                    if (ticket === generation && state()) submit.disabled = false;
+                    // A previous session's in-flight save cannot release the
+                    // loading lock for a newly selected station.
+                    if (ticket === generation && state()) {
+                        loading = false;
+                        submit.disabled = false;
+                    }
                 }
             };
             root.append(form);
         }
         async function reload(target = 1) {
-            if (!state()) return;
-            const ticket = ++generation, owner = currentActor;
+            if (!state()) { clear(); return; }
+            const ticket = ++generation, listTicket = ++listVersion, owner = currentActor;
             page = target;
             selected = information = null;
             root.replaceChildren();
@@ -280,7 +291,9 @@
                 root.append(label("Station information", "معلومات المحطات", "h3"));
                 const refresh = document.createElement("button");
                 refresh.type = "button"; refresh.append(label("Refresh", "تحديث"));
-                refresh.onclick = () => reload(page); root.append(refresh);
+                refresh.onclick = () => {
+                    if (state() && listTicket === listVersion) return reload(page);
+                }; root.append(refresh);
                 if (!result.data?.length) {
                     appendText(root, "No stations registered for this vendor.", "لا توجد محطات مسجلة لهذا المشغل.");
                     return;
@@ -291,7 +304,10 @@
                     const opt = new Option(s.name + " (#" + s.id + ")", String(s.id));
                     picker.add(opt);
                 }
-                picker.onchange = () => selectStation(result.data.find(s => String(s.id) === picker.value));
+                picker.onchange = () => {
+                    if (state() && listTicket === listVersion)
+                        return selectStation(result.data.find(s => String(s.id) === picker.value), listTicket);
+                };
                 root.append(picker);
                 for (const [en, ar, target, enabled] of [
                     ["Previous", "السابق", page - 1, page > 1],
@@ -300,18 +316,21 @@
                     const btn = document.createElement("button");
                     btn.type = "button"; btn.disabled = !enabled;
                     btn.append(label(en, ar));
-                    btn.onclick = () => reload(target); root.append(btn);
+                    btn.onclick = () => {
+                        if (state() && listTicket === listVersion) return reload(target);
+                    }; root.append(btn);
                 }
-                await selectStation(result.data[0]);
+                await selectStation(result.data[0], listTicket);
             } catch (e) {
                 if (ticket === generation && state()) status(String(e.message || e), true);
             }
         }
         async function setActor(value) {
             if (value?.role !== "vendor") { clear(); return; }
-            if (currentActor === value) return;
+            if (currentActor === value && session === epoch()) return;
             clear();
             currentActor = value;
+            session = epoch();
             await reload();
         }
         return {clear, setActor, reload};
