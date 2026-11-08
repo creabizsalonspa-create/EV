@@ -63,6 +63,33 @@ class VendorKycReviewIntegrityTest extends TestCase
         );
     }
 
+    public function test_idempotent_submitted_retry_checks_evidence_without_duplicate_submission_audit(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $document = $this->upload($owner, $company, "%PDF-1.4\nORIGINAL-VALID");
+        $url = '/api/vendor-ops/companies/'.$company->id.'/submit';
+
+        $this->actingAs($owner, 'web')->postJson($url)
+            ->assertOk()->assertJsonPath('status', 'submitted');
+        $this->postJson($url)->assertOk()->assertJsonPath('status', 'submitted');
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'vendor_ops.company.submitted')
+            ->where('subject', (string) $company->id)->count());
+
+        Storage::disk('local')->delete($document->getRawOriginal('storage_path'));
+        $this->postJson($url)->assertStatus(409);
+        $this->assertSame('submitted', $company->fresh()->status);
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('action', 'vendor_ops.company.submitted')
+            ->where('subject', (string) $company->id)->count());
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $owner->id,
+            'action' => 'vendor_ops.document.integrity_failed',
+            'subject' => (string) $document->id,
+        ]);
+    }
+
     public function test_submission_readiness_checks_latest_license_evidence_not_just_the_database_record(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);

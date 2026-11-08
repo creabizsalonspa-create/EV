@@ -243,11 +243,11 @@ class VendorOpsController extends Controller
 
         $result = DB::transaction(function () use ($r, $company) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
-            if ($c->status === 'submitted') {
-                return response()->json($c);
+            $alreadySubmitted = $c->status === 'submitted';
+            abort_unless($alreadySubmitted || in_array($c->status, ['draft', 'changes_requested', 'rejected'], true), 409);
+            if (! $alreadySubmitted) {
+                abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
             }
-            abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409);
-            abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
             $licenseEvidence = VendorKycDocument::where('company_id', $c->id)
                 ->where('kind', 'trade_license')->orderByDesc('id')->lockForUpdate()->first();
             abort_unless($licenseEvidence, 422, 'Upload a trade-license document before submitting.');
@@ -256,6 +256,12 @@ class VendorOpsController extends Controller
                 // Do not claim a submission exists without recoverable
                 // evidence. Persist the denial audit outside the transaction.
                 return ['integrity_failure' => $licenseEvidence->id];
+            }
+
+            if ($alreadySubmitted) {
+                // A retry must not bypass the evidence-integrity gate, nor
+                // fabricate a second submission event for an intact record.
+                return response()->json($c);
             }
 
             $c->update(['status' => 'submitted', 'review_reason' => null]);
