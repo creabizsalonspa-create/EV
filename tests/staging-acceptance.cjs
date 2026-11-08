@@ -143,6 +143,14 @@ test('source head guard rejects dirty tracked worktree',()=>{
   assert.equal(calls.length,2);
   assert.equal(getCurrentHead((_cmd,args)=>args[0]==='rev-parse'?sourceSHA:''),sourceSHA);
 });
+test('source guard rejects untracked non-ignored code and calls git status with normal untracked discovery',()=>{
+  const commands=[];
+  assert.throws(()=>getCurrentHead((cmd,args)=>{
+    assert.equal(cmd,'git');commands.push(args);
+    return args[0]==='rev-parse'?sourceSHA:'?? services/business-api/new-source.php';
+  }),/Tracked or untracked non-ignored source/);
+  assert.deepEqual(commands[1],['status','--porcelain','--untracked-files=normal']);
+});
 test('noncanonical repeated route results cannot produce fake HTTP acceptance',async()=>{
   const proof=await inspect(parseArgs(args('/unused/proof.json')),fixtureDeps({runHttp:async()=>({ok:true,
     results:Array.from({length:7},()=>({path:'/up',ok:true,body:'secret'}))})}));

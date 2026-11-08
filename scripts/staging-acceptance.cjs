@@ -45,10 +45,10 @@ function getCurrentHead(runner = execFileSync) {
     cwd: root, timeout: 7000, encoding: 'utf8', maxBuffer: 4096,
   })).trim();
   if (!HEX_SHA.test(head)) throw Error('Missing checkout commit');
-  const dirty = String(runner('git', ['status', '--porcelain', '--untracked-files=no'], {
+  const dirty = String(runner('git', ['status', '--porcelain', '--untracked-files=normal'], {
     cwd: root, timeout: 7000, encoding: 'utf8', maxBuffer: 16384,
   })).trim();
-  if (dirty) throw Error('Tracked source differs from checked out commit');
+  if (dirty) throw Error('Tracked or untracked non-ignored source differs from checked out commit');
   return head;
 }
 
