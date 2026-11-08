@@ -63,6 +63,49 @@ class VendorKycReviewIntegrityTest extends TestCase
         );
     }
 
+    public function test_submission_readiness_checks_latest_license_evidence_not_just_the_database_record(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $another = $this->company($other);
+        $base = '/api/vendor-ops/companies/'.$company->id;
+
+        $this->actingAs($owner, 'web')->getJson($base)
+            ->assertOk()
+            ->assertJsonPath('submission_readiness.trade_license_present', false)
+            ->assertJsonPath('submission_readiness.trade_license_integrity_valid', false)
+            ->assertJsonPath('submission_readiness.can_submit', false)
+            ->assertHeader('Cache-Control', 'no-store, private');
+
+        $document = $this->upload($owner, $company, "%PDF-1.4\nORIGINAL-VALID");
+        $this->actingAs($owner, 'web')->getJson($base)
+            ->assertOk()
+            ->assertJsonPath('submission_readiness.trade_license_present', true)
+            ->assertJsonPath('submission_readiness.trade_license_integrity_valid', true)
+            ->assertJsonPath('submission_readiness.can_submit', true)
+            ->assertJsonMissingPath('submission_readiness.sha256')
+            ->assertJsonMissingPath('submission_readiness.storage_path');
+
+        $otherDocument = $this->upload($other, $another, "%PDF-1.4\nOTHER-TENANT");
+        Storage::disk('local')->put(
+            $document->getRawOriginal('storage_path'),
+            Storage::disk('local')->get($otherDocument->getRawOriginal('storage_path'))
+        );
+        $this->actingAs($owner, 'web')->getJson($base)
+            ->assertOk()
+            ->assertJsonPath('submission_readiness.trade_license_present', true)
+            ->assertJsonPath('submission_readiness.trade_license_integrity_valid', false)
+            ->assertJsonPath('submission_readiness.can_submit', false)
+            ->assertDontSee('OTHER-TENANT');
+
+        $this->upload($owner, $company, "%PDF-1.4\nLATEST-VALID");
+        $this->actingAs($owner, 'web')->getJson($base)
+            ->assertOk()
+            ->assertJsonPath('submission_readiness.trade_license_integrity_valid', true)
+            ->assertJsonPath('submission_readiness.can_submit', true);
+    }
+
     public function test_missing_encrypted_evidence_blocks_vendor_submission_before_review(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);

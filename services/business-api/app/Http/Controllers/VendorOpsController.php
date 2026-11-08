@@ -80,7 +80,33 @@ class VendorOpsController extends Controller
     {
         $this->access->require($r->user(), $company);
 
-        return response()->json($company->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $company), 'submission_readiness' => ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') ? ['editable' => in_array($company->status, ['draft', 'changes_requested', 'rejected']), 'license_valid' => $this->access->licenseValid($company), 'trade_license_present' => VendorKycDocument::where('company_id', $company->id)->where('kind', 'trade_license')->exists()] : null])->header('Cache-Control', 'no-store, private');
+        $readiness = null;
+        if ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') {
+            $editable = in_array($company->status, ['draft', 'changes_requested', 'rejected'], true);
+            $licenseValid = $this->access->licenseValid($company);
+            $licenseEvidence = VendorKycDocument::where('company_id', $company->id)
+                ->where('kind', 'trade_license')->orderByDesc('id')->first();
+
+            // Presence alone is not evidence of a usable encrypted file.
+            // Show owners a reliable readiness hint without disclosing
+            // plaintext, hashes or private storage paths in the response.
+            $evidenceValid = $licenseEvidence !== null
+                && $this->verifiedEvidenceContents($licenseEvidence) !== null;
+            $readiness = [
+                'editable' => $editable,
+                'license_valid' => $licenseValid,
+                'trade_license_present' => $licenseEvidence !== null,
+                'trade_license_integrity_valid' => $evidenceValid,
+                'can_submit' => $editable && $licenseValid && $evidenceValid,
+            ];
+        }
+
+        return response()->json($company->toArray() + [
+            'kyc_workflow_only' => true,
+            'physical_control_enabled' => false,
+            'capabilities' => $this->access->capabilities($r->user(), $company),
+            'submission_readiness' => $readiness,
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function updateCompany(Request $r, VendorCompany $company)
