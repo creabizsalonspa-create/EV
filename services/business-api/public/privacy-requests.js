@@ -64,8 +64,18 @@
         card.append(p("Review outcome: " + outcome[0] + ". This is not proof of data deletion.", "نتيجة المراجعة: " + outcome[1] + ". ليست إثباتاً لحذف البيانات."));
       }
       if (row.decision_note) card.append(p("Review note: " + row.decision_note, "ملاحظة المراجعة: " + row.decision_note));
-      if (onWithdraw && ["submitted","in_review"].includes(row.status))
-        card.append(btn("Withdraw request", "سحب الطلب", () => onWithdraw(row.id)));
+      if (onWithdraw && ["submitted","in_review"].includes(row.status)) {
+        const withdraw = btn("Withdraw request", "سحب الطلب", async () => {
+          if (withdraw.disabled) return;
+          withdraw.disabled = true;
+          try {
+            await onWithdraw(row.id);
+          } finally {
+            withdraw.disabled = false;
+          }
+        });
+        card.append(withdraw);
+      }
       return card;
     }
     async function refreshMine(target = ownPage) {

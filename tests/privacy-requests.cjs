@@ -117,6 +117,12 @@ const content = root => {
   holdWithdrawal=true;
   const withdrawal=withdraw.onclick();
   assert.equal(typeof releaseWithdrawal,'function');
+  const writesBeforeDuplicate=calls.filter(path=>
+    path==='privacy-requests/100/withdraw').length;
+  await withdraw.onclick();
+  assert.equal(calls.filter(path=>
+    path==='privacy-requests/100/withdraw').length,writesBeforeDuplicate,
+    'Repeated withdraw clicks cannot POST twice while first is pending');
   const beforeRefreshWithdraw=calls.filter(path=>path==='privacy-requests?page=1').length;
   await ui.refreshMine();
   assert.equal(calls.filter(path=>path==='privacy-requests?page=1').length,
