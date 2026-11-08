@@ -30,12 +30,40 @@ def no_duplicate_keys(pairs):
 def unsafe_constant(_):
     raise EvidenceError('Nonstandard JSON numeric constant')
 
+def snapshot_directory_chain(parent):
+    """Record real ancestor directories without resolving symlinked path components."""
+    directory = Path(os.path.abspath(str(parent)))
+    chain = []
+    while True:
+        try:
+            info = os.lstat(directory)
+        except OSError as exc:
+            raise EvidenceError('Metadata ancestor directory inaccessible') from exc
+        if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            raise EvidenceError('Metadata path contains a symlinked ancestor')
+        chain.append((directory, info.st_dev, info.st_ino))
+        if directory == directory.parent:
+            break
+        directory = directory.parent
+    return tuple(chain)
+
+
+def assert_directory_chain_unchanged(chain):
+    if not chain or snapshot_directory_chain(chain[0][0]) != chain:
+        raise EvidenceError('Metadata ancestor directory changed during read')
+
+
+def stat_identity(info):
+    return (info.st_dev, info.st_ino, info.st_size,
+            info.st_mtime_ns, info.st_ctime_ns)
+
 def private_json(file):
     file = Path(file)
     if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
         raise EvidenceError('No safe local file access')
     parent = file.parent
-    if parent.is_symlink() or not parent.is_dir() or parent.stat().st_mode & 0o077:
+    parent_chain = snapshot_directory_chain(parent)
+    if os.lstat(parent).st_mode & 0o077:
         raise EvidenceError('Metadata parent must be private')
     try:
         fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -43,11 +71,20 @@ def private_json(file):
         raise EvidenceError('Cannot safely open metadata') from exc
     try:
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or not 2 <= st.st_size <= MAX_JSON:
-            raise EvidenceError('Metadata must be bounded, regular and private')
+        if (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or
+                st.st_mode & 0o077 or not 2 <= st.st_size <= MAX_JSON):
+            raise EvidenceError('Metadata must be bounded, single-link, regular and private')
         raw = os.read(fd, MAX_JSON + 1)
-        if len(raw) != st.st_size:
-            raise EvidenceError('Metadata size changed during read')
+        after = os.fstat(fd)
+        try:
+            visible = os.lstat(file)
+        except OSError as exc:
+            raise EvidenceError('Metadata path disappeared during read') from exc
+        if (len(raw) != st.st_size or stat_identity(after) != stat_identity(st) or
+                not stat.S_ISREG(visible.st_mode) or visible.st_nlink != 1 or
+                visible.st_mode & 0o077 or stat_identity(visible) != stat_identity(st)):
+            raise EvidenceError('Metadata file changed during read')
+        assert_directory_chain_unchanged(parent_chain)
     finally:
         os.close(fd)
     try:

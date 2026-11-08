@@ -64,6 +64,66 @@ class PlatformGateTests(unittest.TestCase):
         with self.assertRaises(EvidenceError):private_json(alias)
         fifo=self.folder/'fifo.json';os.mkfifo(fifo)
         with self.assertRaises(EvidenceError):private_json(fifo)
+    def test_snapshot_refuses_a_hardlinked_metadata_file(self):
+        path=self.folder/'run.json'
+        path.write_text(json.dumps(self.run));path.chmod(0o600)
+        os.link(path,self.folder/'other-run.json')
+        with self.assertRaisesRegex(EvidenceError,'single-link'):
+            private_json(path)
+
+    def test_snapshot_refuses_symlinked_grandparent_directory(self):
+        real=self.folder/'real'/'private'
+        real.mkdir(parents=True,mode=0o700)
+        file=real/'run.json'
+        file.write_text(json.dumps(self.run));file.chmod(0o600)
+        alias=self.folder/'alias'
+        alias.symlink_to(self.folder/'real',target_is_directory=True)
+        with self.assertRaisesRegex(EvidenceError,'symlinked ancestor'):
+            private_json(alias/'private'/'run.json')
+
+    def test_snapshot_refuses_same_content_inode_replacement_during_read(self):
+        path=self.folder/'run.json'
+        path.write_text(json.dumps(self.run));path.chmod(0o600)
+        original=os.read
+        def swap(fd,size):
+            data=original(fd,size)
+            replacement=self.folder/'replacement.json'
+            replacement.write_bytes(data);replacement.chmod(0o600)
+            replacement.replace(path)
+            return data
+        with patch('staging_ci_evidence.os.read',side_effect=swap):
+            with self.assertRaisesRegex(EvidenceError,'changed during read'):
+                private_json(path)
+
+    def test_snapshot_refuses_data_edit_during_read(self):
+        path=self.folder/'run.json'
+        path.write_text(json.dumps(self.run));path.chmod(0o600)
+        original=os.read
+        def edit(fd,size):
+            data=original(fd,size)
+            path.write_bytes(data+b' ')
+            path.chmod(0o600)
+            return data
+        with patch('staging_ci_evidence.os.read',side_effect=edit):
+            with self.assertRaisesRegex(EvidenceError,'changed during read'):
+                private_json(path)
+
+    def test_snapshot_refuses_parent_replaced_with_symlink_during_read(self):
+        parent=self.folder/'private'
+        parent.mkdir(mode=0o700)
+        path=parent/'run.json'
+        path.write_text(json.dumps(self.run));path.chmod(0o600)
+        original=os.read
+        def swap_parent(fd,size):
+            data=original(fd,size)
+            moved=self.folder/'previous'
+            parent.rename(moved)
+            parent.symlink_to(moved,target_is_directory=True)
+            return data
+        with patch('staging_ci_evidence.os.read',side_effect=swap_parent):
+            with self.assertRaisesRegex(EvidenceError,'symlinked ancestor'):
+                private_json(path)
+
     def test_cli_writes_private_new_nonoverwriting_report(self):
         rp, jp, output=[self.folder/x for x in ('run.json','jobs.json','output.json')]
         for path, obj in ((rp,self.run),(jp,self.jobs)):
