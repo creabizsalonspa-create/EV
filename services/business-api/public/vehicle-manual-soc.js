@@ -61,6 +61,26 @@
       if (previousStatus) root.append(previousStatus);
       if (previousPanel) root.append(previousPanel);
     }
+    // Laravel's self-report API always qualifies the vehicle, report source
+    // and absence of phone/vehicle telemetry or verified charging capability.
+    // Reject mismatched responses instead of presenting another vehicle's
+    // state as a manual estimate or mislabeling live charger measurements.
+    const validCurrent=(value,vehicleId)=>value &&
+      value.vehicle_id===vehicleId &&
+      value.source==="CUSTOMER_MANUAL_SELF_REPORT" &&
+      value.measured_by_phone===false &&
+      value.measured_by_vehicle_api===false &&
+      value.charging_capability_verified===false &&
+      Number.isInteger(value.revision) && value.revision>=0 &&
+      (value.battery_percent===null ||
+        (Number.isInteger(value.battery_percent) &&
+         value.battery_percent>=0 && value.battery_percent<=100));
+    const validHistory=(value,vehicleId)=>value && Array.isArray(value.data) &&
+      value.data.every(row=>row.vehicle_id===vehicleId &&
+        row.source==="CUSTOMER_MANUAL_SELF_REPORT" &&
+        Number.isInteger(row.revision) && row.revision>0 &&
+        Number.isInteger(row.battery_percent) &&
+        row.battery_percent>=0 && row.battery_percent<=100);
     const reportState=(request,current,history,vehicleId)=>{
       if(!request||!current||!history||
           !Number.isInteger(request.expected_revision))return null;
@@ -102,6 +122,8 @@
       try {
         const response=await api("vehicles/"+vehicle.id+"/manual-soc");
         if(!alive(token))return;
+        if(!validCurrent(response,vehicle.id))
+          throw Error("Unexpected manual battery response; refresh before reporting.");
         latest=response;
         await loadHistory(1);
       }catch(e){if(alive(token))status(String(e.message||e));}
@@ -114,6 +136,8 @@
       try {
         const result=await api("vehicles/"+chosen.id+"/manual-soc/history?page="+page);
         if(!alive(token))return;
+        if(!validHistory(result,chosen.id))
+          throw Error("Unexpected manual battery history; refresh before reporting.");
         history=result;
         const recorded=pending?reportState(pending,latest,history,chosen.id):null;
         if(recorded){
@@ -212,6 +236,8 @@
         // an uncertain refresh can safely replay the same observation.
         const refreshed=await api("vehicles/"+vehicleId+"/manual-soc");
         if(!alive(token)||chosen?.id!==vehicleId)return;
+        if(!validCurrent(refreshed,vehicleId))
+          throw Error("Unexpected manual battery readback; retry original report.");
         latest=refreshed;
         const reload=loadHistory(1), reloadTicket=generation;
         const loaded=await reload;

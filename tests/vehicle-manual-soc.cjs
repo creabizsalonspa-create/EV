@@ -148,7 +148,9 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
         throw Error('readback unavailable after successful POST');
       }
       return {vehicle_id:8,battery_percent:accepted?61:null,revision:accepted?1:0,
-        reported_at:accepted?'server timestamp':null,source:'CUSTOMER_MANUAL_SELF_REPORT'};
+        reported_at:accepted?'server timestamp':null,source:'CUSTOMER_MANUAL_SELF_REPORT',
+        measured_by_phone:false,measured_by_vehicle_api:false,
+        charging_capability_verified:false};
     }
     if(path==='vehicles/8/manual-soc/history?page=1')return {
       data:accepted?[{vehicle_id:8,battery_percent:61,revision:1,
@@ -268,6 +270,8 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
       battery_percent:acceptedOlder?28:null,
       reported_at:acceptedOlder?'newer server timestamp':null,
       source:'CUSTOMER_MANUAL_SELF_REPORT',
+      measured_by_phone:false,measured_by_vehicle_api:false,
+      charging_capability_verified:false,
     };
     if(path==='vehicles/10/manual-soc/history?page=1')return {
       data:acceptedOlder?[
@@ -318,6 +322,8 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
       vehicle_id:11,revision:serverCommitted?1:0,
       battery_percent:serverCommitted?64:null,
       source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:null,
+      measured_by_phone:false,measured_by_vehicle_api:false,
+      charging_capability_verified:false,
     };
     if(path==='vehicles/11/manual-soc/history?page=1')return {
       current_page:1,last_page:1,
@@ -363,6 +369,48 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
     visible(n).includes('Retry the same report'));
   assert.equal(confirmedRetry.disabled,true);
   heldView.clear();
+
+  // A misrouted readback or claimed live-phone/charger measurement must not
+  // populate a user-editable manual report, even with HTTP 200.
+  const poisonedRoot=document.createElement('section');
+  const poisonedActor={id:97,role:'customer'};
+  let poisonedCurrent=true,poisonedHistory=false;
+  const poisonedApi=async(path,method)=>{
+    if(path==='vehicles/15/manual-soc')return {
+      vehicle_id:15,revision:1,battery_percent:74,reported_at:'server time',
+      source:'CUSTOMER_MANUAL_SELF_REPORT',
+      measured_by_phone:poisonedCurrent,
+      measured_by_vehicle_api:false,charging_capability_verified:false,
+    };
+    if(path==='vehicles/15/manual-soc/history?page=1')return {
+      data:poisonedHistory?[{vehicle_id:999,revision:1,battery_percent:74,
+        source:'CUSTOMER_MANUAL_SELF_REPORT'}]:[
+        {vehicle_id:15,revision:1,battery_percent:74,
+         source:'CUSTOMER_MANUAL_SELF_REPORT'}],
+      current_page:1,last_page:1,
+    };
+    throw Error('Unexpected provenance check API route '+path);
+  };
+  const poisoned=window.VehicleManualSoc.create({
+    root:poisonedRoot,api:poisonedApi,
+    actor:()=>poisonedActor,epoch:()=>1,
+  });
+  poisoned.setActor(poisonedActor);
+  poisoned.renderGarage([{id:15,name:'Provenance safety check'}]);
+  await poisoned.open({id:15,name:'Provenance safety check'});
+  assert.match(visible(poisonedRoot),/Unexpected manual battery response/);
+  assert.equal(poisonedRoot.querySelector('[data-manual-soc-panel]'),null,
+    'Phone-measured response must not display as a customer self-report');
+  poisonedCurrent=false;
+  poisonedHistory=true;
+  await poisoned.open({id:15,name:'Provenance safety check'});
+  assert.match(visible(poisonedRoot),/Unexpected manual battery history/);
+  assert.equal(poisonedRoot.querySelector('[data-manual-soc-panel]'),null,
+    'Different vehicle history must not be displayed in customer view');
+  poisonedHistory=false;
+  await poisoned.open({id:15,name:'Provenance safety check'});
+  assert.match(visible(poisonedRoot),/Latest self-reported battery: 74%/);
+  poisoned.clear();
 
   // A reused identity object across a new auth epoch must clear old DOM and
   // pending report forms, even before platform code allocates a new actor.
