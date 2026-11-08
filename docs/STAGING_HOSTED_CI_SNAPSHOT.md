@@ -24,7 +24,7 @@ Agent 10's offline staging suite can also be run with one stable command (this d
 ./scripts/staging-offline-verify
 ```
 
-This runs syntax checks for the release, rollback and private-environment modules, every `tests/staging-*.cjs` synthetic Node test, and the Python CI snapshot regression. The runner does not contact Docker, GitHub, chargers or payment systems. Agent 4 owns `.github/workflows/ci.yml` and should review this entrypoint for the staging-image job after reconciling CI changes in PR #57; this PR does not alter Agent 4's workflow file. A successful **local** suite is not a hosted green check, staging acceptance or production certification.
+This runs syntax checks for the release, rollback and private-environment modules, **all `tests/staging-*.cjs` and safe `tests/client-demo-*.cjs` plus `tests/demo-fixture-guard.cjs` synthetic Node tests**, and the Python CI snapshot regression. It **explicitly excludes `tests/client-demo-lifecycle.cjs`** because that separately owned test starts/stops Docker workers and must never run in the offline source-only gate. The runner creates a private, auto-cleaned temporary directory under the current user's home so synthetic CLI fixtures work even when `/tmp` is mounted `noexec`; it preserves the caller's umask so permission-negative tests remain valid. The runner does not contact Docker, GitHub, chargers or payment systems. Agent 4 owns `.github/workflows/ci.yml` and should review this entrypoint for the staging-image job after reconciling CI changes in PR #57; this PR does not alter Agent 4's workflow file. A successful **local** suite is not a hosted green check, staging acceptance or production certification.
 
 Test without Docker or live secrets:
 

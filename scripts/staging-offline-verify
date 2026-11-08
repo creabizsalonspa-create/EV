@@ -9,14 +9,32 @@ if ! command -v node >/dev/null || ! command -v python3 >/dev/null; then
   exit 2
 fi
 
+# Some hardened hosts mount /tmp noexec. Synthetic test fixtures run local
+# mock CLI shims; give them a dedicated, owner-only, executable-home temp dir.
+# Only files under this mktemp-created directory are removed by the trap.
+test_tmp=$(mktemp -d "$HOME/.ev-staging-offline.XXXXXXXX")
+trap 'rm -rf -- "$test_tmp"' EXIT
+export TMPDIR="$test_tmp"
+
 node --check scripts/staging-release.cjs
 node --check scripts/staging-manual-rollback.cjs
 node --check scripts/staging-env-integrity.cjs
 node --check scripts/staging-compose-integrity.cjs
 
-mapfile -d '' cases < <(find tests -maxdepth 1 -type f -name 'staging-*.cjs' -print0 | sort -z)
+# Include safe synthetic client-demo checks in the offline staging gate.
+# Deliberately EXCLUDE client-demo-lifecycle.cjs: it starts/stops Docker
+# workers and belongs only to a separately owned integration lifecycle job.
+for required in tests/staging-release.cjs tests/client-demo-readiness.cjs tests/demo-fixture-guard.cjs; do
+  if [[ ! -f "$required" ]]; then
+    echo 'FAIL: required staging/demo source-only regression missing.' >&2
+    exit 2
+  fi
+done
+mapfile -d '' cases < <(find tests -maxdepth 1 -type f \
+  \( -name 'staging-*.cjs' -o -name 'client-demo-*.cjs' -o -name 'demo-fixture-guard.cjs' \) \
+  ! -name 'client-demo-lifecycle.cjs' -print0 | sort -z)
 if (( ${#cases[@]} < 1 )); then
-  echo 'FAIL: staging offline tests are missing.' >&2
+  echo 'FAIL: staging or synthetic demo offline tests are missing.' >&2
   exit 2
 fi
 node --test "${cases[@]}"
