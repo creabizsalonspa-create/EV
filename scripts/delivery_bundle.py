@@ -67,6 +67,13 @@ def archive_check(path, platform):
                 if name in names:
                     raise BundleError('Duplicate archive member')
                 names.add(name)
+                # Encrypted members and unknown compression formats cannot be
+                # fully CRC-audited without special credentials or codecs.
+                if entry.flag_bits & 0x1:
+                    raise BundleError('Encrypted delivery archive member is not auditable')
+                if entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED,
+                                               zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+                    raise BundleError('Unsupported delivery archive compression')
                 expanded += entry.file_size
                 if expanded > MAX_EXPANDED:
                     raise BundleError('Expanded archive exceeds safe limit')
@@ -107,8 +114,9 @@ def archive_check(path, platform):
                 raise BundleError('Simulator archive missing an app Info.plist')
             if archive.testzip() is not None:
                 raise BundleError('Archive CRC verification failed')
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, UnicodeDecodeError, EOFError) as exc:
-        raise BundleError('Corrupt or unsupported ZIP/APK archive') from exc
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, UnicodeDecodeError, EOFError,
+            RuntimeError, NotImplementedError) as exc:
+        raise BundleError('Corrupt, encrypted or unsupported ZIP/APK archive') from exc
 
 
 def secure_artifact_audit(path, platform):

@@ -469,6 +469,57 @@ class DeliveryBundleTests(unittest.TestCase):
             archive.writestr(link, target)
         self.assertIsNone(archive_check(self.ios, 'ios-simulator'))
 
+    @staticmethod
+    def alter_first_zip_member_metadata(archive, *, encrypted=False, method=None):
+        payload = bytearray(archive.read_bytes())
+        local = payload.find(b'PK' + bytes((3, 4)))
+        central = payload.find(b'PK' + bytes((1, 2)))
+        assert local >= 0 and central > local
+        if encrypted:
+            for offset in (local + 6, central + 8):
+                value = int.from_bytes(payload[offset:offset + 2], 'little')
+                payload[offset:offset + 2] = (value | 1).to_bytes(2, 'little')
+        if method is not None:
+            for offset in (local + 8, central + 10):
+                payload[offset:offset + 2] = method.to_bytes(2, 'little')
+        archive.write_bytes(payload)
+
+    def test_encrypted_android_archive_returns_controlled_bundle_error(self):
+        self.alter_first_zip_member_metadata(self.android, encrypted=True)
+        with self.assertRaisesRegex(BundleError, 'Encrypted delivery archive'):
+            archive_check(self.android, 'android-debug')
+
+    def test_unsupported_archive_compression_returns_controlled_bundle_error(self):
+        self.alter_first_zip_member_metadata(self.android, method=99)
+        with self.assertRaisesRegex(BundleError, 'Unsupported delivery archive compression'):
+            archive_check(self.android, 'android-debug')
+
+    def test_archive_library_backend_runtime_failure_is_wrapped(self):
+        with patch('zipfile.ZipFile.testzip', side_effect=NotImplementedError('private path')):
+            with self.assertRaisesRegex(BundleError, 'unsupported ZIP/APK'):
+                archive_check(self.android, 'android-debug')
+
+    def test_encrypted_bundle_cli_returns_redacted_failure_not_traceback(self):
+        import contextlib
+        import hashlib
+        import io
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        self.alter_first_zip_member_metadata(apk, encrypted=True)
+        manifest = bundle / 'manifest.json'
+        data = json.loads(manifest.read_text())
+        for item in data['artifacts']:
+            if item['platform'] == 'android-debug':
+                item['sha256'] = hashlib.sha256(apk.read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(data))
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            self.assertEqual(main(['verify', '--bundle', str(bundle),
+                                   '--expected-source-sha', SHA]), 1)
+        self.assertIn('FAIL: delivery bundle', output.getvalue())
+        self.assertNotIn(str(bundle), output.getvalue())
+        self.assertNotIn('Traceback', output.getvalue())
+
     def test_cli_success_and_failure(self):
         bundle = self.bundle()
         self.assertEqual(main(['verify','--bundle',str(bundle),'--expected-source-sha',SHA]),0)
