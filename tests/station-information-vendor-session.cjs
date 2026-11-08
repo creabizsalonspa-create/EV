@@ -37,6 +37,7 @@ const window={};
 const source='services/business-api/public/station-information.js';
 vm.runInNewContext(fs.readFileSync(source,'utf8'),{document,window,Option,Set,Object},{filename:source});
 const apiCalls=[];
+let holdOldWrite=false, releaseOldWrite=null;
 const stationHours=Object.fromEntries(['mon','tue','wed','thu','fri','sat','sun']
   .map(d=>[d,{open:null,close:null}]));
 let epoch=1;
@@ -57,7 +58,13 @@ const api=async(path,method='GET',body)=>{
   const match=/^stations\/(\d+)\/information$/.exec(path);
   if(match){
     const stationId=Number(match[1]);
-    if(method==='PUT')return {...info(stationId),...body,revision:1};
+    if(method==='PUT'){
+      if(stationId===11 && holdOldWrite){
+        holdOldWrite=false;
+        await new Promise(resolve=>{releaseOldWrite=resolve;});
+      }
+      return {...info(stationId),...body,revision:1};
+    }
     return info(stationId);
   }
   throw Error('Unexpected API call '+path);
@@ -76,13 +83,28 @@ const count=(method,ending)=>apiCalls.filter(call=>call.method===method &&
     n.children.some(c=>c.textContent==='Refresh'));
   assert.ok(oldForm&&oldPicker&&oldRefresh);
   assert.equal(count('GET','stations/11/information'),1);
-  // A selection within the same session makes prior forms inactive.
+  // A station switch during an unresolved save MUST not leave the next
+  // station locked, or allow the old save to replace the current UI.
+  holdOldWrite=true;
+  const oldSave=oldForm.onsubmit({preventDefault(){}});
+  assert.equal(count('PUT','stations/11/information'),1);
+  assert.equal(typeof releaseOldWrite,'function');
   oldPicker.value='13';
   await oldPicker.onchange();
+  const nextForm=find(root,n=>n.tag==='form');
+  assert.ok(nextForm);
+  nextForm.elements.description_en.value='Updated backup station';
+  await nextForm.onsubmit({preventDefault(){}});
+  assert.equal(count('PUT','stations/13/information'),1,
+    'Next station must save while previous station write is in flight');
   const afterSwitch=count('PUT');
   await oldForm.onsubmit({preventDefault(){}});
   assert.equal(count('PUT'),afterSwitch,
     'Detached form must not update a newer selected station');
+  releaseOldWrite();
+  await oldSave;
+  assert.ok(find(root,n=>n.tag==='form'),
+    'Late previous-station response must not remove the current editor');
   // Refreshing the station list invalidates old picker callbacks even
   // when the vendor identity and session have not changed.
   await view.reload();
@@ -111,8 +133,8 @@ const count=(method,ending)=>apiCalls.filter(call=>call.method===method &&
   assert.equal(count('PUT','stations/12/information'),1);
   assert.equal(apiCalls.filter(c=>c.method==='PUT').at(-1).body.description_en,
     'New vendor description');
-  assert.equal(count('PUT','stations/11/information'),0);
-  assert.equal(count('PUT','stations/13/information'),0);
+  assert.equal(count('PUT','stations/11/information'),1);
+  assert.equal(count('PUT','stations/13/information'),1);
   // Same identity with a stale list callback cannot disclose old stations.
   epoch++;
   const stalePicker=find(root,n=>n.tag==='select');

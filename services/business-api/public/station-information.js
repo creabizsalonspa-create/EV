@@ -133,6 +133,9 @@
             root.querySelector("form")?.remove();
             selected = station || null;
             information = null;
+            // A previous station's in-flight PUT no longer owns this view.
+            // Unlock editing of the newly selected station independently.
+            loading = false;
             if (!station) { status(isArabic() ? "المحطة غير متاحة" : "Station no longer available.", true); return; }
             status(isArabic() ? "جارٍ تحميل التفاصيل..." : "Loading station information…");
             try {
@@ -282,6 +285,8 @@
             const ticket = ++generation, listTicket = ++listVersion, owner = currentActor;
             page = target;
             selected = information = null;
+            // Reload invalidates any old form's pending write and lock.
+            loading = false;
             root.replaceChildren();
             status(isArabic() ? "جارٍ تحميل محطاتك..." : "Loading your stations…");
             try {
