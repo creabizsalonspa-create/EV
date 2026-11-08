@@ -21,6 +21,9 @@ def valid():
         'ACME_EMAIL': 'operator@creabiz.example-services.com',
         'STAGING_BIND_IP': '127.0.0.1',
         'EV_IMAGE_TAG': 'sha-'+'a'*40,
+        'MAIL_MAILER': 'log',
+        'LOG_CHANNEL': 'stderr',
+        'LOG_LEVEL': 'warning',
         **{key:'false' for key in p.DISABLED},
     }
 
@@ -47,6 +50,39 @@ class PreflightTests(unittest.TestCase):
                 env[key] = value
                 with self.assertRaises(p.PreflightError):
                     p.validate_env(env)
+
+    def test_database_url_compose_and_delivery_override_fail_closed(self):
+        unsafe = {
+            'DB_URL': 'postgres://another-database.invalid/example',
+            'DATABASE_URL': 'postgres://another-database.invalid/example',
+            'COMPOSE_FILE': '/tmp/alternate-staging.yaml',
+            'COMPOSE_PROFILES': 'production',
+            'COMPOSE_PROJECT_NAME': 'external-project',
+            'COMPOSE_ENV_FILES': '/tmp/unreviewed.env',
+            'COMPOSE_DISABLE_ENV_FILE': 'true',
+            'DOCKER_HOST': 'tcp://other-host.invalid:2376',
+            'DOCKER_CONTEXT': 'another-cluster',
+            'MAIL_MAILER': 'smtp',
+            'LOG_CHANNEL': 'slack',
+            'LOG_LEVEL': 'debug',
+        }
+        for key, value in unsafe.items():
+            env = valid()
+            env[key] = value
+            with self.subTest(setting=key), self.assertRaises(p.PreflightError):
+                p.validate_env(env)
+        # Absence of logging or delivery restrictions cannot silently fall
+        # back to Laravel's stack/debug configuration.
+        for key in ('MAIL_MAILER', 'LOG_CHANNEL', 'LOG_LEVEL'):
+            env = valid()
+            env.pop(key)
+            with self.subTest(missing=key), self.assertRaises(p.PreflightError):
+                p.validate_env(env)
+        for key in ('CSMS_SESSION_BRIDGE_ENABLED', 'CSMS_FAULT_WORKER_ENABLED'):
+            env = valid()
+            env[key] = 'true'
+            with self.subTest(worker=key), self.assertRaises(p.PreflightError):
+                p.validate_env(env)
 
     def test_missing_required_fields(self):
         for key in p.REQUIRED:

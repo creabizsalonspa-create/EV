@@ -197,3 +197,29 @@ re-reviewed against this narrow preflight rather than silently accepted.
 These checks inspect **repository configuration only**. They do not claim that
 a Docker daemon actually executed these settings, that a restore was run,
 or that production, PostgreSQL, DNS, certificates or hardware were accepted.
+
+### Staging env_file database URL and notification/logging confinement
+
+Laravel reads `DB_URL` from the environment before individual PostgreSQL host
+settings. Earlier staging preflight checks required a reviewed Compose
+`DB_HOST: database` but still permitted a non-empty `DB_URL` inherited from
+the private `.env`, potentially redirecting database access. The preflight
+now rejects `DB_URL` and `DATABASE_URL`, as well as deployment-related
+`COMPOSE_FILE`, `COMPOSE_PROFILES`, `COMPOSE_PROJECT_NAME`,
+`COMPOSE_ENV_FILES`, `COMPOSE_DISABLE_ENV_FILE`, `DOCKER_HOST` and
+`DOCKER_CONTEXT` overrides in the reviewed private staging file.
+
+The private staging file must explicitly restrict `MAIL_MAILER=log`,
+`LOG_CHANNEL=stderr` and `LOG_LEVEL=warning`. Simulator session-bridge and
+fault-worker flags must stay disabled in the private file and in the reviewed
+Compose application anchor. The sample staging environment now documents
+these synthetic-only, no-external-delivery settings. Negative tests cover
+database URL redirection, alternate Compose/daemon context, mail delivery,
+debug logging, missing logging values and enabled source workers.
+
+This is a **static configuration preflight**, not a deployed effective-runtime
+inspection. It does not prevent operators deliberately invoking Docker with
+alternative CLI files or exporting unreviewed shell environment variables;
+reviewed deployment commands and effective-container inspection remain
+separate Agent 4 acceptance gates. No live database, mail transport or
+charger was contacted.

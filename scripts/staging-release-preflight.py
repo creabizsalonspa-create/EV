@@ -28,9 +28,11 @@ DISABLED = (
     'CSMS_REMOTE_AUTHORIZATION_ENABLED', 'OCPI_TEST_COMMANDS_ENABLED',
     'SUBSCRIPTION_COLLECTION_ENABLED', 'PAYOUT_TEST_ENABLED',
     'CSMS_INGRESS_AUTH_ENABLED', 'EV_BATTERY_SIMULATOR_ENABLED',
+    'CSMS_SESSION_BRIDGE_ENABLED', 'CSMS_FAULT_WORKER_ENABLED',
 )
 REQUIRED = ('APP_KEY', 'DB_PASSWORD', 'STAGING_HOST', 'ACME_EMAIL',
-            'STAGING_BIND_IP', 'EV_IMAGE_TAG')
+            'STAGING_BIND_IP', 'EV_IMAGE_TAG',
+            'MAIL_MAILER', 'LOG_CHANNEL', 'LOG_LEVEL')
 POSTGRES_IMAGE = ('postgres:17-alpine@sha256:'
                   '266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b')
 
@@ -111,6 +113,19 @@ def validate_env(data):
     require(data.get('APP_DEBUG', 'false') == 'false', 'APP_DEBUG must be false')
     for key in ('SESSION_ENCRYPT', 'SESSION_SECURE_COOKIE'):
         require(data.get(key, 'true') == 'true', f'{key} must be true')
+    # Laravel's database.php prioritizes DB_URL over DB_HOST. Compose's
+    # explicit DB_HOST does not neutralize an URL inherited from env_file.
+    # Likewise, reject unreviewed Compose and Docker target overrides.
+    for key in ('DB_URL', 'DATABASE_URL', 'COMPOSE_FILE', 'COMPOSE_PROFILES',
+                'COMPOSE_PROJECT_NAME', 'COMPOSE_ENV_FILES',
+                'COMPOSE_DISABLE_ENV_FILE', 'DOCKER_HOST', 'DOCKER_CONTEXT'):
+        require(not data.get(key),
+                f'Unreviewed staging database or deployment override: {key}')
+    for key, expected in (('MAIL_MAILER', 'log'),
+                          ('LOG_CHANNEL', 'stderr'),
+                          ('LOG_LEVEL', 'warning')):
+        require(data.get(key) == expected,
+                f'Unsafe staging notification or logging setting: {key}')
 
 def extract_services(compose):
     match = re.search(r'^services:\s*$', compose, re.M)
