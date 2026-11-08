@@ -172,6 +172,24 @@
             "History refresh uncertain. Check history or retry the identical report.");
           return;
         }
+        // Successful HTTP/refresh responses are insufficient unless BOTH
+        // authoritative readbacks contain this exact user observation.
+        const expectedRevision=Number(request.expected_revision)+1;
+        const confirmed=Number.isInteger(expectedRevision) &&
+          refreshed?.vehicle_id===vehicleId &&
+          refreshed.revision===expectedRevision &&
+          refreshed.battery_percent===request.battery_percent &&
+          history?.data?.some(row=>
+            row.vehicle_id===vehicleId &&
+            row.revision===expectedRevision &&
+            row.battery_percent===request.battery_percent &&
+            row.source==="CUSTOMER_MANUAL_SELF_REPORT");
+        if(!confirmed){
+          render();
+          status(ar()?"لم يتم تأكيد التقرير من القراءة والسجل. أعد نفس التقرير." :
+            "Result uncertain. Current reading/history did not confirm this report; retry the same report.");
+          return;
+        }
         pending=null;
         render(); // The successful report must no longer offer a replay button.
         status(ar()?"تم حفظ التقرير اليدوي." : "Manual report saved.");

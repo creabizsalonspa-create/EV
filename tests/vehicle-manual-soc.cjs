@@ -48,6 +48,7 @@ const api=async(path,method,body)=>{
       await new Promise(resolve=>{releaseSource5=resolve;});
     }
     return {
+      vehicle_id:5,
       battery_percent:latest===0?null:latest,revision:latest===0?0:1,
       reported_at:latest===0?null:'server timestamp',
       source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,
@@ -59,14 +60,15 @@ const api=async(path,method,body)=>{
       deferSource6=false;
       await new Promise(resolve=>{releaseSource6=resolve;});
     }
-    return {battery_percent:null,revision:0,reported_at:null,
+    return {vehicle_id:6,battery_percent:null,revision:0,reported_at:null,
       source:'CUSTOMER_MANUAL_SELF_REPORT',measured_by_phone:false,
       measured_by_vehicle_api:false,charging_capability_verified:false};
   }
   if(path==='vehicles/6/manual-soc/history?page=1')
     return {data:[],last_page:1,current_page:1};
   if(path==='vehicles/5/manual-soc/history?page=1')return {
-    data:latest===0?[]:[{battery_percent:latest,revision:1,reported_at:'server timestamp'}],
+    data:latest===0?[]:[{vehicle_id:5,battery_percent:latest,revision:1,
+      reported_at:'server timestamp',source:'CUSTOMER_MANUAL_SELF_REPORT'}],
     last_page:1,current_page:1,
   };
   throw Error('unexpected endpoint '+path);
@@ -145,11 +147,12 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
         readbackFailsOnce=false;
         throw Error('readback unavailable after successful POST');
       }
-      return {battery_percent:accepted?61:null,revision:accepted?1:0,
+      return {vehicle_id:8,battery_percent:accepted?61:null,revision:accepted?1:0,
         reported_at:accepted?'server timestamp':null,source:'CUSTOMER_MANUAL_SELF_REPORT'};
     }
     if(path==='vehicles/8/manual-soc/history?page=1')return {
-      data:accepted?[{battery_percent:61,revision:1,reported_at:'server timestamp'}]:[],
+      data:accepted?[{vehicle_id:8,battery_percent:61,revision:1,
+        reported_at:'server timestamp',source:'CUSTOMER_MANUAL_SELF_REPORT'}]:[],
       current_page:1,last_page:1,
     };
     throw Error('unexpected uncertain readback endpoint '+path);
@@ -176,6 +179,60 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   const doneRetry=find(retryRoot,n=>n.tag==='button'&&visible(n).includes('Retry the same report'));
   assert.equal(doneRetry.disabled,true,'Successful readback must clear the pending retry');
   retryView.clear();
+
+  // A successful HTTP read that returns stale current or incomplete history
+  // must not claim confirmation or generate a second manual observation.
+  for (const defect of ['stale-current','missing-history']) {
+    const probeRoot=document.createElement('section');
+    const probeActor={id:90,role:'customer'};
+    let accepted=false,badOnce=true;
+    const attempts=[];
+    const probeApi=async(path,method,body)=>{
+      if(path==='vehicles/9/manual-soc'&&method==='POST'){
+        attempts.push(JSON.parse(JSON.stringify(body)));
+        accepted=true;
+        return {vehicle_id:9,battery_percent:43,revision:1,
+          source:'CUSTOMER_MANUAL_SELF_REPORT'};
+      }
+      if(path==='vehicles/9/manual-soc'){
+        const stale=accepted&&defect==='stale-current'&&badOnce;
+        if(stale)badOnce=false;
+        return {vehicle_id:9,battery_percent:accepted&&!stale?43:null,
+          revision:accepted&&!stale?1:0,reported_at:accepted?'server timestamp':null,
+          source:'CUSTOMER_MANUAL_SELF_REPORT',
+          measured_by_phone:false,measured_by_vehicle_api:false,
+          charging_capability_verified:false};
+      }
+      if(path==='vehicles/9/manual-soc/history?page=1'){
+        const missing=accepted&&defect==='missing-history'&&badOnce;
+        if(missing)badOnce=false;
+        return {data:accepted&&!missing?[{vehicle_id:9,battery_percent:43,
+          revision:1,reported_at:'server timestamp',
+          source:'CUSTOMER_MANUAL_SELF_REPORT'}]:[],
+          current_page:1,last_page:1};
+      }
+      throw Error('Unexpected probe endpoint '+path);
+    };
+    const probe=window.VehicleManualSoc.create({
+      root:probeRoot,api:probeApi,actor:()=>probeActor,epoch:()=>1,
+    });
+    probe.setActor(probeActor);
+    probe.renderGarage([{id:9,name:'Confirmation probe'}]);
+    await probe.open({id:9,name:'Confirmation probe'});
+    const probeForm=find(probeRoot,n=>n.tag==='form');
+    find(probeForm,n=>n.name==='battery_percent').value='43';
+    await probeForm.onsubmit({preventDefault(){}});
+    assert.equal(attempts.length,1);
+    assert.match(visible(probeRoot),/Result uncertain/,
+      defect+' readback must never claim a saved report');
+    const probeRetry=find(probeRoot,n=>n.tag==='button'&&visible(n).includes('Retry the same report'));
+    assert.equal(probeRetry.disabled,false);
+    await probeRetry.onclick();
+    assert.equal(attempts.length,2);
+    assert.deepEqual(attempts[0],attempts[1],defect+' retry changed operation identity');
+    assert.match(visible(probeRoot),/Manual report saved/);
+    probe.clear();
+  }
   // A reused identity object across a new auth epoch must clear old DOM and
   // pending report forms, even before platform code allocates a new actor.
   view.renderGarage([{id:6,name:'Reused account car'}]);
