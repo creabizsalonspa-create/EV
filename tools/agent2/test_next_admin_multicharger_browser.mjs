@@ -27,7 +27,7 @@ const sourceB='507f1f77bcf86cd799439014';
 const chargerA='AGENT2-STATION-CHARGER-A';
 const chargerB='AGENT2-STATION-CHARGER-B';
 const fakeToken='A1B2C3D4E5F60718293A';
-let stage=0,requestAuthorizationCount=0;
+let stage=0,requestAuthorizationCount=0,registryReview=false;
 let issuedTo=null;
 let auditPageFailure=true;
 let holdIssueResponse=false,issueResponseRelease=null,failIssueResponse=false,issueRequests=0;
@@ -38,6 +38,14 @@ function result(data,status=200){
   body:JSON.stringify({status:'Success',data})};
 }
 function operations(){
+ if(registryReview)return {bookingId:id,stationId:station,bookingStatus:'Upcoming',
+  bookingPrepaymentRecorded:true,arrivalRecorded:true,approvedChargerId:null,
+  selectedChargerId:null,approvedChargers:[],requiresChargerSelection:false,
+  authorizationIssued:false,sourceSessionId:null,sourceTransactionId:null,
+  sourceVerified:false,meterVerified:false,sourceEnded:false,energyKwh:null,
+  calculatedUnpaidAed:null,paymentStatus:null,canIssueToken:false,canReissueToken:false,
+  canBindSource:false,canFinalizeSource:false,needsPaymentReconciliation:false,
+  chargerRegistryReviewRequired:true};
  return {
   bookingId:id,stationId:station,
   bookingStatus:stage===3?'Completed':'Upcoming',
@@ -323,6 +331,20 @@ try{
    assert.equal(enabled,false);
    assert.equal(await page.$('button[aria-label="Copy one-time token"]'),null);
    assert.equal(issueRequests-beforeUncertain,1);
+ });
+ await page.click('button[aria-label="Close OCPP operations"]');
+ registryReview=true;stage=0;failIssueResponse=false;
+ const beforeRegistryReview=issueRequests;
+ await page.goto(base+'/bookings',{waitUntil:'networkidle2'});
+ await page.waitForSelector('button[aria-label^="OCPP operations"]');
+ await page.click('button[aria-label^="OCPP operations"]');
+ await step('malformed charger registry explains review and cannot issue a credential',async()=>{
+   await page.waitForFunction(()=>document.body.innerText.includes('protocol records need operator review'));
+   assert.equal(await page.$('select[aria-label="Select booking charger"]'),null);
+   const actionable=await page.evaluate(()=>[...document.querySelectorAll('button')].some(x=>
+     (x.textContent?.includes('Issue one-time authorization token')||x.textContent?.includes('Reissue expired unused token'))&&!x.disabled));
+   assert.equal(actionable,false);assert.equal(issueRequests,beforeRegistryReview);
+   assert.equal((await page.content()).includes(fakeToken),false);
  });
  await page.close();
  console.log('STAGED_NEXT_ADMIN_BROWSER_TESTS_PASSED '+passed);

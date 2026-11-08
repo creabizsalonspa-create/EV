@@ -21,7 +21,8 @@ export function sourceResourceScope(source){
    connectorId:source?.connectorId,evseId:source?.protocol==='ocpp1.6'?null:source?.evseId});
 }
 export function selectBookingResourceScope(booking,charger,body={}){
- if(!body || typeof body!=='object' || Array.isArray(body))return {ok:false,scope:null};
+ if(!body || typeof body!=='object' || Array.isArray(body) ||
+    !['ocpp1.6','ocpp2.0.1'].includes(charger?.protocol))return {ok:false,scope:null};
  const pinned=booking?.ocppResourceScope;
  const supplied=Object.hasOwn(body,'resourceScope');
  const requested=supplied?normalizeResourceScope(body.resourceScope):null;
@@ -30,7 +31,7 @@ export function selectBookingResourceScope(booking,charger,body={}){
     (pinned!=null && supplied && !sameResourceScope(pinned,requested)))
    return {ok:false,scope:null};
  const scope=pinned!=null?normalizeResourceScope(pinned):requested;
- if(scope && scope.protocol!==(charger?.protocol||'ocpp1.6'))return {ok:false,scope:null};
+ if(scope && scope.protocol!==charger.protocol)return {ok:false,scope:null};
  return {ok:true,scope};
 }
 /** Missing scope is legacy charger-wide authority, never connector verified. */

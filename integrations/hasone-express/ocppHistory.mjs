@@ -22,7 +22,7 @@ export function presentOcppHistory({link,booking,charger,source}){
  const proof=mapped && booking.isPaid===true && booking.hasArrived===true
    ?verifyOcppSource(source,{sourceId:link.sourceSessionId,
       chargerId:link.sourceChargerId,transactionId:link.sourceTransactionId,
-      tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null}):null;
+      tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,chargerRecord:charger}):null;
  const meter=proof?.meterVerified===true;
  const verified=proof?.sourceVerified===true;
  const start=verified?new Date(source.startedAt):null;

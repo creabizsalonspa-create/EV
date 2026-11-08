@@ -38,6 +38,10 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
       || !same(source.chargerId,chargerId) || !same(source.transactionId,transactionId)
       || !['ocpp1.6','ocpp2.0.1'].includes(source.protocol)
       || !['active','ended'].includes(source.status)) return null;
+  // A known registered protocol must agree with the observed source. Never
+  // upgrade a missing/changed registry protocol from token or device claims.
+  if(chargerRecord!==null && (!chargerRecord || chargerRecord.chargerId!==chargerId ||
+      chargerRecord.protocol!==source.protocol))return null;
   const field=source.protocol==='ocpp1.6'?'idTagHash':'idTokenHash';
   if(source[field]!==tokenHash) return null;
   const observedScope=sourceResourceScope(source);

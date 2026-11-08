@@ -1559,6 +1559,24 @@ try{
     assert.equal((await request('PUT','/api/v1/Bookings/'+id+'/cancel',{},true)).code,200);
     assert.equal((await BookingModel.findById(id)).reservedChargerId,choiceB);
   });
+  await check('Admin cannot invent protocol authority from malformed approved registry metadata',async()=>{
+    await BookingModel.updateOne({_id:customerChoiceBooking._id},{$set:{isPaid:true,hasArrived:true}});
+    const path='/api/v1/admin/bookings/'+customerChoiceBooking._id+'/ocpp/';
+    const tokenCount=await db.collection('ocpp_access_tokens').countDocuments({chargerId:choiceB});
+    await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$unset:{protocol:''}});
+    try{
+      const operations=await request('GET',path+'operations',undefined,false,{authorization:adminBearer});
+      assert.equal(operations.code,200);assert.equal(operations.body.data.chargerRegistryReviewRequired,true);
+      assert.equal(operations.body.data.canIssueToken,false);assert.deepEqual(operations.body.data.approvedChargers,[]);
+      const denied=await request('POST',path+'issue-token',{chargerId:choiceB,protocol:'ocpp1.6'},false,{authorization:adminBearer});
+      assert.equal(denied.code,409);assert.match(denied.body.message,/protocol records require operator review/);
+      assert.ok(!(await BookingModel.findById(customerChoiceBooking._id)).ocppTokenHash);
+      assert.equal(await db.collection('ocpp_access_tokens').countDocuments({chargerId:choiceB}),tokenCount);
+      const listing=await request('GET','/api/v1/admin/stations/'+customerChoiceStation._id+'/ocpp/chargers',undefined,false,{authorization:adminBearer});
+      const charger=listing.body.data.chargers.find(c=>c.chargerId===choiceB);
+      assert.equal(charger.protocol,null);assert.equal(charger.protocolReviewRequired,true);
+    }finally{await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$set:{protocol:'ocpp2.0.1'}});}
+  });
   await check('Admin cannot redirect customer charger choice and matching authorization retains it',async()=>{
     await BookingModel.updateOne({_id:customerChoiceBooking._id},{$set:{isPaid:true,hasArrived:true}});
     const path='/api/v1/admin/bookings/'+customerChoiceBooking._id+'/ocpp/';
@@ -1576,10 +1594,23 @@ try{
       evse:{id:1,connectorId:1},timestamp:new Date().toISOString(),meterValue:meter(1000)});
     const observed=await db.collection('ocpp_sessions').findOne({chargerId:choiceB,transactionId:tx});
     assert.ok(observed);
+    await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$set:{protocol:'ocpp1.6'}});
+    try{
+      const denied=await request('POST',path+'bind-source',{sourceSessionId:String(observed._id)},false,{authorization:adminBearer});
+      assert.equal(denied.code,409);
+      assert.equal(await ChargingSessionModel.countDocuments({bookingId:customerChoiceBooking._id,sourceType:'ocpp'}),0);
+    }finally{await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$set:{protocol:'ocpp2.0.1'}});}
     const linked=await request('POST',path+'bind-source',{sourceSessionId:String(observed._id)},false,{authorization:adminBearer});
     assert.equal(linked.code,200);
     const statusUrl='/api/v1/ChargingSession/'+linked.body.data.sessionId+'/status';
     assert.equal((await request('GET',statusUrl,undefined,true)).body.data.sourceVerified,true);
+    await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$set:{protocol:'ocpp1.6'}});
+    try{
+      assert.equal((await request('GET',statusUrl,undefined,true)).body.data.sourceVerified,false);
+      const redacted=await request('GET','/api/v1/ChargingSession/history/'+linked.body.data.sessionId,undefined,true);
+      assert.equal(redacted.body.data.sourceVerified,false);assert.equal(redacted.body.data.energyWh,null);
+      assert.equal(redacted.body.data.totalFils,null);
+    }finally{await db.collection('ocpp_chargers').updateOne({chargerId:choiceB},{$set:{protocol:'ocpp2.0.1'}});}
     await BookingModel.updateOne({_id:customerChoiceBooking._id},{$set:{reservedChargerId:choiceA}});
     assert.equal((await request('GET',statusUrl,undefined,true)).body.data.sourceVerified,false);
     const history=await request('GET','/api/v1/ChargingSession/history/'+linked.body.data.sessionId,undefined,true);

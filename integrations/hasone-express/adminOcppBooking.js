@@ -17,7 +17,7 @@ const fail=(res,code,message)=>res.status(code).json({status:'fail',message});
 const validHash=value=>typeof value==='string' && /^[a-f0-9]{64}$/i.test(value);
 const chargersFor=async booking=>mongoose.connection.db.collection('ocpp_chargers')
   .find({stationId:String(booking.stationId),enabled:true})
-  .sort({chargerId:1}).toArray();
+  .sort({chargerId:1}).limit(129).toArray();
 const chargerSelection=async (booking, requestedId='')=>chooseBookingCharger({
   bookedChargerId:booking.ocppChargerId||'',reservedChargerId:booking.reservedChargerId||'',requestChargerId:requestedId,
   chargers:await chargersFor(booking)
@@ -61,7 +61,9 @@ export async function AdminIssueBookingOcppToken(req,res){
   if(!charger)
    return fail(res,409,selected.reason==='explicit_selection_required'
      ? 'Select a specific approved charger for this multi-charger station.'
-     : 'Requested charger is unavailable or does not match this booking.');
+     : selected.reason==='approved_charger_registry_requires_review'
+       ? 'Approved charger identity or protocol records require operator review.'
+       : 'Requested charger is unavailable or does not match this booking.');
   const resource=selectBookingResourceScope(booking,charger,req.body||{});
   if(!resource.ok)return fail(res,409,'Connector scope does not match the pinned booking and charger protocol');
   const token=createOcppBookingToken();
@@ -350,7 +352,7 @@ export async function AdminGetBookingOcppOperations(req,res){
   if(!booking)return fail(res,404,'Booking not found');
   const candidates=await chargersFor(booking);
   const selection=chooseBookingCharger({
-    bookedChargerId:booking.ocppChargerId||'',chargers:candidates
+    bookedChargerId:booking.ocppChargerId||'',reservedChargerId:booking.reservedChargerId||'',chargers:candidates
   });
   const charger=selection.charger;
   const authorized=validHash(booking.ocppTokenHash);
@@ -380,7 +382,7 @@ export async function AdminGetBookingOcppOperations(req,res){
       && proof?.sessionEnded && proof.totalFils!==null
       && proof.billingStatus==='calculated_unpaid');
   const canIssue=eligible && booking.status==='Upcoming'
-    && selection.choices.length>0 && !authorized;
+    && !authorized && (!!charger || selection.reason==='explicit_selection_required');
   return res.status(200).json({status:'Success',data:{
     bookingId:String(booking._id),stationId:String(booking.stationId),
     bookingStatus:booking.status,bookingPrepaymentRecorded:!!booking.isPaid,
@@ -389,7 +391,7 @@ export async function AdminGetBookingOcppOperations(req,res){
     reservedChargerId:booking.reservedChargerId||null,
     requiresChargerSelection:!booking.ocppChargerId && !booking.reservedChargerId && selection.choices.length>1,
     approvedChargers:selection.choices.map(c=>({
-      chargerId:c.chargerId,protocol:c.protocol||'ocpp1.6',
+      chargerId:c.chargerId,protocol:c.protocol,
       online:!!c.online && !!c.lastSeenAt &&
         Date.now()-new Date(c.lastSeenAt).getTime()<120000
     })),
@@ -411,6 +413,7 @@ export async function AdminGetBookingOcppOperations(req,res){
     calculatedUnpaidAed:proof?.totalFils===null||!proof?null:proof.totalFils/100,
     provisionalUnpaidAed:proof?.provisionalCostVerified?proof.provisionalTotalFils/100:null,
     paymentStatus:proof?.sourceVerified?'not_collected':null,
+    chargerRegistryReviewRequired:selection.reason==='approved_charger_registry_requires_review',
     canIssueToken:canIssue,
     canReissueToken:canReissue,
     canBindSource:eligible && !!charger && authorized &&

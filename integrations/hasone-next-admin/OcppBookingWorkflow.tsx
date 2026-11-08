@@ -23,6 +23,7 @@ type OpState={
   sourceVerified:boolean;meterVerified:boolean;sourceEnded:boolean;
   sourceEnd?:{reason:string|null;reviewRequired:boolean}|null;
   connectorObservation?:unknown;provisionalUnpaidAed?:number|null;
+  chargerRegistryReviewRequired?:boolean;
   energyKwh:number|null;calculatedUnpaidAed:number|null;
   paymentStatus:string|null;canIssueToken:boolean;canReissueToken:boolean;
   canBindSource:boolean;canFinalizeSource:boolean;
@@ -401,6 +402,8 @@ export default function OcppBookingWorkflow({
                         (state.approvedChargers.length>1?"Select below":"No approved charger")}</strong>.
                       A paid, arrived Upcoming booking and approved charger are required.
                     </p>
+                    {state.chargerRegistryReviewRequired===true&&
+                      <p role="alert" className="text-sm text-amber-600">Approved charger identity or protocol records need operator review. Authorization is unavailable until the records are corrected.</p>}
                     {state.approvedChargers.length>0&&(
                       <label className="block text-xs font-semibold">Booking charger
                         <select aria-label="Select booking charger" className={inputClass+" mt-1"}

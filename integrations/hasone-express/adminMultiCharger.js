@@ -33,7 +33,8 @@ async function stationFrom(req,res) {
 function publicCharger(c){
   const online=!!c.online && !!c.lastSeenAt &&
     Date.now()-new Date(c.lastSeenAt).getTime()<120000;
-  return {chargerId:c.chargerId,protocol:c.protocol||'ocpp1.6',
+  return {chargerId:c.chargerId,protocol:['ocpp1.6','ocpp2.0.1'].includes(c.protocol)?c.protocol:null,
+    protocolReviewRequired:!['ocpp1.6','ocpp2.0.1'].includes(c.protocol),
     enabled:c.enabled===true,online,controlApproved:c.controlApproved===true,
     lastSeenAt:c.lastSeenAt??null,connectorStatuses:c.connectors??{},
     monitoringOnly:c.controlApproved!==true};
@@ -57,7 +58,7 @@ export async function AdminProvisionStationOcppCharger(req,res){
   res.set('Cache-Control','no-store');
   try{
     const station=await stationFrom(req,res);if(!station)return;
-    const protocol=req.body?.protocol||'ocpp1.6';
+    const protocol=req.body?.protocol;
     const chargerId=req.body?.chargerId;
     if(!['ocpp1.6','ocpp2.0.1'].includes(protocol) || !validId(chargerId))
       return fail(res,400,'Specify a valid chargerId and OCPP protocol.');

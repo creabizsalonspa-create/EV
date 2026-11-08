@@ -1,5 +1,46 @@
 # Agent 2 standing continuation checkpoint
 
+## Current verified protocol/fault checkpoint — November 8, 2026
+
+This supersedes the earlier offline/partial checkpoint below. The authorized host
+reconnected; final source blobs now match full tested backend/native copies.
+Read docs/evidence/agent2-protocol-qualified-faults/validation.json for manifests and restricted-log digests.
+
+Admin registration and token issuance/reissue require explicit registered OCPP
+protocols. Missing/unsupported/duplicate/invalid active registry records cannot
+silently become OCPP1.6 or a different charger. Operations respects the customer
+reserved charger before a token pin and does not offer issuance for conflicting
+or removed pins. Registry review is explicit. Source registry protocol must match
+before binding/status/history discloses telemetry or costs. Qualified disabled
+charger history remains accessible; changed/unknown protocol history is redacted.
+
+The ongoing connector-fault batch is fully rerun: exact active source/resource,
+server accepted-start and status receipt timestamps, bounded report age/stale
+state and EN/AR operator review; no live availability/energy-flow claims. A known
+authorized source can bind before a meter, with null missing energy/cost and no
+billing finalization or controls. Fault never stops/restarts/finalizes/collects.
+
+Verified:154 Node (including15 shipped-controller/persistence-adapter cases),6
+synthetic gateway patch-contract tests,13 callback HTTP,147 actual disposable
+backend/OCPP,14 mocked Admin Chrome,13 actual-API Chrome, Next TypeScript/build.
+Backend plus actual browser or actual native148. Flutter61 pass/4 default opt-in
+skips;10 actual API/native checks passed separately across8 invocations. Five
+changed native files analyze cleanly. No test assertions or production safeguards
+were weakened.
+
+Isolated PR78 combination atc3a5d19990123dbe32c8404e2f7c80f4aa66c612 passes81
+Flutter tests/4 skips and11-file targeted analysis. Combined app tree:
+36ded03ea47d0daa586334b09ac128bc0b785286. All72 backend,111 native and113 combined
+source/config blobs match. This is compatibility evidence, not a branch merge or
+Android/iOS build. Production files/data/indexes, hardware and PSPs untouched.
+
+Next: preserve paired #50/#52/#70 and coordinate #78 through Agent4; complete
+required exact-head hosted/native gates and agree canonical independent-resource
+inventory/capacity/expiry, audited calendar migration, paid reschedule and source
+authority contracts. Existing station-wide unique index remains unchanged.
+No whole-atom/percentage increase, full assigned completion or external acceptance
+is claimed. Local SDK is absent; the authorized verification host supplies Flutter.
+
 ## Current connector-fault draft checkpoint — November 8, 2026
 
 This section supersedes older environment/next-task notes below. The fault batch

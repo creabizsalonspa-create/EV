@@ -143,11 +143,18 @@ test('source-qualified connector fault does not fabricate missing meter or cost'
  const now=new Date('2026-11-08T01:00:00Z');
  const source={...doc(),status:'active',connectorId:2,startedAt:new Date(now-600000),startedReceivedAt:new Date(now-600000),
    meterStartWh:null,meterLastWh:null,energyWh:null,energyKwh:null};
- const chargerRecord={chargerId:charger,enabled:true,connectors:{'0_2':{
+ const chargerRecord={chargerId:charger,protocol:'ocpp1.6',enabled:true,connectors:{'0_2':{
    protocol:'ocpp1.6',connectorId:2,evseId:null,status:'Faulted',receivedAt:new Date(now-30000)}}};
  const out=verifyOcppSource(source,{...binding(),now,chargerRecord});
  assert.equal(out.sourceVerified,true);assert.equal(out.meterVerified,false);
  assert.equal(out.energyWh,null);assert.equal(out.totalFils,null);assert.equal(out.provisionalCostVerified,false);
  assert.equal(out.connectorObservation.status,'Faulted');
  assert.equal(out.connectorObservation.receiptAgeSeconds,30);
+});
+
+test('explicit charger registry protocol must agree with the source independently of token hash',()=>{
+ for(const protocol of [undefined,null,'',false,'ocpp2.0.1','ocpp9'])
+  assert.equal(verifyOcppSource(doc(),{...binding(),chargerRecord:{chargerId:charger,protocol}}),null);
+ assert.equal(verifyOcppSource(doc(),{...binding(),chargerRecord:{chargerId:'wrong',protocol:'ocpp1.6'}}),null);
+ assert.equal(verifyOcppSource(doc(),{...binding(),chargerRecord:{chargerId:charger,protocol:'ocpp1.6'}}).sourceVerified,true);
 });

@@ -22,7 +22,7 @@ test('an assigned connector cannot be silently switched or downgraded',()=>{
  assert.equal(selectBookingResourceScope({ocppResourceScope:{}},charger,{}).ok,false);
 });
 test('legacy authority is explicitly unscoped; only a valid explicit selection upgrades it',()=>{
- assert.deepEqual(selectBookingResourceScope({},{}),{ok:true,scope:null});
+ assert.deepEqual(selectBookingResourceScope({},{protocol:'ocpp1.6'}),{ok:true,scope:null});
  assert.deepEqual(selectBookingResourceScope({},{protocol:'ocpp1.6'},{resourceScope:one}),
    {ok:true,scope:one});
  assert.equal(selectBookingResourceScope({}, {}, []).ok,false);
@@ -52,4 +52,11 @@ test('source proof requires the booking-selected connector before disclosing met
  assert.equal(verifyOcppSource({...source,evseId:4},binding),null);
  const legacy=verifyOcppSource(source,{...binding,resourceScope:null});
  assert.equal(legacy.resourceVerified,false);assert.equal(legacy.resourceScope,null);
+});
+
+test('both scoped and legacy unscoped token issuance require an explicit registered protocol',()=>{
+ for(const protocol of [undefined,null,'',false,'OCPP1.6','ocpp9']) {
+  for(const body of [{},{resourceScope:one},{resourceScope:two}])
+   assert.deepEqual(selectBookingResourceScope({},{protocol},body),{ok:false,scope:null});
+ }
 });

@@ -10,7 +10,7 @@ async function rowFor(link){
  const db=mongoose.connection.db;
  const charger=await db.collection('ocpp_chargers').findOne({
    stationId:String(booking.stationId),chargerId:booking.ocppChargerId
- },{projection:{stationId:1,chargerId:1,enabled:1}});
+ },{projection:{stationId:1,chargerId:1,protocol:1,enabled:1}});
  const source=validId(link.sourceSessionId)?await db.collection('ocpp_sessions').findOne({
    _id:new mongoose.Types.ObjectId(link.sourceSessionId),
    chargerId:link.sourceChargerId

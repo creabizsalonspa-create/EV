@@ -8,7 +8,7 @@ const fixture=()=>({
    sourceSessionId:sid,sourceChargerId:'charger-A',sourceTransactionId:'tx-A'},
  booking:{_id:bid,userId:'user-A',stationId:'station-A',stationName:'Test',
    ocppChargerId:'charger-A',ocppTokenHash:token,isPaid:true,hasArrived:true},
- charger:{stationId:'station-A',chargerId:'charger-A',enabled:true},
+ charger:{stationId:'station-A',chargerId:'charger-A',protocol:'ocpp1.6',enabled:true},
  source:{_id:sid,chargerId:'charger-A',transactionId:'tx-A',protocol:'ocpp1.6',
    idTagHash:token,startedAt:'2026-11-07T00:00:00Z',endedAt:'2026-11-07T00:10:00Z',
    status:'ended',meterStartWh:1000,meterLastWh:6000,energyWh:5000,energyKwh:5,
@@ -63,4 +63,14 @@ test('history query accepts only bounded page size and immutable record cursor',
  for(const query of [{limit:'0'},{limit:'101'},{limit:['2']},{cursor:{$gt:sid}},
    {cursor:'bad'},{userId:'someone-else'},{limit:'2.5'}])
    assert.throws(()=>parseHistoryPage(query));
+});
+
+test('missing or changed approved protocol retains only a redacted history review row',()=>{
+ for(const protocol of [undefined,null,'ocpp2.0.1','unsupported']) {
+  const data=fixture();data.charger.protocol=protocol;
+  const row=presentOcppHistory(data);
+  assert.equal(row.sourceVerified,false);assert.equal(row.state,'unverified');
+  assert.equal(row.energyKwh,null);assert.equal(row.totalFils,null);
+  assert.equal(row.transactionId,null);assert.equal(row.reviewReason,'source_evidence_unverified');
+ }
 });

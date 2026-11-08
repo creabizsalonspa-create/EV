@@ -6,8 +6,18 @@
  */
 const safeChargerId = id=>typeof id==="string" && /^[A-Za-z0-9_-]{1,64}$/.test(id);
 export function chooseBookingCharger({bookedChargerId="",reservedChargerId="",requestChargerId="",chargers=[]}={}){
-  const active=chargers.filter(c=>c?.enabled===true && safeChargerId(c.chargerId));
-  const unique=new Map(active.map(c=>[c.chargerId,c]));
+  if(!Array.isArray(chargers) || chargers.length>128)
+    return {charger:null,reason:"approved_charger_registry_requires_review",choices:[]};
+  const active=chargers.filter(c=>c?.enabled===true);
+  const unique=new Map();
+  for(const charger of active){
+    // Do not discard malformed active records and silently choose a different
+    // charger, or guess a protocol for authorization. Operator review is needed.
+    if(!safeChargerId(charger.chargerId) ||
+        !["ocpp1.6","ocpp2.0.1"].includes(charger.protocol) || unique.has(charger.chargerId))
+      return {charger:null,reason:"approved_charger_registry_requires_review",choices:[]};
+    unique.set(charger.chargerId,charger);
+  }
   const choices=[...unique.values()].sort((a,b)=>a.chargerId.localeCompare(b.chargerId));
   if(reservedChargerId && (!safeChargerId(reservedChargerId)||
       (bookedChargerId && bookedChargerId!==reservedChargerId)))
