@@ -79,11 +79,13 @@
         option.value = v; option.textContent = ar() ? ownLabel(v)[1] : ownLabel(v)[0];
         type.append(option);
       }
+      if (pending) type.value = pending.body.request_type;
       typeLabel.append(type); form.append(typeLabel);
       const reasonLabel = document.createElement("label");
       reasonLabel.append(text("Optional explanation (up to 500 characters)", "توضيح اختياري (حتى ٥٠٠ حرف)"));
       const reason = document.createElement("textarea");
       reason.name = "reason"; reason.maxLength = 500; reason.rows = 3;
+      if (pending) reason.value = pending.body.reason || "";
       reasonLabel.append(reason); form.append(reasonLabel);
       const consentLabel = document.createElement("label");
       const consent = document.createElement("input"); consent.type = "checkbox"; consent.required = true;
@@ -109,10 +111,19 @@
         submit.disabled = true;
         errorOn(selfRoot, ar() ? "جارٍ إرسال الطلب..." : "Submitting request…");
         try {
-          await api("privacy-requests", "POST", {...pending.body, idempotency_key:pending.id});
+          const recorded = await api("privacy-requests", "POST", {...pending.body, idempotency_key:pending.id});
           if (!alive(owner, ticket)) return;
-          pending = null;
-          await refreshMine(1);
+          // A successful write followed by a failed read must retain the
+          // original idempotency key. Only clear it after the committed row
+          // has been observed again in the authoritative account list.
+          const refreshed = await refreshMine(1);
+          if (recorded && refreshed?.some(row => String(row.id) === String(recorded.id))) {
+            pending = null;
+          } else if (actor() === owner) {
+            errorOn(selfRoot, ar()
+              ? "تم إرسال الطلب، لكن التحقق من القائمة فشل. أعد محاولة الطلب نفسه."
+              : "Request may be recorded, but list verification failed. Retry the same request.");
+          }
         } catch (e) {
           if (alive(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
         } finally {submit.disabled = false;}
@@ -134,8 +145,10 @@
         }
         if (ownPage > 1) selfRoot.append(btn("Previous", "السابق", () => refreshMine(ownPage - 1)));
         if (ownPage < result.last_page) selfRoot.append(btn("Next", "التالي", () => refreshMine(ownPage + 1)));
+        return result.data || [];
       } catch (e) {
         if (alive(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
+        return null;
       }
     }
     async function refreshAdmin(target = adminPage) {
