@@ -399,17 +399,78 @@ window.createVendorWorkspace = ({
                 ],
                 (v, f, e) => upload(company, v, f, e, current),
             );
-            button(host, "Submit for internal review", async () => {
-                const c = await api(
-                    base + "companies/" + company.id + "/submit",
-                    "POST",
-                );
-                if (current())
-                    await detail({
-                        ...c,
-                        capabilities: c.capabilities || caps,
-                    });
-            });
+            // Listing metadata cannot establish whether the private trade
+            // license can still be read and verified. Check fresh server
+            // readiness before enabling a submit action in this view.
+            const readinessNotice = ui("p", "Checking trade-license evidence…");
+            host.append(readinessNotice);
+            const submitButton = button(
+                host,
+                "Submit for internal review",
+                async () => {
+                    const c = await api(
+                        base + "companies/" + company.id + "/submit",
+                        "POST",
+                    );
+                    if (current())
+                        await detail({
+                            ...c,
+                            capabilities: c.capabilities || caps,
+                        });
+                },
+            );
+            submitButton.disabled = true;
+            void (async () => {
+                try {
+                    const latest = await api(
+                        base + "companies/" + company.id,
+                        "GET",
+                        undefined,
+                        controller?.signal,
+                    );
+                    if (!current()) return;
+                    const ready = latest?.submission_readiness;
+                    if (!ready || ready.editable !== true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Company details changed. Refresh to continue.",
+                        );
+                    } else if (ready.trade_license_present !== true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Upload trade-license evidence before submitting.",
+                        );
+                    } else if (ready.license_valid !== true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Update the expired trade-license details before submitting.",
+                        );
+                    } else if (ready.trade_license_integrity_valid !== true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Trade-license evidence is unavailable or failed integrity verification. Upload a replacement.",
+                        );
+                    } else if (ready.can_submit === true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Trade-license evidence is ready for manual review.",
+                        );
+                        submitButton.disabled = false;
+                    } else {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Company is not ready for submission. Refresh to check again.",
+                        );
+                    }
+                } catch (error) {
+                    if (current()) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Unable to verify submission readiness. Refresh company to retry.",
+                        );
+                    }
+                }
+            })();
         }
         if (admin) {
             const targets = {
