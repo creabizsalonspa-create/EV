@@ -124,6 +124,66 @@ test('source changes after immutable container review but before release start b
   assert.equal(calls,3);
   assert.deepEqual(fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse).map(x=>x.event),['PREPARED']);
 }));
+test('Compose definition changed during release preflight rejects read-only plan',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);deps.composeFile=path.join(dir,'compose.yaml');
+  fs.writeFileSync(deps.composeFile,'name: ev-staging\nservices:\n  application:\n    image: creabiz-ev-business:old\n',{mode:0o644});
+  deps.effectiveConfig=()=>{
+    fs.writeFileSync(deps.composeFile,fs.readFileSync(deps.composeFile,'utf8').replace('application','applicatioN'));
+    return true;
+  };
+  assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),deps),/Compose definition changed after review/);
+  assert.equal(deps.state.mutations,0);
+}));
+test('Compose definition replaced after PREPARED journal blocks first deployment mutation',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),journalFile=path.join(dir,'compose-swap.jsonl');
+  deps.composeFile=path.join(dir,'compose.yaml');
+  const config='name: ev-staging\nservices:\n  application:\n    image: creabiz-ev-business:old\n';
+  fs.writeFileSync(deps.composeFile,config,{mode:0o644});
+  let heads=0;
+  deps.getHead=()=>{
+    if(++heads===2) {
+      const alternate=path.join(dir,'replacement.yaml');
+      fs.writeFileSync(alternate,config,{mode:0o644});
+      fs.renameSync(alternate,deps.composeFile);
+    }
+    return SHA;
+  };
+  assert.equal(release.main(argv('apply',journalFile),deps),2);
+  assert.equal(deps.state.mutations,0);
+  assert.deepEqual(fs.readFileSync(journalFile,'utf8').trim().split('\n').map(JSON.parse).map(e=>e.event),['PREPARED']);
+}));
+test('Compose mutation during candidate start refuses unsafe automatic rollback',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'compose-after-up.jsonl');
+  deps.composeFile=path.join(dir,'compose.yaml');
+  fs.writeFileSync(deps.composeFile,'name: ev-staging\nservices:\n  application:\n    image: creabiz-ev-business:old\n',{mode:0o644});
+  const original=deps.run;
+  deps.run=(command,args,options)=>{
+    const result=original(command,args,options);
+    if(args.includes('up')&&options.env?.EV_IMAGE_TAG==='new'){
+      fs.writeFileSync(deps.composeFile,fs.readFileSync(deps.composeFile,'utf8').replace('application','applicatioN'));
+    }
+    return result;
+  };
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.equal(deps.state.mutations,1);
+  assert.equal(deps.state.tag,'new');
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.equal(fs.readFileSync(file,'utf8').includes('ROLLBACK_VERIFIED'),false);
+}));
+test('Compose mutation during private HTTPS smoke cannot certify rollout',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'compose-http.jsonl');
+  deps.composeFile=path.join(dir,'compose.yaml');
+  fs.writeFileSync(deps.composeFile,'name: ev-staging\nservices:\n  application:\n    image: creabiz-ev-business:old\n',{mode:0o644});
+  deps.checkHttp=()=>{
+    fs.writeFileSync(deps.composeFile,fs.readFileSync(deps.composeFile,'utf8').replace('application','applicatioN'));
+    return true;
+  };
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.equal(deps.state.mutations,1);
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.equal(fs.readFileSync(file,'utf8').includes('RELEASE_VERIFIED'),false);
+}));
+
 test('private .env changed during offline preflight rejects release plan without Docker',()=>sandbox((dir,envFile)=>{
   const deps=mock(envFile);
   deps.preflight=()=>{

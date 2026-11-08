@@ -70,6 +70,70 @@ function mock(dir){
 }
 const approval='ROLLBACK_PRIVATE_STAGING_'+SHA.slice(0,12);
 function cli(file,token=approval){return ['rollback','--journal',file,'--approval',token];}
+test('manual rollback refuses modified Compose during isolation preflight',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.composeFile=path.join(dir,'compose.yaml');
+  fs.writeFileSync(deps.composeFile,'name: ev-staging\nservices:\n  application:\n    image: creabiz-ev-business:old\n',{mode:0o644});
+  deps.effectiveConfig=()=>{
+    fs.writeFileSync(deps.composeFile,fs.readFileSync(deps.composeFile,'utf8').replace('application','applicatioN'));
+    return true;
+  };
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+  assert.equal(fs.readFileSync(file,'utf8').includes('MANUAL_ROLLBACK_STARTED'),false);
+}));
+test('manual rollback rejects replaced Compose definition before journal transition',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.composeFile=path.join(dir,'compose.yaml');
+  const source='name: ev-staging\nservices:\n  application:\n    image: creabiz-ev-business:old\n';
+  fs.writeFileSync(deps.composeFile,source,{mode:0o644});
+  const original=deps.run;
+  let changed=false;
+  deps.run=(cmd,args,options)=>{
+    const result=original(cmd,args,options);
+    if(args[0]==='image'&&!changed){
+      changed=true;
+      const alternative=path.join(dir,'other.yaml');
+      fs.writeFileSync(alternative,source,{mode:0o644});
+      fs.renameSync(alternative,deps.composeFile);
+    }
+    return result;
+  };
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(changed,true);
+  assert.equal(deps.state.up,0);
+  assert.equal(fs.readFileSync(file,'utf8').includes('MANUAL_ROLLBACK_STARTED'),false);
+}));
+test('manual rollback with changed Compose during up requires operator reconciliation',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir),original=deps.run;
+  deps.composeFile=path.join(dir,'compose.yaml');
+  fs.writeFileSync(deps.composeFile,'name: ev-staging\nservices:\n  application:\n    image: creabiz-ev-business:old\n',{mode:0o644});
+  deps.run=(cmd,args,opts)=>{
+    const result=original(cmd,args,opts);
+    if(args.includes('up')){
+      fs.writeFileSync(deps.composeFile,fs.readFileSync(deps.composeFile,'utf8').replace('application','applicatioN'));
+    }
+    return result;
+  };
+  assert.equal(recovery.main(cli(file),deps),3);
+  assert.equal(deps.state.up,1);
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.equal(fs.readFileSync(file,'utf8').includes('MANUAL_ROLLBACK_VERIFIED'),false);
+}));
+test('manual rollback cannot certify changed Compose after private HTTP probe',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.composeFile=path.join(dir,'compose.yaml');
+  fs.writeFileSync(deps.composeFile,'name: ev-staging\nservices:\n  application:\n    image: creabiz-ev-business:old\n',{mode:0o644});
+  deps.checkHttp=()=>{
+    fs.writeFileSync(deps.composeFile,fs.readFileSync(deps.composeFile,'utf8').replace('application','applicatioN'));
+    return true;
+  };
+  assert.equal(recovery.main(cli(file),deps),3);
+  assert.equal(deps.state.up,1);
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.equal(fs.readFileSync(file,'utf8').includes('MANUAL_ROLLBACK_VERIFIED'),false);
+}));
+
 test('manual rollback refuses .env changed during isolated preflight before Docker mutation',()=>temp(dir=>{
   const file=setup(dir),deps=mock(dir);
   deps.preflight=()=>{

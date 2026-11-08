@@ -12,6 +12,7 @@ fi
 node --check scripts/staging-release.cjs
 node --check scripts/staging-manual-rollback.cjs
 node --check scripts/staging-env-integrity.cjs
+node --check scripts/staging-compose-integrity.cjs
 
 mapfile -d '' cases < <(find tests -maxdepth 1 -type f -name 'staging-*.cjs' -print0 | sort -z)
 if (( ${#cases[@]} < 1 )); then
