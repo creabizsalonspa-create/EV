@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { parseSnapshot, checkSnapshot, localDockerSnapshot } = require('./staging-runtime-gate.cjs');
+const { getCurrentHead } = require('./staging-acceptance.cjs');
 
 const PROJECT = 'ev-staging';
 const ROLES = ['application', 'worker', 'scheduler'];
@@ -84,7 +85,16 @@ function reviewEffectiveCompose(deps={}) {
   const checker=require('./staging-preflight.cjs').checkValues;
   runReview(liveConfig(deps.run||execFileSync,deps.env||process.env),checker);
 }
+function verifyCheckoutSource(config,deps={}) {
+  const head=(deps.getHead||getCurrentHead)();
+  if(head!==config.sha)throw Error('Staging candidate source is not the clean checked-out Git revision');
+  return true;
+}
+
 function inspectPlan(config, deps = {}) {
+  // A self-declared Docker OCI source label is not enough to authorize a
+  // release from an unrelated local Git source or dirty tracked checkout.
+  verifyCheckoutSource(config,deps);
   const run = deps.run || execFileSync, env = deps.env || process.env;
   const dotenv = deps.envFile || envPath;
   assertLocalSafety(dotenv,env);
@@ -288,6 +298,10 @@ function apply(config,deps={}) {
     const target=outputJournal(config.journal);
     const plan=inspectPlan(config,deps);
     const saved=createJournal(target,plan);
+    // Even when the checked-out source was clean during plan review, a
+    // concurrent checkout/commit change must stop before Compose mutation.
+    // Retain the PREPARED-only private journal for operator reconciliation.
+    verifyCheckoutSource(config,deps);
     // If a local tag was re-pointed after plan inspection, refuse before
     // touching application containers. Preserve PREPARED-only journal evidence.
     verifyFormerTag(plan,deps);
@@ -296,6 +310,7 @@ function apply(config,deps={}) {
     // baseline. Fail before the first Compose mutation, keeping PREPARED only.
     verifyRunning(plan.old_ref,plan.old_id,deps);
     verifyProtectedServices(plan,deps);
+    verifyCheckoutSource(config,deps);
     journal(saved,'RELEASE_STARTED');
     try {
       composeUp(config.tag,deps);
@@ -357,4 +372,4 @@ function main(args=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)process.exitCode=main();
-module.exports={parseArgs,assertLocalSafety,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,verifyCandidateTag,verifyFormerTag,probePostDeploy,apply,main};
+module.exports={parseArgs,assertLocalSafety,verifyCheckoutSource,inspectImage,inspectPlan,outputJournal,createJournal,journal,acquireLock,reviewIsolatedConfig,reviewEffectiveCompose,composeUp,verifyRunning,verifyProtectedServices,verifyCandidateTag,verifyFormerTag,probePostDeploy,apply,main};

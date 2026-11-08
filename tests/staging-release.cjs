@@ -72,7 +72,7 @@ function mock(envFile) {
     }
     throw Error('Unexpected Docker command');
   }
-  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock'),preflight:()=>({ok:true,errors:[]}),effectiveConfig:()=>true,checkHttp:()=>true};
+  return {state,run,env:{},envFile,lockPath:path.join(path.dirname(envFile),'.release.lock'),preflight:()=>({ok:true,errors:[]}),effectiveConfig:()=>true,checkHttp:()=>true,getHead:()=>SHA};
 }
 const argv=(mode,journal)=>[mode,'--candidate-tag','new','--source-sha',SHA,
   ...(mode==='apply'?['--journal',journal,'--approval','APPLY_PRIVATE_STAGING_'+SHA.slice(0,12)]:[])];
@@ -90,6 +90,39 @@ test('unknown commands, missing approval and malformed tags fail closed',()=>san
     [...argv('plan'),'--journal',path.join(dir,'j.jsonl')],
     [...argv('apply',path.join(dir,'j.jsonl')),'--approval','junk']
   ])assert.throws(()=>release.parseArgs(args));
+}));
+test('different checked-out commit or dirty source refuses plan before Docker access',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  let dockerCalls=0;
+  const original=deps.run;
+  deps.run=(...args)=>{dockerCalls++;return original(...args);};
+  for(const bad of ['f'.repeat(40),null]){
+    assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),
+      {...deps,getHead:()=>bad}),/clean checked-out Git revision/);
+    assert.equal(dockerCalls,0);
+  }
+  assert.throws(()=>release.verifyCheckoutSource({sha:SHA},{
+    getHead:()=>{throw Error('dirty tracked Git source');}
+  }));
+  assert.equal(deps.state.mutations,0);
+}));
+test('source checkout changed immediately after PREPARED leaves journal and never mutates Docker',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'source-swap.jsonl');
+  let calls=0;
+  deps.getHead=()=>++calls===1?SHA:'f'.repeat(40);
+  assert.equal(release.main(argv('apply',file),deps),2);
+  assert.equal(deps.state.mutations,0);
+  assert.equal(calls,2);
+  assert.deepEqual(fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse).map(x=>x.event),['PREPARED']);
+}));
+test('source changes after immutable container review but before release start block mutation',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'source-after-review.jsonl');
+  let calls=0;
+  deps.getHead=()=>++calls<=2?SHA:'f'.repeat(40);
+  assert.equal(release.main(argv('apply',file),deps),2);
+  assert.equal(deps.state.mutations,0);
+  assert.equal(calls,3);
+  assert.deepEqual(fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse).map(x=>x.event),['PREPARED']);
 }));
 test('healthy staging candidate produces read-only image-ID plan',()=>sandbox((dir,envFile)=>{
   const deps=mock(envFile);
