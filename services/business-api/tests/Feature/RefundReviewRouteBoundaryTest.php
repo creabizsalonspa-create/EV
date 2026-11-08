@@ -10,7 +10,7 @@ use Tests\TestCase;
 /**
  * Finance refund-review uses a signed int controller argument. Match only
  * safe numeric IDs before authorization, tenant lookup or ledger mutation.
- * This deliberately tests routing only and never simulates real money.
+ * Tests route matching and malformed HTTP requests, never valid money actions.
  */
 class RefundReviewRouteBoundaryTest extends TestCase
 {
