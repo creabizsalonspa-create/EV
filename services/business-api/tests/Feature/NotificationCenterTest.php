@@ -565,6 +565,37 @@ class NotificationCenterTest extends TestCase
         ]);
         $this->actingAs($owner)->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 1);
+        $originalFault = $note->metadata;
+        foreach ([true, 0, 'false', null] as $bogusPhysicalProof) {
+            $note->update(['metadata' => array_replace(
+                $originalFault, ['physical_verification' => $bogusPhysicalProof]
+            )]);
+            $this->getJson('/api/notifications?category=charging')
+                ->assertOk()->assertJsonPath('total', 0);
+            $this->postJson('/api/notifications/'.$note->id.'/read')
+                ->assertNotFound();
+        }
+        $note->update(['metadata' => array_diff_key(
+            $originalFault, ['physical_verification' => true]
+        )]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $note->update(['metadata' => $originalFault]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        // SQLite JSON extraction reads the first duplicate key, while PHP
+        // decodes the last. Reject this ambiguous stored source record.
+        $rawFault = json_encode($originalFault, JSON_THROW_ON_ERROR);
+        DB::table('inbox_notifications')->where('id', $note->id)->update([
+            'metadata' => substr($rawFault, 0, -1)
+                .',"station_id":'.($station->id + 9999).'}',
+        ]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        DB::table('inbox_notifications')->where('id', $note->id)
+            ->update(['metadata' => $rawFault]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
         // Capture an authorized query before transfer: executing that same
         // SQL later must still apply the new ownership and role immediately.
         $prebuiltFault = InboxNotification::visibleTo($owner)->whereKey($note->id);

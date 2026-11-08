@@ -215,9 +215,23 @@ class ChargingOperationsTest extends TestCase
             ['station_id' => $command->station_id + 1000],
             ['command_id' => $command->id + 1000],
             ['case_id' => $original['case_id'] + 1000],
+            ['physical_verification' => true],
+            ['physical_verification' => 0],
+            ['physical_verification' => 'false'],
+            ['physical_verification' => null],
         ] as $invalid) {
             $notice->update(['metadata' => array_replace($original, $invalid)]);
             $this->assertFalse($prebuilt->exists());
+            if (array_key_exists('physical_verification', $invalid)) {
+                // Keep write requests under the independent notification
+                // rate limit while still verifying forged-proof privacy.
+                $this->getJson('/api/notifications?category=charging')
+                    ->assertOk()->assertJsonPath('total', 0);
+                $this->postJson('/api/notifications/'.$notice->id.'/read')
+                    ->assertNotFound();
+
+                continue;
+            }
             foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
                 $this->getJson($prefix.'?category=charging')
                     ->assertOk()->assertJsonPath('total', 0);
@@ -230,7 +244,20 @@ class ChargingOperationsTest extends TestCase
             }
         }
 
+        $notice->update(['metadata' => array_diff_key(
+            $original, ['physical_verification' => true]
+        )]);
+        $this->assertFalse($prebuilt->exists());
         $notice->update(['metadata' => $original]);
+        $this->assertTrue($prebuilt->exists());
+        $rawCase = json_encode($original, JSON_THROW_ON_ERROR);
+        DB::table('inbox_notifications')->where('id', $notice->id)->update([
+            'metadata' => substr($rawCase, 0, -1)
+                .',"command_id":'.($command->id + 9999).'}',
+        ]);
+        $this->assertFalse($prebuilt->exists());
+        DB::table('inbox_notifications')->where('id', $notice->id)
+            ->update(['metadata' => $rawCase]);
         $this->assertTrue($prebuilt->exists());
         $next = User::factory()->create(['role' => 'vendor']);
         Station::whereKey($command->station_id)->update(['vendor_id' => $next->id]);

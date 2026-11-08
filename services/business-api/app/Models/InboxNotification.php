@@ -58,11 +58,37 @@ class InboxNotification extends Model
             'charging.operational_case.source_observed',
         ];
         $operationalKinds = array_merge($simulatorKinds, $caseKinds);
+        $provenanceKinds = array_merge($operationalKinds, [
+            'charging.fault.escalated.simulated',
+            'charging.fault.escalation_closed.simulated',
+        ]);
+        // Physical verification has NEVER been observed by these source-only
+        // workflows. Require a JSON boolean false, not a string/number that
+        // happens to compare equal after casting, for structured notices.
+        $physicalFalse = $driver === 'pgsql'
+            ? "jsonb_typeof(inbox_notifications.metadata::jsonb->'physical_verification') = 'boolean'"
+                ." AND inbox_notifications.metadata->>'physical_verification' = 'false'"
+            : 'CASE WHEN json_valid(inbox_notifications.metadata) THEN '
+                ."json_type(inbox_notifications.metadata) = 'object' "
+                ."AND json_type(inbox_notifications.metadata, '$.physical_verification') = 'false' "
+                // SQLite json_extract reads the FIRST duplicate key while
+                // PHP json_decode uses the LAST: deny an ambiguous payload,
+                // including duplicate station, command and physical flags.
+                .'AND (SELECT COUNT(*) = COUNT(DISTINCT key) '
+                .'FROM json_each(inbox_notifications.metadata)) '
+                .'ELSE 0 END';
 
         // Role and asset ownership are checked INSIDE the statement that
         // reads/updates the inbox. A revoked vendor cannot reuse an already
         // built query to see a transferred company's station/charger IDs.
         return $query->where('user_id', $actor->id)
+            ->where(function (Builder $provenance) use ($provenanceKinds, $physicalFalse): void {
+                $provenance->whereNotIn('kind', $provenanceKinds)
+                    // A metadata-null legacy text notice has no physical
+                    // claims or private asset fields to misrepresent.
+                    ->orWhereNull('metadata')
+                    ->orWhereRaw('('.$physicalFalse.')');
+            })
             ->where(function (Builder $visible): void {
                 $visible->whereNotIn('kind', [
                     'charging.fault.escalated.simulated',

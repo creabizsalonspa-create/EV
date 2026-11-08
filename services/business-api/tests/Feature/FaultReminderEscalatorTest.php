@@ -69,6 +69,7 @@ class FaultReminderEscalatorTest extends TestCase
             'created_at' => $observedAt,
             'updated_at' => $observedAt,
         ]);
+
         return compact('owner', 'company', 'station', 'charger', 'bindingId', 'observation', 'alert');
     }
 
@@ -413,6 +414,34 @@ class FaultReminderEscalatorTest extends TestCase
         $this->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 1);
 
+        $escalation = InboxNotification::findOrFail($id);
+        $originalEscalation = $escalation->metadata;
+        foreach ([true, 0, 'false', null] as $bogusPhysicalProof) {
+            $escalation->update(['metadata' => array_replace(
+                $originalEscalation, ['physical_verification' => $bogusPhysicalProof]
+            )]);
+            $this->getJson('/api/notifications?category=charging')
+                ->assertOk()->assertJsonPath('total', 0);
+            $this->postJson('/api/notifications/'.$id.'/read')->assertNotFound();
+        }
+        $escalation->update(['metadata' => array_diff_key(
+            $originalEscalation, ['physical_verification' => true]
+        )]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $escalation->update(['metadata' => $originalEscalation]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        $rawEscalation = json_encode($originalEscalation, JSON_THROW_ON_ERROR);
+        DB::table('inbox_notifications')->where('id', $id)->update([
+            'metadata' => substr($rawEscalation, 0, -1)
+                .',"physical_verification":true}',
+        ]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        DB::table('inbox_notifications')->where('id', $id)
+            ->update(['metadata' => $rawEscalation]);
+
         // Role is deliberately guarded on User: change the database
         // directly to model a remote operator revocation with a cached auth
         // session that still contains the old Admin attributes.
@@ -488,7 +517,7 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame(0, app(FaultReminderEscalator::class)->scan()['reminded']);
         DB::table('charging_fault_alerts')->where('id', $f['alert'])
             ->update(['acknowledged_at' => null, 'acknowledged_by' => null,
-                      'recovery_observation_id' => $f['observation']]);
+                'recovery_observation_id' => $f['observation']]);
         $this->assertSame(0, app(FaultReminderEscalator::class)->scan()['reminded']);
         DB::table('charging_fault_alerts')->where('id', $f['alert'])
             ->update(['recovery_observation_id' => null]);

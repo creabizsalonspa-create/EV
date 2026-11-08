@@ -273,3 +273,51 @@ return the valid owner record, denies read/unread mutations for the malformed
 record and confirms bulk read only acknowledges valid notices. The malformed
 historical record is not deleted, rewritten or delivered externally. Full
 PostgreSQL, browser, hosted CI and production validation are separate gates.
+
+### Structured source-only notice physical-provenance gate
+
+The authoritative account inbox scope now checks **source-only event provenance**
+in the same SQL statements used for list/summary/single/bulk read/unread. For
+simulator fault/recovery/reminder and monitor notices, command-case opened/
+source-observed/resolved notices, and in-app-only Admin fault escalation/
+closure notices, a structured non-null metadata payload must contain
+`physical_verification` as an actual JSON boolean **false**. A malformed,
+missing, true, numeric 0, or string "false" field fails closed; no forged or
+stale source notice may assert physical charger verification simply because
+its recipient still owns the relevant station or retains an Admin role.
+The SQLite predicate uses a `json_valid`-guarded `json_type(...)=false`
+comparison, retaining resilience to malformed retained JSON. The PostgreSQL
+predicate uses `jsonb_typeof(metadata::jsonb->...)=boolean` plus equality to
+`false`. Both checks use static JSON paths, without evaluating user-supplied
+SQL or trusting an authenticated model's cached role.
+
+Legacy text-only records with SQL NULL metadata remain visible through their
+prior account/role guards because they contain no asset/provenance references.
+This new rule preserves durable history rather than rewriting or deleting it.
+Synthetic backend tests first showed forged physical claims visible before
+the change, then verified denial and restoration for legitimate vendor fault,
+command case and on-call Admin escalation records, including non-boolean
+variants and missing fields. This does **not** establish physical charger
+operation, production/PostgreSQL acceptance or external notification delivery.
+
+### Duplicate-key SQLite JSON authorization and response consistency
+
+A separate synthetic privacy regression reproduced a subtler ambiguity:
+SQLite's `json_extract(metadata, '$.station_id')` and other fixed field
+paths read the **first** matching key of a JSON object, while PHP's
+`json_decode` reads the **last**. A retained row with duplicate top-level
+`station_id`, `command_id`, or `physical_verification` keys could therefore
+pass a SQL ownership/provenance test against the first value while exposing a
+different decoded ID or a false physical claim in the API response.
+
+For these structured source-only operational notice kinds, the SQLite
+provenance predicate now verifies that metadata is a JSON **object** with
+unique top-level keys, using a `json_valid`-guarded bounded
+`json_each` duplicate-key count. Malformed, ambiguous or non-object
+metadata cannot pass the predicate. A synthetic test preserves a valid
+original notice and injects a duplicate station ID, command ID, or physical
+proof by a raw SQLite update; those notices disappear from inbox reads and
+read/unread actions until the original raw metadata is restored. The
+PostgreSQL JSONB typed check is unchanged; PostgreSQL execution is still a
+separate integration requirement. Historical SQL-NULL text-only notices
+remain visible under the existing account/role restrictions.
