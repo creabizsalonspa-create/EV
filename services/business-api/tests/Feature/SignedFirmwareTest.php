@@ -24,6 +24,17 @@ class SignedFirmwareTest extends TestCase
 
     private ?string $catalogRoot = null;
 
+    public function test_download_route_rejects_malformed_capabilities_before_entering_the_disabled_adapter(): void
+    {
+        config(['csms.firmware_enabled' => false]);
+        foreach ([str_repeat('a', 63), str_repeat('a', 65), str_repeat('A', 64), str_repeat('g', 64), '123456', 'not-a-capability'] as $invalid) {
+            $this->get('/api/internal/firmware/'.$invalid)->assertNotFound();
+        }
+        // A correctly shaped capability still reaches the guarded controller;
+        // the existing two-protocol deployment test exercises a genuine token.
+        $this->get('/api/internal/firmware/'.str_repeat('a', 64))->assertServiceUnavailable();
+    }
+
     protected function tearDown(): void
     {
         if ($this->catalogRoot) {
