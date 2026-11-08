@@ -167,6 +167,9 @@ def check_policy(root):
     anchor = compose.split('x-application: &application', 1)[1].split('\nservices:', 1)[0]
     require("APP_DEBUG: 'false'" in anchor and 'APP_ENV: staging' in anchor,
             'Invalid anchored staging environment')
+    require(re.findall(r'^    APP_URL: (.+)$', anchor, re.M) ==
+            ['https://${STAGING_HOST:?Set an authorized staging hostname}:8443'],
+            'Staging APP_URL must match the reviewed HTTPS gateway port')
     require(not re.search(r'^  (ports|network_mode|privileged|extra_hosts):',
                           anchor, re.M), 'Shared application anchor exposes host settings')
     require_direct_keys(anchor, 2,
