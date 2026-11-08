@@ -91,9 +91,13 @@
       root.querySelector("[data-manual-soc-panel]")?.remove();
       // Refreshing the SAME vehicle must not erase a possibly committed
       // observation's idempotency identity. Switching vehicles still does.
-      const oldPending=chosen&&String(chosen.id)===String(vehicle.id)?pending:null;
+      const sameVehicle=chosen&&String(chosen.id)===String(vehicle.id);
+      const oldPending=sameVehicle?pending:null;
       chosen=vehicle;latest=history=null;pending=oldPending;
-      submitting=false;submitAttempt++;page=1;
+      // A refresh of this same vehicle must not unlock a still-running
+      // report POST. Switching to a different vehicle owns a new lock.
+      if(!sameVehicle){submitting=false;submitAttempt++;}
+      page=1;
       status(ar()?"جارٍ تحميل بيانات البطارية...":"Loading manual battery reports…");
       try {
         const response=await api("vehicles/"+vehicle.id+"/manual-soc");
@@ -113,7 +117,11 @@
         history=result;
         const recorded=pending?reportState(pending,latest,history,chosen.id):null;
         if(recorded){
-          pending=null;render();
+          pending=null;
+          // The authoritative current+history readback closes the pending
+          // operation even if its original HTTP response is still delayed.
+          submitting=false;submitAttempt++;
+          render();
           status(recordedStatus(recorded));
         } else {
           render();
@@ -150,6 +158,7 @@
       label.append(tr("My battery estimate (0–100%)","تقديري للبطارية (٠–١٠٠٪)"),field);
       form.append(label);
       const submit=document.createElement("button");submit.type="submit";
+      submit.disabled=submitting;
       submit.append(tr("Save manual report","حفظ التقرير اليدوي"));form.append(submit);
       const retry=button("Retry the same report","إعادة إرسال نفس التقرير",
         ()=>{if(editable())return submitReport();});
@@ -234,8 +243,12 @@
           "Result uncertain. Check history or retry the identical report. "+String(e.message||e));
         render();
       }finally{
-        if(submitAttempt===attempt && account===actor() && session===epoch() && chosen?.id===vehicleId)
+        if(submitAttempt===attempt && account===actor() && session===epoch() && chosen?.id===vehicleId){
           submitting=false;
+          // If a same-vehicle refresh rendered while this POST was pending,
+          // update its retry control without changing the operation identity.
+          if(pending&&latest&&history)render();
+        }
       }
     }
     return {clear,setActor,renderGarage,open,loadHistory};

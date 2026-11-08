@@ -300,6 +300,70 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   assert.equal(advancedRetry.disabled,true);
   advanced.clear();
 
+  // Reopening the same vehicle during an unresolved POST must not allow a
+  // second submission before the original response settles.
+  const holdRoot=document.createElement('section');
+  const holdActor={id:95,role:'customer'};
+  const heldWrites=[];
+  let releaseHeldPost=null,serverCommitted=false;
+  const heldApi=async(path,method,body)=>{
+    if(path==='vehicles/11/manual-soc'&&method==='POST'){
+      heldWrites.push(JSON.parse(JSON.stringify(body)));
+      await new Promise(resolve=>{releaseHeldPost=resolve;});
+      serverCommitted=true;
+      return {vehicle_id:11,revision:1,battery_percent:64,
+        source:'CUSTOMER_MANUAL_SELF_REPORT'};
+    }
+    if(path==='vehicles/11/manual-soc')return {
+      vehicle_id:11,revision:serverCommitted?1:0,
+      battery_percent:serverCommitted?64:null,
+      source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:null,
+    };
+    if(path==='vehicles/11/manual-soc/history?page=1')return {
+      current_page:1,last_page:1,
+      data:serverCommitted?[{vehicle_id:11,revision:1,battery_percent:64,
+        source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:null}]:[],
+    };
+    throw Error('Unexpected held POST endpoint '+path);
+  };
+  const heldView=window.VehicleManualSoc.create({
+    root:holdRoot,api:heldApi,actor:()=>holdActor,epoch:()=>1,
+  });
+  heldView.setActor(holdActor);
+  heldView.renderGarage([{id:11,name:'Single operation EV'}]);
+  await heldView.open({id:11,name:'Single operation EV'});
+  const heldForm=find(holdRoot,n=>n.tag==='form');
+  find(heldForm,n=>n.name==='battery_percent').value='64';
+  const heldSubmission=heldForm.onsubmit({preventDefault(){}});
+  assert.equal(typeof releaseHeldPost,'function');
+  assert.equal(heldWrites.length,1);
+  const heldRefresh=find(holdRoot,n=>n.tag==='button'&&
+    visible(n).includes('Refresh source and history'));
+  assert.ok(heldRefresh);
+  await heldRefresh.onclick();
+  const heldRetry=find(holdRoot,n=>n.tag==='button'&&
+    visible(n).includes('Retry the same report'));
+  assert.ok(heldRetry);
+  assert.equal(heldRetry.disabled,true,
+    'Same-vehicle refresh cannot enable retry before prior POST settles');
+  await heldRetry.onclick(); // Programmatic call bypasses disabled HTML surface.
+  assert.equal(heldWrites.length,1,
+    'Unresolved original POST cannot race a second identical request');
+  releaseHeldPost();
+  await heldSubmission;
+  const nowRetry=find(holdRoot,n=>n.tag==='button'&&
+    visible(n).includes('Retry the same report'));
+  assert.equal(nowRetry.disabled,false,
+    'Original POST settling must unlock same-key retry after uncertain refresh');
+  await heldView.open({id:11,name:'Single operation EV'});
+  assert.equal(heldWrites.length,1,
+    'Authoritative refresh confirms the prior POST without another submission');
+  assert.match(visible(holdRoot),/Manual report saved/);
+  const confirmedRetry=find(holdRoot,n=>n.tag==='button'&&
+    visible(n).includes('Retry the same report'));
+  assert.equal(confirmedRetry.disabled,true);
+  heldView.clear();
+
   // A reused identity object across a new auth epoch must clear old DOM and
   // pending report forms, even before platform code allocates a new actor.
   view.renderGarage([{id:6,name:'Reused account car'}]);
