@@ -26,7 +26,7 @@
   };
   function createPrivacyWorkspace({selfRoot, adminRoot, api, actor, epoch = () => 0}) {
     let current = null, session = 0, mineSequence = 0, adminSequence = 0,
-      pending = null, ownPage = 1, adminPage = 1;
+      pending = null, ownPage = 1, adminPage = 1, postInFlight = false;
     const authenticated = owner => owner === current && actor() === owner &&
       session === epoch();
     const aliveMine = (owner, ticket) => authenticated(owner) && ticket === mineSequence;
@@ -34,6 +34,7 @@
     function clear() {
       mineSequence++; adminSequence++;
       current = pending = null; session = 0; ownPage = adminPage = 1;
+      postInFlight = false;
       selfRoot.replaceChildren(); adminRoot.replaceChildren();
     }
     function errorOn(root, message) {
@@ -107,16 +108,20 @@
       consentLabel.append(consent, text("I understand this is a review request, not instant account deletion.", "أفهم أن هذا طلب مراجعة وليس حذفاً فورياً للحساب."));
       form.append(consentLabel);
       const submit = document.createElement("button");
-      submit.type = "submit"; submit.append(text("Submit request", "إرسال الطلب")); form.append(submit);
-      form.append(btn("Start a different request", "بدء طلب مختلف", () => {
-        // Do not erase the sole replay identity while a write could already
-        // have committed on the server. Wait until the request settles.
-        if (!aliveMine(owner, ticket) || submit.disabled) return;
+      submit.type = "submit"; submit.append(text("Submit request", "إرسال الطلب"));
+      submit.disabled = postInFlight;
+      form.append(submit);
+      const startDifferent = btn("Start a different request", "بدء طلب مختلف", () => {
+        // Refreshing the account list may replace the original form before
+        // its POST settles. Keep the same replay key across those refreshes.
+        if (!aliveMine(owner, ticket) || postInFlight || submit.disabled) return;
         pending = null; form.reset(); errorOn(selfRoot,"");
-      }));
+      });
+      startDifferent.disabled = postInFlight;
+      form.append(startDifferent);
       form.onsubmit = async event => {
         event.preventDefault();
-        if (!aliveMine(owner, ticket) || submit.disabled) return;
+        if (!aliveMine(owner, ticket) || submit.disabled || postInFlight) return;
         if (!consent.checked) {errorOn(selfRoot, ar() ? "أكد فهمك أولاً." : "Confirm the review notice first.");return;}
         const body = {request_type:type.value, reason:reason.value.trim() || null};
         if (pending && JSON.stringify(body) !== JSON.stringify(pending.body)) {
@@ -128,7 +133,9 @@
           if (!id) {errorOn(selfRoot, ar() ? "إنشاء معرف آمن غير متاح." : "Secure request identity unavailable.");return;}
           pending = {body, id};
         }
+        postInFlight = true;
         submit.disabled = true;
+        startDifferent.disabled = true;
         errorOn(selfRoot, ar() ? "جارٍ إرسال الطلب..." : "Submitting request…");
         try {
           const recorded = await api("privacy-requests", "POST", {...pending.body, idempotency_key:pending.id});
@@ -147,7 +154,19 @@
           }
         } catch (e) {
           if (aliveMine(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
-        } finally {submit.disabled = false;}
+        } finally {
+          if (authenticated(owner)) {
+            postInFlight = false;
+            if (aliveMine(owner, ticket)) {
+              submit.disabled = false;
+              startDifferent.disabled = false;
+            } else {
+              // A same-account refresh created another form during the POST.
+              // Redraw with controls unlocked only after the write settles.
+              await refreshMine(ownPage);
+            }
+          }
+        }
       };
       selfRoot.append(form);
       selfRoot.append(btn("Refresh my requests", "تحديث طلباتي", () => {

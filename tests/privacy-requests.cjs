@@ -99,8 +99,32 @@ const content = root => {
   await pendingForm.onsubmit({preventDefault(){}});
   assert.equal(sentCount(),beforeDuplicate,
     'Duplicate customer form submission cannot POST while original pending');
+  // Refreshing the account while POST is in flight renders a new form.
+  // Neither this new form nor Start a different request may discard the
+  // pending idempotency identity or send another concurrent POST.
+  await ui.refreshMine();
+  const refreshedForm=find(mine,node=>node.tag==='form');
+  const switchAfterRefresh=find(refreshedForm,node=>node.tag==='button' &&
+    content(node).includes('Start a different request'));
+  assert.ok(switchAfterRefresh);
+  assert.equal(switchAfterRefresh.disabled,true,
+    'Refreshing the account must not unlock a different request during POST');
+  switchAfterRefresh.onclick();
+  assert.equal(refreshedForm.resetCalls||0,0,
+    'Refreshed form cannot discard in-flight replay identity');
+  const newConsent=find(refreshedForm,node=>node.tag==='input' &&
+    node.type==='checkbox');
+  newConsent.checked=true;
+  await refreshedForm.onsubmit({preventDefault(){}});
+  assert.equal(sentCount(),beforeDuplicate,
+    'Refreshed form cannot send a concurrent request');
   releasePost();
   await firstSubmission;
+  const currentForm=find(mine,node=>node.tag==='form');
+  const differentAfterSettle=find(currentForm,node=>node.tag==='button' &&
+    content(node).includes('Start a different request'));
+  assert.equal(differentAfterSettle.disabled,false,
+    'A settled POST must unlock the latest same-account request form');
   const initialCalls = calls.length;
   const staleForm = find(mine, node => node.tag === 'form');
   assert.ok(staleForm);
