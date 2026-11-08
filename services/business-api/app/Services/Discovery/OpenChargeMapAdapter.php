@@ -134,6 +134,11 @@ final class OpenChargeMapAdapter
                 || trim($item['data_provider']) === ''
                 || ! is_string($item['data_license'] ?? null)
                 || trim($item['data_license']) === ''
+                || ! is_string($item['id'] ?? null)
+                || preg_match('/^ocm:([1-9][0-9]{0,9})$/D', $item['id'], $idMatch) !== 1
+                || (int) ($idMatch[1] ?? 0) > 2147483647
+                || ($item['source_url'] ?? null) !== 'https://openchargemap.org/site/poi/details/'.($idMatch[1] ?? '')
+                || ($item['attribution'] ?? null) !== 'Open Charge Map / '.$item['data_provider']
                 || ! array_is_list($item['connections'])
                 || count($item['connections']) > 20) {
                 throw new LookupFailure('invalid_response');

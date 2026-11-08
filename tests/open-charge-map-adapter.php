@@ -47,6 +47,11 @@ foreach ([
     ['billing_eligible', true],
     ['source_status_evidence', 'LIVE_OPERATOR'],
     ['data_license', ''],
+    ['id', 'ocm:0'],
+    ['id', 'ocm:99999999999'],
+    ['source_url', 'https://example.test/phishing'],
+    ['source_url', 'https://openchargemap.org/site/poi/details/999'],
+    ['attribution', 'Open Charge Map / Different provider'],
 ] as [$field, $value]) {
     $tampered = $source;
     $tampered['results'][0][$field] = $value;
