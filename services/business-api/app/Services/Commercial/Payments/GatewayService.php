@@ -139,8 +139,8 @@ class GatewayService
         abort_unless(config('payments.provider') === 'mock', 409, 'Use the matching provider webhook.');
         $secret = config('payments.webhook_secret');
         abort_unless(is_string($secret) && strlen($secret) >= 32, 503, 'Configure a non-production mock webhook signing key.');
-        abort_unless(ctype_digit($timestamp) && abs(time() - (int) $timestamp) <= 300 && preg_match('/^[a-f0-9]{64}$/D', $signature) && hash_equals(hash_hmac('sha256', $timestamp.'.'.$raw, $secret), $signature), 401, 'Invalid or expired webhook signature.');
         abort_if(strlen($raw) > 16384, 413);
+        abort_unless(ctype_digit($timestamp) && abs(time() - (int) $timestamp) <= 300 && preg_match('/^[a-f0-9]{64}$/D', $signature) && hash_equals(hash_hmac('sha256', $timestamp.'.'.$raw, $secret), $signature), 401, 'Invalid or expired webhook signature.');
         try {
             $event = json_decode($raw, true, 16, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
