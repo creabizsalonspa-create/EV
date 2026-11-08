@@ -363,7 +363,7 @@ class VendorOpsTest extends TestCase
         $this->actingAs($owner)->patchJson($path, ['license_expires_on' => now()->addYear()->format('Y-m-d')])->assertConflict();
         $this->actingAs($admin)->postJson($path.'/review', ['status' => 'changes_requested', 'reason' => 'Provide renewal evidence'])->assertOk()->assertJsonPath('status', 'changes_requested');
         $this->actingAs($owner)->patchJson($path, ['license_expires_on' => now()->addYear()->format('Y-m-d')])->assertOk();
-        $this->post($path.'/documents', ['kind' => 'trade_license', 'document' => UploadedFile::fake()->create('renewal.pdf', 10, 'application/pdf')], ['Accept' => 'application/json'])->assertCreated();
+        $this->post($path.'/documents', ['kind' => 'trade_license', 'document' => UploadedFile::fake()->createWithContent('renewal.pdf', "%PDF-1.4\nSYNTHETIC-RENEWAL-LICENSE")], ['Accept' => 'application/json'])->assertCreated();
         $this->postJson($path.'/submit')->assertOk()->assertJsonPath('status', 'submitted');
         $this->postJson($path.'/sites', [])->assertConflict();
         $this->actingAs($admin)->postJson($path.'/review', ['status' => 'approved', 'reason' => 'Internal renewal review completed'])->assertOk();
