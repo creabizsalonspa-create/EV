@@ -21,7 +21,12 @@ class SecurityHeaders
         $r->headers->set('X-Content-Type-Options', 'nosniff');
         $r->headers->set('X-Frame-Options', 'DENY');
         $sensitiveLink = $request->is('email/verify/*', 'reset-password/*', 'payments/hosted-return', 'payments/hosted-simulation/*', 'payments/corporate-hosted-return', 'payments/corporate-hosted-simulation/*');
-        $r->headers->set('Referrer-Policy', $sensitiveLink ? 'no-referrer' : 'strict-origin-when-cross-origin');
+        // A route's deliberate no-referrer policy is stronger than our default;
+        // preserve it, but never accept a route's weaker/invalid policy or
+        // allow sensitive payment and recovery URLs to disclose referrers.
+        $explicitReferrer = $r->headers->get('Referrer-Policy');
+        $keepNoReferrer = is_string($explicitReferrer) && strtolower(trim($explicitReferrer)) === 'no-referrer';
+        $r->headers->set('Referrer-Policy', $sensitiveLink || $keepNoReferrer ? 'no-referrer' : 'strict-origin-when-cross-origin');
         if ($request->isSecure()) {
             $r->headers->set('Strict-Transport-Security', 'max-age=31536000');
         }
