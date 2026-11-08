@@ -1,4 +1,4 @@
-/* Read-only finance history; no payment instruments, captures or payouts. */
+/* Private invoice history; explicit noncash corrections retain canonical finance authority. */
 window.createInvoiceHistory = ({ root, api, ui, actor }) => {
     let generation = 0,
         detailVersion = 0,
@@ -258,12 +258,17 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                 }
             });
             target.append(evidence);
+            window.EV_MESSAGES["Noncash invoice credits"] ||= {
+                en: "Noncash invoice credits",
+                ar: "تسويات الفواتير غير النقدية",
+            };
             for (const [label, value] of [
                 ["Subtotal", invoice.subtotal_minor],
                 ["Tax", invoice.tax_minor],
                 ["Total", invoice.total_minor],
                 ["Simulated collected", summary.paid_minor],
                 ["Simulated refunded", summary.refunded_minor],
+                ["Noncash invoice credits", summary.unpaid_credited_minor ?? 0],
                 ["Amount due", summary.amount_due_minor],
             ])
                 amount(target, label, value, invoice.currency);
@@ -290,6 +295,31 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                     invoice.currency,
                 );
             }
+            for (const note of summary.unpaid_credit_notes || []) {
+                target.append(raw("p", note.credit_note_number));
+                const documents = document.createElement("section");
+                target.append(documents);
+                window.mountFinancialDocuments?.({
+                    container: documents,
+                    api,
+                    ui,
+                    actor,
+                    sourceKind: "charging_unpaid_credit",
+                    sourceId: note.id,
+                });
+            }
+            const unpaid = document.createElement("section");
+            target.append(unpaid);
+            window.mountUnpaidCredit?.({
+                root: unpaid,
+                summary,
+                actor: actor(),
+                api,
+                ui,
+                signal: request.signal,
+                valid: () => epoch === generation && version === detailVersion,
+                refresh: () => show(id, target, epoch),
+            });
             for (const [key, label] of [
                 ["payments", "Simulated collections"],
                 ["refunds", "Simulated refunds"],

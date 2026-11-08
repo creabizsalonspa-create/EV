@@ -2,7 +2,7 @@
 const withSource = require("./ocpi-test-invoice-local.cjs");
 const { randomUUID } = require("node:crypto");
 const assert = require("node:assert/strict");
-module.exports = (run) =>
+module.exports = (run, { paid = true } = {}) =>
   withSource(async (f) => {
     const preview = await f.driverClient.request(
       `roaming/sandbox-orders/${f.order_id}/test-invoice-preview`,
@@ -54,11 +54,13 @@ module.exports = (run) =>
     assert.equal(options.data.length, 1);
     const credit = options.data[0];
     assert.equal(credit.external_id, external);
-    const paid = await f.driverClient.request(
-      `finance/invoices/${invoice.id}/simulate-payment`,
-      "POST",
-      { amount_minor: 25, idempotency_key: randomUUID() },
-    );
-    assert.equal(paid.evidence, "SIMULATED");
+    if (paid) {
+      const payment = await f.driverClient.request(
+        `finance/invoices/${invoice.id}/simulate-payment`,
+        "POST",
+        { amount_minor: 25, idempotency_key: randomUUID() },
+      );
+      assert.equal(payment.evidence, "SIMULATED");
+    }
     await run({ ...f, invoice, credit, sourceCreditsPath: optionsPath });
   });

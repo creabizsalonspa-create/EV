@@ -9,6 +9,7 @@ class AnalyticsPresentation
     public const CATEGORIES = [
         'charging_invoiced' => ['Charging invoices issued', 'فواتير الشحن الصادرة'],
         'charging_collected' => ['Charging receipts posted', 'مقبوضات الشحن المسجلة'],
+        'charging_unpaid_credited' => ['Unpaid charging invoices credited (no cash)', 'تسوية فواتير شحن غير مدفوعة دون حركة نقدية'],
         'charging_refunded' => ['Charging refunds posted', 'مبالغ الشحن المستردة'],
         'commission_allocated' => ['Commission allocations', 'تخصيصات العمولة'],
         'commission_reversed' => ['Commission allocations reversed', 'عكس تخصيصات العمولة'],

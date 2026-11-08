@@ -19,6 +19,7 @@ const groups = [
   ["client-demo-lifecycle"], // six private fixture logins; dedicated window
   ["charging-reviews"], // own unchanged authentication window
   ["ocpi-test-invoice", "ocpi-credit-picker"], // TEST billing and source-credit review: at most 4 logins; unchanged auth window
+  ["ocpi-unpaid-credit"], // source-qualified noncash correction; own unchanged auth window
   ["sandbox-roaming"], // isolated synthetic CPO contract; own auth window
   ["partner-favorites"], // own customer/Admin authentication window
   ["charger-configuration"], // two explicit source-device read workflows; own authentication window

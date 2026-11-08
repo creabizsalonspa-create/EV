@@ -6,12 +6,14 @@ import 'strings.dart';
 class SourceCreditPickerView extends StatefulWidget {
   final EvApi api;
   final int invoiceId;
+  final bool requireFullReversal;
   final VoidCallback onExpired;
   const SourceCreditPickerView({
     super.key,
     required this.api,
     required this.invoiceId,
     required this.onExpired,
+    this.requireFullReversal = false,
   });
   @override
   State<SourceCreditPickerView> createState() => _SourceCreditPickerState();
@@ -70,7 +72,10 @@ class _SourceCreditPickerState extends State<SourceCreditPickerView>
     try {
       final result = await widget.api.request(
         'finance/invoices/${widget.invoiceId}/source-credits',
-        query: {'page': '$number'},
+        query: {
+          'page': '$number',
+          if (widget.requireFullReversal) 'full_reversal': '1',
+        },
       );
       if (!mounted || epoch != generation || !current()) return;
       if (result['schema_version'] != 1 ||
@@ -97,6 +102,8 @@ class _SourceCreditPickerState extends State<SourceCreditPickerView>
         row['id'] is int &&
         (row['id'] as int) > 0 &&
         row['available_for_review'] == true &&
+        (!widget.requireFullReversal ||
+            row['full_reversal_source_match'] == true) &&
         evidence is Map &&
         evidence['schema_version'] == 1 &&
         evidence['invoice_id'] == widget.invoiceId &&

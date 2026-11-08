@@ -488,7 +488,18 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             row.append(text("p", issue.code));
                     },
                 );
-            if (actor.id === invoice.user_id) {
+            if (Number(invoice.unpaid_credited_minor) > 0)
+                row.append(
+                    translated(
+                        "p",
+                        "Credited without collection; no cash refund",
+                        "سويت دون تحصيل أو استرداد نقدي",
+                    ),
+                );
+            if (
+                actor.id === invoice.user_id &&
+                !(Number(invoice.unpaid_credited_minor) > 0)
+            ) {
                 button(
                     row,
                     "Secure hosted checkout",

@@ -33,15 +33,16 @@ class CommercialFinanceController extends Controller
         // database snapshot and avoids a query per invoice on long financial reports.
         $payments = DB::table('finance_payments')->select('invoice_id')->selectRaw('SUM(amount_minor) AS paid')->groupBy('invoice_id');
         $refunds = DB::table('finance_refunds')->select('invoice_id')->selectRaw('SUM(amount_minor) AS refunded, SUM(commission_minor) AS commission_refunded, SUM(vendor_minor) AS vendor_refunded')->groupBy('invoice_id');
+        $credits = DB::table('finance_unpaid_credits')->select('invoice_id')->selectRaw('SUM(amount_minor) AS credited, SUM(commission_minor) AS commission_credited, SUM(vendor_minor) AS vendor_credited')->groupBy('invoice_id');
         $rows = DB::query()->fromSub($q->select('id', 'currency', 'minor_units', 'total_minor', 'commission_minor', 'vendor_minor'), 'i')
-            ->leftJoinSub($payments, 'p', 'p.invoice_id', '=', 'i.id')->leftJoinSub($refunds, 'r', 'r.invoice_id', '=', 'i.id')
-            ->select('i.currency', 'i.minor_units')->selectRaw('COUNT(*) AS invoice_count, SUM(i.total_minor) AS invoiced_minor, SUM(COALESCE(p.paid,0)) AS paid_minor, SUM(COALESCE(r.refunded,0)) AS refunded_minor, SUM(CASE WHEN i.total_minor > COALESCE(p.paid,0) THEN i.total_minor - COALESCE(p.paid,0) ELSE 0 END) AS outstanding_minor, SUM(i.commission_minor) AS commission_minor, SUM(i.vendor_minor) AS vendor_allocated_minor, SUM(COALESCE(r.commission_refunded,0)) AS commission_refunded_minor, SUM(COALESCE(r.vendor_refunded,0)) AS vendor_refunded_minor')
+            ->leftJoinSub($payments, 'p', 'p.invoice_id', '=', 'i.id')->leftJoinSub($refunds, 'r', 'r.invoice_id', '=', 'i.id')->leftJoinSub($credits, 'c', 'c.invoice_id', '=', 'i.id')
+            ->select('i.currency', 'i.minor_units')->selectRaw('COUNT(*) AS invoice_count, SUM(i.total_minor) AS invoiced_minor, SUM(COALESCE(p.paid,0)) AS paid_minor, SUM(COALESCE(r.refunded,0)) AS refunded_minor, SUM(COALESCE(c.credited,0)) AS unpaid_credited_minor, SUM(CASE WHEN i.total_minor > COALESCE(p.paid,0) + COALESCE(c.credited,0) THEN i.total_minor - COALESCE(p.paid,0) - COALESCE(c.credited,0) ELSE 0 END) AS outstanding_minor, SUM(i.commission_minor) AS commission_minor, SUM(i.vendor_minor) AS vendor_allocated_minor, SUM(COALESCE(r.commission_refunded,0)) AS commission_refunded_minor, SUM(COALESCE(r.vendor_refunded,0)) AS vendor_refunded_minor, SUM(COALESCE(c.commission_credited,0)) AS commission_credited_minor, SUM(COALESCE(c.vendor_credited,0)) AS vendor_credited_minor')
             ->groupBy('i.currency', 'i.minor_units')->orderBy('i.currency')->orderBy('i.minor_units')->get();
         $groups = $rows->map(function ($row) use ($r) {
             $result = ['currency' => $row->currency, 'minor_units' => (int) $row->minor_units, 'evidence' => 'SIMULATED'];
-            $fields = ['invoice_count', 'invoiced_minor', 'paid_minor', 'refunded_minor', 'outstanding_minor'];
+            $fields = ['invoice_count', 'invoiced_minor', 'paid_minor', 'refunded_minor', 'unpaid_credited_minor', 'outstanding_minor'];
             if (in_array($r->user()->role, ['vendor', 'admin'], true)) {
-                $fields = array_merge($fields, ['commission_minor', 'vendor_allocated_minor', 'commission_refunded_minor', 'vendor_refunded_minor']);
+                $fields = array_merge($fields, ['commission_minor', 'vendor_allocated_minor', 'commission_refunded_minor', 'vendor_refunded_minor', 'commission_credited_minor', 'vendor_credited_minor']);
             }
             foreach ($fields as $field) {
                 $amount = filter_var($row->$field, FILTER_VALIDATE_INT);
@@ -50,8 +51,8 @@ class CommercialFinanceController extends Controller
             }
             $result['net_collected_minor'] = $result['paid_minor'] - $result['refunded_minor'];
             if (isset($result['commission_minor'])) {
-                $result['net_commission_allocated_minor'] = $result['commission_minor'] - $result['commission_refunded_minor'];
-                $result['net_vendor_allocated_minor'] = $result['vendor_allocated_minor'] - $result['vendor_refunded_minor'];
+                $result['net_commission_allocated_minor'] = $result['commission_minor'] - $result['commission_refunded_minor'] - $result['commission_credited_minor'];
+                $result['net_vendor_allocated_minor'] = $result['vendor_allocated_minor'] - $result['vendor_refunded_minor'] - $result['vendor_credited_minor'];
             }
 
             return $result;

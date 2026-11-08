@@ -105,6 +105,7 @@ class CorporateBilling
     private function cleanInvoice(Invoice $invoice): void
     {
         CorporateHostedCollection::guardPayment((int) $invoice->id);
+        abort_if(DB::table('finance_unpaid_credits')->where('invoice_id', $invoice->id)->exists(), 409, 'A noncash-credited invoice cannot be billed again.');
         abort_unless((int) DB::table('finance_payments')->where('invoice_id', $invoice->id)->sum('amount_minor') === 0, 409, 'Corporate billing only accepts wholly unpaid invoices.');
         abort_if(DB::table('gateway_checkouts')->where('invoice_id', $invoice->id)->exists(), 409, 'An invoice with a PSP checkout must remain on its original provider collection path.');
         abort_if(DB::table('finance_refund_requests')->where('invoice_id', $invoice->id)->where('status', 'pending')->exists() || DB::table('gateway_cases')->where('invoice_id', $invoice->id)->where('status', 'open')->exists(), 409, 'Unresolved financial cases hold corporate billing.');

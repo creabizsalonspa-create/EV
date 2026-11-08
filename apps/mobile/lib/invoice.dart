@@ -1,6 +1,8 @@
 import 'charging_provenance.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'unpaid_credit.dart';
+import 'money_input.dart';
 import 'strings.dart';
 import 'financial_documents.dart';
 import 'refund_requests.dart';
@@ -104,7 +106,8 @@ class _InvoicePageState extends State<InvoicePage> {
             ),
             if (invoice['minor_units'] is int &&
                 invoice['currency'] is String &&
-                invoice['user_id'] is int)
+                invoice['user_id'] is int &&
+                data!['state'] != 'credited')
               OutlinedButton(
                 onPressed: busy
                     ? null
@@ -121,50 +124,53 @@ class _InvoicePageState extends State<InvoicePage> {
                       ),
                 child: Text(refundText(context, 'new')),
               ),
-            OutlinedButton(
-              onPressed: busy
-                  ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => CorporateBillingView(
-                          api: widget.api,
-                          onExpired: widget.onExpired,
-                          invoiceId: invoice['id'] as int,
+            if (data!['state'] != 'credited')
+              OutlinedButton(
+                onPressed: busy
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => CorporateBillingView(
+                            api: widget.api,
+                            onExpired: widget.onExpired,
+                            invoiceId: invoice['id'] as int,
+                          ),
                         ),
                       ),
-                    ),
-              child: Text(corporateText(context, 'title')),
-            ),
-            OutlinedButton(
-              onPressed: busy
-                  ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => CreatePaymentCaseView(
-                          api: widget.api,
-                          onExpired: widget.onExpired,
-                          invoiceId: invoice['id'] as int,
+                child: Text(corporateText(context, 'title')),
+              ),
+            if (data!['state'] != 'credited')
+              OutlinedButton(
+                onPressed: busy
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => CreatePaymentCaseView(
+                            api: widget.api,
+                            onExpired: widget.onExpired,
+                            invoiceId: invoice['id'] as int,
+                          ),
                         ),
                       ),
-                    ),
-              child: Text(caseText(context, 'new')),
-            ),
-            OutlinedButton(
-              onPressed: busy
-                  ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => HostedCheckoutView(
-                          api: widget.api,
-                          onExpired: widget.onExpired,
-                          scope: 'charging',
-                          invoiceId: invoice['id'] as int,
-                          sourceOwnerId: invoice['user_id'] as int?,
+                child: Text(caseText(context, 'new')),
+              ),
+            if (data!['state'] != 'credited')
+              OutlinedButton(
+                onPressed: busy
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => HostedCheckoutView(
+                            api: widget.api,
+                            onExpired: widget.onExpired,
+                            scope: 'charging',
+                            invoiceId: invoice['id'] as int,
+                            sourceOwnerId: invoice['user_id'] as int?,
+                          ),
                         ),
                       ),
-                    ),
-              child: Text(hostedText(context, 'title')),
-            ),
+                child: Text(hostedText(context, 'title')),
+              ),
             for (final entry in {
               'subtotal': invoice['subtotal_minor'],
               'tax': invoice['tax_minor'],
@@ -201,6 +207,49 @@ class _InvoicePageState extends State<InvoicePage> {
                     : 'Charging source evidence',
               ),
             ),
+            if (data!['can_review_unpaid_credit'] == true)
+              OutlinedButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        final current = widget.api.sessionFence();
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => UnpaidCreditView(
+                              api: widget.api,
+                              invoiceId: invoice['id'] as int,
+                              onExpired: widget.onExpired,
+                            ),
+                          ),
+                        );
+                        if (mounted && current()) await load();
+                      },
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'ar'
+                      ? 'تسوية الفاتورة غير المدفوعة والتحقق'
+                      : 'Unpaid invoice credit & recovery',
+                ),
+              ),
+            if ((data!['unpaid_credited_minor'] ?? 0) > 0)
+              Text(
+                '${Localizations.localeOf(context).languageCode == 'ar' ? 'تسوية غير نقدية' : 'Noncash credit'}: ${minorDecimal(data!['unpaid_credited_minor'] as int, invoice['minor_units'] as int)} ${invoice['currency']}',
+              ),
+            for (final note in data!['unpaid_credit_notes'] ?? [])
+              OutlinedButton(
+                onPressed: busy
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => FinancialDocumentsView(
+                            api: widget.api,
+                            onExpired: widget.onExpired,
+                            sourceKind: 'charging_unpaid_credit',
+                            sourceId: note['id'] as int,
+                          ),
+                        ),
+                      ),
+                child: Text('${note['credit_note_number']}'),
+              ),
             for (final kind in ['payments', 'refunds']) ...[
               Text(s.t(kind), style: Theme.of(context).textTheme.titleMedium),
               if ((data![kind] as List? ?? []).isEmpty)

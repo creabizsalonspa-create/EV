@@ -11,6 +11,8 @@ Route::get('/finance/invoices', [F::class, 'invoices']);
 Route::post('/finance/sessions/{session}/invoice', [F::class, 'issue']);
 Route::get('/finance/invoices/{invoice}/source-evidence', [F::class, 'sourceEvidence']);
 Route::get('/finance/invoices/{invoice}/source-credits', [F::class, 'sourceCredits']);
+Route::post('/finance/invoices/{invoice}/unpaid-credit', [F::class, 'unpaidCredit']);
+Route::post('/finance/invoices/{invoice}/unpaid-credit-resolve', [F::class, 'resolveUnpaidCredit']);
 Route::get('/finance/invoices/{invoice}', [F::class, 'show']);
 Route::post('/finance/invoices/{invoice}/simulate-payment', [F::class, 'payment']);
 Route::post('/finance/invoices/{invoice}/simulate-refund', [F::class, 'refund']);
