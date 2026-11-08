@@ -68,6 +68,20 @@ $malformed = $source;
 $malformed['results'][0]['connections'] = ['unsafe' => ['availability' => 'unknown']];
 try { (new OpenChargeMapAdapter())->filterReported($malformed); throw new RuntimeException('associative connector cache accepted'); }
 catch (LookupFailure $e) { verify($e->reason === 'invalid_response', 'reject associative connector cache'); }
+// Cached entries are never a source of new public fields or private
+// metadata, including nested connection data and response-envelope fields.
+$poisoned = $source;
+$poisoned['internal_credentials'] = 'TOP_LEVEL_DO_NOT_LEAK';
+$poisoned['results'][0]['raw_provider_payload'] = 'ITEM_DO_NOT_LEAK';
+$poisoned['results'][0]['connections'][0]['private_connector_token'] = 'CONNECTOR_DO_NOT_LEAK';
+$redacted = (new OpenChargeMapAdapter())->filterReported($poisoned);
+verify($redacted['count'] === 1, 'safe station kept after removing extraneous cache fields');
+$redactedBody = json_encode($redacted, JSON_THROW_ON_ERROR);
+foreach (['TOP_LEVEL_DO_NOT_LEAK', 'ITEM_DO_NOT_LEAK', 'CONNECTOR_DO_NOT_LEAK'] as $secret) {
+    verify(strpos($redactedBody, $secret) === false, 'unknown cached field never reaches public API');
+}
+verify($redacted['results'][0]['data_license'] === 'CC BY-SA 4.0', 'source attribution survives cache allowlist');
+verify($redacted['results'][0]['connections'][0]['reported_connector_type'] === 'Type 2', 'approved connector survives cache allowlist');
 verify($result['results'][0]['id']==='ocm:11','sort by distance');
 verify($result['results'][1]['id']==='ocm:12','second source');
 verify($captured['opendata']==='true' && $captured['distanceunit']==='km' && $captured['maxresults']===25,'bounded OCM request');

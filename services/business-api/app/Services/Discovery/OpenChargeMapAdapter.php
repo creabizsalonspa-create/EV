@@ -198,7 +198,53 @@ final class OpenChargeMapAdapter
             }
         }
 
-        return [...$source, 'count' => count($values), 'results' => $values];
+        return self::publicResult($values);
+    }
+
+    /**
+     * Rebuild the public response from a fixed field list. A cache backend is
+     * never an authority for introducing new API fields, even if a nested
+     * record retains the approved discovery-only capability flags.
+     */
+    private static function publicResult(array $values): array
+    {
+        $stationKeys = [
+            'id', 'provider', 'name', 'address', 'city', 'country',
+            'latitude', 'longitude', 'operator_label', 'operator_evidence',
+            'source_updated_at', 'source_age_minutes', 'source_clock_evidence',
+            'source_status_evidence', 'reported_operational',
+            'reported_operational_evidence', 'reported_access',
+            'reported_membership_required', 'reported_access_key_required',
+            'reported_access_evidence', 'reported_cost_note',
+            'reported_cost_evidence', 'data_provider', 'data_license',
+            'attribution', 'source_url', 'distance_km', 'distance_basis',
+            'availability', 'remote_control', 'reservable', 'billing_eligible',
+            'connections',
+        ];
+        $connectionKeys = ['reported_connector_type', 'reported_power_kw', 'availability'];
+        $allowedStation = array_fill_keys($stationKeys, true);
+        $allowedConnection = array_fill_keys($connectionKeys, true);
+        foreach ($values as &$item) {
+            foreach ($item['connections'] as &$connection) {
+                $connection = array_intersect_key($connection, $allowedConnection);
+            }
+            unset($connection);
+            $item = array_intersect_key($item, $allowedStation);
+        }
+        unset($item);
+
+        return [
+            'provider' => 'open_charge_map',
+            'evidence' => 'OPEN_LICENSED_DISCOVERY_ONLY',
+            'availability' => 'unknown',
+            'remote_control' => false,
+            'reservable' => false,
+            'billing_eligible' => false,
+            'distance_basis' => 'great_circle',
+            'license_policy' => 'PER_RECORD_ATTRIBUTION_REQUIRED',
+            'count' => count($values),
+            'results' => $values,
+        ];
     }
 
     private function fetch(array $parameters, string $key): array
