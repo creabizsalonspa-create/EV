@@ -139,6 +139,28 @@ window.EvAdminKycQueue = (() => {
                 }
                 submit.disabled = true;
                 try {
+                    if (choice.value === "approved") {
+                        // Queue metadata proves only that a document row
+                        // exists. Recheck the actual encrypted trade-license
+                        // before offering a positive manual review decision.
+                        const latest = await request(
+                            "vendor-ops/companies/" + companyId,
+                            "GET", undefined, signal
+                        );
+                        if (!alive(expected, signal)) return;
+                        if (latest?.status !== company.status) {
+                            state.textContent =
+                                "Company review state changed. Refresh before deciding.";
+                            return;
+                        }
+                        if (!latest.submission_readiness ||
+                            latest.submission_readiness.license_valid !== true ||
+                            latest.submission_readiness.trade_license_integrity_valid !== true) {
+                            state.textContent =
+                                "Cannot approve: trade-license evidence is unavailable, expired or failed integrity verification.";
+                            return;
+                        }
+                    }
                     await request("vendor-ops/companies/" + companyId + "/review", "POST", {
                         status: choice.value,
                         reason: reason.value.trim(),

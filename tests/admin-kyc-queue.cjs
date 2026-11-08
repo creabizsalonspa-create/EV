@@ -113,6 +113,11 @@ test('review action requires a reason and posts through existing VendorOps revie
   let state = 'submitted';
   ui.setActor({role:'admin'}, async (p, method = 'GET', payload) => {
     calls.push({p, method, payload});
+    if (p === 'vendor-ops/companies/17') return {
+      ...entry, submission_readiness:{
+        license_valid:true, trade_license_integrity_valid:true,
+      },
+    };
     if (p.endsWith('/review')) {
       state = 'approved';
       return {status:'approved'};
@@ -192,4 +197,67 @@ test('stale document response cannot render after Admin identity changes', async
   await tick();
   assert.equal(ui.root.textContent,'');
   assert.equal(nodes(ui.root,'a').length,0);
+});
+
+
+test('Admin approval checks fresh encrypted-license integrity, but allows correction decisions', async () => {
+  const ui = fixture();
+  const calls = [];
+  ui.setActor({role:'admin'}, async (p, method = 'GET', payload) => {
+    calls.push({p, method, payload});
+    if (p === 'vendor-ops/companies/17') return {
+      ...entry,
+      submission_readiness:{
+        license_valid:true,
+        trade_license_present:true,
+        trade_license_integrity_valid:false,
+      },
+    };
+    if (p.endsWith('/review')) return {status:'changes_requested'};
+    return page();
+  });
+  await tick();
+  const form = nodes(ui.root,'form').find(x=>nodes(x,'textarea').length);
+  const reason = nodes(form,'textarea')[0];
+  reason.value = 'Evidence cannot be verified from encrypted private file.';
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.filter(x=>x.p.endsWith('/review')).length, 0,
+    'Approval must not be POSTed when latest evidence fails integrity validation.');
+  assert.equal(calls.filter(x=>x.p === 'vendor-ops/companies/17').length, 1);
+  assert.match(ui.root.textContent, /Cannot approve: trade-license evidence/);
+
+  nodes(form,'select')[0].value = 'changes_requested';
+  await form.onsubmit({preventDefault(){}});
+  const decisions = calls.filter(x=>x.p.endsWith('/review'));
+  assert.equal(decisions.length, 1,
+    'Reviewers can still request a replacement for invalid evidence.');
+  assert.equal(decisions[0].payload.status,'changes_requested');
+  assert.equal(calls.filter(x=>x.p === 'vendor-ops/companies/17').length, 1,
+    'Non-approval correction must not be blocked by a failed integrity preflight.');
+});
+
+test('stale approval preflight cannot POST after Admin logout', async () => {
+  const ui = fixture();
+  let completeDetail;
+  const calls = [];
+  ui.setActor({role:'admin'}, (p, method = 'GET', payload) => {
+    calls.push({p, method, payload});
+    if (p === 'vendor-ops/companies/17') return new Promise(resolve => {
+      completeDetail = resolve;
+    });
+    if (p.endsWith('/review')) throw Error('Stale approval must never post.');
+    return Promise.resolve(page());
+  });
+  await tick();
+  const form = nodes(ui.root,'form').find(x=>nodes(x,'textarea').length);
+  nodes(form,'textarea')[0].value = 'The document was manually reviewed and verified.';
+  const pending = form.onsubmit({preventDefault(){}});
+  assert.equal(typeof completeDetail, 'function');
+  ui.setActor(null,async()=>{throw Error('Guest access forbidden');});
+  completeDetail({...entry,submission_readiness:{
+    license_valid:true,trade_license_integrity_valid:true,
+  }});
+  await pending;
+  assert.equal(calls.filter(x=>x.p.endsWith('/review')).length,0);
+  assert.equal(ui.root.textContent,'');
 });
