@@ -70,8 +70,10 @@ class _ChargingScreenState extends State<ChargingScreen>
       'Status could not be read. Charging may still be active. Retry only checks status.',
       'تعذر قراءة الحالة. قد يستمر الشحن. إعادة المحاولة تتحقق من الحالة فقط.',
     ),
-    'connector_fault' => _t('A connector fault was reported. Ask the operator to review this session before starting again.',
-        'تم الإبلاغ عن عطل في الموصل. اطلب من المشغل مراجعة الجلسة قبل البدء من جديد.'),
+    'connector_fault' => _t(
+      'A connector fault was reported. Ask the operator to review this session before starting again.',
+      'تم الإبلاغ عن عطل في الموصل. اطلب من المشغل مراجعة الجلسة قبل البدء من جديد.',
+    ),
     'ended_review' => _t(
       'The source reported the session ended. Ask the operator to review it before starting again.',
       'أبلغ المصدر بانتهاء الجلسة. اطلب من المشغل مراجعتها قبل بدء جلسة جديدة.',
@@ -219,15 +221,24 @@ class _ChargingScreenState extends State<ChargingScreen>
           _kwhUsed = result.hasVerifiedMeter ? result.kwhUsed : null;
           _chargingStatus = result.chargingStatus == 'Completed'
               ? 'Ended at source'
-              : result.chargingStatus == 'Charging' ? 'Active at source' : 'Source status unverified';
+              : result.chargingStatus == 'Charging'
+              ? 'Active at source'
+              : 'Source status unverified';
           _endNeedsReview = result.sourceEndNeedsReview;
           _endReason = result.sourceEndReason;
           if (_endNeedsReview) _readState = 'ended_review';
           final connector = result.connectorObservation;
           if (connector != null) {
-            _connectorNote = _t('Connector reported','أبلغ الموصل عن') +
-                ' ${connector.status} · ' + _t('receipt age at last check','عمر الاستلام عند آخر تحقق') +
-                ' ${connector.receiptAgeSeconds}s' + (connector.freshness == 'stale' ? ' · '+_t('stale report','تقرير قديم') : '');
+            final reportLabel = _t('Connector reported', 'أبلغ الموصل عن');
+            final ageLabel = _t(
+              'receipt age at last check',
+              'عمر الاستلام عند آخر تحقق',
+            );
+            final staleLabel = connector.freshness == 'stale'
+                ? ' · ${_t('stale report', 'تقرير قديم')}'
+                : '';
+            _connectorNote =
+                '$reportLabel ${connector.status} · $ageLabel ${connector.receiptAgeSeconds}s$staleLabel';
             if (connector.status == 'Faulted') _readState = 'connector_fault';
           }
           final cost = result.provisionalCostFils ?? result.finalCostFils;

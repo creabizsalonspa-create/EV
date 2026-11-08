@@ -261,22 +261,47 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  testWidgets('qualified connector fault keeps session active, hides absent meters and never implies stopped', (tester) async {
-    final c=RecoveringStatus(); await show(tester,c);
-    c.pending[0].complete(Data.fromJson({
-      'sessionId':'s','bookingId':'b','source':'ocpp','protocol':'ocpp2.0.1',
-      'sourceVerified':true,'meterVerified':false,'chargingStatus':'Charging','readOnly':true,
-      'connectorObservation':{'qualified':true,'source':'gateway_connector_report','protocol':'ocpp2.0.1',
-        'connectorId':2,'evseId':3,'status':'Faulted','receivedAt':DateTime.now().toUtc().toIso8601String(),
-        'receiptAgeSeconds':0,'freshness':'recent'},
-    }));
-    await tester.pump();await tester.pump();
-    expect(find.text('Active at source'),findsOneWidget);
-    expect(find.textContaining('A connector fault was reported'),findsOneWidget);
-    expect(find.textContaining('Connector reported Faulted'),findsOneWidget);
-    expect(find.text('Completed'),findsNothing);expect(find.text('Ended at source'),findsNothing);
-    expect(find.textContaining('Energy Used:'),findsNothing);
-    expect(c.pending.length,1);expect(tester.takeException(),isNull);
-  });
-
+  testWidgets(
+    'qualified connector fault keeps session active, hides absent meters and never implies stopped',
+    (tester) async {
+      final c = RecoveringStatus();
+      await show(tester, c);
+      c.pending[0].complete(
+        Data.fromJson({
+          'sessionId': 's',
+          'bookingId': 'b',
+          'source': 'ocpp',
+          'protocol': 'ocpp2.0.1',
+          'sourceVerified': true,
+          'meterVerified': false,
+          'chargingStatus': 'Charging',
+          'readOnly': true,
+          'connectorObservation': {
+            'qualified': true,
+            'source': 'gateway_connector_report',
+            'protocol': 'ocpp2.0.1',
+            'connectorId': 2,
+            'evseId': 3,
+            'status': 'Faulted',
+            'receivedAt': DateTime.now().toUtc().toIso8601String(),
+            'receiptAgeSeconds': 0,
+            'freshness': 'recent',
+          },
+        }),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Active at source'), findsOneWidget);
+      expect(
+        find.textContaining('A connector fault was reported'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Connector reported Faulted'), findsOneWidget);
+      expect(find.text('Completed'), findsNothing);
+      expect(find.text('Ended at source'), findsNothing);
+      expect(find.textContaining('Energy Used:'), findsNothing);
+      expect(c.pending.length, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

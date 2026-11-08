@@ -183,32 +183,105 @@ void main() {
     },
   );
 
-  test('connector receipts reject mismatched scope, protocol, source and timestamp claims', () {
-    final observation={'qualified':true,'source':'gateway_connector_report','protocol':'ocpp1.6',
-      'connectorId':2,'evseId':null,'status':'Faulted','receivedAt':DateTime.now().toUtc().toIso8601String(),
-      'receiptAgeSeconds':0,'freshness':'recent'};
-    expect(Data.fromJson({...progressContract(),'connectorObservation':observation}).connectorObservation!.status,'Faulted');
-    for(final patch in [{'qualified':'true'},{'source':'estimate'},{'protocol':'ocpp2.0.1'},
-      {'connectorId':0},{'evseId':3},{'receiptAgeSeconds':'0'},{'freshness':'stale'},
-      {'status':'unrecognized'},{'receivedAt':'2026-02-31T01:00:00Z'},
-      {'receivedAt':DateTime.now().toUtc().add(const Duration(days:1)).toIso8601String()}]) {
-      expect(Data.fromJson({...progressContract(),'connectorObservation':{...observation,...patch}}).connectorObservation,isNull);
-    }
-    expect(Data.fromJson({...progressContract(),'chargingStatus':'Completed','connectorObservation':observation}).connectorObservation,isNull);
-    final stale=Data.fromJson({...progressContract(),'connectorObservation':{...observation,
-      'receivedAt':DateTime.now().toUtc().subtract(const Duration(seconds:121)).toIso8601String(),
-      'receiptAgeSeconds':121,'freshness':'stale'}}).connectorObservation!;
-    expect(stale.freshness,'stale');expect(stale.receiptAgeSeconds,121);
-  });
-  test('a qualified connector report cannot create missing energy or financial evidence', () {
-    final value=Data.fromJson({...progressContract(),'meterVerified':false,'energyWh':null,'kwhUsed':null,
-      'connectorObservation':{'qualified':true,'source':'gateway_connector_report','protocol':'ocpp1.6',
-      'connectorId':2,'evseId':null,'status':'Faulted','receivedAt':DateTime.now().toUtc().toIso8601String(),
-      'receiptAgeSeconds':0,'freshness':'recent'}});
-    expect(value.hasSourceProof,true);expect(value.hasVerifiedMeter,false);
-    expect(value.connectorObservation!.status,'Faulted');expect(value.provisionalCostFils,isNull);
-    expect(value.energyWh,isNull);expect(value.canStop,false);expect(value.canExtend,false);
-  });
+  test(
+    'connector receipts reject mismatched scope, protocol, source and timestamp claims',
+    () {
+      final observation = {
+        'qualified': true,
+        'source': 'gateway_connector_report',
+        'protocol': 'ocpp1.6',
+        'connectorId': 2,
+        'evseId': null,
+        'status': 'Faulted',
+        'receivedAt': DateTime.now().toUtc().toIso8601String(),
+        'receiptAgeSeconds': 0,
+        'freshness': 'recent',
+      };
+      expect(
+        Data.fromJson({
+          ...progressContract(),
+          'connectorObservation': observation,
+        }).connectorObservation!.status,
+        'Faulted',
+      );
+      for (final patch in [
+        {'qualified': 'true'},
+        {'source': 'estimate'},
+        {'protocol': 'ocpp2.0.1'},
+        {'connectorId': 0},
+        {'evseId': 3},
+        {'receiptAgeSeconds': '0'},
+        {'freshness': 'stale'},
+        {'status': 'unrecognized'},
+        {'receivedAt': '2026-02-31T01:00:00Z'},
+        {
+          'receivedAt': DateTime.now()
+              .toUtc()
+              .add(const Duration(days: 1))
+              .toIso8601String(),
+        },
+      ]) {
+        expect(
+          Data.fromJson({
+            ...progressContract(),
+            'connectorObservation': {...observation, ...patch},
+          }).connectorObservation,
+          isNull,
+        );
+      }
+      expect(
+        Data.fromJson({
+          ...progressContract(),
+          'chargingStatus': 'Completed',
+          'connectorObservation': observation,
+        }).connectorObservation,
+        isNull,
+      );
+      final stale = Data.fromJson({
+        ...progressContract(),
+        'connectorObservation': {
+          ...observation,
+          'receivedAt': DateTime.now()
+              .toUtc()
+              .subtract(const Duration(seconds: 121))
+              .toIso8601String(),
+          'receiptAgeSeconds': 121,
+          'freshness': 'stale',
+        },
+      }).connectorObservation!;
+      expect(stale.freshness, 'stale');
+      expect(stale.receiptAgeSeconds, 121);
+    },
+  );
+  test(
+    'a qualified connector report cannot create missing energy or financial evidence',
+    () {
+      final value = Data.fromJson({
+        ...progressContract(),
+        'meterVerified': false,
+        'energyWh': null,
+        'kwhUsed': null,
+        'connectorObservation': {
+          'qualified': true,
+          'source': 'gateway_connector_report',
+          'protocol': 'ocpp1.6',
+          'connectorId': 2,
+          'evseId': null,
+          'status': 'Faulted',
+          'receivedAt': DateTime.now().toUtc().toIso8601String(),
+          'receiptAgeSeconds': 0,
+          'freshness': 'recent',
+        },
+      });
+      expect(value.hasSourceProof, true);
+      expect(value.hasVerifiedMeter, false);
+      expect(value.connectorObservation!.status, 'Faulted');
+      expect(value.provisionalCostFils, isNull);
+      expect(value.energyWh, isNull);
+      expect(value.canStop, false);
+      expect(value.canExtend, false);
+    },
+  );
   testWidgets(
     'calculated progress stays unpaid, fits narrow screen and clears in background',
     (tester) async {

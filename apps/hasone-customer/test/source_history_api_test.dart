@@ -84,11 +84,20 @@ void main() {
         expect(response.isSuccess, true);
         final value = progress.Data.fromJson(response.responseData['data']);
         final ended = Platform.environment['AGENT2_PROGRESS_ENDED'] == '1';
-        final missing = Platform.environment['AGENT2_PROGRESS_METER_MISSING'] == '1';
-        final fault = Platform.environment['AGENT2_EXPECT_CONNECTOR_FAULT'] == '1';
+        final missing =
+            Platform.environment['AGENT2_PROGRESS_METER_MISSING'] == '1';
+        final fault =
+            Platform.environment['AGENT2_EXPECT_CONNECTOR_FAULT'] == '1';
         expect(value.hasSourceProof, true);
         expect(value.hasVerifiedMeter, !missing);
-        expect(value.energyWh, missing ? isNull : ended ? 5000 : 3000);
+        expect(
+          value.energyWh,
+          missing
+              ? isNull
+              : ended
+              ? 5000
+              : 3000,
+        );
         expect(value.provisionalCostFils, missing || ended ? isNull : 315);
         expect(value.finalCostFils, ended ? 525 : isNull);
         expect(value.sourceEndNeedsReview, ended);
@@ -190,25 +199,34 @@ void main() {
         String? cursor;
         SourceHistoryEntry? matched;
         final scopedProtocols = <String>{};
-        final resourceExpectations=jsonDecode(Platform.environment['AGENT2_RESOURCE_EXPECTATIONS']??'{}') as Map;
-        final checkedResources=<String>{};
+        final resourceExpectations =
+            jsonDecode(
+                  Platform.environment['AGENT2_RESOURCE_EXPECTATIONS'] ?? '{}',
+                )
+                as Map;
+        final checkedResources = <String>{};
         do {
           final page = await api.load(cursor);
           for (final entry in page.entries) {
             expect(seen.add(entry.sessionId), true);
             if (entry.sessionId == expected) matched = entry;
-            if (entry.resource != null) scopedProtocols.add(entry.resource!.protocol);
+            if (entry.resource != null) {
+              scopedProtocols.add(entry.resource!.protocol);
+            }
             if (resourceExpectations.containsKey(entry.sessionId)) {
-              final expected=resourceExpectations[entry.sessionId] as Map;
-              expect(entry.resource,isNotNull);
-              expect(entry.resource!.protocol,expected['protocol']);
-              expect(entry.resource!.connectorId,expected['connectorId']);
-              expect(entry.resource!.evseId,expected['evseId']);
+              final expected = resourceExpectations[entry.sessionId] as Map;
+              expect(entry.resource, isNotNull);
+              expect(entry.resource!.protocol, expected['protocol']);
+              expect(entry.resource!.connectorId, expected['connectorId']);
+              expect(entry.resource!.evseId, expected['evseId']);
               checkedResources.add(entry.sessionId);
             } else if (entry.resource != null && resourceExpectations.isEmpty) {
               // Preserve the older harness contract when its explicit expectation map is absent.
-              expect(entry.resource!.connectorId,2);
-              expect(entry.resource!.evseId,entry.resource!.protocol=='ocpp2.0.1'?3:null);
+              expect(entry.resource!.connectorId, 2);
+              expect(
+                entry.resource!.evseId,
+                entry.resource!.protocol == 'ocpp2.0.1' ? 3 : null,
+              );
             }
           }
           cursor = page.nextCursor;
@@ -216,7 +234,7 @@ void main() {
         } while (cursor != null);
         if (Platform.environment['AGENT2_EXPECT_RESOURCE_HISTORY'] == '1') {
           expect(scopedProtocols, {'ocpp1.6', 'ocpp2.0.1'});
-          expect(checkedResources,resourceExpectations.keys.toSet());
+          expect(checkedResources, resourceExpectations.keys.toSet());
         }
         expect(matched, isNotNull);
         expect(matched!.energyWh, 7000);
