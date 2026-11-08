@@ -14,6 +14,7 @@ class _SocApi extends EvApi {
   final requestPaths = <String>[];
   Completer<void>? holdVehicle17;
   bool failReadbackOnce = false;
+  bool denyNewAccount = false;
   int revision = 0;
   int? percent;
   int otherRevision = 4;
@@ -58,6 +59,7 @@ class _SocApi extends EvApi {
         'battery_percent': otherPercent, 'source': 'CUSTOMER_MANUAL_SELF_REPORT'};
     }
     if (path == 'vehicles/17/manual-soc' && method == 'GET') {
+      if (denyNewAccount) throw const ApiException(404, 'Vehicle not owned');
       if (holdVehicle17 != null) await holdVehicle17!.future;
       if (revision > 0 && failReadbackOnce) {
         failReadbackOnce = false;
@@ -183,6 +185,34 @@ void main() {
       expect(api.writes.last['battery_percent'], 55);
     } finally {
       if (!(api.holdVehicle17?.isCompleted ?? true)) api.holdVehicle17!.complete();
+      api.close();
+    }
+  });
+
+  testWidgets('reused same-vehicle view clears prior account SOC and input on session change',
+      (tester) async {
+    final api = _SocApi()..revision = 1..percent = 73;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Latest estimate: 73%'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '42');
+      // An auth epoch change can reuse the same EvApi object and vehicle id;
+      // neither the old percentage nor the pending edit may remain visible.
+      api.denyNewAccount = true;
+      await api.forgetSession();
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Latest estimate: 73%'), findsNothing);
+      expect(find.text('73%'), findsNothing);
+      expect(find.byKey(const Key('manual-soc-percent')), findsNothing);
+      expect(find.byKey(const Key('manual-soc-error')), findsOneWidget);
+      expect(api.writes, isEmpty);
+    } finally {
       api.close();
     }
   });

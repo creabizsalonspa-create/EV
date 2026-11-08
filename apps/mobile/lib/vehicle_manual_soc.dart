@@ -19,21 +19,28 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
   Map<String,dynamic>? latest,pending;
   List<Map<String,dynamic>> reports=[];
   int page=1,lastPage=1,generation=0;
+  late bool Function() accountFence;
   bool loading=false,saving=false;
   String? error,success;
   String t(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
   String get path=>'vehicles/'+widget.vehicleId.toString()+'/manual-soc';
 
   @override
-  void initState(){super.initState();load();}
+  void initState(){
+    super.initState();
+    accountFence=widget.api.sessionFence();
+    load();
+  }
 
   @override
   void didUpdateWidget(covariant VehicleManualSocView oldWidget){
     super.didUpdateWidget(oldWidget);
-    if(oldWidget.vehicleId==widget.vehicleId&&identical(oldWidget.api,widget.api))return;
+    if(oldWidget.vehicleId==widget.vehicleId&&
+       identical(oldWidget.api,widget.api)&&accountFence())return;
     // Reused Flutter State must never retain a previous vehicle's battery
     // history, pending idempotency key or editable percentage.
     generation++;
+    accountFence=widget.api.sessionFence();
     percent.clear();
     latest=pending=null;
     reports=[];
@@ -73,8 +80,8 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
         latest=currentMap;reports=history.items;
         page=history.current;lastPage=history.last;
       });
-    }catch(e){if(mounted&&token==generation)failed(e);}
-    finally{if(mounted&&token==generation)setState(()=>loading=false);}
+    }catch(e){if(mounted&&token==generation&&fence())failed(e);}
+    finally{if(mounted&&token==generation&&fence())setState(()=>loading=false);}
   }
 
   Future<void> save() async {
@@ -119,13 +126,13 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
         success=t('Manual battery report recorded.','تم تسجيل التقرير اليدوي للبطارية.');
       });
     }catch(e){
-      if(mounted&&token==generation){
+      if(mounted&&token==generation&&fence()){
         failed(e);
         if(mounted)setState(()=>error=t(
           'Result uncertain. Check the history or retry the identical report.',
           'النتيجة غير مؤكدة. راجع السجل أو أعد نفس التقرير.'));
       }
-    }finally{if(mounted&&token==generation)setState(()=>saving=false);}
+    }finally{if(mounted&&token==generation&&fence())setState(()=>saving=false);}
   }
 
   void clearPending(){
