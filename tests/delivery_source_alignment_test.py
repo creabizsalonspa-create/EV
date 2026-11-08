@@ -1,6 +1,8 @@
 """Offline source alignment must never certify mismatched/unsigned app deliveries."""
 import datetime as dt
 import io
+import hashlib
+from unittest.mock import patch
 import json
 from pathlib import Path
 import stat
@@ -12,6 +14,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from delivery_bundle import BundleError, create
+import delivery_source_alignment as alignment
 from delivery_source_alignment import (CHECKS, EXPECTED_ROUTES, SCHEMA,
                                        private_stage_evidence, require_reviewed_stage,
                                        verify_alignment, write_private_report, main)
@@ -189,6 +192,49 @@ class SourceAlignmentTests(unittest.TestCase):
               '--source-sha','e'*40,'--output',str(self.out)]
         self.assertEqual(main(args),1)
         self.assertFalse(self.out.exists())
+
+    def test_alignment_manifest_digest_matches_bytes_verified(self):
+        summary = self.verify()
+        expected = hashlib.sha256((self.mobile / 'manifest.json').read_bytes()).hexdigest()
+        self.assertEqual(summary['mobile_manifest_sha256'], expected)
+
+    def test_manifest_edit_after_mobile_verification_rejects_unreviewed_digest(self):
+        original = alignment.verify_mobile
+
+        def tamper_then_return(*args):
+            result = original(*args)
+            manifest = self.mobile / 'manifest.json'
+            manifest.write_bytes(manifest.read_bytes() + b' ')
+            manifest.chmod(0o600)
+            return result
+
+        with patch.object(alignment, 'verify_mobile', side_effect=tamper_then_return):
+            with self.assertRaisesRegex(BundleError, 'changed during source alignment'):
+                self.verify()
+
+    def test_same_content_atomic_manifest_replacement_is_rejected(self):
+        original = alignment.verify_mobile
+
+        def replace_then_return(*args):
+            result = original(*args)
+            manifest = self.mobile / 'manifest.json'
+            replacement = self.mobile / 'new-manifest.json'
+            replacement.write_bytes(manifest.read_bytes())
+            replacement.chmod(0o600)
+            replacement.replace(manifest)
+            return result
+
+        with patch.object(alignment, 'verify_mobile', side_effect=replace_then_return):
+            with self.assertRaisesRegex(BundleError, 'changed during source alignment'):
+                self.verify()
+
+    def test_manifest_symlink_is_rejected_before_verification(self):
+        manifest = self.mobile / 'manifest.json'
+        original = self.mobile / 'original-manifest.json'
+        manifest.replace(original)
+        manifest.symlink_to(original)
+        with self.assertRaises(BundleError):
+            self.verify()
 
     def test_stage_report_age_boundary(self):
         self.assertEqual(require_reviewed_stage(self.report,SHA,NOW),NOW-dt.timedelta(minutes=1))

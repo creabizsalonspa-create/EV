@@ -84,6 +84,48 @@ def private_stage_evidence(path):
     return report, hashlib.sha256(data).hexdigest()
 
 
+def private_manifest_snapshot(bundle):
+    """Capture the same private manifest identity around whole-bundle verification.
+
+    This detects replacement or editing while the verifier is running; it is
+    deliberately not a signed provenance attestation or a process-wide lock.
+    """
+    root = Path(bundle)
+    if root.is_symlink() or not root.is_dir() or (
+            os.name != 'nt' and root.stat().st_mode & 0o077):
+        raise BundleError('Developer bundle directory must remain private')
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+        raise BundleError('Secure mobile manifest access unavailable')
+    manifest = root / 'manifest.json'
+    try:
+        fd = os.open(manifest, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise BundleError('Cannot safely open developer bundle manifest') from exc
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or (
+                os.name != 'nt' and before.st_mode & 0o077) or (
+                before.st_size < 2 or before.st_size > 64 * 1024):
+            raise BundleError('Developer bundle manifest not private or bounded')
+        raw = os.read(fd, 64 * 1024 + 1)
+        after = os.fstat(fd)
+        if len(raw) != before.st_size or any(
+                getattr(before, field) != getattr(after, field) for field in (
+                    'st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')):
+            raise BundleError('Developer bundle manifest changed during inspection')
+        try:
+            current = os.lstat(manifest)
+        except OSError as exc:
+            raise BundleError('Developer bundle manifest path disappeared') from exc
+        if not stat.S_ISREG(current.st_mode) or current.st_dev != before.st_dev or (
+                current.st_ino != before.st_ino or current.st_nlink != 1):
+            raise BundleError('Developer bundle manifest path replaced')
+        return (hashlib.sha256(raw).hexdigest(), before.st_dev, before.st_ino,
+                before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+    finally:
+        os.close(fd)
+
+
 def require_reviewed_stage(report, source_sha, now):
     if report.get('schema') != STAGE_SCHEMA or report.get('status') != STAGE_STATUS or (
             report.get('source_sha') != source_sha) or not SHA.fullmatch(source_sha):
@@ -128,7 +170,11 @@ def verify_alignment(stage_file, mobile_dir, source_sha, now=None):
         now = dt.datetime.now(dt.timezone.utc)
     if not isinstance(now, dt.datetime) or now.utcoffset() != dt.timedelta(0):
         raise BundleError('A timezone-aware UTC reference is required')
+    manifest_before = private_manifest_snapshot(mobile_dir)
     mobile = verify_mobile(mobile_dir, source_sha)
+    manifest_after = private_manifest_snapshot(mobile_dir)
+    if manifest_before != manifest_after:
+        raise BundleError('Developer bundle manifest changed during source alignment')
     # Only the workflow-bound developer packager can be used for combined
     # delivery. Raw user-labeled APK/ZIP bundles do not prove CI origin.
     workflow = mobile.get('workflow_evidence')
@@ -139,8 +185,9 @@ def verify_alignment(stage_file, mobile_dir, source_sha, now=None):
         raise BundleError('Workflow-bound development artifact evidence required')
     report, stage_digest = private_stage_evidence(stage_file)
     observed = require_reviewed_stage(report, source_sha, now)
-    manifest_path = Path(mobile_dir) / 'manifest.json'
-    manifest_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    # Hash only the owner-only manifest bytes that remained stable throughout
+    # the original full archive/source/CRC verification.
+    manifest_digest = manifest_before[0]
     workflow_name = workflow['workflow_name']
     profile = ('EV_SHARED_CUSTOMER_VENDOR_DEVELOPER_REFERENCE_ONLY'
                if workflow_name == 'Native client validation'
