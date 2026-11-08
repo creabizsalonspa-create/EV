@@ -116,11 +116,37 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
   List<Map<String, dynamic>> owned = [];
   Map<String, dynamic>? chosen, info;
   int generation = 0, page = 1, lastPage = 1;
+  late bool Function() accountFence;
   bool busy = false, saving = false;
   String? error, success;
   String t(String en, String ar) => stationInfoT(context, en, ar);
   @override
-  void initState() { super.initState(); loadOwned(); }
+  void initState() {
+    super.initState();
+    accountFence = widget.api.sessionFence();
+    loadOwned();
+  }
+
+  @override
+  void didUpdateWidget(covariant VendorStationInformationView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.api, widget.api) && accountFence()) return;
+    // This State can be reused after a vendor/account switch. Empty all
+    // tenant-private stations and form controllers before requesting the new
+    // identity's data; old asynchronous responses are fenced by generation.
+    generation++;
+    accountFence = widget.api.sessionFence();
+    owned = []; chosen = info = null;
+    page = lastPage = 1;
+    busy = saving = false;
+    error = success = null;
+    for (final c in [...infoText.values, ...starts.values, ...ends.values, holidays]) {
+      c.clear();
+    }
+    closed.clear(); amenities.clear(); access.clear();
+    loadOwned();
+  }
+
   @override
   void dispose() {
     generation++;

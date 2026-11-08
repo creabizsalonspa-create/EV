@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:creabiz_ev/api.dart';
 import 'package:creabiz_ev/station_information.dart';
@@ -7,7 +8,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Tenant-owned API contract fixture. Laravel feature tests cover real authorization.
 class _OwnedStationApi extends EvApi {
-  _OwnedStationApi() : super(Uri.parse('https://example.invalid'));
+  _OwnedStationApi({
+    this.stationId = 7,
+    this.stationName = 'Local Plaza',
+    this.description,
+    this.holdInfo,
+  }) : super(Uri.parse('https://example.invalid'));
+  final int stationId;
+  final String stationName;
+  final String? description;
+  final Completer<void>? holdInfo;
   final writes = <Map<String, dynamic>>[];
 
   @override
@@ -18,14 +28,15 @@ class _OwnedStationApi extends EvApi {
   }) async {
     if (path == 'vendor/stations' && method == 'GET') {
       return {
-        'data': [{'id': 7, 'name': 'Local Plaza', 'timezone': 'Asia/Dubai'}],
+        'data': [{'id': stationId, 'name': stationName, 'timezone': 'Asia/Dubai'}],
         'current_page': 1, 'last_page': 1, 'total': 1,
       };
     }
-    if (path == 'stations/7/information' && method == 'GET') {
+    if (path == 'stations/$stationId/information' && method == 'GET') {
+      if (holdInfo != null) await holdInfo!.future;
       return {
         'revision': 1,
-        'description_en': null, 'description_ar': null,
+        'description_en': description, 'description_ar': null,
         'access_en': null, 'access_ar': null,
         'weekly_hours': {
           for (final day in stationInfoDays)
@@ -35,7 +46,7 @@ class _OwnedStationApi extends EvApi {
         'closed_dates': [], 'amenities': [], 'accessibility': [],
       };
     }
-    if (path == 'stations/7/information' && method == 'PUT') {
+    if (path == 'stations/$stationId/information' && method == 'PUT') {
       final input = Map<String, dynamic>.from(body!);
       writes.add(input);
       return {...input, 'revision': 2};
@@ -195,6 +206,46 @@ void main() {
     await tester.tap(find.text('Hours, access & facilities'));
     await tester.pumpAndSettle();
     expect(find.textContaining('has not published'), findsOneWidget);
+  });
+
+
+  testWidgets('reused vendor view clears prior account station details',
+      (tester) async {
+    final held = Completer<void>();
+    final first = _OwnedStationApi(
+      stationName: 'Vendor A private station',
+      description: 'Vendor A confidential entry',
+      holdInfo: held,
+    );
+    final second = _OwnedStationApi(
+      stationId: 8, stationName: 'Vendor B station',
+      description: 'Vendor B own entry',
+    );
+    try {
+      await tester.pumpWidget(MaterialApp(
+        home: VendorStationInformationView(api: first, onExpired: () {}),
+      ));
+      await tester.pump();
+      await tester.pumpWidget(MaterialApp(
+        home: VendorStationInformationView(api: second, onExpired: () {}),
+      ));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Vendor B station'), findsOneWidget);
+      expect(find.text('Vendor A private station'), findsNothing);
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('station-info-description_en'))).controller!.text,
+        'Vendor B own entry');
+      held.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Vendor A private station'), findsNothing);
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('station-info-description_en'))).controller!.text,
+        'Vendor B own entry');
+    } finally {
+      if (!held.isCompleted) held.complete();
+      first.close();second.close();
+    }
   });
 
 }
