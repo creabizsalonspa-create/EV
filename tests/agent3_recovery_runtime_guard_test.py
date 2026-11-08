@@ -51,6 +51,7 @@ def safe_app_env(name):
         'SESSION_DRIVER': 'database', 'SESSION_ENCRYPT': 'true',
         'SESSION_SECURE_COOKIE': 'true', 'CACHE_STORE': 'database',
         'QUEUE_CONNECTION': 'database', 'MAIL_MAILER': 'log',
+        'LOG_CHANNEL': 'stderr', 'LOG_LEVEL': 'warning',
         'CSMS_SIMULATOR_ENABLED': 'false', 'CSMS_SESSION_BRIDGE_ENABLED': 'false',
         'CSMS_FAULT_WORKER_ENABLED': 'false',
         'CSMS_COMMAND_WORKER_ENABLED': 'false',
@@ -238,6 +239,7 @@ class RecoveryIsolationTests(unittest.TestCase):
             ('SESSION_DRIVER', 'redis'), ('SESSION_ENCRYPT', 'false'),
             ('SESSION_SECURE_COOKIE', 'false'), ('CACHE_STORE', 'redis'),
             ('QUEUE_CONNECTION', 'redis'), ('MAIL_MAILER', 'smtp'),
+            ('LOG_CHANNEL', 'slack'), ('LOG_LEVEL', 'debug'),
             ('CSMS_SIMULATOR_ENABLED', 'true'),
             ('CSMS_SESSION_BRIDGE_ENABLED', 'true'),
             ('CSMS_FAULT_WORKER_ENABLED', 'true'),
@@ -261,7 +263,8 @@ class RecoveryIsolationTests(unittest.TestCase):
                 with self.assertRaises(g.IsolationError):
                     g.validate_containers(altered, *args)
         for mutation in ('missing', 'duplicate', 'invalid-type',
-                         'unexpected-host', 'wrong-role'):
+                         'unexpected-host', 'wrong-role',
+                         'missing-log-channel', 'missing-log-level'):
             with self.subTest(mutation=mutation):
                 altered = copy.deepcopy(rows)
                 values = altered[1]['Config']['Env']
@@ -275,6 +278,14 @@ class RecoveryIsolationTests(unittest.TestCase):
                     altered[1]['Config']['Env'] = [
                         'DB_HOST=production.example' if item.startswith('DB_HOST=') else item
                         for item in values
+                    ]
+                elif mutation == 'missing-log-channel':
+                    altered[1]['Config']['Env'] = [
+                        item for item in values if not item.startswith('LOG_CHANNEL=')
+                    ]
+                elif mutation == 'missing-log-level':
+                    altered[1]['Config']['Env'] = [
+                        item for item in values if not item.startswith('LOG_LEVEL=')
                     ]
                 else:
                     altered[3]['Config']['Env'] = safe_app_env('source-app')

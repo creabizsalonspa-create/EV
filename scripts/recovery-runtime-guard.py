@@ -129,6 +129,8 @@ def validate_app_environment(config, container_name):
         'PAYOUT_TEST_ENABLED': 'false',
         'EV_BATTERY_SIMULATOR_ENABLED': 'false',
         'MAIL_MAILER': 'log',
+        'LOG_CHANNEL': 'stderr',
+        'LOG_LEVEL': 'warning',
     }
     for key, value in expected.items():
         require(entries.get(key) == value,
