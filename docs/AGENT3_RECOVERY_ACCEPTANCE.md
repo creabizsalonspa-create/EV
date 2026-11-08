@@ -175,3 +175,25 @@ The staging recovery preflight now requires the exact synthetic staging Compose 
 ### Effective-runtime recovery logging confinement
 
 The disposable Laravel database recovery drill already sets `LOG_CHANNEL=stderr` and `LOG_LEVEL=warning` for both temporary application containers. `recovery-runtime-guard.py` now checks those **effective Docker `Config.Env` values**, alongside the existing `MAIL_MAILER=log`, database/network/key isolation and disabled integration/charging/payment switches. A container that overrides logging to another destination, lowers the reviewed log threshold, or omits either setting fails the preflight before recovery validation can be accepted. Synthetic negative unit cases cover `LOG_CHANNEL=slack`, `LOG_LEVEL=debug` and both missing keys. This is not a guarantee that a separate Laravel compiled configuration cache is absent; actual staging acceptance still requires the verified built image, full local/hosted suites and Agent 4 review. No live logging destination, customer data or production infrastructure is modified.
+
+### Staging Compose command and external-network confinement
+
+A syntactically valid staging Compose service could previously retain the reviewed
+`command` or `healthcheck` **key** while substituting a destructive Artisan
+command or a different healthcheck **value**. Unreviewed top-level `networks`
+and `include` sections, or external volume-driver/secret changes, could also
+appear after the reviewed services and evade the service-key allowlist.
+
+The preflight now requires the five reviewed service definitions to match their
+exact expected runtime command, environment, healthcheck, mount, dependency
+and restart lines; it rejects extra or duplicated top-level Compose sections
+and enforces the existing named-volume/build-CA-secret layout. Eleven synthetic
+negative policy cases target worker/scheduler command changes, healthcheck
+replacement, altered database identity, gateway hostname/dependency changes,
+unsafe restart changes, external network/includes, host bind-volume drivers
+and build-CA path changes. Legitimate staging Compose changes must be
+re-reviewed against this narrow preflight rather than silently accepted.
+
+These checks inspect **repository configuration only**. They do not claim that
+a Docker daemon actually executed these settings, that a restore was run,
+or that production, PostgreSQL, DNS, certificates or hardware were accepted.

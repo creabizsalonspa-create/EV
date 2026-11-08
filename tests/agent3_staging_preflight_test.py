@@ -214,6 +214,33 @@ class PreflightTests(unittest.TestCase):
                     with self.assertRaises(p.PreflightError):
                         p.check_policy(root)
 
+    def test_unreviewed_staging_service_commands_and_global_options_are_denied(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            stage = root/'infra/staging'
+            stage.mkdir(parents=True)
+            source = (ROOT/'infra/staging'/'compose.yaml').read_text()
+            for name in ('Caddyfile', 'Dockerfile'):
+                (stage/name).write_text((ROOT/'infra/staging'/name).read_text())
+            mutations = [
+                source + 'networks:\n  default:\n    external: true\n',
+                source + 'include:\n  - /tmp/unreviewed.yaml\n',
+                source.replace('command: [php, artisan, queue:work, --sleep=3, --tries=3, --timeout=90]', 'command: [php, artisan, migrate:fresh, --force]'),
+                source.replace('command: [php, artisan, schedule:work]', 'command: [php, artisan, db:wipe, --force]'),
+                source.replace('    healthcheck:\n      disable: true', '    healthcheck:\n      test: [CMD-SHELL, false]', 1),
+                source.replace('      POSTGRES_DB: ev_business', '      POSTGRES_DB: unreviewed_database'),
+                source.replace('    restart: unless-stopped', '    restart: always', 1),
+                source.replace('      STAGING_HOST: ${STAGING_HOST}', '      STAGING_HOST: unreviewed.example.invalid'),
+                source.replace('  private-storage:\n', '  private-storage:\n    driver: local\n    driver_opts:\n      type: none\n      o: bind\n      device: /host'),
+                source.replace('    file: ${EV_BUILD_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}', '    file: /host/unreviewed-ca'),
+                source.replace('        condition: service_healthy', '        condition: service_started'),
+            ]
+            for index, mutated in enumerate(mutations):
+                self.assertNotEqual(mutated, source)
+                (stage/'compose.yaml').write_text(mutated)
+                with self.subTest(index=index), self.assertRaises(p.PreflightError):
+                    p.check_policy(root)
+
     def test_duplicate_compose_services_and_environment_keys_are_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

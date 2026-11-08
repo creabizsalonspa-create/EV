@@ -160,6 +160,23 @@ def check_policy(root):
     compose = (root / 'compose.yaml').read_text()
     caddy = (root / 'Caddyfile').read_text()
     image = (root / 'Dockerfile').read_text()
+    # Reject Compose include files, additional networks and host volume drivers.
+    # An unchanged service allowlist does not make such extensions safe.
+    top_level = re.findall(r'^([a-z][a-z0-9_-]*):', compose, re.M)
+    require(top_level == ['name', 'x-application', 'services', 'volumes', 'secrets'],
+            'Unreviewed or duplicate top-level staging Compose declaration')
+    reviewed_tail = ('volumes:\n'
+                     '  database:\n'
+                     '  private-storage:\n'
+                     '  certificates:\n'
+                     '  gateway-config:\n'
+                     'secrets:\n'
+                     '  ev_ca_bundle:\n'
+                     '    file: ${EV_BUILD_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}')
+    tail = compose.split('\nvolumes:\n', 1)
+    require(len(tail) == 2 and
+            'volumes:\n' + tail[1].rstrip('\n') == reviewed_tail,
+            'Unreviewed staging volume driver, secret or top-level option')
     require(compose.count('name: ev-staging') == 1 and
             compose.count('x-application: &application') == 1 and
             len(re.findall(r'^services:\s*$', compose, re.M)) == 1,
@@ -221,6 +238,19 @@ def check_policy(root):
     for name, body in services.items():
         require_direct_keys(body, 4, allowed_services[name],
                             expected=allowed_services[name])
+    # A permitted command, healthcheck or environment KEY may contain a
+    # destructive VALUE. Require full reviewed service definitions instead
+    # of silently accepting unreviewed commands or dependency changes.
+    reviewed_service_lines = {
+        "application": ["    <<: *application"],
+        "worker": ["    <<: *application","    command: [php, artisan, queue:work, --sleep=3, --tries=3, --timeout=90]","    healthcheck:","      disable: true"],
+        "scheduler": ["    <<: *application","    command: [php, artisan, schedule:work]","    healthcheck:","      disable: true"],
+        "database": ["    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b","    environment:","      POSTGRES_DB: ev_business","      POSTGRES_USER: ev_business","      POSTGRES_PASSWORD: ${DB_PASSWORD:?Supply a private database password}","    volumes:","      - database:/var/lib/postgresql/data","    healthcheck:","      test: [CMD-SHELL, 'pg_isready -U ev_business -d ev_business']","      interval: 5s","      timeout: 5s","      retries: 20","    restart: unless-stopped"],
+        "gateway": ["    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9","    environment:","      STAGING_HOST: ${STAGING_HOST}","      ACME_EMAIL: ${ACME_EMAIL:?Supply the responsible certificate contact}","    volumes:","      - ./Caddyfile:/etc/caddy/Caddyfile:ro","      - certificates:/data","      - gateway-config:/config","    ports:","      - '${STAGING_BIND_IP:-127.0.0.1}:8443:443'","    depends_on:","      application:","        condition: service_healthy","    restart: unless-stopped"],
+    }
+    for name, reviewed in reviewed_service_lines.items():
+        require(services[name].strip('\n') == '\n'.join(reviewed),
+                'Unreviewed staging service command, environment or healthcheck: ' + name)
     require_exact_mounts(services['database'], 4,
                          ['database:/var/lib/postgresql/data'])
     require_exact_mounts(services['gateway'], 4, [
