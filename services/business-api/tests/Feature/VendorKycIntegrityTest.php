@@ -53,6 +53,47 @@ class VendorKycIntegrityTest extends TestCase
         return VendorKycDocument::where('company_id', $company->id)->firstOrFail();
     }
 
+    public function test_private_upload_fingerprint_is_not_disclosed_in_kyc_metadata_responses(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        $bytes = "%PDF-1.4\nSYNTHETIC-PRIVATE-EVIDENCE-FINGERPRINT";
+        $digest = hash('sha256', $bytes);
+        $base = '/api/vendor-ops/companies/'.$company->id;
+
+        $this->actingAs($owner, 'web')->post(
+            $base.'/documents',
+            [
+                'kind' => 'identity',
+                'document' => UploadedFile::fake()->createWithContent('fingerprint.pdf', $bytes),
+            ],
+            ['Accept' => 'application/json']
+        )->assertCreated()
+            ->assertJsonMissingPath('sha256')
+            ->assertJsonMissingPath('storage_path')
+            ->assertDontSee($digest)
+            ->assertHeader('Cache-Control', 'no-store, private');
+
+        $document = VendorKycDocument::where('company_id', $company->id)->firstOrFail();
+        $this->assertSame($digest, $document->sha256);
+        $this->assertSame(strlen($bytes), (int) $document->size_bytes);
+
+        foreach ([$owner, $admin] as $viewer) {
+            $this->actingAs($viewer, 'web')->getJson($base.'/documents')
+                ->assertOk()
+                ->assertJsonCount(1, 'data')
+                ->assertJsonMissingPath('data.0.sha256')
+                ->assertJsonMissingPath('data.0.storage_path')
+                ->assertDontSee($digest)
+                ->assertJsonPath('data.0.size_bytes', strlen($bytes));
+        }
+
+        $this->actingAs($owner, 'web')
+            ->get($base.'/documents/'.$document->id)
+            ->assertOk()->assertContent($bytes);
+    }
+
     public function test_owner_private_kyc_metadata_and_review_history_are_never_shared_cacheable(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
