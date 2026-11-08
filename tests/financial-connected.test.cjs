@@ -103,6 +103,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "client-demo-lifecycle",
       "charging-reviews",
       "ocpi-test-invoice",
+      "ocpi-credit-picker",
       "sandbox-roaming",
       "partner-favorites",
       "charger-configuration",

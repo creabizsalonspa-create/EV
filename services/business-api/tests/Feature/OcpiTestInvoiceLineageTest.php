@@ -210,6 +210,13 @@ class OcpiTestInvoiceLineageTest extends TestCase
         $provider = OcpiProvider::findOrFail($original->ocpi_provider_id);
         app(RecordSynchronizer::class)->ingest($provider, 'cdrs', [array_replace($original->payload, ['id' => 'source-credit', 'credit' => true, 'credit_reference_id' => $original->external_id])]);
         $credit = OcpiRecord::where('external_id', 'source-credit')->sole();
+        $options = '/api/finance/invoices/'.$model->id.'/source-credits';
+        $this->actingAs($driver)->getJson($options)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('invoice_id', $model->id)->assertJsonPath('financial_authority', false)->assertJsonPath('automatic_refund', false)
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $credit->id)->assertJsonPath('data.0.available_for_review', true);
+        $this->actingAs(User::factory()->create())->getJson($options)->assertNotFound();
+        $this->actingAs($owner)->getJson($options)->assertOk();
+        $this->actingAs($driver);
         $body = ['amount_minor' => 25, 'reason' => 'Review source correction', 'idempotency_key' => 'credit-refund-review', 'ocpi_credit_record_id' => $credit->id];
         $path = '/api/finance/invoices/'.$model->id.'/refund-requests';
         $this->actingAs($driver)->postJson($path, $body)->assertConflict();
@@ -218,6 +225,8 @@ class OcpiTestInvoiceLineageTest extends TestCase
         $this->postJson($path, array_replace($body, ['ocpi_credit_record_id' => $original->id]))->assertConflict();
         $request = $this->actingAs($driver)->postJson($path, $body)->assertCreated()->assertJsonPath('ocpi_credit_record_id', $credit->id)->json();
         $this->postJson($path, $body)->assertOk()->assertJsonPath('id', $request['id']);
+        $this->getJson($options)->assertOk()->assertJsonPath('data.0.available_for_review', false)
+            ->assertJsonPath('data.0.existing_refund_request_id', $request['id'])->assertJsonPath('data.0.existing_refund_state', 'pending');
         $this->postJson($path, array_replace($body, ['ocpi_credit_record_id' => $original->id]))->assertConflict();
         $this->postJson($path, array_replace($body, ['idempotency_key' => 'second-credit-request']))->assertConflict();
         $evidence = $this->actingAs($owner)->getJson('/api/finance/refund-requests')->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('data.0.source_credit_evidence.status', 'source_reference_matched')->assertJsonPath('data.0.source_credit_evidence.reported_cost.excl_vat', '0.25')->assertJsonPath('data.0.source_credit_evidence.financial_authority', false)->json('data.0.source_credit_evidence');
@@ -232,5 +241,39 @@ class OcpiTestInvoiceLineageTest extends TestCase
         $this->assertSame(25, (int) DB::table('finance_refunds')->sum('amount_minor'));
         $this->assertSame($original->payload, $original->fresh()->payload);
         $this->assertTrue(app(FinanceService::class)->summary($model)['ledger_balanced']);
+    }
+
+    public function test_source_credit_picker_is_scoped_to_original_partner_party_currency_and_reference_and_paginates(): void
+    {
+        [$owner,$driver,,,, $order] = $this->billable();
+        $invoice = $this->postJson('/api/roaming/sandbox-orders/'.$order.'/test-invoice', $this->accept($order))->assertOk()->json('invoice');
+        $receipt = DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice['id'])->first();
+        $original = OcpiRecord::findOrFail($receipt->source_cdr_record_id);
+        $provider = OcpiProvider::findOrFail($original->ocpi_provider_id);
+        $credits = [];
+        for ($i = 0; $i < 27; $i++) {
+            $credits[] = array_replace($original->payload, ['id' => 'candidate-'.$i, 'credit' => true, 'credit_reference_id' => $original->external_id]);
+        }
+        app(RecordSynchronizer::class)->ingest($provider, 'cdrs', $credits);
+        $base = OcpiRecord::where('external_id', 'candidate-0')->sole();
+        $otherProvider = $provider->replicate();
+        $otherProvider->connection_key = 'foreign-picker-fixture';
+        $otherProvider->save();
+        foreach ([['country_code' => 'DE'], ['party_id' => 'XYZ'], ['ocpi_provider_id' => $otherProvider->id], ['normalized' => array_replace($base->normalized, ['currency' => 'USD'])], ['normalized' => array_replace($base->normalized, ['credit_reference_id' => 'OTHER-CDR'])]] as $i => $changes) {
+            $other = $base->replicate();
+            $other->fill($changes + ['external_id' => 'private-other-'.$i])->save();
+        }
+        $path = '/api/finance/invoices/'.$invoice['id'].'/source-credits';
+        $first = $this->actingAs($driver)->getJson($path)->assertOk()->assertJsonPath('total', 27)->assertJsonCount(25, 'data')->json();
+        $second = $this->getJson($path.'?page=2')->assertOk()->assertJsonCount(2, 'data')->json();
+        $this->assertCount(27, array_unique(array_column(array_merge($first['data'], $second['data']), 'id')));
+        foreach (['private-other', 'payload', 'cdr_token', 'authorization_reference', 'connection_key'] as $secret) {
+            $this->assertStringNotContainsString($secret, json_encode($first));
+        }
+        $this->getJson($path.'?page=-1')->assertUnprocessable();
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('finance_refund_requests', 0);
+        $this->assertDatabaseCount('finance_journals', 1);
     }
 }

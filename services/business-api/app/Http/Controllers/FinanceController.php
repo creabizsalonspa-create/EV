@@ -13,6 +13,7 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Services\Finance\ChargingProvenance;
 use App\Services\Finance\FinanceService;
+use App\Services\Ocpi\CreditRefundEvidence;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -138,6 +139,14 @@ class FinanceController extends Controller
         $this->invoiceAccess($r, $invoice);
 
         return response()->json($provenance->inspect($invoice))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function sourceCredits(Request $r, Invoice $invoice, CreditRefundEvidence $evidence)
+    {
+        $this->invoiceAccess($r, $invoice);
+        $v = $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
+        return response()->json($evidence->options($invoice, (int) ($v['page'] ?? 1)))->header('Cache-Control', 'private, no-store');
     }
 
     private function mockOnly(Invoice $invoice): void

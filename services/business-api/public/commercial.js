@@ -146,8 +146,11 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         submit.type = "submit";
         f.append(submit);
         // Retain the request key across uncertain HTTP retries; editing payload rotates it.
-        let key = crypto.randomUUID();
-        f.addEventListener("input", () => (key = crypto.randomUUID()));
+        let key = crypto.randomUUID(),
+            savedPayload = null;
+        f.addEventListener("input", () => {
+            if (f.dataset.refundFrozen !== "true") key = crypto.randomUUID();
+        });
         f.onsubmit = async (event) => {
             event.preventDefault();
             submit.disabled = true;
@@ -156,7 +159,13 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
             root.setAttribute("aria-busy", "true");
             const current = epoch;
             try {
-                await action(Object.fromEntries(new FormData(f)), key);
+                const payload =
+                    f.dataset.refundFrozen === "true"
+                        ? savedPayload
+                        : Object.fromEntries(new FormData(f));
+                if (f.dataset.freezePayload === "true")
+                    savedPayload = structuredClone(payload);
+                await action(structuredClone(payload), key);
                 if (current === epoch) status("");
             } catch (e) {
                 if (
@@ -165,6 +174,14 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 )
                     status(e.message);
             } finally {
+                if (f.dataset.freezePayload === "true") {
+                    if (f.dataset.refundFrozen === "true")
+                        for (const control of f.querySelectorAll(
+                            "input,select",
+                        ))
+                            control.disabled = true;
+                    else savedPayload = null;
+                }
                 submit.disabled = false;
                 if (actor?.id === account) {
                     root.inert = false;
@@ -499,7 +516,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         await load();
                     },
                 );
-                form(
+                const refundForm = form(
                     row,
                     [
                         field(
@@ -511,10 +528,10 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         field("reason", "Reason", "السبب", undefined),
                         field(
                             "ocpi_credit_record_id",
-                            "Optional source credit record ID",
-                            "مرجع سجل إشعار دائن اختياري",
+                            "Selected source credit record",
+                            "مرجع المصدر المحدد",
                             undefined,
-                            "number",
+                            "text",
                             false,
                         ),
                     ],
@@ -536,6 +553,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             (!Number.isSafeInteger(creditId) || creditId <= 0)
                         )
                             throw Error("Invalid source credit reference.");
+                        refundForm.dataset.refundFrozen = "true";
                         const receipt = await api(
                             `finance/invoices/${invoice.id}/refund-requests`,
                             "POST",
@@ -560,6 +578,143 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                                 "Source credit link was not confirmed.",
                             );
                         await load();
+                    },
+                );
+                refundForm.dataset.freezePayload = "true";
+                const creditInput = refundForm.elements.namedItem(
+                    "ocpi_credit_record_id",
+                );
+                creditInput.readOnly = true;
+                const sourcePane = document.createElement("div");
+                row.append(sourcePane);
+                let creditGeneration = 0;
+                document.addEventListener(
+                    "visibilitychange",
+                    () => {
+                        if (document.hidden) {
+                            creditGeneration++;
+                            sourcePane.replaceChildren();
+                        }
+                    },
+                    { signal: controller.signal },
+                );
+                const sourceEditable = () => {
+                    if (refundForm.dataset.refundFrozen === "true")
+                        throw Error(
+                            "Retry the saved refund request before changing source evidence.",
+                        );
+                };
+                const sourceChoices = async (page = 1) => {
+                    sourceEditable();
+                    const current = epoch,
+                        version = ++creditGeneration;
+                    const credits = await api(
+                        `finance/invoices/${invoice.id}/source-credits?page=${page}`,
+                    );
+                    if (
+                        current !== epoch ||
+                        version !== creditGeneration ||
+                        document.hidden ||
+                        !refundForm.isConnected
+                    )
+                        return;
+                    if (
+                        credits.schema_version !== 1 ||
+                        credits.invoice_id !== invoice.id ||
+                        credits.financial_authority !== false ||
+                        credits.automatic_refund !== false
+                    )
+                        throw Error(
+                            "Source credit references could not be verified.",
+                        );
+                    sourcePane.replaceChildren(
+                        translated(
+                            "p",
+                            "Partner amounts are evidence only. Captured funds and manual refund review are still required.",
+                            "مبالغ الشريك أدلة فقط. تظل الأموال المحصلة والمراجعة اليدوية للاسترداد مطلوبتين.",
+                        ),
+                    );
+                    if (!credits.data.length)
+                        sourcePane.append(
+                            translated(
+                                "p",
+                                "No matching source credits",
+                                "لا توجد إشعارات دائنة مطابقة من المصدر",
+                            ),
+                        );
+                    for (const credit of credits.data) {
+                        const entry = document.createElement("article");
+                        entry.append(text("p", credit.external_id));
+                        const evidence = credit.evidence;
+                        const safe =
+                            evidence?.schema_version === 1 &&
+                            evidence.invoice_id === invoice.id &&
+                            evidence.credit_record_id === credit.id &&
+                            evidence.status === "source_reference_matched" &&
+                            evidence.financial_authority === false &&
+                            evidence.automatic_refund === false;
+                        if (
+                            safe &&
+                            typeof evidence.reported_cost?.excl_vat === "string"
+                        )
+                            entry.append(
+                                text(
+                                    "p",
+                                    `${evidence.currency} · ${evidence.reported_cost.excl_vat}`,
+                                ),
+                            );
+                        const select = button(
+                            entry,
+                            "Select credit reference",
+                            "اختيار مرجع الإشعار الدائن",
+                            () => {
+                                sourceEditable();
+                                creditInput.value = String(credit.id);
+                                creditInput.dispatchEvent(
+                                    new Event("input", { bubbles: true }),
+                                );
+                            },
+                        );
+                        select.disabled =
+                            credit.available_for_review !== true ||
+                            !safe ||
+                            !Number.isSafeInteger(credit.id) ||
+                            credit.id <= 0;
+                        if (credit.existing_refund_state)
+                            entry.append(
+                                translated(
+                                    "p",
+                                    "Already linked to a refund review",
+                                    "مرتبط مسبقاً بمراجعة استرداد",
+                                ),
+                            );
+                        sourcePane.append(entry);
+                    }
+                    if (credits.current_page > 1)
+                        button(sourcePane, "Previous", "السابق", () =>
+                            sourceChoices(page - 1),
+                        );
+                    if (credits.current_page < credits.last_page)
+                        button(sourcePane, "Next", "التالي", () =>
+                            sourceChoices(page + 1),
+                        );
+                };
+                button(
+                    row,
+                    "Choose optional partner credit",
+                    "اختيار مرجع إشعار دائن اختياري",
+                    () => sourceChoices(),
+                );
+                button(
+                    row,
+                    "Continue without source credit",
+                    "المتابعة دون إشعار دائن من المصدر",
+                    () => {
+                        sourceEditable();
+                        creditInput.value = "";
+                        creditInput.dispatchEvent(
+                            new Event("input", { bubbles: true }),
+                        );
                     },
                 );
                 form(

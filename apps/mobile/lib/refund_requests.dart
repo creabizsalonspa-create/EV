@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'source_credit_picker.dart';
 import 'strings.dart';
 import 'money_input.dart';
 import 'financial_operation_store.dart';
@@ -428,16 +429,47 @@ class _RefundRequestState extends State<RefundRequestView> {
           maxLines: 5,
           decoration: InputDecoration(labelText: t('reason')),
         ),
-        TextField(
-          controller: credit,
-          readOnly: busy || uncertain || confirmed,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            labelText: Localizations.localeOf(c).languageCode == 'ar'
-                ? 'مرجع سجل إشعار دائن اختياري'
-                : 'Optional source credit record ID',
+        OutlinedButton(
+          onPressed: busy || uncertain || confirmed
+              ? null
+              : () async {
+                  final current = widget.api.sessionFence();
+                  final selected = await Navigator.of(c).push<int>(
+                    MaterialPageRoute(
+                      builder: (_) => SourceCreditPickerView(
+                        api: widget.api,
+                        invoiceId: widget.invoiceId,
+                        onExpired: widget.onExpired,
+                      ),
+                    ),
+                  );
+                  if (!mounted ||
+                      !current() ||
+                      selected == null ||
+                      busy ||
+                      uncertain ||
+                      confirmed)
+                    return;
+                  setState(
+                    () => credit.text = selected == 0 ? '' : '$selected',
+                  );
+                },
+          child: Text(
+            Localizations.localeOf(c).languageCode == 'ar'
+                ? 'اختيار مرجع إشعار دائن اختياري'
+                : 'Choose optional partner credit',
           ),
         ),
+        if (credit.text.isNotEmpty)
+          TextField(
+            controller: credit,
+            readOnly: true,
+            decoration: InputDecoration(
+              labelText: Localizations.localeOf(c).languageCode == 'ar'
+                  ? 'مرجع المصدر المحدد'
+                  : 'Selected source credit record',
+            ),
+          ),
         FilledButton(
           onPressed: busy || confirmed || operation == null ? null : submit,
           child: Text(t(uncertain ? 'resume' : 'submit')),

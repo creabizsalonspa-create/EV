@@ -81,6 +81,33 @@ class FinancialApi extends FixtureApi {
         'status': 'pending',
       };
     }
+    if (path == 'finance/invoices/3/source-credits')
+      return {
+        'schema_version': 1,
+        'invoice_id': 3,
+        'financial_authority': false,
+        'automatic_refund': false,
+        'data': [
+          {
+            'id': 7,
+            'external_id': 'PARTNER-CREDIT',
+            'available_for_review': true,
+            'evidence': {
+              'schema_version': 1,
+              'invoice_id': 3,
+              'credit_record_id': 7,
+              'status': 'source_reference_matched',
+              'financial_authority': false,
+              'automatic_refund': false,
+              'currency': 'AED',
+              'reported_cost': {'excl_vat': '0.25'},
+            },
+          },
+        ],
+        'current_page': 1,
+        'last_page': 1,
+        'total': 1,
+      };
     return {
       'data': path == 'financial/documents'
           ? [document]
@@ -425,7 +452,12 @@ void main() {
         find.byType(TextField).at(1),
         'Synthetic refund reason',
       );
-      await t.enterText(find.byType(TextField).at(2), '7');
+      await t.ensureVisible(find.text('Choose optional partner credit'));
+      await t.tap(find.text('Choose optional partner credit'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Select credit reference'));
+      await t.pumpAndSettle();
+      expect(t.widget<TextField>(find.byType(TextField).at(2)).readOnly, true);
       await confirm(t, 'Submit request');
       expect(api.posts, 1);
       expect(api.bodies.single['ocpi_credit_record_id'], 7);
