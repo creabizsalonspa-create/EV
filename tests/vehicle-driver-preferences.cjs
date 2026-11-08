@@ -34,11 +34,21 @@ vm.runInNewContext(fs.readFileSync(path,"utf8"),{document,window,Number,Set,Obje
 assert.equal(typeof window.VehicleDriverPreferences.create,"function");
 let actor = {id:7,role:"customer"}, generation = 1;
 const calls = [];
+let mismatchNextGet=false,invalidNextSave=false;
 const api = async (path,method,body) => {
   calls.push({path,method,body});
-  if (method === "PUT") return {...body,revision:1,vehicle_id:9,applied_to_charging:false};
+  const match=/^vehicles\/(\d+)\/driver-preferences$/.exec(path);
+  if(!match)throw Error("Unexpected preference route "+path);
+  const vehicle=Number(match[1]);
+  if (method === "PUT"){
+    const invalid=invalidNextSave;invalidNextSave=false;
+    return {...body,revision:body.revision+1,vehicle_id:vehicle,
+      scope:"DRIVER_PREFERENCE_ONLY",applied_to_charging:invalid?true:false};
+  }
+  const invalid=mismatchNextGet;mismatchNextGet=false;
   return {
-    vehicle_id:9,revision:0,preferred_power_kw:null,charging_goal:"balanced",
+    vehicle_id:invalid?vehicle+100:vehicle,
+    revision:0,preferred_power_kw:null,charging_goal:"balanced",
     accessible_site_required:false,avoid_paid_parking:false,
     scope:"DRIVER_PREFERENCE_ONLY",applied_to_charging:false,
   };
@@ -113,11 +123,30 @@ function visible(node) {
   oldClose.onclick();
   assert.match(visible(root),/Other family car/,
     "Detached close button must not clear a newly opened vehicle");
+  // A swapped or malformed API response must not populate a different
+  // vehicle's editor or falsely imply charging control.
+  mismatchNextGet=true;
+  await editor.open({id:10,name:"Corrupted API metadata"});
+  assert.match(visible(root),/Unexpected driver preference response/);
+  assert.equal(locate(root,n=>n.tag==="form"),null,
+    "Vehicle-mismatched GET must not expose editable private preferences");
+  await editor.open({id:10,name:"Recovered metadata"});
+  assert.ok(locate(root,n=>n.tag==="form"));
+  invalidNextSave=true;
+  const invalidForm=locate(root,n=>n.tag==="form");
+  await invalidForm.onsubmit({preventDefault(){}});
+  assert.match(visible(root),/Unexpected driver preference response/);
+  assert.doesNotMatch(visible(root),/Preferences saved/,
+    "Invalid save acknowledgment must never claim success");
   actor = {id:8,role:"customer"}; generation++;
   editor.clear();
   assert.equal(root.children.length,0);
   await editor.open({id:9,name:"Other account EV"});
   assert.doesNotMatch(visible(root),/Preferences saved/);
+  actor={id:8,role:"vendor"};generation++;
+  await editor.open({id:9,name:"Forbidden previous customer EV"});
+  assert.equal(root.children.length,0,
+    "Noncustomer open must clear any previously visible personal preferences");
   assert.doesNotMatch(fs.readFileSync(path,"utf8"),/\.innerHTML\s*=/);
   console.log("PASS: source-backed vehicle driver preference editing, versioned payload, tenant view clearing, safe content.");
 })().catch(e=>{console.error(e);process.exitCode=1;});

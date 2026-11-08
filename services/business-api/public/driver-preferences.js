@@ -12,6 +12,12 @@
         let seq = 0, renderVersion = 0, owner = null, session = 0, vehicleId = null, data = null;
         const current = ticket =>
             seq === ticket && actor() === owner && epoch() === session && owner?.role === "customer";
+        const validRecord = (record, id) => record &&
+            record.vehicle_id === id &&
+            record.scope === "DRIVER_PREFERENCE_ONLY" &&
+            record.applied_to_charging === false &&
+            Number.isInteger(record.revision) && record.revision >= 0 &&
+            ["balanced","fastest","lowest_cost"].includes(record.charging_goal);
         function clear() {
             seq++;renderVersion++;
             owner = data = vehicleId = null;
@@ -148,6 +154,12 @@
                 try {
                     const saved = await api("vehicles/" + ownerId + "/driver-preferences", "PUT", payload);
                     if (!current(ticket) || owner !== original || session !== ownerEpoch) return;
+                    if (!renderedForCurrentVehicle()) return;
+                    if (!validRecord(saved, ownerId) ||
+                        saved.revision !== payload.revision + 1) {
+                        status("Unexpected driver preference response; refresh before editing.", true);
+                        return;
+                    }
                     data = saved;
                     render(vehicle);
                     status(document.documentElement.lang === "ar" ? "تم حفظ التفضيلات." : "Preferences saved.");
@@ -164,7 +176,7 @@
             };
         }
         async function open(vehicle) {
-            if (actor()?.role !== "customer") return;
+            if (actor()?.role !== "customer") {clear();return;}
             const ticket = ++seq;
             owner = actor();
             session = epoch();
@@ -176,6 +188,8 @@
             try {
                 const response = await api("vehicles/" + vehicleId + "/driver-preferences");
                 if (!current(ticket)) return;
+                if (!validRecord(response, vehicleId))
+                    throw new Error("Unexpected driver preference response; refresh before editing.");
                 data = response;
                 render(vehicle);
             } catch (error) {
