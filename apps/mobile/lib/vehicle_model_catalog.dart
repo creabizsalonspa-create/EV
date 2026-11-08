@@ -36,6 +36,29 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
   String? error, success;
   String t(String en, String ar) => modelText(context, en, ar);
 
+  // Catalog connector types are admin-sourced claims, not manufacturer proof
+  // or a replacement for the vehicle's actual saved charging connector.
+  bool validCatalogModel(Map<String,dynamic> record, {bool activeOnly=false}) {
+    final id=record['id'], url=record['source_url'];
+    return id is int && id>0 &&
+        record['provenance']=='ADMIN_CURATED_UNVERIFIED' &&
+        record['connector_type']==widget.vehicleConnector &&
+        record['published'] is bool &&
+        (!activeOnly || record['published']==true) &&
+        url is String && url.startsWith('https://');
+  }
+
+  bool validLink(Map<String,dynamic> record) {
+    if(record['vehicle_id']!=widget.vehicleId ||
+       record['vehicle_connector_type']!=widget.vehicleConnector ||
+       record['does_not_override_connector']!=true)return false;
+    final id=record['model_id'], model=record['model'];
+    if(id==null)return model==null;
+    if(id is! int || model is! Map)return false;
+    final linked=Map<String,dynamic>.from(model);
+    return validCatalogModel(linked) && linked['id']==id;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -75,11 +98,18 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
 
   Future<void> reload([int target = 1]) async {
     final ticket = ++generation, fence = widget.api.sessionFence();
-    setState(() {busy=true;error=success=null;});
+    // A failed refresh must not leave a previous vehicle's editable link
+    // visible while the backend response is uncertain.
+    setState(() {
+      busy=true;error=success=null;linked=null;choices=[];selectedId=null;
+    });
     try {
       final current = await widget.api.request('vehicles/' +
           widget.vehicleId.toString() + '/model');
       if (!mounted || ticket != generation || !fence()) return;
+      final currentLink=Map<String,dynamic>.from(current as Map);
+      if(!validLink(currentLink))
+        throw StateError('Unexpected vehicle model response; refresh before editing.');
       // Filter at the API before pagination. Client-side filtering alone can
       // hide all compatible models behind pages of other connector types.
       final raw = await widget.api.request('vehicle-models', query: {
@@ -89,11 +119,11 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
       });
       if (!mounted || ticket != generation || !fence()) return;
       final listing = ApiPage<Map<String, dynamic>>.fromJson(raw, (v) => v);
-      final models = listing.items.where((m) =>
-          m['published'] == true &&
-          m['connector_type'] == widget.vehicleConnector).toList();
+      if(!listing.items.every((m)=>validCatalogModel(m,activeOnly:true)))
+        throw StateError('Unexpected curated vehicle catalog; refresh before editing.');
+      final models = listing.items;
       setState(() {
-        linked = Map<String, dynamic>.from(current as Map);
+        linked = currentLink;
         page = listing.current;lastPage=listing.last;
         choices = models;
         // Keep the currently linked compatible choice selected on refresh.
@@ -124,8 +154,11 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
         body:{'model_id':modelId, 'expected_model_id':expectedId},
       );
       if (!mounted || ticket != generation || !fence()) return;
+      final saved=Map<String,dynamic>.from(result as Map);
+      if(!validLink(saved) || saved['model_id']!=modelId)
+        throw StateError('Unexpected vehicle model save response; refresh before editing.');
       setState(() {
-        linked = Map<String,dynamic>.from(result as Map);
+        linked = saved;
         success = t('Vehicle model association saved.', 'تم حفظ ارتباط طراز المركبة.');
       });
     } catch (e) {

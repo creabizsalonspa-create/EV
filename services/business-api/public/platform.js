@@ -78,6 +78,7 @@ function clearPrivateViews() {
     riderWorkspace.clear();
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
+    vehicleManualSoc.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
     invoiceHistory.clear();
@@ -242,6 +243,7 @@ async function identity() {
     }
     renderIdentity();
     await vehicleModelCatalog.setActor(user);
+    vehicleManualSoc.setActor(user);
     if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
     if (user) {
@@ -1163,6 +1165,10 @@ const vehicleModelCatalog = VehicleModelCatalog.create({
     actor: () => user,
     epoch: () => client.sessionEpoch,
 });
+const vehicleManualSoc=VehicleManualSoc.create({
+    root:el("vehicle-manual-soc"),
+    api,actor:()=>user,epoch:()=>client.sessionEpoch,
+});
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),
     api,
@@ -1260,6 +1266,7 @@ async function garage() {
         el("vehicle-list").append(row);
     }
     vehicleModelCatalog.renderGarage(j.data);
+    vehicleManualSoc.renderGarage(j.data);
     el("profile-form").elements.name.value = user.name;
     el("profile-form").elements.locale.value = user.locale;
 }

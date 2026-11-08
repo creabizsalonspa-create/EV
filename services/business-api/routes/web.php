@@ -179,3 +179,4 @@ Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 
 Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
 
 Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/vehicle_model_catalog.php');
+Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/vehicle_manual_soc.php');

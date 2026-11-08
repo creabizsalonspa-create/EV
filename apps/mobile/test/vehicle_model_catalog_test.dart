@@ -16,6 +16,7 @@ class _ModelsApi extends EvApi {
   final requestPaths = <String>[];
   Completer<void>? holdVehicle12;
   bool denyNewAccount = false;
+  bool poisonNextVehicleGet=false, poisonNextCatalogGet=false, poisonNextSave=false;
 
   final model = <String, dynamic>{
     'id': 4, 'make': 'Test brand', 'model': 'Demo E', 'variant': null,
@@ -57,8 +58,10 @@ class _ModelsApi extends EvApi {
     }
     if (path == 'vehicles/12/model' && method == 'GET') {
       if (holdVehicle12 != null) await holdVehicle12!.future;
+      final bad=poisonNextVehicleGet;
+      poisonNextVehicleGet=false;
       return {
-        'vehicle_id': 12, 'vehicle_connector_type': 'CCS2',
+        'vehicle_id': bad ? 999 : 12, 'vehicle_connector_type': 'CCS2',
         'model_id': selectedModel, 'model': selectedModel == null
           ? null : (selectedModel == 5 ? secondModel : model),
         'published': selectedModel != null,
@@ -75,9 +78,13 @@ class _ModelsApi extends EvApi {
               : query['connector_type'] == 'Type2'
                   ? <Map<String,dynamic>>[type2Model]
                   : <Map<String,dynamic>>[];
+      final bad=poisonNextCatalogGet;
+      poisonNextCatalogGet=false;
       return {
         'current_page': 1, 'last_page': 1, 'total': visible.length,
-        'data': visible,
+        'data': bad && visible.isNotEmpty
+          ? [{...visible.first,'provenance':'MANUFACTURER_CERTIFIED'}]
+          : visible,
       };
     }
     if (path == 'vehicles/13/model' && method == 'PUT') {
@@ -94,8 +101,10 @@ class _ModelsApi extends EvApi {
       final payload = Map<String, dynamic>.from(body!);
       writes.add(payload);
       selectedModel = payload['model_id'] as int?;
+      final bad=poisonNextSave;
+      poisonNextSave=false;
       return {
-        'vehicle_id': 12, 'model_id': selectedModel,
+        'vehicle_id': bad ? 999 : 12, 'model_id': selectedModel,
         'vehicle_connector_type': 'CCS2',
         'does_not_override_connector': true,
         'model': selectedModel == null ? null : model,
@@ -154,6 +163,37 @@ void main() {
       expect(picker.initialValue, 5);
       expect(find.textContaining('Linked: Test brand Second compatible'), findsOneWidget);
       expect(api.writes, isEmpty);
+    } finally {api.close();}
+  });
+
+  testWidgets('native model picker rejects wrong vehicle and uncertified source replies',
+      (tester) async {
+    final api=_ModelsApi()..poisonNextVehicleGet=true;
+    try {
+      await tester.pumpWidget(MaterialApp(home:VehicleModelAssociationView(
+        api:api,vehicleId:12,vehicleConnector:'CCS2',onExpired:(){},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('model-link-error')),findsOneWidget);
+      expect(find.textContaining('Unexpected vehicle model response'),findsOneWidget);
+      expect(find.byKey(const Key('model-link-save')),findsNothing,
+        reason:'Wrong-vehicle link must not open an editable model picker');
+      api.poisonNextCatalogGet=true;
+      await tester.tap(find.text('Refresh catalog'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Unexpected curated vehicle catalog'),findsOneWidget);
+      expect(find.byKey(const Key('model-link-save')),findsNothing,
+        reason:'Uncertified catalog provenance cannot be labeled curated');
+      await tester.tap(find.text('Refresh catalog'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('model-link-save')),findsOneWidget);
+      api.poisonNextSave=true;
+      await tester.ensureVisible(find.byKey(const Key('model-link-save')));
+      await tester.tap(find.byKey(const Key('model-link-save')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Unexpected vehicle model save response'),findsOneWidget);
+      expect(find.text('Vehicle model association saved.'),findsNothing);
+      expect(api.writes,hasLength(1));
     } finally {api.close();}
   });
 

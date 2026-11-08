@@ -32,7 +32,9 @@
     "test:partner-nearby": "node tests/partner-nearby.cjs",
     "test:vehicle-models": "node tests/vehicle-model-catalog.cjs",
     "test:e2e:vehicle-model-catalog": "node tests/vehicle-model-catalog-e2e.cjs",
-    "test:e2e:vehicle-model-customer-empty": "node tests/vehicle-model-customer-empty-e2e.cjs"
+    "test:e2e:vehicle-model-customer-empty": "node tests/vehicle-model-customer-empty-e2e.cjs",
+"test:manual-soc": "node tests/vehicle-manual-soc.cjs",
+    "test:e2e:manual-soc": "node tests/manual-soc-e2e.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

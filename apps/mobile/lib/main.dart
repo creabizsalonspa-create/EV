@@ -1,4 +1,5 @@
 import 'vehicle_model_catalog.dart';
+import 'vehicle_manual_soc.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
@@ -558,6 +559,22 @@ class _WorkspaceState extends State<Workspace> {
                     builder: (_) => VehicleModelAssociationView(
                       api: api!, vehicleId: id as int,
                       vehicleConnector: row['connector_type'] as String,
+                      onExpired: expiredSession,
+                    ),
+                  ),
+                ),
+              ),
+            if (tab == 3 && account?.role == 'customer')
+              TextButton.icon(
+                key: Key('manual-soc-$id'),
+                icon: const Icon(Icons.battery_std),
+                label: Text(Localizations.localeOf(context).languageCode == 'ar'
+                  ? 'تقرير البطارية اليدوي'
+                  : 'Manual battery report'),
+                onPressed: busy ? null : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => VehicleManualSocView(
+                      api: api!, vehicleId: id as int,
                       onExpired: expiredSession,
                     ),
                   ),
