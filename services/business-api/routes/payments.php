@@ -7,11 +7,11 @@ use Illuminate\Support\Facades\Route;
 // Mount inside the existing authenticated /api and /api/v1 groups.
 Route::get('/commercial/checkouts', [G::class, 'checkouts']);
 Route::post('/commercial/checkouts', [G::class, 'checkout']);
-Route::post('/commercial/checkouts/{checkout}/{operation}', [G::class, 'operation'])->where('operation', 'authorize|capture|cancel|refund');
+Route::post('/commercial/checkouts/{checkout}/{operation}', [G::class, 'operation'])->where('operation', 'authorize|capture|cancel|refund')->whereNumber('checkout');
 Route::get('/commercial/cases', [G::class, 'cases']);
 Route::post('/commercial/cases', [G::class, 'createCase']);
-Route::post('/commercial/cases/{case}/resolve', [G::class, 'resolveCase']);
-Route::get('/commercial/reconciliation/{invoice}', [G::class, 'reconciliation']);
+Route::post('/commercial/cases/{case}/resolve', [G::class, 'resolveCase'])->whereNumber('case');
+Route::get('/commercial/reconciliation/{invoice}', [G::class, 'reconciliation'])->whereNumber('invoice');
 
 require __DIR__.'/payment_recovery.php';
 
