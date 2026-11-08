@@ -30,6 +30,7 @@ class RefundReviewRouteBoundaryTest extends TestCase
                 } catch (NotFoundHttpException) {
                     // No controller invocation, finance operation or network I/O.
                 }
+                $this->postJson($invalid, [])->assertNotFound();
             }
         }
     }
