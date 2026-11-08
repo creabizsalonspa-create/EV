@@ -35,7 +35,8 @@ def main(args):
           AGENT2_HISTORY_EXPECTED_SESSION:String(historyLink._id),
           AGENT2_NEW_BOOKING_STATION:String(station._id),
           AGENT2_CHOICE_STATION:typeof customerChoiceStation==='undefined'?'':String(customerChoiceStation._id),
-          AGENT2_CHOICE_CHARGER:typeof choiceB==='undefined'?'':choiceB}
+          AGENT2_CHOICE_CHARGER:typeof choiceB==='undefined'?'':choiceB,
+          AGENT2_RESOURCE_EXPECTATIONS:typeof nativeResourceExpectations==='undefined'?'{}':JSON.stringify(nativeResourceExpectations)}
       });
     const result=await new Promise((done,reject)=>{
       child.once('error',reject);child.once('exit',(code,signal)=>done({code,signal}));

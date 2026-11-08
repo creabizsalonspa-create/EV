@@ -1,0 +1,102 @@
+{
+  "status": "IMPLEMENTED_PARTIALLY_VERIFIED_BLOCKED_HOST_OFFLINE",
+  "owner": "Agent 2",
+  "recorded_date_utc": "2026-11-08",
+  "requirements": [
+    {
+      "id": "2.7.9",
+      "scope": "Source-qualified ongoing connector fault presentation; independent operational alert delivery is Agent 3 scope",
+      "full_atom_credit": false
+    },
+    {
+      "id": "2.7.5",
+      "scope": "Authorized source identity separated from independently verified metering",
+      "full_atom_credit": false
+    }
+  ],
+  "contract": {
+    "connectorObservation": "Read-only exact protocol/EVSE/connector report for active authorized source. Server receivedAt must be at or after server startedReceivedAt. Unknown legacy start receipt stays unqualified. Age<=120 seconds is recent; otherwise stale. Not proof of availability or energy flow.",
+    "sourceVerified": "May be true and a source may be bound before meter evidence exists; meterVerified remains false, energy/cost null, controls disabled. All authorization/owner/scope/uniqueness gates remain.",
+    "billing": "Finalization and charging summary still require verified meters, ended source and independently calculated unpaid amount. Fault alone cannot end/finalize/invoice/collect/restart.",
+    "privacy": "Customer ChargingSession responses private/no-store, Vary Authorization."
+  },
+  "final_source_checks": {
+    "node_guard_tests": {
+      "passed": 134,
+      "failed": 0,
+      "skipped": 0,
+      "command": "node --test integrations/hasone-express/tests/*.test.mjs"
+    },
+    "synthetic_gateway_patch_contract_tests": {
+      "passed": 6,
+      "command": "python3 -m unittest discover -s tests -p agent2_connector_receipts_test.py -q",
+      "limits": "Minimal observed-source anchors; not a substitute for proprietary gateway/Express/Mongo acceptance"
+    },
+    "javascript_syntax": "passed for changed backend source and harness JS/MJS",
+    "python_compile": "passed for changed patchers, contract tests and native API wrapper",
+    "shell_syntax": "passed",
+    "git_diff_check": "passed; native legacy CRLF allowed"
+  },
+  "local_log_sha256": {
+    "fault-final-node.log": "3e9e8837890f55f9952090a6937c3eca70e112ffe1c3379e1ba59432a87d33f9",
+    "fault-final-python.log": "da94c713f7fd6aea0efe3c45ac6b24af2f72d370161bbc630bb97ec09ea46eab"
+  },
+  "earlier_candidate_results_NOT_final_source": {
+    "backend_ocpp_checks": 146,
+    "backend_plus_actual_browser": 147,
+    "mocked_chrome": 13,
+    "actual_api_chrome": 13,
+    "next_typescript_and_build": "passed",
+    "flutter_tests_passed": 61,
+    "flutter_default_opt_in_skips": 4,
+    "targeted_native_analysis": "No issues found on host-formatted candidate",
+    "limits": "Host went offline before final accepted-start receipt refinement was uploaded/retested and formatted Dart was retrieved. These passes do not qualify the published fault source. No fault actual-native/API run or updated PR78 combination completed."
+  },
+  "last_exact_verified_checkpoints": {
+    "backend_commit": "1ebae3eaebb4dafbae3962de81b64590d429d7a7",
+    "native_commit": "49550375ff47fdadab9bfc6890f5bf4b5fbf6e80",
+    "evidence": "agent2-customer-charger-choice and agent2-mobile-charger-choice validation.json; historical evidence remains scoped to those blobs"
+  },
+  "backend_source_blobs": {
+    "integrations/hasone-express/adminOcppBooking.js": "14f57a143843df6ff0eb5a3610234e2929e512ad",
+    "integrations/hasone-express/ocppSourceEvidence.mjs": "ce12c17ee0dfdf7ba83a9af2f6afe04594444510",
+    "integrations/hasone-express/ocppConnectorObservation.mjs": "d1065349066e87ea352dfd94a6ba4770d0f2c340",
+    "integrations/hasone-express/tests/ocppSourceEvidence.test.mjs": "f056bc2c53ec09d81e1905d06c4c3fdebc0dd82a",
+    "integrations/hasone-express/tests/ocppConnectorObservation.test.mjs": "aee7cb743774890734e72281d7d2dc6c3c5b6382",
+    "integrations/hasone-next-admin/OcppBookingWorkflow.tsx": "c811a43bd87b9e01e97a8ce6932a678e37e6aac9",
+    "tools/agent2/run_all_isolated_validation.sh": "9c1a9de1a8a143e3bb407d37d351ff12b81837cb",
+    "tools/agent2/run_isolated_backend_demo.mjs": "f0a53386f2608b84f8d896bc62038f84c2c68e09",
+    "tools/agent2/stage_ocpp_customer_status.py": "d71ccdfb0c8c2b06f88ef164549e2c149854923e",
+    "tools/agent2/stage_ocpp_connector_receipts.py": "4f27e4876f51c6bfbed8e0128bf5603f0ce9721b",
+    "tools/agent2/test_actual_admin_browser.mjs": "838616886ccac60b7bba448bc780da9bc870e5fd",
+    "tests/agent2_connector_receipts_test.py": "3ca5571fffadc9db683f29172ca7306b2944d0d9"
+  },
+  "native_source_blobs": {
+    "apps/hasone-customer/lib/feature/Booking/UI/screen/charging_screen.dart": "beaaa536703daef86a85e96a0abe7d446583cd77",
+    "apps/hasone-customer/lib/feature/Booking/model/charging_starting_model.dart": "37d4a5d55272909d0d212d0f6ada693338dab88f",
+    "apps/hasone-customer/test/source_history_api_test.dart": "3a975e872de8095db6e6fc091feb0c078bce7afb",
+    "apps/hasone-customer/test/source_progress_test.dart": "4d91dd1f2273f76946c3bf524ae6b0affa5cf245",
+    "apps/hasone-customer/test/source_recovery_test.dart": "dd33c4d097fa92be2ea8d7dcf1bc4f12585fea04",
+    "tools/agent2/run_mobile_history_api.py": "70a0d6f14dc998c37ae2395916a8c63aa1ec9e99"
+  },
+  "blocked_checks": [
+    "Final full disposable Express/Mongo/OCPP + Next build + mocked/actual Chrome run",
+    "Final Flutter formatting, unit/widget tests and analysis against published blobs",
+    "Actual native/API fault and no-meter journeys",
+    "Updated isolated PR70 + PR78 at current Agent6 head combination",
+    "Required hosted/native release gates and Agent4 integration"
+  ],
+  "blocker": {
+    "device": "host.crea-biz.com",
+    "id": "35582747-a88a-4587-b268-3ad29ea08f0a",
+    "state": "Offline, last seen 5h ago at final check",
+    "local": "No Flutter/Dart SDK or proprietary deployed-source/dependency fixture locally",
+    "next": "Reconnect authorized verification device; upload exact committed blobs, stage fresh disposable source copies, rerun full backend/browser/native and latest Agent6 combination before requesting integration."
+  },
+  "boundaries": [
+    "Draft/unmerged, no full requirement or percentage uplift",
+    "Station-wide booking unique index unchanged; independent connector capacity/inventory/expiry still incomplete",
+    "Canonical charging/finance authority agreement and paid reschedule remain incomplete",
+    "No production source/data/indexes, public listener, charger or real PSP mutated"
+  ]
+}

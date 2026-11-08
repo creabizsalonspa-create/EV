@@ -91,11 +91,11 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsOneWidget);
+      expect(find.text('Active at source'), findsOneWidget);
       c.pending[0].complete(verified(session: 'other'));
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsOneWidget);
+      expect(find.text('Active at source'), findsOneWidget);
       expect(c.pending.length, 2);
       expect(tester.takeException(), isNull);
       await close(tester);
@@ -117,13 +117,13 @@ void main() {
       c.pending[0].complete(verified());
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsNothing);
+      expect(find.text('Active at source'), findsNothing);
       c.pending[1].complete(verified());
       await tester.pump();
       await tester.pump();
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsOneWidget);
+      expect(find.text('Active at source'), findsOneWidget);
       await close(tester);
     },
   );
@@ -138,7 +138,7 @@ void main() {
       c.pending[0].complete(verified());
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsNothing);
+      expect(find.text('Active at source'), findsNothing);
       expect(find.textContaining('Sign-in changed'), findsOneWidget);
       await tester.pump(const Duration(seconds: 11));
       expect(c.pending.length, 1);
@@ -155,7 +155,7 @@ void main() {
       c.pending[0].complete(verified(session: 'other'));
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsNothing);
+      expect(find.text('Active at source'), findsNothing);
       expect(find.textContaining('Ask the operator'), findsOneWidget);
       await tester.ensureVisible(find.text('Refresh status'));
       await tester.tap(find.text('Refresh status'));
@@ -164,7 +164,7 @@ void main() {
       c.pending[1].complete(verified(booking: 'other'));
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsNothing);
+      expect(find.text('Active at source'), findsNothing);
       expect(find.textContaining('Energy Used:'), findsNothing);
       await close(tester);
     },
@@ -225,11 +225,11 @@ void main() {
       c.pending[0].complete(verified());
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsNothing);
+      expect(find.text('Active at source'), findsNothing);
       c.pending[1].complete(verified(session: session, booking: booking));
       await tester.pump();
       await tester.pump();
-      expect(find.text('Charging'), findsOneWidget);
+      expect(find.text('Active at source'), findsOneWidget);
     },
   );
   testWidgets(
@@ -261,4 +261,22 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('qualified connector fault keeps session active, hides absent meters and never implies stopped', (tester) async {
+    final c=RecoveringStatus(); await show(tester,c);
+    c.pending[0].complete(Data.fromJson({
+      'sessionId':'s','bookingId':'b','source':'ocpp','protocol':'ocpp2.0.1',
+      'sourceVerified':true,'meterVerified':false,'chargingStatus':'Charging','readOnly':true,
+      'connectorObservation':{'qualified':true,'source':'gateway_connector_report','protocol':'ocpp2.0.1',
+        'connectorId':2,'evseId':3,'status':'Faulted','receivedAt':DateTime.now().toUtc().toIso8601String(),
+        'receiptAgeSeconds':0,'freshness':'recent'},
+    }));
+    await tester.pump();await tester.pump();
+    expect(find.text('Active at source'),findsOneWidget);
+    expect(find.textContaining('A connector fault was reported'),findsOneWidget);
+    expect(find.textContaining('Connector reported Faulted'),findsOneWidget);
+    expect(find.text('Completed'),findsNothing);expect(find.text('Ended at source'),findsNothing);
+    expect(find.textContaining('Energy Used:'),findsNothing);
+    expect(c.pending.length,1);expect(tester.takeException(),isNull);
+  });
+
 }

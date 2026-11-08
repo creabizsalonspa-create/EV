@@ -37,6 +37,7 @@ class Data {
   String? protocol;
   String? paymentStatus;
   int? energyWh;
+  ConnectorObservation? connectorObservation;
   int? provisionalCostFils, finalCostFils, meterReceiptAgeSeconds;
   DateTime? meterReceivedAt;
   String meterFreshness = 'unknown';
@@ -136,6 +137,9 @@ class Data {
         sourceEndNeedsReview = review.contains(sourceEndReason);
       }
     }
+    if (hasSourceProof && chargingStatus == 'Charging' && json['readOnly'] == true) {
+      connectorObservation = ConnectorObservation.parse(json['connectorObservation'],protocol);
+    }
     final readOnlyCost =
         hasVerifiedMeter &&
         json['readOnly'] == true &&
@@ -218,5 +222,32 @@ class Data {
     data['canStop'] = canStop;
     data['canExtend'] = canExtend;
     return data;
+  }
+}
+
+/// Source-scoped gateway receipt, never a current-availability guarantee.
+class ConnectorObservation {
+  final String status, freshness;
+  final DateTime receivedAt;
+  final int receiptAgeSeconds, connectorId;
+  final int? evseId;
+  const ConnectorObservation._(this.status,this.freshness,this.receivedAt,this.receiptAgeSeconds,this.connectorId,this.evseId);
+  static ConnectorObservation? parse(Object? json,String? protocol) {
+    if(json is! Map || json['qualified']!=true || json['source']!='gateway_connector_report' ||
+        json['protocol']!=protocol || !['ocpp1.6','ocpp2.0.1'].contains(protocol)) return null;
+    final connector=json['connectorId'],evse=json['evseId'],age=json['receiptAgeSeconds'],received=json['receivedAt'];
+    if(connector is! int || connector<1 || connector>64 ||
+        (protocol=='ocpp1.6' ? evse!=null : evse is! int || evse<1 || evse>64) ||
+        age is! int || age<0 || age>3153600000 || received is! String ||
+        !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$').hasMatch(received)) return null;
+    final allowed=protocol=='ocpp1.6'
+      ? const ['Available','Preparing','Charging','SuspendedEV','SuspendedEVSE','Finishing','Reserved','Unavailable','Faulted']
+      : const ['Available','Occupied','Reserved','Unavailable','Faulted'];
+    final freshness=age<=120?'recent':'stale';
+    final time=DateTime.tryParse(received);
+    if(!allowed.contains(json['status']) || json['freshness']!=freshness || time==null ||
+        time.toUtc().toIso8601String().substring(0,19)!=received.substring(0,19) ||
+        time.isAfter(DateTime.now().toUtc().add(const Duration(seconds:5)))) return null;
+    return ConnectorObservation._(json['status'],freshness,time.toUtc(),age,connector,evse);
   }
 }

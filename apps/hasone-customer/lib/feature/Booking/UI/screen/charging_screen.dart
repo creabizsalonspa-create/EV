@@ -57,6 +57,7 @@ class _ChargingScreenState extends State<ChargingScreen>
   String _readState = 'loading';
   bool _endNeedsReview = false;
   String? _endReason;
+  String? _connectorNote;
   String? get _identity =>
       (widget.accountIdentity ?? (() => Session.accessToken))();
   bool get _sameOwner => _owner == _identity;
@@ -69,6 +70,8 @@ class _ChargingScreenState extends State<ChargingScreen>
       'Status could not be read. Charging may still be active. Retry only checks status.',
       'تعذر قراءة الحالة. قد يستمر الشحن. إعادة المحاولة تتحقق من الحالة فقط.',
     ),
+    'connector_fault' => _t('A connector fault was reported. Ask the operator to review this session before starting again.',
+        'تم الإبلاغ عن عطل في الموصل. اطلب من المشغل مراجعة الجلسة قبل البدء من جديد.'),
     'ended_review' => _t(
       'The source reported the session ended. Ask the operator to review it before starting again.',
       'أبلغ المصدر بانتهاء الجلسة. اطلب من المشغل مراجعتها قبل بدء جلسة جديدة.',
@@ -132,6 +135,7 @@ class _ChargingScreenState extends State<ChargingScreen>
     _canExtend = false;
     _endNeedsReview = false;
     _endReason = null;
+    _connectorNote = null;
   }
 
   @override
@@ -215,10 +219,17 @@ class _ChargingScreenState extends State<ChargingScreen>
           _kwhUsed = result.hasVerifiedMeter ? result.kwhUsed : null;
           _chargingStatus = result.chargingStatus == 'Completed'
               ? 'Ended at source'
-              : result.chargingStatus ?? 'Source status unverified';
+              : result.chargingStatus == 'Charging' ? 'Active at source' : 'Source status unverified';
           _endNeedsReview = result.sourceEndNeedsReview;
           _endReason = result.sourceEndReason;
           if (_endNeedsReview) _readState = 'ended_review';
+          final connector = result.connectorObservation;
+          if (connector != null) {
+            _connectorNote = _t('Connector reported','أبلغ الموصل عن') +
+                ' ${connector.status} · ' + _t('receipt age at last check','عمر الاستلام عند آخر تحقق') +
+                ' ${connector.receiptAgeSeconds}s' + (connector.freshness == 'stale' ? ' · '+_t('stale report','تقرير قديم') : '');
+            if (connector.status == 'Faulted') _readState = 'connector_fault';
+          }
           final cost = result.provisionalCostFils ?? result.finalCostFils;
           if (cost != null) {
             final amount =
@@ -748,6 +759,8 @@ class _ChargingScreenState extends State<ChargingScreen>
                           ),
                           SizedBox(height: 10.h),
                           Text(_recoveryNote, textAlign: TextAlign.center),
+                          if (_connectorNote != null)
+                            Text(_connectorNote!, textAlign: TextAlign.center),
                           if (_endReasonText != null)
                             Text(_endReasonText!, textAlign: TextAlign.center),
                           TextButton.icon(
