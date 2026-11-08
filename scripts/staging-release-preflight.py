@@ -34,6 +34,8 @@ REQUIRED = ('APP_KEY', 'DB_PASSWORD', 'STAGING_HOST', 'ACME_EMAIL',
 POSTGRES_IMAGE = ('postgres:17-alpine@sha256:'
                   '266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b')
 
+GATEWAY_IMAGE = 'caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9'
+
 def require(ok, reason):
     if not ok:
         raise PreflightError(reason)
@@ -239,7 +241,7 @@ def check_policy(root):
             == [POSTGRES_IMAGE], 'Postgres must use pinned reviewed image')
     gateway = services['gateway']
     require(re.findall(r'^    image: (.+)$', gateway, re.M)
-            == ['caddy:2-alpine'], 'Staging gateway image changed')
+            == [GATEWAY_IMAGE], 'Staging gateway must use pinned reviewed image')
     require(not re.search(r'^    (network_mode|privileged|extra_hosts):',
                           gateway, re.M),
             'Staging gateway cannot use privileged host networking')

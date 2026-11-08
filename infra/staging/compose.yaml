@@ -67,7 +67,7 @@ services:
       retries: 20
     restart: unless-stopped
   gateway:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
     environment:
       STAGING_HOST: ${STAGING_HOST}
       ACME_EMAIL: ${ACME_EMAIL:?Supply the responsible certificate contact}

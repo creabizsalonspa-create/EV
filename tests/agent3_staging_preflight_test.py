@@ -167,8 +167,12 @@ class PreflightTests(unittest.TestCase):
                     '  env_file:\n    - .env\n    - .env.override'),
                 source.replace('  image: creabiz-ev-business:',
                     '  image: random-application:'),
-                source.replace('    image: caddy:2-alpine',
+                source.replace('    image: ' + p.GATEWAY_IMAGE,
+                    '    image: caddy:2-alpine'),
+                source.replace('    image: ' + p.GATEWAY_IMAGE,
                     '    image: caddy:unreviewed'),
+                source.replace('    image: ' + p.GATEWAY_IMAGE,
+                    '    image: caddy:2-alpine@sha256:' + '0' * 64),
                 source.replace('    image: postgres:17-alpine@sha256:',
                     '    image: postgres:17-alpine-unpinned@sha256:'),
             )
