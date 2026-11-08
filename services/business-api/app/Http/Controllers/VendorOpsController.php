@@ -300,6 +300,10 @@ class VendorOpsController extends Controller
                 // again under locks for direct API requests and stale queues.
                 $owner = User::whereKey($c->owner_id)->lockForUpdate()->firstOrFail();
                 abort_unless($owner->account_status === 'active', 409, 'Owner account is suspended.');
+                // Approval may promote a customer to vendor. Require the
+                // applicant to prove mailbox ownership before that grant.
+                abort_unless($owner->hasVerifiedEmail(), 409,
+                    'Owner email must be verified before company approval.');
                 abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
                 $licenseEvidence = VendorKycDocument::where('company_id', $c->id)
                     ->where('kind', 'trade_license')->orderByDesc('id')->lockForUpdate()->first();

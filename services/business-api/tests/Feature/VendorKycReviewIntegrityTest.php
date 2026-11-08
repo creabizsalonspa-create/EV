@@ -133,6 +133,31 @@ class VendorKycReviewIntegrityTest extends TestCase
             ->assertJsonPath('submission_readiness.can_submit', true);
     }
 
+    public function test_unverified_owner_cannot_be_approved_until_mailbox_is_verified(): void
+    {
+        $owner = User::factory()->unverified()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        $this->upload($owner, $company, "%PDF-1.4\nVALID-SYNTHETIC-LICENSE");
+
+        $this->actingAs($owner, 'web')
+            ->postJson('/api/vendor-ops/companies/'.$company->id.'/submit')->assertOk();
+        $this->review($admin, $company, 'approved')->assertStatus(409);
+        $this->assertSame('submitted', $company->fresh()->status);
+        $this->assertSame('customer', $owner->fresh()->role);
+        $this->assertDatabaseCount('vendor_company_reviews', 0);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'vendor_ops.company.approved',
+            'subject' => (string) $company->id,
+        ]);
+
+        $owner->forceFill(['email_verified_at' => now()])->save();
+        $this->review($admin, $company, 'approved')
+            ->assertOk()->assertJsonPath('status', 'approved');
+        $this->assertSame('vendor', $owner->fresh()->role);
+        $this->assertDatabaseCount('vendor_company_reviews', 1);
+    }
+
     public function test_missing_encrypted_evidence_blocks_vendor_submission_before_review(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);

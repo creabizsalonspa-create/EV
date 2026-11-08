@@ -54,7 +54,8 @@ window.EvAdminKycQueue = (() => {
             element("p", "Company #" + companyId + " · " + company.country + " · " + company.status),
             element("p", "Owner: " + (company.owner?.name ?? "Unknown") +
                 " · " + (company.owner?.email ?? "No email") +
-                (company.owner?.account_status === "suspended" ? " · Owner suspended" : "")),
+                (company.owner?.account_status === "suspended" ? " · Owner suspended" : "") +
+                (company.owner?.email_verified === false ? " · Owner email unverified" : "")),
             element("p", "License expires: " + (company.license_expires_on || "Not provided")),
             element("p", "Evidence on file: " + company.document_count + " · " +
                 (Array.isArray(company.document_kinds) && company.document_kinds.length
@@ -131,10 +132,11 @@ window.EvAdminKycQueue = (() => {
                 }
                 if (choice.value === "approved" && (
                     company.owner?.account_status === "suspended" ||
+                    company.owner?.email_verified !== true ||
                     !Array.isArray(company.document_kinds) ||
                     !company.document_kinds.includes("trade_license")
                 )) {
-                    state.textContent = "Cannot approve without active owner and trade-license evidence.";
+                    state.textContent = "Cannot approve without active owner, verified owner email and trade-license evidence.";
                     return;
                 }
                 submit.disabled = true;

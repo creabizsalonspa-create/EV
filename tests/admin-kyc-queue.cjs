@@ -55,7 +55,8 @@ const entry = {
   id:17, legal_name:'<img onerror=alert(1)>', country:'AE',
   status:'submitted', license_expires_on:'2027-02-01',
   document_count:1, document_kinds:['trade_license'],
-  owner:{id:3,name:'Private Owner',email:'review@example.test',account_status:'active'},
+  owner:{id:3,name:'Private Owner',email:'review@example.test',
+    account_status:'active',email_verified:true},
 };
 const page = (row = entry) => ({
   current_page:1, last_page:2, total:30, data:[row],
@@ -145,6 +146,7 @@ test('review action requires a reason and posts through existing VendorOps revie
 test('approval cannot be submitted if owner is suspended or trade-license evidence absent', async () => {
   for (const company of [
     {...entry, owner:{...entry.owner,account_status:'suspended'}},
+    {...entry, owner:{...entry.owner,email_verified:false}},
     {...entry, document_count:0, document_kinds:[]},
   ]) {
     const ui = fixture();
