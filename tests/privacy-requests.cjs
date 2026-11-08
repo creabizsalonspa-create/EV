@@ -29,6 +29,7 @@ let actor = user1, epoch = 1;
 const calls = [];
 let holdPost=false,releasePost=null,holdAdmin=false,releaseAdmin=null;
 let holdWithdrawal=false,releaseWithdrawal=null;
+let poisonOwnList=false;
 const api = async (path,method,body) => {
   calls.push(path);
   if(path==='privacy-requests' && method==='POST'){
@@ -36,7 +37,7 @@ const api = async (path,method,body) => {
       holdPost=false;
       await new Promise(resolve=>{releasePost=resolve;});
     }
-    return {id:100,request_type:body.request_type,status:'submitted'};
+    return {id:100,user_id:1,request_type:body.request_type,status:'submitted'};
   }
   if(path==='privacy-requests/100/withdraw' && method==='POST'){
     if(holdWithdrawal){
@@ -57,9 +58,15 @@ const api = async (path,method,body) => {
       reason:null,resolution:null,decision_note:null,user:{email:'review@example.invalid'}}],
     last_page:1,current_page:1,total:1,
   };
+  if(poisonOwnList && path.startsWith('privacy-requests?page=')) {
+    poisonOwnList=false;
+    return {data:[{id:777,user_id:999,request_type:'account_deletion',
+      status:'submitted',reason:'other-account-private-secret',
+      resolution:null,decision_note:null}],last_page:1,current_page:1,total:1};
+  }
   return {
     data:actor.id === 1 ? [{
-      id:100, request_type:'account_deletion', status:'submitted',
+      id:100, user_id:1, request_type:'account_deletion', status:'submitted',
       reason:'<img src=x onerror=alert(1)> secret-private-note',
       resolution:null,decision_note:null,
     }] : [],
@@ -162,6 +169,16 @@ const content = root => {
     'Old-session private request view must be cleared before stale refresh');
   await ui.setActor(user1);
   assert.match(content(mine), /secret-private-note/);
+  poisonOwnList=true;
+  await ui.refreshMine();
+  assert.doesNotMatch(content(mine), /other-account-private-secret/,
+    'A misrouted account page must never expose a foreign reason');
+  assert.match(content(mine), /Unexpected privacy request account/);
+  assert.doesNotMatch(content(mine), /Withdraw request/,
+    'Mismatched account rows must not expose mutating controls');
+  await ui.refreshMine();
+  assert.match(content(mine), /secret-private-note/,
+    'The correct account can safely recover by refreshing');
   actor = user2;
   await ui.setActor(user2);
   assert.doesNotMatch(content(mine), /secret-private-note/);

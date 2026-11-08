@@ -176,8 +176,18 @@
       try {
         const result = await api("privacy-requests?page=" + ownPage);
         if (!aliveMine(owner, ticket)) return;
-        if (!result.data?.length) list.append(p("No privacy requests submitted.", "لم يتم تقديم أي طلبات خصوصية."));
-        for (const row of result.data || []) {
+        // Defense in depth: the account-scoped API must never render a row
+        // identified as belonging to someone else. Reject the whole page,
+        // rather than partially displaying a potentially misrouted response.
+        const rows = Array.isArray(result?.data) ? result.data : [];
+        if (rows.some(row => !row || String(row.user_id) !== String(owner.id))) {
+          errorOn(selfRoot, ar()
+            ? "استجابة طلبات الخصوصية لحساب مختلف. حدّث للمحاولة مجدداً."
+            : "Unexpected privacy request account; refresh to retry.");
+          return null;
+        }
+        if (!rows.length) list.append(p("No privacy requests submitted.", "لم يتم تقديم أي طلبات خصوصية."));
+        for (const row of rows) {
           const withdraw = async id => {
             if (!aliveMine(owner, ticket)) return;
             try {
@@ -195,7 +205,7 @@
         if (ownPage < result.last_page) selfRoot.append(btn("Next", "التالي", () => {
           if (aliveMine(owner, ticket)) return refreshMine(ownPage + 1);
         }));
-        return result.data || [];
+        return rows;
       } catch (e) {
         if (aliveMine(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
         return null;
