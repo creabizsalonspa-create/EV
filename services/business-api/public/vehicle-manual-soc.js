@@ -31,11 +31,14 @@
     }
     function setActor(user) {
       if (user?.role!=="customer") {clear();return;}
-      if (account===user)return;
+      // Reusing the exact same actor object after a new authentication
+      // session must never preserve old vehicle readings or draft reports.
+      if (account===user && session===epoch())return;
       clear();account=user;session=epoch();
     }
     function renderGarage(vehicles) {
-      if (account?.role!=="customer"||actor()!==account)return;
+      if (actor()!==account||session!==epoch()) {clear();return;}
+      if (account?.role!=="customer")return;
       // A background garage refresh must not discard an in-flight report or
       // pending idempotency key for a vehicle that still belongs to this user.
       const sameVehicle = chosen && vehicles.find(v => String(v.id) === String(chosen.id));
@@ -58,6 +61,7 @@
       if (previousPanel) root.append(previousPanel);
     }
     async function open(vehicle) {
+      if (actor()!==account||session!==epoch()) {clear();return;}
       if (actor()?.role!=="customer"||!account)return;
       const token=++generation;
       // Hide the old vehicle's editable panel immediately. A slow new GET

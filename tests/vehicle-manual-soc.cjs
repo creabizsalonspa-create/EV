@@ -176,6 +176,23 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   const doneRetry=find(retryRoot,n=>n.tag==='button'&&visible(n).includes('Retry the same report'));
   assert.equal(doneRetry.disabled,true,'Successful readback must clear the pending retry');
   retryView.clear();
+  // A reused identity object across a new auth epoch must clear old DOM and
+  // pending report forms, even before platform code allocates a new actor.
+  view.renderGarage([{id:6,name:'Reused account car'}]);
+  assert.ok(root.children.length>0);
+  epoch++;
+  view.setActor(account);
+  assert.equal(root.children.length,0,
+    'Same actor reference with changed session must clear private SOC UI');
+  view.renderGarage([{id:6,name:'Fresh session car'}]);
+  assert.doesNotMatch(visible(root),/Latest self-reported battery: 77%/);
+  assert.equal(root.querySelector('[data-manual-soc-panel]'),null);
+  // A garage refresh arriving before setActor() must not retain the
+  // previous session's panel or status.
+  epoch++;
+  view.renderGarage([{id:6,name:'Stale garage callback'}]);
+  assert.equal(root.children.length,0);
+  view.setActor(account);
   account={id:32,role:'customer'};epoch++;
   view.setActor(account);
   assert.equal(root.children.length,0);
