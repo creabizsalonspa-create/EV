@@ -29,9 +29,16 @@ class InboxNotification extends Model
             abort(503, 'Operational inbox database driver is not verified.');
         }
         $field = static function (string $key) use ($driver): string {
-            return $driver === 'pgsql'
-                ? "inbox_notifications.metadata->>'{$key}'"
-                : "CAST(json_extract(inbox_notifications.metadata, '$.{$key}') AS TEXT)";
+            if ($driver === 'pgsql') {
+                return "inbox_notifications.metadata->>'{$key}'";
+            }
+
+            // SQLite JSON columns are stored as text. A truncated historical
+            // payload must fail closed for this row, not break the entire inbox.
+            // CASE guards json_extract itself, avoiding "malformed JSON" errors.
+            return 'CASE WHEN json_valid(inbox_notifications.metadata) '
+                ."THEN CAST(json_extract(inbox_notifications.metadata, '$.{$key}') AS TEXT) "
+                .'ELSE NULL END';
         };
         $station = $field('station_id');
         $company = $field('company_id');

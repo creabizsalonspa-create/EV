@@ -606,6 +606,61 @@ class NotificationCenterTest extends TestCase
         $this->assertDatabaseCount('audit_events', 0);
     }
 
+    public function test_malformed_stored_operational_metadata_cannot_break_unrelated_inbox_reads(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $station = Station::create([
+            'vendor_id' => $owner->id, 'name' => 'Malformed historical metadata',
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai',
+            'latitude' => 25, 'longitude' => 55, 'source' => 'simulator',
+            'connector_type' => 'CCS2', 'power_kw' => 50,
+        ]);
+        $company = VendorCompany::create([
+            'owner_id' => $owner->id, 'legal_name' => 'Malformed fixture company',
+            'country' => 'AE', 'trade_license_number' => 'MALFORMED-SYNTHETIC-NOTE',
+            'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved',
+        ]);
+        $site = VendorSite::create([
+            'company_id' => $company->id, 'station_id' => $station->id,
+            'name' => 'Malformed fixture site', 'country' => 'AE',
+            'timezone' => 'Asia/Dubai', 'address' => 'Synthetic',
+            'latitude' => 25, 'longitude' => 55,
+        ]);
+        $charger = VendorCharger::create([
+            'company_id' => $company->id, 'site_id' => $site->id,
+            'asset_reference' => 'MALFORMED-NOTIFY-SYNTHETIC', 'manufacturer' => 'Synthetic',
+            'model' => 'Simulated', 'source' => 'simulator', 'ocpp_protocol' => '1.6',
+        ]);
+        $safe = $this->makeNotification($owner);
+        $fault = InboxNotification::create([
+            'user_id' => $owner->id, 'kind' => 'charging.fault.simulated',
+            'metadata' => [
+                'source' => 'simulator', 'company_id' => $company->id,
+                'station_id' => $station->id, 'charger_id' => $charger->id,
+                'physical_verification' => false,
+            ],
+        ]);
+        // A historical raw row might contain a truncated JSON document.
+        DB::table('inbox_notifications')->where('id', $fault->id)
+            ->update(['metadata' => '{"company_id":']);
+        $this->actingAs($owner);
+        foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
+            $this->getJson($prefix)->assertOk()
+                ->assertJsonPath('total', 1)
+                ->assertJsonPath('data.0.id', $safe->id);
+            $this->getJson($prefix.'/summary')->assertOk()
+                ->assertJsonPath('unread_count', 1);
+            $this->postJson($prefix.'/'.$fault->id.'/read')->assertNotFound();
+            $this->postJson($prefix.'/'.$fault->id.'/unread')->assertNotFound();
+        }
+        $this->postJson('/api/v1/notifications/read-through', ['through_id' => $fault->id])
+            ->assertOk()->assertJsonPath('marked_read', 1)
+            ->assertJsonPath('remaining_unread', 0);
+        $this->assertNull($fault->fresh()->read_at);
+        $this->assertNotNull($safe->fresh()->read_at);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+    }
+
     public function test_legacy_notification_routes_remain_available_and_scoped(): void
     {
         $owner = User::factory()->create();

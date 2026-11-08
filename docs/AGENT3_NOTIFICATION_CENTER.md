@@ -253,3 +253,23 @@ Operational-case opened, source-observed and review-resolved notices now require
 ### Authoritative operator-role rechecks after account demotion
 
 All Agent 3 charging-operations recovery routes now derive the caller's **current** `vendor` or `admin` role from the `users` table rather than trusting the hydrated session model. Demoting a vendor to customer forbids recovery listings, reads, case-open/review and source inspections even on a retained authenticated session. Demoting an Admin to vendor immediately removes global station visibility and applies vendor station-owner checks. The role is checked at request entry and again before recovery writes; source inspection additionally rechecks the role after the remote source read before calling the reconciler and in the locked event transaction. Two feature tests cover stale vendor/admin role objects and role revocation during an in-flight source read, ensuring no new case events, extra charger commands or finance records. This is not a claim of atomic cross-transaction identity revocation: deployments still need proper session/token invalidation on account changes. Exact-head PHPUnit, PHP lint/Pint, PostgreSQL and hosted CI remain required.
+
+### Malformed historical SQLite notification metadata fails closed
+
+SQLite persists the inbox metadata JSON column as text, so a truncated legacy
+payload could cause `json_extract` to throw `malformed JSON`, turning an
+otherwise valid account's listing, unread summary or read acknowledgement into
+an error. The SQLite branch of `InboxNotification::visibleTo` now wraps every
+fixed, source-owned metadata path in `CASE WHEN json_valid(metadata) THEN
+json_extract(...) ELSE NULL END`. Corrupt structured operational records
+cannot satisfy the current station/company/charger or station/command/case
+authorization predicates, while unrelated properly formed records stay visible.
+The PostgreSQL JSON extraction remains unchanged (its typed JSON storage
+prevents invalid JSON being persisted through the normal schema).
+
+A regression inserts malformed metadata through a synthetic direct SQLite
+database update, verifies both legacy and /v1 inbox and summary endpoints still
+return the valid owner record, denies read/unread mutations for the malformed
+record and confirms bulk read only acknowledges valid notices. The malformed
+historical record is not deleted, rewritten or delivered externally. Full
+PostgreSQL, browser, hosted CI and production validation are separate gates.
