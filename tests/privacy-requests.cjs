@@ -14,6 +14,7 @@ class Element {
   replaceChildren(...values) {this.children = values;}
   setAttribute(key, value) {this.attributes[key] = value;}
   querySelector() {return null;}
+  reset() {this.resetCalls=(this.resetCalls||0)+1;}
 }
 const doc = {documentElement: {lang:'en'},createElement: tag => new Element(tag)};
 const window = {};
@@ -27,6 +28,7 @@ const user1 = {role:'customer',id:1}, user2 = {role:'customer',id:2};
 let actor = user1, epoch = 1;
 const calls = [];
 let holdPost=false,releasePost=null,holdAdmin=false,releaseAdmin=null;
+let holdWithdrawal=false,releaseWithdrawal=null;
 const api = async (path,method,body) => {
   calls.push(path);
   if(path==='privacy-requests' && method==='POST'){
@@ -35,6 +37,13 @@ const api = async (path,method,body) => {
       await new Promise(resolve=>{releasePost=resolve;});
     }
     return {id:100,request_type:body.request_type,status:'submitted'};
+  }
+  if(path==='privacy-requests/100/withdraw' && method==='POST'){
+    if(holdWithdrawal){
+      holdWithdrawal=false;
+      await new Promise(resolve=>{releaseWithdrawal=resolve;});
+    }
+    return {id:100,status:'withdrawn'};
   }
   if(path.startsWith('admin/privacy-requests/') && method==='PATCH'){
     if(holdAdmin){
@@ -79,6 +88,12 @@ const content = root => {
   holdPost=true;
   const firstSubmission=pendingForm.onsubmit({preventDefault(){}});
   assert.equal(typeof releasePost,'function');
+  const switchRequest=find(pendingForm,node=>node.tag==='button' &&
+    content(node).includes('Start a different request'));
+  assert.ok(switchRequest);
+  switchRequest.onclick();
+  assert.equal(pendingForm.resetCalls||0,0,
+    'Pending POST must not let a new draft erase its replay key');
   const sentCount=()=>calls.filter(path=>path==='privacy-requests').length;
   const beforeDuplicate=sentCount();
   await pendingForm.onsubmit({preventDefault(){}});
@@ -96,6 +111,21 @@ const content = root => {
   await ui.setActor(user1);
   assert.ok(calls.length > initialCalls,
     'Same actor object in a new session must perform a fresh private request');
+  const withdraw=find(mine,node=>node.tag==='button' &&
+    content(node).includes('Withdraw request'));
+  assert.ok(withdraw);
+  holdWithdrawal=true;
+  const withdrawal=withdraw.onclick();
+  assert.equal(typeof releaseWithdrawal,'function');
+  const beforeRefreshWithdraw=calls.filter(path=>path==='privacy-requests?page=1').length;
+  await ui.refreshMine();
+  assert.equal(calls.filter(path=>path==='privacy-requests?page=1').length,
+    beforeRefreshWithdraw+1);
+  releaseWithdrawal();
+  await withdrawal;
+  assert.equal(calls.filter(path=>path==='privacy-requests?page=1').length,
+    beforeRefreshWithdraw+1,
+    'Former view withdrawal must not refresh and replace the latest view');
   epoch++;
   await ui.refreshMine();
   assert.equal(mine.children.length, 0,
@@ -143,8 +173,12 @@ const content = root => {
   await reviewForm.onsubmit({preventDefault(){}});
   assert.equal(reviewCount(),beforeDuplicateReview,
     'Duplicate Admin close cannot PATCH while original is pending');
+  await ui.refreshAdmin();
+  const adminGetsBeforeOld=adminCount();
   releaseAdmin();
   await firstClose;
+  assert.equal(adminCount(),adminGetsBeforeOld,
+    'Old review PATCH response must not replace newer Admin view');
   ui.clear();
   assert.equal(mine.children.length, 0);
   assert.doesNotMatch(fs.readFileSync(path,'utf8'), /\.innerHTML\s*=/);

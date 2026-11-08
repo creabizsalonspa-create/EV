@@ -99,7 +99,9 @@
       const submit = document.createElement("button");
       submit.type = "submit"; submit.append(text("Submit request", "إرسال الطلب")); form.append(submit);
       form.append(btn("Start a different request", "بدء طلب مختلف", () => {
-        if (!aliveMine(owner, ticket)) return;
+        // Do not erase the sole replay identity while a write could already
+        // have committed on the server. Wait until the request settles.
+        if (!aliveMine(owner, ticket) || submit.disabled) return;
         pending = null; form.reset(); errorOn(selfRoot,"");
       }));
       form.onsubmit = async event => {
@@ -149,8 +151,12 @@
         for (const row of result.data || []) {
           const withdraw = async id => {
             if (!aliveMine(owner, ticket)) return;
-            try {await api("privacy-requests/" + id + "/withdraw", "POST", {});if (current === owner && session === epoch()) await refreshMine(ownPage);}
-            catch (e) {if (current === owner && session === epoch()) errorOn(selfRoot, safe(e.message) || String(e));}
+            try {
+              await api("privacy-requests/" + id + "/withdraw", "POST", {});
+              if (aliveMine(owner, ticket)) await refreshMine(ownPage);
+            } catch (e) {
+              if (aliveMine(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
+            }
           };
           list.append(oneRow(row, withdraw));
         }
@@ -184,11 +190,21 @@
         for (const row of result.data || []) {
           const card = oneRow(row);
           card.append(p("Request from: " + safe(row.user?.email), "طلب من: " + safe(row.user?.email)));
-          if (row.status === "submitted") card.append(btn("Start review", "بدء المراجعة", async () => {
-            if (!aliveAdmin(owner, ticket)) return;
-            try {await api("admin/privacy-requests/" + row.id, "PATCH", {status:"in_review"}); if (current === owner && session === epoch()) await refreshAdmin(adminPage);}
-            catch (e) {if (current === owner && session === epoch()) errorOn(adminRoot, safe(e.message) || String(e));}
-          }));
+          if (row.status === "submitted") {
+            const startReview = btn("Start review", "بدء المراجعة", async () => {
+              if (!aliveAdmin(owner, ticket) || startReview.disabled) return;
+              startReview.disabled = true;
+              try {
+                await api("admin/privacy-requests/" + row.id, "PATCH", {status:"in_review"});
+                if (aliveAdmin(owner, ticket)) await refreshAdmin(adminPage);
+              } catch (e) {
+                if (aliveAdmin(owner, ticket)) errorOn(adminRoot, safe(e.message) || String(e));
+              } finally {
+                if (aliveAdmin(owner, ticket)) startReview.disabled = false;
+              }
+            });
+            card.append(startReview);
+          }
           if (row.status === "in_review") {
             const f = document.createElement("form"); f.className = "privacy-review-form";
             const choices = document.createElement("select");
@@ -208,10 +224,17 @@
               event.preventDefault();
               if (!aliveAdmin(owner, ticket) || submit.disabled) return;
               submit.disabled = true;
-              try {await api("admin/privacy-requests/" + row.id,"PATCH", {
-                status:"closed",resolution:choices.value,decision_note:note.value.trim(),
-              });if (current === owner && session === epoch()) await refreshAdmin(adminPage);}
-              catch (e) {if (current === owner && session === epoch()) errorOn(adminRoot, safe(e.message) || String(e));submit.disabled=false;}
+              try {
+                await api("admin/privacy-requests/" + row.id,"PATCH", {
+                  status:"closed",resolution:choices.value,decision_note:note.value.trim(),
+                });
+                if (aliveAdmin(owner, ticket)) await refreshAdmin(adminPage);
+              } catch (e) {
+                if (aliveAdmin(owner, ticket)) {
+                  errorOn(adminRoot, safe(e.message) || String(e));
+                  submit.disabled = false;
+                }
+              }
             };
             card.append(f);
           }
