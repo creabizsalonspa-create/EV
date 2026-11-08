@@ -107,6 +107,45 @@ class SecurityHeadersTest extends TestCase
         $this->assertSame('DENY', $response->headers->get('X-Frame-Options'));
     }
 
+    public function test_global_referrer_default_does_not_weaken_explicit_route_no_referrer(): void
+    {
+        $middleware = new SecurityHeaders;
+
+        foreach (['/account/review', '/api/finance/invoices'] as $path) {
+            $request = Request::create($path, 'GET');
+            $response = $middleware->handle($request, function () {
+                $result = new Response('private');
+                $result->headers->set('Referrer-Policy', 'no-referrer');
+
+                return $result;
+            });
+
+            $this->assertSame('no-referrer', $response->headers->get('Referrer-Policy'), $path);
+        }
+
+        // No route may relax the policy on sensitive payment-return pages.
+        $sensitive = Request::create('/payments/hosted-return', 'GET');
+        $response = $middleware->handle($sensitive, function () {
+            $result = new Response('return');
+            $result->headers->set('Referrer-Policy', 'unsafe-url');
+
+            return $result;
+        });
+        $this->assertSame('no-referrer', $response->headers->get('Referrer-Policy'));
+
+        // Reject weaker or invalid route choices, including blank values.
+        foreach (['unsafe-url', 'origin', ''] as $weaker) {
+            $regular = Request::create('/catalog', 'GET');
+            $response = $middleware->handle($regular, function () use ($weaker) {
+                $result = new Response('catalog');
+                $result->headers->set('Referrer-Policy', $weaker);
+
+                return $result;
+            });
+            $this->assertSame('strict-origin-when-cross-origin', $response->headers->get('Referrer-Policy'));
+        }
+    }
+
     public function test_regular_pages_still_receive_the_platform_default_csp(): void
     {
         $response = $this->get('/');
