@@ -321,3 +321,25 @@ read/unread actions until the original raw metadata is restored. The
 PostgreSQL JSONB typed check is unchanged; PostgreSQL execution is still a
 separate integration requirement. Historical SQL-NULL text-only notices
 remain visible under the existing account/role restrictions.
+
+### Source and case-observation provenance remain source-only
+
+The protected inbox now enforces two additional static, typed metadata claims
+for non-null structured operational records. An in-app simulator fault,
+recovery, reminder, monitor review/resumption or simulator Admin escalation
+and closure must keep its `source` field equal to the literal `simulator`.
+A charging-operations `opened` notice must contain JSON boolean
+`source_observed: false`; `source_observed` and `review_resolved` notices
+must contain JSON boolean `source_observed: true`. A forged live source,
+missing source, incorrect observation type/value or a historic truncated
+SQLite JSON record fails closed. These rules are incorporated directly in
+the reusable visibility scope for listing, summaries, read/unread and
+read-through, rather than depending on only the serialized UI.
+
+Three existing end-to-end Laravel privacy fixtures reproduced visibility
+**before** the change by changing retained source / source-observation
+metadata to contradictory values, then passed after enforcing the gate.
+Legacy SQL-NULL metadata notices remain in their original owner/role scope.
+The typed SQLite extraction is guarded by `json_valid` and PostgreSQL uses
+JSONB typed JSON paths; this does not replace a live PostgreSQL or hardware
+source acceptance test. No physical charging or provider event was produced.

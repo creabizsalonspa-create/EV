@@ -441,6 +441,19 @@ class FaultReminderEscalatorTest extends TestCase
             ->assertOk()->assertJsonPath('total', 0);
         DB::table('inbox_notifications')->where('id', $id)
             ->update(['metadata' => $rawEscalation]);
+        foreach (['live', 'SIMULATOR', null] as $source) {
+            $escalation->update(['metadata' => array_replace(
+                $originalEscalation, ['source' => $source]
+            )]);
+            $this->getJson('/api/notifications?category=charging')
+                ->assertOk()->assertJsonPath('total', 0);
+        }
+        $escalation->update(['metadata' => array_diff_key(
+            $originalEscalation, ['source' => true]
+        )]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $escalation->update(['metadata' => $originalEscalation]);
 
         // Role is deliberately guarded on User: change the database
         // directly to model a remote operator revocation with a cached auth

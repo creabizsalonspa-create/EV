@@ -45,6 +45,22 @@ class InboxNotification extends Model
         $charger = $field('charger_id');
         $command = $field('command_id');
         $caseId = $field('case_id');
+        $source = $field('source');
+        $boolean = static function (string $key, bool $expected) use ($driver): string {
+            $literal = $expected ? 'true' : 'false';
+            if ($driver === 'pgsql') {
+                return "(jsonb_typeof(inbox_notifications.metadata::jsonb->'{$key}') = 'boolean' "
+                    ."AND inbox_notifications.metadata->>'{$key}' = '{$literal}')";
+            }
+
+            // SQLite JSON is text; parse only when valid and insist on the
+            // original JSON boolean type, not a cast-compatible number.
+            return 'CASE WHEN json_valid(inbox_notifications.metadata) THEN '
+                ."json_type(inbox_notifications.metadata, '$.{$key}') = '{$literal}' "
+                .'ELSE 0 END';
+        };
+        $caseOpenedWithoutProof = $boolean('source_observed', false);
+        $caseObservedWithProof = $boolean('source_observed', true);
         $simulatorKinds = [
             'charging.fault.simulated',
             'charging.fault.recovered.simulated',
@@ -58,10 +74,12 @@ class InboxNotification extends Model
             'charging.operational_case.source_observed',
         ];
         $operationalKinds = array_merge($simulatorKinds, $caseKinds);
-        $provenanceKinds = array_merge($operationalKinds, [
+        $adminSimulatorKinds = [
             'charging.fault.escalated.simulated',
             'charging.fault.escalation_closed.simulated',
-        ]);
+        ];
+        $provenanceKinds = array_merge($operationalKinds, $adminSimulatorKinds);
+        $sourceSimulatorKinds = array_merge($simulatorKinds, $adminSimulatorKinds);
         // Physical verification has NEVER been observed by these source-only
         // workflows. Require a JSON boolean false, not a string/number that
         // happens to compare equal after casting, for structured notices.
@@ -89,15 +107,43 @@ class InboxNotification extends Model
                     ->orWhereNull('metadata')
                     ->orWhereRaw('('.$physicalFalse.')');
             })
-            ->where(function (Builder $visible): void {
-                $visible->whereNotIn('kind', [
-                    'charging.fault.escalated.simulated',
-                    'charging.fault.escalation_closed.simulated',
-                ])->orWhereExists(function ($active) {
-                    $active->selectRaw('1')->from('users as active_admin')
-                        ->whereColumn('active_admin.id', 'inbox_notifications.user_id')
-                        ->where('active_admin.role', 'admin');
-                });
+            // A simulator or on-call notification is local source evidence,
+            // never provider/live data. Its persisted source cannot be
+            // promoted merely by rewriting metadata after delivery.
+            ->where(function (Builder $simulated) use ($sourceSimulatorKinds, $source): void {
+                $simulated->whereNotIn('kind', $sourceSimulatorKinds)
+                    ->orWhereNull('metadata')
+                    ->orWhereRaw("{$source} = 'simulator'");
+            })
+            // An opened case has no source observation; the resolved and
+            // source-observed notice types are emitted only after such
+            // source evidence exists. Read/unread scopes share this guard.
+            ->where(function (Builder $cases) use (
+                $caseKinds, $caseOpenedWithoutProof, $caseObservedWithProof
+            ): void {
+                $cases->whereNotIn('kind', $caseKinds)
+                    ->orWhereNull('metadata')
+                    ->orWhere(function (Builder $known) use (
+                        $caseOpenedWithoutProof, $caseObservedWithProof
+                    ): void {
+                        $known->where(function (Builder $opened) use ($caseOpenedWithoutProof): void {
+                            $opened->where('kind', 'charging.operational_case.opened')
+                                ->whereRaw($caseOpenedWithoutProof);
+                        })->orWhere(function (Builder $verified) use ($caseObservedWithProof): void {
+                            $verified->whereIn('kind', [
+                                'charging.operational_case.review_resolved',
+                                'charging.operational_case.source_observed',
+                            ])->whereRaw($caseObservedWithProof);
+                        });
+                    });
+            })
+            ->where(function (Builder $visible) use ($adminSimulatorKinds): void {
+                $visible->whereNotIn('kind', $adminSimulatorKinds)
+                    ->orWhereExists(function ($active) {
+                        $active->selectRaw('1')->from('users as active_admin')
+                            ->whereColumn('active_admin.id', 'inbox_notifications.user_id')
+                            ->where('active_admin.role', 'admin');
+                    });
             })
             ->where(function (Builder $visible) use (
                 $actor, $simulatorKinds, $caseKinds, $operationalKinds,

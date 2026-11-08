@@ -583,6 +583,21 @@ class NotificationCenterTest extends TestCase
         $note->update(['metadata' => $originalFault]);
         $this->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 1);
+        // Source-only simulator notifications must never masquerade as
+        // live provider evidence after an old raw metadata update.
+        foreach (['live', 'SIMULATOR', null] as $source) {
+            $note->update(['metadata' => array_replace(
+                $originalFault, ['source' => $source]
+            )]);
+            $this->getJson('/api/notifications?category=charging')
+                ->assertOk()->assertJsonPath('total', 0);
+        }
+        $note->update(['metadata' => array_diff_key($originalFault, ['source' => true])]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $note->update(['metadata' => $originalFault]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
         // SQLite JSON extraction reads the first duplicate key, while PHP
         // decodes the last. Reject this ambiguous stored source record.
         $rawFault = json_encode($originalFault, JSON_THROW_ON_ERROR);

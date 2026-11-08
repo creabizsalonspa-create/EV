@@ -250,6 +250,20 @@ class ChargingOperationsTest extends TestCase
         $this->assertFalse($prebuilt->exists());
         $notice->update(['metadata' => $original]);
         $this->assertTrue($prebuilt->exists());
+        // An opened recovery case has no applied source evidence at
+        // creation; a retained notice cannot claim that it did.
+        foreach ([true, 0, 'false', null] as $observed) {
+            $notice->update(['metadata' => array_replace(
+                $original, ['source_observed' => $observed]
+            )]);
+            $this->assertFalse($prebuilt->exists());
+        }
+        $notice->update(['metadata' => array_diff_key(
+            $original, ['source_observed' => true]
+        )]);
+        $this->assertFalse($prebuilt->exists());
+        $notice->update(['metadata' => $original]);
+        $this->assertTrue($prebuilt->exists());
         $rawCase = json_encode($original, JSON_THROW_ON_ERROR);
         DB::table('inbox_notifications')->where('id', $notice->id)->update([
             'metadata' => substr($rawCase, 0, -1)
