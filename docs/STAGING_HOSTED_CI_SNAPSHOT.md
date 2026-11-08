@@ -18,6 +18,14 @@ The validator checks workflow numeric ID `397762279`, name `Platform validation`
 
 **Critical limit:** The local JSON is operator supplied and not cryptographically authenticated by this script. Passing means only *internal consistency of that snapshot*. `github_live_status_independently_confirmed=false`, `staging_deployed=false` and `production_accepted=false` are always recorded. Agent 4 must independently verify the exact run and checks **live at GitHub** immediately before integration. Only then can an authorized operator review backups, private TLS, connected staging and full acceptance; this offline tool must never be used to bypass a CI requirement.
 
+Agent 10's offline staging suite can also be run with one stable command (this does **not** replace GitHub-hosted CI):
+
+```sh
+./scripts/staging-offline-verify
+```
+
+This runs syntax checks for the release, rollback and private-environment modules, every `tests/staging-*.cjs` synthetic Node test, and the Python CI snapshot regression. The runner does not contact Docker, GitHub, chargers or payment systems. Agent 4 owns `.github/workflows/ci.yml` and should review this entrypoint for the staging-image job after reconciling CI changes in PR #57; this PR does not alter Agent 4's workflow file. A successful **local** suite is not a hosted green check, staging acceptance or production certification.
+
 Test without Docker or live secrets:
 
 ```
