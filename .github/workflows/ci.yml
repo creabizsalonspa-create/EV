@@ -24,6 +24,8 @@ jobs:
           python3 -B -m unittest discover -s tests -p requirement_coverage_test.py
       - run: ./scripts/php artisan test --compact
       - run: npm ci
+      - name: Verify Agent 9 offline security regression guards
+        run: node --test tests/agent9-*.test.cjs
       - run: npx playwright install --with-deps chromium
       - run: ./scripts/start
       - run: npm run test:e2e
