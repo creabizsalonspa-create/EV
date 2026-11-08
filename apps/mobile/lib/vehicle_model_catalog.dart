@@ -30,23 +30,29 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
   Map<String, dynamic>? linked;
   List<Map<String, dynamic>> choices = [];
   int page = 1, lastPage = 1, generation = 0;
+  late bool Function() accountFence;
   int? selectedId;
   bool busy = false, saving = false;
   String? error, success;
   String t(String en, String ar) => modelText(context, en, ar);
 
   @override
-  void initState() {super.initState(); reload();}
+  void initState() {
+    super.initState();
+    accountFence=widget.api.sessionFence();
+    reload();
+  }
 
   @override
   void didUpdateWidget(covariant VehicleModelAssociationView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.vehicleId == widget.vehicleId &&
         oldWidget.vehicleConnector == widget.vehicleConnector &&
-        identical(oldWidget.api, widget.api)) return;
+        identical(oldWidget.api, widget.api) && accountFence()) return;
     // Do not retain a previous vehicle's model link, search, compatible
     // choices, or pending save when Flutter reuses this State.
     generation++;
+    accountFence=widget.api.sessionFence();
     search.clear();
     linked = null;choices = [];selectedId = null;
     page = lastPage = 1;
@@ -100,9 +106,9 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
                 : models.first['id'] as int;
       });
     } catch (e) {
-      if (mounted && ticket == generation) failed(e);
+      if (mounted && ticket == generation && fence()) failed(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => busy=false);
+      if (mounted && ticket == generation && fence()) setState(() => busy=false);
     }
   }
 
@@ -123,9 +129,9 @@ class _VehicleModelAssociationState extends State<VehicleModelAssociationView> {
         success = t('Vehicle model association saved.', 'تم حفظ ارتباط طراز المركبة.');
       });
     } catch (e) {
-      if (mounted && ticket == generation) failed(e);
+      if (mounted && ticket == generation && fence()) failed(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => saving=false);
+      if (mounted && ticket == generation && fence()) setState(() => saving=false);
     }
   }
 
@@ -232,11 +238,29 @@ class _AdminVehicleModelCatalogState extends State<AdminVehicleModelCatalogView>
   String connector='CCS2';
   bool published=false, loading=false, saving=false;
   int page=1, lastPage=1, generation=0;
+  late bool Function() accountFence;
   String? error,success;
   String t(String en,String ar)=>modelText(context,en,ar);
 
   @override
-  void initState() {super.initState();load();}
+  void initState() {
+    super.initState();
+    accountFence=widget.api.sessionFence();
+    load();
+  }
+  @override
+  void didUpdateWidget(covariant AdminVehicleModelCatalogView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.api,widget.api) && accountFence()) return;
+    generation++;
+    accountFence=widget.api.sessionFence();
+    for (final c in [make,model,variant,year,source,query]) {c.clear();}
+    rows=[];editing=null;connector='CCS2';
+    page=lastPage=1;
+    published=loading=saving=false;
+    error=success=null;
+    load();
+  }
   @override
   void dispose() {
     generation++;
@@ -277,9 +301,9 @@ class _AdminVehicleModelCatalogState extends State<AdminVehicleModelCatalogView>
       final data=ApiPage<Map<String,dynamic>>.fromJson(raw,(v)=>v);
       setState(() {page=data.current;lastPage=data.last;rows=data.items;});
     } catch (e) {
-      if(mounted&&ticket==generation)failed(e);
+      if(mounted&&ticket==generation&&fence())failed(e);
     } finally {
-      if(mounted&&ticket==generation)setState(()=>loading=false);
+      if(mounted&&ticket==generation&&fence())setState(()=>loading=false);
     }
   }
 
@@ -298,9 +322,9 @@ class _AdminVehicleModelCatalogState extends State<AdminVehicleModelCatalogView>
       setState(()=>saving=false);
       await load(page);
     }catch(e) {
-      if(mounted&&ticket==generation)failed(e);
+      if(mounted&&ticket==generation&&fence())failed(e);
     }finally {
-      if(mounted&&ticket==generation)setState(()=>saving=false);
+      if(mounted&&ticket==generation&&fence())setState(()=>saving=false);
     }
   }
 
@@ -330,12 +354,16 @@ class _AdminVehicleModelCatalogState extends State<AdminVehicleModelCatalogView>
       if(!mounted||ticket!=generation||!fence())return;
       edit(null);
       setState(()=>saving=false);
+      // load() increments the request generation; accept only that exact
+      // follow-up reload, never a later account/selection transition.
+      final refreshTicket=generation+1;
       await load(1);
-      if(mounted)setState(()=>success=t('Catalog record saved.','تم حفظ سجل الكتالوج.'));
+      if(mounted&&generation==refreshTicket&&fence())
+        setState(()=>success=t('Catalog record saved.','تم حفظ سجل الكتالوج.'));
     }catch(e) {
-      if(mounted&&ticket==generation)failed(e);
+      if(mounted&&ticket==generation&&fence())failed(e);
     }finally {
-      if(mounted&&ticket==generation)setState(()=>saving=false);
+      if(mounted&&ticket==generation&&fence())setState(()=>saving=false);
     }
   }
 

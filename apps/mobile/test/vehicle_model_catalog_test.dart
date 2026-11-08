@@ -15,6 +15,7 @@ class _ModelsApi extends EvApi {
   final catalogQueries = <Map<String, String>>[];
   final requestPaths = <String>[];
   Completer<void>? holdVehicle12;
+  bool denyNewAccount = false;
 
   final model = <String, dynamic>{
     'id': 4, 'make': 'Test brand', 'model': 'Demo E', 'variant': null,
@@ -44,6 +45,9 @@ class _ModelsApi extends EvApi {
     Map<String, String> query = const {},
   }) async {
     requestPaths.add('$method $path');
+    if (denyNewAccount && method == 'GET') {
+      throw const ApiException(404, 'No access in changed account');
+    }
     if (path == 'vehicles/13/model' && method == 'GET') {
       return {
         'vehicle_id': 13, 'vehicle_connector_type': 'Type2',
@@ -220,6 +224,50 @@ void main() {
       if (!(api.holdVehicle12?.isCompleted ?? true)) api.holdVehicle12!.complete();
       api.close();
     }
+  });
+
+  testWidgets('same vehicle/API after session change hides previous account model link',
+      (tester) async {
+    final api = _ModelsApi()..selectedModel = 5;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleModelAssociationView(
+        api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Linked: Test brand Second compatible'), findsOneWidget);
+      api.denyNewAccount = true;
+      await api.forgetSession();
+      await tester.pumpWidget(MaterialApp(home: VehicleModelAssociationView(
+        api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Linked: Test brand Second compatible'), findsNothing);
+      expect(find.byKey(const Key('model-link-save')), findsNothing);
+      expect(api.writes,isEmpty);
+    } finally {api.close();}
+  });
+
+  testWidgets('reused Admin catalog clears former account private editor fields',
+      (tester) async {
+    final api = _ModelsApi(forAdmin: true);
+    try {
+      await tester.pumpWidget(MaterialApp(home:
+        AdminVehicleModelCatalogView(api: api, onExpired: () {})));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('admin-model-make')), 'Old admin private draft');
+      await tester.enterText(find.byKey(const Key('admin-model-model')), 'Unpublished private vehicle');
+      api.denyNewAccount = true;
+      await api.forgetSession();
+      await tester.pumpWidget(MaterialApp(home:
+        AdminVehicleModelCatalogView(api: api, onExpired: () {})));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('admin-model-make'))).controller!.text, '');
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('admin-model-model'))).controller!.text, '');
+      expect(find.textContaining('Old admin private draft'), findsNothing);
+      expect(api.writes,isEmpty);
+    } finally {api.close();}
   });
 
 }
