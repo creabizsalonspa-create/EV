@@ -306,6 +306,44 @@ def verify(folder, expected_source=None):
     return manifest
 
 
+def secure_copy_developer_source(source, target, platform):
+    """Validate and copy the same source inode; never follow a replaced symlink.
+
+    This does not authenticate the source's GitHub provenance. It prevents a
+    local path switch between preflight and the private output write.
+    """
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+        raise BundleError('Secure developer source copying unavailable')
+    try:
+        source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise BundleError('Developer source file cannot be opened securely') from exc
+    with os.fdopen(source_fd, 'rb') as input_file:
+        before = os.fstat(input_file.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
+                not 1 <= before.st_size <= MAX_EXPANDED):
+            raise BundleError('Developer source must be a bounded regular single-link file')
+        # The CRC and copied bytes must originate from this same immutable fd.
+        archive_check(input_file, platform)
+        input_file.seek(0)
+        with open(target, 'xb') as output_file:
+            shutil.copyfileobj(input_file, output_file, length=1024 * 1024)
+            output_file.flush()
+            os.fsync(output_file.fileno())
+        after = os.fstat(input_file.fileno())
+        try:
+            current = os.lstat(source)
+        except OSError as exc:
+            raise BundleError('Developer source path removed during copy') from exc
+        fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+        if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or
+                any(getattr(before, field) != getattr(after, field) or
+                    getattr(before, field) != getattr(current, field)
+                    for field in fields)):
+            raise BundleError('Developer source file changed during copy')
+        os.chmod(target, 0o600)
+
+
 def create(output, source_sha, android, ios, workflow_evidence=None):
     if not SHA.fullmatch(source_sha):
         raise BundleError('Source reference must be an exact 40-character commit SHA')
@@ -325,9 +363,7 @@ def create(output, source_sha, android, ios, workflow_evidence=None):
         for platform, original in source.items():
             name = FILES[platform][0]
             dest = target / name
-            with open(original, 'rb') as input_file, open(dest, 'xb') as output_file:
-                shutil.copyfileobj(input_file, output_file, length=1024*1024)
-            os.chmod(dest, 0o600)
+            secure_copy_developer_source(original, dest, platform)
             digest, size = checksum(dest)
             artifacts.append({'platform': platform, 'path': name, 'sha256': digest, 'size_bytes': size})
         manifest = {'schema': SCHEMA, 'source_sha': source_sha,

@@ -275,6 +275,69 @@ class DeliveryBundleTests(unittest.TestCase):
         with self.assertRaisesRegex(BundleError, 'permissions, size or type'):
             verify(bundle, SHA)
 
+    def test_create_rejects_source_symlink_swap_after_preflight_crc(self):
+        old = self.root / 'original-downloaded-apk'
+        real_archive_check = archive_check
+        switched = []
+
+        def replace_after_preflight(arg, platform):
+            result = real_archive_check(arg, platform)
+            if platform == 'android-debug' and isinstance(arg, Path) and not switched:
+                switched.append(True)
+                self.android.replace(old)
+                self.android.symlink_to(old)
+            return result
+
+        with patch('delivery_bundle.archive_check', side_effect=replace_after_preflight):
+            with self.assertRaisesRegex(BundleError, 'cannot be opened securely'):
+                create(self.root / 'delivery', SHA, self.android, self.ios)
+        self.assertTrue(switched)
+        self.assertFalse((self.root / 'delivery').exists())
+
+    def test_create_rejects_source_mutation_during_copy_and_cleans_output(self):
+        import shutil
+        real_copy = shutil.copyfileobj
+        changed = []
+
+        def mutate_after_copy(input_file, output_file, length):
+            result = real_copy(input_file, output_file, length)
+            if not changed:
+                changed.append(True)
+                self.android.write_bytes(self.android.read_bytes() + b'junk')
+            return result
+
+        with patch('delivery_bundle.shutil.copyfileobj', side_effect=mutate_after_copy):
+            with self.assertRaisesRegex(BundleError, 'changed during copy'):
+                create(self.root / 'delivery', SHA, self.android, self.ios)
+        self.assertTrue(changed)
+        self.assertFalse((self.root / 'delivery').exists())
+
+    def test_create_rejects_same_byte_source_replacement_during_copy(self):
+        import shutil
+        real_copy = shutil.copyfileobj
+        changed = []
+
+        def replace_after_copy(input_file, output_file, length):
+            result = real_copy(input_file, output_file, length)
+            if not changed:
+                changed.append(True)
+                replacement = self.root / 'new-downloaded-apk'
+                replacement.write_bytes(self.android.read_bytes())
+                replacement.replace(self.android)
+            return result
+
+        with patch('delivery_bundle.shutil.copyfileobj', side_effect=replace_after_copy):
+            with self.assertRaisesRegex(BundleError, 'changed during copy'):
+                create(self.root / 'delivery', SHA, self.android, self.ios)
+        self.assertTrue(changed)
+        self.assertFalse((self.root / 'delivery').exists())
+
+    def test_create_rejects_hardlinked_input_despite_valid_archive_crc(self):
+        os.link(self.android, self.root / 'download-alias.apk')
+        with self.assertRaisesRegex(BundleError, 'single-link file'):
+            create(self.root / 'delivery', SHA, self.android, self.ios)
+        self.assertFalse((self.root / 'delivery').exists())
+
     def test_cli_success_and_failure(self):
         bundle = self.bundle()
         self.assertEqual(main(['verify','--bundle',str(bundle),'--expected-source-sha',SHA]),0)

@@ -14,7 +14,7 @@ python3 scripts/delivery_bundle.py create \
   --ios /private/path/to/actual-ios-simulator.zip
 ```
 
-The output directory **must not exist** and its parent must already exist. The tool never overwrites an earlier bundle. Contents are `manifest.json`, `android-development.apk` and `ios-simulator.zip`; paths and digests are fixed in the manifest. New directory and files are created with private POSIX modes when supported. Real customer/production secrets must never be inserted into these bundles.
+The output directory **must not exist** and its parent must already exist. Each incoming Android/iOS source file is also revalidated and copied through one non-following regular-file descriptor: ZIP CRC runs on the same source inode that supplies copied bytes, then the source path, size, inode, timestamps and single-link status must remain stable. Changing a source to a symlink, hardlink, or replacement during creation fails closed and removes the incomplete private output. This guards against local source-file races; independent GitHub CI artifact provenance is still required. The tool never overwrites an earlier bundle. Contents are `manifest.json`, `android-development.apk` and `ios-simulator.zip`; paths and digests are fixed in the manifest. New directory and files are created with private POSIX modes when supported. Real customer/production secrets must never be inserted into these bundles.
 
 ## Verify before handoff
 
