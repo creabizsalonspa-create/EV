@@ -53,6 +53,32 @@ class VendorKycIntegrityTest extends TestCase
         return VendorKycDocument::where('company_id', $company->id)->firstOrFail();
     }
 
+    public function test_owner_private_kyc_metadata_and_review_history_are_never_shared_cacheable(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $this->upload($owner, $company, "%PDF-1.4\nPRIVATE-EVIDENCE");
+
+        $base = '/api/vendor-ops/companies/'.$company->id;
+        $this->actingAs($owner, 'web')
+            ->getJson($base)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson($base.'/documents')
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonCount(1, 'data')
+            ->assertJsonMissingPath('data.0.storage_path');
+        $this->getJson($base.'/reviews')
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonCount(0, 'data');
+
+        $this->actingAs($other, 'web')->getJson($base.'/documents')->assertNotFound();
+        $this->getJson($base.'/reviews')->assertNotFound();
+    }
+
     public function test_valid_ciphertext_from_another_company_must_not_be_released_as_target_evidence(): void
     {
         $ownerA = User::factory()->create(['role' => 'vendor']);

@@ -80,7 +80,7 @@ class VendorOpsController extends Controller
     {
         $this->access->require($r->user(), $company);
 
-        return response()->json($company->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $company), 'submission_readiness' => ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') ? ['editable' => in_array($company->status, ['draft', 'changes_requested', 'rejected']), 'license_valid' => $this->access->licenseValid($company), 'trade_license_present' => VendorKycDocument::where('company_id', $company->id)->where('kind', 'trade_license')->exists()] : null]);
+        return response()->json($company->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $company), 'submission_readiness' => ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') ? ['editable' => in_array($company->status, ['draft', 'changes_requested', 'rejected']), 'license_valid' => $this->access->licenseValid($company), 'trade_license_present' => VendorKycDocument::where('company_id', $company->id)->where('kind', 'trade_license')->exists()] : null])->header('Cache-Control', 'no-store, private');
     }
 
     public function updateCompany(Request $r, VendorCompany $company)
@@ -102,7 +102,7 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
 
-        return VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25);
+        return response()->json(VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25))->header('Cache-Control', 'no-store, private');
     }
 
     private function operationalWrite(Request $r, VendorCompany $company): VendorCompany
@@ -118,7 +118,7 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
 
-        return VendorKycDocument::where('company_id', $company->id)->paginate(25);
+        return response()->json(VendorKycDocument::where('company_id', $company->id)->paginate(25))->header('Cache-Control', 'no-store, private');
     }
 
     public function upload(Request $r, VendorCompany $company)
