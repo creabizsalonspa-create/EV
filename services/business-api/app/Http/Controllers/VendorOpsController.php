@@ -30,9 +30,14 @@ class VendorOpsController extends Controller
         $actor = $r->user();
         $query = VendorCompany::query();
         if ($actor->role !== 'admin') {
-            $query->where(fn ($q) => $q->where('owner_id', $actor->id)
-                ->orWhereIn('id', VendorCompanyStaff::where('user_id', $actor->id)
-                    ->where('status', 'active')->whereNull('admin_revoked_at')->select('company_id')));
+            $query->where(function ($q) use ($actor) {
+                $q->where('owner_id', $actor->id);
+                if ($actor->hasVerifiedEmail()) {
+                    $q->orWhereIn('id', VendorCompanyStaff::where('user_id', $actor->id)
+                        ->where('status', 'active')->whereNull('admin_revoked_at')
+                        ->select('company_id'));
+                }
+            });
         }
 
         // Inventory-only staff need a company picker, but membership alone
@@ -429,6 +434,9 @@ class VendorOpsController extends Controller
 
     public function invitations(Request $r)
     {
+        // Invitations disclose company names; prove mailbox ownership first.
+        abort_unless($r->user()->hasVerifiedEmail(), 403,
+            'Verify your email before viewing company staff invitations.');
         $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->whereNull('admin_revoked_at')->paginate(25);
         $companies = VendorCompany::whereIn('id', $page->getCollection()->pluck('company_id'))->get(['id', 'legal_name', 'country'])->keyBy('id');
 
@@ -441,6 +449,12 @@ class VendorOpsController extends Controller
         $v = $r->validate(['expected_version' => 'required|integer|min:1']);
 
         return DB::transaction(function () use ($r, $membership, $v) {
+            // A staff invitation is an email-identity grant. Check the
+            // currently persisted mailbox proof under an account lock so an
+            // unverified registration cannot claim another person's invite.
+            $account = User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
+            abort_unless($account->hasVerifiedEmail(), 409,
+                'Verify your email before accepting company staff permissions.');
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             abort_unless(in_array($m->status, ['invited', 'active']), 409);
             abort_if($m->admin_revoked_at !== null, 409, 'Staff access is under an administrator security hold.');
