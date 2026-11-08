@@ -126,6 +126,21 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   view.renderGarage([]);
   assert.equal(customerRoot.querySelector('[data-vehicle-model-picker]'), null);
   assert.doesNotMatch(fs.readFileSync(path,'utf8'),/\.innerHTML\s*=/);
+  // A reused actor object is not sufficient proof of the same logged-in
+  // session. Clear all catalog UI and old vehicle selections on epoch change.
+  view.renderGarage([{id:12,name:'Same object prior session',connector_type:'CCS2'}]);
+  assert.ok(customerRoot.children.length>0);
+  epoch++;
+  await view.setActor(actor);
+  assert.equal(customerRoot.children.length,0,
+    'Reauthentication with identical actor must clear previous catalog DOM');
+  view.renderGarage([{id:12,name:'New session',connector_type:'CCS2'}]);
+  assert.match(label(customerRoot),/New session/);
+  epoch++;
+  view.renderGarage([{id:12,name:'Delayed stale garage',connector_type:'CCS2'}]);
+  assert.equal(customerRoot.children.length,0,
+    'Garage callback from old auth epoch must not preserve a stale vehicle list');
+  await view.setActor(actor);
   actor={id:10,role:'admin'};epoch++;
   await view.setActor(actor);
   assert.equal(customerRoot.children.length,0);
@@ -138,6 +153,10 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   await form.onsubmit({preventDefault(){}});
   assert.ok(sent.find(c=>c.path==='vehicle-models'&&c.method==='POST'));
   assert.match(label(adminRoot),/Catalog entry saved/);
+  epoch++;
+  await view.setActor(actor);
+  assert.match(label(adminRoot),/Curated vehicle model catalog/,
+    'Reused Admin object must reload after a new auth epoch');
   view.clear();
   assert.equal(adminRoot.children.length,0);
   console.log('PASS: customer model association, connector-filtered options, Admin curation and cross-account clearing.');

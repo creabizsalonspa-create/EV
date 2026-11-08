@@ -52,14 +52,17 @@
 
     async function setActor(value) {
       if (!value || !["customer","admin"].includes(value.role)) { clear(); return; }
-      if (current === value) return;
+      // A stable actor object can outlive an authenticated session. Reuse
+      // catalog UI only when both actor identity and auth epoch still match.
+      if (current === value && session === epoch()) return;
       clear();
       current = value; session = epoch();
       if (value.role === "admin") await adminList(1);
     }
 
     function renderGarage(vehicles) {
-      if (current?.role !== "customer" || actor() !== current) return;
+      if (actor() !== current || session !== epoch()) { clear(); return; }
+      if (current?.role !== "customer") return;
       // Retain same-account in-flight selection when the garage refreshes
       // independently (e.g. vehicle creation). A removed/changed vehicle
       // invalidates all outstanding responses and drops its private panel.
@@ -99,6 +102,7 @@
     }
 
     async function openVehicle(vehicle) {
+      if (actor() !== current || session !== epoch()) { clear(); return; }
       if (actor()?.role !== "customer" || !current) return;
       const ticket = ++generation;
       const owner = current, e = session;
