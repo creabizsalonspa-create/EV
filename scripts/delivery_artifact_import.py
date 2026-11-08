@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import sys
 import tarfile
 import tempfile
@@ -36,6 +37,54 @@ def check_wrapper(path, expected_sha, member):
         raise BundleError('Corrupt action artifact wrapper') from exc
     return path
 
+
+def stage_verified_wrapper(source, destination, expected_sha, member):
+    # Hash the exact inode bytes copied into private storage, then extract
+    # only from that frozen snapshot. A mutated or retargeted original cannot
+    # invalidate the source bound to the official GitHub artifact digest.
+    if not isinstance(expected_sha, str) or not DIGEST.fullmatch(expected_sha):
+        raise BundleError('Published GitHub artifact digest must be exact')
+    if not hasattr(os,'O_NOFOLLOW') or not hasattr(os,'O_NONBLOCK'):
+        raise BundleError('Safe artifact snapshot reading unavailable')
+    flags=os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        source_fd=os.open(source,flags)
+    except OSError as exc:
+        raise BundleError('Downloaded artifact cannot be safely opened') from exc
+    destination=Path(destination)
+    created=False
+    try:
+        before=os.fstat(source_fd)
+        if not stat.S_ISREG(before.st_mode) or not 1<=before.st_size<=MAX_EXPANDED:
+            raise BundleError('Downloaded artifact size or type invalid')
+        total=0
+        digest=hashlib.sha256()
+        output_fd=os.open(destination,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        created=True
+        with os.fdopen(output_fd,'wb') as frozen:
+            while True:
+                block=os.read(source_fd,1024*1024)
+                if not block:
+                    break
+                total+=len(block)
+                if total>MAX_EXPANDED:
+                    raise BundleError('Downloaded artifact exceeds safe bound')
+                digest.update(block)
+                frozen.write(block)
+            frozen.flush()
+            os.fsync(frozen.fileno())
+        if total!=before.st_size or digest.hexdigest()!=expected_sha:
+            raise BundleError('Downloaded artifact changed or is not GitHub checksum verified')
+        result=check_wrapper(destination,expected_sha,member)
+        if os.name!='nt' and result.stat().st_mode & 0o077:
+            raise BundleError('Frozen verified workflow artifact is not private')
+        return result
+    except BaseException:
+        if created:
+            destination.unlink(missing_ok=True)
+        raise
+    finally:
+        os.close(source_fd)
 
 def valid_tar_name(name):
     parts = name.rstrip('/').split('/')
@@ -76,19 +125,21 @@ def convert_ios_tar_to_zip(ios_wrapper, destination, ios_member='hasone-ios-simu
 
 
 def import_actions(output, source_sha, android_wrapper, android_digest, ios_wrapper, ios_digest, workflow_evidence=None, ios_member='hasone-ios-simulator.tar.gz'):
-    android_wrapper = check_wrapper(android_wrapper, android_digest, 'app-debug.apk')
-    ios_wrapper = check_wrapper(ios_wrapper, ios_digest, ios_member)
     output = Path(output)
     if not output.parent.is_dir() or output.parent.is_symlink():
         raise BundleError('Output parent must already exist as a real directory')
     with tempfile.TemporaryDirectory(prefix='.ev-delivery-import-', dir=output.parent) as work:
         work = Path(work)
+        android_verified=stage_verified_wrapper(
+            android_wrapper,work/'android-verified-wrapper.zip',android_digest,'app-debug.apk')
+        ios_verified=stage_verified_wrapper(
+            ios_wrapper,work/'ios-verified-wrapper.zip',ios_digest,ios_member)
         apk = work / 'source-debug.apk'
-        with zipfile.ZipFile(android_wrapper) as outer, outer.open('app-debug.apk') as source, open(apk, 'xb') as target:
+        with zipfile.ZipFile(android_verified) as outer, outer.open('app-debug.apk') as source, open(apk, 'xb') as target:
             shutil.copyfileobj(source, target, length=1024 * 1024)
         os.chmod(apk, 0o600)
         ios = work / 'converted-ios-simulator.zip'
-        convert_ios_tar_to_zip(ios_wrapper, ios, ios_member=ios_member)
+        convert_ios_tar_to_zip(ios_verified, ios, ios_member=ios_member)
         create(output, source_sha, apk, ios, workflow_evidence=workflow_evidence)
         return verify(output, source_sha)
 
