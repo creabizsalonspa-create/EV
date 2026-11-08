@@ -10,7 +10,7 @@ use App\Models\Station;
 use App\Services\Charging\RiderServiceAuth;
 use App\Services\Charging\RiderTokenRegistry;
 use App\Services\Charging\SessionBridge;
-use Carbon\CarbonImmutable;
+use App\Services\Charging\SourceStatusTime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -36,7 +36,7 @@ class RiderSourceController extends Controller
             if (! $reply->successful() || $reply->json('errors') || ! is_array($connectors) || count($connectors) !== 1 || (int) $connectors[0]['id'] !== (int) $v['connectorId'] || ! is_array($status)) {
                 return false;
             }
-            $at = CarbonImmutable::parse($status['timestamp']);
+            $at = SourceStatusTime::parse($status['timestamp'] ?? null);
 
             return (int) ($status['evseId'] ?? 0) === (int) $evse->source_evse_number && (int) $status['connectorId'] === (int) $map->source_connector_number && ! in_array($status['connectorStatus'], ['Faulted', 'Unavailable'], true) && $at->lte(now()) && $at->gte(now()->subMinutes(5));
         } catch (Throwable) {
