@@ -76,6 +76,22 @@ function visible(node) {
   });
   assert.equal(submitted.path,"vehicles/9/driver-preferences");
   assert.match(visible(root),/Preferences saved/);
+  // A save rerenders the same vehicle without a new network generation.
+  // The detached form must not be allowed to submit stale revision/payload.
+  const writesAfterSave=calls.filter(c=>c.method==="PUT").length;
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calls.filter(c=>c.method==="PUT").length,writesAfterSave,
+    'Old form must not write again after same-vehicle rerender');
+  let priorFilterLookups=0;
+  document.querySelector=()=>{priorFilterLookups++;return null;};
+  const staleApply=locate(form,n=>n.tag==="button"&&visible(n).includes("Use preferred kW"));
+  const staleClose=locate(form,n=>n.tag==="button"&&visible(n).includes("Close"));
+  staleApply.onclick();
+  staleClose.onclick();
+  assert.equal(priorFilterLookups,0,
+    'Detached preference form cannot apply old search filters');
+  assert.match(visible(root),/Preferences saved/,
+    'Detached form close must not hide newly saved preferences');
   // Opening another vehicle in the same account may reuse this workspace.
   // A detached form must not write its old values against the new vehicle.
   const oldForm=locate(root,n=>n.tag==="form");

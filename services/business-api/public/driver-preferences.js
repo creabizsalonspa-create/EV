@@ -9,11 +9,11 @@
         return node;
     };
     function create({root, api, actor, epoch}) {
-        let seq = 0, owner = null, session = 0, vehicleId = null, data = null;
+        let seq = 0, renderVersion = 0, owner = null, session = 0, vehicleId = null, data = null;
         const current = ticket =>
             seq === ticket && actor() === owner && epoch() === session && owner?.role === "customer";
         function clear() {
-            seq++;
+            seq++;renderVersion++;
             owner = data = vehicleId = null;
             root.replaceChildren();
             root.removeAttribute("aria-busy");
@@ -37,8 +37,10 @@
         }
         function render(vehicle) {
             const renderTicket = seq, renderVehicleId = vehicleId;
+            const thisRender = ++renderVersion;
             const renderedForCurrentVehicle = () =>
-                current(renderTicket) && vehicleId === renderVehicleId;
+                current(renderTicket) && vehicleId === renderVehicleId &&
+                renderVersion === thisRender;
             root.replaceChildren();
             root.append(words(
                 "Driver preferences · " + vehicle.name,
