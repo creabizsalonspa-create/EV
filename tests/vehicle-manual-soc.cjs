@@ -248,6 +248,58 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
       'Confirmed readback must clear pending report key');
     probe.clear();
   }
+  // A second device can submit a newer revision before our HTTP readback.
+  // Confirm the exact older observation in history without claiming that its
+  // battery percentage is still the latest estimate or sending another POST.
+  const advancedRoot=document.createElement('section');
+  const advancedActor={id:94,role:'customer'};
+  let acceptedOlder=false;
+  const olderAttempts=[];
+  const advancedApi=async(path,method,body)=>{
+    if(path==='vehicles/10/manual-soc'&&method==='POST'){
+      olderAttempts.push(JSON.parse(JSON.stringify(body)));
+      acceptedOlder=true;
+      return {vehicle_id:10,revision:1,battery_percent:54,
+        source:'CUSTOMER_MANUAL_SELF_REPORT'};
+    }
+    if(path==='vehicles/10/manual-soc')return {
+      vehicle_id:10,
+      revision:acceptedOlder?2:0,
+      battery_percent:acceptedOlder?28:null,
+      reported_at:acceptedOlder?'newer server timestamp':null,
+      source:'CUSTOMER_MANUAL_SELF_REPORT',
+    };
+    if(path==='vehicles/10/manual-soc/history?page=1')return {
+      data:acceptedOlder?[
+        {vehicle_id:10,revision:2,battery_percent:28,
+         source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:'newer'},
+        {vehicle_id:10,revision:1,battery_percent:54,
+         source:'CUSTOMER_MANUAL_SELF_REPORT',reported_at:'earlier'},
+      ]:[],
+      current_page:1,last_page:1,
+    };
+    throw Error('Unexpected advanced readback '+path);
+  };
+  const advanced=window.VehicleManualSoc.create({
+    root:advancedRoot,api:advancedApi,actor:()=>advancedActor,epoch:()=>1,
+  });
+  advanced.setActor(advancedActor);
+  advanced.renderGarage([{id:10,name:'Shared garage vehicle'}]);
+  await advanced.open({id:10,name:'Shared garage vehicle'});
+  const advancedForm=find(advancedRoot,n=>n.tag==='form');
+  find(advancedForm,n=>n.name==='battery_percent').value='54';
+  await advancedForm.onsubmit({preventDefault(){}});
+  assert.equal(olderAttempts.length,1);
+  assert.equal(olderAttempts[0].expected_revision,0);
+  assert.match(visible(advancedRoot),/Manual report saved; a newer battery report/,
+    'Superseded self-report must be confirmed without false current estimate');
+  assert.match(visible(advancedRoot),/Latest self-reported battery: 28%/);
+  assert.doesNotMatch(visible(advancedRoot),/Result uncertain/);
+  const advancedRetry=find(advancedRoot,n=>n.tag==='button'&&
+    visible(n).includes('Retry the same report'));
+  assert.equal(advancedRetry.disabled,true);
+  advanced.clear();
+
   // A reused identity object across a new auth epoch must clear old DOM and
   // pending report forms, even before platform code allocates a new actor.
   view.renderGarage([{id:6,name:'Reused account car'}]);
