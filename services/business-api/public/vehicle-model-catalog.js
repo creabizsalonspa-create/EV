@@ -23,7 +23,7 @@
     ["source_url","Administrator-provided reference URL (https://)","رابط المرجع الرسمي (https://)","url",500],
   ];
   function create({adminRoot, customerRoot, api, actor, epoch}) {
-    let current = null, session = 0, generation = 0;
+    let current = null, session = 0, generation = 0, renderVersion = 0;
     let adminPage = 1, adminQuery = "", adminEdit = null;
     let selectedVehicle = null, selectedLink = null;
     let modelPage = 1, modelQuery = "", models = [];
@@ -32,7 +32,7 @@
       epoch() === session && generation === ticket;
 
     function clear() {
-      generation++;
+      generation++;renderVersion++;
       current = null; adminEdit = null; selectedVehicle = selectedLink = null;
       models = []; adminPage = modelPage = 1; adminQuery = modelQuery = "";
       adminRoot.replaceChildren(); customerRoot.replaceChildren();
@@ -141,7 +141,8 @@
     }
 
     function renderCustomerModels(list) {
-      const panelTicket = generation;
+      const panelTicket = generation, panelVersion = ++renderVersion;
+      const activePanel = () => valid(panelTicket) && renderVersion === panelVersion;
       customerRoot.querySelector("[data-vehicle-model-picker]")?.remove();
       const panel = document.createElement("section");
       panel.dataset.vehicleModelPicker = "yes";
@@ -160,13 +161,13 @@
       search.type = "search"; search.maxLength = 100; search.value = modelQuery;
       search.setAttribute("aria-label", "Search vehicle model / البحث عن طراز المركبة");
       form.append(search, button("Search catalog", "البحث في الكتالوج", () => {
-        if (!valid(panelTicket)) return;
+        if (!activePanel()) return;
         modelQuery = search.value.trim();
         modelList(1);
       }));
       form.onsubmit = event => {
         event.preventDefault();
-        if (!valid(panelTicket)) return;
+        if (!activePanel()) return;
         modelQuery=search.value.trim();modelList(1);
       };
       panel.append(form);
@@ -201,7 +202,7 @@
       if (!models.length) panel.append(tr("No compatible published models on this page.",
         "لا توجد طرازات منشورة متوافقة في هذه الصفحة.", "p"));
       const save = button("Link selected model", "ربط الطراز المحدد", async () => {
-        if (!valid(panelTicket) || !select.value || save.disabled) return;
+        if (!activePanel() || !select.value || save.disabled) return;
         save.disabled = true;
         const ticket = generation, modelId = Number(select.value);
         const vehicleId = selectedVehicle.id, expectedModelId = selectedLink?.model_id ?? null;
@@ -223,7 +224,7 @@
       save.disabled = !models.length;
       panel.append(save);
       panel.append(button("Remove model association", "إزالة ارتباط الطراز", async () => {
-        if (!valid(panelTicket)) return;
+        if (!activePanel()) return;
         const ticket = generation, vehicleId = selectedVehicle.id;
         const expectedModelId = selectedLink?.model_id ?? null;
         try {
@@ -238,10 +239,18 @@
           if (valid(ticket)) message(customerRoot,text(e.message) || String(e));
         }
       }));
-      if (modelPage > 1) panel.append(button("Previous", "السابق", () => modelList(modelPage-1)));
-      if (modelPage < list.last_page) panel.append(button("Next", "التالي", () => modelList(modelPage+1)));
-      panel.append(button("Refresh vehicle link", "تحديث ارتباط المركبة", () => openVehicle(selectedVehicle)));
-      panel.append(button("Close model picker", "إغلاق", () => panel.remove()));
+      if (modelPage > 1) panel.append(button("Previous", "السابق", () => {
+        if (activePanel()) return modelList(modelPage-1);
+      }));
+      if (modelPage < list.last_page) panel.append(button("Next", "التالي", () => {
+        if (activePanel()) return modelList(modelPage+1);
+      }));
+      panel.append(button("Refresh vehicle link", "تحديث ارتباط المركبة", () => {
+        if (activePanel()) return openVehicle(selectedVehicle);
+      }));
+      panel.append(button("Close model picker", "إغلاق", () => {
+        if (activePanel()) panel.remove();
+      }));
       customerRoot.append(panel);
     }
 
@@ -265,7 +274,8 @@
     }
 
     function renderAdmin(result) {
-      const screenTicket = generation;
+      const screenTicket = generation, screenVersion = ++renderVersion;
+      const activeScreen = () => valid(screenTicket) && renderVersion === screenVersion;
       adminRoot.replaceChildren(tr("Curated vehicle model catalog", "كتالوج طرازات المركبات", "h3"));
       adminRoot.append(tr(
         "Admin-sourced records only. Source URLs must be HTTPS; publishing is not manufacturer certification.",
@@ -275,8 +285,13 @@
       const query = document.createElement("input");
       query.type = "search"; query.maxLength=100; query.value=adminQuery;
       query.setAttribute("aria-label","Search catalog / البحث في الكتالوج");
-      search.append(query,button("Search", "بحث", () => {adminQuery=query.value.trim();adminList(1);}));
-      search.onsubmit = event => {event.preventDefault();adminQuery=query.value.trim();adminList(1);};
+      search.append(query,button("Search", "بحث", () => {
+        if (activeScreen()) {adminQuery=query.value.trim();adminList(1);}
+      }));
+      search.onsubmit = event => {
+        event.preventDefault();
+        if (activeScreen()) {adminQuery=query.value.trim();adminList(1);}
+      };
       adminRoot.append(search);
       const form = document.createElement("form");
       form.className = "vehicle-model-admin-form";
@@ -316,10 +331,12 @@
       submit.type="submit";submit.append(tr(adminEdit ? "Save changes" : "Create record",
         adminEdit ? "حفظ التغييرات" : "إنشاء السجل"));
       form.append(submit);
-      if (adminEdit) form.append(button("Cancel editing", "إلغاء التعديل", () => {adminEdit=null;renderAdmin(result);}));
+      if (adminEdit) form.append(button("Cancel editing", "إلغاء التعديل", () => {
+        if (activeScreen()) {adminEdit=null;renderAdmin(result);}
+      }));
       form.onsubmit=async event=>{
         event.preventDefault();
-        if (!valid(screenTicket) || submit.disabled) return;
+        if (!activeScreen() || submit.disabled) return;
         const body={
           make:inputs.make.value.trim(), model:inputs.model.value.trim(),
           variant:inputs.variant.value.trim()||null,
@@ -330,13 +347,14 @@
         };
         if (adminEdit) body.revision=adminEdit.revision;
         submit.disabled=true;
-        const ticket=generation;
+        const ticket=generation, account=current, loginEpoch=session;
         try {
           await api(adminEdit ? "vehicle-models/"+adminEdit.id : "vehicle-models",
             adminEdit ? "PUT" : "POST",body);
           if (!valid(ticket)) return;
           adminEdit=null;await adminList(adminPage);
-          message(adminRoot,isAr()?"تم حفظ السجل." : "Catalog entry saved.");
+          if (current===account && session===loginEpoch && epoch()===loginEpoch)
+            message(adminRoot,isAr()?"تم حفظ السجل." : "Catalog entry saved.");
         } catch (e) {
           if (valid(ticket))message(adminRoot,e.status === 409
             ? (isAr()?"تعارض نسخة السجل؛ حدث الصفحة." : "Catalog record changed; refresh before saving.")
@@ -351,28 +369,32 @@
         item.append(tr(title(row)+(row.published?" · Published":" · Archived"),
           title(row)+(row.published?" · منشور":" · مؤرشف")));
         item.append(button("Edit", "تعديل", () => {
-          if (!valid(screenTicket)) return;
+          if (!activeScreen()) return;
           adminEdit=row;renderAdmin(result);
         }));
         item.append(button(row.published?"Archive":"Publish",
           row.published?"أرشفة":"نشر", async () => {
-            if (!valid(screenTicket)) return;
+            if (!activeScreen()) return;
             try {
               await api("vehicle-models/"+row.id,"PUT",{
                 make:row.make,model:row.model,variant:row.variant,model_year:row.model_year,
                 connector_type:row.connector_type,source_url:row.source_url,
                 published:!row.published,revision:row.revision,
               });
-              if (valid(screenTicket)) await adminList(adminPage);
+              if (activeScreen()) await adminList(adminPage);
             } catch (err) {
-              if (valid(screenTicket)) message(adminRoot,text(err.message)||String(err));
+              if (activeScreen()) message(adminRoot,text(err.message)||String(err));
             }
           }));
         list.append(item);
       }
       adminRoot.append(list);
-      if (adminPage>1) adminRoot.append(button("Previous", "السابق",()=>adminList(adminPage-1)));
-      if (adminPage<result.last_page) adminRoot.append(button("Next", "التالي",()=>adminList(adminPage+1)));
+      if (adminPage>1) adminRoot.append(button("Previous", "السابق",()=>{
+        if (activeScreen()) return adminList(adminPage-1);
+      }));
+      if (adminPage<result.last_page) adminRoot.append(button("Next", "التالي",()=>{
+        if (activeScreen()) return adminList(adminPage+1);
+      }));
     }
     return {clear,setActor,renderGarage,adminList};
   }

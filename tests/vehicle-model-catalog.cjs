@@ -83,6 +83,10 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   const save=visit(customerRoot,n=>n.tag==='button'&&label(n).includes('Link selected model'));
   assert.ok(save);
   await save.onclick();
+  const putAfterFirst=sent.filter(c=>c.method==='PUT').length;
+  await save.onclick();
+  assert.equal(sent.filter(c=>c.method==='PUT').length,putAfterFirst,
+    'Detached model-link control cannot issue a second mutation');
   assert.deepEqual(JSON.parse(JSON.stringify(sent.find(c=>c.method==='PUT').body)),{
     model_id:7,expected_model_id:null,
   });
@@ -166,6 +170,10 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   await form.onsubmit({preventDefault(){}});
   assert.ok(sent.find(c=>c.path==='vehicle-models'&&c.method==='POST'));
   assert.match(label(adminRoot),/Catalog entry saved/);
+  const postAfterCreate=sent.filter(c=>c.path==='vehicle-models'&&c.method==='POST').length;
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(sent.filter(c=>c.path==='vehicle-models'&&c.method==='POST').length,postAfterCreate,
+    'Detached Admin create form cannot submit again after rerender');
   const staleAdminForm=visit(adminRoot,n=>n.tag==='form'&&
     n.className==='vehicle-model-admin-form');
   assert.ok(staleAdminForm);
