@@ -63,6 +63,59 @@ class VendorKycReviewIntegrityTest extends TestCase
         );
     }
 
+    public function test_missing_encrypted_evidence_blocks_vendor_submission_before_review(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $document = $this->upload($owner, $company, "%PDF-1.4\nORIGINAL-PRIVATE");
+        Storage::disk('local')->delete($document->getRawOriginal('storage_path'));
+
+        $this->actingAs($owner, 'web')
+            ->postJson('/api/vendor-ops/companies/'.$company->id.'/submit')
+            ->assertStatus(409);
+        $this->assertSame('draft', $company->fresh()->status);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'vendor_ops.company.submitted', 'subject' => (string) $company->id,
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $owner->id,
+            'action' => 'vendor_ops.document.integrity_failed',
+            'subject' => (string) $document->id,
+        ]);
+
+        $this->upload($owner, $company, "%PDF-1.4\nREPLACEMENT-VALID");
+        $this->actingAs($owner, 'web')
+            ->postJson('/api/vendor-ops/companies/'.$company->id.'/submit')->assertOk();
+        $this->assertSame('submitted', $company->fresh()->status);
+    }
+
+    public function test_other_company_ciphertext_cannot_make_vendor_submission_ready(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $another = $this->company($other);
+        $document = $this->upload($owner, $company, "%PDF-1.4\nTENANT-A");
+        $otherDocument = $this->upload($other, $another, "%PDF-1.4\nTENANT-B");
+        Storage::disk('local')->put(
+            $document->getRawOriginal('storage_path'),
+            Storage::disk('local')->get($otherDocument->getRawOriginal('storage_path'))
+        );
+
+        $this->actingAs($owner, 'web')
+            ->postJson('/api/vendor-ops/companies/'.$company->id.'/submit')
+            ->assertStatus(409)->assertDontSee('TENANT-B');
+        $this->assertSame('draft', $company->fresh()->status);
+        $this->assertDatabaseMissing('audit_events', [
+            'action' => 'vendor_ops.company.submitted', 'subject' => (string) $company->id,
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $owner->id,
+            'action' => 'vendor_ops.document.integrity_failed',
+            'subject' => (string) $document->id,
+        ]);
+    }
+
     public function test_ciphertext_from_another_tenant_cannot_support_admin_approval(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);

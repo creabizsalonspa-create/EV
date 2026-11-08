@@ -215,18 +215,37 @@ class VendorOpsController extends Controller
     {
         $this->access->owner($r->user(), $company);
 
-        return DB::transaction(function () use ($r, $company) {
+        $result = DB::transaction(function () use ($r, $company) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             if ($c->status === 'submitted') {
                 return response()->json($c);
-            }abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409);
+            }
+            abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409);
             abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
-            abort_unless(VendorKycDocument::where('company_id', $c->id)->where('kind', 'trade_license')->exists(), 422, 'Upload a trade-license document before submitting.');
+            $licenseEvidence = VendorKycDocument::where('company_id', $c->id)
+                ->where('kind', 'trade_license')->orderByDesc('id')->lockForUpdate()->first();
+            abort_unless($licenseEvidence, 422, 'Upload a trade-license document before submitting.');
+
+            if ($this->verifiedEvidenceContents($licenseEvidence) === null) {
+                // Do not claim a submission exists without recoverable
+                // evidence. Persist the denial audit outside the transaction.
+                return ['integrity_failure' => $licenseEvidence->id];
+            }
+
             $c->update(['status' => 'submitted', 'review_reason' => null]);
             $this->access->audit($r->user(), 'company.submitted', $c->id);
 
             return response()->json($c);
         });
+
+        if (is_array($result) && isset($result['integrity_failure'])) {
+            // Audit by the locked document identifier without an unnecessary
+            // post-transaction lookup that could race with document cleanup.
+            $this->access->audit($r->user(), 'document.integrity_failed', (int) $result['integrity_failure']);
+            abort(409, 'KYC document is unavailable or has failed integrity verification.');
+        }
+
+        return $result;
     }
 
     public function review(Request $r, VendorCompany $company)
