@@ -141,6 +141,19 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   assert.equal(customerRoot.children.length,0,
     'Garage callback from old auth epoch must not preserve a stale vehicle list');
   await view.setActor(actor);
+  view.renderGarage([{id:12,name:'Stale link vehicle',connector_type:'CCS2'}]);
+  const oldPicker=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Select catalog model'));
+  await oldPicker.onclick();
+  const staleLink=visit(customerRoot,n=>n.tag==='button'&&
+    label(n).includes('Link selected model'));
+  assert.ok(staleLink);
+  const beforeLink=sent.filter(c=>c.method==='PUT').length;
+  epoch++;
+  await staleLink.onclick();
+  assert.equal(sent.filter(c=>c.method==='PUT').length,beforeLink,
+    'Former customer session may not write a model association');
+  await view.setActor(actor);
   actor={id:10,role:'admin'};epoch++;
   await view.setActor(actor);
   assert.equal(customerRoot.children.length,0);
@@ -153,7 +166,14 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   await form.onsubmit({preventDefault(){}});
   assert.ok(sent.find(c=>c.path==='vehicle-models'&&c.method==='POST'));
   assert.match(label(adminRoot),/Catalog entry saved/);
+  const staleAdminForm=visit(adminRoot,n=>n.tag==='form'&&
+    n.className==='vehicle-model-admin-form');
+  assert.ok(staleAdminForm);
+  const beforeStale=sent.filter(c=>['POST','PUT'].includes(c.method)).length;
   epoch++;
+  await staleAdminForm.onsubmit({preventDefault(){}});
+  assert.equal(sent.filter(c=>['POST','PUT'].includes(c.method)).length,beforeStale,
+    'Old Admin form cannot submit under a new authenticated session');
   await view.setActor(actor);
   assert.match(label(adminRoot),/Curated vehicle model catalog/,
     'Reused Admin object must reload after a new auth epoch');
