@@ -112,7 +112,7 @@ require __DIR__.'/corporate_hosted_webhook.php';
 
 Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationController::class)->middleware('throttle:charger-admission');
 
-Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->whereNumber('operation')->middleware('throttle:30,1');
+Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->where('token', '[a-f0-9]{64}')->middleware('throttle:30,1');
 
 Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
     Route::post('2.2.1/commands/{key}', [OcpiRoamingProtocolController::class, 'callback'])->whereUuid('key');
@@ -130,7 +130,7 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
 Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1/roaming')->group(__DIR__.'/roaming_orders.php');
 Route::get('v1/ocpi/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations'])->middleware(['auth:sanctum', 'throttle:platform-api']);
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
-Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->whereNumber('operation')->middleware('throttle:30,1');
+Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->where('operation', '[0-9]{1,18}')->middleware('throttle:30,1');
 
 Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
 Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
