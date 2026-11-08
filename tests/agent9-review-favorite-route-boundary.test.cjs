@@ -18,15 +18,13 @@ function find(name, segment) {
   return matches[0];
 }
 
-test('all seven existing review and favorite ID constraints are bounded', () => {
+test('all five charging-review ID constraints are bounded', () => {
   const checks = [
     ['charging_reviews.php', 'sessions/{session}', 'session'],
     ['charging_reviews.php', 'Route::put', 'review'],
     ['charging_reviews.php', 'Route::delete', 'review'],
     ['charging_reviews.php', '{review}/history', 'review'],
     ['charging_reviews.php', '{review}/moderate', 'review'],
-    ['favorites.php', 'Route::put', 'station'],
-    ['favorites.php', 'Route::delete', 'station'],
   ];
   for (const [name, marker, param] of checks) {
     const line = find(name, marker);
@@ -34,7 +32,21 @@ test('all seven existing review and favorite ID constraints are bounded', () => 
     assert.ok(line.includes("->where('" + param + "', '[0-9]{1,18}')"));
   }
   assert.doesNotMatch(files['charging_reviews.php'], /whereNumber\(/);
-  assert.doesNotMatch(files['favorites.php'], /whereNumber\(/);
+});
+
+test('favorites retain integer validation and the existing overflow 422 API contract', () => {
+  // Favorites accept a string param and validate it before converting to int.
+  // Removing overlong digits at the router would change established HTTP 422
+  // behavior to 404 (see StationFavoriteTest), so the defense stays here.
+  for (const verb of ['Route::put', 'Route::delete']) {
+    const line = find('favorites.php', verb);
+    assert.ok(line.includes("->whereNumber('station')"));
+  }
+  const controller = fs.readFileSync(path.join(root, '../app/Http/Controllers/StationFavoriteController.php'), 'utf8');
+  assert.match(controller, /private function stationId\(string \$station\): int/);
+  assert.match(controller, /\['station_id' => 'required\|integer\|min:1'\]/);
+  assert.match(controller, /return \(int\) \$v\['station_id'\];/);
+  assert.equal(controller.split('->stationId($station)').length - 1, 2);
 });
 
 test('both public station-review routes retain catalog throttling and bounded station IDs', () => {
