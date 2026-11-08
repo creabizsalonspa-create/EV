@@ -5,6 +5,7 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const {createHash}=require('node:crypto');
+const {ancestorSnapshot,assertAncestorsUnchanged}=require('./staging-path-integrity.cjs');
 const MAX_BYTES=1024*1024;
 const MIN_BYTES=40;
 
@@ -14,10 +15,7 @@ function capture(file) {
      typeof fs.constants.O_NONBLOCK!=='number') {
     throw Error('Staging Compose file path cannot be securely inspected');
   }
-  const parent=fs.lstatSync(path.dirname(file));
-  if(!parent.isDirectory() || parent.isSymbolicLink()) {
-    throw Error('Staging Compose definition has unsafe parent');
-  }
+  const ancestors=ancestorSnapshot(file);
   let fd;
   try {
     fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|
@@ -47,6 +45,7 @@ function capture(file) {
          (after.mode&0o022)!==0 || after.nlink!==1) {
         throw Error('Staging Compose definition changed during inspection');
       }
+      assertAncestorsUnchanged(ancestors);
       return Object.freeze({size:count,dev:before.dev,ino:before.ino,
         digest:createHash('sha256').update(content.subarray(0,count)).digest('hex')});
     }finally{content.fill(0);}

@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
+const {ancestorSnapshot,assertAncestorsUnchanged}=require('./staging-path-integrity.cjs');
 
 const MAX_ENV_BYTES = 128 * 1024;
 const MIN_ENV_BYTES = 20;
@@ -15,6 +16,7 @@ function capture(file) {
       typeof fs.constants.O_NONBLOCK !== 'number') {
     throw Error('Private staging environment cannot be securely reviewed');
   }
+  const ancestors=ancestorSnapshot(file);
   let fd;
   try {
     fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW |
@@ -43,6 +45,7 @@ function capture(file) {
         (after.mode & 0o077) !== 0) {
       throw Error('Private staging environment changed during review');
     }
+    assertAncestorsUnchanged(ancestors);
     return Object.freeze({digest: createHash('sha256').update(buffer.subarray(0,count)).digest('hex'),
       size:count, dev:before.dev, ino:before.ino});
   } finally {
