@@ -80,8 +80,12 @@ class SourceAlignmentTests(unittest.TestCase):
         self.assertEqual(summary['status'],'DEVELOPMENT_ONLY_SOURCE_ALIGNMENT_VERIFIED')
         self.assertEqual(summary['source_sha'],SHA)
         self.assertEqual(summary['mobile_workflow_run_id'],42348377299)
+        self.assertEqual(summary['mobile_artifact_scope'],'HASONE_CUSTOMER_DEVELOPER_REFERENCE_ONLY')
+        self.assertEqual(summary['mobile_workflow_name'],'Hasone customer development builds')
         for key in ('github_snapshot_independently_authenticated','android_store_signed',
-                    'ios_device_signed','physical_charging_verified','real_money_moved',
+                    'ios_device_signed','mobile_backend_origin_matches_staging_verified',
+                    'customer_native_authenticated_journeys_verified','vendor_android_ios_artifacts_verified',
+                    'physical_device_install_verified','physical_charging_verified','real_money_moved',
                     'production_accepted','customer_contract_accepted'):
             self.assertIs(summary[key],False,key)
         self.assertEqual(len(summary['stage_report_sha256']),64)

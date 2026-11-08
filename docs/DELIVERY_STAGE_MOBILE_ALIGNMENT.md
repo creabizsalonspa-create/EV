@@ -14,6 +14,8 @@ The staged report must be under **six hours old**, have a maximum three-minute c
 
 ## Operator workflow
 
+**Critical product/endpoint limitation (verified in repository source):** The reviewed GitHub Actions workflow named Hasone customer development builds compiles the separate apps/hasone-customer Flutter project and sets EV_API_BASE_URL to https://api.hasone.io. The EV shared customer/vendor mobile client in apps/mobile is a different project with a separate mobile workflow. Consequently, passing this source-alignment gate **does not establish** that the HAS.ONE customer debug/simulator binaries connect to the private ev-staging host on loopback port 8443, or that the shared vendor Android/iOS apps are built, signed or installed. The JSON summary explicitly reports mobile backend-origin match, authenticated native journeys, physical installation and vendor Android/iOS delivery as FALSE.
+
 The source must have been committed and reviewed first. Do not use an earlier HAS.ONE customer developer artifact as if it were an EV Charging build from the staging commit. A failure from the source gate is a genuine **handoff blocker**, not a reason to edit a manifest, forge a SHA, reset a workflow result or weaken provenance checks.
 
 1. On an authorized isolated staging Docker host, with verified trust in the private gateway certificate, run the read-only source-linked staging acceptance command and retain its owner-only JSON report.
