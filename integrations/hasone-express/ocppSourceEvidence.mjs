@@ -1,3 +1,4 @@
+import {presentConnectorObservation} from './ocppConnectorObservation.mjs';
 import {normalizeResourceScope,sameResourceScope,sourceResourceScope} from './ocppResourceScope.mjs';
 /**
  * Fail-closed, read-only authorization and metering proof for an OCPP session.
@@ -30,7 +31,7 @@ const endReasons=new Set(['EmergencyStop','EVDisconnected','HardReset','Local','
 const interruptedReasons=new Set(['EmergencyStop','HardReset','PowerLoss','Reboot',
   'SoftReset','GroundFault','ImmediateReset','OvercurrentFault','PowerQuality','Timeout']);
 
-export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash,resourceScope=null,now=new Date()}={}) {
+export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenHash,resourceScope=null,chargerRecord=null,now=new Date()}={}) {
   if(!source || typeof source!=='object' || !sourceId || !chargerId || !transactionId || !tokenHash)
     return null;
   if(!/^[a-f0-9]{64}$/i.test(tokenHash) || !same(source._id,sourceId)
@@ -48,6 +49,7 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
   if(ended && (!sourceDate(source.endedAt) || !(sourceDate(source.endedAt)>=start)))return null;
   if(source.paymentStatus!=='not_collected')return null;
   const evidence={
+    connectorObservation:presentConnectorObservation(source,chargerRecord,{now}),
     sourceVerified:true,
     resourceVerified:resourceScope!=null && !!observedScope,
     resourceScope:resourceScope!=null?observedScope:null,

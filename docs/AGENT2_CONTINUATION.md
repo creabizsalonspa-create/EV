@@ -1,5 +1,44 @@
 # Agent 2 standing continuation checkpoint
 
+## Current connector-fault draft checkpoint — November 8, 2026
+
+This section supersedes older environment/next-task notes below. The fault batch
+is implemented but only partially verified; both PR50 and PR70 must stay draft.
+Read docs/evidence/agent2-connector-faults/validation.json for exact source blobs and check limits.
+
+Active authorized sources can expose a read-only connector report only when its
+protocol/EVSE/connector match and its server receivedAt follows the source server
+startedReceivedAt receipt. Legacy/device timestamps cannot substitute for that
+anchor. Admin and customer mobile show bounded status, receipt age/staleness and
+fault review guidance without claiming current availability or energy flow.
+
+API contract: sourceVerified and source binding can succeed before the first
+meter reading; meterVerified stays false and energy/cost stay null. Existing
+owner, payment/admission, token/hash, resource and uniqueness guards remain.
+Finalization/summary still require verified meters and calculated unpaid totals.
+Fault reports never stop/restart/finalize/invoice or collect payment. Private
+session responses are no-store and vary by Authorization.
+
+Final local checks:134 Node guards,6 synthetic gateway patch-contract tests,
+changed JS/Python/shell syntax and whitespace checks pass. Earlier candidate
+backend146/browser147, Next build and Flutter61/4-skips/analysis passes are NOT
+final-source verification: accepted-start timestamp refinement was not rerun and
+host-formatted Dart was not retrieved before the device disconnected. Earlier
+charger-choice checks remain evidence for commits1ebae3e/4955037 only.
+
+Exact blocker:Desktop Commander host.crea-biz.com is offline (last seen5h ago).
+No local Flutter/Dart SDK or proprietary backend source/dependency fixture.
+Next executable task:reconnect the authorized host, upload committed blobs,
+stage fresh disposable Express/OCPP/Next copies, rerun complete validation with
+browser modes, final Flutter formatting/tests/analysis, actual API/native fault
+and missing-meter cases, then the latest PR78 combination. Confirm exact blobs
+before updating final-source evidence. Agent4 alone reviews/merges #50/#52/#70
+with shared mobile infrastructure and required hosted/native release gates.
+
+Independent connector inventory/capacity/expiry, paid reschedule, concurrent
+calendar-edit migration and canonical authority agreement remain unfinished.
+No full atom credit, coverage increase, merge or production acceptance claimed.
+
 The owner's permanent CONTINUE directive applies: resume exact GitHub state,
 complete substantial coherent code/test/push batches, then continue independent
 assigned work while execution resources permit. Do not recreate existing modules

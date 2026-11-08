@@ -8,12 +8,13 @@
 import assert from 'node:assert/strict';
 import {loopbackBase,relayAdminRequest} from './isolatedAdminApiRelay.mjs';
 export async function runActualAdminBrowser({
- uiUrl,apiUrl,adminToken,bookingId,chargerId,createSource,verifyResult
+ uiUrl,apiUrl,adminToken,bookingId,chargerId,createSource,endSource,verifyResult
 }){
  const ui=loopbackBase(uiUrl),api=loopbackBase(apiUrl);
  assert.match(bookingId,/^[a-f0-9]{24}$/i);
  assert.equal(typeof createSource,'function');
  assert.equal(typeof verifyResult,'function');
+ assert.equal(typeof endSource,'function');
  const imported=await import(process.env.PUPPETEER_PATH||'puppeteer');
  const browser=await (imported.default||imported).launch({
    executablePath:process.env.CHROME_PATH||undefined,headless:true,
@@ -98,10 +99,22 @@ export async function runActualAdminBrowser({
    });
    await page.select('select[aria-label="Select source transaction"]',sourceId);
    await click(page,'Bind verified source');
-   await step('actual Mongo source binding unlocks finalization',async()=>{
-     await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>
-       b.textContent?.includes('Finalize verified booking')&&!b.disabled),{timeout:15000});
+   await step('actual Mongo binding exposes active source but does not unlock finalization',async()=>{
+     await page.waitForSelector('[aria-label="Connector source report"]',{timeout:15000});
+     const disabled=await page.evaluate(()=>[...document.querySelectorAll('button')]
+       .find(b=>b.textContent?.includes('Finalize verified booking'))?.disabled);
+     assert.equal(disabled,true);
    });
+   await step('operator sees scoped connector fault and provisional unpaid cost without a successful-charge claim',async()=>{
+     const text=await page.$eval('[aria-label="Connector source report"]',element=>element.innerText);
+     assert.ok(text.includes('Faulted'));assert.ok(text.includes('receipt age at last check'));
+     assert.ok(text.includes('does not confirm energy is currently flowing'));
+     assert.ok((await page.content()).includes('Provisional unpaid: AED 3.15'));
+   });
+   await endSource(sourceId);
+   await page.click('button[aria-label="Refresh OCPP status"]');
+   await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>
+     b.textContent?.includes('Finalize verified booking')&&!b.disabled),{timeout:15000});
    await step('operator sees source-ended power loss separately from successful charging',async()=>{
      const text=await page.$eval('[aria-label="Source end report"]',element=>element.innerText);
      assert.ok(text.includes('PowerLoss'));

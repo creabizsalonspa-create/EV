@@ -26,11 +26,12 @@ if(process.env.AGENT2_REAL_ADMIN_UI_URL){
  const {loopbackBase}=await import('./isolatedAdminApiRelay.mjs');
  loopbackBase(process.env.AGENT2_REAL_ADMIN_UI_URL);
 }
-async function nativeSourceStatus(base,bearer,sessionId,ended){
+async function nativeSourceStatus(base,bearer,sessionId,ended,{fault=false,missingMeter=false}={}){
   if(!process.env.AGENT2_HISTORY_FLUTTER)return;
   const env={...process.env,AGENT2_PROGRESS_API_URL:base,
     AGENT2_PROGRESS_TOKEN:bearer,AGENT2_ACTIVE_SESSION:sessionId,
-    AGENT2_PROGRESS_ENDED:ended?'1':'0'};
+    AGENT2_PROGRESS_ENDED:ended?'1':'0',AGENT2_EXPECT_CONNECTOR_FAULT:fault?'1':'0',
+    AGENT2_PROGRESS_METER_MISSING:missingMeter?'1':'0'};
   delete env.AGENT2_HISTORY_API_URL;delete env.AGENT2_NEW_BOOKING_STATION;
   const child=spawn(process.env.AGENT2_HISTORY_FLUTTER,
     ['test','--no-pub','test/source_history_api_test.dart','--reporter','expanded'],{
@@ -1585,6 +1586,7 @@ try{
     assert.equal(history.body.data.sourceVerified,false);
     await BookingModel.updateOne({_id:customerChoiceBooking._id},{$set:{reservedChargerId:choiceB}});
   });
+  const nativeResourceExpectations={};
   for(const protocol of ['ocpp1.6','ocpp2.0.1']){
     const scopedCharger='resource-scope-'+protocol.replaceAll('.','-');
     const selectedScope={protocol,connectorId:2,evseId:protocol==='ocpp2.0.1'?3:null};
@@ -1684,6 +1686,36 @@ try{
       assert.equal(noMeter.lastMeterReceivedAt.valueOf(),stable.lastMeterReceivedAt.valueOf());
       await nativeSourceStatus(base,bearer,scopedSession,false);
     });
+    await check(protocol+' connector report is scoped to the active source and heartbeat cannot refresh it',async()=>{
+      const notify=(connectorId,evseId=3)=>protocol==='ocpp1.6'
+        ?{connectorId,status:'Faulted',errorCode:'OtherError',timestamp:new Date().toISOString()}
+        :{connectorId,evseId,connectorStatus:'Faulted',timestamp:new Date().toISOString()};
+      await handle({chargerId:scopedCharger},protocol,'StatusNotification',notify(1));
+      if(protocol==='ocpp2.0.1'){
+        await handle({chargerId:scopedCharger},protocol,'StatusNotification',notify(2,2));
+        await assert.rejects(()=>handle({chargerId:scopedCharger},protocol,'StatusNotification',notify(0,0)));
+      }else await handle({chargerId:scopedCharger},protocol,'StatusNotification',notify(0));
+      const path='/api/v1/ChargingSession/'+scopedSession+'/status';
+      assert.equal((await request('GET',path,undefined,true)).body.data.connectorObservation,null);
+      await handle({chargerId:scopedCharger},protocol,'StatusNotification',notify(2));
+      const response=await request('GET',path,undefined,true),report=response.body.data.connectorObservation;
+      assert.match(response.cacheControl,/private/);assert.match(response.cacheControl,/no-store/);
+      assert.equal(report.qualified,true);assert.equal(report.source,'gateway_connector_report');
+      assert.equal(report.protocol,protocol);assert.equal(report.connectorId,2);
+      assert.equal(report.evseId,protocol==='ocpp1.6'?null:3);assert.equal(report.status,'Faulted');
+      assert.equal(report.freshness,'recent');assert.ok(Number.isInteger(report.receiptAgeSeconds));
+      assert.equal(response.body.data.chargingStatus,'Charging');assert.equal(response.body.data.provisionalTotalFils,315);
+      assert.equal(response.body.data.paymentStatus,'not_collected');assert.equal('availability' in report,false);
+      const op=await request('GET',scopedPath+'operations',undefined,false,{authorization:adminBearer});
+      assert.equal(op.body.data.connectorObservation.status,'Faulted');assert.equal(op.body.data.provisionalUnpaidAed,3.15);
+      assert.equal(op.body.data.canFinalizeSource,false);
+      const key=protocol==='ocpp1.6'?'0_2':'3_2';
+      const before=(await db.collection('ocpp_chargers').findOne({chargerId:scopedCharger})).connectors[key].receivedAt;
+      await handle({chargerId:scopedCharger},protocol,'Heartbeat',{});
+      const after=(await db.collection('ocpp_chargers').findOne({chargerId:scopedCharger})).connectors[key].receivedAt;
+      assert.equal(after.valueOf(),before.valueOf());
+      await nativeSourceStatus(base,bearer,scopedSession,false,{fault:true});
+    });
     await check(protocol+' source binding and customer history qualify the selected connector',async()=>{
       if(protocol==='ocpp1.6'){
         await handle({chargerId:scopedCharger},protocol,'StopTransaction',{
@@ -1702,6 +1734,7 @@ try{
       const linked=await request('POST',scopedPath+'bind-source',{
         sourceSessionId:String(scopedSource._id)},false,{authorization:adminBearer});
       assert.equal(linked.code,200);scopedSession=linked.body.data.sessionId;
+      nativeResourceExpectations[String(scopedSession)]=selectedScope;
       const history=await request('GET','/api/v1/ChargingSession/history/'+scopedSession,undefined,true);
       assert.equal(history.code,200);assert.equal(history.body.data.resourceVerified,true);
       assert.deepEqual(history.body.data.resourceScope,selectedScope);
@@ -1727,6 +1760,40 @@ try{
         {authorization:adminBearer})).code,200);
     });
   }
+  await check('OCPP2.0.1 source may link before meter evidence but fault/end cannot fabricate billing',async()=>{
+    const site=await NearestStationModel.create({name:'No-meter incident only',address:'Loopback',status:'Available',latitude:25.7,longitude:55.9});
+    const chargerId='agent2-no-meter-fault';
+    await db.collection('ocpp_chargers').insertOne({stationId:String(site._id),chargerId,protocol:'ocpp2.0.1',enabled:true});
+    const booking=await BookingModel.create({stationId:site._id,userId:user._id,date:'2026-11-08',time:'10:00 AM',
+      slotStart:'10:00 AM',slotEnd:'11:00 AM',status:'Upcoming',isPaid:true,hasArrived:true});
+    const path='/api/v1/admin/bookings/'+booking._id+'/ocpp/';
+    const issued=await request('POST',path+'issue-token',{resourceScope:{protocol:'ocpp2.0.1',evseId:1,connectorId:1}},false,{authorization:adminBearer});
+    assert.equal(issued.code,201);
+    const tx='source-before-meter';
+    await handle({chargerId},'ocpp2.0.1','TransactionEvent',{eventType:'Started',seqNo:0,
+      transactionInfo:{transactionId:tx},evse:{id:1,connectorId:1},timestamp:new Date().toISOString(),
+      idToken:{idToken:issued.body.data.oneTimeToken,type:'Central'}});
+    const observed=await db.collection('ocpp_sessions').findOne({chargerId,transactionId:tx});assert.ok(observed);
+    const linked=await request('POST',path+'bind-source',{sourceSessionId:String(observed._id)},false,{authorization:adminBearer});
+    assert.equal(linked.code,200);assert.equal(linked.body.data.meterVerified,false);assert.equal(linked.body.data.energyKwh,null);
+    await handle({chargerId},'ocpp2.0.1','StatusNotification',{evseId:1,connectorId:1,connectorStatus:'Faulted',timestamp:new Date().toISOString()});
+    const sessionId=linked.body.data.sessionId;
+    nativeResourceExpectations[String(sessionId)]={protocol:'ocpp2.0.1',evseId:1,connectorId:1};
+    const status=await request('GET','/api/v1/ChargingSession/'+sessionId+'/status',undefined,true);
+    assert.equal(status.body.data.sourceVerified,true);assert.equal(status.body.data.meterVerified,false);
+    assert.equal(status.body.data.energyWh,null);assert.equal(status.body.data.kwhUsed,null);
+    assert.equal(status.body.data.connectorObservation.status,'Faulted');assert.equal(status.body.data.provisionalTotalFils,null);
+    await nativeSourceStatus(base,bearer,sessionId,false,{fault:true,missingMeter:true});
+    await handle({chargerId},'ocpp2.0.1','TransactionEvent',{eventType:'Ended',seqNo:1,
+      transactionInfo:{transactionId:tx,stoppedReason:'PowerLoss'},evse:{id:1,connectorId:1},timestamp:new Date().toISOString()});
+    assert.equal((await request('POST',path+'finalize-source',{},false,{authorization:adminBearer})).code,409);
+    assert.equal((await request('GET','/api/v1/ChargingSession/'+sessionId+'/summary',undefined,true)).code,400);
+    assert.equal((await BookingModel.findById(booking._id)).status,'Upcoming');
+    const final=await request('GET','/api/v1/ChargingSession/'+sessionId+'/status',undefined,true);
+    assert.equal(final.body.data.sourceVerified,true);assert.equal(final.body.data.meterVerified,false);
+    assert.equal(final.body.data.totalFils,null);assert.equal(final.body.data.connectorObservation,null);
+    assert.equal(final.body.data.paymentStatus,'not_collected');
+  });
   const charger16='agent2-ocpp16-test',token16='0123456789ABCDEF0123';
   const hash16=createHash('sha256').update(token16).digest('hex');
   await db.collection('ocpp_access_tokens').insertOne({chargerId:charger16,tokenHash:hash16,
@@ -1816,16 +1883,23 @@ try{
           await handle({chargerId:uiCharger},'ocpp1.6','MeterValues',{
             transactionId:start.transactionId,meterValue:meter(4000)
           });
-          await handle({chargerId:uiCharger},'ocpp1.6','StopTransaction',{
-            transactionId:start.transactionId,meterStop:6000,
-            timestamp:new Date().toISOString(),reason:'PowerLoss'
+          await handle({chargerId:uiCharger},'ocpp1.6','StatusNotification',{
+            connectorId:1,status:'Faulted',errorCode:'OtherError',timestamp:new Date().toISOString()
           });
           const stored=await db.collection('ocpp_sessions').findOne({
             chargerId:uiCharger,transactionId:start.transactionId
           });
-          assert.equal(stored.energyWh,5000);
+          assert.equal(stored.energyWh,3000);
           assert.equal(stored.paymentStatus,'not_collected');
           return String(stored._id);
+        },
+        endSource:async sourceId=>{
+          const observed=await db.collection('ocpp_sessions').findOne({_id:new mongoose.Types.ObjectId(sourceId),chargerId:uiCharger});
+          assert.ok(observed);
+          await handle({chargerId:uiCharger},'ocpp1.6','StopTransaction',{
+            transactionId:observed.transactionId,meterStop:6000,
+            timestamp:new Date().toISOString(),reason:'PowerLoss'
+          });
         },
         verifyResult:async sourceId=>{
           const saved=await BookingModel.findById(uiBooking._id);

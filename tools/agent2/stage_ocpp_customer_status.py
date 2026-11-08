@@ -13,6 +13,7 @@ def patch(root):
         raise RuntimeError('Production files cannot be patched')
     paths={
       'service':root/'src/services/userService.js',
+      'routes':root/'src/routes/routes.js',
       'station':root/'src/models/NearestStationModel.js',
       'booking':root/'src/models/BookingModel.js',
       'session':root/'src/models/ChargingSessionModel.js',
@@ -21,12 +22,19 @@ def patch(root):
         raise RuntimeError('Complete staged Express source required')
     helper=Path(__file__).resolve().parents[2]/'integrations/hasone-express/ocppSourceEvidence.mjs'
     resource=helper.parent/'ocppResourceScope.mjs'
-    if not helper.is_file() or not resource.is_file():
+    observation=helper.parent/'ocppConnectorObservation.mjs'
+    if not helper.is_file() or not resource.is_file() or not observation.is_file():
         raise RuntimeError('OCPP evidence guard is missing')
     data={key:p.read_text(encoding='utf8') for key,p in paths.items()}
     def once(text,old,new,name):
         if text.count(old)!=1:raise RuntimeError(name+' source mismatch')
         return text.replace(old,new)
+    data['routes']=once(data['routes'],'const router = express.Router();',
+      '''const router = express.Router();
+router.use("/ChargingSession",(_req,res,next)=>{
+  res.set("Cache-Control","private, no-store");
+  res.vary("Authorization");next();
+});''','private session response caching')
     data['service']=once(data['service'],'import crypto from "crypto";',
       '''import crypto from "crypto";
 import mongoose from "mongoose";
@@ -91,7 +99,7 @@ const readCustomerOcppSource = async (user_id, session) => {
     sourceId:session.sourceSessionId,
     chargerId:session.sourceChargerId,
     transactionId:session.sourceTransactionId,
-    tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,
+    tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,chargerRecord:charger,
   });
 };
 
@@ -101,7 +109,7 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
     const session = await ChargingSessionModel.findOne({_id:sessionId,userId:user_id});
     if (!session) return {status:"fail",message:"Session not found."};
     const proof = await readCustomerOcppSource(user_id,session);
-    if (!proof?.sourceVerified || !proof.meterVerified) {
+    if (!proof?.sourceVerified) {
       return {status:"Success",message:"No verified source metering for this booking.",
         data:{sessionId:session._id,bookingId:session.bookingId,
           chargingStatus:"Unverified",batteryPercent:null,timeRemaining:null,kwhUsed:null,
@@ -113,7 +121,7 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
         chargingStatus:proof.sessionEnded?"Completed":"Charging",
         batteryPercent:null,timeRemaining:null,kwhUsed:proof.energyKwh,
         energyWh:proof.energyWh,
-        sourceVerified:true,meterVerified:true,source:"ocpp",protocol:proof.protocol,
+        sourceVerified:true,meterVerified:proof.meterVerified,source:"ocpp",protocol:proof.protocol,
         resourceVerified:proof.resourceVerified,resourceScope:proof.resourceScope,
         billingStatus:proof.billingStatus,paymentStatus:"not_collected",
         provisionalCostVerified:proof.provisionalCostVerified,
@@ -121,7 +129,8 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
         provisionalVatFils:proof.provisionalVatFils,provisionalTotalFils:proof.provisionalTotalFils,
         subtotalFils:proof.subtotalFils,vatFils:proof.vatFils,totalFils:proof.totalFils,
         meterReceivedAt:proof.meterReceivedAt,meterReceiptAgeSeconds:proof.meterReceiptAgeSeconds,
-        meterFreshness:proof.meterFreshness,sourceEnd:proof.sourceEnd,currency:"AED",
+        meterFreshness:proof.meterFreshness,sourceEnd:proof.sourceEnd,
+        connectorObservation:proof.connectorObservation,currency:"AED",
         readOnly:true,billingMode:"calculation_only_no_collection",
         canStop:false,canExtend:false}};
   } catch {
@@ -132,13 +141,15 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
 '''
     data['service']=s[:pos]+method+s[finish:]
     helper_dest=root/'src/utils/ocppSourceEvidence.mjs'
+    observation_dest=root/'src/utils/ocppConnectorObservation.mjs'
     resource_dest=root/'src/utils/ocppResourceScope.mjs'
-    if helper_dest.exists() or resource_dest.exists():
+    if helper_dest.exists() or resource_dest.exists() or observation_dest.exists():
         raise RuntimeError('OCPP source guard already present in staged tree')
     for key,p in paths.items():
         p.write_text(data[key],encoding='utf8')
     helper_dest.write_text(helper.read_text(encoding='utf8'),encoding='utf8')
     resource_dest.write_text(resource.read_text(encoding='utf8'),encoding='utf8')
+    observation_dest.write_text(observation.read_text(encoding='utf8'),encoding='utf8')
     print('STAGED_CUSTOMER_OCPP_STATUS_LINKED; physical charging and payments unchanged')
 
 if __name__=='__main__':

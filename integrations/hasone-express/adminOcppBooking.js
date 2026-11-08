@@ -192,10 +192,10 @@ export async function AdminBindBookingOcppSource(req,res){
    return fail(res,409,'Source transaction predates this booking authorization');
   const proof=verifyOcppSource(source,{
     sourceId,chargerId:charger.chargerId,
-    transactionId:String(source.transactionId),tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null
+    transactionId:String(source.transactionId),tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,chargerRecord:charger
   });
-  if(!proof?.sourceVerified || !proof.meterVerified)
-   return fail(res,409,'Source transaction lacks authorized OCPP meter evidence');
+  if(!proof?.sourceVerified)
+   return fail(res,409,'Source transaction lacks authorized OCPP source evidence');
   const query={bookingId:booking._id,userId:booking.userId};
   let session=await ChargingSessionModel.findOne(query);
   const sourceFields={
@@ -259,7 +259,7 @@ export async function AdminListLinkedBookingOcppSessions(req,res){
    });
    const proof=verifyOcppSource(src,{
     sourceId:item.sourceSessionId,chargerId:charger.chargerId,
-    transactionId:item.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,
+    transactionId:item.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,chargerRecord:charger,
    });
    if(!proof?.sourceVerified)continue;
    if(proof.meterVerified)confirmed++;
@@ -314,7 +314,7 @@ export async function AdminFinalizeBookingOcppSource(req,res){
   });
   const proof=verifyOcppSource(source,{
     sourceId:session.sourceSessionId,chargerId:charger.chargerId,
-    transactionId:session.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,
+    transactionId:session.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,chargerRecord:charger,
   });
   if(!proof?.sourceVerified || !proof.meterVerified || !proof.sessionEnded ||
       proof.totalFils===null || proof.billingStatus!=='calculated_unpaid')
@@ -373,7 +373,7 @@ export async function AdminGetBookingOcppOperations(req,res){
    });
    proof=verifyOcppSource(session,{
      sourceId:record.sourceSessionId,chargerId:charger.chargerId,
-     transactionId:record.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null
+     transactionId:record.sourceTransactionId,tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,chargerRecord:charger
    });
   }
   const ready=!!(proof?.sourceVerified && proof?.meterVerified
@@ -406,8 +406,10 @@ export async function AdminGetBookingOcppOperations(req,res){
     meterVerified:proof?.meterVerified===true,
     sourceEnded:proof?.sessionEnded===true,
     sourceEnd:proof?.sourceVerified?proof.sourceEnd:null,
+    connectorObservation:proof?.sourceVerified?proof.connectorObservation:null,
     energyKwh:proof?.meterVerified?proof.energyKwh:null,
     calculatedUnpaidAed:proof?.totalFils===null||!proof?null:proof.totalFils/100,
+    provisionalUnpaidAed:proof?.provisionalCostVerified?proof.provisionalTotalFils/100:null,
     paymentStatus:proof?.sourceVerified?'not_collected':null,
     canIssueToken:canIssue,
     canReissueToken:canReissue,

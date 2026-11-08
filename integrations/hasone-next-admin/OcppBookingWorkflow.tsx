@@ -22,6 +22,7 @@ type OpState={
   sourceSessionId:string|null;sourceTransactionId:string|null;
   sourceVerified:boolean;meterVerified:boolean;sourceEnded:boolean;
   sourceEnd?:{reason:string|null;reviewRequired:boolean}|null;
+  connectorObservation?:unknown;provisionalUnpaidAed?:number|null;
   energyKwh:number|null;calculatedUnpaidAed:number|null;
   paymentStatus:string|null;canIssueToken:boolean;canReissueToken:boolean;
   canBindSource:boolean;canFinalizeSource:boolean;
@@ -47,6 +48,27 @@ type IssueResponse={status:string;data?:{
 }};
 const isHex24=(value:string)=>/^[a-f0-9]{24}$/i.test(value);
 const statusText=(value:boolean,positive:string,negative:string)=>value?positive:negative;
+
+type ConnectorReport={status:string;receiptAgeSeconds:number;freshness:"recent"|"stale"};
+function connectorReport(value:unknown):ConnectorReport|null{
+  if(!value||typeof value!=="object")return null;
+  const v=value as Record<string,unknown>;
+  const protocol=v.protocol;
+  if(v.qualified!==true||v.source!=="gateway_connector_report"||
+     !["ocpp1.6","ocpp2.0.1"].includes(String(protocol))||
+     !Number.isInteger(v.connectorId)||(v.connectorId as number)<1||(v.connectorId as number)>64||
+     (protocol==="ocpp1.6"?v.evseId!==null:!Number.isInteger(v.evseId)||(v.evseId as number)<1||(v.evseId as number)>64)||
+     !Number.isInteger(v.receiptAgeSeconds)||(v.receiptAgeSeconds as number)<0||(v.receiptAgeSeconds as number)>3153600000||
+     typeof v.receivedAt!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(v.receivedAt))return null;
+  const allowed=protocol==="ocpp1.6"?
+    ["Available","Preparing","Charging","SuspendedEV","SuspendedEVSE","Finishing","Reserved","Unavailable","Faulted"]:
+    ["Available","Occupied","Reserved","Unavailable","Faulted"];
+  const time=new Date(v.receivedAt),age=v.receiptAgeSeconds as number;
+  const freshness=age<=120?"recent":"stale";
+  if(!allowed.includes(String(v.status))||v.freshness!==freshness||!Number.isFinite(time.valueOf())||
+      time.toISOString().slice(0,19)!==v.receivedAt.slice(0,19)||time.valueOf()>Date.now()+5000)return null;
+  return {status:v.status as string,receiptAgeSeconds:age,freshness};
+}
 
 function errorText(error:unknown){
   const reason=error as {response?:{data?:{message?:string}}};
@@ -301,6 +323,7 @@ export default function OcppBookingWorkflow({
   const inputClass="w-full rounded-lg border p-2.5 text-sm "+(dark?
     "bg-slate-900 border-slate-600 text-white":"bg-white border-slate-300");
   const canOperate=state && !loading && !working;
+  const connector=connectorReport(state?.connectorObservation);
 
   return (
     <>
@@ -529,6 +552,12 @@ export default function OcppBookingWorkflow({
                       <div>Energy: <strong>{state.energyKwh===null?"—":state.energyKwh+" kWh"}</strong></div>
                       <div>Calculated unpaid: <strong>{state.calculatedUnpaidAed===null?"—":"AED "+state.calculatedUnpaidAed.toFixed(2)}</strong></div>
                     </div>
+                    {typeof state.provisionalUnpaidAed==="number"&&Number.isFinite(state.provisionalUnpaidAed)&&state.provisionalUnpaidAed>=0&&
+                      <p className="text-xs">Provisional unpaid: AED {state.provisionalUnpaidAed.toFixed(2)}</p>}
+                    {connector&&<div aria-label="Connector source report" className="text-xs space-y-1">
+                      <p>Connector reported {connector.status}; receipt age at last check: {connector.receiptAgeSeconds}s ({connector.freshness})</p>
+                      {connector.status==="Faulted"&&<p className="text-amber-600">Connector fault needs operator review. An active transaction does not confirm energy is currently flowing.</p>}
+                    </div>}
                     {state.sourceEnded&&<div aria-label="Source end report" className="text-xs space-y-1">
                       <p>Source end reason: {typeof state.sourceEnd?.reason==="string"&&/^[A-Za-z]{1,30}$/.test(state.sourceEnd.reason)?state.sourceEnd.reason:"Unavailable"}</p>
                       {state.sourceEnd?.reviewRequired!==false&&<p className="text-amber-600">Source end needs operator review. This calculation does not confirm successful charging.</p>}

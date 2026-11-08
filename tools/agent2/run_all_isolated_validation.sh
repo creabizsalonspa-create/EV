@@ -53,6 +53,7 @@ done
 python3 "$root/tools/agent2/stage_ocpp201_token_binding.py" \
   "$work/ocpp/ocpp-handlers.mjs"
 python3 "$root/tools/agent2/stage_ocpp_meter_receipts.py" "$work/ocpp/ocpp-handlers.mjs"
+python3 "$root/tools/agent2/stage_ocpp_connector_receipts.py" "$work/ocpp/ocpp-handlers.mjs"
 
 for target in \
   src/app.js src/routes/paymentRoutes.js src/routes/adminRoutes.js \
@@ -63,7 +64,7 @@ for target in \
   src/controllers/ocppHistory.js src/utils/ocppHistory.mjs src/utils/ocppResourceScope.mjs \
   src/services/bookingMutationService.js src/utils/bookingMutationPolicy.mjs \
   src/services/reservationCalendarGuard.js src/utils/reservationCalendarPolicy.mjs \
-  src/controllers/reservationChargers.js src/utils/reservationChargerChoice.mjs
+  src/controllers/reservationChargers.js src/utils/reservationChargerChoice.mjs src/utils/ocppConnectorObservation.mjs
 do
   node --check "$work/express/$target"
 done
@@ -74,6 +75,7 @@ python3 -m py_compile "$root/tools/agent2"/stage_*.py
 echo "Source patch and syntax checks passed."
 
 node --test "$root"/integrations/hasone-express/tests/*.test.mjs
+python3 -m unittest discover -s "$root/tests" -p agent2_connector_receipts_test.py -q
 node "$root/tools/agent2/test_staged_payment_routes.mjs" "$work/express" "$backend"
 AGENT2_REAL_ADMIN_UI_URL= node "$root/tools/agent2/run_isolated_backend_demo.mjs" \
   "$work/express" "$backend" "$work/ocpp/ocpp-handlers.mjs"
