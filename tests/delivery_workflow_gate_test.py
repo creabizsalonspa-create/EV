@@ -73,6 +73,8 @@ class VerifiedWorkflowHandoffTests(unittest.TestCase):
         rp, ap = self.root / 'run.json', self.root / 'artifacts.json'
         rp.write_text(json.dumps(self.run))
         ap.write_text(json.dumps(self.listing))
+        rp.chmod(0o600)
+        ap.chmod(0o600)
         return rp, ap
 
     def test_same_successful_source_and_two_artifacts_pass(self):
@@ -176,9 +178,66 @@ class VerifiedWorkflowHandoffTests(unittest.TestCase):
         with self.assertRaises(BundleError): read_snapshot(self.root / 'absent')
         real = self.root / 'run.json'
         real.write_text(json.dumps(self.run))
+        real.chmod(0o600)
         alias = self.root / 'alias'
         alias.symlink_to(real)
         with self.assertRaises(BundleError): read_snapshot(alias)
+
+    def test_snapshot_reader_rejects_duplicate_keys_and_nonfinite_values(self):
+        for contents in ('{"id":1,"id":2}', '{"status":NaN}', '{"id":Infinity}',
+                         '{"run":{"source":"good","source":"bad"}}'):
+            candidate = self.root / 'malformed.json'
+            candidate.write_text(contents)
+            candidate.chmod(0o600)
+            with self.subTest(contents=contents), self.assertRaises(BundleError):
+                read_snapshot(candidate)
+
+    def test_snapshot_reader_rejects_public_file_and_directory_modes(self):
+        path=self.root/'private.json'
+        path.write_text(json.dumps(self.run))
+        path.chmod(0o600)
+        self.assertEqual(read_snapshot(path)['id'],RUN_ID)
+        if sys.platform!='win32':
+            path.chmod(0o644)
+            with self.assertRaises(BundleError):read_snapshot(path)
+            path.chmod(0o600)
+            public=self.root/'public'
+            public.mkdir(mode=0o755)
+            public.chmod(0o755)
+            exposed=public/'run.json'
+            exposed.write_text(json.dumps(self.run))
+            exposed.chmod(0o600)
+            with self.assertRaises(BundleError):read_snapshot(exposed)
+
+    def test_snapshot_reader_denies_fifo_and_oversize_without_blocking(self):
+        import os
+        if hasattr(os,'mkfifo'):
+            fifo=self.root/'pipe.json'
+            os.mkfifo(fifo,0o600)
+            with self.assertRaises(BundleError):read_snapshot(fifo)
+        huge=self.root/'large.json'
+        huge.write_bytes(b'a'*(4*1024**2+1))
+        huge.chmod(0o600)
+        with self.assertRaises(BundleError):read_snapshot(huge)
+
+    def test_snapshot_reader_refuses_symlink_swap_at_open(self):
+        import os
+        from unittest.mock import patch
+        candidate=self.root/'run.json'
+        candidate.write_text(json.dumps(self.run))
+        candidate.chmod(0o600)
+        genuine_open=os.open
+        swapped=[False]
+        def change_path(file,flags,*args,**kwargs):
+            if str(file)==str(candidate) and not swapped[0]:
+                swapped[0]=True
+                original=self.root/'private-original.json'
+                candidate.rename(original)
+                candidate.symlink_to(original)
+            return genuine_open(file,flags,*args,**kwargs)
+        with patch('delivery_workflow_gate.os.open',side_effect=change_path):
+            with self.assertRaises(BundleError):read_snapshot(candidate)
+        self.assertTrue(swapped[0])
 
     def test_cli_refuses_invalid_source_without_creating_output(self):
         run, artifacts = self.snapshots()

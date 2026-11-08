@@ -67,6 +67,8 @@ class SharedNativeHandoffTests(unittest.TestCase):
         run,listing=self.root/'run.json',self.root/'artifacts.json'
         run.write_text(json.dumps(self.run))
         listing.write_text(json.dumps(self.listing))
+        run.chmod(0o600)
+        listing.chmod(0o600)
         return run,listing
 
     def make(self):

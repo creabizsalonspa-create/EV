@@ -15,9 +15,11 @@ The native shared Flutter application is built by GitHub Actions:
 
 These identities are **different from** Hasone customer development builds, workflow ID 410027022, file .github/workflows/hasone-customer.yml. The verifier will not silently swap or combine the two workflows.
 
+**Actual developer build origin:** The shared-native workflow compiles its Android debug and unsigned iOS simulator builds with EV_API_BASE_URL=http://127.0.0.1:8000 and EV_LOCAL_DEMO=true. These binaries therefore target the **authorized local demo** through loopback/forwarding, not an independently accepted private HTTPS staging domain on port 8443. They must not be represented as preconfigured staging builds. Agent 6 owns environment-specific connected native builds and signed releases.
+
 ## Strict offline, developer-only handoff
 
-Download the two GitHub Actions ZIP artifacts and capture the workflow run JSON and workflow-run artifacts listing JSON through a trusted GitHub API session. Use one successful run from the reviewed EV repository and a single exact 40-hex commit. Then run:
+Download the two GitHub Actions ZIP artifacts and capture the workflow run JSON and workflow-run artifacts listing JSON through a trusted GitHub API session. Use one successful run from the reviewed EV repository and a single exact 40-hex commit. The two JSON metadata snapshots must be non-symlink **regular files, at most 4 MiB, owner-only 0600**, in an owner-only real directory. The parser rejects duplicate keys, non-standard NaN/Infinity values, FIFO/special files and file swaps before confirming workflow identity. Then run:
 
     umask 077
     mkdir -p -m 700 artifacts/delivery

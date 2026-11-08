@@ -6,8 +6,10 @@ It is not cryptographically signed and does not prove build reproducibility.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import sys
 
 from delivery_artifact_import import import_actions
@@ -37,12 +39,47 @@ PROFILES = {
 }
 
 
+def _strict_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise BundleError('Duplicate GitHub metadata key')
+        result[key] = value
+    return result
+
+
+def _reject_constant(_value):
+    raise BundleError('Non-standard GitHub metadata constant')
+
+
 def read_snapshot(file):
+    # JSON downloaded from the API is still untrusted until source/run/artifact
+    # relationships are independently checked. Read one inode without following
+    # symlinks or blocking on a named pipe; prohibit public/accidental handoff.
     file = Path(file)
-    if file.is_symlink() or not file.is_file() or not 1 <= file.stat().st_size <= 4 * 1024**2:
-        raise BundleError('Invalid local GitHub metadata snapshot')
+    parent = file.parent
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK') or \
+            parent.is_symlink() or not parent.is_dir() or \
+            (os.name != 'nt' and parent.stat().st_mode & 0o077):
+        raise BundleError('Unsafe GitHub metadata snapshot directory')
     try:
-        snapshot = json.loads(file.read_text('utf-8'))
+        fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise BundleError('GitHub metadata cannot be securely opened') from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or not 2 <= info.st_size <= 4*1024**2 or \
+                (os.name != 'nt' and info.st_mode & 0o077):
+            raise BundleError('Invalid private GitHub metadata snapshot')
+        data = os.read(fd, 4*1024**2+1)
+        if len(data) != info.st_size:
+            raise BundleError('GitHub metadata changed during read')
+    finally:
+        os.close(fd)
+    try:
+        snapshot = json.loads(
+            data.decode('utf-8'), object_pairs_hook=_strict_pairs,
+            parse_constant=_reject_constant)
     except (UnicodeError, ValueError) as exc:
         raise BundleError('Unreadable GitHub metadata snapshot') from exc
     if not isinstance(snapshot, dict):
