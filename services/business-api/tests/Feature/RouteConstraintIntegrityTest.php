@@ -29,13 +29,9 @@ class RouteConstraintIntegrityTest extends TestCase
 
         $this->assertGreaterThan(500, $examined);
 
-        // Known inherited canonical route debt, assigned to Agent 1:
-        // /api/internal/firmware/{token} incorrectly uses whereNumber('operation').
-        // Once the owner fixes it, remove this exception. No additional
-        // ineffective parameter constraints may be introduced during merges.
-        $knownOwnerIssue = ['GET|HEAD api/internal/firmware/{token}:operation'];
-        $this->assertSame([], array_values(array_diff($misconfigured, $knownOwnerIssue)),
-            'New ineffective route parameter constraint found.');
-        $this->assertLessThanOrEqual(1, count($misconfigured));
+        // No inherited exceptions: a misnamed where() policy silently
+        // exposes the unconstrained route and must fail this CI inventory.
+        $this->assertSame([], $misconfigured,
+            'Every route parameter constraint must refer to a real URI parameter.');
     }
 }
