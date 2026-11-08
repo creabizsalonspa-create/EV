@@ -10,6 +10,7 @@ class Element {
     this.style = {}; this.attributes = {};
   }
   append(...values) {this.children.push(...values);}
+  prepend(...values) {this.children.unshift(...values);}
   replaceChildren(...values) {this.children = values;}
   setAttribute(key, value) {this.attributes[key] = value;}
   querySelector() {return null;}
@@ -17,13 +18,36 @@ class Element {
 const doc = {documentElement: {lang:'en'},createElement: tag => new Element(tag)};
 const window = {};
 const path = 'services/business-api/public/privacy-requests.js';
-vm.runInNewContext(fs.readFileSync(path,'utf8'),{document:doc,window,Object,Uint8Array},{filename:path});
+vm.runInNewContext(fs.readFileSync(path,'utf8'),{
+  document:doc,window,Object,Uint8Array,
+  crypto:{getRandomValues(bytes){bytes.fill(7);return bytes;}},
+},{filename:path});
 assert.equal(typeof window.createPrivacyWorkspace, 'function');
 const user1 = {role:'customer',id:1}, user2 = {role:'customer',id:2};
 let actor = user1, epoch = 1;
 const calls = [];
-const api = async path => {
+let holdPost=false,releasePost=null,holdAdmin=false,releaseAdmin=null;
+const api = async (path,method,body) => {
   calls.push(path);
+  if(path==='privacy-requests' && method==='POST'){
+    if(holdPost){
+      holdPost=false;
+      await new Promise(resolve=>{releasePost=resolve;});
+    }
+    return {id:100,request_type:body.request_type,status:'submitted'};
+  }
+  if(path.startsWith('admin/privacy-requests/') && method==='PATCH'){
+    if(holdAdmin){
+      holdAdmin=false;
+      await new Promise(resolve=>{releaseAdmin=resolve;});
+    }
+    return {id:200,status:'closed'};
+  }
+  if(path==='admin/privacy-requests?page=1')return {
+    data:[{id:200,request_type:'account_deletion',status:'in_review',
+      reason:null,resolution:null,decision_note:null,user:{email:'review@example.invalid'}}],
+    last_page:1,current_page:1,total:1,
+  };
   return {
     data:actor.id === 1 ? [{
       id:100, request_type:'account_deletion', status:'submitted',
@@ -44,9 +68,25 @@ const content = root => {
   assert.match(content(mine), /secret-private-note/);
   assert.match(content(mine), /not instant account deletion/);
   assert.match(content(mine), /Withdraw request/);
-  const initialCalls = calls.length;
   const find = (node, predicate) => predicate(node) ? node :
     node.children.map(child => find(child, predicate)).find(Boolean);
+  // A network-pending request must never be submitted twice.
+  const pendingForm=find(mine,node=>node.tag==='form');
+  const consent=find(pendingForm,node=>node.tag==='input'&&node.type==='checkbox');
+  const choice=find(pendingForm,node=>node.tag==='select');
+  assert.ok(consent&&choice);
+  consent.checked=true;choice.value='account_deletion';
+  holdPost=true;
+  const firstSubmission=pendingForm.onsubmit({preventDefault(){}});
+  assert.equal(typeof releasePost,'function');
+  const sentCount=()=>calls.filter(path=>path==='privacy-requests').length;
+  const beforeDuplicate=sentCount();
+  await pendingForm.onsubmit({preventDefault(){}});
+  assert.equal(sentCount(),beforeDuplicate,
+    'Duplicate customer form submission cannot POST while original pending');
+  releasePost();
+  await firstSubmission;
+  const initialCalls = calls.length;
   const staleForm = find(mine, node => node.tag === 'form');
   assert.ok(staleForm);
   epoch++;
@@ -89,6 +129,22 @@ const content = root => {
     'Admin review queue must remain refreshable after own list refresh');
   assert.match(content(mine),/Privacy and data requests/);
   assert.match(content(admin),/Privacy request reviews/);
+  // Admin close form must also suppress duplicate PATCHes in flight.
+  const reviewForm=find(admin,node=>node.tag==='form'&&
+    node.className==='privacy-review-form');
+  assert.ok(reviewForm);
+  find(reviewForm,node=>node.tag==='select').value='review_documented';
+  find(reviewForm,node=>node.tag==='textarea').value='Documented review outcome for compliance team.';
+  holdAdmin=true;
+  const firstClose=reviewForm.onsubmit({preventDefault(){}});
+  assert.equal(typeof releaseAdmin,'function');
+  const reviewCount=()=>calls.filter(path=>path==='admin/privacy-requests/200').length;
+  const beforeDuplicateReview=reviewCount();
+  await reviewForm.onsubmit({preventDefault(){}});
+  assert.equal(reviewCount(),beforeDuplicateReview,
+    'Duplicate Admin close cannot PATCH while original is pending');
+  releaseAdmin();
+  await firstClose;
   ui.clear();
   assert.equal(mine.children.length, 0);
   assert.doesNotMatch(fs.readFileSync(path,'utf8'), /\.innerHTML\s*=/);

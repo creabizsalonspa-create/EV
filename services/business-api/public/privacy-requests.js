@@ -104,7 +104,7 @@
       }));
       form.onsubmit = async event => {
         event.preventDefault();
-        if (!aliveMine(owner, ticket)) return;
+        if (!aliveMine(owner, ticket) || submit.disabled) return;
         if (!consent.checked) {errorOn(selfRoot, ar() ? "أكد فهمك أولاً." : "Confirm the review notice first.");return;}
         const body = {request_type:type.value, reason:reason.value.trim() || null};
         if (pending && JSON.stringify(body) !== JSON.stringify(pending.body)) {
@@ -206,7 +206,7 @@
             f.append(choices,note,submit);
             f.onsubmit = async event => {
               event.preventDefault();
-              if (!aliveAdmin(owner, ticket)) return;
+              if (!aliveAdmin(owner, ticket) || submit.disabled) return;
               submit.disabled = true;
               try {await api("admin/privacy-requests/" + row.id,"PATCH", {
                 status:"closed",resolution:choices.value,decision_note:note.value.trim(),
