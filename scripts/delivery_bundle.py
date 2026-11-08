@@ -151,6 +151,71 @@ def validate_created_at_utc(value):
         raise BundleError('Bundle claims to be created in the future')
 
 
+def _strict_json_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise BundleError('Duplicate delivery manifest JSON member')
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value):
+    raise BundleError('Nonstandard numeric constant in delivery manifest')
+
+
+def secure_manifest_snapshot(folder):
+    """Read one owner-only manifest descriptor, without following symlinks.
+
+    Returns parsed JSON and a byte/file-identity snapshot. Repeating this after
+    all artifact checks detects replacements during verification.
+    """
+    root = Path(folder)
+    name = root / 'manifest.json'
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+        raise BundleError('Secure manifest inspection unavailable')
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise BundleError('Delivery manifest cannot be safely opened') from exc
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
+                not 2 <= before.st_size <= 64 * 1024 or
+                (os.name != 'nt' and before.st_mode & 0o077)):
+            raise BundleError('Delivery manifest permissions, type or size invalid')
+        data = bytearray()
+        while len(data) < before.st_size + 1:
+            part = os.read(fd, min(16 * 1024, before.st_size + 1 - len(data)))
+            if not part:
+                break
+            data.extend(part)
+        after = os.fstat(fd)
+        if len(data) != before.st_size or any(
+                getattr(before, field) != getattr(after, field) for field in (
+                    'st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')):
+            raise BundleError('Delivery manifest changed during inspection')
+        try:
+            actual = os.lstat(name)
+        except OSError as exc:
+            raise BundleError('Delivery manifest path disappeared') from exc
+        if not stat.S_ISREG(actual.st_mode) or actual.st_nlink != 1 or any(
+                getattr(actual, field) != getattr(before, field) for field in (
+                    'st_dev', 'st_ino', 'st_size')):
+            raise BundleError('Delivery manifest path changed after opening')
+        digest = hashlib.sha256(data).hexdigest()
+        try:
+            manifest = json.loads(data.decode('utf-8'),
+                                  object_pairs_hook=_strict_json_pairs,
+                                  parse_constant=_reject_json_constant)
+        except (ValueError, UnicodeError) as exc:
+            raise BundleError('Invalid delivery manifest JSON') from exc
+        return manifest, (digest, before.st_dev, before.st_ino, before.st_size,
+                          before.st_mtime_ns, before.st_ctime_ns)
+    finally:
+        os.close(fd)
+
+
 def verify(folder, expected_source=None):
     root = Path(folder)
     if root.is_symlink() or not root.is_dir():
@@ -159,15 +224,7 @@ def verify(folder, expected_source=None):
     # Every exported bundle is created owner-only and should remain so.
     if os.name != 'nt' and root.stat().st_mode & 0o077:
         raise BundleError('Delivery bundle directory must be owner-only')
-    manifest_path = regular_private_file(root / 'manifest.json')
-    if os.name != 'nt' and manifest_path.stat().st_mode & 0o077:
-        raise BundleError('Delivery manifest must be owner-only')
-    if manifest_path.stat().st_size > 64 * 1024:
-        raise BundleError('Manifest is unexpectedly large')
-    try:
-        manifest = json.loads(manifest_path.read_text('utf-8'))
-    except (ValueError, UnicodeError) as exc:
-        raise BundleError('Invalid manifest JSON') from exc
+    manifest, baseline = secure_manifest_snapshot(root)
     core = {'schema', 'source_sha', 'created_at_utc', 'acceptance', 'artifacts'}
     if not isinstance(manifest, dict) or set(manifest) not in (core, core | {'workflow_evidence'}):
         raise BundleError('Manifest fields do not match approved schema')
@@ -203,6 +260,9 @@ def verify(folder, expected_source=None):
         archive_check(artifact, platform)
     if {p.name for p in root.iterdir()} != {'manifest.json', 'android-development.apk', 'ios-simulator.zip'}:
         raise BundleError('Unexpected files in delivery bundle')
+    manifest_after, final_identity = secure_manifest_snapshot(root)
+    if final_identity != baseline or manifest_after != manifest:
+        raise BundleError('Delivery manifest changed while verifying bundle')
     return manifest
 
 

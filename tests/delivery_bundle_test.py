@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import zipfile
 import sys
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from delivery_bundle import BundleError, create, verify, archive_check, main
 
@@ -136,6 +137,82 @@ class DeliveryBundleTests(unittest.TestCase):
         item['sha256'] = hashlib.sha256(damaged).hexdigest()
         mfile.write_text(json.dumps(data))
         with self.assertRaises(BundleError): verify(bundle, SHA)
+
+    def test_duplicate_delivery_manifest_members_rejected_even_if_last_value_is_safe(self):
+        bundle = self.bundle()
+        manifest = bundle / 'manifest.json'
+        original = manifest.read_text()
+        # Last JSON key wins with Python's default decoder; fail closed instead.
+        manifest.write_text('{"schema":"untrusted",' + original.lstrip()[1:])
+        with self.assertRaisesRegex(BundleError, 'Duplicate delivery manifest'):
+            verify(bundle, SHA)
+
+    def test_duplicate_nested_acceptance_members_rejected(self):
+        bundle = self.bundle()
+        manifest = bundle / 'manifest.json'
+        original = manifest.read_text()
+        expected = '"production_accepted": false'
+        self.assertIn(expected, original)
+        manifest.write_text(original.replace(
+            expected, '"production_accepted": true, ' + expected, 1))
+        with self.assertRaisesRegex(BundleError, 'Duplicate delivery manifest'):
+            verify(bundle, SHA)
+
+    def test_nan_and_infinity_delivery_manifest_rejected_at_parse_boundary(self):
+        for constant in ('NaN', 'Infinity', '-Infinity'):
+            bundle = self.root / ('delivery-' + constant.replace('-', 'negative'))
+            create(bundle, SHA, self.android, self.ios)
+            manifest = bundle / 'manifest.json'
+            text = manifest.read_text()
+            manifest.write_text(text.replace('"size_bytes": ', '"size_bytes": ' +
+                                             constant + ', "size_bytes": ', 1))
+            with self.subTest(constant=constant), self.assertRaisesRegex(
+                    BundleError, 'Nonstandard numeric constant'):
+                verify(bundle, SHA)
+
+    def test_manifest_hardlink_rejected_even_if_bytes_and_modes_match(self):
+        bundle = self.bundle()
+        original = bundle / 'manifest.json'
+        os.link(original, self.root / 'alias-manifest.json')
+        with self.assertRaisesRegex(BundleError, 'permissions, type or size'):
+            verify(bundle, SHA)
+
+    def test_manifest_atomic_replacement_mid_validation_cannot_be_accepted(self):
+        bundle = self.bundle()
+        original = bundle / 'manifest.json'
+        real_archive_check = archive_check
+        changed = []
+
+        def swap(path, platform):
+            if not changed:
+                changed.append(True)
+                fresh = self.root / 'replacement-manifest.json'
+                fresh.write_bytes(original.read_bytes())
+                fresh.chmod(0o600)
+                fresh.replace(original)
+            return real_archive_check(path, platform)
+
+        with patch('delivery_bundle.archive_check', side_effect=swap):
+            with self.assertRaisesRegex(BundleError, 'changed while verifying'):
+                verify(bundle, SHA)
+        self.assertTrue(changed)
+
+    def test_manifest_changed_during_crc_verification_cannot_be_accepted(self):
+        bundle = self.bundle()
+        original = bundle / 'manifest.json'
+        real_archive_check = archive_check
+        changed = []
+
+        def mutate(path, platform):
+            if not changed:
+                changed.append(True)
+                original.write_bytes(original.read_bytes() + b' ')
+                original.chmod(0o600)
+            return real_archive_check(path, platform)
+
+        with patch('delivery_bundle.archive_check', side_effect=mutate):
+            with self.assertRaisesRegex(BundleError, 'changed while verifying'):
+                verify(bundle, SHA)
 
     def test_cli_success_and_failure(self):
         bundle = self.bundle()
