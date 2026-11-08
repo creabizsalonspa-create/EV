@@ -23,6 +23,18 @@ ARTIFACTS = {
     'android': 'hasone-customer-android-development',
     'ios': 'hasone-customer-ios-simulator',
 }
+PROFILES = {
+    'hasone_customer': {
+        'workflow': WORKFLOW, 'workflow_id': WORKFLOW_ID, 'workflow_path': WORKFLOW_PATH,
+        'artifacts': ARTIFACTS, 'ios_member': 'hasone-ios-simulator.tar.gz',
+    },
+    'ev_shared_native': {
+        'workflow': 'Native client validation', 'workflow_id': 397853920,
+        'workflow_path': '.github/workflows/mobile.yml',
+        'artifacts': {'android': 'creabiz-android-debug', 'ios': 'creabiz-ios-simulator'},
+        'ios_member': 'creabiz-ios-simulator.tar.gz',
+    },
+}
 
 
 def read_snapshot(file):
@@ -38,15 +50,21 @@ def read_snapshot(file):
     return snapshot
 
 
-def verify_workflow(run, artifact_listing, source_sha, run_id, android_file, ios_file):
+def verify_workflow(run, artifact_listing, source_sha, run_id, android_file, ios_file, profile='hasone_customer'):
+    config = PROFILES.get(profile)
+    if config is None:
+        raise BundleError('Unknown reviewed GitHub mobile development workflow')
+    artifacts = config['artifacts']
+    if not isinstance(run, dict):
+        raise BundleError('GitHub run must be a metadata object')
     if not isinstance(source_sha, str) or not SHA40.fullmatch(source_sha):
         raise BundleError('Exact 40-character Git revision required')
     if type(run_id) is not int or run_id <= 0 or type(run.get('id')) is not int or run['id'] != run_id:
         raise BundleError('GitHub workflow run ID mismatch')
-    if run.get('status') != 'completed' or run.get('conclusion') != 'success' or run.get('name') != WORKFLOW:
+    if run.get('status') != 'completed' or run.get('conclusion') != 'success' or run.get('name') != config['workflow']:
         raise BundleError('Workflow is not the successful reviewed development build')
-    if type(run.get('workflow_id')) is not int or run['workflow_id'] != WORKFLOW_ID or \
-            run.get('path') != WORKFLOW_PATH:
+    if type(run.get('workflow_id')) is not int or run['workflow_id'] != config['workflow_id'] or \
+            run.get('path') != config['workflow_path']:
         raise BundleError('Workflow ID or source path differs from reviewed mobile build workflow')
     if run.get('event') not in ('push', 'pull_request', 'workflow_dispatch'):
         raise BundleError('Unexpected GitHub workflow trigger')
@@ -68,7 +86,7 @@ def verify_workflow(run, artifact_listing, source_sha, run_id, android_file, ios
         if not isinstance(item, dict):
             raise BundleError('Invalid GitHub artifact record')
         name = item.get('name')
-        if name not in ARTIFACTS.values():
+        if name not in artifacts.values():
             continue
         if name in selected:
             raise BundleError('Duplicate development build artifact name')
@@ -87,9 +105,9 @@ def verify_workflow(run, artifact_listing, source_sha, run_id, android_file, ios
             raise BundleError('Published GitHub artifact has no SHA-256 digest')
         selected[name] = item
 
-    if set(selected) != set(ARTIFACTS.values()):
+    if set(selected) != set(artifacts.values()):
         raise BundleError('Both reviewed Android and iOS simulator artifacts are required')
-    if selected[ARTIFACTS['android']]['id'] == selected[ARTIFACTS['ios']]['id']:
+    if selected[artifacts['android']]['id'] == selected[artifacts['ios']]['id']:
         raise BundleError('Android and iOS artifacts cannot have the same identity')
 
     for role, file in [('android', android_file), ('ios', ios_file)]:
@@ -97,29 +115,32 @@ def verify_workflow(run, artifact_listing, source_sha, run_id, android_file, ios
         if file.is_symlink() or not file.is_file():
             raise BundleError('GitHub artifact wrapper must be a regular file')
         digest, size = checksum(file)
-        item = selected[ARTIFACTS[role]]
+        item = selected[artifacts[role]]
         if size != item['size_in_bytes'] or digest != item['digest'][7:]:
             raise BundleError('Artifact bytes differ from the same-run GitHub API record')
     return {
-        'android_digest': selected[ARTIFACTS['android']]['digest'][7:],
-        'ios_digest': selected[ARTIFACTS['ios']]['digest'][7:],
+        'android_digest': selected[artifacts['android']]['digest'][7:],
+        'ios_digest': selected[artifacts['ios']]['digest'][7:],
         'run_id': run_id,
         'source_sha': source_sha,
-        'android_artifact_id': selected[ARTIFACTS['android']]['id'],
-        'ios_artifact_id': selected[ARTIFACTS['ios']]['id'],
+        'android_artifact_id': selected[artifacts['android']]['id'],
+        'ios_artifact_id': selected[artifacts['ios']]['id'],
     }
 
 
-def package_from_workflow(output, source_sha, run_id, run_file, artifacts_file, android_file, ios_file):
+def package_from_workflow(output, source_sha, run_id, run_file, artifacts_file, android_file, ios_file, profile='hasone_customer'):
     run = read_snapshot(run_file)
     listing = read_snapshot(artifacts_file)
-    proven = verify_workflow(run, listing, source_sha, run_id, android_file, ios_file)
+    config=PROFILES.get(profile)
+    if config is None:
+        raise BundleError('Unknown reviewed mobile build workflow')
+    proven = verify_workflow(run, listing, source_sha, run_id, android_file, ios_file, profile=profile)
     workflow_evidence = {
         'provider': 'github_actions',
         'repository': REPOSITORY,
-        'workflow_name': WORKFLOW,
-        'workflow_id': WORKFLOW_ID,
-        'workflow_path': WORKFLOW_PATH,
+        'workflow_name': config['workflow'],
+        'workflow_id': config['workflow_id'],
+        'workflow_path': config['workflow_path'],
         'run_id': run_id,
         'head_sha': source_sha,
         'android': {'artifact_id': proven['android_artifact_id'],
@@ -132,6 +153,7 @@ def package_from_workflow(output, source_sha, run_id, run_file, artifacts_file, 
     return import_actions(
         output, proven['source_sha'], android_file, proven['android_digest'],
         ios_file, proven['ios_digest'], workflow_evidence=workflow_evidence,
+        ios_member=config['ios_member'],
     )
 
 

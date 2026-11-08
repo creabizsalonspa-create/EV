@@ -108,15 +108,22 @@ def verify_workflow_reference(workflow, source_sha):
     # verifiable but newer imports must bind the reviewed workflow identity.
     if not isinstance(workflow, dict) or set(workflow) not in (expected, expected | identified):
         raise BundleError('Invalid optional workflow evidence schema')
+    expected_workflows = {
+        'Hasone customer development builds': (410027022, '.github/workflows/hasone-customer.yml'),
+        'Native client validation': (397853920, '.github/workflows/mobile.yml'),
+    }
+    workflow_identity = expected_workflows.get(workflow.get('workflow_name'))
     if workflow['provider'] != 'github_actions' or workflow['repository'] != 'creabizsalonspa-create/EV' or \
-            workflow['workflow_name'] != 'Hasone customer development builds' or \
+            workflow_identity is None or \
             type(workflow['run_id']) is not int or workflow['run_id'] <= 0 or \
             workflow['head_sha'] != source_sha or workflow['snapshot_authenticated'] is not False:
         raise BundleError('Unverifiable workflow provenance or false authentication claim')
+    if workflow['workflow_name'] == 'Native client validation' and not identified <= set(workflow):
+        raise BundleError('Shared native developer build must include exact workflow ID and source path')
     if identified <= set(workflow) and (
             type(workflow['workflow_id']) is not int or
-            workflow['workflow_id'] != 410027022 or
-            workflow['workflow_path'] != '.github/workflows/hasone-customer.yml'):
+            workflow['workflow_id'] != workflow_identity[0] or
+            workflow['workflow_path'] != workflow_identity[1]):
         raise BundleError('Wrong GitHub mobile workflow identity')
     ids = set()
     for role in ('android', 'ios'):

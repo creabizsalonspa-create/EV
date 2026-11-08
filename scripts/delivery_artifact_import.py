@@ -43,12 +43,12 @@ def valid_tar_name(name):
                 all(part not in ('', '.', '..') for part in parts) and ':' not in parts[0])
 
 
-def convert_ios_tar_to_zip(ios_wrapper, destination):
+def convert_ios_tar_to_zip(ios_wrapper, destination, ios_member='hasone-ios-simulator.tar.gz'):
     seen = set()
     expanded = 0
     count = 0
     with zipfile.ZipFile(ios_wrapper) as outer:
-        with outer.open('hasone-ios-simulator.tar.gz') as compressed:
+        with outer.open(ios_member) as compressed:
             with tarfile.open(fileobj=compressed, mode='r|gz') as archive:
                 with zipfile.ZipFile(destination, 'x', compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as output:
                     for item in archive:
@@ -75,9 +75,9 @@ def convert_ios_tar_to_zip(ios_wrapper, destination):
         raise BundleError('Simulator TAR is empty')
 
 
-def import_actions(output, source_sha, android_wrapper, android_digest, ios_wrapper, ios_digest, workflow_evidence=None):
+def import_actions(output, source_sha, android_wrapper, android_digest, ios_wrapper, ios_digest, workflow_evidence=None, ios_member='hasone-ios-simulator.tar.gz'):
     android_wrapper = check_wrapper(android_wrapper, android_digest, 'app-debug.apk')
-    ios_wrapper = check_wrapper(ios_wrapper, ios_digest, 'hasone-ios-simulator.tar.gz')
+    ios_wrapper = check_wrapper(ios_wrapper, ios_digest, ios_member)
     output = Path(output)
     if not output.parent.is_dir() or output.parent.is_symlink():
         raise BundleError('Output parent must already exist as a real directory')
@@ -88,7 +88,7 @@ def import_actions(output, source_sha, android_wrapper, android_digest, ios_wrap
             shutil.copyfileobj(source, target, length=1024 * 1024)
         os.chmod(apk, 0o600)
         ios = work / 'converted-ios-simulator.zip'
-        convert_ios_tar_to_zip(ios_wrapper, ios)
+        convert_ios_tar_to_zip(ios_wrapper, ios, ios_member=ios_member)
         create(output, source_sha, apk, ios, workflow_evidence=workflow_evidence)
         return verify(output, source_sha)
 

@@ -141,6 +141,10 @@ def verify_alignment(stage_file, mobile_dir, source_sha, now=None):
     observed = require_reviewed_stage(report, source_sha, now)
     manifest_path = Path(mobile_dir) / 'manifest.json'
     manifest_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    workflow_name = workflow['workflow_name']
+    profile = ('EV_SHARED_CUSTOMER_VENDOR_DEVELOPER_REFERENCE_ONLY'
+               if workflow_name == 'Native client validation'
+               else 'HASONE_CUSTOMER_DEVELOPER_REFERENCE_ONLY')
     return {
         'schema': SCHEMA,
         'status': 'DEVELOPMENT_ONLY_SOURCE_ALIGNMENT_VERIFIED',
@@ -149,8 +153,9 @@ def verify_alignment(stage_file, mobile_dir, source_sha, now=None):
         'mobile_manifest_sha256': manifest_digest,
         'stage_runtime_fingerprint_sha256': report['runtime_fingerprint_sha256'],
         'mobile_workflow_run_id': workflow['run_id'],
-        'mobile_workflow_name': 'Hasone customer development builds',
-        'mobile_artifact_scope': 'HASONE_CUSTOMER_DEVELOPER_REFERENCE_ONLY',
+        'mobile_workflow_name': workflow_name,
+        'mobile_artifact_scope': profile,
+        'shared_customer_vendor_developer_bundle_verified': workflow_name == 'Native client validation',
         'stage_observed_until_utc': observed.isoformat().replace('+00:00', 'Z'),
         'checked_at_utc': now.isoformat(timespec='seconds').replace('+00:00', 'Z'),
         'private_stage_source_label_self_declared': True,
