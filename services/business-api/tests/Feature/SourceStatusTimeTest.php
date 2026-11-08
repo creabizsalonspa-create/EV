@@ -4,10 +4,23 @@ namespace Tests\Feature;
 
 use App\Services\Charging\SourceStatusTime;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Tests\TestCase;
 
 class SourceStatusTimeTest extends TestCase
 {
+    public function test_status_stays_strict_while_signed_events_can_use_the_existing_bounded_clock_tolerance(): void
+    {
+        $future = now()->toImmutable()->addSeconds(10)->startOfSecond();
+        try {
+            SourceStatusTime::parse($future->toIso8601String());
+            $this->fail('Status checks accepted future telemetry.');
+        } catch (HttpExceptionInterface $exception) {
+            $this->assertSame(503, $exception->getStatusCode());
+        }
+        $this->assertTrue(SourceStatusTime::parse($future->toIso8601String(), 300)->equalTo($future));
+    }
+
     public static function validTimes(): array
     {
         return [

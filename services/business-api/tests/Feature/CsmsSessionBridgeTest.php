@@ -49,6 +49,23 @@ class CsmsSessionBridgeTest extends TestCase
         return $this->call('POST', '/api/internal/csms/events', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_X_EV_TIMESTAMP' => $ts, 'HTTP_X_EV_SIGNATURE' => hash_hmac('sha256', $ts.'.'.$raw, $key ?? self::KEY)], $raw);
     }
 
+    public function test_source_event_requires_explicit_absolute_time_and_preserves_existing_clock_tolerance(): void
+    {
+        [$vendor, $customer, $station, $reservation] = $this->fixture();
+        $this->actingAs($customer)->postJson('/api/reservations/'.$reservation->id.'/csms-start')->assertAccepted();
+        $session = ChargingSession::firstOrFail();
+        $event = $this->event($session->id, 'started', 0, 1000);
+        foreach ([now()->format('Y-m-d H:i:s'), now()->format('Y-m-d\TH:i:s'), now()->addMinutes(6)->toIso8601String()] as $invalid) {
+            $this->send(array_replace($event, ['occurred_at' => $invalid]))->assertStatus(422);
+            $this->assertDatabaseCount('csms_inbox_events', 0);
+            $this->assertSame('pending_start', $session->fresh()->status);
+            $this->assertDatabaseCount('finance_invoices', 0);
+        }
+        $this->send(array_replace($event, ['occurred_at' => now()->addMinute()->toIso8601String()]))->assertOk();
+        $this->assertSame('charging', $session->fresh()->status);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_correlated_source_meters_finalize_one_invoice_and_replay_cannot_double_bill(): void
     {
         [$v,$u,$station,$r] = $this->fixture();
