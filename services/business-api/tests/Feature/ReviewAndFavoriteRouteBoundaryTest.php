@@ -8,13 +8,13 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
 
 /**
- * Unbounded digit strings must not reach customer-review/favorite handlers,
- * public station review discovery or locally gated checkout simulation pages.
+ * Unbounded digit strings must not reach customer-review handlers, public
+ * station review discovery or locally gated checkout simulation pages.
  * The matcher check makes no database, provider or physical device mutations.
  */
 class ReviewAndFavoriteRouteBoundaryTest extends TestCase
 {
-    public function test_review_and_favorite_identifiers_are_bounded_in_both_api_mounts(): void
+    public function test_review_identifiers_are_bounded_in_both_api_mounts(): void
     {
         $routes = [
             ['GET', '/stations/{id}/reviews'],
@@ -23,10 +23,8 @@ class ReviewAndFavoriteRouteBoundaryTest extends TestCase
             ['DELETE', '/charging-reviews/{id}'],
             ['GET', '/charging-reviews/{id}/history'],
             ['POST', '/charging-reviews/{id}/moderate'],
-            ['PUT', '/favorites/{id}'],
-            ['DELETE', '/favorites/{id}'],
         ];
-        $this->assertCount(8, $routes);
+        $this->assertCount(6, $routes);
 
         foreach (['/api', '/api/v1'] as $prefix) {
             foreach ($routes as [$method, $template]) {
@@ -37,7 +35,7 @@ class ReviewAndFavoriteRouteBoundaryTest extends TestCase
                     $uri = $prefix.str_replace('{id}', $bad, $template);
                     try {
                         Route::getRoutes()->match(Request::create($uri, $method));
-                        $this->fail('Invalid review/favorite ID dispatched: '.$method.' '.$uri);
+                        $this->fail('Invalid review ID dispatched: '.$method.' '.$uri);
                     } catch (NotFoundHttpException) {
                         // Reject before model binding, account access or mutation.
                     }
@@ -46,6 +44,20 @@ class ReviewAndFavoriteRouteBoundaryTest extends TestCase
 
             // Public catalog routes also return actual 404 responses rather than 500.
             $this->getJson($prefix.'/stations/'.str_repeat('9', 19).'/reviews')->assertNotFound();
+        }
+    }
+
+    public function test_favorite_ids_remain_numeric_so_invalid_integers_keep_their_422_validation(): void
+    {
+        // StationFavoriteController::stationId() validates a string ID as
+        // integer|min:1 before casting; StationFavoriteTest asserts 422 for
+        // oversized positive IDs. Rejecting at the router would change 422
+        // to 404, so keep the original numeric match on these two routes.
+        foreach (['/api', '/api/v1'] as $prefix) {
+            foreach (['PUT', 'DELETE'] as $method) {
+                $uri = $prefix.'/favorites/'.str_repeat('9', 30);
+                $this->assertNotNull(Route::getRoutes()->match(Request::create($uri, $method))->getActionName());
+            }
         }
     }
 
