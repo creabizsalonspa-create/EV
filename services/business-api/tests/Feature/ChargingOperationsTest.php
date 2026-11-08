@@ -3,14 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\ChargerCommand;
-use App\Models\InboxNotification;
 use App\Models\ChargingSession;
+use App\Models\InboxNotification;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
-use App\Services\Charging\CommandReconciler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -82,6 +82,7 @@ class ChargingOperationsTest extends TestCase
             function () use ($command, $newOwner): int {
                 Station::whereKey($command->station_id)
                     ->update(['vendor_id' => $newOwner->id]);
+
                 return 0;
             }
         );
@@ -297,6 +298,7 @@ class ChargingOperationsTest extends TestCase
         $consumer->shouldReceive('consume')->once()->andReturnUsing(
             function () use ($vendor): int {
                 DB::table('users')->where('id', $vendor->id)->update(['role' => 'customer']);
+
                 return 0;
             }
         );
