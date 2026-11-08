@@ -6,6 +6,8 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AdminKycQueueTest extends TestCase
@@ -147,14 +149,20 @@ class AdminKycQueueTest extends TestCase
         $owner = User::factory()->create(['role' => 'customer']);
         $admin = User::factory()->create(['role' => 'admin']);
         $company = $this->company($owner, 'submitted');
+        // Approval now requires evidence that exists and matches the
+        // uploaded document digest, not just a fabricated database record.
+        Storage::fake('local');
+        $contents = "%PDF-1.4\nSYNTHETIC-VALID-TRADE-LICENSE";
+        $path = 'vendor-kyc/test-valid-license.enc';
+        Storage::disk('local')->put($path, Crypt::encryptString($contents));
         VendorKycDocument::create([
             'company_id' => $company->id,
             'uploaded_by' => $owner->id,
             'kind' => 'trade_license',
             'mime_type' => 'application/pdf',
-            'size_bytes' => 2048,
-            'sha256' => str_repeat('b', 64),
-            'storage_path' => 'test-kyc-file.enc',
+            'size_bytes' => strlen($contents),
+            'sha256' => hash('sha256', $contents),
+            'storage_path' => $path,
         ]);
         $this->actingAs($admin)
             ->postJson("/api/vendor-ops/companies/{$company->id}/review", [
