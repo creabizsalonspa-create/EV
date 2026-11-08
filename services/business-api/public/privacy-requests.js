@@ -25,11 +25,15 @@
       .map(n => n.toString(16).padStart(2, "0")).join("");
   };
   function createPrivacyWorkspace({selfRoot, adminRoot, api, actor, epoch = () => 0}) {
-    let current = null, session = 0, sequence = 0, pending = null, ownPage = 1, adminPage = 1;
-    const alive = (owner, ticket) => owner === current && actor() === owner &&
-      session === epoch() && ticket === sequence;
+    let current = null, session = 0, mineSequence = 0, adminSequence = 0,
+      pending = null, ownPage = 1, adminPage = 1;
+    const authenticated = owner => owner === current && actor() === owner &&
+      session === epoch();
+    const aliveMine = (owner, ticket) => authenticated(owner) && ticket === mineSequence;
+    const aliveAdmin = (owner, ticket) => authenticated(owner) && ticket === adminSequence;
     function clear() {
-      sequence++; current = pending = null; session = 0; ownPage = adminPage = 1;
+      mineSequence++; adminSequence++;
+      current = pending = null; session = 0; ownPage = adminPage = 1;
       selfRoot.replaceChildren(); adminRoot.replaceChildren();
     }
     function errorOn(root, message) {
@@ -65,7 +69,7 @@
       return card;
     }
     async function refreshMine(target = ownPage) {
-      const owner = current, ticket = ++sequence;
+      const owner = current, ticket = ++mineSequence;
       if (!owner || actor() !== owner || session !== epoch()) {clear();return;}
       ownPage = target; selfRoot.replaceChildren();
       selfRoot.append(text("Privacy and data requests", "طلبات الخصوصية والبيانات", "h3"));
@@ -95,12 +99,12 @@
       const submit = document.createElement("button");
       submit.type = "submit"; submit.append(text("Submit request", "إرسال الطلب")); form.append(submit);
       form.append(btn("Start a different request", "بدء طلب مختلف", () => {
-        if (!alive(owner, ticket)) return;
+        if (!aliveMine(owner, ticket)) return;
         pending = null; form.reset(); errorOn(selfRoot,"");
       }));
       form.onsubmit = async event => {
         event.preventDefault();
-        if (!alive(owner, ticket)) return;
+        if (!aliveMine(owner, ticket)) return;
         if (!consent.checked) {errorOn(selfRoot, ar() ? "أكد فهمك أولاً." : "Confirm the review notice first.");return;}
         const body = {request_type:type.value, reason:reason.value.trim() || null};
         if (pending && JSON.stringify(body) !== JSON.stringify(pending.body)) {
@@ -116,7 +120,7 @@
         errorOn(selfRoot, ar() ? "جارٍ إرسال الطلب..." : "Submitting request…");
         try {
           const recorded = await api("privacy-requests", "POST", {...pending.body, idempotency_key:pending.id});
-          if (!alive(owner, ticket)) return;
+          if (!aliveMine(owner, ticket)) return;
           // A successful write followed by a failed read must retain the
           // original idempotency key. Only clear it after the committed row
           // has been observed again in the authoritative account list.
@@ -130,58 +134,58 @@
               : "Request may be recorded, but list verification failed. Retry the same request.");
           }
         } catch (e) {
-          if (alive(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
+          if (aliveMine(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
         } finally {submit.disabled = false;}
       };
       selfRoot.append(form);
       selfRoot.append(btn("Refresh my requests", "تحديث طلباتي", () => {
-        if (alive(owner, ticket)) return refreshMine(ownPage);
+        if (aliveMine(owner, ticket)) return refreshMine(ownPage);
       }));
       const list = document.createElement("div"); list.className = "privacy-request-list"; selfRoot.append(list);
       try {
         const result = await api("privacy-requests?page=" + ownPage);
-        if (!alive(owner, ticket)) return;
+        if (!aliveMine(owner, ticket)) return;
         if (!result.data?.length) list.append(p("No privacy requests submitted.", "لم يتم تقديم أي طلبات خصوصية."));
         for (const row of result.data || []) {
           const withdraw = async id => {
-            if (!alive(owner, ticket)) return;
+            if (!aliveMine(owner, ticket)) return;
             try {await api("privacy-requests/" + id + "/withdraw", "POST", {});if (current === owner && session === epoch()) await refreshMine(ownPage);}
             catch (e) {if (current === owner && session === epoch()) errorOn(selfRoot, safe(e.message) || String(e));}
           };
           list.append(oneRow(row, withdraw));
         }
         if (ownPage > 1) selfRoot.append(btn("Previous", "السابق", () => {
-          if (alive(owner, ticket)) return refreshMine(ownPage - 1);
+          if (aliveMine(owner, ticket)) return refreshMine(ownPage - 1);
         }));
         if (ownPage < result.last_page) selfRoot.append(btn("Next", "التالي", () => {
-          if (alive(owner, ticket)) return refreshMine(ownPage + 1);
+          if (aliveMine(owner, ticket)) return refreshMine(ownPage + 1);
         }));
         return result.data || [];
       } catch (e) {
-        if (alive(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
+        if (aliveMine(owner, ticket)) errorOn(selfRoot, safe(e.message) || String(e));
         return null;
       }
     }
     async function refreshAdmin(target = adminPage) {
-      const owner = current, ticket = ++sequence;
+      const owner = current, ticket = ++adminSequence;
       if (owner && (actor() !== owner || session !== epoch())) {clear();return;}
       if (owner?.role !== "admin") {adminRoot.replaceChildren();return;}
       adminPage = target;
       adminRoot.replaceChildren(text("Privacy request reviews", "مراجعة طلبات الخصوصية", "h3"));
       adminRoot.append(p("Administrative review does not erase customer data or establish legal fulfillment.", "المراجعة الإدارية لا تحذف بيانات العميل ولا تثبت الوفاء القانوني."));
       adminRoot.append(btn("Refresh review queue", "تحديث قائمة المراجعة", () => {
-        if (alive(owner, ticket)) return refreshAdmin(adminPage);
+        if (aliveAdmin(owner, ticket)) return refreshAdmin(adminPage);
       }));
       const list = document.createElement("div"); adminRoot.append(list);
       try {
         const result = await api("admin/privacy-requests?page=" + adminPage);
-        if (!alive(owner, ticket)) return;
+        if (!aliveAdmin(owner, ticket)) return;
         if (!result.data?.length) list.append(p("No review requests.", "لا توجد طلبات للمراجعة."));
         for (const row of result.data || []) {
           const card = oneRow(row);
           card.append(p("Request from: " + safe(row.user?.email), "طلب من: " + safe(row.user?.email)));
           if (row.status === "submitted") card.append(btn("Start review", "بدء المراجعة", async () => {
-            if (!alive(owner, ticket)) return;
+            if (!aliveAdmin(owner, ticket)) return;
             try {await api("admin/privacy-requests/" + row.id, "PATCH", {status:"in_review"}); if (current === owner && session === epoch()) await refreshAdmin(adminPage);}
             catch (e) {if (current === owner && session === epoch()) errorOn(adminRoot, safe(e.message) || String(e));}
           }));
@@ -202,7 +206,7 @@
             f.append(choices,note,submit);
             f.onsubmit = async event => {
               event.preventDefault();
-              if (!alive(owner, ticket)) return;
+              if (!aliveAdmin(owner, ticket)) return;
               submit.disabled = true;
               try {await api("admin/privacy-requests/" + row.id,"PATCH", {
                 status:"closed",resolution:choices.value,decision_note:note.value.trim(),
@@ -214,12 +218,12 @@
           list.append(card);
         }
         if (adminPage > 1) adminRoot.append(btn("Previous", "السابق", () => {
-          if (alive(owner, ticket)) return refreshAdmin(adminPage - 1);
+          if (aliveAdmin(owner, ticket)) return refreshAdmin(adminPage - 1);
         }));
         if (adminPage < result.last_page) adminRoot.append(btn("Next", "التالي", () => {
-          if (alive(owner, ticket)) return refreshAdmin(adminPage + 1);
+          if (aliveAdmin(owner, ticket)) return refreshAdmin(adminPage + 1);
         }));
-      } catch (e) {if (alive(owner, ticket)) errorOn(adminRoot, safe(e.message) || String(e));}
+      } catch (e) {if (aliveAdmin(owner, ticket)) errorOn(adminRoot, safe(e.message) || String(e));}
     }
     async function setActor(value) {
       if (!value) {clear();return;}

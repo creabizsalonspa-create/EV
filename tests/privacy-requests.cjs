@@ -66,6 +66,29 @@ const content = root => {
   await ui.setActor(user2);
   assert.doesNotMatch(content(mine), /secret-private-note/);
   assert.match(content(mine), /No privacy requests submitted/);
+  // Admin has TWO separate workspaces. Refreshing one must not invalidate
+  // the other's still-visible controls during the same authenticated session.
+  const adminUser = {role:'admin',id:3};
+  actor=adminUser;epoch++;
+  await ui.setActor(adminUser);
+  assert.match(content(admin),/Privacy request reviews/);
+  const ownRefresh=find(mine,node=>node.tag==='button' &&
+    content(node).includes('Refresh my requests'));
+  const adminRefresh=find(admin,node=>node.tag==='button' &&
+    content(node).includes('Refresh review queue'));
+  assert.ok(ownRefresh&&adminRefresh);
+  const ownCount=()=>calls.filter(path=>path==='privacy-requests?page=1').length;
+  const adminCount=()=>calls.filter(path=>path==='admin/privacy-requests?page=1').length;
+  const beforeMineRefresh=ownCount();
+  await ownRefresh.onclick();
+  assert.equal(ownCount(),beforeMineRefresh+1,
+    'Admin own privacy list must remain refreshable after Admin queue initializes');
+  const beforeAdminRefresh=adminCount();
+  await adminRefresh.onclick();
+  assert.equal(adminCount(),beforeAdminRefresh+1,
+    'Admin review queue must remain refreshable after own list refresh');
+  assert.match(content(mine),/Privacy and data requests/);
+  assert.match(content(admin),/Privacy request reviews/);
   ui.clear();
   assert.equal(mine.children.length, 0);
   assert.doesNotMatch(fs.readFileSync(path,'utf8'), /\.innerHTML\s*=/);
