@@ -50,6 +50,15 @@
         if (description) appendText(details, "About: " + fallback(info.description_en, description), "الوصف: " + fallback(info.description_ar, description));
         const access = fallback(info.access_en, info.access_ar);
         if (access) appendText(details, "Access: " + fallback(info.access_en, access), "الدخول: " + fallback(info.access_ar, access));
+        if (info.notice_active === true) {
+            const notice = fallback(info.notice_en, info.notice_ar);
+            if (notice) appendText(details,
+                "Operator access notice: " + fallback(info.notice_en, notice),
+                "تنبيه دخول من المشغل: " + fallback(info.notice_ar, notice));
+            if (notice && typeof info.notice_until === "string")
+                appendText(details, "Notice expires (UTC): " + info.notice_until,
+                    "ينتهي التنبيه (UTC): " + info.notice_until);
+        }
         const hours = info.weekly_hours || {};
         const hourLines = [];
         for (let i = 0; i < days.length; i++) {
@@ -142,6 +151,10 @@
             field(form, "description_ar", "Description (Arabic)", "الوصف (بالعربية)", info.description_ar);
             field(form, "access_en", "Access instructions (English)", "تعليمات الدخول (بالإنجليزية)", info.access_en);
             field(form, "access_ar", "Access instructions (Arabic)", "تعليمات الدخول (بالعربية)", info.access_ar);
+            field(form, "notice_en", "Temporary access notice (English)", "تنبيه وصول مؤقت (بالإنجليزية)", info.notice_en).maxLength = 300;
+            field(form, "notice_ar", "Temporary access notice (Arabic)", "تنبيه وصول مؤقت (بالعربية)", info.notice_ar).maxLength = 300;
+            const noticeUntil = field(form, "notice_until", "Notice expiry (UTC calendar date, inclusive)", "انتهاء التنبيه (تاريخ UTC شامل)", info.notice_until);
+            noticeUntil.type = "date";
             const week = document.createElement("fieldset");
             const timezone = typeof selected.timezone === "string" && selected.timezone.trim()
                 ? selected.timezone.trim() : null;
@@ -212,8 +225,16 @@
                 }
                 const uniqueDates = [...new Set(dates.value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean))];
                 if (uniqueDates.length > 50) { status(isArabic() ? "الحد الأقصى 50 تاريخاً" : "At most 50 holiday dates.", true); return; }
+                const noticeText = form.elements.notice_en.value.trim() || form.elements.notice_ar.value.trim();
+                if (!!noticeText !== !!noticeUntil.value) {
+                    status(isArabic() ? "يجب إدخال تاريخ انتهاء مع التنبيه أو حذف الاثنين" : "Provide an expiry date with a notice, or clear both.", true);
+                    return;
+                }
                 const body = {
                     revision: info.revision,
+                    notice_en: form.elements.notice_en.value.trim() || null,
+                    notice_ar: form.elements.notice_ar.value.trim() || null,
+                    notice_until: noticeUntil.value || null,
                     description_en: form.elements.description_en.value.trim() || null,
                     description_ar: form.elements.description_ar.value.trim() || null,
                     access_en: form.elements.access_en.value.trim() || null,

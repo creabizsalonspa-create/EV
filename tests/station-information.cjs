@@ -54,6 +54,14 @@ assert.match(overnight, /Monday: 20:00–02:00 \(next day\)/);
 assert.match(overnight, /Tuesday: 24 hours/);
 assert.match(en, /Holiday closures: 2026-12-02/);
 assert.match(en, /Access: Gate B/);
+const activeNotice = output({information: {...info,
+  notice_active: true, notice_en: 'Use rear gate', notice_ar: 'استخدم المدخل الخلفي',
+  notice_until: '2026-12-31'}});
+assert.match(activeNotice, /Operator access notice: Use rear gate/);
+assert.match(activeNotice, /Notice expires \(UTC\): 2026-12-31/);
+const inactiveNotice = output({information: {...info,
+  notice_active: false, notice_en: 'Expired notice', notice_until: '2025-01-01'}});
+assert.doesNotMatch(inactiveNotice, /Expired notice|Notice expires/);
 assert.match(en, /Accessibility: Step-free access/);
 assert.match(en, /availability remains unknown/);
 
@@ -61,6 +69,9 @@ document.documentElement.lang = 'ar';
 const ar = output({information: info});
 assert.match(ar, /الجمعة: مغلق/);
 assert.match(ar, /البوابة ب/);
+assert.match(output({information: {...info, notice_active: true,
+  notice_ar: 'بوابة بديلة', notice_en: 'Alternate gate', notice_until: '2026-12-31'}}),
+  /تنبيه دخول من المشغل: بوابة بديلة/);
 assert.match(ar, /مجهول|غير معروف/);
 
 document.documentElement.lang = 'en';

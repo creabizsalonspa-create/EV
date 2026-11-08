@@ -26,6 +26,11 @@ final class StationInformationController extends Controller
             'description_ar' => 'present|nullable|string|max:500',
             'access_en' => 'present|nullable|string|max:500',
             'access_ar' => 'present|nullable|string|max:500',
+            // Optional for older clients: omitting all notice keys preserves a
+            // newer client's notice rather than deleting it on unrelated edits.
+            'notice_en' => 'sometimes|nullable|string|max:300',
+            'notice_ar' => 'sometimes|nullable|string|max:300',
+            'notice_until' => 'sometimes|nullable|date_format:Y-m-d',
             'weekly_hours' => 'required|array:mon,tue,wed,thu,fri,sat,sun|size:7',
             'closed_dates' => 'present|array|max:50',
             'closed_dates.*' => 'required|date_format:Y-m-d|distinct',
@@ -60,7 +65,31 @@ final class StationInformationController extends Controller
             }
         }
 
-        return DB::transaction(function () use ($request, $station, $v) {
+        $noticeChanged = array_key_exists('notice_en', $v)
+            || array_key_exists('notice_ar', $v)
+            || array_key_exists('notice_until', $v);
+        if ($noticeChanged) {
+            foreach (['notice_en', 'notice_ar', 'notice_until'] as $key) {
+                if (! array_key_exists($key, $v)) {
+                    throw ValidationException::withMessages([$key => 'Submit all notice fields together.']);
+                }
+            }
+            $hasText = trim((string) ($v['notice_en'] ?? '')) !== ''
+                || trim((string) ($v['notice_ar'] ?? '')) !== '';
+            if ($hasText !== ($v['notice_until'] !== null)) {
+                throw ValidationException::withMessages([
+                    'notice_until' => 'A dated expiry is required with a notice; clear the expiry when clearing the notice.',
+                ]);
+            }
+            if ($v['notice_until'] !== null) {
+                [$year, $month, $day] = array_map('intval', explode('-', $v['notice_until']));
+                if (! checkdate($month, $day, $year)) {
+                    throw ValidationException::withMessages(['notice_until' => 'Invalid UTC expiry date.']);
+                }
+            }
+        }
+
+        return DB::transaction(function () use ($request, $station, $v, $noticeChanged) {
             // Serializes first-time creates as well as concurrent revisions.
             $owned = Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             abort_unless((int) $owned->vendor_id === (int) $request->user()->id && $request->user()->role === 'vendor', 404);
@@ -78,6 +107,15 @@ final class StationInformationController extends Controller
                 'revision' => ($current->revision ?? 0) + 1,
                 'updated_at' => now(),
             ];
+            if ($noticeChanged) {
+                $fields['notice_en'] = $v['notice_en'];
+                $fields['notice_ar'] = $v['notice_ar'];
+                $fields['notice_until'] = $v['notice_until'];
+            } elseif (! $current) {
+                $fields['notice_en'] = null;
+                $fields['notice_ar'] = null;
+                $fields['notice_until'] = null;
+            }
             if ($current) {
                 DB::table('station_information')->where('station_id', $owned->id)->update($fields);
             } else {

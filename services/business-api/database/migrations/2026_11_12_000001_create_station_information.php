@@ -16,6 +16,10 @@ return new class extends Migration
             $t->string('description_ar', 500)->nullable();
             $t->string('access_en', 500)->nullable();
             $t->string('access_ar', 500)->nullable();
+            // Explicitly expiring vendor-reported notices; never authoritative status.
+            $t->string('notice_en', 300)->nullable();
+            $t->string('notice_ar', 300)->nullable();
+            $t->date('notice_until')->nullable();
             $t->json('weekly_hours');
             $t->json('closed_dates');
             $t->json('amenities');

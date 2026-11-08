@@ -30,6 +30,9 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   await form.waitFor({timeout:25000});
   await form.locator('[name=description_en]').fill('Entrance at Gate A');
   await form.locator('[name=access_en]').fill('Visitors register at front desk');
+  const expiresOn=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+  await form.locator('[name=notice_en]').fill('Temporary: rear gate for deliveries');
+  await form.locator('[name=notice_until]').fill(expiresOn);
   await form.locator('[name=closed_dates]').fill('2026-12-02');
   const monday=form.locator('.station-hours-row').first();
   await monday.locator('input[type=checkbox]').uncheck();
@@ -42,12 +45,17 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   const saved=await response.json();
   assert.equal(saved.revision,1);
   assert.equal(saved.source_label,'VENDOR_REPORTED_UNVERIFIED');
+  assert.equal(saved.notice_active,true);
+  assert.equal(saved.notice_en,'Temporary: rear gate for deliveries');
+  assert.equal(saved.notice_until,expiresOn);
   assert.equal(saved.weekly_hours.mon.open,'08:00');
   assert.ok(saved.amenities.includes('wifi'));
   await root.getByText('Saved',{exact:true}).waitFor({timeout:20000});
   await page.reload({waitUntil:'networkidle'});
   await form.waitFor({timeout:25000});
   assert.equal(await form.locator('[name=description_en]').inputValue(),'Entrance at Gate A');
+  assert.equal(await form.locator('[name=notice_en]').inputValue(),'Temporary: rear gate for deliveries');
+  assert.equal(await form.locator('[name=notice_until]').inputValue(),expiresOn);
   assert.match(await form.innerText(),/Asia\/Dubai/);
   const published=await page.evaluate(async id=>{
     const r=await fetch('/api/stations/'+id+'/information');
@@ -55,6 +63,8 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   },station.id);
   assert.equal(published.status,200);
   assert.equal(published.data.source_label,'VENDOR_REPORTED_UNVERIFIED');
+  assert.equal(published.data.notice_active,true);
+  assert.equal(published.data.notice_until,expiresOn);
   assert.deepEqual(published.data.closed_dates,['2026-12-02']);
   assert.equal(published.data.weekly_hours.tue.open,null);
   // Create a second station, return to the original editor, then intentionally
@@ -133,6 +143,6 @@ if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposab
   await page.locator('#logout').click();
   await page.locator('#vendor').waitFor({state:'hidden',timeout:25000});
   assert.equal(await root.locator('form').count(),0);
-  console.log('PASS: vendor publish/persistence/provenance and safe station switching with delayed GET; logout');
+  console.log('PASS: vendor-published expiring access notice, persistence/provenance and safe station switching with delayed GET; logout');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

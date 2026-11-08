@@ -93,6 +93,57 @@ class StationInformationTest extends TestCase
         $this->getJson('/api/stations')->assertOk()->assertJsonPath('data.0.availability', 'unknown');
     }
 
+    public function test_expiring_vendor_access_notices_are_source_qualified_and_do_not_change_availability(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $route = '/api/stations/'.$station->id.'/information';
+        $input = $this->details();
+        $input['notice_en'] = 'Temporary gate access from the rear entrance';
+        $input['notice_ar'] = 'استخدم المدخل الخلفي مؤقتاً';
+        $input['notice_until'] = now('UTC')->addDays(2)->toDateString();
+
+        $this->actingAs($vendor)->putJson($route, $input)->assertOk()
+            ->assertJsonPath('notice_active', true)
+            ->assertJsonPath('notice_en', $input['notice_en']);
+        $this->getJson('/api/stations')->assertOk()
+            ->assertJsonPath('data.0.information.notice_active', true)
+            ->assertJsonPath('data.0.availability', 'unknown');
+
+        // An older web/native client must not silently erase an active notice.
+        $legacy = $this->details(1);
+        $this->actingAs($vendor)->putJson($route, $legacy)->assertOk()
+            ->assertJsonPath('notice_active', true)
+            ->assertJsonPath('notice_until', $input['notice_until']);
+
+        $this->travel(3)->days();
+        $this->getJson($route)->assertOk()->assertJsonPath('notice_active', false);
+        $this->travelBack();
+        $this->assertSame('simulator', $station->fresh()->source);
+    }
+
+    public function test_invalid_or_partial_notice_never_changes_existing_station_information(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $route = '/api/stations/'.$station->id.'/information';
+        $this->actingAs($vendor)->putJson($route, $this->details())->assertOk();
+
+        $withoutExpiry = $this->details(1) + [
+            'notice_en' => 'Temporary restricted entry', 'notice_ar' => null,
+        ];
+        $this->actingAs($vendor)->putJson($route, $withoutExpiry)->assertUnprocessable();
+
+        $invalid = array_merge($this->details(1), [
+            'notice_en' => 'Temporary restricted entry',
+            'notice_ar' => null,
+            'notice_until' => '2027-02-30',
+        ]);
+        $this->actingAs($vendor)->putJson($route, $invalid)->assertUnprocessable();
+        $this->getJson($route)->assertOk()->assertJsonPath('revision', 1)
+            ->assertJsonPath('notice_active', false);
+    }
+
     public function test_injected_station_or_status_fields_cannot_change_authoritative_state(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);

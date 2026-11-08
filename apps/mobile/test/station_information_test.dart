@@ -162,6 +162,12 @@ void main() {
         'Roof deck');
       await tester.enterText(find.byKey(const Key('station-info-access_en')),
         'Gate A');
+      final noticeEnglish = find.byKey(const Key('station-info-notice_en'));
+      await revealStationEditorControl(tester, noticeEnglish);
+      await tester.enterText(noticeEnglish, 'Temporary: use the rear gate');
+      final expiryInput = find.byKey(const Key('station-info-notice-until'));
+      await revealStationEditorControl(tester, expiryInput);
+      await tester.enterText(expiryInput, '2026-12-31');
       final wifi = find.text('Wi-Fi');
       await revealStationEditorControl(tester, wifi);
       await tester.tap(wifi);
@@ -173,6 +179,8 @@ void main() {
       expect(api.writes.single['revision'], 1);
       expect(api.writes.single['description_en'], 'Roof deck');
       expect(api.writes.single['access_en'], 'Gate A');
+      expect(api.writes.single['notice_en'], 'Temporary: use the rear gate');
+      expect(api.writes.single['notice_until'], '2026-12-31');
       expect((api.writes.single['amenities'] as List), contains('wifi'));
       final week = api.writes.single['weekly_hours'] as Map;
       expect((week['fri'] as Map)['open'], isNull);
@@ -207,6 +215,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('has not published'), findsOneWidget);
   });
+
 
 
   testWidgets('reused vendor view clears prior account station details',
@@ -246,6 +255,29 @@ void main() {
       if (!held.isCompleted) held.complete();
       first.close();second.close();
     }
+  });
+
+testWidgets('active vendor access notice is visible but expired notice is not', (tester) async {
+    final active = Map<String, dynamic>.from(station());
+    final activeInfo = Map<String, dynamic>.from(active['information'] as Map);
+    activeInfo.addAll({
+      'notice_active': true, 'notice_en': 'Use the rear gate',
+      'notice_ar': 'استخدم البوابة الخلفية', 'notice_until': '2026-12-31',
+    });
+    active['information'] = activeInfo;
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body:
+      StationInformationPanel(information: active['information'] as Map<String, dynamic>, timezone: 'Asia/Dubai'))));
+    await tester.tap(find.text('Hours, access & facilities'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Operator access notice: Use the rear gate'), findsOneWidget);
+    expect(find.textContaining('Notice expires (UTC): 2026-12-31'), findsOneWidget);
+
+    (active['information'] as Map<String, dynamic>)['notice_active'] = false;
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body:
+      StationInformationPanel(information: active['information'] as Map<String, dynamic>, timezone: 'Asia/Dubai'))));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Operator access notice:'), findsNothing);
+
   });
 
 }

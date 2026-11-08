@@ -31,6 +31,8 @@ final class StationInformation
                 'revision' => 0,
                 'description_en' => null, 'description_ar' => null,
                 'access_en' => null, 'access_ar' => null,
+                'notice_en' => null, 'notice_ar' => null, 'notice_until' => null,
+                'notice_active' => false,
                 'weekly_hours' => array_fill_keys(self::DAYS, ['open' => null, 'close' => null]),
                 'closed_dates' => [], 'amenities' => [], 'accessibility' => [],
                 'source_label' => 'NOT_PROVIDED',
@@ -44,6 +46,14 @@ final class StationInformation
             'description_ar' => $row->description_ar,
             'access_en' => $row->access_en,
             'access_ar' => $row->access_ar,
+            'notice_en' => $row->notice_en,
+            'notice_ar' => $row->notice_ar,
+            'notice_until' => $row->notice_until,
+            // Expiry is inclusive through the calendar date in UTC. Client clock
+            // and the station's possibly unknown timezone are not trusted.
+            'notice_active' => $row->notice_until !== null
+                && (trim((string) $row->notice_en) !== '' || trim((string) $row->notice_ar) !== '')
+                && \Carbon\CarbonImmutable::parse($row->notice_until.' 23:59:59', 'UTC')->gte(now('UTC')),
             'weekly_hours' => json_decode($row->weekly_hours, true, 512, JSON_THROW_ON_ERROR),
             'closed_dates' => json_decode($row->closed_dates, true, 512, JSON_THROW_ON_ERROR),
             'amenities' => json_decode($row->amenities, true, 512, JSON_THROW_ON_ERROR),

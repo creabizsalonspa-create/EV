@@ -59,6 +59,11 @@ class StationInformationPanel extends StatelessWidget {
             Text(stationInfoLocalized(info, ar, 'description')),
           if (stationInfoLocalized(info, ar, 'access').isNotEmpty)
             Text(stationInfoT(context, 'Access: ', 'الدخول: ') + stationInfoLocalized(info, ar, 'access')),
+          if (info['notice_active'] == true && stationInfoLocalized(info, ar, 'notice').isNotEmpty) ...[
+            Text(stationInfoT(context, 'Operator access notice: ', 'تنبيه دخول من المشغل: ') + stationInfoLocalized(info, ar, 'notice')),
+            if (info['notice_until'] is String)
+              Text(stationInfoT(context, 'Notice expires (UTC): ', 'ينتهي التنبيه (UTC): ') + info['notice_until']),
+          ],
           Text(stationInfoT(context, 'Hours (', 'ساعات العمل (') + timezone + ')'),
           for (var i = 0; i < stationInfoDays.length; i++)
             Builder(builder: (_) {
@@ -106,12 +111,13 @@ class VendorStationInformationView extends StatefulWidget {
 class _VendorStationInfoState extends State<VendorStationInformationView> {
   final form = GlobalKey<FormState>();
   final infoText = <String, TextEditingController>{
-    for (final key in ['description_en', 'description_ar', 'access_en', 'access_ar'])
+    for (final key in ['description_en', 'description_ar', 'access_en', 'access_ar', 'notice_en', 'notice_ar'])
       key: TextEditingController(),
   };
   final starts = <String, TextEditingController>{for (final day in stationInfoDays) day: TextEditingController()};
   final ends = <String, TextEditingController>{for (final day in stationInfoDays) day: TextEditingController()};
   final holidays = TextEditingController();
+  final noticeUntil = TextEditingController();
   final closed = <String>{}, amenities = <String>{}, access = <String>{};
   List<Map<String, dynamic>> owned = [];
   Map<String, dynamic>? chosen, info;
@@ -140,7 +146,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
     page = lastPage = 1;
     busy = saving = false;
     error = success = null;
-    for (final c in [...infoText.values, ...starts.values, ...ends.values, holidays]) {
+    for (final c in [...infoText.values, ...starts.values, ...ends.values, holidays, noticeUntil]) {
       c.clear();
     }
     closed.clear(); amenities.clear(); access.clear();
@@ -150,7 +156,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
   @override
   void dispose() {
     generation++;
-    for (final c in [...infoText.values, ...starts.values, ...ends.values, holidays]) { c.dispose(); }
+    for (final c in [...infoText.values, ...starts.values, ...ends.values, holidays, noticeUntil]) { c.dispose(); }
     super.dispose();
   }
   void fail(Object e) {
@@ -185,6 +191,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
         info = data;
         for (final key in infoText.keys) { infoText[key]!.text = (data[key] as String?) ?? ''; }
         holidays.text = (data['closed_dates'] as List? ?? []).join('\n');
+        noticeUntil.text = (data['notice_until'] as String?) ?? '';
         closed.clear();
         final week = data['weekly_hours'] is Map ? data['weekly_hours'] as Map : <String, dynamic>{};
         for (final day in stationInfoDays) {
@@ -215,11 +222,18 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
       }
       week[day] = {'open': start, 'close': end};
     }
+    final noticeText = (infoText['notice_en']!.text.trim() + infoText['notice_ar']!.text.trim()).isNotEmpty;
+    final expiry = noticeUntil.text.trim();
+    if (noticeText != expiry.isNotEmpty || (expiry.isNotEmpty && !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(expiry))) {
+      setState(() => error = t('Provide a valid UTC expiry date with a notice, or clear both.', 'أدخل تاريخ انتهاء صالح بتوقيت UTC مع التنبيه أو احذف الاثنين.'));
+      return;
+    }
     final dates = holidays.text.split(RegExp(r'[\n,]+')).map((s) => s.trim()).where((s) => s.isNotEmpty).toSet().toList();
     if (dates.length > 50) {setState(() => error = t('At most 50 holiday dates.', 'الحد الأقصى 50 تاريخاً.')); return;}
     final body = <String, dynamic>{
       'revision': info!['revision'],
       for (final key in infoText.keys) key: infoText[key]!.text.trim().isEmpty ? null : infoText[key]!.text.trim(),
+      'notice_until': expiry.isEmpty ? null : expiry,
       'weekly_hours': week, 'closed_dates': dates,
       'amenities': amenities.toList()..sort(), 'accessibility': access.toList()..sort(),
     };
@@ -236,7 +250,8 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
     }
   }
   Widget multiline(String key, String en, String ar) => TextFormField(
-    key: Key('station-info-' + key), controller: infoText[key], maxLength: 500,
+    key: Key('station-info-' + key), controller: infoText[key],
+    maxLength: key.startsWith('notice_') ? 300 : 500,
     minLines: 2, maxLines: 4, decoration: InputDecoration(labelText: t(en, ar)),
   );
   @override
@@ -269,6 +284,13 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
         multiline('description_ar', 'Description (Arabic)', 'الوصف بالعربية'),
         multiline('access_en', 'Access instructions (English)', 'تعليمات الدخول بالإنجليزية'),
         multiline('access_ar', 'Access instructions (Arabic)', 'تعليمات الدخول بالعربية'),
+        multiline('notice_en', 'Temporary access notice (English)', 'تنبيه وصول مؤقت بالإنجليزية'),
+        multiline('notice_ar', 'Temporary access notice (Arabic)', 'تنبيه وصول مؤقت بالعربية'),
+        TextFormField(
+          key: const Key('station-info-notice-until'), controller: noticeUntil,
+          decoration: InputDecoration(labelText: t('Notice expiry (UTC, YYYY-MM-DD)', 'انتهاء التنبيه (UTC، YYYY-MM-DD)')),
+          keyboardType: TextInputType.datetime,
+        ),
         Text(t('Opening hours (station local time)', 'ساعات العمل بتوقيت المحطة') +
           ' · ' +
           (chosen?['timezone'] is String && (chosen!['timezone'] as String).trim().isNotEmpty
