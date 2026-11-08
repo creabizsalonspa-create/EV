@@ -526,7 +526,7 @@ class NotificationCenterTest extends TestCase
             ->count());
     }
 
-    public function test_simulator_operational_inbox_hides_stale_assets_after_ownership_changes(): void
+    public function test_simulator_operational_inbox_rejects_stale_assets_and_unlinked_case_references(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
         $next = User::factory()->create(['role' => 'vendor']);
@@ -564,11 +564,13 @@ class NotificationCenterTest extends TestCase
                 'physical_verification' => false],
         ]);
         $this->actingAs($owner)->getJson('/api/notifications?category=charging')
-            ->assertOk()->assertJsonPath('total', 2);
+            ->assertOk()->assertJsonPath('total', 1);
         // Capture an authorized query before transfer: executing that same
         // SQL later must still apply the new ownership and role immediately.
         $prebuiltFault = InboxNotification::visibleTo($owner)->whereKey($note->id);
         $prebuiltCase = InboxNotification::visibleTo($owner)->whereKey($case->id);
+        // The forged case has no durable command/case relationship and is never visible.
+        $this->assertFalse($prebuiltCase->exists());
         Station::whereKey($station->id)->update(['vendor_id' => $next->id]);
         $this->assertFalse($prebuiltFault->exists());
         $this->assertFalse($prebuiltCase->exists());
@@ -587,7 +589,7 @@ class NotificationCenterTest extends TestCase
         Station::whereKey($station->id)->update(['vendor_id' => $owner->id]);
         VendorCompany::whereKey($company->id)->update(['owner_id' => $next->id]);
         $this->actingAs($owner)->getJson('/api/notifications?category=charging')
-            ->assertOk()->assertJsonPath('total', 1);
+            ->assertOk()->assertJsonPath('total', 0);
         VendorCompany::whereKey($company->id)->update(['owner_id' => $owner->id]);
         // A retained alert with a stale charger reference cannot be used to
         // reveal a different asset's private operational metadata.
@@ -595,7 +597,7 @@ class NotificationCenterTest extends TestCase
             'company_id' => $company->id, 'station_id' => $station->id,
             'charger_id' => $charger->id + 999, 'physical_verification' => false]]);
         $this->getJson('/api/notifications?category=charging')
-            ->assertOk()->assertJsonPath('total', 1);
+            ->assertOk()->assertJsonPath('total', 0);
         DB::table('users')->where('id', $owner->id)->update(['role' => 'customer']);
         $this->getJson('/api/notifications?category=charging')
             ->assertOk()->assertJsonPath('total', 0);

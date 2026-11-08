@@ -195,6 +195,58 @@ class ChargingOperationsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_operational_case_inbox_requires_current_station_command_and_case_relationship(): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $this->actingAs($vendor)->postJson('/api/charging-operations/'.$command->id.'/case', [
+            'note' => 'Verify the original case belongs to this command',
+        ])->assertCreated();
+        $notice = InboxNotification::where('kind', 'charging.operational_case.opened')->firstOrFail();
+        $original = $notice->metadata;
+        $prebuilt = InboxNotification::visibleTo($vendor)->whereKey($notice->id);
+        $this->assertTrue($prebuilt->exists());
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+
+        // A valid station alone must not authorize arbitrary command/case IDs.
+        foreach ([
+            ['station_id' => $command->station_id + 1000],
+            ['command_id' => $command->id + 1000],
+            ['case_id' => $original['case_id'] + 1000],
+        ] as $invalid) {
+            $notice->update(['metadata' => array_replace($original, $invalid)]);
+            $this->assertFalse($prebuilt->exists());
+            foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
+                $this->getJson($prefix.'?category=charging')
+                    ->assertOk()->assertJsonPath('total', 0);
+                $this->getJson($prefix.'/summary')
+                    ->assertOk()->assertJsonPath('unread_count', 0);
+                $this->postJson($prefix.'/'.$notice->id.'/read')->assertNotFound();
+                $this->postJson($prefix.'/'.$notice->id.'/unread')->assertNotFound();
+                $this->postJson($prefix.'/read-through', ['through_id' => $notice->id])
+                    ->assertOk()->assertJsonPath('marked_read', 0);
+            }
+        }
+
+        $notice->update(['metadata' => $original]);
+        $this->assertTrue($prebuilt->exists());
+        $next = User::factory()->create(['role' => 'vendor']);
+        Station::whereKey($command->station_id)->update(['vendor_id' => $next->id]);
+        $this->assertFalse($prebuilt->exists());
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($next)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        Station::whereKey($command->station_id)->update(['vendor_id' => $vendor->id]);
+        $this->actingAs($vendor)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->assertNull($notice->fresh()->read_at);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_proof_is_required_for_case_resolution_and_tenant_scope_precedes_source_reads(): void
     {
         [$vendor,$customer,$session,$command] = $this->fixture();

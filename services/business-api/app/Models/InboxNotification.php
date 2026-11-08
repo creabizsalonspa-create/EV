@@ -36,6 +36,8 @@ class InboxNotification extends Model
         $station = $field('station_id');
         $company = $field('company_id');
         $charger = $field('charger_id');
+        $command = $field('command_id');
+        $caseId = $field('case_id');
         $simulatorKinds = [
             'charging.fault.simulated',
             'charging.fault.recovered.simulated',
@@ -66,7 +68,7 @@ class InboxNotification extends Model
             })
             ->where(function (Builder $visible) use (
                 $actor, $simulatorKinds, $caseKinds, $operationalKinds,
-                $station, $company, $charger
+                $station, $company, $charger, $command, $caseId
             ): void {
                 $visible->whereNotIn('kind', $operationalKinds)
                     // Preserve text-only historical notices that predate
@@ -100,17 +102,25 @@ class InboxNotification extends Model
                             });
                     })
                     ->orWhere(function (Builder $case) use (
-                        $actor, $caseKinds, $station
+                        $actor, $caseKinds, $station, $command, $caseId
                     ): void {
                         $case->whereIn('kind', $caseKinds)
-                            ->whereExists(function ($current) use ($actor, $station): void {
+                            ->whereExists(function ($current) use (
+                                $actor, $station, $command, $caseId
+                            ): void {
                                 $current->selectRaw('1')
                                     ->from('stations as visible_station')
                                     ->join('users as visible_vendor',
                                         'visible_vendor.id', '=', 'visible_station.vendor_id')
+                                    ->join('charger_commands as visible_command',
+                                        'visible_command.station_id', '=', 'visible_station.id')
+                                    ->join('charging_operational_cases as visible_case',
+                                        'visible_case.command_id', '=', 'visible_command.id')
                                     ->where('visible_vendor.role', 'vendor')
                                     ->where('visible_station.vendor_id', $actor->id)
-                                    ->whereRaw("CAST(visible_station.id AS TEXT) = {$station}");
+                                    ->whereRaw("CAST(visible_station.id AS TEXT) = {$station}")
+                                    ->whereRaw("CAST(visible_command.id AS TEXT) = {$command}")
+                                    ->whereRaw("CAST(visible_case.id AS TEXT) = {$caseId}");
                             });
                     });
             });
