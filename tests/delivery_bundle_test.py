@@ -214,6 +214,67 @@ class DeliveryBundleTests(unittest.TestCase):
             with self.assertRaisesRegex(BundleError, 'changed while verifying'):
                 verify(bundle, SHA)
 
+    def test_developer_artifact_atomic_replace_after_crc_cannot_pass(self):
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        actual_archive_check = archive_check
+        count = []
+
+        def replace_after_crc(stream, platform):
+            self.assertTrue(hasattr(stream, 'fileno'))
+            result = actual_archive_check(stream, platform)
+            if platform == 'android-debug' and not count:
+                count.append(True)
+                replacement = self.root / 'same-bytes-new-inode.apk'
+                replacement.write_bytes(apk.read_bytes())
+                replacement.chmod(0o600)
+                replacement.replace(apk)
+            return result
+
+        with patch('delivery_bundle.archive_check', side_effect=replace_after_crc):
+            with self.assertRaisesRegex(BundleError, 'changed during hash or CRC'):
+                verify(bundle, SHA)
+        self.assertTrue(count)
+
+    def test_developer_artifact_byte_mutation_after_crc_rejected(self):
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        actual_archive_check = archive_check
+
+        def change_after_crc(stream, platform):
+            result = actual_archive_check(stream, platform)
+            if platform == 'android-debug':
+                apk.write_bytes(apk.read_bytes() + b'ignored trailing bytes')
+                apk.chmod(0o600)
+            return result
+
+        with patch('delivery_bundle.archive_check', side_effect=change_after_crc):
+            with self.assertRaisesRegex(BundleError, 'changed during hash or CRC'):
+                verify(bundle, SHA)
+
+    def test_developer_artifact_symlink_swap_after_hash_rejected(self):
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        actual_archive_check = archive_check
+        original = self.root / 'unchanged-apk'
+
+        def swap_path_after_hash(stream, platform):
+            if platform == 'android-debug':
+                apk.replace(original)
+                apk.symlink_to(original)
+            return actual_archive_check(stream, platform)
+
+        with patch('delivery_bundle.archive_check', side_effect=swap_path_after_hash):
+            with self.assertRaisesRegex(BundleError, 'changed during hash or CRC'):
+                verify(bundle, SHA)
+
+    def test_developer_artifact_hardlink_rejected_even_with_valid_checksums(self):
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        os.link(apk, self.root / 'linked-apk')
+        with self.assertRaisesRegex(BundleError, 'permissions, size or type'):
+            verify(bundle, SHA)
+
     def test_cli_success_and_failure(self):
         bundle = self.bundle()
         self.assertEqual(main(['verify','--bundle',str(bundle),'--expected-source-sha',SHA]),0)

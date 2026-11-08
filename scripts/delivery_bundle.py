@@ -99,6 +99,50 @@ def archive_check(path, platform):
         raise BundleError('Corrupt or unsupported ZIP/APK archive') from exc
 
 
+def secure_artifact_audit(path, platform):
+    """Hash and fully validate a private ZIP from one non-following descriptor.
+
+    Re-opening by path between checksum and CRC could inspect two different
+    artifacts. Reject replaced paths or changed inode metadata afterwards.
+    """
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+        raise BundleError('Secure artifact inspection unavailable')
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise BundleError('Cannot securely open delivery artifact') from exc
+    with os.fdopen(descriptor, 'rb') as input_file:
+        before = os.fstat(input_file.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
+                before.st_size < 1 or before.st_size > MAX_EXPANDED or
+                (os.name != 'nt' and before.st_mode & 0o077)):
+            raise BundleError('Delivery artifact permissions, size or type invalid')
+        digest = hashlib.sha256()
+        length = 0
+        while block := input_file.read(1024 * 1024):
+            digest.update(block)
+            length += len(block)
+            if length > MAX_EXPANDED:
+                raise BundleError('Delivery artifact exceeds audit size limit')
+        if length != before.st_size:
+            raise BundleError('Delivery artifact size changed during hash')
+        input_file.seek(0)
+        archive_check(input_file, platform)
+        after = os.fstat(input_file.fileno())
+        try:
+            current = os.lstat(path)
+        except OSError as exc:
+            raise BundleError('Delivery artifact path disappeared') from exc
+        fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+        if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or
+                (os.name != 'nt' and current.st_mode & 0o077) or
+                any(getattr(before, field) != getattr(after, field) or
+                    getattr(before, field) != getattr(current, field)
+                    for field in fields)):
+            raise BundleError('Delivery artifact changed during hash or CRC inspection')
+        return digest.hexdigest(), length
+
+
 def verify_workflow_reference(workflow, source_sha):
     """Fail closed on bundled provenance claims without implying signed GitHub attestation."""
     expected = {'provider', 'repository', 'workflow_name', 'run_id', 'head_sha',
@@ -251,13 +295,9 @@ def verify(folder, expected_source=None):
         if item['path'] != name or not isinstance(item['sha256'], str) or not DIGEST.fullmatch(item['sha256']) or \
                 type(item['size_bytes']) is not int or item['size_bytes'] < 1:
             raise BundleError('Invalid artifact path, size, or digest metadata')
-        artifact = regular_private_file(root / name)
-        if os.name != 'nt' and artifact.stat().st_mode & 0o077:
-            raise BundleError('Development delivery artifacts must be owner-only')
-        actual_digest, actual_size = checksum(artifact)
+        actual_digest, actual_size = secure_artifact_audit(root / name, platform)
         if actual_digest != item['sha256'] or actual_size != item['size_bytes']:
             raise BundleError('Artifact bytes differ from manifest')
-        archive_check(artifact, platform)
     if {p.name for p in root.iterdir()} != {'manifest.json', 'android-development.apk', 'ios-simulator.zip'}:
         raise BundleError('Unexpected files in delivery bundle')
     manifest_after, final_identity = secure_manifest_snapshot(root)
