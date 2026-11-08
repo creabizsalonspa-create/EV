@@ -140,7 +140,24 @@ def secure_artifact_audit(path, platform):
                     getattr(before, field) != getattr(current, field)
                     for field in fields)):
             raise BundleError('Delivery artifact changed during hash or CRC inspection')
-        return digest.hexdigest(), length
+        return digest.hexdigest(), length, tuple(getattr(before, field) for field in fields)
+
+
+def assert_artifact_identity_stable(path, identity):
+    """Recheck one previously audited artifact at the end of bundle review.
+
+    Every platform must still refer to the same inode verified with SHA and
+    CRC, even if another platform was checked afterward.
+    """
+    try:
+        current = os.lstat(path)
+    except OSError as exc:
+        raise BundleError('Previously checked delivery artifact is missing') from exc
+    fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+    if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or
+            (os.name != 'nt' and current.st_mode & 0o077) or
+            tuple(getattr(current, field) for field in fields) != identity):
+        raise BundleError('Previously checked delivery artifact changed during bundle review')
 
 
 def verify_workflow_reference(workflow, source_sha):
@@ -284,6 +301,7 @@ def verify(folder, expected_source=None):
     if not isinstance(manifest['artifacts'], list) or len(manifest['artifacts']) != 2:
         raise BundleError('Bundle requires one Android and one iOS simulator artifact')
     seen = set()
+    audited_identities = {}
     for item in manifest['artifacts']:
         if not isinstance(item, dict) or set(item) != {'platform', 'path', 'sha256', 'size_bytes'}:
             raise BundleError('Unexpected artifact metadata')
@@ -295,14 +313,17 @@ def verify(folder, expected_source=None):
         if item['path'] != name or not isinstance(item['sha256'], str) or not DIGEST.fullmatch(item['sha256']) or \
                 type(item['size_bytes']) is not int or item['size_bytes'] < 1:
             raise BundleError('Invalid artifact path, size, or digest metadata')
-        actual_digest, actual_size = secure_artifact_audit(root / name, platform)
+        actual_digest, actual_size, identity = secure_artifact_audit(root / name, platform)
         if actual_digest != item['sha256'] or actual_size != item['size_bytes']:
             raise BundleError('Artifact bytes differ from manifest')
+        audited_identities[name] = identity
     if {p.name for p in root.iterdir()} != {'manifest.json', 'android-development.apk', 'ios-simulator.zip'}:
         raise BundleError('Unexpected files in delivery bundle')
     manifest_after, final_identity = secure_manifest_snapshot(root)
     if final_identity != baseline or manifest_after != manifest:
         raise BundleError('Delivery manifest changed while verifying bundle')
+    for name, identity in audited_identities.items():
+        assert_artifact_identity_stable(root / name, identity)
     return manifest
 
 

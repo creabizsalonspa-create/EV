@@ -338,6 +338,90 @@ class DeliveryBundleTests(unittest.TestCase):
             create(self.root / 'delivery', SHA, self.android, self.ios)
         self.assertFalse((self.root / 'delivery').exists())
 
+    def test_first_platform_atomic_replacement_during_second_audit_rejected(self):
+        import delivery_bundle
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        original = delivery_bundle.secure_artifact_audit
+        changed = []
+
+        def switch_after_ios_audit(path, platform):
+            result = original(path, platform)
+            if platform == 'ios-simulator' and not changed:
+                changed.append(True)
+                replacement = self.root / 'identical-second-apk'
+                replacement.write_bytes(apk.read_bytes())
+                replacement.chmod(0o600)
+                replacement.replace(apk)
+            return result
+
+        with patch('delivery_bundle.secure_artifact_audit', side_effect=switch_after_ios_audit):
+            with self.assertRaisesRegex(BundleError, 'Previously checked delivery artifact changed'):
+                verify(bundle, SHA)
+        self.assertTrue(changed)
+
+    def test_first_platform_modified_during_second_audit_rejected(self):
+        import delivery_bundle
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        original = delivery_bundle.secure_artifact_audit
+        changed = []
+
+        def mutate_after_ios_audit(path, platform):
+            result = original(path, platform)
+            if platform == 'ios-simulator' and not changed:
+                changed.append(True)
+                previous = bytearray(apk.read_bytes())
+                previous[0] ^= 0x01
+                apk.write_bytes(previous)
+                apk.chmod(0o600)
+            return result
+
+        with patch('delivery_bundle.secure_artifact_audit', side_effect=mutate_after_ios_audit):
+            with self.assertRaisesRegex(BundleError, 'Previously checked delivery artifact changed'):
+                verify(bundle, SHA)
+        self.assertTrue(changed)
+
+    def test_first_platform_symlinked_after_its_audit_rejected(self):
+        import delivery_bundle
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        original = delivery_bundle.secure_artifact_audit
+        changed = []
+
+        def symlink_after_ios_audit(path, platform):
+            result = original(path, platform)
+            if platform == 'ios-simulator' and not changed:
+                changed.append(True)
+                destination = self.root / 'stored-original-apk'
+                apk.replace(destination)
+                apk.symlink_to(destination)
+            return result
+
+        with patch('delivery_bundle.secure_artifact_audit', side_effect=symlink_after_ios_audit):
+            with self.assertRaisesRegex(BundleError, 'Previously checked delivery artifact changed'):
+                verify(bundle, SHA)
+        self.assertTrue(changed)
+
+    def test_first_platform_hardlinked_after_its_audit_rejected(self):
+        import delivery_bundle
+        bundle = self.bundle()
+        apk = bundle / 'android-development.apk'
+        original = delivery_bundle.secure_artifact_audit
+        changed = []
+
+        def link_after_ios_audit(path, platform):
+            result = original(path, platform)
+            if platform == 'ios-simulator' and not changed:
+                changed.append(True)
+                os.link(apk, self.root / 'unexpected-second-link.apk')
+            return result
+
+        with patch('delivery_bundle.secure_artifact_audit', side_effect=link_after_ios_audit):
+            with self.assertRaisesRegex(BundleError, 'Previously checked delivery artifact changed'):
+                verify(bundle, SHA)
+        self.assertTrue(changed)
+
     def test_cli_success_and_failure(self):
         bundle = self.bundle()
         self.assertEqual(main(['verify','--bundle',str(bundle),'--expected-source-sha',SHA]),0)
