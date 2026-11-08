@@ -16,6 +16,29 @@ const SHA=/^[a-f0-9]{40}$/;
 const IMAGE=/^sha256:[a-f0-9]{64}$/;
 const SERVICES=['application','worker','scheduler','database','gateway'];
 const ENV_FILE=path.resolve(__dirname,'../infra/staging/.env');
+const RELEASE_LOCK='/tmp/ev-staging-agent10-release.lock';
+const MAX_EVIDENCE_WINDOW_MS=180000;
+const ISO_UTC=/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/;
+function releaseIdle(file=RELEASE_LOCK) {
+  // A release crash deliberately preserves the interlock: never consider an
+  // existing lock stale just because it contains a dead PID.
+  try {
+    fs.lstatSync(file);
+    throw Error('A private staging release or rollback requires reconciliation');
+  } catch(error) {
+    if(error?.code==='ENOENT')return true;
+    throw error;
+  }
+}
+function evidenceWindowValid(start,end){
+  if(typeof start!=='string'||typeof end!=='string'||
+      !ISO_UTC.test(start)||!ISO_UTC.test(end))return false;
+  const a=Date.parse(start),b=Date.parse(end);
+  return Number.isFinite(a)&&Number.isFinite(b)&&
+      new Date(a).toISOString().slice(0,19)===start.slice(0,19) &&
+      new Date(b).toISOString().slice(0,19)===end.slice(0,19) &&
+      b>=a && b-a<=MAX_EVIDENCE_WINDOW_MS;
+}
 
 function parseArgs(args) {
   if(!Array.isArray(args)||args.length!==6 ||
@@ -103,10 +126,12 @@ async function inspect(config,deps={}) {
   const inspectEffective=deps.inspectEffective||reviewEffective;
   const inspectImages=deps.inspectImages||localInspect;
   const checkHttp=deps.checkHttp||runHealth;
+  const checkReleaseIdle=deps.checkReleaseIdle||releaseIdle;
   const result={
     schema:SCHEMA,source_sha:config.source_sha,status:'INCOMPLETE',
     observed_from_utc:now(),observed_until_utc:null,
-    checks:{clean_checkout:false,private_environment:false,resolved_compose:false,
+    checks:{clean_checkout:false,release_interlock_clear:false,
+      private_environment:false,resolved_compose:false,
       immutable_running_source:false,private_https_routes:false,
       private_environment_stable_after_http:false,stable_runtime_after_http:false},
     http_routes:[],runtime_fingerprint_sha256:null,
@@ -118,6 +143,8 @@ async function inspect(config,deps={}) {
   try {
     if(getHead()!==config.source_sha)throw Error('Checked-out source is wrong or dirty');
     result.checks.clean_checkout=true;
+    if(checkReleaseIdle()!==true)throw Error('Release interlock was not clear');
+    result.checks.release_interlock_clear=true;
     const stage=inspectEnv();
     if(!stage || stage.host!==config.health.url.hostname ||
         typeof stage.checker!=='function' ||
@@ -148,6 +175,7 @@ async function inspect(config,deps={}) {
     if(inspectEffective(afterEnv.checker)!==true || getHead()!==config.source_sha) {
       throw Error('Staging configuration or checkout changed during acceptance');
     }
+    if(checkReleaseIdle()!==true)throw Error('Release or rollback started during HTTPS inspection');
     const bytes=SERVICES.map(s=>s+':'+first.services[s]).join('\n')+'\n'+first.image_id;
     result.runtime_fingerprint_sha256=crypto.createHash('sha256').update(bytes).digest('hex');
     result.checks.stable_runtime_after_http=true;
@@ -157,6 +185,12 @@ async function inspect(config,deps={}) {
     result.status='INCOMPLETE';
   }
   result.observed_until_utc=now();
+  if(result.status==='PRIVATE_SOURCE_LINKED_STAGE_READY' &&
+      !evidenceWindowValid(result.observed_from_utc,result.observed_until_utc)){
+    result.status='INCOMPLETE';
+    result.runtime_fingerprint_sha256=null;
+    result.checks.stable_runtime_after_http=false;
+  }
   return result;
 }
 async function main(argv=process.argv.slice(2),deps={}) {
@@ -177,4 +211,4 @@ async function main(argv=process.argv.slice(2),deps={}) {
   }
 }
 if(require.main===module)main().then(code=>{process.exitCode=code;});
-module.exports={SCHEMA,SERVICES,parseArgs,readPrivateEnv,reviewEnv,reviewEffective,checkProvenance,checkRoutes,inspect,main};
+module.exports={SCHEMA,SERVICES,parseArgs,readPrivateEnv,reviewEnv,reviewEffective,releaseIdle,evidenceWindowValid,checkProvenance,checkRoutes,inspect,main};

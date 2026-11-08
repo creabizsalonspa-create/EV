@@ -16,7 +16,8 @@ const proof=()=>({ok:true,source_sha:SHA,image_id:IMAGE,runtime_services:ids()})
 const httpPass=()=>({ok:true,results:routes.map(x=>({path:x.path,status:x.kind==='private'?401:200,ok:true}))});
 const argv=(output)=>['--source-sha',SHA,'--url',url,'--output',output];
 function fixture(extra={}){
-  return {getHead:()=>SHA,inspectEnv:()=>({host:HOST,checker:()=>[],env_digest:'b'.repeat(64)}),
+  return {getHead:()=>SHA,checkReleaseIdle:()=>true,
+    inspectEnv:()=>({host:HOST,checker:()=>[],env_digest:'b'.repeat(64)}),
     inspectEffective:()=>true,inspectImages:proof,checkHttp:async()=>httpPass(),
     now:()=> '2026-11-08T03:30:00.000Z',...extra};
 }
@@ -52,6 +53,50 @@ test('complete private source and HTTPS evidence retains non-production truth la
     'real_money_moved','production_accepted','customer_contract_accepted']){
     assert.equal(result[field],false,field);
   }
+});
+test('active or crashed staging release lock refuses private acceptance',async()=>privatePath(async(_out,dir)=>{
+  const lock=path.join(dir,'release.lock');
+  assert.equal(gate.releaseIdle(lock),true);
+  fs.writeFileSync(lock,'{"pid":1234}',{mode:0o600});
+  assert.throws(()=>gate.releaseIdle(lock));
+  const alias=path.join(dir,'link.lock');
+  fs.symlinkSync(lock,alias);
+  assert.throws(()=>gate.releaseIdle(alias));
+  let stageReads=0;
+  const incomplete=await gate.inspect(gate.parseArgs(argv('report.json')),fixture({
+    checkReleaseIdle:()=>gate.releaseIdle(lock),
+    inspectEnv:()=>{stageReads++;throw Error('secret');}
+  }));
+  assert.equal(incomplete.status,'INCOMPLETE');
+  assert.equal(incomplete.checks.release_interlock_clear,false);
+  assert.equal(stageReads,0);
+}));
+test('release lock appears during HTTPS inspection and prevents final readiness',async()=>{
+  let checks=0;
+  const verdict=await gate.inspect(gate.parseArgs(argv('report.json')),fixture({
+    checkReleaseIdle:()=>++checks===1
+  }));
+  assert.equal(checks,2);
+  assert.equal(verdict.status,'INCOMPLETE');
+  assert.equal(verdict.checks.private_https_routes,true);
+  assert.equal(verdict.runtime_fingerprint_sha256,null);
+});
+test('staging evidence cannot be accepted with stale, reversed or invalid observation window',async()=>{
+  for(const times of [
+    ['2026-11-08T03:00:00.000Z','2026-11-08T03:04:01.000Z'],
+    ['2026-11-08T03:02:00.000Z','2026-11-08T03:01:00.000Z'],
+    ['2026-13-08T03:00:00.000Z','2026-13-08T03:00:00.000Z'],
+    ['2026-11-08T03:00:00.000+00:00','2026-11-08T03:00:00.000Z']
+  ]){
+    let n=0;
+    const verdict=await gate.inspect(gate.parseArgs(argv('report.json')),fixture({
+      now:()=>times[n++] ?? times.at(-1)
+    }));
+    assert.equal(verdict.status,'INCOMPLETE');
+    assert.equal(verdict.runtime_fingerprint_sha256,null);
+    assert.equal(verdict.checks.stable_runtime_after_http,false);
+  }
+  assert.equal(gate.evidenceWindowValid('2026-11-08T03:00:00Z','2026-11-08T03:03:00Z'),true);
 });
 test('wrong source checkout stops before any Docker or HTTPS inspection',async()=>{
   let attempts=0;
