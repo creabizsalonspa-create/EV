@@ -3,8 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\InboxNotification;
+use App\Models\Station;
 use App\Models\SupportTicket;
 use App\Models\User;
+use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorCompany;
+use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -520,6 +524,84 @@ class NotificationCenterTest extends TestCase
             ->where('action', 'notifications.read_one')
             ->where('subject', (string) $note->id)
             ->count());
+    }
+
+    public function test_simulator_operational_inbox_hides_stale_assets_after_ownership_changes(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $next = User::factory()->create(['role' => 'vendor']);
+        $station = Station::create([
+            'vendor_id' => $owner->id, 'name' => 'Synthetic current-owner notification',
+            'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai',
+            'latitude' => 25, 'longitude' => 55, 'source' => 'simulator',
+            'connector_type' => 'CCS2', 'power_kw' => 50,
+        ]);
+        $company = VendorCompany::create([
+            'owner_id' => $owner->id, 'legal_name' => 'Private synthetic alert company',
+            'country' => 'AE', 'trade_license_number' => 'ONLY-SYNTHETIC-ALERT',
+            'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved',
+        ]);
+        $site = VendorSite::create([
+            'company_id' => $company->id, 'station_id' => $station->id,
+            'name' => 'Synthetic alert site', 'country' => 'AE',
+            'timezone' => 'Asia/Dubai', 'address' => 'Synthetic',
+            'latitude' => 25, 'longitude' => 55,
+        ]);
+        $charger = VendorCharger::create([
+            'company_id' => $company->id, 'site_id' => $site->id,
+            'asset_reference' => 'SYNTH-NOTIFY-OWNERSHIP', 'manufacturer' => 'Synthetic',
+            'model' => 'Simulated', 'source' => 'simulator', 'ocpp_protocol' => '1.6',
+        ]);
+        $note = InboxNotification::create([
+            'user_id' => $owner->id, 'kind' => 'charging.fault.simulated',
+            'metadata' => ['source' => 'simulator', 'company_id' => $company->id,
+                'station_id' => $station->id, 'charger_id' => $charger->id,
+                'physical_verification' => false],
+        ]);
+        $case = InboxNotification::create([
+            'user_id' => $owner->id, 'kind' => 'charging.operational_case.opened',
+            'metadata' => ['station_id' => $station->id, 'case_id' => 1,
+                'physical_verification' => false],
+        ]);
+        $this->actingAs($owner)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 2);
+        // Capture an authorized query before transfer: executing that same
+        // SQL later must still apply the new ownership and role immediately.
+        $prebuiltFault = InboxNotification::visibleTo($owner)->whereKey($note->id);
+        $prebuiltCase = InboxNotification::visibleTo($owner)->whereKey($case->id);
+        Station::whereKey($station->id)->update(['vendor_id' => $next->id]);
+        $this->assertFalse($prebuiltFault->exists());
+        $this->assertFalse($prebuiltCase->exists());
+        foreach (['/api/notifications', '/api/v1/notifications'] as $prefix) {
+            $this->getJson($prefix.'?category=charging')->assertOk()
+                ->assertJsonPath('total', 0);
+            $this->getJson($prefix.'/summary')->assertOk()
+                ->assertJsonPath('unread_count', 0);
+            $this->postJson($prefix.'/'.$note->id.'/read')->assertNotFound();
+            $this->postJson($prefix.'/'.$case->id.'/unread')->assertNotFound();
+            $this->postJson($prefix.'/read-through', ['through_id' => $case->id])
+                ->assertOk()->assertJsonPath('marked_read', 0);
+        }
+        $this->actingAs($next)->getJson('/api/notifications')
+            ->assertOk()->assertJsonPath('total', 0);
+        Station::whereKey($station->id)->update(['vendor_id' => $owner->id]);
+        VendorCompany::whereKey($company->id)->update(['owner_id' => $next->id]);
+        $this->actingAs($owner)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        VendorCompany::whereKey($company->id)->update(['owner_id' => $owner->id]);
+        // A retained alert with a stale charger reference cannot be used to
+        // reveal a different asset's private operational metadata.
+        $note->update(['metadata' => ['source' => 'simulator',
+            'company_id' => $company->id, 'station_id' => $station->id,
+            'charger_id' => $charger->id + 999, 'physical_verification' => false]]);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        DB::table('users')->where('id', $owner->id)->update(['role' => 'customer']);
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->assertNull($note->fresh()->read_at);
+        $this->assertNull($case->fresh()->read_at);
+        $this->assertDatabaseCount('audit_events', 0);
     }
 
     public function test_legacy_notification_routes_remain_available_and_scoped(): void
