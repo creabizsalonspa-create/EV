@@ -188,11 +188,18 @@
         ()=>{if(editable())return submitReport();});
       retry.disabled=pending===null||submitting;
       form.append(retry);
-      form.append(button("Clear pending after reviewing history","مسح المعلق بعد مراجعة السجل",
-        ()=>{if(!editable())return;pending=null;render();status("");}));
+      const clearPending=button("Clear pending after reviewing history",
+        "مسح المعلق بعد مراجعة السجل",()=>{
+          // A previous request might already have committed, so its operation
+          // identity must remain stable until that HTTP attempt settles.
+          if(!editable()||submitting)return;
+          pending=null;render();status("");
+        });
+      clearPending.disabled=pending===null||submitting;
+      form.append(clearPending);
       form.onsubmit=event=>{
         event.preventDefault();
-        if(!editable())return;
+        if(!editable()||submitting)return;
         if(pending)return submitReport();
         const number=Number(field.value);
         if(!Number.isInteger(number)||number<0||number>100) {

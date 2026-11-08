@@ -352,6 +352,12 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
   assert.ok(heldRetry);
   assert.equal(heldRetry.disabled,true,
     'Same-vehicle refresh cannot enable retry before prior POST settles');
+  const clearDuringWrite=find(holdRoot,n=>n.tag==='button'&&
+    visible(n).includes('Clear pending after reviewing history'));
+  assert.ok(clearDuringWrite);
+  assert.equal(clearDuringWrite.disabled,true,
+    'Clear pending must not destroy the only retry key during an unresolved POST');
+  clearDuringWrite.onclick(); // Also cover programmatic invocation of a disabled control.
   await heldRetry.onclick(); // Programmatic call bypasses disabled HTML surface.
   assert.equal(heldWrites.length,1,
     'Unresolved original POST cannot race a second identical request');
