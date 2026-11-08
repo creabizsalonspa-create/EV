@@ -160,6 +160,8 @@ void main() {
       expect(await replacement, isTrue);
       oldCache.release.complete();
       expect(await obsolete, isFalse);
+      expect(older.loading.value, isFalse,
+          reason: 'A superseded controller must release its own loading UI');
       expect(Session.accessToken, 'new-account-bearer');
       expect(vault.value, 'new-account-bearer');
       expect(older.user.value, isNull);
@@ -226,6 +228,8 @@ void main() {
       responseData: {'token': 'stale-first-account'},
     ));
     expect(await oldLogin, isFalse);
+    expect(first.loading.value, isFalse,
+        reason: 'Another controller starting a login cannot strand the old spinner');
     expect(first.user.value, isNull);
     expect(vault.value, isNull);
 
