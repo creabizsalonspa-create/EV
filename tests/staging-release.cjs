@@ -124,6 +124,53 @@ test('source changes after immutable container review but before release start b
   assert.equal(calls,3);
   assert.deepEqual(fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse).map(x=>x.event),['PREPARED']);
 }));
+test('private .env changed during offline preflight rejects release plan without Docker',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  deps.preflight=()=>{
+    fs.writeFileSync(envFile,fs.readFileSync(envFile,'utf8').replace('DB_PASSWORD','DQ_PASSWORD'),{mode:0o600});
+    return {ok:true,errors:[]};
+  };
+  assert.throws(()=>release.inspectPlan(release.parseArgs(argv('plan')),deps),/changed since preflight/);
+  assert.equal(deps.state.mutations,0);
+}));
+test('private .env changed after PREPARED journal blocks staging before first Compose update',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'preflight-config-swap.jsonl');
+  let calls=0;
+  deps.getHead=()=>{
+    if(++calls===2)fs.writeFileSync(envFile,fs.readFileSync(envFile,'utf8').replace('DB_PASSWORD','DQ_PASSWORD'),{mode:0o600});
+    return SHA;
+  };
+  assert.equal(release.main(argv('apply',file),deps),2);
+  assert.equal(deps.state.mutations,0);
+  assert.deepEqual(fs.readFileSync(file,'utf8').trim().split('\n').map(JSON.parse).map(x=>x.event),['PREPARED']);
+}));
+test('private .env replaced during candidate startup forbids unsafe automatic rollback',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'startup-config-swap.jsonl'),original=deps.run;
+  deps.run=(command,args,options)=>{
+    const result=original(command,args,options);
+    if(args.includes('up')&&options.env?.EV_IMAGE_TAG==='new'){
+      fs.writeFileSync(envFile,fs.readFileSync(envFile,'utf8').replace('DB_PASSWORD','DQ_PASSWORD'),{mode:0o600});
+    }
+    return result;
+  };
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.equal(deps.state.mutations,1);
+  assert.equal(deps.state.tag,'new');
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.equal(fs.readFileSync(file,'utf8').includes('ROLLBACK_VERIFIED'),false);
+}));
+test('private .env altered during HTTPS probe cannot produce false deployment acceptance',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),file=path.join(dir,'probe-config-swap.jsonl');
+  deps.checkHttp=()=>{
+    fs.writeFileSync(envFile,fs.readFileSync(envFile,'utf8').replace('DB_PASSWORD','DQ_PASSWORD'),{mode:0o600});
+    return true;
+  };
+  assert.equal(release.main(argv('apply',file),deps),3);
+  assert.equal(deps.state.mutations,1);
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.equal(fs.readFileSync(file,'utf8').includes('RELEASE_VERIFIED'),false);
+}));
+
 test('healthy staging candidate produces read-only image-ID plan',()=>sandbox((dir,envFile)=>{
   const deps=mock(envFile);
   const result=release.inspectPlan(release.parseArgs(argv('plan')),deps);

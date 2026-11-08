@@ -9,6 +9,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { parseSnapshot, checkSnapshot, localDockerSnapshot } = require('./staging-runtime-gate.cjs');
 const { getCurrentHead } = require('./staging-acceptance.cjs');
+const privateEnv = require('./staging-env-integrity.cjs');
 
 const PROJECT = 'ev-staging';
 const ROLES = ['application', 'worker', 'scheduler'];
@@ -97,9 +98,11 @@ function inspectPlan(config, deps = {}) {
   verifyCheckoutSource(config,deps);
   const run = deps.run || execFileSync, env = deps.env || process.env;
   const dotenv = deps.envFile || envPath;
+  const baseline=deps.stagingEnvSnapshot||privateEnv.capture(dotenv);
   assertLocalSafety(dotenv,env);
   reviewIsolatedConfig(dotenv,deps);
   reviewEffectiveCompose(deps);
+  privateEnv.assertUnchanged(dotenv,baseline);
   const before = parseSnapshot(localDockerSnapshot(env,run));
   const current = checkSnapshot(before);
   if (!current.ok) throw Error('Staging health or private port gate failed');
@@ -142,6 +145,7 @@ function inspectPlan(config, deps = {}) {
   const originalRoleIds=Object.fromEntries(ROLES.map(role=>
     [role,before.find(row=>row.Service===role)?.ID]));
   verifyRunning(oldRef,currentImage.Id,{...deps,expectedRoleIds:originalRoleIds});
+  privateEnv.assertUnchanged(dotenv,baseline);
   return { project:PROJECT, source_sha:config.sha, old_ref:oldRef,
     old_id:currentImage.Id, old_source_sha:oldSourceSha,
     candidate_ref:candidateRef, candidate_id:candidateImage.Id,
@@ -296,11 +300,14 @@ function apply(config,deps={}) {
   const unlock=acquireLock(deps);
   try {
     const target=outputJournal(config.journal);
-    const plan=inspectPlan(config,deps);
+    const envFile=deps.envFile||envPath;
+    const baseline=privateEnv.capture(envFile);
+    const plan=inspectPlan(config,{...deps,stagingEnvSnapshot:baseline});
     const saved=createJournal(target,plan);
     // Even when the checked-out source was clean during plan review, a
     // concurrent checkout/commit change must stop before Compose mutation.
     // Retain the PREPARED-only private journal for operator reconciliation.
+    privateEnv.assertUnchanged(envFile,baseline);
     verifyCheckoutSource(config,deps);
     // If a local tag was re-pointed after plan inspection, refuse before
     // touching application containers. Preserve PREPARED-only journal evidence.
@@ -311,13 +318,16 @@ function apply(config,deps={}) {
     verifyRunning(plan.old_ref,plan.old_id,deps);
     verifyProtectedServices(plan,deps);
     verifyCheckoutSource(config,deps);
+    privateEnv.assertUnchanged(envFile,baseline);
     journal(saved,'RELEASE_STARTED');
     try {
+      privateEnv.assertUnchanged(envFile,baseline);
       composeUp(config.tag,deps);
       verifyRunning(plan.candidate_ref,plan.candidate_id,deps);
       verifyProtectedServices(plan,deps);
       verifyFormerTag(plan,deps);
       verifyCandidateTag(plan,deps);
+      privateEnv.assertUnchanged(envFile,baseline);
       probePostDeploy(plan,deps);
       // A slow HTTPS smoke is an independent race window. Recheck the
       // immutable app image and protected DB/gateway immediately before
@@ -326,13 +336,17 @@ function apply(config,deps={}) {
       verifyProtectedServices(plan,deps);
       verifyFormerTag(plan,deps);
       verifyCandidateTag(plan,deps);
+      privateEnv.assertUnchanged(envFile,baseline);
       journal(saved,'RELEASE_VERIFIED',{service_count:3,private_http_routes_checked:true,production_accepted:false});
       return {ok:true,rollback_verified:false,plan};
     } catch {
       journal(saved,'RELEASE_UNCERTAIN_ROLLBACK_STARTED');
-      // Refuse to roll back to a mutable tag that has been re-pointed.
+      // A changed .env can redirect a rollback to live integrations.
+      // Preserve operator-reconciliation evidence instead of running Compose.
       try {
+        privateEnv.assertUnchanged(envFile,baseline);
         verifyFormerTag(plan,deps);
+        privateEnv.assertUnchanged(envFile,baseline);
         composeUp(plan.old_ref.split(':').slice(1).join(':'),deps);
         verifyRunning(plan.old_ref,plan.old_id,deps);
         verifyProtectedServices(plan,deps);
@@ -340,6 +354,7 @@ function apply(config,deps={}) {
         verifyRunning(plan.old_ref,plan.old_id,deps);
         verifyProtectedServices(plan,deps);
         verifyFormerTag(plan,deps);
+        privateEnv.assertUnchanged(envFile,baseline);
         journal(saved,'ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
         return {ok:false,rollback_verified:true,plan};
       } catch {
