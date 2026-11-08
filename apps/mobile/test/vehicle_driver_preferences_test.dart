@@ -12,6 +12,7 @@ class _PreferencesApi extends EvApi {
   final requests = <String>[];
   Completer<void>? holdVehicle12;
   int revision = 0;
+  bool denyNewAccount = false;
 
   @override
   Future<dynamic> request(String path, {
@@ -24,6 +25,7 @@ class _PreferencesApi extends EvApi {
         : path == 'vehicles/13/driver-preferences' ? 13 : null;
     if (id == null) throw ApiException(404, 'Unexpected test endpoint: $path');
     if (method == 'GET') {
+      if (denyNewAccount) throw const ApiException(404, 'Vehicle not owned');
       if (id == 12 && holdVehicle12 != null) await holdVehicle12!.future;
       return {
         'vehicle_id': id, 'revision': id == 12 ? revision : 4,
@@ -101,6 +103,33 @@ void main() {
       expect(api.writes.last['preferred_power_kw'], 80);
     } finally {
       if (!(api.holdVehicle12?.isCompleted ?? true)) api.holdVehicle12!.complete();
+      api.close();
+    }
+  });
+
+  testWidgets('same vehicle/API after account change hides previous driver preferences',
+      (tester) async {
+    final api = _PreferencesApi();
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleDriverPreferencesView(
+        api: api, vehicleId: 13, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('driver-preferences-power'))).controller!.text, '80');
+      // The EvApi instance can be reused after the authentication epoch
+      // changes. A new account must never see the old account's 80 kW choice.
+      api.denyNewAccount = true;
+      await api.forgetSession();
+      await tester.pumpWidget(MaterialApp(home: VehicleDriverPreferencesView(
+        api: api, vehicleId: 13, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('driver-preferences-power')), findsNothing);
+      expect(find.byKey(const Key('driver-preferences-save')), findsNothing);
+      expect(find.byKey(const Key('driver-preferences-error')), findsOneWidget);
+      expect(api.writes, isEmpty);
+    } finally {
       api.close();
     }
   });

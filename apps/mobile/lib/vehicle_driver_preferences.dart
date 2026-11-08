@@ -24,20 +24,26 @@ class _DriverPreferencesState extends State<VehicleDriverPreferencesView> {
   bool accessible = false, freeParking = false, loading = false, saving = false;
   String? error, success;
   int generation = 0;
+  late bool Function() accountFence;
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
 
   @override
-  void initState() { super.initState(); reload(); }
+  void initState() {
+    super.initState();
+    accountFence = widget.api.sessionFence();
+    reload();
+  }
 
   @override
   void didUpdateWidget(covariant VehicleDriverPreferencesView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.vehicleId == widget.vehicleId &&
-        identical(oldWidget.api, widget.api)) return;
+        identical(oldWidget.api, widget.api) && accountFence()) return;
     // A parent may reuse this State for another vehicle. Invalidate pending
     // responses and clear the old editable values before fetching the new ID.
     generation++;
+    accountFence = widget.api.sessionFence();
     power.clear();
     preferences = null;
     goal = 'balanced';
@@ -74,9 +80,9 @@ class _DriverPreferencesState extends State<VehicleDriverPreferencesView> {
         freeParking = value['avoid_paid_parking'] == true;
       });
     } catch (e) {
-      if (mounted && ticket == generation) fail(e);
+      if (mounted && ticket == generation && fence()) fail(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => loading = false);
+      if (mounted && ticket == generation && fence()) setState(() => loading = false);
     }
   }
 
@@ -109,9 +115,9 @@ class _DriverPreferencesState extends State<VehicleDriverPreferencesView> {
         success = t('Driver preferences saved.', 'تم حفظ تفضيلات السائق.');
       });
     } catch (e) {
-      if (mounted && ticket == generation) fail(e);
+      if (mounted && ticket == generation && fence()) fail(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => saving = false);
+      if (mounted && ticket == generation && fence()) setState(() => saving = false);
     }
   }
 
