@@ -131,6 +131,9 @@ final class OpenChargeMapAdapter
                 || ($item['reported_access_evidence'] ?? null) !== 'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED'
                 || ($item['reported_cost_evidence'] ?? null) !== 'OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED'
                 || ($item['distance_basis'] ?? null) !== 'great_circle'
+                || ! self::finiteBounded($item['latitude'] ?? null, 90, true)
+                || ! self::finiteBounded($item['longitude'] ?? null, 180, true)
+                || ! self::finiteBounded($item['distance_km'] ?? null, 200)
                 || ($item['availability'] ?? null) !== 'unknown'
                 || ($item['remote_control'] ?? null) !== false
                 || ($item['reservable'] ?? null) !== false
@@ -152,6 +155,8 @@ final class OpenChargeMapAdapter
                 if (! is_array($connection)
                     || ! is_string($connection['reported_connector_type'] ?? null)
                     || ($connection['availability'] ?? null) !== 'unknown'
+                    || (($connection['reported_power_kw'] ?? null) !== null
+                        && ! self::finiteBounded($connection['reported_power_kw'], 1000))
                     || array_key_exists('remote_control', $connection)
                     || array_key_exists('reservable', $connection)
                     || array_key_exists('billing_eligible', $connection)) {
@@ -306,6 +311,14 @@ final class OpenChargeMapAdapter
                 // Connection cleanup must not expose upstream details.
             }
         }
+    }
+
+    /** A cached map coordinate or reported rating must be a finite numeric scalar. */
+    private static function finiteBounded(mixed $value, float $maximum, bool $signed = false): bool
+    {
+        return (is_int($value) || is_float($value))
+            && is_finite((float) $value)
+            && ($signed ? abs((float) $value) <= $maximum : ($value >= 0 && $value <= $maximum));
     }
 
     private static function validOptionalFilter(?string $value, int $maximum): bool
