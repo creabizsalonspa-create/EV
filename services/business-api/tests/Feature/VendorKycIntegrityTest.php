@@ -94,6 +94,47 @@ class VendorKycIntegrityTest extends TestCase
             ->assertOk()->assertContent($bytes);
     }
 
+    public function test_admin_private_kyc_metadata_and_review_reads_are_audited_without_evidence_details(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $document = $this->upload($owner, $company, "%PDF-1.4\nPRIVATE-AUDIT-EVIDENCE");
+        $base = '/api/vendor-ops/companies/'.$company->id;
+
+        $this->actingAs($admin, 'web')->getJson($base.'/documents')
+            ->assertOk()->assertJsonMissingPath('data.0.sha256')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson($base.'/reviews')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private');
+
+        foreach ([
+            'vendor_ops.document.metadata_viewed',
+            'vendor_ops.review.history_viewed',
+        ] as $action) {
+            $this->assertDatabaseHas('audit_events', [
+                'actor_id' => $admin->id,
+                'action' => $action,
+                'subject' => (string) $company->id,
+            ]);
+        }
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('actor_id', $admin->id)
+            ->where('action', 'vendor_ops.document.metadata_viewed')->count());
+        $this->assertStringNotContainsString($document->sha256,
+            DB::table('audit_events')->get()->toJson());
+
+        $this->actingAs($other, 'web')->getJson($base.'/documents')->assertNotFound();
+        $this->getJson($base.'/reviews')->assertNotFound();
+        $this->assertSame(2, DB::table('audit_events')
+            ->where('actor_id', $admin->id)
+            ->whereIn('action', [
+                'vendor_ops.document.metadata_viewed',
+                'vendor_ops.review.history_viewed',
+            ])->count());
+    }
+
     public function test_owner_private_kyc_metadata_and_review_history_are_never_shared_cacheable(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);

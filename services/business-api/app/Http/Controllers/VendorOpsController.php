@@ -133,7 +133,14 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
 
-        return response()->json(VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25))->header('Cache-Control', 'no-store, private');
+        $history = VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25);
+        if ($r->user()->role === 'admin') {
+            // Reviewer notes are private. Audit the company-scoped metadata
+            // access without persisting those notes or customer details.
+            $this->access->audit($r->user(), 'review.history_viewed', $company->id);
+        }
+
+        return response()->json($history)->header('Cache-Control', 'no-store, private');
     }
 
     private function operationalWrite(Request $r, VendorCompany $company): VendorCompany
@@ -149,7 +156,14 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
 
-        return response()->json(VendorKycDocument::where('company_id', $company->id)->paginate(25))->header('Cache-Control', 'no-store, private');
+        $metadata = VendorKycDocument::where('company_id', $company->id)->paginate(25);
+        if ($r->user()->role === 'admin') {
+            // Reading private document metadata is a privileged access,
+            // separate from the already audited byte-download endpoint.
+            $this->access->audit($r->user(), 'document.metadata_viewed', $company->id);
+        }
+
+        return response()->json($metadata)->header('Cache-Control', 'no-store, private');
     }
 
     public function upload(Request $r, VendorCompany $company)
