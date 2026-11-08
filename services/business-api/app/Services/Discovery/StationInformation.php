@@ -11,7 +11,12 @@ final class StationInformation
 
     public function forStation(int $stationId): array
     {
-        return $this->represent(DB::table('station_information')->where('station_id', $stationId)->first());
+        // Bind the standalone GET/PUT reply to its requested station. The
+        // vendor editor must not interpret a wrong-station or stale response
+        // as authoritative metadata for its current selection.
+        return ['station_id' => $stationId] + $this->represent(
+            DB::table('station_information')->where('station_id', $stationId)->first()
+        );
     }
 
     public function forStations(Collection $stationIds): Collection

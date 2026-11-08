@@ -41,10 +41,13 @@ class StationInformationTest extends TestCase
     {
         $vendor = User::factory()->create(['role' => 'vendor']);
         $station = $this->station($vendor);
-        $this->getJson('/api/stations/'.$station->id.'/information')->assertOk()->assertJsonPath('source_label', 'NOT_PROVIDED');
+        $this->getJson('/api/stations/'.$station->id.'/information')->assertOk()
+            ->assertJsonPath('station_id', $station->id)
+            ->assertJsonPath('source_label', 'NOT_PROVIDED');
         $this->getJson('/api/stations')->assertOk()->assertJsonPath('data.0.information.source_label', 'NOT_PROVIDED');
         $this->actingAs($vendor)->putJson('/api/stations/'.$station->id.'/information', $this->details())
-            ->assertOk()->assertJsonPath('revision', 1)->assertJsonPath('source_label', 'VENDOR_REPORTED_UNVERIFIED');
+            ->assertOk()->assertJsonPath('station_id', $station->id)
+            ->assertJsonPath('revision', 1)->assertJsonPath('source_label', 'VENDOR_REPORTED_UNVERIFIED');
         $this->getJson('/api/stations')->assertOk()->assertJsonPath('data.0.information.weekly_hours.mon.open', '08:00')
             ->assertJsonPath('data.0.information.amenities.0', 'parking')
             ->assertJsonPath('data.0.availability', 'unknown');

@@ -38,13 +38,14 @@ const source='services/business-api/public/station-information.js';
 vm.runInNewContext(fs.readFileSync(source,'utf8'),{document,window,Option,Set,Object},{filename:source});
 const apiCalls=[];
 let holdOldWrite=false, releaseOldWrite=null;
+let poisonNextStationGet=false, poisonNextStationPut=false;
 const stationHours=Object.fromEntries(['mon','tue','wed','thu','fri','sat','sun']
   .map(d=>[d,{open:null,close:null}]));
 let epoch=1;
 const user={id:7,role:'vendor'};
 function info(id){return {
   revision:0,station_id:id,
-  source_label:'VENDOR_REPORTED_UNVERIFIED',
+  source_label:'NOT_PROVIDED',
   description_en:'Station '+id,description_ar:'',access_en:'',
   access_ar:'',notice_en:null,notice_ar:null,notice_until:null,
   weekly_hours:stationHours,closed_dates:[],amenities:[],accessibility:[]
@@ -63,9 +64,13 @@ const api=async(path,method='GET',body)=>{
         holdOldWrite=false;
         await new Promise(resolve=>{releaseOldWrite=resolve;});
       }
-      return {...info(stationId),...body,revision:1};
+      const poison=poisonNextStationPut;poisonNextStationPut=false;
+      return {...info(stationId),...body,revision:body.revision+1,
+        source_label:'VENDOR_REPORTED_UNVERIFIED',
+        station_id:poison?stationId+999:stationId};
     }
-    return info(stationId);
+    const poison=poisonNextStationGet;poisonNextStationGet=false;
+    return {...info(stationId),station_id:poison?stationId+999:stationId};
   }
   throw Error('Unexpected API call '+path);
 };
@@ -128,9 +133,22 @@ const count=(method,ending)=>apiCalls.filter(call=>call.method===method &&
   assert.equal(count('GET','stations/12/information'),1);
   const currentForm=find(root,n=>n.tag==='form');
   assert.ok(currentForm);
+  poisonNextStationPut=true;
   currentForm.elements.description_en.value='New vendor description';
   await currentForm.onsubmit({preventDefault(){}});
   assert.equal(count('PUT','stations/12/information'),1);
+  assert.ok(find(root,n=>n.dataset.stationInfoState==='1' &&
+    n.textContent.includes('Unexpected station information save response')),
+    'Mismatched PUT response must not be acknowledged as saved');
+  await view.reload();
+  poisonNextStationGet=true;
+  await view.reload();
+  assert.equal(find(root,n=>n.tag==='form'),null,
+    'Mismatched station GET response must not expose an editable form');
+  assert.ok(find(root,n=>n.dataset.stationInfoState==='1' &&
+    n.textContent.includes('Unexpected station information response')));
+  await view.reload();
+  assert.ok(find(root,n=>n.tag==='form'));
   assert.equal(apiCalls.filter(c=>c.method==='PUT').at(-1).body.description_en,
     'New vendor description');
   assert.equal(count('PUT','stations/11/information'),1);

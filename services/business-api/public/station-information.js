@@ -91,6 +91,25 @@
             session = 0, listVersion = 0, page = 1, loading = false;
         const state = () => actor() === currentActor &&
             session === epoch() && currentActor?.role === "vendor";
+        // The GET may describe an as-yet-unpublished record (revision zero).
+        // A successful PUT must instead confirm this exact station, an
+        // incremented revision, and vendor-reported / unverified provenance.
+        const validInformation = (data, stationId, expectedRevision = null) =>
+            data && data.station_id === stationId &&
+            Number.isInteger(data.revision) && data.revision >= 0 &&
+            (expectedRevision === null
+                ? ((data.revision === 0 && data.source_label === "NOT_PROVIDED") ||
+                   (data.revision > 0 && data.source_label === "VENDOR_REPORTED_UNVERIFIED"))
+                : (data.revision === expectedRevision + 1 &&
+                   data.source_label === "VENDOR_REPORTED_UNVERIFIED")) &&
+            data.weekly_hours && typeof data.weekly_hours === "object" &&
+            days.every(day => data.weekly_hours[day] &&
+                (data.weekly_hours[day].open === null ||
+                 typeof data.weekly_hours[day].open === "string") &&
+                (data.weekly_hours[day].close === null ||
+                 typeof data.weekly_hours[day].close === "string")) &&
+            Array.isArray(data.closed_dates) &&
+            Array.isArray(data.amenities) && Array.isArray(data.accessibility);
         function clear() {
             generation++; listVersion++;
             currentActor = null; session = 0; selected = information = null;
@@ -141,6 +160,8 @@
             try {
                 const data = await api("stations/" + station.id + "/information");
                 if (ticket !== generation || !state() || actor() !== owner) return;
+                if (!validInformation(data, station.id))
+                    throw Error("Unexpected station information response; refresh before editing.");
                 information = data;
                 renderForm();
                 status("");
@@ -260,6 +281,8 @@
                 try {
                     const saved = await api("stations/" + stationId + "/information", "PUT", body);
                     if (ticket !== generation || actor() !== owner) return;
+                    if (!validInformation(saved, stationId, info.revision))
+                        throw Error("Unexpected station information save response; refresh before editing.");
                     information = saved;
                     renderForm();
                     status(isArabic() ? "تم الحفظ" : "Saved");
