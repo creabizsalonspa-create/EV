@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {verifyOcppSource} from '../ocppSourceEvidence.mjs';
+import {verifyOcppSource,sourceStartMatchesAuthorization} from '../ocppSourceEvidence.mjs';
 const sid='507f1f77bcf86cd799439011', charger='agent2-source-charger';
 const token='a'.repeat(64);
 const binding=()=>({sourceId:sid,chargerId:charger,transactionId:'tx-agent2',tokenHash:token});
@@ -157,4 +157,41 @@ test('explicit charger registry protocol must agree with the source independentl
   assert.equal(verifyOcppSource(doc(),{...binding(),chargerRecord:{chargerId:charger,protocol}}),null);
  assert.equal(verifyOcppSource(doc(),{...binding(),chargerRecord:{chargerId:'wrong',protocol:'ocpp1.6'}}),null);
  assert.equal(verifyOcppSource(doc(),{...binding(),chargerRecord:{chargerId:charger,protocol:'ocpp1.6'}}).sourceVerified,true);
+});
+
+test('gateway accepted-start receipt qualifies authorization independently of a skewed charger clock',()=>{
+ const now=new Date('2026-11-08T01:00:00Z'),issued=new Date(now-60000),received=new Date(now-30000);
+ for(const startedAt of [new Date(now-86400000),new Date(now.valueOf()+86400000)]) {
+  const source={...doc(),status:'active',startedAt,startedReceivedAt:received};
+  assert.equal(sourceStartMatchesAuthorization(source,issued,now),true);
+ }
+});
+test('malformed, before-issuance and future gateway receipts cannot fall back to device time',()=>{
+ const now=new Date('2026-11-08T01:00:00Z'),issued=new Date(now-60000),startedAt=new Date(now-10000);
+ for(const received of [null,undefined,false,0,new Date('invalid'),new Date(now-60001),
+   new Date(now.valueOf()+1),new Date(now-30000).toISOString()])
+  assert.equal(sourceStartMatchesAuthorization({startedAt,startedReceivedAt:received},issued,now),false);
+ for(const issuedAt of [null,false,0,'invalid',new Date(now.valueOf()+1)])
+  assert.equal(sourceStartMatchesAuthorization({startedAt,startedReceivedAt:new Date(now-1000)},issuedAt,now),false);
+ assert.equal(sourceStartMatchesAuthorization({startedAt},issued,new Date('invalid')),false);
+});
+test('legacy start admission retains bounded device-clock tolerance without fabricating a receipt',()=>{
+ const now=new Date('2026-11-08T01:00:00Z'),issued=new Date(now-60000);
+ assert.equal(sourceStartMatchesAuthorization({startedAt:new Date(issued-120000)},issued,now),true);
+ assert.equal(sourceStartMatchesAuthorization({startedAt:new Date(issued-120001)},issued,now),false);
+ assert.equal(sourceStartMatchesAuthorization({startedAt:new Date(now.valueOf()+120000)},issued,now),true);
+ assert.equal(sourceStartMatchesAuthorization({startedAt:new Date(now.valueOf()+120001)},issued,now),false);
+});
+test('accepted meter freshness uses gateway start time while device timestamps stay unchanged',()=>{
+ const now=new Date('2026-11-08T01:00:00Z'),received=new Date(now-30000),startReceipt=new Date(now-60000);
+ for(const startedAt of [new Date(now-86400000),new Date(now.valueOf()+86400000)]) {
+  const source={...doc(),status:'active',startedAt,startedReceivedAt:startReceipt,lastMeterReceivedAt:received};
+  const proof=verifyOcppSource(source,{...binding(),now});
+  assert.equal(proof.meterFreshness,'recent');assert.equal(proof.meterReceiptAgeSeconds,30);
+  assert.equal(source.startedAt,startedAt);assert.equal(proof.paymentStatus,'not_collected');
+ }
+ for(const startedReceivedAt of [null,startReceipt.toISOString(),new Date(now.valueOf()+1),new Date(now-20000)]) {
+  const proof=verifyOcppSource({...doc(),status:'active',startedReceivedAt,lastMeterReceivedAt:received},{...binding(),now});
+  assert.equal(proof.meterFreshness,'unknown');assert.equal(proof.meterReceivedAt,null);
+ }
 });

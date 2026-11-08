@@ -9,7 +9,7 @@ import {createOcppBookingToken} from '../utils/ocppBookingToken.mjs';
 import mongoose from 'mongoose';
 import BookingModel from '../models/BookingModel.js';
 import ChargingSessionModel from '../models/ChargingSessionModel.js';
-import {verifyOcppSource} from '../utils/ocppSourceEvidence.mjs';
+import {verifyOcppSource,sourceStartMatchesAuthorization} from '../utils/ocppSourceEvidence.mjs';
 import {chooseBookingCharger} from '../utils/ocppMultiCharger.mjs';
 import {canReissueOcppToken,OCPP_TOKEN_TTL_MS} from '../utils/ocppReissuePolicy.mjs';
 
@@ -187,11 +187,8 @@ export async function AdminBindBookingOcppSource(req,res){
     _id:new mongoose.Types.ObjectId(sourceId),chargerId:charger.chargerId
   });
   if(!source)return fail(res,404,'Source charging transaction not found for this charger');
-  const startedAt=new Date(source.startedAt);
-  if(!booking.ocppTokenIssuedAt ||
-     !Number.isFinite(startedAt.valueOf()) ||
-     startedAt.getTime()<new Date(booking.ocppTokenIssuedAt).getTime()-120000)
-   return fail(res,409,'Source transaction predates this booking authorization');
+  if(!sourceStartMatchesAuthorization(source,booking.ocppTokenIssuedAt))
+   return fail(res,409,'Source start timing cannot be verified against this booking authorization');
   const proof=verifyOcppSource(source,{
     sourceId,chargerId:charger.chargerId,
     transactionId:String(source.transactionId),tokenHash:booking.ocppTokenHash,resourceScope:booking.ocppResourceScope??null,chargerRecord:charger

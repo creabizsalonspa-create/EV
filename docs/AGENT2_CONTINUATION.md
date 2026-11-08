@@ -1,5 +1,31 @@
 # Agent 2 standing continuation checkpoint
 
+## Current gateway-clock recovery checkpoint — November 8, 2026
+
+New source binding compares token issuance against accepted gateway
+startedReceivedAt, independent of charger clock skew. Present-but-invalid receipt
+metadata cannot fall back to the device clock. Old records without the field keep
+only bounded two-minute legacy tolerance; malformed/future issuance and far-future
+legacy starts fail closed. Meter age uses accepted gateway start chronology while
+device timestamps/history and all meter/financial calculations remain unchanged.
+
+Final exact-source verification:160 Node tests (17 controller adapter tests),6
+synthetic gateway patch tests,13 callback HTTP,149 disposable backend/OCPP,
+14 mocked Chrome,13 actual-API Chrome, Next TypeScript/production build. Backend
+plus actual browser or native150. Ten actual native/API checks passed again across
+8 invocations. Native source remains077820efc3b2782195c754e849d9633bd3a10da1;
+its prior61 tests/4 skips and latest PR78 combination81/4 skips/analysis qualify
+unchanged blobs. All72 backend/111 native/113 combined source/config hashes match.
+Evidence:docs/evidence/agent2-gateway-clock-recovery/validation.json.
+
+Next:Agent4 paired integration after required exact-head hosted/native gates.
+Canonical ConnectorTopology target currently permits owned simulator inventory;
+Express Mongo station/charger IDs are not an approved mapping to SQL connector
+mapping/EVSE IDs. Do not fabricate that bridge, drop the station-wide index or
+activate independent capacity/expiry/paid reschedule before the ownership and
+source/finance contracts are reconciled with Agent1/4. No full-atom credit,
+production, hardware or merchant acceptance is claimed.
+
 ## Current verified protocol/fault checkpoint — November 8, 2026
 
 This supersedes the earlier offline/partial checkpoint below. The authorized host

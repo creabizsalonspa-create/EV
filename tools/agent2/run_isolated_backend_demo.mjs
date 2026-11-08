@@ -1717,6 +1717,27 @@ try{
       assert.equal(noMeter.lastMeterReceivedAt.valueOf(),stable.lastMeterReceivedAt.valueOf());
       await nativeSourceStatus(base,bearer,scopedSession,false);
     });
+    await check(protocol+' gateway start receipt survives skewed device clocks without bypassing authorization',async()=>{
+      const original=await db.collection('ocpp_sessions').findOne({_id:scopedSource._id});
+      const receipt=original.startedReceivedAt;
+      assert.ok(receipt instanceof Date);
+      try{
+        for(const offset of [-86400000,86400000]){
+          const deviceTime=new Date(Date.now()+offset);
+          await db.collection('ocpp_sessions').updateOne({_id:scopedSource._id},{$set:{startedAt:deviceTime}});
+          const linked=await request('POST',scopedPath+'bind-source',{sourceSessionId:String(scopedSource._id)},false,{authorization:adminBearer});
+          assert.equal(linked.code,200);assert.equal(linked.body.data.sessionId,scopedSession);
+          const status=await request('GET','/api/v1/ChargingSession/'+scopedSession+'/status',undefined,true);
+          assert.equal(status.body.data.sourceVerified,true);assert.equal(status.body.data.meterFreshness,'recent');
+          assert.equal(status.body.data.provisionalTotalFils,315);assert.equal(status.body.data.paymentStatus,'not_collected');
+          assert.equal((await db.collection('ocpp_sessions').findOne({_id:scopedSource._id})).startedAt.valueOf(),deviceTime.valueOf());
+        }
+        await db.collection('ocpp_sessions').updateOne({_id:scopedSource._id},{$set:{startedAt:original.startedAt,startedReceivedAt:receipt.toISOString()}});
+        const denied=await request('POST',scopedPath+'bind-source',{sourceSessionId:String(scopedSource._id)},false,{authorization:adminBearer});
+        assert.equal(denied.code,409);
+        assert.equal(await ChargingSessionModel.countDocuments({bookingId:scopedBooking._id,sourceType:'ocpp'}),1);
+      }finally{await db.collection('ocpp_sessions').updateOne({_id:scopedSource._id},{$set:{startedAt:original.startedAt,startedReceivedAt:receipt}});}
+    });
     await check(protocol+' connector report is scoped to the active source and heartbeat cannot refresh it',async()=>{
       const notify=(connectorId,evseId=3)=>protocol==='ocpp1.6'
         ?{connectorId,status:'Faulted',errorCode:'OtherError',timestamp:new Date().toISOString()}

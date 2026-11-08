@@ -23,6 +23,23 @@ const sourceDate=value=>{
   return Number.isFinite(parsed.valueOf())?parsed:null;
 };
 
+/** Compare authorization against gateway time when an accepted-start receipt
+ * exists. A malformed receipt never falls back to a device clock. Legacy
+ * records without the field keep only the prior bounded two-minute tolerance.
+ */
+export function sourceStartMatchesAuthorization(source,issuedAt,now=new Date()){
+  const issued=sourceDate(issuedAt),device=sourceDate(source?.startedAt);
+  if(!issued || !device || !(now instanceof Date) ||
+      !Number.isFinite(now.valueOf()) || issued>now)return false;
+  if(Object.hasOwn(source,'startedReceivedAt')){
+    const received=source.startedReceivedAt;
+    return received instanceof Date && Number.isFinite(received.valueOf()) &&
+      received>=issued && received<=now;
+  }
+  return device.valueOf()>=issued.valueOf()-120000 &&
+    device.valueOf()<=now.valueOf()+120000;
+}
+
 // Bounded presentation policy, not a fault diagnosis or permission to restart.
 const endReasons=new Set(['EmergencyStop','EVDisconnected','HardReset','Local','Other',
   'PowerLoss','Reboot','Remote','SoftReset','UnlockCommand','DeAuthorized',
@@ -81,8 +98,13 @@ export function verifyOcppSource(source,{sourceId,chargerId,transactionId,tokenH
     meterReceivedAt:null,meterReceiptAgeSeconds:null,meterFreshness:'unknown'
   };
   const receipt=sourceDate(source.lastMeterReceivedAt);
-  if(receipt && receipt>=start && now instanceof Date &&
-      Number.isFinite(now.valueOf()) && receipt<=now){
+  // Gateway receipt chronology is independent of a skewed charger clock.
+  // Old records without accepted-start metadata retain their legacy bound.
+  const gatewayStart=Object.hasOwn(source,'startedReceivedAt')
+    ?(source.startedReceivedAt instanceof Date && Number.isFinite(source.startedReceivedAt.valueOf())
+      ?source.startedReceivedAt:null):start;
+  if(receipt && gatewayStart && receipt>=gatewayStart && now instanceof Date &&
+      Number.isFinite(now.valueOf()) && gatewayStart<=now && receipt<=now){
     evidence.meterReceivedAt=receipt.toISOString();
     evidence.meterReceiptAgeSeconds=Math.floor((now-receipt)/1000);
     evidence.meterFreshness=evidence.meterReceiptAgeSeconds<=120?'recent':'stale';

@@ -212,3 +212,32 @@ test('actual history query projects protocol, preserves disabled history and red
  assert.equal(res.body.data.energyKwh,null);assert.equal(res.body.data.transactionId,null);
  assert.deepEqual(f.state.writes,[]);
 });
+
+test('actual binding uses accepted gateway time when the charger clock is a day wrong',async t=>{
+ const f=await fixture(t),sourceId='507f1f77bcf86cd799439099',now=Date.now();
+ for(const offset of [-86400000,86400000]){
+  f.state.writes=[];
+  f.state.booking={...booking(),ocppChargerId:'CH-1',ocppTokenHash:'a'.repeat(64),ocppTokenIssuedAt:new Date(now-60000)};
+  f.state.source={_id:sourceId,chargerId:'CH-1',protocol:'ocpp1.6',transactionId:'skewed-clock',
+   status:'active',idTagHash:'a'.repeat(64),startedAt:new Date(now+offset),
+   startedReceivedAt:new Date(now-30000),paymentStatus:'not_collected'};
+  const res=await f.call(f.actions.AdminBindBookingOcppSource,{sourceSessionId:sourceId});
+  assert.equal(res.code,200);assert.equal(res.body.data.meterVerified,false);
+  assert.deepEqual(f.state.writes.map(([kind])=>kind),['session']);
+  assert.equal(f.state.source.startedAt.valueOf(),now+offset);
+ }
+});
+test('actual binding cannot use malformed gateway receipts or invalid issuance times to create links',async t=>{
+ const f=await fixture(t),sourceId='507f1f77bcf86cd799439099',now=Date.now();
+ f.state.booking={...booking(),ocppChargerId:'CH-1',ocppTokenHash:'a'.repeat(64),ocppTokenIssuedAt:new Date(now-60000)};
+ f.state.source={_id:sourceId,chargerId:'CH-1',protocol:'ocpp1.6',transactionId:'bad-time',
+  status:'active',idTagHash:'a'.repeat(64),startedAt:new Date(now-10000),paymentStatus:'not_collected'};
+ for(const startedReceivedAt of [null,new Date(now-60001),new Date(now+86400000),new Date(now-30000).toISOString()]){
+  f.state.source.startedReceivedAt=startedReceivedAt;
+  assert.equal((await f.call(f.actions.AdminBindBookingOcppSource,{sourceSessionId:sourceId})).code,409);
+  assert.deepEqual(f.state.writes,[]);
+ }
+ f.state.source.startedReceivedAt=new Date(now-10000);f.state.booking.ocppTokenIssuedAt='invalid';
+ assert.equal((await f.call(f.actions.AdminBindBookingOcppSource,{sourceSessionId:sourceId})).code,409);
+ assert.deepEqual(f.state.writes,[]);
+});
