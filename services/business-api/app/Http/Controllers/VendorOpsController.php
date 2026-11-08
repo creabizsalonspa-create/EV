@@ -378,7 +378,14 @@ class VendorOpsController extends Controller
     public function invite(Request $r, VendorCompany $company)
     {
         $this->access->owner($r->user(), $company);
-        $v = $r->validate(['email' => 'required|email', 'permissions' => 'required|array|min:1', 'permissions.*' => ['required', Rule::in(VendorAccess::PERMISSIONS)]]);
+        // An invitation can contain at most the three supported unique
+        // scopes. Reject oversized/duplicate input before any grant or audit
+        // write, consistent with the staff-permission editing endpoint.
+        $v = $r->validate([
+            'email' => 'required|email',
+            'permissions' => 'required|array|min:1|max:3',
+            'permissions.*' => ['required', 'distinct', Rule::in(VendorAccess::PERMISSIONS)],
+        ]);
         $u = User::where('email', $v['email'])->first();
         if ($u && $u->id !== $company->owner_id) {
             DB::transaction(function () use ($r, $company, $u, $v) {
