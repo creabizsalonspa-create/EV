@@ -21,6 +21,7 @@ FILES = {'android-debug': ('android-development.apk', '.apk'),
 SHA = re.compile(r'^[0-9a-f]{40}$')
 DIGEST = re.compile(r'^[0-9a-f]{64}$')
 MAX_ENTRIES = 100_000
+MAX_SYMLINK_TARGET_BYTES = 4096
 MAX_EXPANDED = 8 * 1024**3
 
 
@@ -70,8 +71,19 @@ def archive_check(path, platform):
                 if expanded > MAX_EXPANDED:
                     raise BundleError('Expanded archive exceeds safe limit')
                 member_mode = (entry.external_attr >> 16) & 0o170000
+                # A symbolic link (or empty directory) named like a platform
+                # identity file cannot establish that the APK/app is present.
+                identity_file = (name == 'AndroidManifest.xml' if platform == 'android-debug'
+                                 else bool(re.search(r'(^|/)[^/]+\.app/Info\.plist$', name)))
+                if identity_file and (entry.is_dir() or
+                                      member_mode not in (0, stat.S_IFREG) or
+                                      entry.file_size == 0):
+                    raise BundleError('Platform identity must be a nonempty regular ZIP member')
                 if member_mode == stat.S_IFLNK:
-                    # Frameworks in simulator builds can have internal relative symlinks.
+                    # Frameworks in simulator builds can contain relative
+                    # symlinks. Bound the uncompressed read before extraction.
+                    if entry.file_size < 1 or entry.file_size > MAX_SYMLINK_TARGET_BYTES:
+                        raise BundleError('Archive symlink target exceeds safe length')
                     link = archive.read(entry).decode('utf-8', errors='strict')
                     if not link or link.startswith('/') or '\\' in link or '\x00' in link:
                         raise BundleError('Unsafe archive symlink')

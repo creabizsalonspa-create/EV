@@ -1,6 +1,7 @@
 import json
 import datetime as dt
 import os
+import stat
 from pathlib import Path
 import tempfile
 import unittest
@@ -421,6 +422,52 @@ class DeliveryBundleTests(unittest.TestCase):
             with self.assertRaisesRegex(BundleError, 'Previously checked delivery artifact changed'):
                 verify(bundle, SHA)
         self.assertTrue(changed)
+
+    @staticmethod
+    def archive_symlink(name, target):
+        member = zipfile.ZipInfo(name)
+        member.create_system = 3
+        member.external_attr = (stat.S_IFLNK | 0o777) << 16
+        return member, target
+
+    def test_android_identity_must_not_be_an_archive_symlink(self):
+        manifest_link, value = self.archive_symlink('AndroidManifest.xml', 'classes.dex')
+        with zipfile.ZipFile(self.android, 'w') as archive:
+            archive.writestr(manifest_link, value)
+            archive.writestr('classes.dex', b'body')
+        with self.assertRaisesRegex(BundleError, 'Platform identity must be'):
+            archive_check(self.android, 'android-debug')
+
+    def test_ios_identity_must_not_be_an_archive_symlink(self):
+        plist_link, value = self.archive_symlink('Runner.app/Info.plist', 'Runner')
+        with zipfile.ZipFile(self.ios, 'w') as archive:
+            archive.writestr(plist_link, value)
+            archive.writestr('Runner.app/Runner', b'body')
+        with self.assertRaisesRegex(BundleError, 'Platform identity must be'):
+            archive_check(self.ios, 'ios-simulator')
+
+    def test_ios_identity_file_cannot_be_empty(self):
+        self.write_zip(self.ios, {'Runner.app/Info.plist':'',
+                                  'Runner.app/Runner':'body'})
+        with self.assertRaisesRegex(BundleError, 'Platform identity must be'):
+            archive_check(self.ios, 'ios-simulator')
+
+    def test_reject_oversized_simulator_symlink_before_reading_body(self):
+        link, target = self.archive_symlink('Runner.app/Frameworks/Current', 'x' * 4097)
+        with zipfile.ZipFile(self.ios, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('Runner.app/Info.plist', b'<plist/>')
+            archive.writestr('Runner.app/Runner', b'body')
+            archive.writestr(link, target)
+        with self.assertRaisesRegex(BundleError, 'symlink target exceeds safe length'):
+            archive_check(self.ios, 'ios-simulator')
+
+    def test_valid_short_relative_simulator_symlink_remains_allowed(self):
+        link, target = self.archive_symlink('Runner.app/Frameworks/Current', 'Versions/A')
+        with zipfile.ZipFile(self.ios, 'w') as archive:
+            archive.writestr('Runner.app/Info.plist', b'<plist/>')
+            archive.writestr('Runner.app/Runner', b'body')
+            archive.writestr(link, target)
+        self.assertIsNone(archive_check(self.ios, 'ios-simulator'))
 
     def test_cli_success_and_failure(self):
         bundle = self.bundle()
