@@ -247,6 +247,73 @@ class ChargingOperationsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_operator_role_demotion_revokes_existing_session_for_reads_and_writes(): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $uri = '/api/charging-operations/'.$command->id;
+        $this->actingAs($vendor)->postJson($uri.'/case', [
+            'note' => 'Case opened before authorized role change',
+        ])->assertCreated();
+        $this->getJson('/api/charging-operations')->assertOk()->assertJsonPath('total', 1);
+
+        // Change the database record while the authenticated User object
+        // remains hydrated with its former vendor role.
+        DB::table('users')->where('id', $vendor->id)->update(['role' => 'customer']);
+        $this->getJson('/api/charging-operations')->assertForbidden();
+        $this->getJson($uri.'/case')->assertForbidden();
+        $this->postJson($uri.'/case', ['note' => 'Replay with revoked privileges'])
+            ->assertForbidden();
+        $this->patchJson($uri.'/case', [
+            'state' => 'investigating', 'note' => 'Stale vendor review blocked',
+        ])->assertForbidden();
+        $this->postJson($uri.'/inspect-source')->assertForbidden();
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->getJson($uri.'/case')->assertOk();
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->getJson($uri.'/case')->assertNotFound();
+        $this->getJson('/api/charging-operations')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->patchJson($uri.'/case', [
+            'state' => 'investigating', 'note' => 'Stale admin review blocked',
+        ])->assertNotFound();
+        $this->assertDatabaseCount('charging_operational_cases', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_source_inspection_rechecks_role_after_remote_source_read(): void
+    {
+        [$vendor, $customer, $session, $command] = $this->fixture();
+        $command->update(['status' => 'outcome_unknown']);
+        $uri = '/api/charging-operations/'.$command->id;
+        $this->actingAs($vendor)->postJson($uri.'/case', [
+            'note' => 'Case opened for delayed role revocation test',
+        ])->assertCreated();
+        $eventsBefore = DB::table('charging_operational_case_events')->count();
+        $consumer = \Mockery::mock(SourceConsumer::class);
+        $consumer->shouldReceive('consume')->once()->andReturnUsing(
+            function () use ($vendor): int {
+                DB::table('users')->where('id', $vendor->id)->update(['role' => 'customer']);
+                return 0;
+            }
+        );
+        $reconciler = \Mockery::mock(CommandReconciler::class);
+        $reconciler->shouldNotReceive('forSession');
+        $this->app->instance(SourceConsumer::class, $consumer);
+        $this->app->instance(CommandReconciler::class, $reconciler);
+
+        $this->postJson($uri.'/inspect-source')->assertForbidden();
+        $this->assertSame($eventsBefore, DB::table('charging_operational_case_events')->count());
+        $this->assertDatabaseHas('charging_operational_cases', [
+            'command_id' => $command->id, 'state' => 'open',
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
     public function test_proof_is_required_for_case_resolution_and_tenant_scope_precedes_source_reads(): void
     {
         [$vendor,$customer,$session,$command] = $this->fixture();

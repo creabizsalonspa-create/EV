@@ -17,11 +17,25 @@ class ChargingOperationsController extends Controller
 {
     private const UNCERTAIN = ['dispatching', 'submitted', 'outcome_unknown', 'rejected'];
 
+    /**
+     * Resolve the role from the authoritative database on every operator
+     * authorization, not from a potentially stale authenticated model.
+     * An admin demoted to vendor must immediately lose cross-station access.
+     */
+    private function currentOperatorRole(Request $r): string
+    {
+        $role = DB::table('users')->where('id', $r->user()->id)->value('role');
+        abort_unless(in_array($role, ['vendor', 'admin'], true), 403);
+
+        return $role;
+    }
+
     private function authorizeOperator(Request $r, ?ChargerCommand $command = null): void
     {
-        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
-        if ($command && $r->user()->role !== 'admin') {
-            abort_unless(Station::whereKey($command->station_id)->where('vendor_id', $r->user()->id)->exists(), 404);
+        $role = $this->currentOperatorRole($r);
+        if ($command && $role !== 'admin') {
+            abort_unless(Station::whereKey($command->station_id)
+                ->where('vendor_id', $r->user()->id)->exists(), 404);
         }
     }
 
@@ -32,7 +46,7 @@ class ChargingOperationsController extends Controller
         $q = ChargerCommand::where(function ($q) {
             $q->whereIn('status', self::UNCERTAIN)->orWhereExists(fn ($s) => $s->selectRaw('1')->from('charging_operational_cases')->whereColumn('command_id', 'charger_commands.id'));
         });
-        if ($r->user()->role !== 'admin') {
+        if ($this->currentOperatorRole($r) !== 'admin') {
             $q->whereIn('station_id', Station::where('vendor_id', $r->user()->id)->select('id'));
         }
         $page = $q->orderByDesc('id')->paginate(25);
@@ -67,7 +81,7 @@ class ChargingOperationsController extends Controller
             $c = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
             $station = Station::whereKey($c->station_id)->lockForUpdate()->firstOrFail();
             $this->authorizeOperator($r, $c);
-            if ($r->user()->role !== 'admin') {
+            if ($this->currentOperatorRole($r) !== 'admin') {
                 abort_unless($station->vendor_id === $r->user()->id, 404);
             }
             if ($old = OperationalCase::where('command_id', $c->id)->first()) {
@@ -101,7 +115,7 @@ class ChargingOperationsController extends Controller
             $c = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
             $station = Station::whereKey($c->station_id)->lockForUpdate()->firstOrFail();
             $this->authorizeOperator($r, $c);
-            if ($r->user()->role !== 'admin') {
+            if ($this->currentOperatorRole($r) !== 'admin') {
                 abort_unless($station->vendor_id === $r->user()->id, 404);
             }
             $case = OperationalCase::where('command_id', $c->id)->lockForUpdate()->firstOrFail();
@@ -148,8 +162,8 @@ class ChargingOperationsController extends Controller
         DB::transaction(function () use ($case, $r, $hasProof, $command) {
             $lockedCommand = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
             $station = Station::whereKey($lockedCommand->station_id)->lockForUpdate()->firstOrFail();
-            abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 403);
-            if ($r->user()->role !== 'admin') {
+            $this->authorizeOperator($r, $lockedCommand);
+            if ($this->currentOperatorRole($r) !== 'admin') {
                 abort_unless($station->vendor_id === $r->user()->id, 404);
             }
             $current = OperationalCase::whereKey($case->id)->lockForUpdate()->firstOrFail();
