@@ -119,6 +119,25 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
         throw const FormatException('Unexpected battery report provenance');
       }
       final history=ApiPage<Map<String,dynamic>>.fromJson(raw,(v)=>v);
+      // A successful POST alone does not prove the server readback contains
+      // this observation. Do not acknowledge a stale current reading or a
+      // missing/unrelated history row as a saved customer report.
+      final expected=body['expected_revision'];
+      final reported=body['battery_percent'];
+      final revision=expected is int ? expected+1 : null;
+      final confirmed=revision!=null &&
+        currentMap['vehicle_id']==widget.vehicleId &&
+        currentMap['revision']==revision &&
+        currentMap['battery_percent']==reported &&
+        history.items.any((row)=>
+          row['vehicle_id']==widget.vehicleId &&
+          row['revision']==revision &&
+          row['battery_percent']==reported &&
+          row['source']=='CUSTOMER_MANUAL_SELF_REPORT');
+      if(!confirmed){
+        throw const FormatException(
+          'Submitted manual battery report not confirmed by server readback');
+      }
       setState((){
         latest=currentMap;reports=history.items;
         page=history.current;lastPage=history.last;

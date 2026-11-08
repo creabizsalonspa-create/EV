@@ -14,6 +14,8 @@ class _SocApi extends EvApi {
   final requestPaths = <String>[];
   Completer<void>? holdVehicle17;
   bool failReadbackOnce = false;
+  bool hideHistoryOnce = false;
+  bool staleCurrentOnce = false;
   bool denyNewAccount = false;
   int revision = 0;
   int? percent;
@@ -65,6 +67,16 @@ class _SocApi extends EvApi {
         failReadbackOnce = false;
         throw const ApiException(503, 'readback failed after accepted POST');
       }
+      if (revision > 0 && staleCurrentOnce) {
+        staleCurrentOnce = false;
+        return {
+          'vehicle_id': 17, 'revision': revision - 1,
+          'battery_percent': null,
+          'source': 'CUSTOMER_MANUAL_SELF_REPORT',
+          'measured_by_phone': false, 'measured_by_vehicle_api': false,
+          'charging_capability_verified': false,
+        };
+      }
       return {
         'vehicle_id': 17, 'revision': revision, 'battery_percent': percent,
         'source': 'CUSTOMER_MANUAL_SELF_REPORT',
@@ -75,9 +87,11 @@ class _SocApi extends EvApi {
       };
     }
     if (path == 'vehicles/17/manual-soc/history' && method == 'GET') {
+      final suppress = revision > 0 && hideHistoryOnce;
+      if (suppress) hideHistoryOnce = false;
       return {
         'current_page': 1, 'last_page': 1, 'total': revision,
-        'data': revision == 0 ? [] : [
+        'data': revision == 0 || suppress ? [] : [
           {'vehicle_id': 17, 'battery_percent': percent, 'revision': revision,
             'reported_at': '2026-11-07 14:00:00',
             'source': 'CUSTOMER_MANUAL_SELF_REPORT'},
@@ -212,6 +226,60 @@ void main() {
       expect(find.byKey(const Key('manual-soc-percent')), findsNothing);
       expect(find.byKey(const Key('manual-soc-error')), findsOneWidget);
       expect(api.writes, isEmpty);
+    } finally {
+      api.close();
+    }
+  });
+
+  testWidgets('stale current readback preserves pending report and original retry key',
+      (tester) async {
+    final api = _SocApi()..staleCurrentOnce = true;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '61');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.revision, 1, reason: 'Server accepted the first write');
+      expect(find.text('Manual battery report recorded.'), findsNothing);
+      expect(find.text('Retry identical report'), findsOneWidget);
+      expect(find.byKey(const Key('manual-soc-error')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.revision, 1, reason: 'Retry must not create a second observation');
+      expect(api.writes, hasLength(2));
+      expect(api.writes.last['operation_key'], api.writes.first['operation_key']);
+      expect(find.text('Manual battery report recorded.'), findsOneWidget);
+    } finally {
+      api.close();
+    }
+  });
+
+  testWidgets('missing history readback cannot mark a battery report confirmed',
+      (tester) async {
+    final api = _SocApi()..hideHistoryOnce = true;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '37');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.revision, 1);
+      expect(find.text('Manual battery report recorded.'), findsNothing);
+      expect(find.text('Retry identical report'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(2));
+      expect(api.writes.first['operation_key'], api.writes.last['operation_key']);
+      expect(api.revision, 1);
+      expect(find.text('Manual battery report recorded.'), findsOneWidget);
+      expect(find.textContaining('Latest estimate: 37%'), findsOneWidget);
     } finally {
       api.close();
     }
