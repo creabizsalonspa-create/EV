@@ -70,6 +70,59 @@ function mock(dir){
 }
 const approval='ROLLBACK_PRIVATE_STAGING_'+SHA.slice(0,12);
 function cli(file,token=approval){return ['rollback','--journal',file,'--approval',token];}
+test('manual rollback refuses .env changed during isolated preflight before Docker mutation',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.preflight=()=>{
+    fs.writeFileSync(deps.envFile,fs.readFileSync(deps.envFile,'utf8').replace('DB_PASSWORD','DQ_PASSWORD'),{mode:0o600});
+    return {ok:true,errors:[]};
+  };
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+  assert.equal(fs.readFileSync(file,'utf8').includes('MANUAL_ROLLBACK_STARTED'),false);
+}));
+test('manual rollback refuses .env changed after source image review but before journaling',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir),original=deps.run;
+  let altered=false;
+  deps.run=(cmd,args,opts)=>{
+    const result=original(cmd,args,opts);
+    if(args[0]==='image'&&!altered){
+      altered=true;
+      fs.writeFileSync(deps.envFile,fs.readFileSync(deps.envFile,'utf8').replace('DB_PASSWORD','DQ_PASSWORD'),{mode:0o600});
+    }
+    return result;
+  };
+  assert.equal(recovery.main(cli(file),deps),2);
+  assert.equal(deps.state.up,0);
+  assert.ok(altered);
+  assert.equal(fs.readFileSync(file,'utf8').includes('MANUAL_ROLLBACK_STARTED'),false);
+}));
+test('manual rollback .env changed during Compose up requires reconciliation, never success',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir),original=deps.run;
+  deps.run=(cmd,args,opts)=>{
+    const result=original(cmd,args,opts);
+    if(args.includes('up')){
+      fs.writeFileSync(deps.envFile,fs.readFileSync(deps.envFile,'utf8').replace('DB_PASSWORD','DQ_PASSWORD'),{mode:0o600});
+    }
+    return result;
+  };
+  assert.equal(recovery.main(cli(file),deps),3);
+  assert.equal(deps.state.up,1);
+  const journal=fs.readFileSync(file,'utf8');
+  assert.ok(journal.includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.equal(journal.includes('MANUAL_ROLLBACK_VERIFIED'),false);
+}));
+test('manual rollback .env altered during private HTTPS probe cannot be accepted',()=>temp(dir=>{
+  const file=setup(dir),deps=mock(dir);
+  deps.checkHttp=()=>{
+    fs.writeFileSync(deps.envFile,fs.readFileSync(deps.envFile,'utf8').replace('DB_PASSWORD','DQ_PASSWORD'),{mode:0o600});
+    return true;
+  };
+  assert.equal(recovery.main(cli(file),deps),3);
+  assert.equal(deps.state.up,1);
+  assert.ok(fs.readFileSync(file,'utf8').includes('OPERATOR_RECONCILIATION_REQUIRED'));
+  assert.equal(fs.readFileSync(file,'utf8').includes('MANUAL_ROLLBACK_VERIFIED'),false);
+}));
+
 test('explicit rollback command accepts only journal and correct option shape',()=>temp(dir=>{
   assert.equal(recovery.parseArgs(cli('file.jsonl')).approval,approval);
   for(const args of [[],['rollback'],['rollback','--journal','x'],['apply','--journal','file','--approval',approval]])

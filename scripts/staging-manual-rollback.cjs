@@ -8,6 +8,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { parseSnapshot, localDockerSnapshot } = require('./staging-runtime-gate.cjs');
 const { verifyFormerTag, acquireLock, reviewIsolatedConfig, reviewEffectiveCompose, composeUp, verifyRunning, probePostDeploy, journal } = require('./staging-release.cjs');
+const privateEnv = require('./staging-env-integrity.cjs');
 
 const SHA=/^[a-f0-9]{40}$/;
 const ID=/^sha256:[a-f0-9]{64}$/;
@@ -112,39 +113,52 @@ function rollback(config,deps={}) {
     throw Error('Explicit staging-only rollback approval missing');
   }
   // A recovery operation must not reactivate live partner, payment or charger wiring.
-  reviewIsolatedConfig(deps.envFile||path.resolve(__dirname,'../infra/staging/.env'),deps);
+  // Capture the secret input before preflight; compare it at every mutation gate.
+  const envFile=deps.envFile||path.resolve(__dirname,'../infra/staging/.env');
+  const baseline=privateEnv.capture(envFile);
+  reviewIsolatedConfig(envFile,deps);
   reviewEffectiveCompose(deps);
+  privateEnv.assertUnchanged(envFile,baseline);
   const unlock=acquireLock(deps);
   try {
     const run=deps.run||execFileSync;
     const rows=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
     recoverySnapshot(rows,p);
     verifyFormerTag(p,deps);
+    privateEnv.assertUnchanged(envFile,baseline);
     // A previously verified rollback still needs read-only confirmation of current state.
     if(['ROLLBACK_VERIFIED','MANUAL_ROLLBACK_VERIFIED'].includes(record.events.at(-1).event)) {
       verifyRunning(p.old_ref,p.old_id,deps);
       // Verify the originally observed database and gateway are still running.
       const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
       recoverySnapshot(current,p);
+      privateEnv.assertUnchanged(envFile,baseline);
       probePostDeploy(p,deps);
+      privateEnv.assertUnchanged(envFile,baseline);
       verifyRunning(p.old_ref,p.old_id,deps);
       recoverySnapshot(parseSnapshot(localDockerSnapshot(deps.env||process.env,run)),p);
       verifyFormerTag(p,deps);
+      privateEnv.assertUnchanged(envFile,baseline);
       return {ok:true,changed:false};
     }
     // Preserve a fail-closed journal even if a concurrent operator retargeted the
     // former app tag. Never run an unreviewed image during recovery.
     verifyFormerTag(p,deps);
+    privateEnv.assertUnchanged(envFile,baseline);
     journal(record.file,'MANUAL_ROLLBACK_STARTED');
     try {
+      privateEnv.assertUnchanged(envFile,baseline);
       composeUp(p.old_ref.slice('creabiz-ev-business:'.length),deps);
       verifyRunning(p.old_ref,p.old_id,deps);
       const current=parseSnapshot(localDockerSnapshot(deps.env||process.env,run));
       recoverySnapshot(current,p);
+      privateEnv.assertUnchanged(envFile,baseline);
       probePostDeploy(p,deps);
+      privateEnv.assertUnchanged(envFile,baseline);
       verifyRunning(p.old_ref,p.old_id,deps);
       recoverySnapshot(parseSnapshot(localDockerSnapshot(deps.env||process.env,run)),p);
       verifyFormerTag(p,deps);
+      privateEnv.assertUnchanged(envFile,baseline);
       journal(record.file,'MANUAL_ROLLBACK_VERIFIED',{private_http_routes_checked:true,production_accepted:false});
       return {ok:true,changed:true};
     } catch {
