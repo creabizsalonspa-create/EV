@@ -17,6 +17,8 @@ class _SocApi extends EvApi {
   bool hideHistoryOnce = false;
   bool staleCurrentOnce = false;
   bool denyNewAccount = false;
+  bool supersedeAfterPost = false;
+  int? earlierPercent;
   int revision = 0;
   int? percent;
   int otherRevision = 4;
@@ -95,6 +97,10 @@ class _SocApi extends EvApi {
           {'vehicle_id': 17, 'battery_percent': percent, 'revision': revision,
             'reported_at': '2026-11-07 14:00:00',
             'source': 'CUSTOMER_MANUAL_SELF_REPORT'},
+          if(earlierPercent!=null)
+            {'vehicle_id':17,'battery_percent':earlierPercent,
+              'revision':revision-1,'reported_at':'2026-11-07 13:59:00',
+              'source':'CUSTOMER_MANUAL_SELF_REPORT'},
         ],
       };
     }
@@ -112,7 +118,15 @@ class _SocApi extends EvApi {
       }
       revision++;
       percent = submitted['battery_percent'] as int;
-      return {'revision': revision, 'battery_percent': percent,
+      final acceptedRevision=revision, acceptedPercent=percent;
+      if(supersedeAfterPost){
+        earlierPercent=percent;
+        revision++;
+        percent=28;
+      }
+      // The POST acknowledges the submitted observation, while a separate
+      // current-state GET may already reflect another device's newer report.
+      return {'revision': acceptedRevision, 'battery_percent': acceptedPercent,
         'source': 'CUSTOMER_MANUAL_SELF_REPORT',
         'measured_by_phone': false, 'measured_by_vehicle_api': false};
     }
@@ -256,6 +270,54 @@ void main() {
     } finally {
       api.close();
     }
+  });
+
+  testWidgets('native refresh confirms an accepted report without second POST',
+      (tester) async {
+    final api=_SocApi()..failReadbackOnce=true;
+    try{
+      await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+        api:api,vehicleId:17,onExpired:(){},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')),'54');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1));
+      expect(find.text('Retry identical report'),findsOneWidget);
+      final refresh=find.text('Refresh from server');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1),
+        reason:'Readback refresh cannot repeat an already accepted POST');
+      expect(find.text('Manual battery report recorded.'),findsOneWidget);
+      expect(find.text('Save manual report'),findsOneWidget);
+      expect(find.textContaining('Latest estimate: 54%'),findsOneWidget);
+    }finally{api.close();}
+  });
+
+  testWidgets('native manual SOC distinguishes superseded accepted observation',
+      (tester) async {
+    final api=_SocApi()..supersedeAfterPost=true;
+    try{
+      await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+        api:api,vehicleId:17,onExpired:(){},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')),'54');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1));
+      expect(api.revision,2);
+      expect(find.textContaining('a newer battery report is now the latest'),
+        findsOneWidget);
+      expect(find.textContaining('Latest estimate: 28%'),findsOneWidget);
+      expect(find.text('Save manual report'),findsOneWidget);
+      expect(find.text('Retry identical report'),findsNothing);
+    }finally{api.close();}
   });
 
   testWidgets('missing history readback cannot mark a battery report confirmed',

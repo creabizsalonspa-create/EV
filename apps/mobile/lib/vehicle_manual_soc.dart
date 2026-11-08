@@ -25,6 +25,35 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
   String t(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
   String get path=>'vehicles/'+widget.vehicleId.toString()+'/manual-soc';
 
+  // An exact, source-qualified history row establishes that this user report
+  // was recorded. A later revision does not turn an accepted report into an
+  // uncertain submission or make the old percentage the current estimate.
+  String? confirmationKind(Map<String,dynamic> submitted,
+      Map<String,dynamic> current,List<Map<String,dynamic>> history){
+    final expected=submitted['expected_revision'];
+    final reported=submitted['battery_percent'];
+    if(expected is! int||reported is! int||
+        current['vehicle_id']!=widget.vehicleId)return null;
+    final revision=expected+1;
+    final latestRevision=current['revision'];
+    if(latestRevision is! int||latestRevision<revision)return null;
+    final recorded=history.any((row)=>
+      row['vehicle_id']==widget.vehicleId &&
+      row['revision']==revision &&
+      row['battery_percent']==reported &&
+      row['source']=='CUSTOMER_MANUAL_SELF_REPORT');
+    if(!recorded)return null;
+    if(latestRevision==revision){
+      return current['battery_percent']==reported?'current':null;
+    }
+    return 'superseded';
+  }
+
+  String confirmationMessage(String kind)=>kind=='superseded'
+    ? t('Manual battery report recorded; a newer battery report is now the latest.',
+        'تم تسجيل التقرير اليدوي، لكن يوجد تقرير أحدث للبطارية.')
+    : t('Manual battery report recorded.','تم تسجيل التقرير اليدوي للبطارية.');
+
   @override
   void initState(){
     super.initState();
@@ -76,9 +105,15 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
         throw const FormatException('Unexpected battery report provenance');
       }
       final history=ApiPage<Map<String,dynamic>>.fromJson(raw,(v)=>v);
+      final confirmation=pending==null?null:
+        confirmationKind(pending!,currentMap,history.items);
       setState((){
         latest=currentMap;reports=history.items;
         page=history.current;lastPage=history.last;
+        if(confirmation!=null){
+          pending=null;percent.clear();
+          success=confirmationMessage(confirmation);
+        }
       });
     }catch(e){if(mounted&&token==generation&&fence())failed(e);}
     finally{if(mounted&&token==generation&&fence())setState(()=>loading=false);}
@@ -119,22 +154,10 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
         throw const FormatException('Unexpected battery report provenance');
       }
       final history=ApiPage<Map<String,dynamic>>.fromJson(raw,(v)=>v);
-      // A successful POST alone does not prove the server readback contains
-      // this observation. Do not acknowledge a stale current reading or a
-      // missing/unrelated history row as a saved customer report.
-      final expected=body['expected_revision'];
-      final reported=body['battery_percent'];
-      final revision=expected is int ? expected+1 : null;
-      final confirmed=revision!=null &&
-        currentMap['vehicle_id']==widget.vehicleId &&
-        currentMap['revision']==revision &&
-        currentMap['battery_percent']==reported &&
-        history.items.any((row)=>
-          row['vehicle_id']==widget.vehicleId &&
-          row['revision']==revision &&
-          row['battery_percent']==reported &&
-          row['source']=='CUSTOMER_MANUAL_SELF_REPORT');
-      if(!confirmed){
+      // The exact observation must be in authoritative history. A newer
+      // current revision is allowed only when that older row was confirmed.
+      final confirmation=confirmationKind(body,currentMap,history.items);
+      if(confirmation==null){
         throw const FormatException(
           'Submitted manual battery report not confirmed by server readback');
       }
@@ -142,7 +165,7 @@ class _VehicleManualSocState extends State<VehicleManualSocView> {
         latest=currentMap;reports=history.items;
         page=history.current;lastPage=history.last;
         pending=null;percent.clear();
-        success=t('Manual battery report recorded.','تم تسجيل التقرير اليدوي للبطارية.');
+        success=confirmationMessage(confirmation);
       });
     }catch(e){
       if(mounted&&token==generation&&fence()){
