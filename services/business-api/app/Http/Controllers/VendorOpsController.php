@@ -259,13 +259,17 @@ class VendorOpsController extends Controller
             DB::transaction(function () use ($r, $company, $u, $v) {
                 VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                 $existing = VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $u->id)->lockForUpdate()->first();
+                abort_if($existing?->admin_revoked_at !== null, 409,
+                    'Staff access is under an administrator security hold.');
                 if (! $existing) {
                     VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $u->id, 'permissions' => array_values(array_unique($v['permissions']))]);
+                    $this->access->audit($r->user(), 'staff.invited', $company->id);
                 } elseif ($existing->status === 'revoked') {
-                    abort_if($existing->admin_revoked_at !== null, 409,
-                        'Staff access is under an administrator security hold.');
                     $existing->update(['status' => 'invited', 'permissions' => array_values(array_unique($v['permissions'])), 'invitation_version' => $existing->invitation_version + 1, 'accepted_at' => null]);
-                }$this->access->audit($r->user(), 'staff.invited', $company->id);
+                    $this->access->audit($r->user(), 'staff.invited', $company->id);
+                }
+                // Repeating an existing pending or active invitation must not
+                // fabricate a second security/audit event.
             });
         }
 
@@ -364,8 +368,10 @@ class VendorOpsController extends Controller
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             if ($m->status !== 'revoked') {
                 $m->update(['status' => 'revoked', 'invitation_version' => $m->invitation_version + 1]);
+                $this->access->audit($r->user(), 'staff.revoked', $m->id);
             }
-            $this->access->audit($r->user(), 'staff.revoked', $m->id);
+            // A repeated revoke is idempotent and must not create a false
+            // second permission-change event.
 
             return response()->noContent();
         });
