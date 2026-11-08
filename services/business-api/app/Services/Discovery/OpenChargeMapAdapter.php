@@ -126,6 +126,11 @@ final class OpenChargeMapAdapter
             // top-level source envelope still says discovery-only.
             if (($item['provider'] ?? null) !== 'open_charge_map'
                 || ($item['source_status_evidence'] ?? null) !== 'OPEN_CHARGE_MAP_DISCOVERY_ONLY'
+                || ($item['operator_evidence'] ?? null) !== 'OPEN_CHARGE_MAP_REPORTED_UNVERIFIED'
+                || ($item['reported_operational_evidence'] ?? null) !== 'OPEN_CHARGE_MAP_CROWD_STATUS_UNVERIFIED'
+                || ($item['reported_access_evidence'] ?? null) !== 'OPEN_CHARGE_MAP_CROWD_ACCESS_UNVERIFIED'
+                || ($item['reported_cost_evidence'] ?? null) !== 'OPEN_CHARGE_MAP_CROWD_PRICE_UNVERIFIED'
+                || ($item['distance_basis'] ?? null) !== 'great_circle'
                 || ($item['availability'] ?? null) !== 'unknown'
                 || ($item['remote_control'] ?? null) !== false
                 || ($item['reservable'] ?? null) !== false
