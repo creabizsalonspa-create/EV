@@ -161,20 +161,8 @@ class VendorOpsController extends Controller
             'image/png' => 'png','image/jpeg' => 'jpg',default => 'pdf'
         };
 
-        $encrypted = Storage::disk('local')->get($document->getRawOriginal('storage_path'));
-        if (! is_string($encrypted) || $encrypted === '') {
-            $this->rejectCorruptEvidence($r, $document);
-        }
-        try {
-            $contents = Crypt::decryptString($encrypted);
-        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
-            $this->rejectCorruptEvidence($r, $document);
-        }
-        // Encryption authenticates the payload, but not the document-to-file
-        // association. Verify the original upload digest and length to prevent
-        // accidental cross-company substitution of valid encrypted evidence.
-        if (! hash_equals((string) $document->sha256, hash('sha256', $contents))
-            || (int) $document->size_bytes !== strlen($contents)) {
+        $contents = $this->verifiedEvidenceContents($document);
+        if ($contents === null) {
             $this->rejectCorruptEvidence($r, $document);
         }
         // Log only a successful authorized access, without storage paths,
@@ -196,6 +184,31 @@ class VendorOpsController extends Controller
         // document contents, stored digests or cross-tenant evidence.
         $this->access->audit($request->user(), 'document.integrity_failed', $document->id);
         abort(409, 'KYC document is unavailable or has failed integrity verification.');
+    }
+
+    /**
+     * Authentication of ciphertext alone does not bind it to a KYC record.
+     * Verify the original upload digest and length before releasing evidence
+     * or accepting it as a basis for an Admin KYC approval.
+     */
+    private function verifiedEvidenceContents(VendorKycDocument $document): ?string
+    {
+        try {
+            $encrypted = Storage::disk('local')->get($document->getRawOriginal('storage_path'));
+            if (! is_string($encrypted) || $encrypted === '') {
+                return null;
+            }
+            $contents = Crypt::decryptString($encrypted);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException|\League\Flysystem\UnableToReadFile) {
+            return null;
+        }
+
+        if (! hash_equals((string) $document->sha256, hash('sha256', $contents))
+            || (int) $document->size_bytes !== strlen($contents)) {
+            return null;
+        }
+
+        return $contents;
     }
 
     public function submit(Request $r, VendorCompany $company)
@@ -221,7 +234,7 @@ class VendorOpsController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['status' => 'required|in:approved,rejected,changes_requested,suspended', 'reason' => 'required|string|max:2000']);
 
-        return DB::transaction(function () use ($r, $company, $v) {
+        $result = DB::transaction(function () use ($r, $company, $v) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended', 'changes_requested'], 'suspended' => ['approved', 'changes_requested']];
             abort_unless(in_array($v['status'], $allowed[$c->status]), 409, 'Invalid review transition.');
@@ -232,11 +245,15 @@ class VendorOpsController extends Controller
                 $owner = User::whereKey($c->owner_id)->lockForUpdate()->firstOrFail();
                 abort_unless($owner->account_status === 'active', 409, 'Owner account is suspended.');
                 abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
-                abort_unless(
-                    VendorKycDocument::where('company_id', $c->id)
-                        ->where('kind', 'trade_license')->exists(),
-                    422, 'Trade-license evidence is required for approval.'
-                );
+                $licenseEvidence = VendorKycDocument::where('company_id', $c->id)
+                    ->where('kind', 'trade_license')->orderByDesc('id')->lockForUpdate()->first();
+                abort_unless($licenseEvidence, 422, 'Trade-license evidence is required for approval.');
+
+                if ($this->verifiedEvidenceContents($licenseEvidence) === null) {
+                    // Return a failure marker before any review/status write.
+                    // Audit after the transaction so denial remains recorded.
+                    return ['integrity_failure' => $licenseEvidence->id];
+                }
             }
             VendorCompanyReview::create([
                 'company_id' => $c->id,
@@ -262,6 +279,13 @@ class VendorOpsController extends Controller
 
             return response()->json($c->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $c)]);
         });
+
+        if (is_array($result) && isset($result['integrity_failure'])) {
+            $this->access->audit($r->user(), 'document.integrity_failed', (int) $result['integrity_failure']);
+            abort(409, 'KYC document is unavailable or has failed integrity verification.');
+        }
+
+        return $result;
     }
 
     public function staff(Request $r, VendorCompany $company)
