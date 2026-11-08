@@ -1,3 +1,4 @@
+import 'vehicle_model_catalog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
@@ -547,6 +548,21 @@ class _WorkspaceState extends State<Workspace> {
                       : 'Simulate low battery alert: 15%',
                 ),
               ),
+            if (tab == 3 && account?.role == 'customer')
+              TextButton.icon(
+                key: Key('vehicle-model-$id'),
+                icon: const Icon(Icons.directions_car),
+                label: Text(modelText(context, 'Vehicle model catalog', 'كتالوج طراز المركبة')),
+                onPressed: busy ? null : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => VehicleModelAssociationView(
+                      api: api!, vehicleId: id as int,
+                      vehicleConnector: row['connector_type'] as String,
+                      onExpired: expiredSession,
+                    ),
+                  ),
+                ),
+              ),
             if (tab == 3)
               Text(
                 '${row['connector_type']}',
@@ -1010,6 +1026,12 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'vehicleModelCatalog') {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => AdminVehicleModelCatalogView(
+                      api: api!, onExpired: expiredSession,
+                    ),
+                  ));
                 } else if (value == 'inventory') {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1199,6 +1221,12 @@ class _WorkspaceState extends State<Workspace> {
                 }
               },
               itemBuilder: (_) => [
+                if (account!.role == 'admin')
+                  PopupMenuItem(
+                    value: 'vehicleModelCatalog',
+                    enabled: !busy,
+                    child: Text(modelText(context, 'Curated vehicle catalog', 'كتالوج المركبات المنسق')),
+                  ),
                 PopupMenuItem(
                   value: 'inventory',
                   enabled: !busy,

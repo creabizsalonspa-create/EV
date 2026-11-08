@@ -30,10 +30,70 @@ class AccountTest extends TestCase
         $v = ['email' => $u->email, 'token' => $token, 'password' => 'new-long-test-password', 'password_confirmation' => 'new-long-test-password'];
         DB::table('sessions')->insert(['id' => 'old-session', 'user_id' => $u->id, 'payload' => '', 'last_activity' => time()]);
         $this->postJson('/api/reset-password', $v)->assertOk();
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $u->id,
+            'action' => 'account.password_reset_completed',
+            'subject' => (string) $u->id,
+        ]);
+        $audit = DB::table('audit_events')->get()->toJson();
+        $this->assertStringNotContainsString($token, $audit);
+        $this->assertStringNotContainsString($v['password'], $audit);
         $this->assertDatabaseMissing('sessions', ['id' => 'old-session']);
         $this->assertTrue(Hash::check($v['password'], $u->fresh()->password));
         $this->postJson('/api/reset-password', $v)->assertUnprocessable();
+        $this->assertDatabaseCount('audit_events', 1);
         $this->postJson('/api/login', ['email' => $u->email, 'password' => $v['password']])->assertOk();
+    }
+
+    public function test_password_reset_invalidates_old_browser_session_even_with_file_storage(): void
+    {
+        $user = User::factory()->create(['role' => 'customer']);
+        $oldToken = $user->createToken('mobile', ['platform'], now()->addDay())->plainTextToken;
+        $this->assertSame(0, $user->auth_epoch);
+
+        $reset = Password::createToken($user);
+        $password = 'fresh-long-reset-password';
+        $this->postJson('/api/reset-password', [
+            'email' => $user->email,
+            'token' => $reset,
+            'password' => $password,
+            'password_confirmation' => $password,
+        ])->assertOk();
+
+        $this->assertSame(1, $user->fresh()->auth_epoch);
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+        $this->withToken($oldToken)->getJson('/api/v1/me')->assertUnauthorized();
+
+        // A stale file/Redis-backed session may still contain the old user
+        // identifier. The updated authorization version must deny it even
+        // when there is no SQL session row to delete.
+        $this->withHeaders(['Authorization' => ''])
+            ->actingAs($user->fresh(), 'web')
+            ->withSession(['account_auth_epoch' => 0])
+            ->getJson('/api/vehicles')->assertUnauthorized();
+
+        $this->postJson('/api/login', [
+            'email' => $user->email,
+            'password' => $password,
+        ])->assertOk();
+        $this->getJson('/api/vehicles')->assertOk();
+    }
+
+    public function test_password_reset_invalidates_first_party_native_cookie_session(): void
+    {
+        $user = User::factory()->create(['role' => 'customer']);
+        $resetToken = Password::createToken($user);
+        $this->postJson('/api/reset-password', [
+            'email' => $user->email,
+            'token' => $resetToken,
+            'password' => 'new-password-after-reset',
+            'password_confirmation' => 'new-password-after-reset',
+        ])->assertOk();
+        $this->assertSame(1, $user->fresh()->auth_epoch);
+
+        $this->actingAs($user->fresh(), 'web')
+            ->withSession(['account_auth_epoch' => 0])
+            ->getJson('/api/v1/me')->assertUnauthorized();
     }
 
     public function test_reset_rejects_wrong_user_and_weak_or_expired_token(): void
@@ -46,6 +106,7 @@ class AccountTest extends TestCase
         $v['email'] = $u->email;
         $this->travel(61)->minutes();
         $this->postJson('/api/reset-password', $v)->assertUnprocessable();
+        $this->assertDatabaseCount('audit_events', 0);
     }
 
     public function test_profile_cannot_update_role_or_another_account(): void

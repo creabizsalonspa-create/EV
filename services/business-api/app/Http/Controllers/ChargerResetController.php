@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -64,7 +65,7 @@ class ChargerResetController extends Controller
             foreach ($d['Connectors'] as $connector) {
                 $status = $latest[$connector['id']] ?? null;
                 abort_unless($status && $status['connectorStatus'] === 'Available', 409, 'Every source connector must report Available.');
-                $at = CarbonImmutable::parse($status['timestamp']);
+                $at = SourceStatusTime::parse($status['timestamp'] ?? null);
                 abort_unless($at->gte(now()->subMinutes(2)) && $at->lte(now()) && ($after === null || $at->gt(CarbonImmutable::parse($after))), 409, 'Fresh connector evidence after the operation is required.');
             }
         } catch (HttpExceptionInterface $e) {

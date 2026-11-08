@@ -316,10 +316,17 @@ const { chromium } = require("playwright"),
       ).status,
       404,
     );
-    await sim.goto(
+    const corporateReturnResponse = await sim.goto(
       base +
         `/payments/corporate-hosted-return?hosted_reference=${h.reference}&success=paid&checkout_family=invoice`,
     );
+    assert.equal(corporateReturnResponse.status(), 200);
+    const corporateReturnHeaders = corporateReturnResponse.headers();
+    assert(corporateReturnHeaders["content-security-policy"].includes("base-uri 'none'"));
+    assert(corporateReturnHeaders["content-security-policy"].includes("frame-ancestors 'none'"));
+    assert.equal(corporateReturnHeaders["referrer-policy"], "no-referrer");
+    assert.match(corporateReturnHeaders["cache-control"], /no-store/);
+    assert.equal(corporateReturnHeaders["x-frame-options"], "DENY");
     await sim
       .getByText("Captured in TEST accounting", { exact: true })
       .waitFor();

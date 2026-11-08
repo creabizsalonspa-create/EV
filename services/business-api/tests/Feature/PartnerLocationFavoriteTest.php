@@ -59,6 +59,43 @@ class PartnerLocationFavoriteTest extends TestCase
         $this->assertDatabaseCount('partner_location_favorites', 0);
     }
 
+    public function test_saved_location_uses_the_same_strict_public_projection_and_age_evidence(): void
+    {
+        [$provider, $record] = $this->location();
+        $normalized = $record->normalized;
+        $normalized['internal_gateway_secret'] = 'SHOULD_NEVER_LEAK';
+        $normalized['evses'] = [[
+            'uid' => 'evse-private',
+            'reported_status' => 'AVAILABLE',
+            'internal_token' => 'SHOULD_NEVER_LEAK_NESTED',
+            'connectors' => [['id' => 'c1', 'standard' => 'IEC_62196_T2_COMBO', 'secret' => 'SHOULD_NEVER_LEAK_CONNECTOR']],
+        ]];
+        $record->normalized = $normalized;
+        $record->save();
+
+        $this->actingAs(User::factory()->create(['role' => 'customer']));
+        $this->putJson('/api/roaming/favorites/'.$record->id)->assertOk();
+        $response = $this->getJson('/api/roaming/favorites')->assertOk();
+        $response->assertJsonPath('data.0.location.evses.0.uid', 'evse-private')
+            ->assertJsonPath('data.0.location.evses.0.connectors.0.standard', 'IEC_62196_T2_COMBO')
+            ->assertJsonPath('data.0.provider_label', 'Private source operator')
+            ->assertJsonPath('data.0.provider_label_evidence', 'PROVIDER_CONFIGURED_UNVERIFIED')
+            ->assertJsonPath('data.0.received_timestamp_evidence', 'LOCAL_INGESTION_TIME')
+            ->assertJsonPath('data.0.source_timestamp_evidence', 'PARTNER_REPORTED_ONLY')
+            ->assertJsonPath('data.0.location.availability', 'unknown')
+            ->assertJsonMissingPath('data.0.location.internal_gateway_secret')
+            ->assertJsonMissingPath('data.0.location.evses.0.internal_token')
+            ->assertJsonMissingPath('data.0.location.evses.0.connectors.0.secret')
+            ->assertDontSee('SHOULD_NEVER_LEAK');
+        $provider->update(['authorized' => false]);
+        $this->getJson('/api/roaming/favorites')->assertOk()
+            ->assertJsonPath('data.0.location_available', false)
+            ->assertJsonPath('data.0.location', null)
+            ->assertJsonPath('data.0.provider_label', null)
+            ->assertJsonPath('data.0.source_updated_at', null)
+            ->assertJsonPath('data.0.received_at', null);
+    }
+
     public function test_saved_partner_locations_are_stably_paginated_without_private_source_fields(): void
     {
         [$provider, $record] = $this->location();

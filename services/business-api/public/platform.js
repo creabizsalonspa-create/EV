@@ -77,11 +77,14 @@ function clearIdentity() {
 function clearPrivateViews() {
     riderWorkspace.clear();
     vendorWorkspace.clear();
+    vehicleModelCatalog.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
     invoiceHistory.clear();
     commercialWorkspace.clear();
+    window.EvAdminOperatorRoleHistory?.clear();
     tariffWorkspace.clear();
+    window.EvAdminSessions?.clear();
     commandRequest?.abort();
     el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
@@ -166,6 +169,13 @@ function renderIdentity() {
                   : "Driver workspace"
             : "Your charging companion",
     );
+    window.EvAdminAccounts?.setActor(user, api);
+    window.EvAdminKycQueue?.setActor(user, api);
+    window.EvAdminStaffPermissions?.setActor(user, api);
+    window.EvAdminAuditTrail?.setActor(user, api);
+    window.EvPrivacyRequests?.setSelfActor(user, api);
+    window.EvPrivacyRequests?.setAdminActor(user, api);
+    window.EvAdminSessions?.setActor(user, api);
 }
 
 function node(tag, text) {
@@ -231,6 +241,7 @@ async function identity() {
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    await vehicleModelCatalog.setActor(user);
     if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
     if (user) {
@@ -247,6 +258,7 @@ async function identity() {
     await invoiceHistory.setActor(user);
     await tariffWorkspace.setActor(user);
     await commercialWorkspace.setActor(user);
+    window.EvAdminOperatorRoleHistory?.setActor(user, api);
     if (user?.role === "admin") await adminOverview();
     if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
@@ -1069,7 +1081,11 @@ el("account").onsubmit = async (e) => {
     setIdentityBusy(true);
     try {
         csrf = (await api("csrf")).token;
-        await api(mode, "POST", values);
+        const signedIn = await api(mode, "POST", values);
+        if (signedIn?.admin_second_factor_required === true) {
+            window.location.assign("/admin/second-factor");
+            return;
+        }
         pendingLogout(false);
         el("logout-retry").hidden = true;
         e.target.reset();
@@ -1140,6 +1156,13 @@ el("station-form").onsubmit = async (e) => {
         notice(e);
     }
 };
+const vehicleModelCatalog = VehicleModelCatalog.create({
+    adminRoot: el("vehicle-model-admin"),
+    customerRoot: el("vehicle-model-customer"),
+    api,
+    actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),
     api,
@@ -1236,6 +1259,7 @@ async function garage() {
         }
         el("vehicle-list").append(row);
     }
+    vehicleModelCatalog.renderGarage(j.data);
     el("profile-form").elements.name.value = user.name;
     el("profile-form").elements.locale.value = user.locale;
 }
@@ -1523,7 +1547,12 @@ async function adminOverview() {
     scroll.setAttribute("role", "region");
     EvLocale.attribute(scroll, "aria-label", "Audit history");
     scroll.append(table);
-    container.append(metrics, tools, scroll);
+    const backupCodes = document.createElement("a");
+    backupCodes.href = "/admin/second-factor?manage=1";
+    backupCodes.textContent = "Manage authenticator backup codes / إدارة رموز الاسترداد";
+    const security = document.createElement("p");
+    security.append(backupCodes);
+    container.append(metrics, security, tools, scroll);
 }
 
 async function openOperationalCase(command, parent, actor, signal) {

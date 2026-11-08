@@ -2,9 +2,7 @@
 
 namespace App\Services\Charging;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
-use Throwable;
 
 /** Caller holds the canonical binding lock and has rechecked current access. */
 class FaultMonitor
@@ -20,11 +18,7 @@ class FaultMonitor
         abort_unless(hash_equals($generation, $snapshot['source_generation'] ?? ''), 409, 'Source mapping changed; inspect again.');
         $created = 0;
         foreach ($snapshot['events'] as $event) {
-            try {
-                $time = CarbonImmutable::parse($event['timestamp'])->utc()->format('Y-m-d H:i:s.u');
-            } catch (Throwable) {
-                abort(503, 'Invalid source event time.');
-            }
+            $time = SourceStatusTime::parse($event['timestamp'] ?? null)->format('Y-m-d H:i:s.u');
             $values = ['binding_id' => $binding->id, 'source_generation' => $generation, 'source_event_id' => $event['id'], 'evse_number' => $event['evseId'] ?? 0, 'connector_number' => $event['connectorId'] ?? 0, 'status' => $event['connectorStatus'], 'error_code' => $event['errorCode'] ?? null, 'occurred_at' => $time];
             abort_unless(is_int($values['evse_number']) && $values['evse_number'] >= 0 && is_int($values['connector_number']) && $values['connector_number'] >= 0, 503, 'Invalid source component.');
             $fingerprint = hash('sha256', json_encode($values, JSON_THROW_ON_ERROR));

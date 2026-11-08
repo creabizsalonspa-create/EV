@@ -1,0 +1,32 @@
+{
+  "status": "VERIFIED_NATIVE_CANDIDATE_NOT_MERGED",
+  "owner": "Agent 2",
+  "branch": "development/agent2-mobile-source-history",
+  "parent_commit": "d494e5cbab803da495e9aaa18a1e3f3cd15e3789",
+  "backend_commit": "d4165dd8e20ffdc648b4118ed116190c292cfb7a",
+  "scope": "Read-only protocol-specific connector provenance in customer source history; no reservation capacity credit",
+  "checks": {
+    "flutter_passed": 35,
+    "default_opt_in_skip": 1,
+    "analysis": "No issues found",
+    "actual_api_scoped_protocols": "Both OCPP1.6 and OCPP2.0.1 resource identities consumed through real private API",
+    "backend_with_native": 130,
+    "source_blobs": {
+      "apps/hasone-customer/lib/feature/Booking/history/source_history.dart": "9ddc3afa395d95d0a50278cf856a0204c274dc7c",
+      "apps/hasone-customer/lib/feature/Booking/history/source_history_screen.dart": "1f29881cac80ba12eb0efd03ab7493527bf115ae",
+      "apps/hasone-customer/test/source_history_test.dart": "1587cf03c877058d849a573f3ca5068f20b9b858",
+      "apps/hasone-customer/test/source_history_api_test.dart": "2ea6d053aefc379bc54d5bb5bbfd88291f55d10a"
+    },
+    "restricted_log_sha256": {
+      "resource-scope-full-v2.log": "1dd08c9fb61f5ac19b7b391afbf3b538c353ad7e02e1dedb5f246d18f8d70a24",
+      "resource-scope-native-api-v2.log": "89d91b12cd8c3261aa6d517b945c652b33649a839f60726971b0506875db1960",
+      "resource-scope-flutter-tests-v1.log": "300d8316cfdf9b7fc3d8937fd2158ad2f3a92bd3286be54b354ca019bfb73881",
+      "resource-scope-flutter-analysis-v1.log": "8b90c4b8b521b74c92dff2516a34a46f840fd4272612f1af1aeaa3b5c4fe8e36"
+    }
+  },
+  "remaining": [
+    "Required exact-source Android/iOS builds and Agent4 integration",
+    "Resource-specific reservation capacity/customer selection/expiry/reschedule",
+    "Canonical authority agreement and live hardware/PSP/partner/production acceptance"
+  ]
+}

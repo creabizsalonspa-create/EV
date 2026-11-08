@@ -3,11 +3,48 @@ import 'package:get/get.dart' hide FormData, MultipartFile;
 
 import '../../../../core/service/api_service/api_service.dart';
 import '../../../../core/service/shared_preferance/shared_prefarance.dart';
+import '../../../../core/service/network/network_client.dart';
 
 // ── AuthController ────────────────────────────────────────────────────────────
 class AuthController extends GetxController {
-  final _net = NetworkService().client;
-  final _prefs = SharedPrefs();
+  final NetworkClient _net;
+  final SharedPrefs _prefs;
+  final void Function(String title, String message)? _authFeedback;
+
+  /// Real UI uses GetX; race tests can inject a notification sink without
+  /// starting overlay timers or depending on a mounted navigation tree.
+  AuthController({
+    NetworkClient? client,
+    SharedPrefs? prefs,
+    void Function(String title, String message)? authFeedback,
+  }) : _net = client ?? NetworkService().client,
+       _prefs = prefs ?? SharedPrefs(),
+       _authFeedback = authFeedback;
+
+  void _notifyAuthFeedback(String title, String message) {
+    if (_authFeedback != null) {
+      _authFeedback(title, message);
+      return;
+    }
+    Get.snackbar(title, message, snackPosition: SnackPosition.TOP);
+  }
+
+  // Error feedback must not turn a handled authentication/storage failure
+  // into an uncaught exception when no navigator/overlay is mounted.
+  void _notifyAuthFailure(String title, String message) {
+    try {
+      _notifyAuthFeedback(title, message);
+    } catch (_) {
+      // Secure credential cleanup has already been attempted. UI feedback is
+      // best-effort; the caller must still receive a failed login result.
+    }
+  }
+  // Shared across controller instances: whichever sign-in or OTP verification
+  // starts most recently is the only attempt permitted to publish credentials.
+  static int _credentialAttempt = 0;
+  // Credential authority is global, but each controller owns its loading UI.
+  // Superseding an attempt in another controller must not strand this spinner.
+  int _localCredentialAttempt = 0;
 
   Rxn<UserModel> user = Rxn<UserModel>();
   RxBool loading = false.obs;
@@ -60,33 +97,82 @@ class AuthController extends GetxController {
   /// body: { email, otp }
   /// response: { status: "Success", message: "...", token: "..." }
   Future<bool> verifyOtp(String email, String otp) async {
+    final attempt = ++_credentialAttempt;
+    final localAttempt = ++_localCredentialAttempt;
+    int? committedGeneration;
+    String? committedToken;
     loading.value = true;
-
-    final res = await _net.postRequest(
-      '/api/v1/VerifyOTP',
-      body: {'email': email, 'otp': otp},
-    );
-
-    loading.value = false;
-
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      final token = res.responseData?['token']?.toString();
-      if (token != null && token.isNotEmpty) {
-        await _prefs.saveToken(token);
+    try {
+      // Authentication is a new identity boundary. Clear the prior token
+      // first; leave it blocked if secure deletion cannot be confirmed.
+      final clearing = _prefs.clear();
+      final clearedGeneration = SharedPrefs.credentialGeneration;
+      await clearing;
+      if (attempt != _credentialAttempt ||
+          clearedGeneration != SharedPrefs.credentialGeneration) {
+        return false;
       }
-      Get.snackbar(
-        'Success',
-        res.responseData?['message']?.toString() ?? 'OTP verified successfully',
-        snackPosition: SnackPosition.TOP,
+      final res = await _net.postRequest(
+        '/api/v1/VerifyOTP',
+        body: {'email': email, 'otp': otp},
       );
-      return true;
-    } else {
-      Get.snackbar(
+      if (attempt != _credentialAttempt ||
+          clearedGeneration != SharedPrefs.credentialGeneration) {
+        return false;
+      }
+      if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
+        final token = res.responseData?['token']?.toString();
+        if (token == null || token.trim().isEmpty) {
+          _notifyAuthFeedback(
+            'Verification incomplete',
+            'The server did not return a valid session.',
+          );
+          return false;
+        }
+        final saving = _prefs.saveToken(token);
+        final savedGeneration = SharedPrefs.credentialGeneration;
+        await saving;
+        if (attempt != _credentialAttempt ||
+            savedGeneration != SharedPrefs.credentialGeneration) {
+          return false;
+        }
+        committedGeneration = savedGeneration;
+        committedToken = token;
+        _notifyAuthFeedback(
+          'Success',
+          res.responseData?['message']?.toString() ?? 'OTP verified successfully',
+        );
+        return true;
+      }
+      _notifyAuthFeedback(
         'Invalid OTP',
         res.errorMessage ?? 'The OTP you entered is incorrect',
-        snackPosition: SnackPosition.TOP,
       );
       return false;
+    } catch (_) {
+      if (attempt == _credentialAttempt) {
+        if (committedGeneration != null) {
+          try {
+            await _prefs.clearIfCurrent(
+              expectedGeneration: committedGeneration,
+              expectedToken: committedToken,
+            );
+          } catch (_) {
+            // This failed completion must never surface the committed token;
+            // clear() immediately invalidates memory and persists a vault
+            // block before attempting platform credential deletion.
+          }
+        }
+        if (attempt == _credentialAttempt) {
+          _notifyAuthFailure(
+            'Verification unavailable',
+            'Could not safely save this session.',
+          );
+        }
+      }
+      return false;
+    } finally {
+      if (localAttempt == _localCredentialAttempt) loading.value = false;
     }
   }
 
@@ -95,45 +181,101 @@ class AuthController extends GetxController {
   /// body: { email, password }
   /// response: { status, message, token, userId, name, email }
   Future<bool> login(String email, String password) async {
+    final attempt = ++_credentialAttempt;
+    final localAttempt = ++_localCredentialAttempt;
+    // Profile persistence and user-model decoding are part of login's
+    // completion boundary. If either fails after vault commit, revoke only
+    // this attempt's token before reporting failure.
+    int? committedGeneration;
+    String? committedToken;
+    user.value = null;
     loading.value = true;
-
-    final res = await _net.postRequest(
-      '/api/v1/Login',
-      body: {'email': email, 'password': password},
-    );
-
-    loading.value = false;
-
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      // Save token
-      final token = res.responseData?['token']?.toString();
-      if (token != null && token.isNotEmpty) {
-        await _prefs.saveToken(token);
+    try {
+      // Supersede earlier login responses and invalidate any old cached
+      // account before the new request. A failed login stays logged out.
+      final clearing = _prefs.clear();
+      final clearedGeneration = SharedPrefs.credentialGeneration;
+      await clearing;
+      if (attempt != _credentialAttempt ||
+          clearedGeneration != SharedPrefs.credentialGeneration) {
+        return false;
       }
-
-      // Save user data from response
-      final userData = <String, dynamic>{
-        'fullName': res.responseData?['name']?.toString(),
-        'email': res.responseData?['email']?.toString(),
-        'userId': res.responseData?['userId']?.toString(),
-      };
-      user.value = UserModel.fromJson(userData);
-      await _prefs.saveUser(userData);
-
-      pendingEmail = email;
-      Get.snackbar(
-        'Success',
-        res.responseData?['message']?.toString() ?? 'Login successful',
-        snackPosition: SnackPosition.TOP,
+      final res = await _net.postRequest(
+        '/api/v1/Login',
+        body: {'email': email, 'password': password},
       );
-      return true;
-    } else {
-      Get.snackbar(
+      if (attempt != _credentialAttempt ||
+          clearedGeneration != SharedPrefs.credentialGeneration) {
+        return false;
+      }
+      if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
+        final token = res.responseData?['token']?.toString();
+        if (token == null || token.trim().isEmpty) {
+          _notifyAuthFeedback(
+            'Login incomplete',
+            'The server did not return a valid session.',
+          );
+          return false;
+        }
+        final saving = _prefs.saveToken(token);
+        final savedGeneration = SharedPrefs.credentialGeneration;
+        await saving;
+        if (attempt != _credentialAttempt ||
+            savedGeneration != SharedPrefs.credentialGeneration) {
+          return false;
+        }
+        committedGeneration = savedGeneration;
+        committedToken = token;
+        final userData = <String, dynamic>{
+          'fullName': res.responseData?['name']?.toString(),
+          'email': res.responseData?['email']?.toString(),
+          'userId': res.responseData?['userId']?.toString(),
+        };
+        await _prefs.saveUser(userData);
+        if (attempt != _credentialAttempt ||
+            savedGeneration != SharedPrefs.credentialGeneration) {
+          return false;
+        }
+        user.value = UserModel.fromJson(userData);
+        pendingEmail = email;
+        _notifyAuthFeedback(
+          'Success',
+          res.responseData?['message']?.toString() ?? 'Login successful',
+        );
+        return true;
+      }
+      _notifyAuthFeedback(
         'Login Failed',
         res.errorMessage ?? 'Invalid credentials',
-        snackPosition: SnackPosition.TOP,
       );
       return false;
+    } catch (_) {
+      if (attempt == _credentialAttempt) {
+        if (committedGeneration != null) {
+          try {
+            await _prefs.clearIfCurrent(
+              expectedGeneration: committedGeneration,
+              expectedToken: committedToken,
+            );
+          } catch (_) {
+            // clear() invalidates the in-memory token before the platform
+            // deletion and persists its fail-closed marker when available.
+            // A newer login must never be revoked by this old failure.
+          }
+        }
+        // Another controller may have begun a new identity while Keychain
+        // deletion was suspended; suppress obsolete UI error notifications.
+        if (attempt == _credentialAttempt) {
+          user.value = null;
+          _notifyAuthFailure(
+            'Sign-in unavailable',
+            'Could not safely save this session.',
+          );
+        }
+      }
+      return false;
+    } finally {
+      if (localAttempt == _localCredentialAttempt) loading.value = false;
     }
   }
 

@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# Agent 3: an isolated PostGIS restore drill using the EXACT CSMS database
+# image version. No existing CitrineOS database, RabbitMQ broker or volumes
+# are accessed. This is a synthetic *database* drill, not live CSMS recovery.
+set -euo pipefail
+umask 077
+root=$(cd "$(dirname "$0")/.." && pwd)
+# Clear stale success BEFORE dependency and Docker readiness checks.
+mkdir -p "$root/artifacts/agent3-csms-recovery"
+rm -f -- "$root/artifacts/agent3-csms-recovery/validation.json"
+command -v date >/dev/null
+drill_started_epoch=$(date -u +%s)
+
+command -v docker >/dev/null
+command -v python3 >/dev/null
+command -v sha256sum >/dev/null
+
+review_id="ev-csms-recovery-$RANDOM-$$"
+scratch=$(mktemp -d /tmp/ev-csms-recovery.XXXXXXXX)
+source_net= target_net= source_db= target_db=
+cleanup() {
+  result=$?
+  for id in "$target_db" "$source_db"; do
+    [[ -z "$id" ]] || docker rm -fv "$id" >/dev/null 2>&1 || true
+  done
+  for id in "$target_net" "$source_net"; do
+    [[ -z "$id" ]] || docker network rm "$id" >/dev/null 2>&1 || true
+  done
+  rm -rf -- "$scratch"
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# The key never leaves this disposable run; it is not a production signing root.
+auth_key="$scratch/backup-hmac.key"
+python3 - "$auth_key" <<'PY_LOCAL_HMAC'
+import os, sys
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, 'wb') as stream:
+    stream.write(os.urandom(32))
+PY_LOCAL_HMAC
+
+image='postgis/postgis:16-3.5@sha256:94146ac37bc61e2322f88016056c5920729cb8c64c8542ed590af8fc2abdac07'
+python3 - "$scratch" <<'PY_SETUP'
+import os, pathlib, secrets, sys
+root = pathlib.Path(sys.argv[1])
+for name in ('source', 'target'):
+    path = root / (name + '.env')
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        f.write('POSTGRES_DB=ev_csms_recovery\n')
+        f.write('POSTGRES_USER=ev_csms_recovery\n')
+        f.write('POSTGRES_PASSWORD=' + secrets.token_hex(32) + '\n')
+PY_SETUP
+
+source_net=$(docker network create --internal "$review_id-source")
+target_net=$(docker network create --internal "$review_id-target")
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net"
+source_db=$(docker run -d --name "$review_id-source-db" --network "$source_net" \
+  --env-file "$scratch/source.env" "$image")
+target_db=$(docker run -d --name "$review_id-target-db" --network "$target_net" \
+  --env-file "$scratch/target.env" "$image")
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --target-container "$target_db"
+docker inspect "$source_db" "$target_db" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --reviewed-db-image "$image" \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-source-db" --target-name "$review_id-target-db"
+
+wait_for_postgres() {
+  local id="$1" ready=false
+  for attempt in {1..60}; do
+    if docker exec "$id" pg_isready -h 127.0.0.1 -U ev_csms_recovery \
+        -d ev_csms_recovery >/dev/null 2>&1; then ready=true; break; fi
+    sleep 1
+  done
+  [[ "$ready" == true ]] || {
+    echo 'Run-owned PostGIS did not become ready.' >&2
+    exit 1
+  }
+}
+query() {
+  docker exec "$1" psql -X -v ON_ERROR_STOP=1 -U ev_csms_recovery \
+    -d ev_csms_recovery -Atqc "$2"
+}
+wait_for_postgres "$source_db"
+wait_for_postgres "$target_db"
+
+# Even with distinct Docker volumes, compare PostgreSQL's own cluster
+# identifiers. A shared/misattached data directory must never be restored.
+source_cluster_id=$(query "$source_db" 'SELECT system_identifier::text FROM pg_control_system()')
+target_cluster_id=$(query "$target_db" 'SELECT system_identifier::text FROM pg_control_system()')
+[[ "$source_cluster_id" =~ ^[0-9]+$ &&
+   "$target_cluster_id" =~ ^[0-9]+$ &&
+   "$source_cluster_id" != "$target_cluster_id" ]] || {
+  echo 'Recovery source and target do not have distinct PostgreSQL clusters.' >&2
+  exit 1
+}
+
+docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_csms_recovery \
+  -d ev_csms_recovery >/dev/null <<'SQL_SEED'
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE SCHEMA ev_agent3_recovery;
+CREATE TABLE ev_agent3_recovery.synthetic_locations (
+  id text PRIMARY KEY,
+  source_code text NOT NULL,
+  station_coordinates geometry(Point,4326) NOT NULL,
+  payload jsonb NOT NULL
+);
+INSERT INTO ev_agent3_recovery.synthetic_locations VALUES
+  ('synthetic-a', 'ocpp16', ST_SetSRID(ST_MakePoint(55.9,25.7),4326), '{"synthetic":true,"status":"UNVERIFIED"}'),
+  ('synthetic-b', 'ocpp201', ST_SetSRID(ST_MakePoint(55.95,25.75),4326), '{"synthetic":true,"status":"UNVERIFIED"}');
+SQL_SEED
+
+fingerprint_sql="SELECT md5(string_agg(id || ':' || source_code || ':' || ST_AsEWKT(station_coordinates) || ':' || payload::text, '|' ORDER BY id)) FROM ev_agent3_recovery.synthetic_locations"
+source_fingerprint=$(query "$source_db" "$fingerprint_sql")
+source_count=$(query "$source_db" 'SELECT count(*) FROM ev_agent3_recovery.synthetic_locations')
+[[ "$source_count" == 2 && "$source_fingerprint" =~ ^[0-9a-f]{32}$ ]] || {
+  echo 'Synthetic geospatial fixture preparation failed.' >&2; exit 1;
+}
+source_srid_count=$(query "$source_db" 'SELECT count(*) FROM ev_agent3_recovery.synthetic_locations WHERE ST_SRID(station_coordinates) = 4326')
+[[ "$source_srid_count" == 2 ]] || {
+  echo 'Synthetic PostGIS SRID validation failed.' >&2; exit 1;
+}
+
+archive="$scratch/csms-postgis.dump"
+snapshot_started_epoch=$(date -u +%s)
+docker exec "$source_db" pg_dump -U ev_csms_recovery -d ev_csms_recovery \
+  --format=custom --no-owner --no-privileges > "$archive"
+[[ -s "$archive" ]] || { echo 'PostGIS archive is empty.' >&2; exit 1; }
+snapshot_completed_epoch=$(date -u +%s)
+
+# Verify the target is a distinct clean DB. Mutate the source *after* snapshot
+# to establish that the restore represents an earlier, consistent recovery point.
+[[ "$(query "$target_db" 'SELECT count(*) FROM pg_tables WHERE schemaname = '\''ev_agent3_recovery'\''')" == 0 ]] || {
+  echo 'Restore target was not empty/isolated.' >&2; exit 1;
+}
+docker exec -i "$source_db" psql -X -v ON_ERROR_STOP=1 -U ev_csms_recovery \
+  -d ev_csms_recovery >/dev/null <<'SQL_AFTER'
+INSERT INTO ev_agent3_recovery.synthetic_locations VALUES
+  ('post-snapshot', 'late-data', ST_SetSRID(ST_MakePoint(56,26),4326), '{"synthetic":true}');
+SQL_AFTER
+
+python3 "$root/scripts/backup-artifact-guard.py" record --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+cp -- "$archive" "$scratch/tampered-csms.dump"
+printf 'tampered-after-snapshot' >> "$scratch/tampered-csms.dump"
+if python3 "$root/scripts/backup-artifact-guard.py" check \
+    --pg-dump "$scratch/tampered-csms.dump" \
+    --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key" >/dev/null 2>&1; then
+  echo 'Corrupted PostGIS archive bypassed the integrity gate.' >&2
+  exit 1
+fi
+# Guard the byte range consumed by the disposable restore, not only the
+# earlier pre-restore snapshot validation.
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+restore_started_epoch=$(date -u +%s)
+docker exec -i "$target_db" pg_restore -U ev_csms_recovery -d ev_csms_recovery \
+  --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction < "$archive"
+python3 "$root/scripts/backup-artifact-guard.py" check --pg-dump "$archive" --manifest "$scratch/backup-proof.json" --auth-key-file "$auth_key"
+# Re-verify Docker runtime after restore in case networking or mounts changed.
+docker network inspect "$source_net" "$target_net" |
+  python3 "$root/scripts/recovery-runtime-guard.py" networks \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-container "$source_db" --target-container "$target_db"
+docker inspect "$source_db" "$target_db" |
+  python3 "$root/scripts/recovery-runtime-guard.py" containers \
+    --reviewed-db-image "$image" \
+    --source-network "$source_net" --target-network "$target_net" \
+    --source-name "$review_id-source-db" --target-name "$review_id-target-db"
+
+restored_count=$(query "$target_db" 'SELECT count(*) FROM ev_agent3_recovery.synthetic_locations')
+restored_fingerprint=$(query "$target_db" "$fingerprint_sql")
+restored_srid_count=$(query "$target_db" 'SELECT count(*) FROM ev_agent3_recovery.synthetic_locations WHERE ST_SRID(station_coordinates) = 4326')
+restored_postgis_count=$(query "$target_db" 'SELECT count(*) FROM pg_extension WHERE extname = '\''postgis'\''')
+[[ "$restored_count" == 2 && "$restored_srid_count" == 2 && "$restored_postgis_count" == 1 ]] || {
+  echo 'PostGIS extension, SRID or snapshot record count differs after restore.' >&2; exit 1;
+}
+[[ "$restored_fingerprint" == "$source_fingerprint" ]] || {
+  echo 'Snapshot geospatial/data fingerprint differs after restore.' >&2; exit 1;
+}
+[[ "$(query "$target_db" "SELECT count(*) FROM ev_agent3_recovery.synthetic_locations WHERE id = 'post-snapshot'")" == 0 ]] || {
+  echo 'Post-snapshot write unexpectedly appeared in recovered data.' >&2; exit 1;
+}
+[[ "$(query "$source_db" 'SELECT count(*) FROM ev_agent3_recovery.synthetic_locations')" == 3 ]] || {
+  echo 'Source unexpectedly changed after independent target restore.' >&2; exit 1;
+}
+
+# Measure through all synthetic geospatial snapshot verification checks.
+drill_completed_epoch=$(date -u +%s)
+# Artifact records hashes/evidence only; no credentials or business data.
+root=$(cd "$(dirname "$0")/.." && pwd)
+mkdir -p "$root/artifacts/agent3-csms-recovery"
+dump_hash=$(sha256sum "$archive" | awk '{print $1}')
+PYTHONPATH="$root/scripts" python3 - "$root/artifacts/agent3-csms-recovery/validation.json" \
+  "$dump_hash" "$source_fingerprint" "$restored_count" \
+  "$drill_started_epoch" "$snapshot_started_epoch" "$snapshot_completed_epoch" \
+  "$restore_started_epoch" "$drill_completed_epoch" <<'PY_EVIDENCE'
+import os, sys
+from recovery_proof_writer import publish
+path, archive_hash, fingerprint, count, \
+    drill_start, snapshot_start, snapshot_end, restore_start, drill_end = sys.argv[1:]
+record = {
+    'status': 'PASS',
+    'source_sha': os.environ.get('GITHUB_SHA', 'local-unverified'),
+    'workflow_run_id': os.environ.get('GITHUB_RUN_ID', 'local-unverified'),
+    'workflow_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT', 'local-unverified'),
+    'classification': 'disposable synthetic PostGIS recovery, not CitrineOS acceptance',
+    'database_image': 'postgis/postgis:16-3.5 digest pinned to CSMS compose',
+    'database_archive_sha256': archive_hash,
+    'synthetic_geospatial_data_md5': fingerprint,
+    'recovered_rows': int(count),
+    'srid': 4326,
+    'post_snapshot_write_excluded': True,
+    'archive_tamper_rejected': True,
+    'run_local_manifest_hmac_verified': True,
+    'single_transaction_restore': True,
+    'isolated_runtime_verified': True,
+    'distinct_cluster_system_ids_verified': True,
+    'restore_target_previously_empty': True,
+    'drill_started_epoch': int(drill_start),
+    'snapshot_started_epoch': int(snapshot_start),
+    'snapshot_completed_epoch': int(snapshot_end),
+    'restore_started_epoch': int(restore_start),
+    'drill_completed_epoch': int(drill_end),
+    'real_citrineos_schema_restored': False,
+    'rabbitmq_broker_restored': False,
+    'physical_charger_or_money': False,
+}
+publish(path, record)
+PY_EVIDENCE
+echo 'PASS: disposable pinned PostGIS backup/restore, geospatial integrity, independent recovery point; no real CSMS or RabbitMQ touched.'

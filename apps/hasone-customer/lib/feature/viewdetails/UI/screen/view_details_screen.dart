@@ -1,3 +1,5 @@
+import 'package:evcharg/feature/Booking/UI/screen/reservation_charger_picker.dart';
+import 'package:evcharg/core/utils/reservation_date.dart';
 import 'package:evcharg/app/assets.dart';
 import 'package:evcharg/app/resource.dart';
 import 'package:evcharg/app/widget_button.dart';
@@ -26,6 +28,7 @@ class ViewDetailsScreen extends StatefulWidget {
 class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
   DateTime _selectedDate = DateTime.now();
   int? _selectedSlotIndex;
+  String? _selectedChargerId;
   late final ProfileController _profileController;
   late final MapController _mapController;
 
@@ -69,7 +72,7 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
       // Fetch fresh slots for the selected date
       final stationId = station?.sId ?? '';
       if (stationId.isNotEmpty) {
-        _mapController.fetchSlotsForDate(stationId, _formatDate(picked));
+        _mapController.fetchSlotsForDate(stationId, reservationDay(picked));
       }
     }
   }
@@ -447,7 +450,7 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                             return const Center(child: CircularProgressIndicator());
                           }
                           final slots = _mapController.dateSlots;
-                          if (slots.isNotEmpty)
+                          if (slots.isNotEmpty) {
                             return GridView.builder(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
@@ -514,13 +517,14 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                                 );
                               },
                             );
-                          else
+                          } else {
                             return WText(
                               text: 'No slots available for this date',
                               color: R.color.neutralGray,
                               fontSize: 12.sp,
                               fontWeight: FontWeight.w400,
                             );
+                          }
                         }),
                         SizedBox(height: 20.h),
                       ],
@@ -529,6 +533,12 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                 ],
               ),
             ),
+          ),
+
+          ReservationChargerPicker(
+            key: ValueKey(station?.sId ?? ''),
+            stationId: station?.sId ?? '',
+            onChanged: (value) { if (mounted) _selectedChargerId = value; },
           ),
 
           // ── Book Now Button ──
@@ -550,30 +560,36 @@ class _ViewDetailsScreenState extends State<ViewDetailsScreen> {
                     : () async {
                         final slots = _mapController.dateSlots;
                         // Validate slot selection
-                        if (_selectedSlotIndex == null || slots.isEmpty) {
+                        if (_selectedSlotIndex == null || slots.isEmpty || _selectedSlotIndex! >= slots.length) {
                           Get.snackbar('Error', 'Please select a time slot',
                               snackPosition: SnackPosition.BOTTOM);
                           return;
                         }
 
+                        if (_selectedChargerId == null) {
+                          Get.snackbar('Booking update', 'Choose an approved charger before booking.', snackPosition: SnackPosition.BOTTOM);
+                          return;
+                        }
                         final stationId = station?.sId;
                         if (stationId == null || stationId.isEmpty) return;
 
                         final slot = slots[_selectedSlotIndex!];
-                        final dateStr = _formatDate(_selectedDate);
+                        final dateStr = reservationDay(_selectedDate);
 
                         final result = await bookingCtrl.createBooking(
                           stationId: stationId,
                           date: dateStr,
+                          reservedChargerId: _selectedChargerId,
                           slotStart: slot.startTime ?? '',
                           slotEnd: slot.endTime ?? '',
                         );
 
+                        if (!mounted) { return; }
                         if (result != null) {
                           Get.to(() => BookingDetails(bookingData: result));
                         } else {
                           Get.snackbar(
-                              'Error', 'Failed to create booking',
+                              'Booking update', bookingCtrl.bookingError.value,
                               snackPosition: SnackPosition.BOTTOM);
                         }
                       },

@@ -752,6 +752,12 @@ form label {
 #discovery-map input[type=checkbox] {width:1.25rem;flex-shrink:0}
 #station-map {height:420px;isolation:isolate;border-radius:20px;max-width:100%}
 .station-map-pin {background:#087f75;color:white;border:2px solid white;border-radius:50%;display:grid;place-items:center;font-weight:700;box-shadow:0 2px 8px #0006}
+.partner-map-pin {background:#653b97;border-style:dashed;} /* Unverified partner source, visually distinct from canonical stations */
+.ocm-map-pin {background:#896621;border-style:double;color:#fff;} /* Licensed Open Charge Map data is discovery-only, not an actionable station */
+.ocm-map-pin.ocm-pin-stale {background:#5b5960;border-style:dotted;} /* Crowd report >=24h old, not live */
+.ocm-map-pin.ocm-pin-uncertain {background:#76542d;border-style:dashed;} /* Missing/future-dated source time */
+.partner-map-pin.partner-pin-stale {background:#62636a;border-style:dotted;} /* Partner update >=24h old; still unverified */
+.partner-map-pin.partner-pin-uncertain {background:#785422;border-style:double;} /* Missing/future source time; never implies available */
 #station-map .leaflet-popup-content {color:#17242b;max-height:260px;overflow:auto}
 #station-map .leaflet-popup-content a {display:block;color:#075e57;margin-block:12px}
 .discovery-tools {min-width:0;display:grid;gap:1rem}
@@ -792,3 +798,13 @@ form label {
     margin-inline: 0;
     accent-color: var(--accent);
 }
+
+/* Catalog curation and per-vehicle association; never charger-source evidence. */
+#vehicle-model-admin,#vehicle-model-customer{max-width:66rem;margin-block:1.5rem;padding-block:1rem;border-block-start:1px solid var(--border,#888);overflow-wrap:anywhere;}
+.vehicle-model-admin-form {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:.8rem;margin-block:1rem;}
+.vehicle-model-admin-form input,.vehicle-model-admin-form select{width:100%;}
+.vehicle-model-admin-form label:has(input[type=checkbox]){display:flex;gap:.6rem;align-items:center;}
+.vehicle-model-admin-form input[type=checkbox]{width:auto;}
+#vehicle-model-admin li,#vehicle-model-customer li{padding-block:.5rem;overflow-wrap:anywhere;}
+#vehicle-model-admin button,#vehicle-model-customer button{margin-inline:.4rem;white-space:normal;}
+#vehicle-model-customer [data-vehicle-model-picker]{padding:1rem;border:1px solid var(--border,#888);border-radius:.7rem;max-width:38rem;}

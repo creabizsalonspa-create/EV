@@ -21,6 +21,29 @@ class ChargerDiagnosticsTest extends TestCase
 {
     use RefreshDatabase;
 
+    public static function invalidStatusTimes(): array
+    {
+        return [['tomorrow'], ['now'], ['2026-02-30T00:00:00Z'], ['2026-01-01T00:00:00'], ['2026-01-01T00:00:00+04:99'], ['2999-01-01T00:00:00Z']];
+    }
+
+    #[DataProvider('invalidStatusTimes')]
+    public function test_invalid_source_times_cannot_create_or_resolve_faults(string $time): void
+    {
+        [$owner, , , $url] = $this->fixture();
+        $source = ['data' => ['ChargingStations' => [['id' => 42, 'protocol' => '1.6', 'isOnline' => true]]]];
+        $history = ['data' => ['StatusNotifications' => [
+            ['id' => 2, 'connectorId' => 1, 'evseId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => $time],
+            ['id' => 1, 'connectorId' => 1, 'evseId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => now()->subMinute()->toISOString()],
+        ]]];
+        Http::fakeSequence()->push($source)->push($history)->push($source)->push($history);
+        $this->actingAs($owner)->getJson($url)->assertServiceUnavailable();
+        $this->postJson(str_replace('/source-diagnostics', '/fault-alerts/inspect', $url))->assertServiceUnavailable();
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     private function fixture(string $protocol = '1.6'): array
     {
         Http::preventStrayRequests();
@@ -101,13 +124,18 @@ class ChargerDiagnosticsTest extends TestCase
 
     public function test_native_admin_access_uses_same_scope_and_production_source_is_disabled(): void
     {
-        [, , , $url] = $this->fixture();
-        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
-        Http::fakeSequence()->push(['data' => ['ChargingStations' => []]]);
+        [$owner, , , $url] = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        Sanctum::actingAs($admin);
         $native = str_replace('/api/', '/api/v1/', $url);
-        $this->getJson($native)->assertOk()->assertJsonPath('source_registered', false);
+        // Admin is a web-only role; an artificial native Sanctum identity
+        // must not bypass the browser/MFA security boundary.
+        $this->getJson($native)->assertForbidden();
+        Http::assertNothingSent();
+        Http::fakeSequence()->push(['data' => ['ChargingStations' => []]]);
+        $this->actingAs($admin, 'web')->getJson($url)->assertOk()->assertJsonPath('source_registered', false);
         $this->app->instance('env', 'production');
-        $this->getJson($native)->assertServiceUnavailable()->assertJsonMissingPath('source_online');
+        $this->actingAs($owner, 'web')->getJson($url)->assertServiceUnavailable()->assertJsonMissingPath('source_online');
         Http::assertSentCount(1);
     }
 

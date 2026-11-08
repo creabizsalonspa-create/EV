@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Source-only validation of private EV staging safeguards. Never deploys or
+# contacts GitHub, Docker, chargers, partner APIs or payment processors.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if ! command -v node >/dev/null || ! command -v python3 >/dev/null; then
+  echo 'FAIL: Node.js and Python3 are required for offline staging review.' >&2
+  exit 2
+fi
+
+node --check scripts/staging-release.cjs
+node --check scripts/staging-manual-rollback.cjs
+node --check scripts/staging-env-integrity.cjs
+node --check scripts/staging-compose-integrity.cjs
+
+mapfile -d '' cases < <(find tests -maxdepth 1 -type f -name 'staging-*.cjs' -print0 | sort -z)
+if (( ${#cases[@]} < 1 )); then
+  echo 'FAIL: staging offline tests are missing.' >&2
+  exit 2
+fi
+node --test "${cases[@]}"
+PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p 'staging_ci_evidence_test.py'
+printf 'PASS: local offline staging regressions completed. Hosted CI, staging, hardware, payments and production still unverified.\n'

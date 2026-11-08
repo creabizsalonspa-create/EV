@@ -99,9 +99,12 @@ class ChargingRepairTest extends TestCase
     public function test_native_admin_uses_same_version_and_source_guards(): void
     {
         [, , , $url, $alert] = $this->repairFixture();
-        Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
-        $url = str_replace('/api/', '/api/v1/', $url);
-        $this->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
+        $admin = User::factory()->create(['role' => 'admin']);
+        Sanctum::actingAs($admin);
+        $native = str_replace('/api/', '/api/v1/', $url);
+        $this->postJson($native, $this->intent($alert, 0, 'open'))->assertForbidden();
+        $this->getJson($native)->assertForbidden();
+        $this->actingAs($admin, 'web')->postJson($url, $this->intent($alert, 0, 'open'))->assertOk();
         $this->getJson($url)->assertOk()->assertJsonPath('can_manage', true);
         $this->postJson($url, $this->intent($alert, 1, 'review'))->assertConflict();
     }

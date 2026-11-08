@@ -325,6 +325,18 @@ window.createRiderAccessWorkspace = ({ root, api, ui, notice, expired }) => {
                 const pane = document.createElement("div");
                 row.append(pane);
                 button(row, "Station approvals", () => grants(token, pane));
+                const activityPane = document.createElement("div");
+                row.append(activityPane);
+                button(row, "Charging access activity", () =>
+                    window.loadRiderAccessHistory({
+                        root: activityPane,
+                        path: `rider-access/tokens/${token.id}/activity`,
+                        api,
+                        ui,
+                        valid: () => live(epoch),
+                        signal: controller.signal,
+                    }),
+                );
                 cards.append(row);
             }
             if (result.current_page > 1)
@@ -343,3 +355,122 @@ window.createRiderAccessWorkspace = ({ root, api, ui, notice, expired }) => {
     }
     return { clear, setActor };
 };
+
+// Shared private customer/operator read model. No raw card identifiers or notes.
+window.loadRiderAccessHistory = (() => {
+    const versions = new WeakMap();
+    const visibilityHandlers = new WeakMap();
+    return async function load({
+        root,
+        path,
+        api,
+        ui,
+        valid,
+        signal,
+        kind = "events",
+        page = 1,
+    }) {
+        const version = (versions.get(root) || 0) + 1;
+        versions.set(root, version);
+        const oldHandler = visibilityHandlers.get(root);
+        if (oldHandler)
+            document.removeEventListener("visibilitychange", oldHandler);
+        const hide = () => {
+            if (document.hidden) {
+                versions.set(root, version + 1);
+                root.replaceChildren();
+                document.removeEventListener("visibilitychange", hide);
+            }
+        };
+        visibilityHandlers.set(root, hide);
+        document.addEventListener("visibilitychange", hide, { signal });
+        if (document.hidden) {
+            hide();
+            return;
+        }
+        const result = await api(
+            `${path}?kind=${kind}&page=${page}`,
+            "GET",
+            undefined,
+            signal,
+        );
+        if (!valid() || !root.isConnected || versions.get(root) !== version)
+            return;
+        if (
+            result.read_only !== true ||
+            result.kind !== kind ||
+            result.hardware_verified !== false
+        )
+            throw new Error("Unverified access history");
+        root.replaceChildren(
+            ui("h4", "Charging access activity"),
+            ui("p", "Charging access history disclaimer"),
+        );
+        const navigate = (key, nextKind, nextPage) => {
+            const b = ui("button", key);
+            b.type = "button";
+            b.onclick = async () => {
+                b.disabled = true;
+                try {
+                    await load({
+                        root,
+                        path,
+                        api,
+                        ui,
+                        valid,
+                        signal,
+                        kind: nextKind,
+                        page: nextPage,
+                    });
+                } catch {
+                    if (
+                        valid() &&
+                        root.isConnected &&
+                        versions.get(root) === version
+                    )
+                        root.replaceChildren(
+                            ui("p", "Rider access unavailable"),
+                        );
+                } finally {
+                    if (b.isConnected) b.disabled = false;
+                }
+            };
+            root.append(b);
+        };
+        navigate("Access lifecycle", "events", 1);
+        navigate("Card charging attempts", "sessions", 1);
+        if (!result.data.length) root.append(ui("p", "No access activity"));
+        for (const row of result.data) {
+            const entry = document.createElement("article");
+            let state = row.state;
+            if (
+                (state === "source_active" &&
+                    row.source_start_observed !== true) ||
+                (state === "source_ended" &&
+                    (row.source_start_observed !== true ||
+                        row.source_end_observed !== true))
+            )
+                state = "requires_review";
+            entry.append(
+                ui(
+                    "p",
+                    kind === "events"
+                        ? `Rider activity ${row.action}`
+                        : `Rider session ${state}`,
+                ),
+            );
+            const stamp = document.createElement("p");
+            stamp.textContent = row.created_at;
+            entry.append(stamp);
+            if (kind === "sessions") {
+                const protocol = document.createElement("p");
+                protocol.textContent = `OCPP ${row.protocol} · #${row.charging_session_id}`;
+                entry.append(protocol);
+            }
+            root.append(entry);
+        }
+        if (result.current_page > 1) navigate("Previous", kind, page - 1);
+        if (result.current_page < result.last_page)
+            navigate("Next", kind, page + 1);
+    };
+})();

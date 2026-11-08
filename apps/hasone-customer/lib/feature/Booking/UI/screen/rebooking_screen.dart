@@ -1,3 +1,4 @@
+import 'package:evcharg/core/utils/reservation_date.dart';
 import 'dart:ui';
 import 'package:evcharg/app/resource.dart';
 import 'package:evcharg/app/widget_button.dart';
@@ -25,15 +26,6 @@ class _RebookingScreenState extends State<RebookingScreen> {
   late AllBookingController _controller;
   String? _stationId;
 
-  String _formatDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]}, ${days[date.weekday - 1]}';
-  }
-
   @override
   void initState() {
     super.initState();
@@ -46,13 +38,13 @@ class _RebookingScreenState extends State<RebookingScreen> {
     // Fetch real slots from the station
     if ((widget.booking.stationId ?? '').isNotEmpty) {
       _stationId = widget.booking.stationId;
-      final dateStr = _formatDate(_selectedDate);
+      final dateStr = reservationDay(_selectedDate);
       _controller.fetchStationSlots(_stationId!, date: dateStr);
     } else {
       // No stationId in booking list — find station by name from loaded stations
       final name = widget.booking.stationName ?? '';
       if (name.isNotEmpty) {
-        final dateStr = _formatDate(_selectedDate);
+        final dateStr = reservationDay(_selectedDate);
         _controller.fetchSlotsByStationName(name, date: dateStr);
       }
     }
@@ -80,7 +72,7 @@ class _RebookingScreenState extends State<RebookingScreen> {
     final slots = _controller.stationSlots;
     final slot = slots[_selectedSlotIndex!];
 
-    final formattedDate = _formatDate(_selectedDate);
+    final formattedDate = reservationDay(_selectedDate);
 
     final success = await _controller.rescheduleBooking(
       bookingId: widget.booking.sId ?? widget.booking.bookingId ?? '',
@@ -90,12 +82,14 @@ class _RebookingScreenState extends State<RebookingScreen> {
       slotEnd: slot.endTime ?? '',
     );
 
+    if (!mounted) { return; }
+
     if (success) {
       Get.back(result: true);
       Get.snackbar('Success', 'Booking rescheduled successfully.',
           snackPosition: SnackPosition.TOP);
     } else {
-      Get.snackbar('Error', 'Failed to reschedule booking.',
+      Get.snackbar('Booking update', _controller.bookingMutationMessage.value,
           snackPosition: SnackPosition.TOP);
     }
   }
@@ -288,7 +282,7 @@ class _RebookingScreenState extends State<RebookingScreen> {
                                     _selectedSlotIndex = null; // Reset slot selection on date change
                                   });
                                   // Fetch fresh slots for the new date
-                                  final dateStr = _formatDate(thisDate);
+                                  final dateStr = reservationDay(thisDate);
                                   if (_stationId != null && _stationId!.isNotEmpty) {
                                     _controller.fetchSlotsForDate(_stationId!, dateStr);
                                   } else {

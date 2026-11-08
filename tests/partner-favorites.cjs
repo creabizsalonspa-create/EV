@@ -5,6 +5,8 @@ const { randomBytes } = require("node:crypto");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const assert = require("node:assert/strict");
 async function main() {
+  const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
+  assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
   const run = randomBytes(4).toString("hex"),
     password = randomBytes(24).toString("hex") + "aA9!";
   const fixture = (action) =>
@@ -19,8 +21,8 @@ async function main() {
       { stdio: "pipe" },
     );
   fixture("seed");
-  const customer = await new BusinessClient().register("customer");
-  const admin = new BusinessClient();
+  const customer = await new BusinessClient({ base }).register("customer");
+  const admin = new BusinessClient({ base });
   admin.csrf = (await admin.request("csrf")).token;
   await admin.request("login", "POST", {
     email: "roaming-admin-" + run + "@example.test",
@@ -46,6 +48,9 @@ async function main() {
       })),
     );
     const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (err) => errors.push(err.message));
+    await page.route("https://tile.openstreetmap.org/**", (route) => route.abort());
     await page.goto(customer.base);
     const pub = page.locator("#roaming-discovery");
     await pub.locator("[name=partner_q]").fill(run);
@@ -64,6 +69,8 @@ async function main() {
       .getByRole("button", { name: "Search partner locations", exact: true })
       .click();
     await pub.getByText("Page 1 of 2 · 26 records", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Enable interactive map" }).click();
+    await page.locator(".partner-map-pin").waitFor();
 
     await pub
       .getByRole("button", { name: "Save partner location", exact: true })
@@ -80,6 +87,15 @@ async function main() {
       .click();
     await pub.getByText("Page 1 of 1 · 1 records", { exact: true }).waitFor();
     assert.equal(await pub.locator("article").count(), 1);
+    // Saved-only browsing projects the same privacy-safe partner records onto
+    // the map, but never promotes favorites into a remote-charge capability.
+    await page.locator(".partner-map-pin").waitFor();
+    assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    await page.locator(".partner-map-pin").click();
+    await page.locator(".leaflet-popup-content")
+      .getByText(/Partner reported \(unverified\)/).waitFor();
+    assert.equal(await page.locator(".leaflet-popup-content").getByRole("button", { name: "Add charging stop" }).count(), 0);
+    assert.equal(await page.locator(".leaflet-popup-content").getByRole("button", { name: "Request charge" }).count(), 0);
     const publicData = await customer.request("roaming/locations");
     assert(
       publicData.data.every(
@@ -97,6 +113,7 @@ async function main() {
     await pub
       .getByText("Saved partner location is unavailable", { exact: true })
       .waitFor();
+    assert.equal(await page.locator(".partner-map-pin").count(), 0, "Revoked partner pin remained visible in saved map");
     assert(!(await pub.textContent()).includes("Synthetic address"));
     await pub
       .getByRole("button", {
@@ -120,8 +137,9 @@ async function main() {
         .count(),
       0,
     );
+    assert.deepEqual(errors, []);
     console.log(
-      "PASS real Laravel partner favorites: private save/list/remove, public response isolation, revoked-source redaction and logout cleanup.",
+      "PASS real Laravel partner favorites: private save/list/map, no charging controls, provider revocation clears pins/source data, public isolation and logout cleanup.",
     );
   } finally {
     await browser.close();

@@ -1,4 +1,5 @@
 import 'dart:ui';
+import '../../history/source_history_screen.dart';
 
 import 'package:evcharg/app/resource.dart';
 import 'package:evcharg/app/widget_button.dart';
@@ -254,6 +255,15 @@ class _BookingScreenState extends State<BookingScreen> {
                 ),
               ),
             ],
+          ),
+
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton.icon(
+              icon: const Icon(Icons.history),
+              label: const Text('Charging history / \u0633\u062c\u0644 \u0627\u0644\u0634\u062d\u0646'),
+              onPressed: () => Get.to(() => const SourceHistoryScreen()),
+            ),
           ),
 
           // ── Active filter chip ──
@@ -636,11 +646,12 @@ class _BookingScreenState extends State<BookingScreen> {
               Navigator.pop(context);
               final success =
                   await _controller.cancelBooking(bookingId);
+              if (!mounted) { return; }
               if (success) {
                 Get.snackbar('Cancelled', 'Booking has been cancelled.',
                     snackPosition: SnackPosition.TOP);
               } else {
-                Get.snackbar('Error', 'Failed to cancel booking.',
+                Get.snackbar('Booking update', _controller.bookingMutationMessage.value,
                     snackPosition: SnackPosition.TOP);
               }
             },

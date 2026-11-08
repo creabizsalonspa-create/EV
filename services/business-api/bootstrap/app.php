@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\AccountStatusGate;
+use App\Http\Middleware\AdminSecondFactorGate;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -15,6 +17,12 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
+        // Run after the web session/auth middleware so Admin identity and
+        // challenge proof are both available before protected handlers execute.
+        $middleware->web(append: [AccountStatusGate::class, AdminSecondFactorGate::class]);
+        // Resolve Sanctum Admin identity on v1 routes before route handlers.
+        // The same gate denies unverified Admin cookie/API sessions.
+        $middleware->api(append: [AccountStatusGate::class, AdminSecondFactorGate::class]);
         $middleware->redirectGuestsTo(fn (Request $request) => $request->routeIs('verification.verify') ? '/?verification=signin' : '/');
         //
     })

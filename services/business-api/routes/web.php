@@ -1,6 +1,14 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AdminOperatorRoleHistoryController;
+use App\Http\Controllers\AdminSecondFactorController;
+use App\Http\Controllers\AccountPrivacyController;
+use App\Http\Controllers\AdminAccountDirectoryController;
+use App\Http\Controllers\AdminAuditTrailController;
+use App\Http\Controllers\AdminKycQueueController;
+use App\Http\Controllers\AdminStaffPermissionController;
+use App\Http\Controllers\AdminSessionController;
 use App\Http\Controllers\ChargerCommandController;
 use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
@@ -20,6 +28,22 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'platform');
+
+// Status/page refreshes are safe and should not consume password/code
+// challenge attempts. Every factor mutation uses the tighter auth limiter.
+Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
+    Route::get('/admin/second-factor', [AdminSecondFactorController::class, 'page']);
+    Route::get('/api/admin/second-factor/status', [AdminSecondFactorController::class, 'status']);
+});
+Route::middleware(['auth', 'throttle:authentication'])->group(function () {
+    Route::post('/api/admin/second-factor/begin', [AdminSecondFactorController::class, 'begin']);
+    Route::post('/api/admin/second-factor/confirm', [AdminSecondFactorController::class, 'confirm']);
+    Route::post('/api/admin/second-factor/verify', [AdminSecondFactorController::class, 'verify']);
+    Route::post('/api/admin/second-factor/recover', [AdminSecondFactorController::class, 'recover']);
+    Route::post('/api/admin/second-factor/reset-after-recovery', [AdminSecondFactorController::class, 'resetAfterRecovery']);
+    Route::post('/api/admin/second-factor/rotate-recovery-codes', [AdminSecondFactorController::class, 'rotateRecoveryCodes']);
+});
+
 Route::get('/api/csrf', fn () => response()->json(['token' => csrf_token()]));
 Route::middleware('throttle:authentication')->group(function () {
     Route::post('/api/register', [P::class, 'register']);
@@ -44,6 +68,24 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::put('/api/simulations/{session}/meter', [SimulationController::class, 'meter']);
     Route::post('/api/simulations/{session}/stop', [SimulationController::class, 'stop']);
 });
+
+Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/admin/sessions/revoke-all', [AdminSessionController::class, 'revokeAll'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/account/privacy-requests', [AccountPrivacyController::class, 'mine'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/account/privacy-requests', [AccountPrivacyController::class, 'submit'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/privacy-requests', [AccountPrivacyController::class, 'adminIndex'])->middleware(['auth', 'throttle:platform-api']);
+Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacyController::class, 'review'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/privacy-requests/{privacyCase}/reviews', [AccountPrivacyController::class, 'adminHistory'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/kyc-queue', [AdminKycQueueController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/permission-grants', [AdminStaffPermissionController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/admin/permission-grants/{membership}/revoke', [AdminStaffPermissionController::class, 'revoke'])->middleware(['auth', 'throttle:authentication']);
+Route::post('/api/admin/permission-grants/{membership}/release', [AdminStaffPermissionController::class, 'release'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/permission-grants/{membership}/revocations', [AdminStaffPermissionController::class, 'revocations'])->middleware(['auth', 'throttle:platform-api']);
+Route::patch('/api/admin/accounts/{target}/moderate', [AdminAccountDirectoryController::class, 'moderate'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/accounts/{target}/moderations', [AdminAccountDirectoryController::class, 'moderationHistory'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::get('/api/admin/operator-role-changes', [AdminOperatorRoleHistoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/admin/overview', function (Request $r) {
     abort_unless($r->user()->role === 'admin', 403);
@@ -126,12 +168,14 @@ Route::get('/payments/hosted-simulation/{checkout}', function (string $checkout)
 })->whereNumber('checkout')->middleware('auth');
 
 // Server-selected corporate family; query parameters never choose an API or prove payment.
-Route::get('/payments/corporate-hosted-return', fn () => response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate'])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer'));
+Route::get('/payments/corporate-hosted-return', fn () => response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate'])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"));
 Route::get('/payments/corporate-hosted-simulation/{checkout}', function (string $checkout) {
     abort_unless(app()->environment('local', 'testing') && config('payments.provider') === 'mock', 404);
 
-    return response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate', 'simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer');
+    return response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate', 'simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
 })->whereNumber('checkout')->middleware('auth');
 
 Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
 Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
+
+Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/vehicle_model_catalog.php');

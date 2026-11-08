@@ -41,11 +41,20 @@ return new class extends Migration
 
     public function down(): void
     {
+        $triggers = [];
         if (DB::getDriverName() === 'sqlite') {
             DB::unprepared('DROP TRIGGER IF EXISTS commercial_adjustments_precision');
+            // SQLite < 3.35 requires Laravel to rebuild the table when dropping
+            // a column. That rebuild preserves columns, but discards triggers.
+            $triggers = DB::select("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'commercial_adjustments'");
         } elseif (DB::getDriverName() === 'pgsql') {
             DB::unprepared('ALTER TABLE commercial_adjustments DROP CONSTRAINT IF EXISTS commercial_adjustments_precision');
         }
         Schema::table('commercial_adjustments', fn (Blueprint $t) => $t->dropColumn('minor_units'));
+        foreach ($triggers as $trigger) {
+            if (! DB::selectOne("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?", [$trigger->name])) {
+                DB::unprepared($trigger->sql);
+            }
+        }
     }
 };

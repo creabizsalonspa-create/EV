@@ -1,0 +1,50 @@
+.admin-factor-wrap {
+    width: min(100% - 2rem, 42rem);
+    max-width: 42rem;
+    margin: 2rem auto;
+    padding: clamp(1rem, 4vw, 2rem);
+}
+.admin-factor-wrap > section {
+    border: 1px solid var(--border, #7775);
+    border-radius: 1rem;
+    padding: clamp(1rem, 3vw, 1.5rem);
+}
+.admin-factor-wrap form,
+.admin-factor-wrap form label {
+    display: grid;
+    gap: 0.6rem;
+    margin-block: 1.2rem;
+}
+.admin-factor-wrap input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.admin-factor-wrap button {
+    max-width: 100%;
+    white-space: normal;
+    margin-block: 0.4rem;
+}
+#factor-status {
+    min-height: 2rem;
+}
+#factor-setup-key,
+#factor-recovery-list {
+    overflow-wrap: anywhere;
+    user-select: text;
+    font-variant-numeric: tabular-nums;
+}
+#factor-recovery-list {
+    max-height: 20rem;
+    padding: 1rem;
+    overflow: auto;
+    border: 1px solid var(--border, #7775);
+    border-radius: 0.5rem;
+    white-space: pre-wrap;
+}
+@media (max-width: 480px) {
+    .admin-factor-wrap {
+        margin: 0.7rem auto;
+        padding: 0.75rem;
+    }
+}

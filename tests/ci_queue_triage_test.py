@@ -146,16 +146,16 @@ class QueueTriageTest(unittest.TestCase):
         r = run()
         report = {"queue_scan_truncated": False,
                   "candidates": [{"id": 1, "reason": "superseded_feature_push",
-                                  "sha": SHA_A, "event": "push"}]}
+                                  "sha": SHA_A, "event": "push", "branch": BRANCH}]}
         class Fake:
             token, repo = "synthetic", REPO
             posted = False
             def pages(self, suffix, key):
                 if suffix.startswith("/pulls?"):
                     return [pr()], False
-                if suffix.startswith("/actions/runs?"):
-                    return [r], False
                 raise AssertionError(suffix)
+            def queued_pages(self, limit=triage.MAX_PAGE_COUNT):
+                return [r], False
             def request(self, suffix, method="GET"):
                 if method != "GET":
                     self.posted = True
@@ -172,16 +172,16 @@ class QueueTriageTest(unittest.TestCase):
         r = run()
         report = {"queue_scan_truncated": False,
                   "candidates": [{"id": 1, "reason": "superseded_feature_push",
-                                  "sha": SHA_A, "event": "push"}]}
+                                  "sha": SHA_A, "event": "push", "branch": BRANCH}]}
         class Fake:
             token, repo = "synthetic", REPO
             posted = False
             def pages(self, suffix, key):
                 if suffix.startswith("/pulls?"):
                     return [pr(sha=SHA_A)], False
-                if suffix.startswith("/actions/runs?"):
-                    return [r], False
                 raise AssertionError(suffix)
+            def queued_pages(self, limit=triage.MAX_PAGE_COUNT):
+                return [r], False
             def request(self, suffix, method="GET"):
                 if method != "GET":
                     self.posted = True
@@ -200,18 +200,18 @@ class QueueTriageTest(unittest.TestCase):
         r1, r2 = run(1), run(2)
         report = {"queue_scan_truncated": False, "candidates": [
             {"id": 1, "reason": "superseded_feature_push",
-             "sha": SHA_A, "event": "push"},
+             "sha": SHA_A, "event": "push", "branch": BRANCH},
             {"id": 2, "reason": "superseded_feature_push",
-             "sha": SHA_A, "event": "push"},
+             "sha": SHA_A, "event": "push", "branch": BRANCH},
         ]}
         class Fake:
             token, repo = "synthetic", REPO
             def pages(self, suffix, key):
                 if suffix.startswith("/pulls?"):
                     return [pr()], False
-                if suffix.startswith("/actions/runs?"):
-                    return [r1, r2], False
                 raise AssertionError(suffix)
+            def queued_pages(self, limit=triage.MAX_PAGE_COUNT):
+                return [r1, r2], False
             def request(self, suffix, method="GET"):
                 if method == "GET":
                     return r1 if suffix.endswith("/1") else r2
@@ -256,6 +256,231 @@ class QueueTriageTest(unittest.TestCase):
                 patch.object(triage, "inspect", side_effect=AssertionError(
                     "Apply without authorization must never call GitHub")):
             self.assertEqual(2, triage.main(["--apply", "--max-cancel", "1"]))
+
+
+    def test_queue_scan_can_page_past_twelve_hundred_queued_runs(self):
+        self.assertGreaterEqual(triage.MAX_PAGE_COUNT, 30)
+        github = triage.Github()
+        def fake_request(suffix):
+            page = int(suffix.rsplit("=", 1)[-1])
+            if page <= 12:
+                return {"workflow_runs": [
+                    run(id=page * 100 + offset) for offset in range(100)
+                ]}
+            if page == 13:
+                return {"workflow_runs": [run(id=1301)]}
+            raise AssertionError("Full queue should end after 13 pages")
+        github.request = fake_request
+        found, incomplete = github.pages(
+            "/actions/runs?status=queued", "workflow_runs")
+        self.assertEqual(1201, len(found))
+        self.assertFalse(incomplete)
+
+    def test_manual_workflow_scan_limit_tracks_safe_runtime_limit(self):
+        workflow = (
+            ROOT / ".github/workflows/queued-ci-maintenance.yml"
+        ).read_text()
+        self.assertEqual(2, workflow.count("--page-limit 30"))
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("actions: write", workflow)
+        self.assertIn("needs: dry-run", workflow)
+
+
+    def test_obsolete_fork_pr_run_is_never_cancelled(self):
+        pending = run(event="pull_request", prs=[70], sha=SHA_A)
+        external = pr(repo="untrusted-fork/EV", sha=SHA_B)
+        self.assertIsNone(classify([pending], active=[external]))
+
+    def test_missing_run_repository_provenance_fails_closed(self):
+        pending = run()
+        del pending["repository"]
+        self.assertIsNone(classify([pending]))
+
+
+    def test_actions_api_1000_result_ceiling_is_reported_incomplete(self):
+        github = triage.Github()
+        def fake_request(suffix):
+            page = int(suffix.rsplit("=", 1)[-1])
+            if page <= 10:
+                return {"total_count": 1360, "workflow_runs": [
+                    run(id=page * 100 + offset) for offset in range(100)
+                ]}
+            # GitHub sometimes returns an empty page beyond its hard cap,
+            # despite reporting >1,000 queued runs on earlier pages.
+            return {"total_count": 0, "workflow_runs": []}
+        github.request = fake_request
+        rows, incomplete = github.pages(
+            "/actions/runs?status=queued", "workflow_runs")
+        self.assertEqual(1000, len(rows))
+        self.assertTrue(incomplete,
+                        "Partial GitHub scan must not authorize cancellation")
+        github.token = "synthetic-not-used"
+        with self.assertRaises(ValueError):
+            triage.cancel_candidates(
+                github, {"queue_scan_truncated": incomplete,
+                         "candidates": []}, 1)
+
+    def test_actions_reported_total_may_not_be_smaller_than_returned_page(self):
+        github = triage.Github()
+        github.request = lambda suffix: {
+            "total_count": 2, "workflow_runs": [run(id=1)]
+        }
+        rows, incomplete = github.pages(
+            "/actions/runs?status=queued", "workflow_runs")
+        self.assertEqual(1, len(rows))
+        self.assertTrue(incomplete)
+
+    def test_plain_pr_list_still_pages_without_total_count(self):
+        github = triage.Github()
+        github.request = lambda suffix: [pr()]
+        prs, incomplete = github.pages("/pulls?state=open", "pull_requests")
+        self.assertEqual(1, len(prs))
+        self.assertFalse(incomplete)
+
+
+    def test_queue_split_recovers_runs_hidden_beyond_github_cap(self):
+        github = triage.Github()
+        # The API exposes 1,360 queued runs, but unfiltered pagination returns
+        # only the newest 1,000; created-range pagination exposes the older 361,
+        # including one duplicated run at the timestamp boundary.
+        newest = [dict(run(id=i), created_at="2026-11-07T14:00:00Z")
+                  for i in range(1360, 360, -1)]
+        newest[-1]["created_at"] = "2026-11-07T13:00:00Z"
+        older = [dict(run(id=i), created_at="2026-11-07T12:00:00Z")
+                 for i in range(360, 0, -1)] + [newest[-1]]
+        older.sort(key=lambda x: x["created_at"], reverse=True)
+
+        def response(suffix):
+            from urllib.parse import parse_qs
+            query = parse_qs(suffix.split("?", 1)[-1])
+            page = int(query.get("page", ["1"])[0])
+            per_page = int(query.get("per_page", ["100"])[0])
+            if "created" in query:
+                self.assertIn("..2026-11-07T13:00:00Z",
+                              query["created"][0])
+                rows = older
+                total = len(older)
+            else:
+                rows = newest
+                total = 1360 if per_page == 1 or page <= 10 else 0
+            start = (page - 1) * per_page
+            return {"total_count": total,
+                    "workflow_runs": rows[start:start + per_page]}
+        github.request = response
+        combined, incomplete = github.queued_pages()
+        self.assertFalse(incomplete)
+        self.assertEqual(1360, len(combined))
+        self.assertEqual(1360, len({r["id"] for r in combined}))
+
+    def test_queue_split_refuses_new_work_arriving_during_scan(self):
+        github = triage.Github()
+        newest = [dict(run(id=i), created_at="2026-11-07T14:00:00Z")
+                  for i in range(1360, 360, -1)]
+        newest[-1]["created_at"] = "2026-11-07T13:00:00Z"
+        older = [dict(run(id=i), created_at="2026-11-07T12:00:00Z")
+                 for i in range(360, 0, -1)] + [newest[-1]]
+        older.sort(key=lambda x: x["created_at"], reverse=True)
+        def response(suffix):
+            from urllib.parse import parse_qs
+            query = parse_qs(suffix.split("?", 1)[-1])
+            page = int(query.get("page", ["1"])[0])
+            per_page = int(query.get("per_page", ["100"])[0])
+            if "created" in query:
+                rows, total = older, len(older)
+            else:
+                rows = newest
+                total = (1361 if per_page == 1 else
+                         1360 if page <= 10 else 0)
+            start = (page - 1) * per_page
+            return {"total_count": total,
+                    "workflow_runs": rows[start:start + per_page]}
+        github.request = response
+        combined, incomplete = github.queued_pages()
+        self.assertTrue(incomplete)
+        self.assertEqual(1360, len(combined))
+
+    def test_queue_split_rejects_missing_timestamps(self):
+        github = triage.Github()
+        def response(suffix):
+            from urllib.parse import parse_qs
+            query = parse_qs(suffix.split("?", 1)[-1])
+            page = int(query.get("page", ["1"])[0])
+            return {"total_count": 1300 if page <= 10 else 0,
+                    "workflow_runs": [
+                        run(id=page * 100 + index)
+                        for index in range(100 if page <= 10 else 0)
+                    ]}
+        github.request = response
+        rows, incomplete = github.queued_pages()
+        self.assertTrue(incomplete)
+        self.assertEqual(1000, len(rows))
+
+
+    def test_operator_cancellation_never_rescans_all_queued_runs(self):
+        target = run(id=4)
+        report = {"queue_scan_truncated": False, "candidates": [{
+            "id": 4, "reason": "superseded_feature_push",
+            "sha": SHA_A, "event": "push", "branch": BRANCH,
+        }]}
+        class Fake:
+            token, repo = "synthetic", REPO
+            posts = []
+            def pages(self, suffix, key):
+                if not suffix.startswith("/pulls?"):
+                    raise AssertionError("Must not download the entire queue per run")
+                return [pr()], False
+            def queued_pages(self):
+                raise AssertionError("Per-run rescan is prohibitively expensive")
+            def request(self, suffix, method="GET"):
+                if method == "GET":
+                    self.assert_equal = True
+                    return target
+                self.posts.append(suffix)
+                return 202
+        api = Fake()
+        done, skipped, errors = triage.cancel_candidates(api, report, 1)
+        self.assertEqual([4], done)
+        self.assertEqual([], skipped)
+        self.assertEqual([], errors)
+        self.assertEqual(["/actions/runs/4/cancel"], api.posts)
+
+    def test_current_head_push_duplicate_is_never_cancelled_automatically(self):
+        report = {"queue_scan_truncated": False, "candidates": [{
+            "id": 4, "reason": "duplicate_feature_push_with_pr_event",
+            "sha": SHA_B, "event": "push", "branch": BRANCH,
+        }]}
+        class Fake:
+            token, repo = "synthetic", REPO
+            def pages(self, *args):
+                raise AssertionError("Duplicate push must be kept")
+            def request(self, *args, **kwargs):
+                raise AssertionError("Duplicate push must be kept")
+        done, skipped, errors = triage.cancel_candidates(Fake(), report, 1)
+        self.assertEqual([], done)
+        self.assertEqual([4], skipped)
+        self.assertEqual([], errors)
+
+    def test_run_is_never_cancelled_after_branch_change(self):
+        run_before = run(id=4)
+        moved = dict(run_before, head_branch="development/moved")
+        report = {"queue_scan_truncated": False, "candidates": [{
+            "id": 4, "reason": "superseded_feature_push",
+            "sha": SHA_A, "event": "push", "branch": BRANCH,
+        }]}
+        class Fake:
+            token, repo = "synthetic", REPO
+            read_count = 0
+            def pages(self, suffix, key):
+                return [pr()], False
+            def request(self, suffix, method="GET"):
+                if method != "GET":
+                    raise AssertionError("Stale run must not be cancelled")
+                self.read_count += 1
+                return run_before if self.read_count == 1 else moved
+        done, skipped, errors = triage.cancel_candidates(Fake(), report, 1)
+        self.assertEqual([], done)
+        self.assertEqual([4], skipped)
+        self.assertEqual([], errors)
 
 
 if __name__ == "__main__":
