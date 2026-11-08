@@ -227,10 +227,25 @@ function visible(node){return [node.textContent,...node.children.map(visible)].j
       defect+' readback must never claim a saved report');
     const probeRetry=find(probeRoot,n=>n.tag==='button'&&visible(n).includes('Retry the same report'));
     assert.equal(probeRetry.disabled,false);
-    await probeRetry.onclick();
-    assert.equal(attempts.length,2);
-    assert.deepEqual(attempts[0],attempts[1],defect+' retry changed operation identity');
+    if (defect==='stale-current') {
+      // Reopening a report after ambiguous write should reconcile server
+      // state without submitting a duplicate request.
+      const refresh=find(probeRoot,n=>n.tag==='button'&&
+        visible(n).includes('Refresh source and history'));
+      assert.ok(refresh);
+      await refresh.onclick();
+      assert.equal(attempts.length,1,
+        'Refresh must preserve the original observation, not POST again');
+    } else {
+      await probeRetry.onclick();
+      assert.equal(attempts.length,2);
+      assert.deepEqual(attempts[0],attempts[1],defect+' retry changed operation identity');
+    }
     assert.match(visible(probeRoot),/Manual report saved/);
+    const afterReconcile=find(probeRoot,n=>n.tag==='button'&&
+      visible(n).includes('Retry the same report'));
+    assert.equal(afterReconcile.disabled,true,
+      'Confirmed readback must clear pending report key');
     probe.clear();
   }
   // A reused identity object across a new auth epoch must clear old DOM and

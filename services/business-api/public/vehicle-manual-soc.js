@@ -15,10 +15,11 @@
   };
   function create({root,api,actor,epoch}) {
     let account=null, session=0, generation=0;
-    let chosen=null, latest=null, history=null, page=1, pending=null;
+    let chosen=null, latest=null, history=null, page=1, pending=null, submitting=false, submitAttempt=0;
     const alive = token=>account===actor()&&session===epoch()&&generation===token;
     function clear() {
-      generation++;account=null;chosen=latest=history=pending=null;page=1;root.replaceChildren();
+      generation++;account=null;chosen=latest=history=pending=null;
+      submitting=false;submitAttempt++;page=1;root.replaceChildren();
     }
     function status(msg) {
       let node=root.querySelector("[data-manual-soc-status]");
@@ -47,7 +48,7 @@
       if (sameVehicle) {
         chosen = sameVehicle;
       } else {
-        generation++;chosen=latest=history=pending=null;page=1;
+        generation++;chosen=latest=history=pending=null;submitting=false;submitAttempt++;page=1;
       }
       root.replaceChildren(tr("Manual battery reports","تقارير البطارية اليدوية","h3"),
         tr("Battery values are your own estimates, never measured by the phone, vehicle API or charger. Reports are not used to start/stop charging, authorize reservations or calculate invoices.",
@@ -60,6 +61,19 @@
       if (previousStatus) root.append(previousStatus);
       if (previousPanel) root.append(previousPanel);
     }
+    const confirmedReport=(request,current,history,vehicleId)=>{
+      if(!request||!current||!history)return false;
+      const expectedRevision=Number(request.expected_revision)+1;
+      return Number.isInteger(expectedRevision) &&
+        current.vehicle_id===vehicleId &&
+        current.revision===expectedRevision &&
+        current.battery_percent===request.battery_percent &&
+        history.data?.some(row=>
+          row.vehicle_id===vehicleId &&
+          row.revision===expectedRevision &&
+          row.battery_percent===request.battery_percent &&
+          row.source==="CUSTOMER_MANUAL_SELF_REPORT")===true;
+    };
     async function open(vehicle) {
       if (actor()!==account||session!==epoch()) {clear();return;}
       if (actor()?.role!=="customer"||!account)return;
@@ -67,7 +81,11 @@
       // Hide the old vehicle's editable panel immediately. A slow new GET
       // must not leave a previous form capable of submitting to new selection.
       root.querySelector("[data-manual-soc-panel]")?.remove();
-      chosen=vehicle;latest=history=pending=null;page=1;
+      // Refreshing the SAME vehicle must not erase a possibly committed
+      // observation's idempotency identity. Switching vehicles still does.
+      const oldPending=chosen&&String(chosen.id)===String(vehicle.id)?pending:null;
+      chosen=vehicle;latest=history=null;pending=oldPending;
+      submitting=false;submitAttempt++;page=1;
       status(ar()?"جارٍ تحميل بيانات البطارية...":"Loading manual battery reports…");
       try {
         const response=await api("vehicles/"+vehicle.id+"/manual-soc");
@@ -77,13 +95,25 @@
       }catch(e){if(alive(token))status(String(e.message||e));}
     }
     async function loadHistory(target=page) {
-      if(!chosen||!account)return;
+      if(actor()!==account||session!==epoch()){clear();return false;}
+      if(!chosen||!account)return false;
       const token=++generation;
       page=target;
       try {
         const result=await api("vehicles/"+chosen.id+"/manual-soc/history?page="+page);
         if(!alive(token))return;
-        history=result;render();return true;
+        history=result;
+        if(pending && confirmedReport(pending,latest,history,chosen.id)){
+          pending=null;render();
+          status(ar()?"تم تأكيد التقرير اليدوي." : "Manual report saved.");
+        } else {
+          render();
+          status(pending
+            ? (ar()?"نتيجة التقرير غير مؤكدة؛ راجع السجل أو أعد نفس التقرير." :
+              "Result uncertain. Check history or retry the identical report.")
+            : "");
+        }
+        return true;
       }catch(e){if(alive(token))status(String(e.message||e));return false;}
     }
     function render() {
@@ -114,7 +144,7 @@
       submit.append(tr("Save manual report","حفظ التقرير اليدوي"));form.append(submit);
       const retry=button("Retry the same report","إعادة إرسال نفس التقرير",
         ()=>{if(editable())return submitReport();});
-      retry.disabled=pending===null;
+      retry.disabled=pending===null||submitting;
       form.append(retry);
       form.append(button("Clear pending after reviewing history","مسح المعلق بعد مراجعة السجل",
         ()=>{if(!editable())return;pending=null;render();status("");}));
@@ -151,8 +181,10 @@
       root.append(panel);
     }
     async function submitReport() {
-      if(!pending||!chosen||!latest||!account)return;
+      if(submitting||!pending||!chosen||!latest||!account)return;
       const token=generation, request=Object.freeze({...pending}), vehicleId=chosen.id;
+      submitting=true;
+      const attempt=++submitAttempt;
       status(ar()?"جارٍ إرسال التقرير..." : "Saving self-reported battery…");
       try {
         await api("vehicles/"+vehicleId+"/manual-soc","POST",request);
@@ -167,6 +199,7 @@
         const loaded=await reload;
         if(!alive(reloadTicket)||chosen?.id!==vehicleId)return;
         if(!loaded){
+          submitting=false;
           render(); // Restore the same-key retry control after history failure.
           status(ar()?"تعذّر تحديث السجل. راجع السجل أو أعد نفس التقرير." :
             "History refresh uncertain. Check history or retry the identical report.");
@@ -174,30 +207,26 @@
         }
         // Successful HTTP/refresh responses are insufficient unless BOTH
         // authoritative readbacks contain this exact user observation.
-        const expectedRevision=Number(request.expected_revision)+1;
-        const confirmed=Number.isInteger(expectedRevision) &&
-          refreshed?.vehicle_id===vehicleId &&
-          refreshed.revision===expectedRevision &&
-          refreshed.battery_percent===request.battery_percent &&
-          history?.data?.some(row=>
-            row.vehicle_id===vehicleId &&
-            row.revision===expectedRevision &&
-            row.battery_percent===request.battery_percent &&
-            row.source==="CUSTOMER_MANUAL_SELF_REPORT");
+        const confirmed=confirmedReport(request,refreshed,history,vehicleId);
         if(!confirmed){
+          submitting=false;
           render();
           status(ar()?"لم يتم تأكيد التقرير من القراءة والسجل. أعد نفس التقرير." :
             "Result uncertain. Current reading/history did not confirm this report; retry the same report.");
           return;
         }
-        pending=null;
+        pending=null;submitting=false;
         render(); // The successful report must no longer offer a replay button.
         status(ar()?"تم حفظ التقرير اليدوي." : "Manual report saved.");
       }catch(e) {
         if(!alive(token))return;
+        submitting=false;
         status(ar()?"تعذرت معرفة النتيجة. راجع السجل أو أعد نفس التقرير." :
           "Result uncertain. Check history or retry the identical report. "+String(e.message||e));
         render();
+      }finally{
+        if(submitAttempt===attempt && account===actor() && session===epoch() && chosen?.id===vehicleId)
+          submitting=false;
       }
     }
     return {clear,setActor,renderGarage,open,loadHistory};
