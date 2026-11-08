@@ -223,8 +223,9 @@
       });
       save.disabled = !models.length;
       panel.append(save);
-      panel.append(button("Remove model association", "إزالة ارتباط الطراز", async () => {
-        if (!activePanel()) return;
+      const remove = button("Remove model association", "إزالة ارتباط الطراز", async () => {
+        if (!activePanel() || remove.disabled) return;
+        remove.disabled = true;
         const ticket = generation, vehicleId = selectedVehicle.id;
         const expectedModelId = selectedLink?.model_id ?? null;
         try {
@@ -237,8 +238,11 @@
           message(customerRoot,isAr() ? "تمت إزالة ارتباط الطراز." : "Model link removed.");
         } catch (e) {
           if (activePanel()) message(customerRoot,text(e.message) || String(e));
+        } finally {
+          if (activePanel()) remove.disabled = false;
         }
-      }));
+      });
+      panel.append(remove);
       if (modelPage > 1) panel.append(button("Previous", "السابق", () => {
         if (activePanel()) return modelList(modelPage-1);
       }));
@@ -375,9 +379,10 @@
           if (!activeScreen()) return;
           adminEdit=row;renderAdmin(result);
         }));
-        item.append(button(row.published?"Archive":"Publish",
+        const toggle = button(row.published?"Archive":"Publish",
           row.published?"أرشفة":"نشر", async () => {
-            if (!activeScreen()) return;
+            if (!activeScreen() || toggle.disabled) return;
+            toggle.disabled = true;
             try {
               await api("vehicle-models/"+row.id,"PUT",{
                 make:row.make,model:row.model,variant:row.variant,model_year:row.model_year,
@@ -387,8 +392,11 @@
               if (activeScreen()) await adminList(adminPage);
             } catch (err) {
               if (activeScreen()) message(adminRoot,text(err.message)||String(err));
+            } finally {
+              if (activeScreen()) toggle.disabled = false;
             }
-          }));
+          });
+        item.append(toggle);
         list.append(item);
       }
       adminRoot.append(list);

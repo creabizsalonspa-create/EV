@@ -52,6 +52,8 @@ let actor={id:3,role:'customer'},epoch=1;
 const sent=[];
 let activeModelId=null, delayNextLink=false, releasePendingLink=null;
 let delayNextCreate=false, releasePendingCreate=null;
+let delayNextUnlink=false, releasePendingUnlink=null;
+let delayNextArchive=false, releasePendingArchive=null;
 const api=async(path,method='GET',body)=>{
   sent.push({path,method,body});
   if(path==='vehicles/12/model'&&method==='GET')return {vehicle_id:12,vehicle_connector_type:'CCS2',model_id:activeModelId,model:activeModelId===8?secondModel:activeModelId===7?model:null};
@@ -63,6 +65,10 @@ const api=async(path,method='GET',body)=>{
       delayNextLink=false;
       await new Promise(resolve=>{releasePendingLink=resolve;});
     }
+    if(body.model_id===null && delayNextUnlink){
+      delayNextUnlink=false;
+      await new Promise(resolve=>{releasePendingUnlink=resolve;});
+    }
     // Mirror backend optimistic revision ownership for delayed writes.
     if(body.expected_model_id!==activeModelId){
       const conflict=new Error('Model link changed');
@@ -70,6 +76,13 @@ const api=async(path,method='GET',body)=>{
     }
     activeModelId=body.model_id;
     return {vehicle_id:12,model_id:body.model_id,model:activeModelId===8?secondModel:activeModelId===7?model:null};
+  }
+  if(path==='vehicle-models/7'&&method==='PUT'){
+    if(delayNextArchive){
+      delayNextArchive=false;
+      await new Promise(resolve=>{releasePendingArchive=resolve;});
+    }
+    return {...body,id:7,revision:2};
   }
   if(path==='vehicle-models'&&method==='POST'){
     if(delayNextCreate){
@@ -182,7 +195,17 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   assert.equal(typeof releasePendingLink,'function');
   const unlink=visit(customerRoot,n=>n.tag==='button'&&
     label(n).includes('Remove model association'));
+  delayNextUnlink=true;
+  const pendingUnlink=unlink.onclick();
+  assert.equal(typeof releasePendingUnlink,'function');
+  const firstUnlinkCalls=sent.filter(c=>c.method==='PUT'&&
+    c.path==='vehicles/12/model'&&c.body.model_id===null).length;
   await unlink.onclick();
+  assert.equal(sent.filter(c=>c.method==='PUT'&&
+    c.path==='vehicles/12/model'&&c.body.model_id===null).length,firstUnlinkCalls,
+    'Double-clicking unlink must not send two competing requests');
+  releasePendingUnlink();
+  await pendingUnlink;
   assert.match(label(customerRoot),/Model link removed/);
   releasePendingLink();
   await heldPromise;
@@ -229,6 +252,17 @@ const view=window.VehicleModelCatalog.create({adminRoot,customerRoot,api,actor:(
   await pendingCreate;
   assert.match(label(adminRoot),/Edit catalog record/,
     'Earlier create response must not discard newly selected Admin edit');
+  const archiveButton=visit(adminRoot,n=>n.tag==='button'&&label(n).trim()==='Archive');
+  assert.ok(archiveButton);
+  delayNextArchive=true;
+  const pendingArchive=archiveButton.onclick();
+  assert.equal(typeof releasePendingArchive,'function');
+  const archiveCount=sent.filter(c=>c.method==='PUT'&&c.path==='vehicle-models/7').length;
+  await archiveButton.onclick();
+  assert.equal(sent.filter(c=>c.method==='PUT'&&c.path==='vehicle-models/7').length,archiveCount,
+    'Repeated archive clicks must not issue a second versioned update');
+  releasePendingArchive();
+  await pendingArchive;
   const postAfterCreate=sent.filter(c=>c.path==='vehicle-models'&&c.method==='POST').length;
   await form.onsubmit({preventDefault(){}});
   assert.equal(sent.filter(c=>c.path==='vehicle-models'&&c.method==='POST').length,postAfterCreate,
