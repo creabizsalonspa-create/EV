@@ -7,7 +7,9 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class RoleTransitionSecurityTest extends TestCase
@@ -174,16 +176,20 @@ class RoleTransitionSecurityTest extends TestCase
             'status' => 'submitted',
         ]);
 
-        // The production approval path requires an uploaded trade-license
-        // record. Create synthetic metadata only; no private file is needed.
+        // The approval path must validate real encrypted evidence, not
+        // metadata pointing to an absent file. Keep the fixture synthetic.
+        Storage::fake('local');
+        $content = "%PDF-1.4\nSYNTHETIC-ROLE-BOUNDARY-LICENSE";
+        $path = 'vendor-kyc/synthetic-role-boundary.enc';
+        Storage::disk('local')->put($path, Crypt::encryptString($content));
         VendorKycDocument::create([
             'company_id' => $company->id,
             'uploaded_by' => $owner->id,
             'kind' => 'trade_license',
             'mime_type' => 'application/pdf',
-            'size_bytes' => 1024,
-            'sha256' => str_repeat('a', 64),
-            'storage_path' => 'synthetic-kyc-evidence.enc',
+            'size_bytes' => strlen($content),
+            'sha256' => hash('sha256', $content),
+            'storage_path' => $path,
         ]);
 
         $this->actingAs($admin)
