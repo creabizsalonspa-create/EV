@@ -18,7 +18,10 @@ def patch(root):
     booking=root/'app/(admin)/bookings/page.tsx'
     component=root/'components/OcppBookingWorkflow.tsx'
     reference=Path(__file__).resolve().parents[2]/'integrations/hasone-next-admin/OcppBookingWorkflow.tsx'
-    if not booking.is_file() or not reference.is_file() or component.exists():
+    support={root/'components'/name:reference.parent/name for name in
+      ['ocppWorkflowEvidence.mjs','ocppWorkflowEvidence.d.mts']}
+    if not booking.is_file() or not reference.is_file() or component.exists() or any(
+       target.exists() or not source.is_file() for target,source in support.items()):
         raise RuntimeError('Incomplete staged Next application or patch already applied')
     src=booking.read_text(encoding='utf8')
     src=once(src,
@@ -47,6 +50,7 @@ def patch(root):
     usd='>'+chr(36)+'{(b.totalAmount || 0).toFixed(2)}</td>'
     src=once(src,usd,'>AED {(b.totalAmount || 0).toFixed(2)}</td>',
              'Admin booking AED label')
+    for target,source in support.items():target.write_bytes(source.read_bytes())
     component.write_text(reference.read_text(encoding='utf8'),encoding='utf8')
     booking.write_text(src,encoding='utf8')
     print('STAGED_NEXT_OCPP_BOOKING_ACTIONS_READY; production unchanged')

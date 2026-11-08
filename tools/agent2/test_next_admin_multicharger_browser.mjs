@@ -28,6 +28,7 @@ const chargerA='AGENT2-STATION-CHARGER-A';
 const chargerB='AGENT2-STATION-CHARGER-B';
 const fakeToken='A1B2C3D4E5F60718293A';
 let stage=0,requestAuthorizationCount=0,registryReview=false;
+let receiptPatch={},operationPatch={},holdOperations=false,operationsRelease=null,sourceListReads=0;
 let issuedTo=null;
 let auditPageFailure=true;
 let holdIssueResponse=false,issueResponseRelease=null,failIssueResponse=false,issueRequests=0;
@@ -65,7 +66,8 @@ function operations(){
   sourceEnded:stage>=2,energyKwh:stage>=2?8:null,
   calculatedUnpaidAed:stage>=2?7.56:null,
   paymentStatus:stage>=2?'not_collected':null,
-  canIssueToken:stage===0,
+  canIssueToken:stage===0,canReissueToken:false,
+  ...operationPatch,
   canBindSource:stage===1,
   canFinalizeSource:stage===2,
   needsPaymentReconciliation:stage>=2
@@ -123,6 +125,7 @@ try{
        response=result(operations());
      }else if(path==='/api/v1/admin/stations/'+station+'/ocpp/booking-sources'
          && request.method()==='GET'){
+       sourceListReads++;
        response=result({sessions:[
          {id:sourceA,chargerId:chargerA,protocol:'ocpp1.6',
           transactionId:'tx-first',status:'ended',energyKwh:5,paymentStatus:'not_collected'},
@@ -165,8 +168,9 @@ try{
        stage=1;
        response=failIssueResponse?{status:503,headers:{'content-type':'application/json'},
          body:JSON.stringify({status:'fail',message:'Authorization outcome uncertain; reload booking before recovery'})}
-         :result({oneTimeToken:fakeToken,chargerId:chargerB,
-         expiresAt:'2026-11-07T10:20:00.000Z'},201);
+         :result({oneTimeToken:fakeToken,bookingId:id,chargerId:chargerB,
+         expiresAt:'2026-11-07T10:20:00.000Z',connectorScoped:false,resourceScope:null,
+         chargingSessionConfirmed:false,...receiptPatch},201);
      }else if(path==='/api/v1/admin/bookings/'+id+'/ocpp/bind-source'
          && request.method()==='POST'){
        const body=JSON.parse(request.postData()||'{}');
@@ -181,6 +185,9 @@ try{
          calculatedUnpaidAed:7.56});
      }else{
        throw Error('Unexpected API call: '+request.method()+' '+path);
+     }
+     if(holdOperations && path.endsWith('/ocpp/operations')){
+       operationsRelease=()=>request.respond(response);return;
      }
      if(holdIssueResponse && path.endsWith('/ocpp/issue-token')){
        issueResponseRelease=()=>request.respond(response);
@@ -345,6 +352,80 @@ try{
      (x.textContent?.includes('Issue one-time authorization token')||x.textContent?.includes('Reissue expired unused token'))&&!x.disabled));
    assert.equal(actionable,false);assert.equal(issueRequests,beforeRegistryReview);
    assert.equal((await page.content()).includes(fakeToken),false);
+ });
+ await page.click('button[aria-label="Close OCPP operations"]');
+ registryReview=false;
+ for(const patch of [{bookingId:station},{chargerId:chargerA},{connectorScoped:true,
+   resourceScope:{protocol:'ocpp2.0.1',connectorId:2,evseId:3}}]){
+   stage=0;receiptPatch=patch;
+   await page.goto(base+'/bookings',{waitUntil:'networkidle2'});
+   await page.waitForSelector('button[aria-label^="OCPP operations"]');
+   await page.click('button[aria-label^="OCPP operations"]');
+   await page.waitForSelector('select[aria-label="Select booking charger"]');
+   await page.select('select[aria-label="Select booking charger"]',chargerB);
+   const beforeReceipt=issueRequests;
+   await clickText(page,'Issue one-time authorization token');
+   await step('mismatched authorization receipt is discarded and status is reread without replay '+JSON.stringify(patch),async()=>{
+     await page.waitForFunction(()=>document.body.innerText.includes('Authorization receipt did not match'));
+     await page.waitForFunction(()=>document.body.innerText.includes('Token already issued.'));
+     assert.equal(await page.$('button[aria-label="Copy one-time token"]'),null);
+     assert.equal(await page.$('button[aria-label="Reveal token"]'),null);
+     assert.equal((await page.content()).includes(fakeToken),false);
+     assert.equal(issueRequests-beforeReceipt,1);
+   });
+   await page.click('button[aria-label="Close OCPP operations"]');
+ }
+ receiptPatch={};
+ for(const patch of [{bookingId:station},{stationId:id}]){
+   stage=0;operationPatch=patch;
+   await page.goto(base+'/bookings',{waitUntil:'networkidle2'});
+   await page.waitForSelector('button[aria-label^="OCPP operations"]');
+   const beforeRead=sourceListReads;
+   await page.click('button[aria-label^="OCPP operations"]');
+   await step('wrong booking or station operations never load source records '+JSON.stringify(patch),async()=>{
+     await page.waitForFunction(()=>document.body.innerText.includes('did not match the requested booking'));
+     assert.equal(sourceListReads,beforeRead);
+     assert.equal(await page.$('select[aria-label="Select booking charger"]'),null);
+   });
+   await page.click('button[aria-label="Close OCPP operations"]');
+ }
+ operationPatch={};stage=0;holdOperations=true;
+ await page.goto(base+'/bookings',{waitUntil:'networkidle2'});
+ await page.waitForSelector('button[aria-label^="OCPP operations"]');
+ await page.click('button[aria-label^="OCPP operations"]');
+ for(let i=0;i<50&&!operationsRelease;i++)await new Promise(done=>setTimeout(done,50));
+ assert.equal(typeof operationsRelease,'function');
+ await page.click('button[aria-label="Close OCPP operations"]');
+ holdOperations=false;stage=1;
+ await page.click('button[aria-label^="OCPP operations"]');
+ await page.waitForFunction(()=>document.body.innerText.includes('Token already issued.'));
+ const oldRead=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/ocpp/operations'));
+ await operationsRelease();operationsRelease=null;await oldRead;
+ await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
+ await step('late closed-dialog read cannot replace the reopened authoritative state',async()=>{
+   const active=await page.evaluate(()=>[...document.querySelectorAll('button')].some(x=>
+     x.textContent?.includes('Issue one-time authorization token')&&!x.disabled));
+   assert.equal(active,false);assert.ok((await page.content()).includes('Token already issued.'));
+ });
+ await page.click('button[aria-label="Close OCPP operations"]');
+ stage=0;holdIssueResponse=true;
+ await page.goto(base+'/bookings',{waitUntil:'networkidle2'});
+ await page.waitForSelector('button[aria-label^="OCPP operations"]');
+ await page.click('button[aria-label^="OCPP operations"]');
+ await page.waitForSelector('select[aria-label="Select booking charger"]');
+ await page.select('select[aria-label="Select booking charger"]',chargerB);
+ const beforeSwitch=issueRequests;
+ await clickText(page,'Issue one-time authorization token');
+ for(let i=0;i<50&&!issueResponseRelease;i++)await new Promise(done=>setTimeout(done,50));
+ assert.equal(typeof issueResponseRelease,'function');
+ await page.evaluate(()=>{localStorage.setItem('admin_token','different-synthetic-admin');
+   window.dispatchEvent(new StorageEvent('storage',{key:'admin_token'}));});
+ holdIssueResponse=false;await issueResponseRelease();issueResponseRelease=null;
+ await step('Admin identity switch discards delayed token delivery and closes private dialog',async()=>{
+   await page.waitForFunction(()=>!document.querySelector('[aria-label="Booking OCPP operations"]'));
+   assert.equal(await page.$('button[aria-label="Copy one-time token"]'),null);
+   assert.equal((await page.content()).includes(fakeToken),false);
+   assert.equal(issueRequests-beforeSwitch,1);
  });
  await page.close();
  console.log('STAGED_NEXT_ADMIN_BROWSER_TESTS_PASSED '+passed);

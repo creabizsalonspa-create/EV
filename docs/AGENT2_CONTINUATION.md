@@ -1,5 +1,31 @@
 # Agent 2 standing continuation checkpoint
 
+## Current Admin response-fencing draft — November 8, 2026
+
+This newest candidate is partially verified and must stay draft. Admin operations
+must match requested booking/station and supported charger identities before
+controls or unqualified amounts render. One-time credential receipts must match
+booking, charger, scope and issue/reissue intent before reveal/copy. Late reads
+or writes cannot update closed/reopened/disposed dialogs or changed identities.
+Unknown/mismatched write results trigger only authoritative reads, never replay.
+Support JS/type declarations are staged atomically with preflighted source anchors.
+
+Final local:166 Node tests,12 synthetic Python source-patch contract tests,
+Babel TS/TSX parse/transpile plus generated-JS syntax, source/Python/shell syntax
+and diff checks pass. This is NOT Next TypeScript/build/browser acceptance.
+Seven added mocked-browser cases are implemented but unexecuted. Final host check:
+host.crea-biz.com OFFLINE, last seen2h ago. No proprietary dependency fixture or
+Flutter/Dart locally. Existing source-matched full checkpoint remains8ca52c5 with
+native077820e; previous runtime passes do not verify this updated Admin component.
+
+Next executable task:reconnect the authorized host, upload all candidate files
+including ocppWorkflowEvidence.mjs/.d.mts, adminWorkflowEvidence.test.mjs and
+agent2_admin_workflow_stage_test.py, then run full isolated validation with mocked
+and actual browser modes. Fix any TypeScript/browser regressions and match final
+source blobs before claiming full acceptance. Agent4 integration and canonical
+identity/capacity/expiry/paid-reschedule contracts remain outstanding. No production,
+hardware, payment or full assigned completion is claimed.
+
 ## Current gateway-clock recovery checkpoint — November 8, 2026
 
 New source binding compares token issuance against accepted gateway

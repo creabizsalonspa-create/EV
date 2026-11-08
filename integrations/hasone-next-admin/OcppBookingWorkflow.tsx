@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useRef,useState} from "react";
 import api from "@/lib/api";
+import {validOcppWorkflowState,validOcppAuthorizationReceipt} from "./ocppWorkflowEvidence.mjs";
 import {useTheme} from "@/lib/ThemeContext";
 import {CheckCircle2,ClipboardCopy,Eye,EyeOff,Link2,LockKeyhole,RefreshCw,X,Zap} from "lucide-react";
 
@@ -44,11 +45,14 @@ type SourceSession={
   status:string;energyKwh:number|null;paymentStatus:string;
 };
 type IssueResponse={status:string;data?:{
-  oneTimeToken:string;chargerId:string;expiresAt:string;
+  oneTimeToken:string;bookingId:string;chargerId:string;expiresAt:string;
   resourceScope?:ResourceScope|null;connectorScoped?:boolean;
 }};
 const isHex24=(value:string)=>/^[a-f0-9]{24}$/i.test(value);
 const statusText=(value:boolean,positive:string,negative:string)=>value?positive:negative;
+type RequestContext={epoch:number;bookingId:string;identity:string};
+const adminIdentity=()=>{try{return window.localStorage.getItem("admin_token")||"";}catch{return "";}};
+
 
 type ConnectorReport={status:string;receiptAgeSeconds:number;freshness:"recent"|"stale"};
 function connectorReport(value:unknown):ConnectorReport|null{
@@ -102,86 +106,105 @@ export default function OcppBookingWorkflow({
   const capacityVersion=useRef(0);
   const [capacity,setCapacity]=useState<CapacityReport|null>(null);
   const [capacityLoading,setCapacityLoading]=useState(false);
-  useEffect(()=>()=>{capacityVersion.current++;},[]);
+
   const secretGeneration=useRef(0);
   const [secret,setSecret]=useState("");
   const [showSecret,setShowSecret]=useState(false);
 
-  const read=useCallback(async()=>{
-    if(!isHex24(booking._id))throw new Error("Invalid booking ID");
-    const response=await api.get("/admin/bookings/"+booking._id+"/ocpp/operations");
-    if(response.data?.status!=="Success" || !response.data?.data)
-      throw new Error("Invalid Admin booking state");
-    const current=response.data.data as OpState;
-    setState(current);
-    if(current.resourceScope){
-      setScopeEnabled(true);
-      setConnectorChoice(String(current.resourceScope.connectorId));
-      setEvseChoice(current.resourceScope.evseId==null?"":String(current.resourceScope.evseId));
-    }
-    const available=Array.isArray(current.approvedChargers)?current.approvedChargers:[];
-    setChargerChoice(previous=>current.selectedChargerId||
-      (available.some(c=>c.chargerId===previous)?previous:
-       available.length===1?available[0].chargerId:""));
-    if(current.stationId && isHex24(current.stationId)){
-      const sessionsResponse=await api.get(
-        "/admin/stations/"+current.stationId+"/ocpp/booking-sources");
-      const list=sessionsResponse.data?.data?.sessions;
-      const loaded=Array.isArray(list)?list as SourceSession[]:[];
+  const dialogEpoch=useRef(0),readVersion=useRef(0),opened=useRef(false);
+  const owner=useRef("");
+  const currentBooking=useRef(booking._id);
+  currentBooking.current=booking._id;
+  const expectedStation=typeof booking.stationId==="string"?booking.stationId:booking.stationId?._id??null;
+  const context=useCallback(():RequestContext=>({epoch:dialogEpoch.current,
+    bookingId:currentBooking.current,identity:owner.current}),[]);
+  const clearPrivate=useCallback(()=>{
+    opened.current=false;dialogEpoch.current++;readVersion.current++;
+    secretGeneration.current++;auditVersion.current++;capacityVersion.current++;
+    setOpen(false);setWorking(false);setLoading(false);setSecret("");setShowSecret(false);
+    setState(null);setSessions([]);setChosen("");setChargerChoice("");
+    setScopeEnabled(false);setConnectorChoice("");setEvseChoice("");
+    setMessage("");setError("");setStartAudit(null);setAuditLoading(false);
+    setCapacity(null);setCapacityLoading(false);setRefreshOnClose(false);
+  },[]);
+  const accept=useCallback((ticket:RequestContext)=>{
+    if(!opened.current||ticket.epoch!==dialogEpoch.current||
+       ticket.bookingId!==currentBooking.current||ticket.identity!==owner.current)return false;
+    if(ticket.identity&&ticket.identity===adminIdentity())return true;
+    clearPrivate();return false;
+  },[clearPrivate]);
+  const read=useCallback(async(preserveError=false)=>{
+    const ticket=context(),version=++readVersion.current;
+    if(!accept(ticket))return;
+    setLoading(true);setState(null);setSessions([]);
+    if(!preserveError)setError("");
+    try{
+      if(!isHex24(ticket.bookingId))throw new Error("Invalid booking ID");
+      const response=await api.get("/admin/bookings/"+ticket.bookingId+"/ocpp/operations");
+      if(!accept(ticket)||version!==readVersion.current)return;
+      if(!validOcppWorkflowState(response.data,{bookingId:ticket.bookingId,stationId:expectedStation}))
+        throw new Error("Admin booking state did not match the requested booking or charger context.");
+      const current=response.data.data as OpState;
+      setState(current);
+      if(current.resourceScope){
+        setScopeEnabled(true);setConnectorChoice(String(current.resourceScope.connectorId));
+        setEvseChoice(current.resourceScope.evseId==null?"":String(current.resourceScope.evseId));
+      }
+      const available=current.approvedChargers;
+      setChargerChoice(previous=>current.selectedChargerId||
+        (available.some(c=>c.chargerId===previous)?previous:
+         available.length===1?available[0].chargerId:""));
+      const sessionsResponse=await api.get("/admin/stations/"+current.stationId+"/ocpp/booking-sources");
+      if(!accept(ticket)||version!==readVersion.current)return;
+      if(sessionsResponse.data?.status!=="Success"||!Array.isArray(sessionsResponse.data?.data?.sessions))
+        throw new Error("Source transaction list could not be verified.");
+      const loaded=sessionsResponse.data.data.sessions as SourceSession[];
       setSessions(loaded);
-      setChosen(previous=>loaded.some(x=>x.id===previous)?previous:
-        current.sourceSessionId||"");
-    }else{
-      setSessions([]);
-      setChosen("");
-    }
-  },[booking._id]);
+      setChosen(previous=>loaded.some(x=>x.id===previous)?previous:current.sourceSessionId||"");
+    }catch(e){
+      if(accept(ticket)&&version===readVersion.current){setState(null);setSessions([]);setError(errorText(e));}
+    }finally{if(accept(ticket)&&version===readVersion.current)setLoading(false);}
+  },[booking._id,expectedStation,context,accept]);
 
+  const previousBooking=useRef(booking._id);
   useEffect(()=>{
-    if(!open)return;
-    let active=true;
-    setLoading(true);
-    setError("");
-    // No charger control, token issuance or money operation occurs on mount.
-    read().catch(e=>{if(active)setError(errorText(e));})
-      .finally(()=>{if(active)setLoading(false);});
-    return ()=>{active=false;};
+    if(previousBooking.current!==booking._id){previousBooking.current=booking._id;clearPrivate();}
+  },[booking._id,clearPrivate]);
+  useEffect(()=>{
+    if(open)void read();
+    return ()=>{readVersion.current++;};
   },[open,read]);
+  useEffect(()=>()=>{opened.current=false;dialogEpoch.current++;readVersion.current++;
+    secretGeneration.current++;auditVersion.current++;capacityVersion.current++;},[]);
 
+  function openDialog(){
+    dialogEpoch.current++;opened.current=true;owner.current=adminIdentity();
+    setState(null);setSessions([]);setSecret("");setShowSecret(false);setError("");setMessage("");setOpen(true);
+  }
   function close(){
     if(working)return;
-    setOpen(false);
-    secretGeneration.current++;
-    setSecret("");
-    setShowSecret(false);
-    setChosen("");
-    setChargerChoice("");
-    setScopeEnabled(false);setConnectorChoice("");setEvseChoice("");
-    setMessage("");
-    setError("");
-    setState(null);
-    setStartAudit(null);
-    auditVersion.current++;
-    setAuditLoading(false);
-    capacityVersion.current++;setCapacity(null);setCapacityLoading(false);
-    if(refreshOnClose)void onUpdated();
-    setRefreshOnClose(false);
+    if(refreshOnClose&&owner.current===adminIdentity())void onUpdated();
+    clearPrivate();
   }
 
   useEffect(()=>{
     if(!open)return;
     const visibility=()=>{
+      if(owner.current!==adminIdentity()){clearPrivate();return;}
       if(document.visibilityState==="hidden"){
         secretGeneration.current++;
         setSecret("");
         setShowSecret(false);
       }
     };
+    const identityChange=()=>{if(owner.current!==adminIdentity())clearPrivate();};
     const esc=(event:KeyboardEvent)=>{if(event.key==="Escape" && !working)close();};
+    window.addEventListener("storage",identityChange);window.addEventListener("focus",identityChange);
     document.addEventListener("visibilitychange",visibility);
     window.addEventListener("keydown",esc);
     return ()=>{
       document.removeEventListener("visibilitychange",visibility);
+      window.removeEventListener("storage",identityChange);window.removeEventListener("focus",identityChange);
       window.removeEventListener("keydown",esc);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -189,6 +212,7 @@ export default function OcppBookingWorkflow({
 
   async function readCapacity(){
     if(!state||capacityLoading||working)return;
+    const ticket=context();if(!accept(ticket))return;
     const version=++capacityVersion.current;
     setCapacityLoading(true);setError("");
     try{
@@ -198,9 +222,9 @@ export default function OcppBookingWorkflow({
          report.indexChangeAllowed!==false||typeof report.complete!=="boolean"||
          ![report.scanned,report.issueCount,report.collisionCount,report.authorizationReviewCount]
            .every(v=>Number.isInteger(v)&&v>=0))throw new Error("Invalid reservation preflight");
-      if(version===capacityVersion.current)setCapacity(report);
-    }catch(e){if(version===capacityVersion.current)setError(errorText(e));}
-    finally{if(version===capacityVersion.current)setCapacityLoading(false);}
+      if(accept(ticket)&&version===capacityVersion.current)setCapacity(report);
+    }catch(e){if(accept(ticket)&&version===capacityVersion.current)setError(errorText(e));}
+    finally{if(accept(ticket)&&version===capacityVersion.current)setCapacityLoading(false);}
   }
 
   async function perform(
@@ -208,6 +232,7 @@ export default function OcppBookingWorkflow({
     body:Record<string,unknown>={}
   ){
     if(working || !state)return;
+    const ticket=context();if(!accept(ticket))return;
     const protocol=state.approvedChargers.find(c=>c.chargerId===chargerChoice)?.protocol;
     const connectorId=Number(connectorChoice),evseId=Number(evseChoice);
     const tokenWrite=path==="issue-token"||path==="reissue-token";
@@ -228,19 +253,17 @@ export default function OcppBookingWorkflow({
         ?{...body,chargerId:chargerChoice,...(scopeEnabled?{resourceScope:{
           protocol,connectorId,evseId:protocol==="ocpp2.0.1"?evseId:null
         }}:{})}:body;
-      const response=await api.post("/admin/bookings/"+booking._id+"/ocpp/"+path,payload);
+      const response=await api.post("/admin/bookings/"+ticket.bookingId+"/ocpp/"+path,payload);
+      if(!accept(ticket))return;
       if(response.data?.status!=="Success")throw new Error("Operation was not accepted");
       if(path==="issue-token"||path==="reissue-token"){
         const result=response.data as IssueResponse;
-        if(typeof result.data?.oneTimeToken!=="string" ||
-          !/^[A-F0-9]{20}$/.test(result.data.oneTimeToken)){
-          throw new Error("Authorization was accepted, but token delivery was incomplete. Contact your administrator.");
-        }
-        if(scopeEnabled && (result.data?.connectorScoped!==true ||
-          result.data.resourceScope?.protocol!==protocol ||
-          result.data.resourceScope?.connectorId!==connectorId ||
-          result.data.resourceScope?.evseId!==(protocol==="ocpp2.0.1"?evseId:null))){
-          throw new Error("Authorization scope receipt did not match the selected connector. Refresh before recovery.");
+        if(!validOcppAuthorizationReceipt(result,{
+          bookingId:ticket.bookingId,chargerId:chargerChoice,
+          resourceScope:scopeEnabled?{protocol,connectorId,evseId:protocol==="ocpp2.0.1"?evseId:null}:null,
+          reissued:path==="reissue-token"
+        })){
+          throw new Error("Authorization receipt did not match the requested booking, charger or connector. Refresh before recovery.");
         }
         if(deliveryGeneration!==secretGeneration.current ||
            document.visibilityState!=="visible"){
@@ -248,7 +271,7 @@ export default function OcppBookingWorkflow({
           setShowSecret(false);
           setMessage("Authorization accepted while the page was hidden. The one-time credential was discarded. Refresh status before safe recovery.");
         }else{
-          setSecret(result.data.oneTimeToken);
+          setSecret(result.data!.oneTimeToken);
           setShowSecret(false);
           setMessage(path==="reissue-token"
             ?"Expired unused token replaced. Copy the new credential securely now."
@@ -262,21 +285,23 @@ export default function OcppBookingWorkflow({
       await read();
       // Reloading the bookings table here would unmount this dialog and
       // lose the one-time authorization token before Admin can copy it.
-      if(path==="finalize-source")setRefreshOnClose(true);
+      if(accept(ticket)&&path==="finalize-source")setRefreshOnClose(true);
     }catch(e){
+      if(!accept(ticket))return;
       setError(errorText(e));
       // A failed response does not prove the mutation failed. Hide actions
       // until an authoritative GET resolves the booking/source state.
       setState(null);
-      await read().catch(()=>{setState(null);});
+      await read(true);
     }
-    finally{setWorking(false);}
+    finally{if(accept(ticket))setWorking(false);}
   }
 
   async function auditStartExceptions(append=false){
     if(!state || !isHex24(state.stationId) || auditLoading || working)return;
     const cursor=append?startAudit?.nextCursor:null;
     if(append && (!cursor || !isHex24(cursor)))return;
+    const ticket=context();if(!accept(ticket))return;
     const version=++auditVersion.current;
     setAuditLoading(true);
     setError("");
@@ -293,7 +318,7 @@ export default function OcppBookingWorkflow({
            report.nextCursor===cursor))){
         throw new Error("Invalid OCPP start exception response");
       }
-      if(version!==auditVersion.current)return;
+      if(!accept(ticket)||version!==auditVersion.current)return;
       setStartAudit(previous=>append && previous?{
         ...report,
         scanned:previous.scanned+report.scanned,
@@ -302,18 +327,19 @@ export default function OcppBookingWorkflow({
         withinGracePeriodCount:previous.withinGracePeriodCount+report.withinGracePeriodCount,
         exceptions:[...previous.exceptions,...report.exceptions]
       }:report);
-    }catch(error){if(version===auditVersion.current)setError(errorText(error));}
-    finally{if(version===auditVersion.current)setAuditLoading(false);}
+    }catch(error){if(accept(ticket)&&version===auditVersion.current)setError(errorText(error));}
+    finally{if(accept(ticket)&&version===auditVersion.current)setAuditLoading(false);}
   }
-
-  useEffect(()=>()=>{secretGeneration.current++;},[]);
 
   async function copySecret(){
     if(!secret)return;
+    const ticket=context();if(!accept(ticket))return;
     try{
       await navigator.clipboard.writeText(secret);
+      if(!accept(ticket))return;
       setMessage("Token copied. Use only with the intended authorized charger.");
     }catch{
+      if(!accept(ticket))return;
       setError("Clipboard access was blocked. Reveal and copy the token manually.");
       setShowSecret(true);
     }
@@ -323,13 +349,13 @@ export default function OcppBookingWorkflow({
   const muted=dark?"text-slate-400":"text-slate-500";
   const inputClass="w-full rounded-lg border p-2.5 text-sm "+(dark?
     "bg-slate-900 border-slate-600 text-white":"bg-white border-slate-300");
-  const canOperate=state && !loading && !working;
+  const canOperate=state && state.bookingId===booking._id && !loading && !working;
   const connector=connectorReport(state?.connectorObservation);
 
   return (
     <>
       <button
-        type="button" onClick={()=>setOpen(true)}
+        type="button" onClick={openDialog}
         className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-50 dark:text-sky-300 dark:hover:bg-slate-700"
         aria-label={"OCPP operations for booking "+booking._id}>
         <Zap size={14}/> OCPP
@@ -347,7 +373,7 @@ export default function OcppBookingWorkflow({
               </div>
               <div className="flex gap-2">
                 <button aria-label="Refresh OCPP status" disabled={loading||working}
-                  onClick={()=>{setLoading(true);read().catch(e=>setError(errorText(e))).finally(()=>setLoading(false));}}
+                  onClick={()=>void read()}
                   className="rounded-lg border p-2 disabled:opacity-40"><RefreshCw size={16}/></button>
                 <button aria-label="Close OCPP operations" disabled={working}
                   onClick={close} className="rounded-lg border p-2 disabled:opacity-40"><X size={16}/></button>
@@ -363,7 +389,7 @@ export default function OcppBookingWorkflow({
               {error&&<p className="rounded-lg border border-red-300 p-3 text-sm text-red-600" role="alert">{error}</p>}
               {message&&<p className="rounded-lg border border-sky-300 p-3 text-sm text-sky-600" role="status">{message}</p>}
               {loading&&!state&&<p className={muted}>Reading authorized booking and charger status…</p>}
-              {state&&(
+              {state&&state.bookingId===booking._id&&(
                 <>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[

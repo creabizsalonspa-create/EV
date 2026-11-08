@@ -75,7 +75,7 @@ python3 -m py_compile "$root/tools/agent2"/stage_*.py
 echo "Source patch and syntax checks passed."
 
 node --test "$root"/integrations/hasone-express/tests/*.test.mjs
-python3 -m unittest discover -s "$root/tests" -p agent2_connector_receipts_test.py -q
+python3 -m unittest discover -s "$root/tests" -p 'agent2_*test.py' -q
 node "$root/tools/agent2/test_staged_payment_routes.mjs" "$work/express" "$backend"
 AGENT2_REAL_ADMIN_UI_URL= node "$root/tools/agent2/run_isolated_backend_demo.mjs" \
   "$work/express" "$backend" "$work/ocpp/ocpp-handlers.mjs"
