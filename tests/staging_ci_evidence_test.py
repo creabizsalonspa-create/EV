@@ -143,6 +143,90 @@ class PlatformGateTests(unittest.TestCase):
             with self.assertRaisesRegex(EvidenceError,'symlinked ancestor'):
                 private_json(path)
 
+    def private_cli_args(self, output):
+        rp, jp = self.folder/'run.json', self.folder/'jobs.json'
+        for name, data in ((rp, self.run), (jp, self.jobs)):
+            name.write_text(json.dumps(data))
+            name.chmod(0o600)
+        return ['--run-json', str(rp), '--jobs-json', str(jp),
+                '--source-sha', SHA, '--output', str(output)]
+
+    def test_partial_json_write_never_publishes_report(self):
+        output = self.folder/'partial-report.json'
+        args = self.private_cli_args(output)
+
+        def interrupted_dump(payload, stream, **kwargs):
+            stream.write('{"partial":"never publish"')
+            raise OSError('synthetic interrupted write')
+
+        with patch('staging_ci_evidence.json.dump', side_effect=interrupted_dump):
+            self.assertEqual(main(args), 1)
+        self.assertFalse(output.exists())
+        self.assertEqual(list(self.folder.glob('.ev-ci-report-*.tmp')), [])
+
+    def test_complete_private_json_exists_before_atomic_publication(self):
+        output = self.folder/'full-report.json'
+        args = self.private_cli_args(output)
+        real_link = os.link
+        inspections = []
+
+        def inspect_link(source, destination, **kwargs):
+            source_stat = os.stat(source, dir_fd=kwargs['src_dir_fd'],
+                                  follow_symlinks=False)
+            inspections.append(source_stat.st_mode & 0o777)
+            with os.fdopen(os.open(source, os.O_RDONLY,
+                                   dir_fd=kwargs['src_dir_fd']), 'r') as file:
+                payload = json.load(file)
+            self.assertFalse(output.exists())
+            self.assertEqual(destination, output.name)
+            self.assertFalse(payload['production_accepted'])
+            self.assertFalse(payload['github_live_status_independently_confirmed'])
+            return real_link(source, destination, **kwargs)
+
+        with patch('staging_ci_evidence.os.link', side_effect=inspect_link):
+            self.assertEqual(main(args), 0)
+        self.assertEqual(inspections, [0o600])
+        self.assertTrue(output.is_file())
+        self.assertEqual(list(self.folder.glob('.ev-ci-report-*.tmp')), [])
+
+    def test_existing_report_or_symlink_is_not_overwritten(self):
+        output = self.folder/'existing-report.json'
+        args = self.private_cli_args(output)
+        sentinel = self.folder/'sentinel.json'
+        sentinel.write_text('must remain unchanged')
+        sentinel.chmod(0o600)
+        output.symlink_to(sentinel)
+        self.assertEqual(main(args), 1)
+        self.assertEqual(sentinel.read_text(), 'must remain unchanged')
+        self.assertTrue(output.is_symlink())
+        self.assertEqual(list(self.folder.glob('.ev-ci-report-*.tmp')), [])
+
+    def test_failed_atomic_publication_cleans_private_temporary_file(self):
+        output = self.folder/'failed-report.json'
+        args = self.private_cli_args(output)
+        with patch('staging_ci_evidence.os.link', side_effect=OSError('no free inodes')):
+            self.assertEqual(main(args), 1)
+        self.assertFalse(output.exists())
+        self.assertEqual(list(self.folder.glob('.ev-ci-report-*.tmp')), [])
+
+    def test_parent_replacement_during_report_write_cannot_publish(self):
+        parent = self.folder/'private'
+        parent.mkdir(mode=0o700)
+        output = parent/'report.json'
+        args = self.private_cli_args(output)
+        real_dump = json.dump
+
+        def swap_parent(payload, stream, **kwargs):
+            real_dump(payload, stream, **kwargs)
+            moved = self.folder/'original-private'
+            parent.rename(moved)
+            parent.symlink_to(moved, target_is_directory=True)
+
+        with patch('staging_ci_evidence.json.dump', side_effect=swap_parent):
+            self.assertEqual(main(args), 1)
+        self.assertFalse((self.folder/'original-private'/'report.json').exists())
+        self.assertEqual(list((self.folder/'original-private').glob('.ev-ci-report-*.tmp')), [])
+
     def test_cli_writes_private_new_nonoverwriting_report(self):
         rp, jp, output=[self.folder/x for x in ('run.json','jobs.json','output.json')]
         for path, obj in ((rp,self.run),(jp,self.jobs)):
