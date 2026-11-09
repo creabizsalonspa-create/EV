@@ -45,10 +45,10 @@ class AccountStatusGate
         // session, not a mobile bearer token. Those requests must observe the
         // same auth epoch as regular web routes. Genuine personal access tokens
         // are revoked separately and do not carry browser session epochs.
-        $usesBrowserSession = ! $native || ($account
+        $usesBrowserSession = $native === false || ($account
             && $account->currentAccessToken() instanceof TransientToken);
         if ($usesBrowserSession && $account && (int) $account->auth_epoch > 0
-            && (! $request->hasSession()
+            && ($request->hasSession() === false
                 || (int) $request->session()->get('account_auth_epoch', -1)
                     !== (int) $account->auth_epoch)) {
             Auth::guard('web')->logout();
