@@ -20,8 +20,7 @@ class VendorKycReviewIntegrityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        if (! collect(Route::getRoutes())->contains(fn ($route) =>
-            $route->uri() === 'api/vendor-ops/companies' && in_array('GET', $route->methods()))) {
+        if (! collect(Route::getRoutes())->contains(fn ($route) =>             $route->uri() === 'api/vendor-ops/companies' && in_array('GET', $route->methods()))) {
             Route::middleware(['web', 'auth'])->prefix('api/vendor-ops')
                 ->group(base_path('routes/vendor_ops.php'));
         }

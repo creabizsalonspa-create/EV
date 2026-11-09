@@ -152,5 +152,4 @@ class VendorStaffAuditIdempotencyTest extends TestCase
         );
         $this->assertSame(1, $this->countAction('staff.invited'));
     }
-
 }

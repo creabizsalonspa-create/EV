@@ -14,12 +14,15 @@ use App\Models\VendorOps\VendorKycDocument;
 use App\Models\VendorOps\VendorSite;
 use App\Services\VendorOps\VendorAccess;
 use App\Services\VendorOps\VendorCreation;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use League\Flysystem\UnableToReadFile;
+use RuntimeException;
 
 class VendorOpsController extends Controller
 {
@@ -182,7 +185,7 @@ class VendorOpsController extends Controller
         $file = $r->file('document');
         $path = 'vendor-kyc/'.Str::uuid().'.enc';
         if (! Storage::disk('local')->put($path, Crypt::encryptString($file->getContent()))) {
-            throw new \RuntimeException('Unable to store KYC evidence.');
+            throw new RuntimeException('Unable to store KYC evidence.');
         }
         try {
             return DB::transaction(function () use ($r, $company, $v, $file, $path) {
@@ -244,7 +247,7 @@ class VendorOpsController extends Controller
                 return null;
             }
             $contents = Crypt::decryptString($encrypted);
-        } catch (\Illuminate\Contracts\Encryption\DecryptException|\League\Flysystem\UnableToReadFile) {
+        } catch (DecryptException|UnableToReadFile) {
             return null;
         }
 

@@ -147,7 +147,6 @@ class AdminStaffPermissionController extends Controller
         });
     }
 
-
     /**
      * Release an administrative hold but do NOT regrant access. The company
      * owner must send a new invite, and the staff user must accept it afresh.
