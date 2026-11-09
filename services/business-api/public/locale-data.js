@@ -1,4 +1,8 @@
 window.EV_MESSAGES = {
+    "Partner billing reconciliation": {
+        en: "Partner billing reconciliation",
+        ar: "مطابقة فوترة الشريك",
+    },
     "Roaming credential state superseded": {
         en: "Enrollment replaced",
         ar: "تم استبدال التسجيل",

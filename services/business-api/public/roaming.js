@@ -1113,10 +1113,6 @@ window.createRoamingWorkspace = ({
             credentialWorkspace(provider, target, p),
         );
     }
-    window.EV_MESSAGES["Partner billing reconciliation"] ||= {
-        en: "Partner billing reconciliation",
-        ar: "مطابقة فوترة الشريك",
-    };
     async function records(provider, module, target, page = 1) {
         const epoch = generation,
             version = ++details;
