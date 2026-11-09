@@ -138,8 +138,10 @@ const { randomUUID } = require("node:crypto");
       );
     } catch (cause) {
       const output = String(cause.stdout || "");
-      const sqlstate = output.match(/SQLSTATE\\[[^\\r\\n]+/)?.[0] || "SQLSTATE unavailable";
-      const reason = sqlstate.split(" (Connection:")[0].slice(0, 240);
+      const sqlstate = output.split(String.fromCharCode(10))
+        .find((line) => line.includes("SQLSTATE[")) || "SQLSTATE unavailable";
+      const reason = sqlstate.slice(Math.max(0, sqlstate.indexOf("SQLSTATE[")))
+        .split(" (Connection:")[0].slice(0, 240);
       throw new Error(`Audited role provisioning failed: ${reason}`, { cause });
     }
     await vendor.page.reload();
