@@ -172,6 +172,25 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('charging_fault_reminders', 1);
     }
 
+    public function test_explicit_utc_and_offset_source_times_preserve_reminder_eligibility(): void
+    {
+        $utc = $this->fixture();
+        $offset = $this->fixture();
+        $past = now()->subMinutes(31);
+        DB::table('charging_status_observations')
+            ->where('id', $utc['observation'])
+            ->update(['occurred_at' => $past->copy()->utc()->format('Y-m-d\\TH:i:s.u\\Z')]);
+        DB::table('charging_status_observations')
+            ->where('id', $offset['observation'])
+            ->update(['occurred_at' => $past->copy()
+                ->setTimezone(new \DateTimeZone('+04:00'))->format('Y-m-d\\TH:i:s.uP')]);
+
+        $this->assertSame(2, app(FaultReminderEscalator::class)->scan(2)['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 2);
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_each_owner_delay_is_respected_without_starving_other_vendors(): void
     {
         $slow = $this->fixture();
