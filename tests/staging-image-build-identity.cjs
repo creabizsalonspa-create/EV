@@ -49,3 +49,34 @@ test('builder status request includes untracked source changes',()=>{
   const file=fs.readFileSync(SRC,'utf8');
   assert.match(file,/git status --porcelain --untracked-files=normal/);
 });
+
+test('CI Docker-exclusion canaries are the only exceptional Git-ignored paths',()=>{
+  const repo = path.resolve(__dirname, '..');
+  const canaries = [
+    'services/business-api/database/ev-image-guard.sqlite',
+    'services/business-api/database/ev-image-guard.sqlite3',
+    'services/business-api/database/ev-image-guard.sqlite-wal',
+    'services/business-api/database/ev-image-guard.sqlite3-journal',
+    'services/business-api/.env.image-canary',
+  ];
+  for (const candidate of canaries) {
+    const result = cp.spawnSync('git', ['check-ignore', '-q', '--', candidate],
+      {cwd: repo, encoding:'utf8'});
+    assert.equal(result.status, 0, 'CI canary must be ignored by Git: '+candidate);
+  }
+  for (const candidate of [
+    'services/business-api/database/ev-image-guard.sqlite-backup',
+    'services/business-api/.env.image-canary-backup',
+    'services/business-api/app/Agent10Untracked.php',
+  ]) {
+    const result = cp.spawnSync('git', ['check-ignore', '-q', '--', candidate],
+      {cwd: repo, encoding:'utf8'});
+    assert.equal(result.status, 1, 'Unexpected source must remain visible to git status: '+candidate);
+  }
+  const dockerignore = fs.readFileSync(path.join(repo,'.dockerignore'),'utf8');
+  for (const required of ['**/.env.*','**/*.sqlite','**/*.sqlite3',
+    '**/*.sqlite-*','**/*.sqlite3-*']) {
+    assert.ok(dockerignore.split(/\r?\n/).includes(required),
+      'Docker context must exclude CI canaries with rule '+required);
+  }
+});
