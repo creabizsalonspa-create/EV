@@ -100,6 +100,20 @@ class RiderHistoryCrossTenantIntegrationTest extends TestCase
             $this->assertStringNotContainsString('AABBCC123456', $customerHistory->getContent());
 
             $this->actingAs($admin)->getJson($operatorUri)->assertOk();
+
+            // Query validation must reject attempts to access unsupported raw
+            // audit records or excessive pages via either authenticated mount.
+            $this->actingAs($owner)->getJson($customerUri.'?kind=raw')->assertUnprocessable();
+            $this->getJson($customerUri.'?page=100001')->assertUnprocessable();
+            $this->actingAs($vendor)->getJson($operatorUri.'?kind=raw')->assertUnprocessable();
+
+            foreach ([$operatorHistory, $customerHistory] as $privateHistory) {
+                $this->assertStringContainsString('no-store', (string) $privateHistory->headers->get('Cache-Control'));
+                foreach (['actor_id', 'token_digest', 'review_note', 'privatePayload'] as $secretField) {
+                    $this->assertStringNotContainsString($secretField, $privateHistory->getContent());
+                }
+            }
+
             foreach ([str_repeat('9', 19), str_repeat('9', 120), '-1', '1e20'] as $invalid) {
                 $this->getJson($prefix.'/vendor-ops/companies/'.$company->id.
                     '/rider-grants/'.$invalid.'/activity')->assertNotFound();
