@@ -79,8 +79,19 @@ withFixture(async (f) => {
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
     });
+    // Browser logout must not invalidate the API fixture's transport-proof session.
+    const browserOwner = new BusinessClient({ base: f.base });
+    browserOwner.csrf = (await browserOwner.request("csrf")).token;
+    await browserOwner.request("login", "POST", {
+      email: f.owner,
+      password: f.password,
+    });
     await context.addCookies(
-      [...owner.cookies].map(([name, value]) => ({ name, value, url: f.base })),
+      [...browserOwner.cookies].map(([name, value]) => ({
+        name,
+        value,
+        url: f.base,
+      })),
     );
     const page = await context.newPage(),
       errors = [];
