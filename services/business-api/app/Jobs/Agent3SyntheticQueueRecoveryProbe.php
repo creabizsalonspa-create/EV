@@ -19,7 +19,9 @@ final class Agent3SyntheticQueueRecoveryProbe implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public const TOKEN = 'SYNTHETIC_AGENT3_RECOVERY_V1';
+
     public const INTENT = 'queue-snapshot-intent';
+
     public const COMPLETED = 'queue-snapshot-executed';
 
     public function __construct(public string $token)
@@ -32,6 +34,8 @@ final class Agent3SyntheticQueueRecoveryProbe implements ShouldQueue
             || config('queue.default') !== 'database'
             || config('csms.command_worker_enabled')
             || config('csms.simulator_enabled')
+            || config('csms.session_bridge_enabled')
+            || config('csms.fault_worker_enabled')
             || ! hash_equals(self::TOKEN, $this->token)) {
             throw new RuntimeException('Synthetic recovery queue probe is disabled.');
         }

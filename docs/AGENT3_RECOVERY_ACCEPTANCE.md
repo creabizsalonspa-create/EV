@@ -223,3 +223,22 @@ alternative CLI files or exporting unreviewed shell environment variables;
 reviewed deployment commands and effective-container inspection remain
 separate Agent 4 acceptance gates. No live database, mail transport or
 charger was contacted.
+
+### Synthetic recovery queue probe worker isolation and formatter gate
+
+The synthetic database-queue probe must not execute when either
+`csms.session_bridge_enabled` or `csms.fault_worker_enabled` is active,
+in addition to the existing command-worker and simulator exclusions. Its
+synthetic test fixture explicitly disables those four capabilities and checks
+that enabling each one prevents the probe from writing a completed marker.
+This is isolated software-only evidence, never a live charger job.
+
+The hosted Platform job on the preceding PR #54 head reached Composer and
+`Laravel Pint --test` but stopped on three formatting findings in Agent 3's
+queue/session probe files. The queue probe constants, test import order, and
+unused test import have been corrected in the source. Until a fresh hosted
+run completes, formatter success, full PHP acceptance, Docker/Postgres
+restore and the merged integration gate remain **unverified** on this commit.
+A previous isolated PR #54 Python suite ran successfully (99 tests) on
+`ea6ec4660188230ae9ba1ba46236f97f4e82bff0`; it does not establish
+PHP tests or acceptance of the new queue-probe changes.
