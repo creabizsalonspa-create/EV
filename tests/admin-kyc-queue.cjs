@@ -263,3 +263,33 @@ test('stale approval preflight cannot POST after Admin logout', async () => {
   assert.equal(calls.filter(x=>x.p.endsWith('/review')).length,0);
   assert.equal(ui.root.textContent,'');
 });
+
+
+test('Admin who owns the KYC applicant company cannot submit any review decision', async () => {
+  const ui = fixture();
+  const calls = [];
+  ui.setActor({role:'admin',id:3}, async (path, method = 'GET', payload) => {
+    calls.push({path, method, payload});
+    return page();
+  });
+  await tick();
+  assert.match(ui.root.textContent,
+    /Independent Admin review required; you cannot review your own company/);
+  assert.equal(nodes(ui.root,'form').length, 1,
+    'Only the queue filters should remain; self-review form is forbidden.');
+  assert.equal(nodes(ui.root,'textarea').length, 0);
+  assert.ok(nodes(ui.root,'button').some(
+    b => b.textContent.includes('Inspect private evidence')
+  ), 'Owner Admin may still inspect private evidence for independent escalation.');
+  assert.equal(calls.filter(c => c.path.endsWith('/review')).length, 0);
+
+  ui.setActor({role:'admin',id:4}, async path => {
+    calls.push({path});
+    return page();
+  });
+  await tick();
+  assert.equal(nodes(ui.root,'textarea').length, 1,
+    'A separate Admin retains the review controls.');
+  ui.setActor(null, async () => { throw Error('Logged-out request'); });
+  assert.equal(ui.root.textContent,'');
+});

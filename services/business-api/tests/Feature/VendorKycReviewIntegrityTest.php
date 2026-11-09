@@ -132,6 +132,41 @@ class VendorKycReviewIntegrityTest extends TestCase
             ->assertJsonPath('submission_readiness.can_submit', true);
     }
 
+    public function test_admin_cannot_review_their_own_company_and_separate_admin_can_approve(): void
+    {
+        // A former vendor can later become an administrator. Admin role must
+        // not permit the same person to approve or reject their own KYC case.
+        $ownerAdmin = User::factory()->create(['role' => 'admin']);
+        $independentAdmin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($ownerAdmin);
+        $this->upload($ownerAdmin, $company, "%PDF-1.4\nSYNTHETIC-SELF-REVIEW");
+        $this->actingAs($ownerAdmin, 'web')->postJson(
+            '/api/vendor-ops/companies/'.$company->id.'/submit'
+        )->assertOk();
+
+        foreach (['approved', 'rejected', 'changes_requested'] as $decision) {
+            $this->review($ownerAdmin, $company, $decision)->assertForbidden();
+            $this->assertSame('submitted', $company->fresh()->status);
+        }
+        $this->assertDatabaseCount('vendor_company_reviews', 0);
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('actor_id', $ownerAdmin->id)
+            ->where('action', 'like', 'vendor_ops.company.%')
+            ->where('subject', (string) $company->id)
+            ->where('action', '!=', 'vendor_ops.company.submitted')
+            ->count());
+
+        $this->review($independentAdmin, $company, 'approved')
+            ->assertOk()->assertJsonPath('status', 'approved');
+        $this->assertDatabaseHas('vendor_company_reviews', [
+            'company_id' => $company->id,
+            'reviewer_id' => $independentAdmin->id,
+            'from_status' => 'submitted',
+            'to_status' => 'approved',
+        ]);
+        $this->assertSame(1, VendorCompanyReview::where('company_id', $company->id)->count());
+    }
+
     public function test_admin_review_requires_meaningful_reason_before_writing_any_audit_or_status(): void
     {
         $owner = User::factory()->create(['role' => 'customer']);

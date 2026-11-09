@@ -315,6 +315,11 @@ class VendorOpsController extends Controller
 
         $result = DB::transaction(function () use ($r, $company, $v) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            // A role change can make a former vendor into an administrator.
+            // Manual KYC decisions must remain independent of the applicant,
+            // including rejection, suspension and subsequent reapproval.
+            abort_if($c->owner_id === $r->user()->id, 403,
+                'A separate administrator must review their own company.');
             $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended', 'changes_requested'], 'suspended' => ['approved', 'changes_requested']];
             abort_unless(in_array($v['status'], $allowed[$c->status]), 409, 'Invalid review transition.');
             $owner = null;
