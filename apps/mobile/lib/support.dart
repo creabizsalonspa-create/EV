@@ -204,6 +204,89 @@ int? operationalCaseTarget(Map<String, dynamic> notice) {
   return id is int && id > 0 && caseId is int && caseId > 0 ? id : null;
 }
 
+class _NewSupportTicketDialog extends StatefulWidget {
+  final String? initialSubject;
+  final String? initialBody;
+
+  const _NewSupportTicketDialog({this.initialSubject, this.initialBody});
+
+  @override
+  State<_NewSupportTicketDialog> createState() => _NewSupportTicketDialogState();
+}
+
+class _NewSupportTicketDialogState extends State<_NewSupportTicketDialog> {
+  final fields = GlobalKey<FormState>();
+  late final TextEditingController subjectInput;
+  late final TextEditingController bodyInput;
+
+  @override
+  void initState() {
+    super.initState();
+    subjectInput = TextEditingController(text: widget.initialSubject);
+    bodyInput = TextEditingController(text: widget.initialBody);
+  }
+
+  @override
+  void dispose() {
+    subjectInput.dispose();
+    bodyInput.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = EvStrings.of(context);
+    return AlertDialog(
+      title: Text(strings.t('openTicket')),
+      content: SingleChildScrollView(
+        child: Form(
+          key: fields,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                key: const Key('support-new-subject'),
+                controller: subjectInput,
+                maxLength: 150,
+                decoration: InputDecoration(labelText: strings.t('subject')),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? strings.t('required') : null,
+              ),
+              TextFormField(
+                key: const Key('support-new-body'),
+                controller: bodyInput,
+                maxLength: 5000,
+                minLines: 3,
+                maxLines: 5,
+                decoration: InputDecoration(labelText: strings.t('body')),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? strings.t('required') : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.t('cancel')),
+        ),
+        FilledButton(
+          key: const Key('support-create-confirm'),
+          onPressed: () {
+            if (!fields.currentState!.validate()) return;
+            Navigator.of(context).pop({
+              'subject': subjectInput.text.trim(),
+              'body': bodyInput.text.trim(),
+            });
+          },
+          child: Text(strings.t('openTicket')),
+        ),
+      ],
+    );
+  }
+}
+
 class SupportView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onSessionExpired;
@@ -308,63 +391,16 @@ class SupportViewState extends State<SupportView> {
 
   Future<void> createTicket() async {
     if (loading || notifications) return;
-    final strings = EvStrings.of(context);
-    final subjectInput = TextEditingController(text: pendingTicketSubject);
-    final bodyInput = TextEditingController(text: pendingTicketBody);
-    final fields = GlobalKey<FormState>();
+    // A popped dialog remains in the widget tree for its reverse route
+    // animation. Controllers are owned and disposed by that dialog's State,
+    // not immediately when the showDialog future resolves.
     final desired = await showDialog<Map<String, String>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(strings.t('openTicket')),
-        content: SingleChildScrollView(
-          child: Form(
-            key: fields,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  key: const Key('support-new-subject'),
-                  controller: subjectInput,
-                  maxLength: 150,
-                  decoration: InputDecoration(labelText: strings.t('subject')),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? strings.t('required') : null,
-                ),
-                TextFormField(
-                  key: const Key('support-new-body'),
-                  controller: bodyInput,
-                  maxLength: 5000,
-                  minLines: 3,
-                  maxLines: 5,
-                  decoration: InputDecoration(labelText: strings.t('body')),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? strings.t('required') : null,
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(strings.t('cancel')),
-          ),
-          FilledButton(
-            key: const Key('support-create-confirm'),
-            onPressed: () {
-              if (!fields.currentState!.validate()) return;
-              Navigator.of(dialogContext).pop({
-                'subject': subjectInput.text.trim(),
-                'body': bodyInput.text.trim(),
-              });
-            },
-            child: Text(strings.t('openTicket')),
-          ),
-        ],
+      builder: (_) => _NewSupportTicketDialog(
+        initialSubject: pendingTicketSubject,
+        initialBody: pendingTicketBody,
       ),
     );
-    subjectInput.dispose();
-    bodyInput.dispose();
     if (!mounted || desired == null) return;
     if (pendingTicketKey == null ||
         pendingTicketSubject != desired['subject'] ||

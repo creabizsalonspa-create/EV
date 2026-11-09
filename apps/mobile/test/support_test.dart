@@ -806,6 +806,7 @@ void main() {
     expect(api.lastTicketKey, matches(RegExp(r'^[a-f0-9]{32}$')));
     expect(api.createdTickets.length, 1);
     expect(api.createdTickets.single['subject'], 'Charging issue from mobile');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('lost ticket-create acknowledgment reuses the pending key', (tester) async {
@@ -832,6 +833,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.attempts, 2);
     expect(api.createdTickets.length, 1);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -865,6 +867,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('This ticket is closed.'),
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('This ticket is closed.'), findsOneWidget);
       expect(find.byKey(const Key('ticket-reply')), findsNothing);
     },
@@ -1034,6 +1041,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('support-notifications')));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('review-simulator-monitor')),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.byKey(const Key('review-simulator-monitor')), findsOneWidget);
     await tester.tap(find.byKey(const Key('review-simulator-monitor')));
     await tester.pumpAndSettle();

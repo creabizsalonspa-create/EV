@@ -421,7 +421,7 @@ class EvStrings {
     'simulatedFaultAlert': 'رُصد عطل شاحن تجريبي · المحطة #{station}',
     'simulatedRecoveryAlert': 'أبلغ مصدر المحاكاة عن التعافي · المحطة #{station}',
     'simulatedFaultReminder': 'تذكير بعطل شاحن تجريبي لم يتم الإقرار به · المحطة #{station}',
-    'simulatedFaultAdminEscalation': 'تم تصعيد عطل الشاحن التجريبي غير المحلول للمشرف المناوب · المحطة #{station}',
+    'simulatedFaultAdminEscalation': 'تم تصعيد عطل الشاحن التجريبي غير المحلول إلى المشرف المناوب · المحطة #{station}',
     'simulatedFaultAdminSourceResolved': 'تم حل تصعيد العطل وفق مصدر المحاكاة · المحطة #{station}',
     'simulatedFaultAdminAcknowledged': 'أقرّ المشغل بمراجعة تصعيد العطل التجريبي · المحطة #{station}',
     'simulatedRepairOpened': 'فُتح طلب إصلاح الشاحن التجريبي · المحطة #{station}',
