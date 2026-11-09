@@ -94,6 +94,10 @@ void main() {
         reason: 'Guarded synthetic approval must succeed',
       );
       expect(jsonDecode(approve.stdout)['status'], 'approved');
+      // Approving the company promotes this account to vendor, revoking the
+      // old session. Confirm the role only after a fresh explicit sign-in;
+      // stale credentials must never remain valid across privilege changes.
+      await api.signIn(f['owner'], f['password']);
       expect((await api.request('me'))['role'], 'vendor');
       expect((await api.request('$base/reviews'))['total'], 1);
       final catalog = await api.request('$base/catalog-stations');
