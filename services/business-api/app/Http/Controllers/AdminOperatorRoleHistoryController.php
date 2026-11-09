@@ -59,6 +59,7 @@ class AdminOperatorRoleHistoryController extends Controller
         return response()->json([
             'events' => $visible->map(function ($row) use ($targets) {
                 $target = $targets->get($row->target_user_id);
+
                 return [
                     'id' => (int) $row->id,
                     'target_user_id' => (int) $row->target_user_id,
