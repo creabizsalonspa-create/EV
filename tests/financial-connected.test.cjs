@@ -104,6 +104,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "charging-reviews",
       "ocpi-test-invoice",
       "ocpi-credit-picker",
+      "partner-billing",
       "ocpi-unpaid-credit",
       "sandbox-roaming",
       "partner-favorites",
@@ -118,4 +119,27 @@ test("post-finance operational windows preserve all suites and do not consume th
     assert.equal(starts[offset].time - (offset ? ends[offset - 1] : 0), 61000);
     offset += group.length;
   }
+});
+
+test("operational flags are prepared before login windows and preparation failure stops the run", () => {
+  const { prepareOperationalAdapters } = require("./operational-connected.cjs");
+  const calls = [];
+  prepareOperationalAdapters((script) => {
+    calls.push(script);
+    return { status: 0 };
+  });
+  assert.deepEqual(calls, [
+    "./scripts/configuration-read-setup",
+    "./scripts/diagnostic-logs-setup",
+  ]);
+  const rejected = [];
+  assert.throws(
+    () =>
+      prepareOperationalAdapters((script) => {
+        rejected.push(script);
+        return { status: 1 };
+      }),
+    /Local operational preparation failed/,
+  );
+  assert.equal(rejected.length, 1);
 });

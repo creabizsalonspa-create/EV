@@ -7,6 +7,7 @@ use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
+use App\Services\Ocpi\PartnerBillingReconciliation;
 use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Http\Request;
@@ -105,6 +106,19 @@ class OcpiController extends Controller
         $this->audit($r, 'ocpi.'.$module.'_synchronized', $provider->id);
 
         return response()->json(['counts' => $counts, 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'remote_control' => false, 'billing_eligible' => false]);
+    }
+
+    public function billingReconciliation(Request $r, OcpiProvider $provider, PartnerBillingReconciliation $service)
+    {
+        $this->owner($r, $provider);
+        $filters = $r->validate(['page' => 'sometimes|integer|min:1|max:100000', 'currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits']);
+
+        return DB::transaction(function () use ($r, $provider, $filters, $service) {
+            $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $this->owner($r, $provider);
+
+            return response()->json($service->page($provider, $filters))->header('Cache-Control', 'private, no-store');
+        });
     }
 
     public function records(Request $r, OcpiProvider $provider, string $module, CdrReconciler $reconciler)

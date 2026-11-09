@@ -914,6 +914,21 @@ window.createRoamingWorkspace = ({
                     button(card, `Roaming ${module}`, () =>
                         records(provider, module, detail),
                     );
+                button(card, "Partner billing reconciliation", () => {
+                    const epoch = generation,
+                        version = ++details;
+                    detail.replaceChildren();
+                    window.mountPartnerBilling({
+                        root: detail,
+                        provider,
+                        api,
+                        actor,
+                        ui,
+                        signal: privateRequest.signal,
+                        valid: () =>
+                            epoch === generation && version === details,
+                    });
+                });
                 button(card, "Roaming credentials", () =>
                     credentialWorkspace(provider, detail),
                 );
@@ -1098,6 +1113,10 @@ window.createRoamingWorkspace = ({
             credentialWorkspace(provider, target, p),
         );
     }
+    window.EV_MESSAGES["Partner billing reconciliation"] ||= {
+        en: "Partner billing reconciliation",
+        ar: "مطابقة فوترة الشريك",
+    };
     async function records(provider, module, target, page = 1) {
         const epoch = generation,
             version = ++details;

@@ -1,3 +1,17 @@
+# Agent1 continuation — 9 November 2026: partner billing workbench
+
+Current branch `development/agent1-partner-reconciliation` is stacked on PR69 exact33bbb79d21036e5dae14ab49bbd32385e4421a2f, whose14 exact-head hosted checks passed. Agent4 alone integrates. No merge, deployment or physical/payment operation performed. Fixed312 inventory unchanged.
+
+Implemented: provider-scoped paginated source-to-canonical-billing report with currency/country/party/charge-credit filters; original credit CDR linkage, authenticated source fingerprints, current invoice ownership, exact ledger collections/refunds/noncash credits/due amounts, separate refund reviews and private documents. Vendor/Admin EN/AR web and Flutter workbenches reuse canonical invoice/document workflows. No partner settlement or billing authority is granted. Uninvoiced source remains uninvoiced; provider reassignment and damaged source do not reveal previous owner invoice details. No currency totals are mixed. Private background/account fences, explicit foreground refresh, frozen pagination filters and visible uncertain native operation warnings preserve existing safeguards.
+
+Focused evidence: SQLite11/165 and PostgreSQL11/165; eight affected Flutter widgets passed before final filter snapshot refinement, followed by three final workbench widget cases; clean analysis of four changed native files. Actual isolated Laravel/synthetic CPO browser source→invoice→noncash correction→vendor report/Arabic phone/logout passed, including controlled browser visibility clearing/explicit recovery. Actual Dart HTTP report/replay/customer-denial passed. Four orchestration cases passed; PHP style and JS formatting/syntax passed. These are separate, overlapping checks, not full-suite totals or production acceptance. New browser suite uses its own unchanged login window; existing native unpaid-credit suite covers the new report without another login window.
+
+PR83 currentfa699aa fixes the hosted diagnostic-startup race by preparing local adapter flags before the existing initial61-second login wait. No assertion replay or limits bypass. It passed both PostgreSQL and image jobs; platform/native checks were still in progress at last read. This branch preserves the identical preparation fix so its connected CI does not repeat the known startup race. Require all exact-head platform/browser/PostgreSQL/Android/iOS gates and combined-source regression before integration; update Agent4 with the pushed SHA.
+
+Next: resolve genuine hosted failures, then continue remaining source-backed charging/authorized OCPI and partner billing/settlement requirements with one canonical authority. Actual partner settlement execution, production charger/certificate authority, external merchant/partner/hardware/legal/store acceptance remain incomplete; this read-only workbench does not complete those broader atoms.
+
+---
+
 # Agent 1 checkpoint — 8 November 2026: connected unpaid OCPI TEST credits
 
 Active source: local `development/agent1-credit-completion`, pushed to existing PR69 `development/ocpi-credit-refund-link`. Continue this head; do not recreate modules or reset databases. Agent4 owns integration and coverage. Parent order remains #59 → #61 → #63 → #69; settlement trigger repair #82 is an integration prerequisite; source/rider operations #83 is independent. Fixed312 inventory unchanged.

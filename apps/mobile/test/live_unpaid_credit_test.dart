@@ -38,6 +38,12 @@ void main() {
         'expected_currency': invoice['currency'],
         'expected_minor_units': invoice['minor_units'],
       };
+      final reportPath =
+          'ocpi/providers/${f['provider_id']}/billing-reconciliation';
+      final beforeReport = await owner.request(reportPath);
+      expect(beforeReport['read_only'], true);
+      expect(beforeReport['payment_execution'], false);
+      expect(beforeReport['data'][0]['billing']['state'], 'unpaid');
       final credit = await owner.request(
         '$root/unpaid-credit',
         method: 'POST',
@@ -45,6 +51,17 @@ void main() {
       );
       expect(credit['cash_moved'], false);
       expect(credit['refund_created'], false);
+      final report = await owner.request(
+        reportPath,
+        query: {'kind': 'credits'},
+      );
+      expect(report['provider_id'], f['provider_id']);
+      expect(report['data'].length, 1);
+      expect(report['data'][0]['billing']['invoice']['id'], f['invoice_id']);
+      expect(report['data'][0]['billing']['state'], 'credited');
+      expect(report['data'][0]['billing']['paid_minor'], 0);
+      expect(report['data'][0]['billing']['refunded_minor'], 0);
+      expect(report['data'][0]['billing']['due_minor'], 0);
       final replay = await owner.request(
         '$root/unpaid-credit',
         method: 'POST',
@@ -64,6 +81,12 @@ void main() {
       expect(resolved['state'], 'issued');
       expect(resolved['credit_note']['id'], credit['credit_note']['id']);
       await driver.signIn(f['driver'], f['password']);
+      await expectLater(
+        driver.request(reportPath),
+        throwsA(
+          isA<ApiException>().having((error) => error.status, 'status', 404),
+        ),
+      );
       final finalInvoice = await driver.request(root);
       expect(finalInvoice['state'], 'credited');
       expect(finalInvoice['amount_due_minor'], 0);
