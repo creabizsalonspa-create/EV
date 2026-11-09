@@ -21,6 +21,9 @@ $owner = User::create(['name' => 'Synthetic native owner', 'email' => 'inventory
 $owner->role = 'vendor';
 $owner->save();
 $staff = User::create(['name' => 'Synthetic native reader', 'email' => 'inventory-reader-'.$run.'@example.test', 'password' => Hash::make($password)]);
+// This is a synthetic local test identity; a delegated grant is only usable
+// after the account's mailbox identity has been confirmed.
+$staff->forceFill(['email_verified_at' => now()])->save();
 $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Native inventory fixture '.$run, 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC-'.$run, 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
 VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $staff->id, 'status' => 'active', 'permissions' => ['company.read', 'inventory.read']]);
 $site = VendorSite::create(['company_id' => $company->id, 'name' => 'Native synthetic site', 'country' => 'AE', 'timezone' => 'Asia/Dubai', 'address' => 'Synthetic address', 'latitude' => 25.2, 'longitude' => 55.3]);
