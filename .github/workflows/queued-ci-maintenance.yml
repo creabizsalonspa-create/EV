@@ -1,0 +1,67 @@
+name: EV queued CI maintenance
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Explicitly cancel only revalidated obsolete queued jobs"
+        required: true
+        type: boolean
+        default: false
+      max_cancel:
+        description: "Maximum obsolete runs to cancel in this one operation"
+        required: true
+        type: choice
+        default: "10"
+        options: ["1", "5", "10", "25", "50"]
+permissions:
+  contents: read
+# Operator-invoked only; never triggered by PRs or pushes. Do not cancel
+# another maintenance session while it is rechecking the queue.
+concurrency:
+  group: ev-ci-maintenance
+  cancel-in-progress: false
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify all cancellation protections before contacting Actions API
+        run: python3 -B -m unittest discover -s tests -p ci_queue_triage_test.py -v
+      - name: Print read-only candidate summary, no cancellation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/ci_queue_triage.py --summary-only --page-limit 30
+
+  apply:
+    if: ${{ inputs.apply == true }}
+    needs: dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconfirm explicit operator intent and bounded batch
+        env:
+          APPLY: ${{ inputs.apply }}
+          MAX_CANCEL: ${{ inputs.max_cancel }}
+        shell: bash
+        run: |
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REPOSITORY" = creabizsalonspa-create/EV
+          test "$APPLY" = true
+          case "$MAX_CANCEL" in
+            1|5|10|25|50) ;;
+            *) echo 'Invalid cancellation limit' >&2; exit 1 ;;
+          esac
+      - name: Recheck each obsolete queued run and cancel only those still safe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_CANCEL: ${{ inputs.max_cancel }}
+        shell: bash
+        run: python3 -B scripts/ci_queue_triage.py --apply --summary-only --max-cancel "$MAX_CANCEL" --page-limit 30
