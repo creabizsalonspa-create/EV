@@ -26,7 +26,8 @@
   };
   function createPrivacyWorkspace({selfRoot, adminRoot, api, actor, epoch = () => 0}) {
     let current = null, session = 0, mineSequence = 0, adminSequence = 0,
-      pending = null, ownPage = 1, adminPage = 1, postInFlight = false;
+      pending = null, ownPage = 1, adminPage = 1, postInFlight = false,
+      latestMineControls = null;
     const authenticated = owner => owner === current && actor() === owner &&
       session === epoch();
     const aliveMine = (owner, ticket) => authenticated(owner) && ticket === mineSequence;
@@ -34,7 +35,7 @@
     function clear() {
       mineSequence++; adminSequence++;
       current = pending = null; session = 0; ownPage = adminPage = 1;
-      postInFlight = false;
+      postInFlight = false; latestMineControls = null;
       selfRoot.replaceChildren(); adminRoot.replaceChildren();
     }
     function errorOn(root, message) {
@@ -119,6 +120,9 @@
       });
       startDifferent.disabled = postInFlight;
       form.append(startDifferent);
+      // Keep the newest form controls across an API readback or an explicit
+      // list refresh. The original POST may settle after its form is detached.
+      latestMineControls = {owner, ticket, submit, startDifferent};
       form.onsubmit = async event => {
         event.preventDefault();
         if (!aliveMine(owner, ticket) || submit.disabled || postInFlight) return;
@@ -157,13 +161,13 @@
         } finally {
           if (authenticated(owner)) {
             postInFlight = false;
-            if (aliveMine(owner, ticket)) {
-              submit.disabled = false;
-              startDifferent.disabled = false;
-            } else {
-              // A same-account refresh created another form during the POST.
-              // Redraw with controls unlocked only after the write settles.
-              await refreshMine(ownPage);
+            // Do not redraw the new form here: a second GET can erase the
+            // post-commit readback warning and hide the original retry key.
+            // Release only the newest controls for the same account/epoch.
+            const controls = latestMineControls;
+            if (controls?.owner === owner && controls.ticket === mineSequence) {
+              controls.submit.disabled = false;
+              controls.startDifferent.disabled = false;
             }
           }
         }

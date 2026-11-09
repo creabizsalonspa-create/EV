@@ -29,10 +29,12 @@ let actor = user1, epoch = 1;
 const calls = [];
 let holdPost=false,releasePost=null,holdAdmin=false,releaseAdmin=null;
 let holdWithdrawal=false,releaseWithdrawal=null;
-let poisonOwnList=false;
+let poisonOwnList=false, failNextReadback=false;
+const postedKeys=[];
 const api = async (path,method,body) => {
   calls.push(path);
   if(path==='privacy-requests' && method==='POST'){
+    postedKeys.push(body.idempotency_key);
     if(holdPost){
       holdPost=false;
       await new Promise(resolve=>{releasePost=resolve;});
@@ -58,6 +60,10 @@ const api = async (path,method,body) => {
       reason:null,resolution:null,decision_note:null,user:{email:'review@example.invalid'}}],
     last_page:1,current_page:1,total:1,
   };
+  if(failNextReadback && path.startsWith('privacy-requests?page=')) {
+    failNextReadback=false;
+    throw Error('Synthetic post-commit GET failure');
+  }
   if(poisonOwnList && path.startsWith('privacy-requests?page=')) {
     poisonOwnList=false;
     return {data:[{id:777,user_id:999,request_type:'account_deletion',
@@ -132,6 +138,26 @@ const content = root => {
     content(node).includes('Start a different request'));
   assert.equal(differentAfterSettle.disabled,false,
     'A settled POST must unlock the latest same-account request form');
+
+  // POST committed but the immediate GET did not. The user must SEE the
+  // uncertain confirmation and be allowed to retry the SAME operation key.
+  differentAfterSettle.onclick();
+  const uncertainForm=find(mine,node=>node.tag==='form');
+  find(uncertainForm,node=>node.tag==='input'&&node.type==='checkbox').checked=true;
+  failNextReadback=true;
+  const beforeUncertain=sentCount();
+  await uncertainForm.onsubmit({preventDefault(){}});
+  assert.equal(sentCount(),beforeUncertain+1);
+  assert.match(content(mine), /Request may be recorded, but list verification failed/,
+    'The post-commit GET warning must survive write-finally cleanup');
+  const retryForm=find(mine,node=>node.tag==='form');
+  const retrySubmit=find(retryForm,node=>node.tag==='button'&&node.type==='submit');
+  assert.equal(retrySubmit.disabled,false,'The retry form must unlock');
+  find(retryForm,node=>node.tag==='input'&&node.type==='checkbox').checked=true;
+  await retryForm.onsubmit({preventDefault(){}});
+  assert.equal(sentCount(),beforeUncertain+2);
+  assert.equal(postedKeys.at(-1),postedKeys.at(-2),
+    'A failed readback must replay the original idempotency key');
   const initialCalls = calls.length;
   const staleForm = find(mine, node => node.tag === 'form');
   assert.ok(staleForm);
