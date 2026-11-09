@@ -4,6 +4,7 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const assert = require("node:assert/strict");
+let currentStage = "fixture-setup";
 async function main() {
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
@@ -21,6 +22,7 @@ async function main() {
       { stdio: "pipe" },
     );
   fixture("seed");
+  currentStage = "private-auth";
   const customer = await new BusinessClient({ base }).register("customer");
   const admin = new BusinessClient({ base });
   admin.csrf = (await admin.request("csrf")).token;
@@ -52,6 +54,7 @@ async function main() {
     page.on("pageerror", (err) => errors.push(err.message));
     await page.route("https://tile.openstreetmap.org/**", (route) => route.abort());
     await page.goto(customer.base);
+    currentStage = "public-discovery";
     const pub = page.locator("#roaming-discovery");
     await pub.locator("[name=partner_q]").fill(run);
     await pub.locator("[name=partner_country]").fill("NLD");
@@ -64,6 +67,7 @@ async function main() {
     await pub
       .getByText("No matching partner locations", { exact: true })
       .waitFor();
+    currentStage = "published-results";
     await pub.locator("[name=partner_country]").fill("ARE");
     await pub
       .getByRole("button", { name: "Search partner locations", exact: true })
@@ -72,6 +76,7 @@ async function main() {
     await page.getByRole("button", { name: "Enable interactive map" }).click();
     await page.locator(".partner-map-pin").waitFor();
 
+    currentStage = "save-location";
     await pub
       .getByRole("button", { name: "Save partner location", exact: true })
       .first()
@@ -82,6 +87,7 @@ async function main() {
         exact: true,
       })
       .waitFor();
+    currentStage = "saved-list";
     await pub
       .getByRole("button", { name: "Saved partner locations", exact: true })
       .click();
@@ -91,6 +97,25 @@ async function main() {
     // the map, but never promotes favorites into a remote-charge capability.
     await page.locator(".partner-map-pin").waitFor();
     assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    // Mirror a shared coordinate with an existing platform station. Platform
+    // pins intentionally win the z-order over unverified partner reports.
+    // Hide them with the real user-facing toggle before accessing the saved
+    // partner popup; never force-click through a higher-trust marker.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("catalog-map-data", {
+      detail: [{
+        id: 999999, name: "Synthetic overlapping platform station",
+        latitude: 25.2, longitude: 55.3,
+        evidence: "DISCOVERY_ONLY", reservable: false,
+      }],
+    })));
+    const platformPins = page.locator(".station-map-pin:not(.partner-map-pin):not(.ocm-map-pin)");
+    await platformPins.waitFor();
+    const platformLayer = page.locator("#show-platform-map-pins");
+    assert.equal(await platformLayer.isChecked(), true);
+    await platformLayer.uncheck();
+    assert.equal(await platformPins.count(), 0, "Platform layer toggle must reveal the overlapping partner marker");
+    assert.equal(await page.locator(".partner-map-pin").count(), 1);
+    currentStage = "saved-map-popup";
     await page.locator(".partner-map-pin").click();
     await page.locator(".leaflet-popup-content")
       .getByText(/Partner reported \(unverified\)/).waitFor();
@@ -104,6 +129,7 @@ async function main() {
           !Object.hasOwn(row, "favorite_since"),
       ),
     );
+    currentStage = "provider-revocation";
     await admin.request(
       "ocpi/providers/" + provider.id + "/authorization",
       "PATCH",
@@ -124,6 +150,7 @@ async function main() {
     await pub
       .getByText("No saved partner locations", { exact: true })
       .waitFor();
+    currentStage = "logout-cleanup";
     await page.locator("#logout").click();
     await page.waitForFunction(
       () =>
@@ -148,7 +175,7 @@ async function main() {
 }
 main().catch(() => {
   console.error(
-    "Private partner favorite workflow failed; customer and source details withheld.",
+    `Private partner favorite workflow failed at ${currentStage}; customer and source details withheld.`,
   );
   process.exitCode = 1;
 });
