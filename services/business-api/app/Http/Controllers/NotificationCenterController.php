@@ -164,6 +164,7 @@ class NotificationCenterController extends Controller
             ])->header('Cache-Control', 'private, no-store');
         });
     }
+
     /** Reopens only the caller's in-app read state; does not change the event. */
     public function markUnread(Request $request, InboxNotification $notification): JsonResponse
     {
@@ -191,5 +192,4 @@ class NotificationCenterController extends Controller
             )->header('Cache-Control', 'private, no-store');
         });
     }
-
 }

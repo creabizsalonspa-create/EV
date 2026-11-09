@@ -162,10 +162,14 @@ class FaultReminderEscalator
                     if ($resolution === null && $alert->acknowledged_at !== null) {
                         $resolution = 'operator_acknowledged';
                     }
-                    if ($resolution === null) return false;
+                    if ($resolution === null) {
+                        return false;
+                    }
                     $prior = DB::table('charging_fault_admin_escalations')
                         ->where('alert_id', $alert->id)->lockForUpdate()->first();
-                    if (! $prior || $prior->resolved_at !== null) return false;
+                    if (! $prior || $prior->resolved_at !== null) {
+                        return false;
+                    }
                     $updated = DB::table('charging_fault_admin_escalations')
                         ->where('alert_id', $alert->id)->whereNull('resolved_at')
                         ->update(['resolved_at' => now(), 'resolution_source' => $resolution]);
@@ -279,9 +283,15 @@ class FaultReminderEscalator
                 return ['reminded' => true, 'escalated' => $escalatedNow];
             }, 3);
             if (is_array($result)) {
-                if ($result['reminded']) $reminded++;
-                if ($result['escalated']) $escalated++;
-                if ($result['closed'] ?? false) $closed++;
+                if ($result['reminded']) {
+                    $reminded++;
+                }
+                if ($result['escalated']) {
+                    $escalated++;
+                }
+                if ($result['closed'] ?? false) {
+                    $closed++;
+                }
             }
         }
 
