@@ -197,6 +197,7 @@ class FaultReminderEscalator
                             ],
                         ]);
                     }
+
                     return ['reminded' => false, 'escalated' => false,
                         'closed' => $updated === 1];
                 }
