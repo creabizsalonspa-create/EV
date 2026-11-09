@@ -80,7 +80,7 @@ final class VehicleModelCatalogController extends Controller
         $isAdmin = $request->user()->role === 'admin';
         abort_if(($v['include_archived'] ?? false) && ! $isAdmin, 403);
         $q = DB::table('vehicle_model_catalog');
-        if (! $isAdmin || ! ($v['include_archived'] ?? false)) {
+        if (! $isAdmin || !($v['include_archived'] ?? false)) {
             $q->where('published', true);
         }
         if (isset($v['connector_type'])) {
