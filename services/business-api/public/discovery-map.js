@@ -642,6 +642,10 @@
         })
             .addTo(map)
             .on("tileerror", () => {
+                // Tile failures can arrive after a polar GPS selection.
+                // Do not replace its more useful projection warning with a
+                // generic background-tile error: list search still works.
+                if (selectedCentre && Math.abs(selectedCentre.latitude) > 85.05112878) return;
                 setStatus(
                     "Map tiles unavailable. The station list and manual search remain available.",
                     "خلفية الخريطة غير متاحة. تبقى قائمة المحطات والبحث اليدوي متاحين.",
