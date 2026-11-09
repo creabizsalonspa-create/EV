@@ -29,6 +29,7 @@ let actor = user1, epoch = 1;
 const calls = [];
 let holdPost=false,releasePost=null,holdAdmin=false,releaseAdmin=null;
 let holdWithdrawal=false,releaseWithdrawal=null;
+let adminRowStatus='in_review';
 let poisonOwnList=false, failNextReadback=false;
 const postedKeys=[];
 const api = async (path,method,body) => {
@@ -56,7 +57,7 @@ const api = async (path,method,body) => {
     return {id:200,status:'closed'};
   }
   if(path==='admin/privacy-requests?page=1')return {
-    data:[{id:200,request_type:'account_deletion',status:'in_review',
+    data:[{id:200,request_type:'account_deletion',status:adminRowStatus,
       reason:null,resolution:null,decision_note:null,user:{email:'review@example.invalid'}}],
     last_page:1,current_page:1,total:1,
   };
@@ -247,11 +248,55 @@ const content = root => {
   assert.equal(reviewCount(),beforeDuplicateReview,
     'Duplicate Admin close cannot PATCH while original is pending');
   await ui.refreshAdmin();
+  // A refreshed Admin queue must not re-enable a second PATCH to the same
+  // privacy request while the first review close is unresolved.
+  const latestReview=find(admin,node=>node.tag==='form'&&
+    node.className==='privacy-review-form');
+  assert.ok(latestReview);
+  const latestClose=find(latestReview,node=>node.tag==='button'&&node.type==='submit');
+  assert.equal(latestClose.disabled,true,
+    'Refreshing Admin queue cannot unlock the same request during PATCH');
+  find(latestReview,node=>node.tag==='select').value='declined';
+  find(latestReview,node=>node.tag==='textarea').value=
+    'Another conflicting review outcome must not submit concurrently.';
+  await latestReview.onsubmit({preventDefault(){}});
+  assert.equal(reviewCount(),beforeDuplicateReview,
+    'Refreshed Admin review form must not send conflicting PATCH');
   const adminGetsBeforeOld=adminCount();
   releaseAdmin();
   await firstClose;
+  assert.equal(latestClose.disabled,false,
+    'After PATCH settles the latest Admin form unlocks without overwriting queue');
   assert.equal(adminCount(),adminGetsBeforeOld,
     'Old review PATCH response must not replace newer Admin view');
+
+  // Start-review uses the same per-request lock as closing a review.
+  adminRowStatus='submitted';
+  await ui.refreshAdmin();
+  const startReview=find(admin,node=>node.tag==='button' &&
+    content(node).includes('Start review'));
+  assert.ok(startReview);
+  holdAdmin=true;
+  const initialStart=reviewCount();
+  const firstStart=startReview.onclick();
+  assert.equal(typeof releaseAdmin,'function');
+  assert.equal(reviewCount(),initialStart+1);
+  await ui.refreshAdmin();
+  const latestStart=find(admin,node=>node.tag==='button' &&
+    content(node).includes('Start review'));
+  assert.ok(latestStart);
+  assert.equal(latestStart.disabled,true,
+    'An Admin queue refresh cannot offer another start-review PATCH');
+  await latestStart.onclick();
+  assert.equal(reviewCount(),initialStart+1,
+    'Refreshed review start must not issue concurrent PATCH');
+  const countAfterStartRefresh=adminCount();
+  releaseAdmin();
+  await firstStart;
+  assert.equal(adminCount(),countAfterStartRefresh,
+    'Settled stale start-review PATCH must not replace refreshed queue');
+  assert.equal(latestStart.disabled,false,
+    'The latest Admin start-review control unlocks after its PATCH settles');
   ui.clear();
   assert.equal(mine.children.length, 0);
   assert.doesNotMatch(fs.readFileSync(path,'utf8'), /\.innerHTML\s*=/);

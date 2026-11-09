@@ -29,7 +29,7 @@
     "test:commercial-campaigns": "node tests/commercial-campaigns.cjs",
     "test:hosted-checkout": "node tests/hosted-checkout.cjs",
     "test:corporate-hosted": "node tests/corporate-hosted.cjs",
-    "test:privacy": "node tests/privacy-requests.cjs",
+    "test:privacy": "node tests/privacy-requests.cjs && node tests/privacy-admin-browser-fixture.cjs",
     "test:e2e:privacy": "node tests/privacy-e2e.cjs",
     "test:e2e:privacy-admin": "node tests/privacy-admin-e2e.cjs"
   },

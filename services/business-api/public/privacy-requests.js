@@ -27,7 +27,7 @@
   function createPrivacyWorkspace({selfRoot, adminRoot, api, actor, epoch = () => 0}) {
     let current = null, session = 0, mineSequence = 0, adminSequence = 0,
       pending = null, ownPage = 1, adminPage = 1, postInFlight = false,
-      latestMineControls = null;
+      latestMineControls = null, adminWrites = new Set(), adminControls = new Map();
     const authenticated = owner => owner === current && actor() === owner &&
       session === epoch();
     const aliveMine = (owner, ticket) => authenticated(owner) && ticket === mineSequence;
@@ -36,6 +36,7 @@
       mineSequence++; adminSequence++;
       current = pending = null; session = 0; ownPage = adminPage = 1;
       postInFlight = false; latestMineControls = null;
+      adminWrites.clear(); adminControls.clear();
       selfRoot.replaceChildren(); adminRoot.replaceChildren();
     }
     function errorOn(root, message) {
@@ -220,6 +221,9 @@
       if (owner && (actor() !== owner || session !== epoch())) {clear();return;}
       if (owner?.role !== "admin") {adminRoot.replaceChildren();return;}
       adminPage = target;
+      // A queue refresh replaces DOM controls but must NOT release an
+      // in-flight review PATCH for this authenticated Admin session.
+      adminControls.clear();
       adminRoot.replaceChildren(text("Privacy request reviews", "مراجعة طلبات الخصوصية", "h3"));
       adminRoot.append(p("Administrative review does not erase customer data or establish legal fulfillment.", "المراجعة الإدارية لا تحذف بيانات العميل ولا تثبت الوفاء القانوني."));
       adminRoot.append(btn("Refresh review queue", "تحديث قائمة المراجعة", () => {
@@ -231,21 +235,29 @@
         if (!aliveAdmin(owner, ticket)) return;
         if (!result.data?.length) list.append(p("No review requests.", "لا توجد طلبات للمراجعة."));
         for (const row of result.data || []) {
+          const reviewKey = String(row.id);
+          const unlockReview = () => {
+            if (!authenticated(owner)) return;
+            adminWrites.delete(reviewKey);
+            const control = adminControls.get(reviewKey);
+            if (control?.ticket === adminSequence) control.button.disabled = false;
+          };
           const card = oneRow(row);
           card.append(p("Request from: " + safe(row.user?.email), "طلب من: " + safe(row.user?.email)));
           if (row.status === "submitted") {
             const startReview = btn("Start review", "بدء المراجعة", async () => {
-              if (!aliveAdmin(owner, ticket) || startReview.disabled) return;
+              if (!aliveAdmin(owner, ticket) || startReview.disabled || adminWrites.has(reviewKey)) return;
+              adminWrites.add(reviewKey);
               startReview.disabled = true;
               try {
                 await api("admin/privacy-requests/" + row.id, "PATCH", {status:"in_review"});
                 if (aliveAdmin(owner, ticket)) await refreshAdmin(adminPage);
               } catch (e) {
                 if (aliveAdmin(owner, ticket)) errorOn(adminRoot, safe(e.message) || String(e));
-              } finally {
-                if (aliveAdmin(owner, ticket)) startReview.disabled = false;
-              }
+              } finally {unlockReview();}
             });
+            startReview.disabled = adminWrites.has(reviewKey);
+            adminControls.set(reviewKey, {ticket, button:startReview});
             card.append(startReview);
           }
           if (row.status === "in_review") {
@@ -265,7 +277,8 @@
             f.append(choices,note,submit);
             f.onsubmit = async event => {
               event.preventDefault();
-              if (!aliveAdmin(owner, ticket) || submit.disabled) return;
+              if (!aliveAdmin(owner, ticket) || submit.disabled || adminWrites.has(reviewKey)) return;
+              adminWrites.add(reviewKey);
               submit.disabled = true;
               try {
                 await api("admin/privacy-requests/" + row.id,"PATCH", {
@@ -273,12 +286,12 @@
                 });
                 if (aliveAdmin(owner, ticket)) await refreshAdmin(adminPage);
               } catch (e) {
-                if (aliveAdmin(owner, ticket)) {
+                if (aliveAdmin(owner, ticket))
                   errorOn(adminRoot, safe(e.message) || String(e));
-                  submit.disabled = false;
-                }
-              }
+              } finally {unlockReview();}
             };
+            submit.disabled = adminWrites.has(reviewKey);
+            adminControls.set(reviewKey, {ticket, button:submit});
             card.append(f);
           }
           list.append(card);
