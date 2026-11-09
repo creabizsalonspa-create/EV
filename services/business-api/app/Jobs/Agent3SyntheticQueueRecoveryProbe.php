@@ -24,9 +24,7 @@ final class Agent3SyntheticQueueRecoveryProbe implements ShouldQueue
 
     public const COMPLETED = 'queue-snapshot-executed';
 
-    public function __construct(public string $token)
-    {
-    }
+    public function __construct(public string $token) {}
 
     public function handle(): void
     {
