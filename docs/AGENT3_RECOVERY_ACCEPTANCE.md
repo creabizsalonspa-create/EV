@@ -264,3 +264,19 @@ settings pass and reject seven adversarial database initialization/env
 variants plus a separate PostGIS trust-authentication override. This protects the recovery *evidence boundary* only; a production
 PostgreSQL authentication audit, PITR, network firewall, offsite backup
 review, and actual deployed Docker/PostGIS restore are separate gates.
+
+### Private-only Docker namespace modes in recovery containers
+
+The runtime inspector previously denied the literal Docker namespace value
+`host`, but a `container:existing-app` PID or IPC mode can also share
+another running container's namespace. That could violate isolation even
+when the reviewed network is private and the database password is synthetic.
+
+The inspector now requires default/private namespace modes for PID, IPC,
+user, cgroup and UTS namespaces. Five additional negative fixtures check
+a `container:existing-app` mode in each field. The original safe
+synthetic Docker inspection fixture still uses its default private modes.
+
+These static, synthetic tests are not proof of a real Docker container or
+PostgreSQL restore. Agent 4 must verify effective namespacing and
+cross-container isolation in a disposable acceptance environment.

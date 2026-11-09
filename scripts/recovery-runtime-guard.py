@@ -262,12 +262,16 @@ def validate_containers(rows, source, target, source_names, target_names,
                 host.get('ExtraHosts') in (None, []) and
                 host.get('Links') in (None, []),
                 'Recovery container has host access or elevated privileges')
-        require(host.get('PidMode') not in ('host',) and
-                host.get('IpcMode') not in ('host',) and
-                host.get('UsernsMode') not in ('host',) and
-                host.get('CgroupnsMode') not in ('host',) and
-                host.get('UTSMode') not in ('host',),
-                'Recovery container shares host namespaces')
+        # "container:other-id" shares another container's namespace even
+        # when no field literally equals "host". Require only the normal
+        # private Docker modes; no recovery container may borrow a live
+        # application's PID, IPC, user, cgroup or UTS namespace.
+        require(host.get('PidMode') in (None, '') and
+                host.get('IpcMode') in (None, '', 'private') and
+                host.get('UsernsMode') in (None, '') and
+                host.get('CgroupnsMode') in (None, '', 'private') and
+                host.get('UTSMode') in (None, ''),
+                'Recovery container shares an unreviewed namespace')
         require(host.get('SecurityOpt') in (None, []) and
                 host.get('DeviceRequests') in (None, []) and
                 host.get('DeviceCgroupRules') in (None, []),
