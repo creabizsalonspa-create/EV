@@ -1443,12 +1443,20 @@ void main() {
       );
       await settle();
       final catalogNext = find.byKey(const Key('catalog-next'));
-      expect(catalogNext, findsOneWidget);
-      await Scrollable.ensureVisible(
-        tester.element(catalogNext),
-        alignment: 0.4,
+      // ListView builds this button lazily. Materialize it before asking the
+      // Scrollable to place its hit box above the compact iOS bottom bar.
+      await tester.scrollUntilVisible(
+        catalogNext,
+        180,
+        scrollable: find.byType(Scrollable).first,
       );
       await settle();
+      await Scrollable.ensureVisible(
+        tester.element(catalogNext),
+        alignment: 0.35,
+      );
+      await settle();
+      expect(catalogNext.hitTestable(), findsOneWidget);
       await tester.tap(catalogNext);
       await settle();
       expect(find.text('Device fixture station 2'), findsOneWidget);
