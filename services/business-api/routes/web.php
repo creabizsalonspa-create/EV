@@ -141,5 +141,6 @@ Route::get('/api/stations/{station}/information', [StationInformationController:
 Route::put('/api/stations/{station}/information', [StationInformationController::class, 'save'])->whereNumber('station')->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/vendor/stations', function (Request $r) {
     abort_unless($r->user()->role === 'vendor', 403);
+
     return Station::where('vendor_id', $r->user()->id)->orderByDesc('id')->paginate(25);
 })->middleware(['auth', 'throttle:platform-api']);
