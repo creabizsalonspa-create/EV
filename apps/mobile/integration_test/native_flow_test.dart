@@ -1432,12 +1432,24 @@ void main() {
         'DEVICE: versioned saved mandate revocation verified; no external PSP',
       );
 
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('catalog-next')),
-        300,
-        scrollable: find.byType(Scrollable).first,
+      // The account menu may leave another tab selected. Explicitly restore
+      // discovery before paginating, then place the button clear of the
+      // bottom navigation bar on compact iOS simulators.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.byIcon(Icons.ev_station_outlined),
+        ),
       );
-      await tester.tap(find.byKey(const Key('catalog-next')));
+      await settle();
+      final catalogNext = find.byKey(const Key('catalog-next'));
+      expect(catalogNext, findsOneWidget);
+      await Scrollable.ensureVisible(
+        tester.element(catalogNext),
+        alignment: 0.4,
+      );
+      await settle();
+      await tester.tap(catalogNext);
       await settle();
       expect(find.text('Device fixture station 2'), findsOneWidget);
       await tester.tap(find.byKey(const Key('settings')));
