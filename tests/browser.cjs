@@ -127,11 +127,21 @@ const { randomUUID } = require("node:crypto");
       /Email verified/,
     );
     assert.equal(await vendor.page.locator("#verify-email").isVisible(), false);
-    execFileSync(
-      "./scripts/php",
-      ["artisan", "platform:role", vendor.email, "vendor"],
-      { stdio: "pipe" },
-    );
+    // Keep the real audited role transition mandatory. If its isolated
+    // SQLite provisioner fails, surface only the SQLSTATE reason—not fixture
+    // credentials or a full database query—so CI failures can be repaired.
+    try {
+      execFileSync(
+        "./scripts/php",
+        ["artisan", "platform:role", vendor.email, "vendor"],
+        { stdio: "pipe" },
+      );
+    } catch (cause) {
+      const output = String(cause.stdout || "");
+      const sqlstate = output.match(/SQLSTATE\\[[^\\r\\n]+/)?.[0] || "SQLSTATE unavailable";
+      const reason = sqlstate.split(" (Connection:")[0].slice(0, 240);
+      throw new Error(`Audited role provisioning failed: ${reason}`, { cause });
+    }
     await vendor.page.reload();
     await vendor.page.locator("#vendor").waitFor({ state: "visible" });
     const f = vendor.page.locator("#station-form");
