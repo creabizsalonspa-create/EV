@@ -150,7 +150,6 @@ class AdminStaffPermissionTest extends TestCase
         $this->getJson('/api/admin/permission-grants?page=100001')->assertUnprocessable();
     }
 
-
     public function test_owner_cannot_reinvite_during_admin_hold_and_release_requires_fresh_consent(): void
     {
         [$admin, $owner, $staff, $company, $member] = $this->fixture();

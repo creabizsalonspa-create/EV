@@ -7,7 +7,6 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -19,8 +18,7 @@ class VendorKycIntegrityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        if (! collect(Route::getRoutes())->contains(fn ($route) =>
-            $route->uri() === 'api/vendor-ops/companies' && in_array('GET', $route->methods()))) {
+        if (! collect(Route::getRoutes())->contains(fn ($route) => $route->uri() === 'api/vendor-ops/companies' && in_array('GET', $route->methods()))) {
             Route::middleware(['web', 'auth'])->prefix('api/vendor-ops')
                 ->group(base_path('routes/vendor_ops.php'));
         }

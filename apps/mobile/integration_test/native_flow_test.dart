@@ -1432,12 +1432,19 @@ void main() {
         'DEVICE: versioned saved mandate revocation verified; no external PSP',
       );
 
+      final catalogNext = find.byKey(const Key('catalog-next'));
+      final catalogScroll = find.byType(Scrollable).first;
       await tester.scrollUntilVisible(
-        find.byKey(const Key('catalog-next')),
+        catalogNext,
         300,
-        scrollable: find.byType(Scrollable).first,
+        scrollable: catalogScroll,
       );
-      await tester.tap(find.byKey(const Key('catalog-next')));
+      // The bottom navigation can cover the last visible row on a compact
+      // iOS simulator. Lift the pagination control inside the same scrollable
+      // before tapping; never suppress missed-hit warnings or skip page two.
+      await tester.drag(catalogScroll, const Offset(0, -180));
+      await settle();
+      await tester.tap(catalogNext);
       await settle();
       expect(find.text('Device fixture station 2'), findsOneWidget);
       await tester.tap(find.byKey(const Key('settings')));

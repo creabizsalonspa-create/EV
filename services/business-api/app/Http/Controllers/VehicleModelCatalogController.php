@@ -66,6 +66,7 @@ final class VehicleModelCatalogController extends Controller
         $validated['identity_hash'] = hash('sha256', json_encode(
             array_map(fn ($v) => mb_strtolower(preg_replace('/\s+/u', ' ', $v)), $parts),
             JSON_THROW_ON_ERROR));
+
         return $validated;
     }
 
@@ -94,6 +95,7 @@ final class VehicleModelCatalogController extends Controller
                     ->orWhere('variant', 'like', '%'.$term.'%');
             });
         }
+
         return $this->privateReply($q->orderBy('make')->orderBy('model')
             ->orderBy('id')->paginate(25)->through(fn ($row) => $this->record($row)));
     }
@@ -102,6 +104,7 @@ final class VehicleModelCatalogController extends Controller
     {
         $this->admin($request);
         $v = $this->input($request);
+
         return DB::transaction(function () use ($request, $v) {
             $prior = DB::table('vehicle_model_catalog')->where('identity_hash', $v['identity_hash'])->first();
             abort_if($prior !== null, 409, 'Vehicle model already exists.');
@@ -113,6 +116,7 @@ final class VehicleModelCatalogController extends Controller
             $id = (int) DB::table('vehicle_model_catalog')
                 ->where('identity_hash', $v['identity_hash'])->value('id');
             $this->audit($request->user()->id, 'vehicle_model.created', $id);
+
             return $this->privateReply(
                 $this->record(DB::table('vehicle_model_catalog')->where('id', $id)->firstOrFail()), 201);
         }, 3);
@@ -122,6 +126,7 @@ final class VehicleModelCatalogController extends Controller
     {
         $this->admin($request);
         $v = $this->input($request, true);
+
         return DB::transaction(function () use ($request, $v, $model) {
             $row = DB::table('vehicle_model_catalog')->where('id', $model)->lockForUpdate()->first();
             abort_unless($row, 404);
@@ -150,6 +155,7 @@ final class VehicleModelCatalogController extends Controller
                 'updated_at' => now(),
             ]);
             $this->audit($request->user()->id, 'vehicle_model.updated', $model);
+
             return $this->privateReply(
                 $this->record(DB::table('vehicle_model_catalog')->where('id', $model)->firstOrFail()));
         }, 3);
@@ -160,6 +166,7 @@ final class VehicleModelCatalogController extends Controller
         $this->customerOwner($request, $vehicle);
         $linked = $vehicle->vehicle_model_id === null ? null :
             DB::table('vehicle_model_catalog')->find($vehicle->vehicle_model_id);
+
         return $this->privateReply([
             'vehicle_id' => $vehicle->id,
             'vehicle_connector_type' => $vehicle->connector_type,
@@ -177,6 +184,7 @@ final class VehicleModelCatalogController extends Controller
             'model_id' => 'present|nullable|integer|min:1',
             'expected_model_id' => 'present|nullable|integer|min:1',
         ]);
+
         return DB::transaction(function () use ($request, $vehicle, $v) {
             $row = Vehicle::whereKey($vehicle->id)->lockForUpdate()->firstOrFail();
             $this->customerOwner($request, $row);
@@ -193,6 +201,7 @@ final class VehicleModelCatalogController extends Controller
             $this->audit($request->user()->id, 'vehicle.model_associated', $row->id);
             $model = $row->vehicle_model_id === null ? null :
                 DB::table('vehicle_model_catalog')->find($row->vehicle_model_id);
+
             return $this->privateReply([
                 'vehicle_id' => $row->id, 'model_id' => $row->vehicle_model_id,
                 'model' => $model ? $this->record($model) : null,

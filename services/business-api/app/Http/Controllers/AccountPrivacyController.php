@@ -98,6 +98,7 @@ class AccountPrivacyController extends Controller
 
         $view = $page->through(function (AccountPrivacyRequest $case) use ($actors) {
             $owner = $actors->get($case->user_id);
+
             return [
                 'id' => $case->id,
                 'kind' => $case->kind,

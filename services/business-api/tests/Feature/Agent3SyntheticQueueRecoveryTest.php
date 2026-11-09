@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Jobs\Agent3SyntheticQueueRecoveryProbe as Probe;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;

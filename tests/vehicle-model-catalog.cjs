@@ -1,5 +1,13 @@
 // Source-backed browser regression; Admin-only catalog curation and customer linking.
 const assert = require('node:assert/strict');
+// The customer catalog must be mounted in the actual Blade page, not only
+// supplied by mocks. Otherwise clearing identity before sign-in throws and
+// prevents the browser from posting credentials.
+const pageSource = require('node:fs').readFileSync('services/business-api/resources/views/platform.blade.php', 'utf8');
+assert.equal((pageSource.match(/id="vehicle-model-customer"/g) || []).length, 1,
+  'customer model root must exist exactly once in the rendered page template');
+assert.match(pageSource, /id="garage"[\s\S]*id="vehicle-list"[\s\S]*id="vehicle-model-customer"/,
+  'customer model root must belong to the customer vehicle workspace');
 const fs = require('node:fs');
 const vm = require('node:vm');
 class Element {

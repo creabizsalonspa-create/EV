@@ -43,6 +43,7 @@ final class VehicleManualSocController extends Controller
     {
         $this->owner($r, $vehicle);
         $latest = DB::table('vehicle_manual_soc')->where('vehicle_id', $vehicle->id)->first();
+
         return $this->respond($this->display($latest, $vehicle->id));
     }
 
@@ -50,6 +51,7 @@ final class VehicleManualSocController extends Controller
     {
         $this->owner($r, $vehicle);
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
+
         return $this->respond(DB::table('vehicle_manual_soc_reports')
             ->where('vehicle_id', $vehicle->id)->orderByDesc('id')->paginate(25)
             ->through(fn ($row) => $this->display($row, $vehicle->id)));
@@ -75,6 +77,7 @@ final class VehicleManualSocController extends Controller
                 abort_unless((int) $oldReport->battery_percent === (int) $v['battery_percent']
                     && (int) $oldReport->revision === (int) $v['expected_revision'] + 1,
                     409, 'The report operation key belongs to another observation.');
+
                 return $this->respond($this->display($oldReport, $owned->id, true));
             }
 
@@ -116,6 +119,7 @@ final class VehicleManualSocController extends Controller
                 'subject' => (string) $owned->id,
                 'created_at' => $time,
             ]);
+
             return $this->respond(
                 $this->display(DB::table('vehicle_manual_soc_reports')->find($reportId),
                     $owned->id), 201);

@@ -1,14 +1,14 @@
 <?php
 
 use App\Http\Controllers\AccountController;
-use App\Http\Controllers\AdminOperatorRoleHistoryController;
-use App\Http\Controllers\AdminSecondFactorController;
 use App\Http\Controllers\AccountPrivacyController;
 use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\AdminAuditTrailController;
 use App\Http\Controllers\AdminKycQueueController;
-use App\Http\Controllers\AdminStaffPermissionController;
+use App\Http\Controllers\AdminOperatorRoleHistoryController;
+use App\Http\Controllers\AdminSecondFactorController;
 use App\Http\Controllers\AdminSessionController;
+use App\Http\Controllers\AdminStaffPermissionController;
 use App\Http\Controllers\ChargerCommandController;
 use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
@@ -185,5 +185,6 @@ Route::get('/api/stations/{station}/information', [StationInformationController:
 Route::put('/api/stations/{station}/information', [StationInformationController::class, 'save'])->whereNumber('station')->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/vendor/stations', function (Request $r) {
     abort_unless($r->user()->role === 'vendor', 403);
+
     return Station::where('vendor_id', $r->user()->id)->orderByDesc('id')->paginate(25);
 })->middleware(['auth', 'throttle:platform-api']);

@@ -19,12 +19,12 @@ final class Agent3SyntheticQueueRecoveryProbe implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public const TOKEN = 'SYNTHETIC_AGENT3_RECOVERY_V1';
+
     public const INTENT = 'queue-snapshot-intent';
+
     public const COMPLETED = 'queue-snapshot-executed';
 
-    public function __construct(public string $token)
-    {
-    }
+    public function __construct(public string $token) {}
 
     public function handle(): void
     {

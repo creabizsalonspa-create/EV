@@ -14,12 +14,14 @@ use App\Models\VendorOps\VendorKycDocument;
 use App\Models\VendorOps\VendorSite;
 use App\Services\VendorOps\VendorAccess;
 use App\Services\VendorOps\VendorCreation;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use League\Flysystem\UnableToReadFile;
 
 class VendorOpsController extends Controller
 {
@@ -230,7 +232,7 @@ class VendorOpsController extends Controller
                 return null;
             }
             $contents = Crypt::decryptString($encrypted);
-        } catch (\Illuminate\Contracts\Encryption\DecryptException|\League\Flysystem\UnableToReadFile) {
+        } catch (DecryptException|UnableToReadFile) {
             return null;
         }
 
