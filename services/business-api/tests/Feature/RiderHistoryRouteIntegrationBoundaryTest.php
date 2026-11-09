@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\RiderAccessController;
+use App\Services\Charging\RiderAccessHistory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -46,6 +47,8 @@ class RiderHistoryRouteIntegrationBoundaryTest extends TestCase
         foreach (['activity', 'grantActivity'] as $action) {
             $registered = $this->registered($action);
             if (! method_exists(RiderAccessController::class, $action)) {
+                $this->assertFalse(class_exists(RiderAccessHistory::class),
+                    'The integrated history service must retain its '.$action.' controller action');
                 $this->assertCount(0, $registered, 'Do not register an absent controller action');
 
                 continue;
