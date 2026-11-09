@@ -242,3 +242,25 @@ restore and the merged integration gate remain **unverified** on this commit.
 A previous isolated PR #54 Python suite ran successfully (99 tests) on
 `ea6ec4660188230ae9ba1ba46236f97f4e82bff0`; it does not establish
 PHP tests or acceptance of the new queue-probe changes.
+
+### Effective PostgreSQL authentication and data-volume confinement
+
+The disposable recovery container inspector now rejects an unreviewed
+`POSTGRES_HOST_AUTH_METHOD=trust` or `md5` override: a strong
+`POSTGRES_PASSWORD` alone does **not** prove authenticated host connections
+when this entrypoint setting bypasses or weakens authentication. It permits
+the expected image-default mode or the explicitly reviewed
+`scram-sha-256` mode.
+
+The inspector also rejects nonempty `POSTGRES_INITDB_ARGS` and
+`POSTGRES_INITDB_WALDIR` and requires any inherited `PGDATA` directory
+to remain `/var/lib/postgresql/data`, the exact volume destination
+already checked by the runtime guard. This prevents a modified initdb
+authentication command or database/WAL path from making a disposable
+restore pass while bypassing the reviewed persistence layout.
+
+Synthetic no-Docker tests prove the reviewed baseline and explicit secure
+settings pass and reject seven adversarial database initialization/env
+variants plus a separate PostGIS trust-authentication override. This protects the recovery *evidence boundary* only; a production
+PostgreSQL authentication audit, PITR, network firewall, offsite backup
+review, and actual deployed Docker/PostGIS restore are separate gates.

@@ -159,6 +159,17 @@ def validate_db_environment(config, reviewed_image):
             'Recovery database identity differs from synthetic source')
     require(re.fullmatch(r'[a-f0-9]{64}', entries.get('POSTGRES_PASSWORD', '')) is not None,
             'Recovery database credential missing or invalid')
+    # POSTGRES_HOST_AUTH_METHOD=trust overrides authentication despite a
+    # strong POSTGRES_PASSWORD. Initdb arguments and WAL/PGDATA redirects
+    # can bypass the reviewed volume and change what the restore proves.
+    require(entries.get('POSTGRES_HOST_AUTH_METHOD') in
+            (None, '', 'scram-sha-256'),
+            'Unreviewed recovery PostgreSQL authentication mode')
+    for key in ('POSTGRES_INITDB_ARGS', 'POSTGRES_INITDB_WALDIR'):
+        require(not entries.get(key),
+                'Unreviewed recovery PostgreSQL initialization override: ' + key)
+    require(entries.get('PGDATA') in (None, '/var/lib/postgresql/data'),
+            'Recovery PostgreSQL data directory differs from reviewed mount')
     return entries
 
 

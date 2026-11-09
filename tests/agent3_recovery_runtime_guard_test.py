@@ -334,6 +334,50 @@ class RecoveryIsolationTests(unittest.TestCase):
             g.validate_containers(postgis, S, T,
                                   ['source-db'], ['target-db'], csms_image)
 
+    def test_postgresql_initdb_authentication_and_storage_fail_closed(self):
+        rows = [container('source-db', S, 'source-pgdata'),
+                container('target-db', T, 'target-pgdata')]
+        args = (S, T, ['source-db'], ['target-db'], DB_IMAGE)
+        g.validate_containers(rows, *args)
+
+        secure = copy.deepcopy(rows)
+        secure[0]['Config']['Env'].extend([
+            'POSTGRES_HOST_AUTH_METHOD=scram-sha-256',
+            'PGDATA=/var/lib/postgresql/data',
+        ])
+        g.validate_containers(secure, *args)
+
+        for index, value in (
+            (0, 'POSTGRES_HOST_AUTH_METHOD=trust'),
+            (1, 'POSTGRES_HOST_AUTH_METHOD=md5'),
+            (0, 'POSTGRES_INITDB_ARGS=--auth-host=trust'),
+            (1, 'POSTGRES_INITDB_ARGS=--auth-local=trust'),
+            (0, 'POSTGRES_INITDB_WALDIR=/tmp/unreviewed-wal'),
+            (1, 'PGDATA=/tmp/unreviewed-data'),
+            (0, 'PGDATA='),
+        ):
+            with self.subTest(container=index, key=value.split('=')[0]):
+                changed = copy.deepcopy(rows)
+                changed[index]['Config']['Env'].append(value)
+                with self.assertRaises(g.IsolationError):
+                    g.validate_containers(changed, *args)
+
+        # The same guard must cover the independent CSMS/PostGIS fixture.
+        postgis_image = 'postgis/postgis:16-3.5@sha256:' + 'a' * 64
+        postgis = copy.deepcopy(rows)
+        for row in postgis:
+            row['Config']['Image'] = postgis_image
+            row['Config']['Env'] = [
+                field.replace('ev_recovery_review', 'ev_csms_recovery')
+                for field in row['Config']['Env']
+            ]
+        g.validate_containers(postgis, S, T,
+                              ['source-db'], ['target-db'], postgis_image)
+        postgis[0]['Config']['Env'].append('POSTGRES_HOST_AUTH_METHOD=trust')
+        with self.assertRaises(g.IsolationError):
+            g.validate_containers(postgis, S, T,
+                                  ['source-db'], ['target-db'], postgis_image)
+
     def test_effective_runtime_must_be_running_and_never_restart(self):
         rows = [container('source-db', S, 'source'),
                 container('target-db', T, 'target')]
