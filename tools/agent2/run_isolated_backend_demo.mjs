@@ -48,7 +48,7 @@ const data=mkdtempSync(join(source,'.agent2-isolated-mongo-'));
 const mongoPort=await freePort();
 const uri='mongodb://127.0.0.1:'+mongoPort+'/agent2_demo_ephemeral';
 const mongod=spawn('mongod',['--dbpath',data,'--port',String(mongoPort),'--bind_ip','127.0.0.1',
-  '--logpath',join(data,'mongod.log'),'--quiet'],{stdio:'ignore'});
+  '--nounixsocket','--logpath',join(data,'mongod.log'),'--quiet'],{stdio:'ignore'});
 process.env.MONGODB_URI=uri;
 process.env.JWT_SECRET='agent2-ephemeral-local-test-secret-not-for-production';
 process.env.JWT_SECRET_EXPIRES_IN='1h';
@@ -109,7 +109,7 @@ try{
     ...(body===undefined?{}:{body:JSON.stringify(body)}),
     redirect:'manual'});
   let json=null;const bodyText=await res.text();try{json=JSON.parse(bodyText);}catch{}
-  return {code:res.status,body:json,text:bodyText,cacheControl:res.headers.get('cache-control')};
+  return {code:res.status,body:json,text:bodyText,cacheControl:res.headers.get('cache-control'),vary:res.headers.get('vary')};
  }
  async function check(label,fn){await fn();passed++;console.log('PASS '+label);}
  await check('history cursor indexes preserve existing source-binding uniqueness',async()=>{
@@ -1425,6 +1425,57 @@ try{
     assert.equal(/ocppTokenHash|idTagHash|idTokenHash|oneTimeToken|secretHash/.test(
       JSON.stringify(allowed.body)),false);
   });
+  // Reproduce legacy ambiguous registry rows ONLY in this harness-owned DB.
+  // Restore its unique index before the remaining protocol/browser scenarios.
+  {
+   assert.equal(mongoose.connection.name,'agent2_demo_ephemeral');
+   assert.equal(uri,'mongodb://127.0.0.1:'+mongoPort+'/agent2_demo_ephemeral');
+   const registry=db.collection('ocpp_chargers');
+   const original=await registry.findOne({chargerId:historyLink.sourceChargerId});
+   assert.ok(original);
+   const unique=(await registry.indexes()).filter(i=>i.unique===true&&
+     Object.keys(i.key).length===1&&i.key.chargerId===1);
+   assert.equal(unique.length,1);assert.equal(unique[0].name,'chargerId_1');
+   await registry.dropIndex('chargerId_1');
+   let duplicateId=null;
+   try{
+    for(const [label,patch] of [
+     ['same-station',{}],['disabled',{enabled:false}],
+     ['cross-station',{stationId:String(new mongoose.Types.ObjectId())}],
+     ['conflicting-protocol',{protocol:original.protocol==='ocpp1.6'?'ocpp2.0.1':'ocpp1.6'}]
+    ])await check('actual API redacts '+label+' duplicate charger identity across status/summary/history',async()=>{
+     const {_id,...fields}=original;
+     duplicateId=(await registry.insertOne({...fields,...patch})).insertedId;
+     try{
+      const status=await request('GET','/api/v1/ChargingSession/'+historyLink._id+'/status',undefined,true);
+      assert.equal(status.code,200);assert.equal(status.body.data.sourceVerified,false);
+      assert.equal(status.body.data.kwhUsed,null);assert.equal(status.body.data.canStop,false);
+      const summary=await request('GET','/api/v1/ChargingSession/'+historyLink._id+'/summary',undefined,true);
+      assert.equal(summary.body.status,'fail');
+      for(const [path,customer,headers] of [
+       [historyDetail,true,{}],
+       ['/api/v1/admin/ocpp/charging-history/'+historyLink._id,false,{authorization:adminBearer}]
+      ]){
+       const response=await request('GET',path,undefined,customer,headers);
+       assert.equal(response.code,200);assert.equal(response.body.data.sourceVerified,false);
+       assert.equal(response.body.data.energyKwh,null);assert.equal(response.body.data.totalFils,null);
+       assert.equal(response.body.data.sourceSessionId,null);assert.equal(response.body.data.transactionId,null);
+       assert.equal(response.body.data.reviewReason,'charger_mapping_unavailable');
+       assert.ok(response.cacheControl.includes('no-store'));assert.ok(response.vary.includes('Authorization'));
+      }
+     }finally{await registry.deleteOne({_id:duplicateId});duplicateId=null;}
+    });
+   }finally{
+    if(duplicateId)await registry.deleteOne({_id:duplicateId});
+    await registry.createIndex({chargerId:1},{unique:true,name:'chargerId_1'});
+   }
+   await check('actual registry ambiguity test restores original identity and disposable unique index',async()=>{
+    assert.equal(await registry.countDocuments({chargerId:original.chargerId}),1);
+    assert.equal((await registry.indexes()).find(i=>i.name==='chargerId_1').unique,true);
+    const history=await request('GET',historyDetail,undefined,true);
+    assert.equal(history.body.data.sourceVerified,true);assert.equal(history.body.data.energyKwh,7);
+   });
+  }
   await check('history seek pages contain only owned links and never repeat rows',async()=>{
     const foreignBooking=await BookingModel.create({
       userId:historyForeign._id,stationId:multiStation._id,date:'2027-03-01',

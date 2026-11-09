@@ -4,15 +4,20 @@
 set -Eeuo pipefail
 umask 077
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-stage_root="/home/hasio/agent2-work"
-backend="/home/hasio/ev-deployment/admin/UV Charging"
-gateway="/home/hasio/ev-deployment/ocpp-gateway-next"
-admin="/home/hasio/ev-deployment/admin-password-rotation"
+stage_root="${AGENT2_STAGE_ROOT:-/home/hasio/agent2-work}"
+backend="${AGENT2_SOURCE_BACKEND:-/home/hasio/ev-deployment/admin/UV Charging}"
+gateway="${AGENT2_SOURCE_GATEWAY:-/home/hasio/ev-deployment/ocpp-gateway-next}"
+admin="${AGENT2_SOURCE_ADMIN:-/home/hasio/ev-deployment/admin-password-rotation}"
 if [[ ! -d "$stage_root" || ! -f "$backend/src/app.js" ||
       ! -f "$gateway/ocpp-handlers.mjs" || ! -f "$admin/package.json" ]]; then
   echo "Authorized source missing; no test or deployment performed" >&2
   exit 2
 fi
+stage_root="$(realpath -e "$stage_root")"
+case "$stage_root" in
+  /home/hasio/ev-deployment|/home/hasio/ev-deployment/*)
+    echo "Refusing test writes below deployed source" >&2; exit 2;;
+esac
 work="$(mktemp -d "$stage_root/isolated-validation-XXXXXXXX")"
 logdir="$stage_root/validation-logs"
 mkdir -p "$logdir"
@@ -118,6 +123,7 @@ if [[ "$browser_flag" == "1" ]]; then
   server_pid=$!
   ready=0
   for i in $(seq 1 30); do
+    kill -0 "$server_pid" 2>/dev/null || break
     if curl -s --max-time 2 -o /dev/null "http://127.0.0.1:$port/bookings"; then
       ready=1; break
     fi

@@ -17,7 +17,7 @@ export async function runActualAdminBrowser({
  assert.equal(typeof endSource,'function');
  const imported=await import(process.env.PUPPETEER_PATH||'puppeteer');
  const browser=await (imported.default||imported).launch({
-   executablePath:process.env.CHROME_PATH||undefined,headless:true,
+   executablePath:process.env.CHROME_PATH||undefined,headless:true,pipe:true,
    args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']
  });
  let passed=0,relayError=null,calls=0,mutations=0;

@@ -1,5 +1,33 @@
 # Agent 2 standing continuation checkpoint
 
+## Original-source local acceptance — November 10, 2026
+
+The original host reconnected. Read-only in-memory transfer copied96 source,
+package/lock/config/asset files to the local workspace, with all hashes verified;
+no host file or production state changed. Proprietary source/env/dependencies
+are not committed. The isolated full-source wrapper now accepts explicit local
+source/staging paths and refuses writes below deployed source. Owned Mongo uses
+no Unix socket; actual Chrome uses pipe transport.
+
+Final exact business-source checks:186 Node,15 Python,13 callback HTTP,154 real
+Express/Mongo/OCPP, original Admin strict TypeScript/production Next build,21
+mocked booking Chrome and13 real-API Chrome. Integrated backend checkpoint155
+includes its browser wrapper case; do not add/double-count that as new scope.
+Four actual API regressions simulate duplicate registry rows only inside the
+harness-owned DB; its chargerId uniqueness index is restored before later tests.
+Parent component-only12 history browser cases remain separately qualified.
+Evidence:docs/evidence/agent2-local-original-source-acceptance/validation.json.
+
+Original host availability no longer blocks this exact source acceptance. Latest
+combined native gate is in progress locally. SDK startup originally attempted
+Azure metadata and was blocked by automatic review; inspected SDK bot_detector
+source shows CI=true short-circuits the detector before a metadata request. Use
+that supported setting for future local runs; do not weaken network controls.
+Canonical identity/capacity/expiry/paid-reschedule contracts, exact-head hosted/
+native release gates and Agent4 integration remain pending. No full-atom,
+coverage-percentage, physical charger, merchant or production acceptance.
+
+
 ## Admin history response and identity fences — November 10, 2026
 
 History presentation now validates actual backend row/page evidence, bounded

@@ -1,3 +1,27 @@
+## Local original-source acceptance and portable reproduction
+
+The full-source runner accepts read-only authorized source copies through
+`AGENT2_SOURCE_BACKEND`, `AGENT2_SOURCE_GATEWAY`, `AGENT2_SOURCE_ADMIN`, and an
+existing local `AGENT2_STAGE_ROOT`. Defaults retain the original host layout.
+The stage root is resolved before use and cannot be below deployed source.
+Prepare backend/Admin dependencies from their original locks in those local
+copies; supply an official `mongod` on PATH plus headless Chrome/Puppeteer for
+`RUN_AGENT2_BROWSER=1 RUN_AGENT2_REAL_BROWSER=1`. No production env files are
+needed or copied. All test listeners bind127.0.0.1; only owned temporary services
+and data are removed. No source files or fixtures need to be written on the host.
+
+Current final local evidence includes186 Node,15 Python,13 HTTP callback,
+154 actual Express/Mongo/OCPP checks, the purchased Admin TypeScript/Next build,
+21 mocked booking Chrome cases and13 actual API Chrome cases. Four new real API
+regressions introduce ambiguous registry records only inside the harness-owned
+`agent2_demo_ephemeral` DB; its unique charger index is restored before later
+scenarios. Never run these fixture corruptions against an external DB. The
+runner creates its own URI and does not accept an external connection string.
+
+Exact hashes and scope: `docs/evidence/agent2-local-original-source-acceptance/validation.json`.
+Native/hosted release gates, canonical capacity/identity/finance contracts and
+Agent4 integration remain pending; hardware/PSP/production acceptance is separate.
+
 ## Explicit booking calendars and read-only capacity preflight
 
 The staged API accepts full `YYYY-MM-DD` calendar identity, rejects impossible
