@@ -34,6 +34,7 @@ class AccountStatusGate
             if ($request->isMethod('POST') && $request->is('api/v1/logout')) {
                 return $next($request);
             }
+
             return response()->json(['message' => 'Account access is unavailable.'], 403)
                 ->header('Cache-Control', 'no-store, private');
         }

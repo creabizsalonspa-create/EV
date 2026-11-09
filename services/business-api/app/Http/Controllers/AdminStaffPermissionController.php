@@ -59,6 +59,7 @@ class AdminStaffPermissionController extends Controller
         $view = $page->through(function (VendorCompanyStaff $staff) use ($companies, $users) {
             $company = $companies->get($staff->company_id);
             $user = $users->get($staff->user_id);
+
             return [
                 'id' => $staff->id,
                 'company_id' => $staff->company_id,
