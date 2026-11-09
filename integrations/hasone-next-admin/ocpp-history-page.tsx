@@ -1,7 +1,8 @@
 "use client";
-import {useEffect,useRef,useState} from "react";
+import {useCallback,useEffect,useRef,useState} from "react";
 import api from "@/lib/api";
 import {useTheme} from "@/lib/ThemeContext";
+import {validOcppHistoryPage,validOcppHistoryRow} from "./ocppHistoryEvidence.mjs";
 
 type Row={
  sessionId:string;bookingId:string;stationName:string;chargerId:string|null;
@@ -15,6 +16,7 @@ type Row={
 type Page={entries:Row[];scanned:number;unavailableCount:number;hasMore:boolean;
  nextCursor:string|null;currency:string;billingMode:string;readOnly:boolean};
 const id=(s:string)=>/^[a-f0-9]{24}$/i.test(s);
+const adminIdentity=()=>{try{return window.localStorage.getItem("admin_token")||"";}catch{return "";}};
 export default function OcppHistoryPage(){
  const {theme}=useTheme();
  const dark=theme==="dark";
@@ -28,38 +30,63 @@ export default function OcppHistoryPage(){
  const [detail,setDetail]=useState<Row|null>(null);
  const [detailLoading,setDetailLoading]=useState(false);
  const version=useRef(0),detailVersion=useRef(0);
+ const owner=useRef("");
  const [reload,setReload]=useState(0);
+ const clearPrivate=useCallback(()=>{
+   version.current++;detailVersion.current++;setPage(null);setDetail(null);
+   setLoading(false);setDetailLoading(false);setError("");
+ },[]);
+ const identityChanged=useCallback(()=>{
+   const current=adminIdentity();
+   if(current===owner.current)return;
+   owner.current=current;clearPrivate();setCursors([null]);setIndex(0);setReload(v=>v+1);
+ },[clearPrivate]);
+ useEffect(()=>{
+   owner.current=adminIdentity();
+   window.addEventListener("storage",identityChanged);window.addEventListener("focus",identityChanged);
+   return ()=>{window.removeEventListener("storage",identityChanged);window.removeEventListener("focus",identityChanged);};
+ },[identityChanged]);
  useEffect(()=>{
    const request=++version.current;
+   const identity=adminIdentity();owner.current=identity;
+   const accept=()=>{
+     if(identity!==adminIdentity()){identityChanged();return false;}
+     return !!identity&&request===version.current;
+   };
    setLoading(true);setError("");setPage(null);setDetail(null);setDetailLoading(false);detailVersion.current++;
+   if(!identity){setLoading(false);return;}
    const cursor=cursors[index];
    api.get("/admin/ocpp/charging-history",{params:{limit:25,...(cursor?{cursor}:{})}})
      .then(response=>{
        const data=response.data?.data as Page;
-       if(response.data?.status!=="Success" || !data || !Array.isArray(data.entries) ||
-          data.readOnly!==true || data.currency!=="AED" ||
-          data.billingMode!=="calculation_only_no_collection" ||
-          (data.hasMore && (!data.nextCursor || !id(data.nextCursor))))
+       if(!validOcppHistoryPage(response.data,{cursor,limit:25}))
          throw Error("Invalid history response");
-       if(request===version.current)setPage(data);
+       if(accept())setPage(data);
      }).catch(()=>{
-       if(request===version.current)setError("history");
-     }).finally(()=>{if(request===version.current)setLoading(false);});
+       if(accept())setError("history");
+     }).finally(()=>{if(accept())setLoading(false);});
    return ()=>{version.current++;};
- },[cursors,index,reload]);
+ },[cursors,index,reload,identityChanged]);
  useEffect(()=>()=>{detailVersion.current++;},[]);
- async function inspect(sessionId:string){
+ async function inspect(selected:Row){
+   const sessionId=selected.sessionId;
    if(!id(sessionId))return;
+   const identity=adminIdentity(),listVersion=version.current;
+   if(!identity||identity!==owner.current){identityChanged();return;}
    const request=++detailVersion.current;
+   const accept=()=>{
+     if(identity!==adminIdentity()){identityChanged();return false;}
+     return request===detailVersion.current&&listVersion===version.current;
+   };
    setDetail(null);setDetailLoading(true);setError("");
    try{
      const response=await api.get("/admin/ocpp/charging-history/"+sessionId);
      const row=response.data?.data as Row;
-     if(response.data?.status!=="Success" || !row || row.readOnly!==true ||
-        row.sessionId!==sessionId)throw Error("Invalid source detail");
-     if(request===detailVersion.current)setDetail(row);
-   }catch{if(request===detailVersion.current)setError("detail");}
-   finally{if(request===detailVersion.current)setDetailLoading(false);}
+     if(response.data?.status!=="Success" ||
+        !validOcppHistoryRow(row,{sessionId,bookingId:selected.bookingId}))throw Error("Invalid source detail");
+     if(accept())setDetail(row);
+   }catch{if(accept())setError("detail");}
+   finally{if(accept())setDetailLoading(false);}
  }
  const shell=dark?"border-slate-700 bg-[#1E2A3A]":"border-slate-200 bg-white";
  const number=(value:number|null,suffix="")=>value===null?"—":
@@ -73,7 +100,7 @@ export default function OcppHistoryPage(){
        <button className="rounded border px-3 py-2" onClick={()=>setArabic(v=>!v)}
          aria-label="Change history language">{arabic?"English":"العربية"}</button>
        <button className="rounded border px-3 py-2" disabled={loading}
-         onClick={()=>{setCursors([null]);setIndex(0);setReload(v=>v+1);}}>
+         onClick={()=>{clearPrivate();setCursors([null]);setIndex(0);setReload(v=>v+1);}}>
          {t("Refresh history","تحديث السجل")}</button>
      </div>
    </div>
@@ -101,7 +128,7 @@ export default function OcppHistoryPage(){
          <td className="p-3">{number(row.calculatedUnpaidAed," AED")}</td>
          <td className="p-3"><button aria-label={"Inspect history "+row.sessionId}
            className="rounded border px-3 py-2" disabled={loading||detailLoading}
-           onClick={()=>void inspect(row.sessionId)}>{t("Inspect evidence","فحص الأدلة")}</button></td>
+           onClick={()=>void inspect(row)}>{t("Inspect evidence","فحص الأدلة")}</button></td>
        </tr>)}
      </tbody></table>
      {page.entries.length===0&&!loading&&<p className="p-5">{t("No history records on this page.","لا توجد سجلات في هذه الصفحة.")}</p>}

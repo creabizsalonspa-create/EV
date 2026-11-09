@@ -35,7 +35,9 @@ const logs=reportPath.replace(/\.json$/,'')+'-logs';await mkdir(logs,{recursive:
 const sourceFiles=['integrations/hasone-next-admin/OcppBookingWorkflow.tsx',
  'integrations/hasone-next-admin/ocppWorkflowEvidence.mjs','integrations/hasone-next-admin/ocppWorkflowEvidence.d.mts',
  'tools/agent2/test_next_admin_multicharger_browser.mjs','tools/agent2/run_admin_component_validation.mjs',
- 'tools/agent2/admin-component-fixture.package.json','tools/agent2/admin-component-fixture.package-lock.json'];
+ 'tools/agent2/admin-component-fixture.package.json','tools/agent2/admin-component-fixture.package-lock.json',
+ 'integrations/hasone-next-admin/ocpp-history-page.tsx','integrations/hasone-next-admin/ocppHistoryEvidence.mjs',
+ 'integrations/hasone-next-admin/ocppHistoryEvidence.d.mts','tools/agent2/test_admin_history_browser.mjs'];
 const blobs={},snapshots=new Map();for(const name of sourceFiles){const bytes=await readFile(join(repo,name));snapshots.set(name,bytes);
  blobs[name]=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');}
 let server;
@@ -49,7 +51,7 @@ async function run(label,command,args){
  console.log('PASS '+label);return {output,logPath,sha256:createHash('sha256').update(output).digest('hex')};
 }
 try{
- for(const dir of ['app/bookings','app/login','components','lib'])await mkdir(join(work,dir),{recursive:true});
+ for(const dir of ['app/bookings','app/login','app/ocpp-history','components','lib'])await mkdir(join(work,dir),{recursive:true});
  await symlink(join(deps,'node_modules'),join(work,'node_modules'),'dir');
  await writeFile(join(work,'package.json'),JSON.stringify(packages));
  await writeFile(join(work,'next.config.mjs'),`export default {outputFileTracingRoot:${JSON.stringify(work)},experimental:{cpus:2}};\n`);
@@ -58,19 +60,24 @@ try{
   allowJs:true,skipLibCheck:true,isolatedModules:true,baseUrl:'.',paths:{'@/*':['./*']}},include:['**/*.ts','**/*.tsx','.next/types/**/*.ts'],exclude:['node_modules']}));
  for(const name of sourceFiles.slice(0,3))await writeFile(join(work,'components',name.split('/').at(-1)),snapshots.get(name));
  await writeFile(join(work,'mocked-browser.mjs'),snapshots.get('tools/agent2/test_next_admin_multicharger_browser.mjs'));
+ await writeFile(join(work,'history-browser.mjs'),snapshots.get('tools/agent2/test_admin_history_browser.mjs'));
+ for(const name of ['ocpp-history-page.tsx','ocppHistoryEvidence.mjs','ocppHistoryEvidence.d.mts'])
+  await writeFile(join(work,'app/ocpp-history',name==='ocpp-history-page.tsx'?'page.tsx':name),
+    snapshots.get('integrations/hasone-next-admin/'+name));
  await writeFile(join(work,'app/layout.tsx'),`export default function Root({children}:{children:React.ReactNode}){return <html lang="en"><body>{children}</body></html>}`);
  const marker='agent2-fixture-'+createHash('sha256').update(work).digest('hex').slice(0,16);
  await writeFile(join(work,'app/login/page.tsx'),`export default function Login(){return <main>Synthetic test login ${marker}</main>}`);
  await writeFile(join(work,'lib/ThemeContext.tsx'),`"use client";export const useTheme=()=>({theme:"light"});`);
  await writeFile(join(work,'lib/api.ts'),`"use client";
-async function request(path:string,body?:unknown){
- const res=await fetch('/api/v1'+path,{method:body===undefined?'GET':'POST',headers:{
+async function request(path:string,body?:unknown,params?:Record<string,string|number>){
+ const query=params?new URLSearchParams(Object.entries(params).map(([k,v])=>[k,String(v)])).toString():'';
+ const res=await fetch('/api/v1'+path+(query?(path.includes('?')?'&':'?')+query:''),{method:body===undefined?'GET':'POST',headers:{
  'Content-Type':'application/json',Authorization:'Bearer '+(localStorage.getItem('admin_token')||'')},
  ...(body===undefined?{}:{body:JSON.stringify(body)})});
  const data=await res.json();if(!res.ok)throw Object.assign(new Error('Synthetic HTTP failure'),{response:{data,status:res.status}});
  return {data,status:res.status};
 }
-export default {get:(path:string)=>request(path),post:(path:string,body:unknown)=>request(path,body)};
+export default {get:(path:string,options?:{params?:Record<string,string|number>})=>request(path,undefined,options?.params),post:(path:string,body:unknown)=>request(path,body)};
 `);
  await writeFile(join(work,'app/bookings/page.tsx'),`"use client";
 import {useEffect,useState} from 'react';import {useRouter} from 'next/navigation';
@@ -100,16 +107,19 @@ export default function Bookings(){const router=useRouter();const [rows,setRows]
  const browser=await run('mocked-browser',process.execPath,[join(work,'mocked-browser.mjs'),'http://127.0.0.1:'+port]);
  const count=Number(browser.output.match(/STAGED_NEXT_ADMIN_BROWSER_TESTS_PASSED (\d+)/)?.[1]);
  if(!Number.isInteger(count)||count<21)throw Error('Expanded mocked-browser suite did not report all expected cases');
+ const history=await run('history-browser',process.execPath,[join(work,'history-browser.mjs'),'http://127.0.0.1:'+port]);
+ const historyCount=Number(history.output.match(/ADMIN_HISTORY_BROWSER_PASSED (\d+)/)?.[1]);
+ if(!Number.isInteger(historyCount)||historyCount<12)throw Error('History browser suite did not report all expected cases');
  for(const [name,bytes] of snapshots)if(!(await readFile(join(repo,name))).equals(bytes))
   throw Error('Source changed during component verification: '+name);
  if(server.exitCode!==null||server.signalCode!==null)throw Error('Disposable Next server exited during browser checks');
  await writeFile(reportPath,JSON.stringify({status:'COMPONENT_FIXTURE_ONLY_PASS',source_blobs:blobs,versions,dependency_lock_sha256:createHash('sha256').update(pinnedLock).digest('hex'),
-  results:{next_build:'passed',typescript:'passed',mocked_browser:count},logs_sha256:{
-  next_build:build.sha256,typescript:types.sha256,mocked_browser:browser.sha256},
+  results:{next_build:'passed',typescript:'passed',mocked_browser:count,history_browser:historyCount},logs_sha256:{
+  next_build:build.sha256,typescript:types.sha256,mocked_browser:browser.sha256,history_browser:history.sha256},
   limits:['Synthetic shell, theme and HTTP adapter; actual shipped component/helper copied unchanged',
   'Not the purchased Admin application build or actual Express/Mongo/browser acceptance',
   'No physical chargers, production services or PSP actions']},null,2)+'\n',{mode:0o600});
- console.log('ADMIN_COMPONENT_FIXTURE_PASS '+count);
+ console.log('ADMIN_COMPONENT_FIXTURE_PASS '+count+' HISTORY '+historyCount);
 }finally{
  if(server&&!server.killed&&server.exitCode===null&&server.signalCode===null){const exited=new Promise(done=>server.once('exit',done));server.kill('SIGTERM');await exited;}
  await rm(work,{recursive:true,force:true});

@@ -1,5 +1,26 @@
 # Agent 2 standing continuation checkpoint
 
+## Admin history response and identity fences — November 10, 2026
+
+History presentation now validates actual backend row/page evidence, bounded
+counts, ordered cursor progress, source/meter/price consistency and explicit
+read-only/not-collected state. Detail responses must match both selected session
+and booking. Admin identity changes clear private rows/details and invalidate
+late list/detail replies, including same-tab changes observed at response time.
+Next staging copies runtime/type guards unchanged and refuses dependency conflicts.
+
+Exact current local tests:186 Node,15 Python; Next16.1.6 production build and
+strict TypeScript;21 existing booking browser cases plus12 new history cases in
+the disposable synthetic shell. Tested component/helper/runner bytes all match
+source. Evidence:docs/evidence/agent2-admin-history-validation/validation.json.
+No original purchased-app/API or mobile/release pass is inferred. Registry batch
+95bc40f remains paired with this change. Both source hosts offline. Existing
+9cf3657 hosted success is historical for newer heads. Agent4 requested workflow
+scoping is applied:push only integration/default branches (default verified as
+platform-foundation), PR tests retained, event-separated concurrency, Admin source
+paths and Python contracts included. No override of required checks or merge.
+
+
 ## Unique registry reads — November 10, 2026
 
 Customer source status/summary and customer/Admin source history now resolve one

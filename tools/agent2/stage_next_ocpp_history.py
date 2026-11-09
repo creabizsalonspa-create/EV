@@ -8,13 +8,18 @@ def patch(root):
         raise RuntimeError("Refusing deployed Admin")
     sidebar=root/"components/Sidebar.tsx"
     target=root/"app/(admin)/ocpp-history/page.tsx"
-    src=Path(__file__).resolve().parents[2]/"integrations/hasone-next-admin/ocpp-history-page.tsx"
+    base=Path(__file__).resolve().parents[2]/"integrations/hasone-next-admin"
+    src=base/"ocpp-history-page.tsx"
+    dependencies={name:(base/name).read_bytes() for name in ["ocppHistoryEvidence.mjs","ocppHistoryEvidence.d.mts"]}
     text=sidebar.read_text()
     anchor='  { href: "/ocpp-sessions",   label: "OCPP Sessions",   icon: Zap },'
-    if text.count(anchor)!=1 or target.exists(): raise RuntimeError("History UI already staged or anchors changed")
+    if text.count(anchor)!=1 or target.exists() or any((target.parent/name).exists() for name in dependencies):
+        raise RuntimeError("History UI already staged or anchors changed")
+    source=src.read_bytes()
     text=text.replace(anchor,anchor+'\n  { href: "/ocpp-history",    label: "Charging History", icon: Zap },')
     target.parent.mkdir(parents=True)
-    target.write_text(src.read_text())
+    target.write_bytes(source)
+    for name,content in dependencies.items(): (target.parent/name).write_bytes(content)
     sidebar.write_text(text)
     print("STAGED_SOURCE_HISTORY_UI; production unchanged")
 if __name__=="__main__":

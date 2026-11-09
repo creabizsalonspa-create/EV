@@ -1,18 +1,25 @@
 name: Agent 2 EV integration validations
 on:
   push:
+    branches:
+      - development/fullstack-continuation
+      - development/platform-foundation
     paths:
       - 'integrations/hasone-express/**'
+      - 'integrations/hasone-next-admin/**'
       - 'tools/agent2/**'
+      - 'tests/agent2_*_test.py'
       - '.github/workflows/agent2-payment-integrity.yml'
   pull_request:
     paths:
       - 'integrations/hasone-express/**'
+      - 'integrations/hasone-next-admin/**'
       - 'tools/agent2/**'
+      - 'tests/agent2_*_test.py'
       - '.github/workflows/agent2-payment-integrity.yml'
 # Avoid wasting runner slots on superseded Agent 2 commits.
 concurrency:
-  group: agent2-integration-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: agent2-integration-${{ github.event_name }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   integration-guards:
@@ -31,6 +38,9 @@ jobs:
           node --check integrations/hasone-express/adminOcppBooking.js
           node --check integrations/hasone-express/ocppHistory.mjs
           node --check integrations/hasone-express/ocppHistoryController.js
+          node --check integrations/hasone-express/ocppChargerRegistry.mjs
+          node --check integrations/hasone-next-admin/ocppHistoryEvidence.mjs
+          node --check tools/agent2/test_admin_history_browser.mjs
           node --check integrations/hasone-express/adminMultiCharger.js
           node --check integrations/hasone-express/ocppStartAudit.mjs
           node --check integrations/hasone-express/ocppStartAuthorization.mjs
@@ -49,6 +59,8 @@ jobs:
           node --check tools/agent2/live-demo-readiness.mjs
       - name: Run pure payment and OCPP source evidence regression tests
         run: node --test integrations/hasone-express/tests/*.test.mjs
+      - name: Run Agent 2 synthetic source staging contracts
+        run: python3 -m unittest discover -s tests -p 'agent2_*_test.py'
       - name: Validate isolated staging wrapper syntax
         run: bash -n tools/agent2/run_all_isolated_validation.sh
       - name: Check Python staging scripts compile
