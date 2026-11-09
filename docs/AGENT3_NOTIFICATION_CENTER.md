@@ -343,3 +343,22 @@ Legacy SQL-NULL metadata notices remain in their original owner/role scope.
 The typed SQLite extraction is guarded by `json_valid` and PostgreSQL uses
 JSONB typed JSON paths; this does not replace a live PostgreSQL or hardware
 source acceptance test. No physical charging or provider event was produced.
+
+### Blank retained observation timestamps must not imply recovery
+
+Carbon's date parser accepts a blank timestamp as a request for the **current
+clock time**. A manually corrupted or historically empty
+`charging_status_observations.occurred_at` therefore must never become
+source-recovery evidence merely because other generation and binding fields
+still match. The bounded simulator fault-reminder scan now rejects empty
+and whitespace-only original fault timestamps. In the source-recovery
+closure branch, it also rejects empty or whitespace-only recovered
+timestamps rather than parsing them as `now`.
+
+A synthetic escalation regression checks both empty and whitespace-only
+retained recovery timestamps: the Admin escalation remains unresolved,
+the worker reports zero closures, and no source-recovered closure notice is
+created. A subsequent real, bounded source timestamp still permits the
+existing source-recovered closure. It is **source-only simulator evidence**:
+this does not establish physical charger repair, network delivery, or
+production acceptance.

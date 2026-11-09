@@ -287,6 +287,16 @@ class FaultReminderEscalatorTest extends TestCase
         DB::table('charging_status_observations')->where('id', $bad)
             ->update(['occurred_at' => now()->addMinutes(5)]);
         $this->assertSame(0, $worker->scan()['closed']);
+        // Carbon::parse('') resolves to now. A blank retained source time
+        // must not be misinterpreted as fresh physical or source recovery.
+        foreach (['', '   '] as $blankTime) {
+            DB::table('charging_status_observations')->where('id', $bad)
+                ->update(['occurred_at' => $blankTime]);
+            $this->assertSame(0, $worker->scan()['closed']);
+            $this->assertDatabaseHas('charging_fault_admin_escalations', [
+                'alert_id' => $f['alert'], 'resolution_source' => null,
+            ]);
+        }
         DB::table('charging_status_observations')->where('id', $bad)
             ->update(['occurred_at' => now()]);
         $this->assertSame(1, $worker->scan()['closed']);

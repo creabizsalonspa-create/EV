@@ -119,9 +119,13 @@ class FaultReminderEscalator
                     )) {
                     return false;
                 }
-                // A malformed retained source timestamp cannot terminate the
-                // bounded scan or starve other vendors. Never infer a valid
-                // overdue fault from an unparsable historical observation.
+                // Carbon::parse(null/empty) defaults to now, not an invalid
+                // timestamp. Never manufacture a time for retained evidence,
+                // even if all its source-generation ownership fields match.
+                if (! is_string($observation->occurred_at)
+                    || trim($observation->occurred_at) === '') {
+                    return false;
+                }
                 try {
                     $occurredAt = CarbonImmutable::parse($observation->occurred_at);
                 } catch (Throwable) {
@@ -138,7 +142,11 @@ class FaultReminderEscalator
                         $recovered = DB::table('charging_status_observations')
                             ->where('id', $alert->recovery_observation_id)->first();
                         $recoveredAt = null;
-                        if ($recovered) {
+                        // A blank historical recovery time is NOT recovery
+                        // evidence. Carbon would otherwise silently treat an
+                        // empty string as the current wall clock.
+                        if ($recovered && is_string($recovered->occurred_at)
+                            && trim($recovered->occurred_at) !== '') {
                             try {
                                 $recoveredAt = CarbonImmutable::parse($recovered->occurred_at);
                             } catch (Throwable) {
