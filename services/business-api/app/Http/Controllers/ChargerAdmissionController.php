@@ -7,7 +7,9 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\AdmissionIdentity;
 use App\Services\Charging\AdmissionLifecycle;
+use App\Services\Charging\ChargerCertificates;
 use App\Services\VendorOps\VendorAccess;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +31,7 @@ class ChargerAdmissionController extends Controller
         $this->scope($r, $company, $charger);
         $profile = AdmissionProfile::where('charger_id', $charger->id)->first();
 
-        return response()->json(['profile' => $profile, 'credential_state' => $profile ? app(AdmissionLifecycle::class)->state($profile) : null, 'can_manage' => $r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 'hardware_verified' => false, 'upstream_registration_verified' => false])->header('Cache-Control', 'no-store');
+        return response()->json(['profile' => $profile, 'credential_state' => $profile ? app(AdmissionLifecycle::class)->state($profile) : null, 'can_manage' => $r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 'certificate_management_available' => true, 'hardware_verified' => false, 'upstream_registration_verified' => false])->header('Cache-Control', 'no-store');
     }
 
     public function events(Request $r, VendorCompany $company, VendorCharger $charger)
@@ -81,8 +83,13 @@ class ChargerAdmissionController extends Controller
             $p = AdmissionProfile::where('charger_id', $charger->id)->lockForUpdate()->firstOrFail();
             abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $p->identity, $p->protocol, app()->environment('production')), 409, 'Charger identity requires canonical ownership review.');
             abort_unless($p->credential_version === (int) $v['expected_version'], 409, 'Credential changed; refresh before another explicit rotation.');
+            $certificate = app(ChargerCertificates::class)->usable($p);
+            $expiry = now()->addDays($v['days']);
+            if ($certificate && CarbonImmutable::parse($certificate->not_after)->lt($expiry)) {
+                $expiry = CarbonImmutable::parse($certificate->not_after);
+            }
             $secret = bin2hex(random_bytes(20));
-            $p->update(['credential_digest' => hash('sha256', $secret), 'credential_version' => $p->credential_version + 1, 'expires_at' => now()->addDays($v['days']), 'enabled' => true, 'revoked_at' => null]);
+            $p->update(['credential_digest' => hash('sha256', $secret), 'credential_version' => $p->credential_version + 1, 'expires_at' => $expiry, 'enabled' => true, 'revoked_at' => null]);
             $this->event($p, $r->user()->id, 'rotated');
 
             return response()->json(['profile' => $p, 'secret' => $secret, 'one_time' => true, 'hardware_verified' => false, 'upstream_registration_verified' => false], 201)->header('Cache-Control', 'no-store')->header('Pragma', 'no-cache');

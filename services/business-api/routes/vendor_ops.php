@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ChargerCertificateController;
 use App\Http\Controllers\ChargerConfigurationController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerDiagnosticsController;
@@ -86,3 +87,7 @@ Route::delete('/companies/{company}/chargers/{charger}/diagnostic-logs/{operatio
 Route::get('/companies/{company}/operational-analytics', [OperationalAnalyticsController::class, 'show']);
 Route::get('/companies/{company}/operational-analytics/export', [OperationalAnalyticsController::class, 'export']);
 Route::get('/companies/{company}/operational-analytics/pdf', [OperationalAnalyticsController::class, 'pdf']);
+
+Route::get('/companies/{company}/chargers/{charger}/admission/certificates', [ChargerCertificateController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/admission/certificates/resolve', [ChargerCertificateController::class, 'resolve']);
+Route::post('/companies/{company}/chargers/{charger}/admission/certificates/{action}', [ChargerCertificateController::class, 'apply'])->whereIn('action', ['enroll', 'revoke']);

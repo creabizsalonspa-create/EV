@@ -1,4 +1,13 @@
 window.EV_MESSAGES = {
+    "Charger certificates": { en: "Charger certificates", ar: "شهادات الشاحن" },
+    "admission.event.certificate_enroll": {
+        en: "Public client certificate enrolled; handshake credentials invalidated",
+        ar: "سُجلت شهادة عميل عامة وأُبطلت بيانات الاتصال",
+    },
+    "admission.event.certificate_revoke": {
+        en: "Client certificate revoked locally",
+        ar: "أُبطلت شهادة العميل محلياً",
+    },
     "Rider activity source.authorization.allowed": {
         en: "Source authorization allowed; transaction not implied",
         ar: "سُمح بتفويض المصدر؛ لا يعني ذلك بدء معاملة",

@@ -14,6 +14,7 @@ const groups = [
     "maintenance-windows",
   ], // 2+1+1+0+1+2+2 = 9 logins
   ["signed-firmware", "ocpi-credentials", "ocpi-incoming", "ocpi-receiver"], // signed delivery and two synthetic partner logins
+  ["charger-certificates"], // isolated PKI/TLS/owner controls; dedicated unchanged auth window
   ["rider-access", "charger-resets"], // six logins; separate unchanged auth window
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
   ["client-demo-lifecycle"], // six private fixture logins; dedicated window
