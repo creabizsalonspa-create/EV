@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\RiderAccessController;
+use App\Services\Charging\RiderAccessHistory;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
@@ -21,10 +22,13 @@ class RiderHistoryCrossTenantIntegrationTest extends TestCase
 
     public function test_rider_activity_history_is_private_to_token_owner_and_operator_company_on_both_mounts(): void
     {
-        if (! method_exists(RiderAccessController::class, 'activity')
-            || ! method_exists(RiderAccessController::class, 'grantActivity')) {
-            $this->markTestSkipped('Requires Agent1 rider history endpoints on the integrated branch.');
+        if (! class_exists(RiderAccessHistory::class)) {
+            $this->markTestSkipped('Requires Agent1 rider history service on the integrated branch.');
         }
+        // Once the service exists, missing activity controllers are a
+        // regression, not a reason to silently skip tenant privacy checks.
+        $this->assertTrue(method_exists(RiderAccessController::class, 'activity'));
+        $this->assertTrue(method_exists(RiderAccessController::class, 'grantActivity'));
 
         $owner = User::factory()->create(['role' => 'customer']);
         $otherCustomer = User::factory()->create(['role' => 'customer']);
