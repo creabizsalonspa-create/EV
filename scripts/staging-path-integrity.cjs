@@ -4,6 +4,7 @@
 // symlinked ancestor directories; require every ancestor to remain a real dir.
 const fs=require('node:fs');
 const path=require('node:path');
+const {createHash}=require('node:crypto');
 function snapshotFromParent(start) {
   const chain=[];
   let dir=start;
@@ -40,4 +41,12 @@ function assertAncestorsUnchanged(chain) {
   }
   return true;
 }
-module.exports={ancestorSnapshot,assertAncestorsUnchanged};
+// Retain directory lineage across separate baseline/rollout inspections
+// without placing absolute filesystem paths into serialized evidence.
+function ancestorFingerprint(chain) {
+  if (!Array.isArray(chain) || chain.length === 0) {
+    throw Error('Missing staging ancestor lineage for fingerprint');
+  }
+  return createHash('sha256').update(JSON.stringify(chain)).digest('hex');
+}
+module.exports={ancestorSnapshot,assertAncestorsUnchanged,ancestorFingerprint};

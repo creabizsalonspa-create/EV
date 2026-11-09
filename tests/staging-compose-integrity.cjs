@@ -32,6 +32,27 @@ test('atomic replacement with same content is rejected by inode identity',()=>sa
  fs.renameSync(newer,file);
  assert.throws(()=>gate.assertUnchanged(file,snapshot),/changed after review/);
 }));
+test('same Compose file inode moved across replacement real grandparent fails review',()=>sandbox(({dir,file})=>{
+ const grandparent=path.join(dir,'review-parent');
+ const nested=path.join(grandparent,'config');
+ fs.mkdirSync(nested,{recursive:true,mode:0o700});
+ const nestedFile=path.join(nested,'compose.yaml');
+ fs.renameSync(file,nestedFile);
+ const baseline=gate.capture(nestedFile);
+ const previous=path.join(dir,'old-review-parent');
+ fs.renameSync(grandparent,previous);
+ fs.mkdirSync(nested,{recursive:true,mode:0o700});
+ fs.renameSync(path.join(previous,'config','compose.yaml'),nestedFile);
+ assert.equal(fs.statSync(nestedFile).ino,baseline.ino);
+ assert.match(baseline.ancestorDigest,/^[a-f0-9]{64}$/);
+ assert.equal(JSON.stringify(baseline).includes(dir),false);
+ assert.throws(()=>gate.assertUnchanged(nestedFile,baseline),/changed after review/);
+}));
+test('Compose snapshot without baseline ancestor lineage is rejected',()=>sandbox(({file})=>{
+ const {ancestorDigest,...unbound}=gate.capture(file);
+ assert.ok(ancestorDigest);
+ assert.throws(()=>gate.assertUnchanged(file,unbound),/Missing reviewed/);
+}));
 test('file symlinks and parent-directory symlinks are rejected',()=>sandbox(({dir,file})=>{
  const link=path.join(dir,'alias');fs.symlinkSync(file,link);
  assert.throws(()=>gate.capture(link),/cannot be securely opened/);

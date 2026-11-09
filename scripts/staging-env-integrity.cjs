@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
-const {ancestorSnapshot,assertAncestorsUnchanged}=require('./staging-path-integrity.cjs');
+const {ancestorSnapshot,assertAncestorsUnchanged,ancestorFingerprint}=require('./staging-path-integrity.cjs');
 
 const MAX_ENV_BYTES = 128 * 1024;
 const MIN_ENV_BYTES = 20;
@@ -47,7 +47,7 @@ function capture(file) {
     }
     assertAncestorsUnchanged(ancestors);
     return Object.freeze({digest: createHash('sha256').update(buffer.subarray(0,count)).digest('hex'),
-      size:count, dev:before.dev, ino:before.ino});
+      size:count, dev:before.dev, ino:before.ino, ancestorDigest:ancestorFingerprint(ancestors)});
   } finally {
     buffer.fill(0);
     fs.closeSync(fd);
@@ -56,12 +56,14 @@ function capture(file) {
 
 function assertUnchanged(file, baseline) {
   if (!baseline || typeof baseline !== 'object' ||
-      !/^[a-f0-9]{64}$/.test(baseline.digest||'')) {
+      !/^[a-f0-9]{64}$/.test(baseline.digest||'') ||
+      !/^[a-f0-9]{64}$/.test(baseline.ancestorDigest||'')) {
     throw Error('Missing reviewed private staging environment identity');
   }
   const latest = capture(file);
   if (latest.digest !== baseline.digest || latest.size !== baseline.size ||
-      latest.dev !== baseline.dev || latest.ino !== baseline.ino) {
+      latest.dev !== baseline.dev || latest.ino !== baseline.ino ||
+      latest.ancestorDigest !== baseline.ancestorDigest) {
     throw Error('Private staging environment changed since preflight');
   }
   return true;
