@@ -36,6 +36,21 @@ jobs:
       - run: ./scripts/setup
       - run: ./scripts/php /usr/bin/composer validate --strict
       - run: ./scripts/php vendor/bin/pint --test
+      - name: Capture Pint formatting proposal without bypassing lint
+        if: failure()
+        run: |
+          # The preceding --test failure remains authoritative. These proposed
+          # corrections are confined to this disposable runner worktree.
+          mkdir -p artifacts/pint-review
+          ./scripts/php vendor/bin/pint
+          git diff --check
+          git diff -- services/business-api > artifacts/pint-review/formatter.patch
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: laravel-pint-review-proposal
+          path: artifacts/pint-review/formatter.patch
+          if-no-files-found: warn
       - name: Check reproducible42-category coverage
         run: |
           python3 scripts/requirement-coverage --check
@@ -168,6 +183,8 @@ jobs:
           /services/business-api/database/ev-image-guard.sqlite3-journal
           /services/business-api/.env.image-canary
           EV_STAGING_CANARIES
+      - name: Inspect staging checkout dirtiness without exposing contents
+        run: git status --porcelain --untracked-files=normal
       - name: Build pinned staging runtime and verify offline image boundaries
         run: ./scripts/staging-image-build creabiz-ev-business:ci-review
       - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership
