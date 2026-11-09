@@ -9,7 +9,7 @@ const doc=(id,booking,user='USER')=>({
 class Fixture{
  constructor(rows=[],dbName='agent2_demo_ephemeral'){
   this.dbName=dbName;
-  this.rows=rows.map(v=>({...v}));
+  this.rows=rows.map(v=>({...v}));this.writes=0;
   this.idx=[{name:'_id_',key:{_id:1},unique:true}];
  }
  active(){return this.rows.filter(x=>x.sourceType==='ocpp' &&
@@ -28,9 +28,9 @@ class Fixture{
  }
  async indexes(){return this.idx.map(x=>({...x,key:{...x.key}}));}
  async createIndex(key,options){
-  const name=options.name;
+  this.writes++;const name=options.name;
   if(this.idx.some(x=>x.name===name))return name;
-  const saved={name,key:{...key},unique:!!options.unique};
+  const saved={name,key:{...key},unique:!!options.unique,...(options.partialFilterExpression?{partialFilterExpression:options.partialFilterExpression}:{})};
   this.idx.push(saved);return name;
  }
 }
@@ -93,4 +93,46 @@ test('index creation is idempotent on verified staging data',async()=>{
  await ensureStagingOcppSourceBindingIndexes(c,{
    approval:'APPROVE_DISPOSABLE_BINDING_INDEXES'});
  assert.equal((await c.indexes()).length,3);
+});
+
+test('narrow partial filters never masquerade as source/booking uniqueness protection',async()=>{
+ const c=new Fixture();
+ c.idx.push({name:'uniq_linked_ocpp_source_session',key:{sourceSessionId:1},unique:true,
+  partialFilterExpression:{sourceType:'unverified',sourceSessionId:{$gt:''}}});
+ c.idx.push({name:'uniq_source_bound_ocpp_booking',key:{bookingId:1,userId:1},unique:true,
+  partialFilterExpression:{sourceType:'ocpp',sourceSessionId:{$gt:'z'}}});
+ const result=await auditOcppSourceBindingIndexes(c);
+ assert.equal(result.ready,false);assert.equal(result.hasUniqueSourceIndex,false);
+ assert.equal(result.hasUniqueBookingIndex,false);assert.equal(result.bindingUniquenessEnforced,false);
+ assert.equal(result.indexReviewRequired,true);assert.equal(c.writes,0);
+ await assert.rejects(()=>ensureStagingOcppSourceBindingIndexes(c,{approval:'APPROVE_DISPOSABLE_BINDING_INDEXES'}),/index review/);
+ assert.equal(c.writes,0);assert.equal(c.idx.length,3);
+});
+test('unfiltered unique indexes protect all bound rows without duplicate index creation',async()=>{
+ const c=new Fixture();c.idx.push({name:'global_source',key:{sourceSessionId:1},unique:true},
+  {name:'global_booking',key:{bookingId:1,userId:1},unique:true});
+ const report=await ensureStagingOcppSourceBindingIndexes(c,{approval:'APPROVE_DISPOSABLE_BINDING_INDEXES'});
+ assert.equal(report.bindingUniquenessEnforced,true);assert.equal(c.writes,0);
+});
+test('canonical filter property order is irrelevant while extra conditions require review',async()=>{
+ const c=new Fixture();c.idx.push({name:'source',key:{sourceSessionId:1},unique:true,
+  partialFilterExpression:{sourceSessionId:{$gt:''}}},{name:'booking',key:{userId:1,bookingId:1},unique:true,
+  partialFilterExpression:{sourceSessionId:{$gt:''},sourceType:'ocpp'}});
+ assert.equal((await auditOcppSourceBindingIndexes(c)).bindingUniquenessEnforced,true);
+ c.idx[2].partialFilterExpression.paymentStatus='paid';
+ const report=await auditOcppSourceBindingIndexes(c);
+ assert.equal(report.hasUniqueBookingIndex,false);assert.equal(report.indexReviewRequired,true);
+});
+test('wrong-key or non-unique canonical index names block writes before either create',async()=>{
+ for(const index of [{name:'uniq_source_bound_ocpp_booking',key:{bookingId:1},unique:true},
+  {name:'uniq_source_bound_ocpp_booking',key:{bookingId:1,userId:1},unique:false},
+  {name:'uniq_linked_ocpp_source_session',key:{sourceSessionId:1},unique:1}]){
+  const c=new Fixture();c.idx.push(index);
+  await assert.rejects(()=>ensureStagingOcppSourceBindingIndexes(c,{approval:'APPROVE_DISPOSABLE_BINDING_INDEXES'}),/index review/);
+  assert.equal(c.writes,0);
+ }
+});
+test('successful create acknowledgements alone cannot establish index enforcement',async()=>{
+ const c=new Fixture();c.createIndex=async()=>{c.writes++;return 'acknowledged-only';};
+ await assert.rejects(()=>ensureStagingOcppSourceBindingIndexes(c,{approval:'APPROVE_DISPOSABLE_BINDING_INDEXES'}),/enforcement could not be verified/);
 });

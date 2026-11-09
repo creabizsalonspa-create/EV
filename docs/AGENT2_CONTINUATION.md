@@ -1,5 +1,36 @@
 # Agent 2 standing continuation checkpoint
 
+## Current source-binding index coverage checkpoint — November 9, 2026
+
+The read-only audit now verifies actual partial-filter coverage instead of just
+index field names and unique=true. Only reviewed canonical filters or unfiltered
+unique indexes establish coverage. ready is a preflight result; the new
+bindingUniquenessEnforced flag separately requires both protections. Unknown/narrow
+filters and conflicting canonical names block the disposable ensure before writes.
+Valid existing protections are reused; creation is followed by metadata validation.
+No index is dropped or altered, and all existing staging/approval gates remain.
+
+Verified exact source:171 Node tests,10 actual isolated MongoDB7.0.14 checks with
+Mongo driver6.12.0, including two8-request races with exactly one winner each.
+A baseline reproduction demonstrated the old audit falsely claiming both indexes
+while all8 concurrent duplicate booking claims could insert through narrow filters.
+The fixed audit rejects those filters and leaves them untouched for review.
+Evidence:docs/evidence/agent2-source-binding-index-coverage/validation.json.
+
+Optional real-DB reproduction:
+`node tools/agent2/test_source_binding_indexes_mongo.mjs DEPS MONGOD REPORT.json`
+DEPS must supply mongodb6.12.0 and mongodb-memory-server-core10.2.3; use an official
+MongoDB7.0.14 binary. The runner accepts no external DB URI and starts/stops only
+its own loopback mongod with disposable data; it performs no production migration.
+
+The prior actual-component Next/TypeScript/21-case mocked Chrome fixture proof is
+unchanged. Original purchased-app/actual API final integration remains pending due
+to inaccessible source host. Latest Agent6 PR78 has advanced toa057bdc; the old
+c3a5d19 combined81-test evidence does NOT verify that newer head. Agent4 must
+refresh the combined native/release gates. Canonical identity/capacity/expiry/paid
+reschedule contracts and final integration remain incomplete. No full-atom,
+percentage, merge, hardware, PSP or production acceptance is claimed.
+
 ## Current local Admin component validation — November 9, 2026
 
 The actual response-fenced Admin component/helper now pass a production Next16.1.6
