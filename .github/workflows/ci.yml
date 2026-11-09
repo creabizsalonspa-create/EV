@@ -157,6 +157,17 @@ jobs:
             printf 'synthetic image-exclusion canary\n' > "services/business-api/database/ev-image-guard.$suffix"
           done
           printf 'EV_IMAGE_CANARY=synthetic-only\n' > services/business-api/.env.image-canary
+          # The five synthetic canaries must be present on disk to prove they
+          # cannot enter Docker, but must not turn a clean committed checkout
+          # into an untracked-source failure. Limit exclusions to these exact
+          # scratch paths for this one runner; unrelated files remain visible.
+          cat >> .git/info/exclude <<'EV_STAGING_CANARIES'
+          /services/business-api/database/ev-image-guard.sqlite
+          /services/business-api/database/ev-image-guard.sqlite3
+          /services/business-api/database/ev-image-guard.sqlite-wal
+          /services/business-api/database/ev-image-guard.sqlite3-journal
+          /services/business-api/.env.image-canary
+          EV_STAGING_CANARIES
       - name: Build pinned staging runtime and verify offline image boundaries
         run: ./scripts/staging-image-build creabiz-ev-business:ci-review
       - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership

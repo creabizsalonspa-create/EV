@@ -11,7 +11,8 @@ class LocalDemoConfigTest(unittest.TestCase):
     def test_android_only_explicit_loopback_domains_allow_debug_cleartext(self):
         main = ET.parse(root / 'android/app/src/main/AndroidManifest.xml').getroot()
         self.assertNotIn(android + 'networkSecurityConfig', main.find('application').attrib)
-        self.assertNotIn(android + 'usesCleartextTraffic', main.find('application').attrib)
+        # A production manifest may explicitly deny cleartext; only global enablement is forbidden.
+        self.assertIn(main.find('application').get(android + 'usesCleartextTraffic'), (None, 'false'))
         debug = ET.parse(root / 'android/app/src/debug/AndroidManifest.xml').getroot()
         self.assertEqual(debug.find('application').get(android + 'networkSecurityConfig'), '@xml/ev_debug_network_security')
         policy = ET.parse(root / 'android/app/src/debug/res/xml/ev_debug_network_security.xml').getroot()
