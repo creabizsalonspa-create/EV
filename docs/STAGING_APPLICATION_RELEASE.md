@@ -15,7 +15,7 @@ Build a **new tag** through the source-labeling builder and its existing image a
 ./scripts/staging-image-smoke creabiz-ev-business:review-NEW-SOURCE
 ```
 
-**CI image-build canaries:** The `staging-image` workflow deliberately writes four `ev-image-guard.sqlite*` test fixtures and `.env.image-canary` before building. Exactly those five fixture paths are now Git-ignored, while `.dockerignore` separately excludes their contents from the build context. `staging-image-build` still rejects any other unexpected untracked or modified files; the exact-path Git exceptions must not be broadened to real source, runtime data or credentials. This is a synthetic exclusion test, not permission to package secrets or to deploy.
+**CI image-build canaries:** The `staging-image` workflow deliberately writes four `ev-image-guard.sqlite*` test fixtures and `.env.image-canary` before building. Root `.gitignore` lists only those five exact CI canary paths; note that the pre-existing `services/business-api/database/.gitignore` also ignores other `*.sqlite*` filenames. `.dockerignore` independently excludes the canaries from the image context. `staging-image-build` continues to reject modified tracked files and other *non-ignored* untracked files; never broaden these canary exceptions to application source or credentials. These synthetic checks do not authorize a deployment.
 
 Then generate a **read-only plan**:
 
