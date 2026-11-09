@@ -22,7 +22,7 @@ return new class extends Migration
         }
         Schema::table('commercial_adjustments', fn (Blueprint $t) => $t->unsignedTinyInteger('minor_units')->nullable());
         if (DB::getDriverName() === 'sqlite') {
-            DB::unprepared('DROP TRIGGER commercial_adjustments_no_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS commercial_adjustments_no_update');
         } elseif (DB::getDriverName() === 'pgsql') {
             DB::unprepared('DROP TRIGGER commercial_adjustments_immutable ON commercial_adjustments');
         }
