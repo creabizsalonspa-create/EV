@@ -15,6 +15,33 @@ use Throwable;
  */
 class FaultReminderEscalator
 {
+    /**
+     * Interpret only complete, explicit source event timestamps. Carbon's
+     * permissive parser accepts relative words and normalizes invalid dates;
+     * neither is durable evidence of a physical/source state transition.
+     */
+    private static function sourceTimestamp(mixed $raw): ?CarbonImmutable
+    {
+        if (! is_string($raw)
+            || preg_match(
+                '/\\A\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}(?::?\\d{2})?)?\\z/',
+                $raw
+            ) !== 1) {
+            return null;
+        }
+
+        try {
+            $timestamp = CarbonImmutable::parse($raw);
+        } catch (Throwable) {
+            return null;
+        }
+
+        // Reject parser rollover (such as February 30 or hour 24) while
+        // preserving valid SQLite and PostgreSQL offsets/fractional seconds.
+        return $timestamp->format('Y-m-d H:i:s') === str_replace('T', ' ', substr($raw, 0, 19))
+            ? $timestamp : null;
+    }
+
     public function scan(int $limit = 50, int $after = -1, int $olderThanMinutes = 15): array
     {
         abort_unless(app()->environment(['local', 'testing'])
@@ -119,16 +146,8 @@ class FaultReminderEscalator
                     )) {
                     return false;
                 }
-                // Carbon::parse(null/empty) defaults to now, not an invalid
-                // timestamp. Never manufacture a time for retained evidence,
-                // even if all its source-generation ownership fields match.
-                if (! is_string($observation->occurred_at)
-                    || trim($observation->occurred_at) === '') {
-                    return false;
-                }
-                try {
-                    $occurredAt = CarbonImmutable::parse($observation->occurred_at);
-                } catch (Throwable) {
+                $occurredAt = self::sourceTimestamp($observation->occurred_at);
+                if ($occurredAt === null) {
                     return false;
                 }
                 // An on-call escalation is a historical incident record.
@@ -142,16 +161,10 @@ class FaultReminderEscalator
                         $recovered = DB::table('charging_status_observations')
                             ->where('id', $alert->recovery_observation_id)->first();
                         $recoveredAt = null;
-                        // A blank historical recovery time is NOT recovery
-                        // evidence. Carbon would otherwise silently treat an
-                        // empty string as the current wall clock.
-                        if ($recovered && is_string($recovered->occurred_at)
-                            && trim($recovered->occurred_at) !== '') {
-                            try {
-                                $recoveredAt = CarbonImmutable::parse($recovered->occurred_at);
-                            } catch (Throwable) {
-                                // A malformed source record is not closure evidence.
-                            }
+                        // Relative text and calendar-overflow dates must
+                        // never become a fresh source-recovery observation.
+                        if ($recovered) {
+                            $recoveredAt = self::sourceTimestamp($recovered->occurred_at);
                         }
                         if ($recovered && $recoveredAt !== null &&
                             $recoveredAt->greaterThan($occurredAt) &&

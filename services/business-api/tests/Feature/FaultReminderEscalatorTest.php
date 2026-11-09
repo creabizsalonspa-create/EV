@@ -148,6 +148,30 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame(0, app(FaultReminderEscalator::class)->scan(2)['reminded']);
     }
 
+    public function test_relative_and_overflowed_fault_times_never_trigger_reminders(): void
+    {
+        $fixture = $this->fixture();
+        $worker = app(FaultReminderEscalator::class);
+        $invalidTimes = [
+            'yesterday',
+            'now',
+            '2020-02-30 10:00:00',
+            '2020-01-01 24:00:00',
+        ];
+        foreach ($invalidTimes as $untrusted) {
+            DB::table('charging_status_observations')
+                ->where('id', $fixture['observation'])
+                ->update(['occurred_at' => $untrusted]);
+            $this->assertSame(0, $worker->scan(1)['reminded']);
+            $this->assertDatabaseCount('charging_fault_reminders', 0);
+        }
+        DB::table('charging_status_observations')
+            ->where('id', $fixture['observation'])
+            ->update(['occurred_at' => now()->subMinutes(31)]);
+        $this->assertSame(1, $worker->scan(1)['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 1);
+    }
+
     public function test_each_owner_delay_is_respected_without_starving_other_vendors(): void
     {
         $slow = $this->fixture();
@@ -289,9 +313,13 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertSame(0, $worker->scan()['closed']);
         // Carbon::parse('') resolves to now. A blank retained source time
         // must not be misinterpreted as fresh physical or source recovery.
-        foreach (['', '   '] as $blankTime) {
+        $invalidTimes = [
+            '', '   ', 'now', 'today',
+            '2020-02-30 10:00:00', '2020-01-01 24:00:00',
+        ];
+        foreach ($invalidTimes as $invalidTime) {
             DB::table('charging_status_observations')->where('id', $bad)
-                ->update(['occurred_at' => $blankTime]);
+                ->update(['occurred_at' => $invalidTime]);
             $this->assertSame(0, $worker->scan()['closed']);
             $this->assertDatabaseHas('charging_fault_admin_escalations', [
                 'alert_id' => $f['alert'], 'resolution_source' => null,

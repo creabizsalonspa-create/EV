@@ -362,3 +362,24 @@ created. A subsequent real, bounded source timestamp still permits the
 existing source-recovered closure. It is **source-only simulator evidence**:
 this does not establish physical charger repair, network delivery, or
 production acceptance.
+
+### Calendar-exact source observations only
+
+The fault-reminder worker now accepts only complete absolute source-event
+timestamps, with seconds, optional fractional seconds and optional UTC/offset
+timezone. Carbon's permissive parser previously permitted relative expressions
+(e.g. `now` or `yesterday`) and could roll invalid calendar dates into
+different days. Neither is authentic historical source evidence.
+
+The new internal `sourceTimestamp` parser first checks a bounded explicit
+calendar shape, then uses the existing Carbon parser, then compares the parsed
+local calendar second to the source input to reject normalization/overflow.
+Both the original-fault reminder branch and the recovery/escalation closure
+branch use the same fail-closed interpretation.
+
+Synthetic tests reject relative strings, bad February dates and hour-24
+rollovers; they retain successful processing of a genuine recent source time.
+SQLite naive timestamps and PostgreSQL timezone/fractional-second formats
+remain supported. This does **not** verify real charging hardware, physical
+repair or external message delivery. Hosted PHP/PostgreSQL acceptance is a
+separate gate.
