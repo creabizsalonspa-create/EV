@@ -77,7 +77,15 @@ function connectorReport(value:unknown):ConnectorReport|null{
 
 function errorText(error:unknown){
   const reason=error as {response?:{data?:{message?:string}}};
-  return reason?.response?.data?.message||"Request could not be completed. Refresh and check authorization.";
+  const localMessages=new Set([
+    "Invalid booking ID",
+    "Admin booking state did not match the requested booking or charger context.",
+    "Source transaction list could not be verified.",
+    "Authorization receipt did not match the requested booking, charger or connector. Refresh before recovery."
+  ]);
+  return reason?.response?.data?.message||
+    (error instanceof Error&&localMessages.has(error.message)?error.message:
+      "Request could not be completed. Refresh and check authorization.");
 }
 
 export default function OcppBookingWorkflow({

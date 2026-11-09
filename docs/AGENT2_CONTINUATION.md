@@ -1,5 +1,35 @@
 # Agent 2 standing continuation checkpoint
 
+## Current local Admin component validation — November 9, 2026
+
+The actual response-fenced Admin component/helper now pass a production Next16.1.6
+build, strict TypeScript and21 mocked Chrome browser cases in a disposable local
+shell. The validation exposed and fixed local context/receipt error messages being
+hidden by generic error formatting. Final Node166 and Python12 tests pass. All
+component/helper/test/runner source bytes match the report. No native/backend
+charging/financial business source changed in this increment.
+
+Reproduce with the pinned package+lock and
+`tools/agent2/run_admin_component_validation.mjs`; setup/limits are in
+`tools/agent2/ADMIN_COMPONENT_VALIDATION.md`. The runner snapshots source, checks
+locks/versions, validates its unique loopback server and cleans up only its own
+app/server. Official headless-shell142 with CDP pipes works here; full Chrome's
+profile socket was denied by this environment, and no restrictions were changed.
+
+IMPORTANT:the shell's booking list, theme and HTTP adapter are synthetic fixtures.
+This is COMPONENT_FIXTURE_ONLY acceptance, NOT the original purchased Admin app
+build or actual Express/Mongo journey. Original host.crea-biz.com remains offline
+(last seen34h); host.crea-biz.us heartbeat is online but command probe timed out.
+Parentaa89537's two GitHub workflows now succeeded, not evidence for this new head.
+Original full runtime checkpoint remains8ca52c5 with native077820e.
+Evidence:docs/evidence/agent2-admin-component-local/validation.json.
+
+Next:run exact committed source through the original full isolated backend/Next
+and actual API browser checks on a responsive authorized source host, then obtain
+new-head hosted/native release gates and Agent4 integration. Canonical identity,
+independent inventory/capacity/expiry and paid-reschedule contracts still require
+Agent1/4 coordination. No whole-atom/coverage or production acceptance is claimed.
+
 ## Current Admin response-fencing draft — November 8, 2026
 
 This newest candidate is partially verified and must stay draft. Admin operations

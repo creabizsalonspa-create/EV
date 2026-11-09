@@ -17,7 +17,7 @@ const imported=await import(process.env.PUPPETEER_PATH||'puppeteer');
 const puppeteer=imported.default||imported;
 const browser=await puppeteer.launch({
   executablePath:process.env.CHROME_PATH||undefined,
-  headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu'],
+  headless:true,pipe:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu'],
 });
 let passed=0;
 const id='507f1f77bcf86cd799439011';
