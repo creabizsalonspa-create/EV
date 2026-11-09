@@ -1,5 +1,37 @@
 # Agent 2 standing continuation checkpoint
 
+## Current combined native and API acceptance — November 10, 2026
+
+The latest PR70(077820e)+PR78(a057bdc) isolated combination now passes87 Flutter
+tests with4 default opt-in skips; all4 opt-in API journey names then execute
+against actual disposable Express/Mongo/OCPP. The full paired run records17
+passed native API executions across15 child invocations:10/8 in the first
+backend run,7 repeated progress cases alongside the second browser run. No
+additional feature/coverage credit from repetition. All114 Dart/config blobs
+match app tree884a828080984cda5dfe9af29b2e407712723e02; no native source or
+lockfile changes and no merge. Combined full tree4e6fba1321551354d32c5afd37e34208ffb4d969.
+
+Broad28-file analysis reports one pre-existing file_names info in the legacy
+bookingdetailsMOdel.dart name (exit1), no errors/warnings. Do not call this a
+clean analysis or suppress rules to get green. The original filename exists in
+PR52; coordinate any rename with Agent6/4. SDK3.35.7/Dart3.9.2 archive and all214
+locked package archives passed checksum verification. CI=true safely short-circuits
+Azure environment probing; all network/TLS controls remain intact.
+
+The final full-source pipeline also passes186 Node,15 Python,13 callback HTTP,
+154 actual backend cases, original Admin TypeScript/Next build,21 mocked booking
+Chrome and13 actual-API Chrome. Two integrated checkpoint155 counts wrap native
+and browser cases respectively. The wrapper now accepts the unchanged PR70
+native API script through AGENT2_NATIVE_API_WRAPPER and identifies its own Next
+server by a unique marker plus liveness, without privileged netlink inspection.
+Evidence:docs/evidence/agent2-current-native-integration/validation.json.
+
+Remaining:required current-head hosted/Android/iOS/release gates and Agent4 merge;
+canonical cross-store identity, independent connector capacity/expiry and paid
+reschedule/finance contracts. No hardware/merchant/production acceptance, original
+whole-atom or percentage uplift. Local original-source gate is no longer blocked.
+
+
 ## Original-source local acceptance — November 10, 2026
 
 The original host reconnected. Read-only in-memory transfer copied96 source,

@@ -18,7 +18,22 @@ regressions introduce ambiguous registry records only inside the harness-owned
 scenarios. Never run these fixture corruptions against an external DB. The
 runner creates its own URI and does not accept an external connection string.
 
-Exact hashes and scope: `docs/evidence/agent2-local-original-source-acceptance/validation.json`.
+For the paired native gate, set `CI=true`, `AGENT2_HISTORY_FLUTTER` to the pinned
+Flutter executable, `AGENT2_HISTORY_APP` to the exact customer source, and
+`AGENT2_NATIVE_API_WRAPPER` to the unchanged companion PR70
+`tools/agent2/run_mobile_history_api.py`. Resolve the app dependencies with its
+lockfile first. The wrapper adds real booking/charger-choice/history cases to the
+progress/fault tests; API JWTs stay in local child-process environments. Keep
+logs private because they contain synthetic authentication/request fixtures.
+
+Latest combined native evidence:87 default-suite passes, all4 opt-in API journey
+names exercised (17 executions across15 invocations),114 exact source/config
+blobs. Broad28-file analysis has one existing filename-style info, not a clean
+analysis pass. Read `docs/evidence/agent2-current-native-integration/validation.json`.
+Next readiness uses an owned loopback port probe, unique disposable public marker
+and process liveness; it never depends on privileged netlink inspection.
+
+Exact original-source hashes and scope: `docs/evidence/agent2-local-original-source-acceptance/validation.json`.
 Native/hosted release gates, canonical capacity/identity/finance contracts and
 Agent4 integration remain pending; hardware/PSP/production acceptance is separate.
 

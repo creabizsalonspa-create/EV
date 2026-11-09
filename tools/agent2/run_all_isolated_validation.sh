@@ -25,6 +25,13 @@ log="$logdir/agent2-$(date -u +%Y%m%dT%H%M%SZ).log"
 server_pid=""
 browser_flag="${RUN_AGENT2_BROWSER:-0}"
 real_browser_flag="${RUN_AGENT2_REAL_BROWSER:-0}"
+native_wrapper="${AGENT2_NATIVE_API_WRAPPER:-}"
+if [[ -n "$native_wrapper" ]] &&
+   [[ ! -f "$native_wrapper" || ! -x "${AGENT2_HISTORY_FLUTTER:-}" ||
+      ! -f "${AGENT2_HISTORY_APP:-}/test/source_history_api_test.dart" ]]; then
+  echo "Native API wrapper requires its matching Flutter executable and source fixture" >&2
+  exit 3
+fi
 if [[ "$real_browser_flag" == "1" && "$browser_flag" != "1" ]]; then
   echo "Actual browser mode requires RUN_AGENT2_BROWSER=1" >&2
   exit 3
@@ -82,8 +89,14 @@ echo "Source patch and syntax checks passed."
 node --test "$root"/integrations/hasone-express/tests/*.test.mjs
 python3 -m unittest discover -s "$root/tests" -p 'agent2_*test.py' -q
 node "$root/tools/agent2/test_staged_payment_routes.mjs" "$work/express" "$backend"
-AGENT2_REAL_ADMIN_UI_URL= node "$root/tools/agent2/run_isolated_backend_demo.mjs" \
-  "$work/express" "$backend" "$work/ocpp/ocpp-handlers.mjs"
+if [[ -n "$native_wrapper" ]]; then
+  python3 "$native_wrapper" "$root/tools/agent2/run_isolated_backend_demo.mjs" \
+    "$work/express" "$backend" "$work/ocpp/ocpp-handlers.mjs" \
+    "$AGENT2_HISTORY_FLUTTER" "$AGENT2_HISTORY_APP"
+else
+  AGENT2_REAL_ADMIN_UI_URL= node "$root/tools/agent2/run_isolated_backend_demo.mjs" \
+    "$work/express" "$backend" "$work/ocpp/ocpp-handlers.mjs"
+fi
 echo "Source-backed isolated backend tests passed."
 
 for dir in app components lib public; do
@@ -114,17 +127,24 @@ if [[ "$browser_flag" == "1" ]]; then
   port="$(printenv AGENT2_TEST_PORT || echo 3428)"
   [[ "$port" =~ ^[0-9]{4,5}$ ]] ||
     { echo "Invalid staging browser port" >&2; exit 3; }
-  if ss -lnt | grep -q ":$port "; then
-    echo "Port already occupied; will not touch listener" >&2
-    exit 3
-  fi
+  # Probe only loopback, without privileged netlink inspection. A unique public
+  # fixture marker also prevents another listener satisfying readiness in the
+  # small interval between the port probe and Next binding its socket.
+  node - "$port" <<'JS'
+const server=require('node:net').createServer();
+server.once('error',()=>{console.error('Test port unavailable; listener untouched');process.exit(3);});
+server.listen(Number(process.argv[2]),'127.0.0.1',()=>server.close());
+JS
+  probe_name="agent2-$(basename "$work").txt"
+  probe_value="$(basename "$work")"
+  printf '%s' "$probe_value" > "$work/next/public/$probe_name"
   (cd "$work/next" && exec node ./node_modules/next/dist/bin/next start \
     --hostname 127.0.0.1 --port "$port") &
   server_pid=$!
   ready=0
   for i in $(seq 1 30); do
     kill -0 "$server_pid" 2>/dev/null || break
-    if curl -s --max-time 2 -o /dev/null "http://127.0.0.1:$port/bookings"; then
+    if [[ "$(curl -fsS --max-time 2 "http://127.0.0.1:$port/$probe_name" 2>/dev/null || true)" == "$probe_value" ]]; then
       ready=1; break
     fi
     sleep 0.4
