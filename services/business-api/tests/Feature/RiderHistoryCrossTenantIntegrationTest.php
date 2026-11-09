@@ -3,11 +3,11 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\RiderAccessController;
-use App\Services\Charging\RiderAccessHistory;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\RiderAccessHistory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
