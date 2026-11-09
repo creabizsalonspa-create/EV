@@ -61,7 +61,7 @@ for target in \
   src/models/ChargingSessionModel.js src/controllers/adminOcppBooking.js \
   src/controllers/adminMultiCharger.js src/utils/ocppSourceEvidence.mjs src/utils/reservationCapacityAudit.mjs \
   src/utils/ocppReissuePolicy.mjs src/utils/ocppSourceBindingIndexAudit.mjs \
-  src/controllers/ocppHistory.js src/utils/ocppHistory.mjs src/utils/ocppResourceScope.mjs \
+  src/controllers/ocppHistory.js src/utils/ocppHistory.mjs src/utils/ocppResourceScope.mjs src/utils/ocppChargerRegistry.mjs \
   src/services/bookingMutationService.js src/utils/bookingMutationPolicy.mjs \
   src/services/reservationCalendarGuard.js src/utils/reservationCalendarPolicy.mjs \
   src/controllers/reservationChargers.js src/utils/reservationChargerChoice.mjs src/utils/ocppConnectorObservation.mjs

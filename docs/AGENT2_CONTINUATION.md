@@ -1,5 +1,25 @@
 # Agent 2 standing continuation checkpoint
 
+## Unique registry reads — November 10, 2026
+
+Customer source status/summary and customer/Admin source history now resolve one
+globally unique registered charger with a two-row query. Duplicate records,
+including disabled or cross-station duplicates, cannot be silently selected by
+findOne. Ambiguous history retains a review row but redacts telemetry/transaction
+identity; unique explicitly disabled chargers retain qualified history. Reads
+never change registry/source/indexes, charging controls or finance. History also
+varies by Authorization on success/error replies.
+
+Exact-source local verification:181 Node tests and12 Python patch-contract tests
+pass. The new controller regression fails against the old controller (verified
+source incorrectly true). New tests exercise generated customer status plus all
+four shipped customer/Admin history list/detail entrypoints through synthetic
+persistence adapters. Evidence:docs/evidence/agent2-registry-read-safety/validation.json.
+Actual proprietary Express/Mongo/browser integration remains pending:both source
+hosts offline. Prior local dependency SDKs were cleared; no new native/build pass.
+Parent9cf3657 now has both hosted workflows successful, not evidence for this new
+head. Keep draft pending exact-head gates, canonical contracts and Agent4 merge.
+
 ## Current source-binding index coverage checkpoint — November 9, 2026
 
 The read-only audit now verifies actual partial-filter coverage instead of just

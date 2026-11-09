@@ -14,16 +14,18 @@ const approved=()=>({chargerId:'CH-1',stationId,enabled:true,protocol:'ocpp1.6',
  secretHash:'private-hash',secretSalt:'private-salt'});
 const booking=()=>({_id:id,userId:'owner',stationId,status:'Upcoming',isPaid:true,
  hasArrived:true,ocppTokenHash:'',ocppChargerId:'',reservedChargerId:''});
-const query=value=>({select(){return this;},lean:async()=>value,then(resolve,reject){return Promise.resolve(value).then(resolve,reject);}});
+const query=value=>({select(){return this;},sort(){return this;},limit(){return this;},lean:async()=>value,then(resolve,reject){return Promise.resolve(value).then(resolve,reject);}});
 function response(){return {code:200,headers:{},set(key,value){this.headers[key]=value;return this;},
+ vary(value){this.headers.Vary=value;return this;},
  status(code){this.code=code;return this;},json(body){this.body=body;return this;}};}
 async function fixture(t){
  const root=await mkdtemp(join(tmpdir(),'agent2-admin-controller-'));
- const state={booking:booking(),rows:[approved()],source:null,link:null,writes:[],indexReads:0,limits:[]};
+ const state={booking:booking(),rows:[approved()],source:null,link:null,writes:[],indexReads:0,limits:[],sourceReads:0};
  const key='agent2-controller-'+crypto.randomUUID();
  const cursor=rows=>({sort(){return this;},limit(n){state.limits.push(n);rows=rows.slice(0,n);return this;},
  project(){return this;},toArray:async()=>rows});
- const chargerTable={find:()=>cursor(state.rows),findOne:async(filter,options)=>{
+ const chargerTable={find:(filter)=>cursor(state.rows.filter(row=>
+  Object.entries(filter).every(([key,value])=>row[key]===value))),findOne:async(filter,options)=>{
   const row=state.rows.find(r=>r.chargerId===filter.chargerId&&r.stationId===filter.stationId);
   return !row?null:options?.projection?Object.fromEntries(Object.entries(row).filter(([key])=>options.projection[key])):row;
  },indexes:async()=>{state.indexReads++;return [];},
@@ -35,10 +37,10 @@ async function fixture(t){
   mongoose:{isValidObjectId:value=>typeof value==='string'&&/^[a-f0-9]{24}$/i.test(value),
    Types:{ObjectId:class{constructor(value){this.value=value;}toString(){return this.value;}}},
    connection:{db:{collection:name=>name==='ocpp_chargers'?chargerTable:
-     name==='ocpp_access_tokens'?tokenTable:{findOne:async()=>state.source}}}},
+     name==='ocpp_access_tokens'?tokenTable:{findOne:async()=>{state.sourceReads++;return state.source;}}}}},
   BookingModel:{findById:()=>query(state.booking),findOneAndUpdate:async(_filter,update)=>{
    state.writes.push(['booking',update]);Object.assign(state.booking,update.$set);return state.booking;}},
-  ChargingSessionModel:{findOne:()=>query(state.link),create:async fields=>{state.writes.push(['session',fields]);return {_id:'507f1f77bcf86cd799439013',...fields};}},
+  ChargingSessionModel:{findOne:()=>query(state.link),find:()=>query(state.link?[state.link]:[]),create:async fields=>{state.writes.push(['session',fields]);return {_id:'507f1f77bcf86cd799439013',...fields};}},
   NearestStationModel:{findById:()=>query({_id:stationId,name:'Synthetic station'})}
  };
  t.after(async()=>{delete globalThis[key];await rm(root,{recursive:true,force:true});});
@@ -240,4 +242,38 @@ test('actual binding cannot use malformed gateway receipts or invalid issuance t
  f.state.source.startedReceivedAt=new Date(now-10000);f.state.booking.ocppTokenIssuedAt='invalid';
  assert.equal((await f.call(f.actions.AdminBindBookingOcppSource,{sourceSessionId:sourceId})).code,409);
  assert.deepEqual(f.state.writes,[]);
+});
+
+test('shipped customer/Admin history list and detail redact ambiguous physical identities',async t=>{
+ const f=await fixture(t),sourceId='507f1f77bcf86cd799439099',userId='507f1f77bcf86cd799439088';
+ f.state.booking={...booking(),userId,ocppChargerId:'CH-1',ocppTokenHash:'a'.repeat(64)};
+ f.state.link={_id:id,bookingId:id,userId,sourceType:'ocpp',sourceSessionId:sourceId,
+  sourceChargerId:'CH-1',sourceTransactionId:'history-tx'};
+ f.state.source={_id:sourceId,chargerId:'CH-1',protocol:'ocpp1.6',transactionId:'history-tx',
+  status:'ended',idTagHash:'a'.repeat(64),startedAt:new Date('2026-11-08T00:00:00Z'),
+  endedAt:new Date('2026-11-08T00:10:00Z'),paymentStatus:'not_collected',
+  meterStartWh:1000,meterLastWh:2000,energyWh:1000,energyKwh:1};
+ const methods=[f.history.CustomerOcppHistoryDetail,f.history.AdminOcppHistoryDetail,
+  f.history.CustomerOcppHistory,f.history.AdminOcppHistory];
+ for(const duplicate of [approved(),{...approved(),enabled:false},
+   {...approved(),stationId:'other-station'},{...approved(),protocol:'ocpp2.0.1'}])
+  for(const rows of [[approved(),duplicate],[duplicate,approved()]]){
+   f.state.rows=rows;
+   for(const fn of methods){
+    const res=await f.call(fn),data=res.body.data.entries?.[0]??res.body.data;
+    assert.equal(res.code,200);assert.equal(data.sourceVerified,false);
+    for(const field of ['energyKwh','totalFils','transactionId','sourceSessionId'])assert.equal(data[field],null);
+    assert.equal(data.reviewReason,'charger_mapping_unavailable');
+    assert.equal(res.headers['Cache-Control'],'private, no-store');assert.equal(res.headers.Vary,'Authorization');
+   }
+  }
+ assert.equal(f.state.sourceReads,0);assert.deepEqual(f.state.writes,[]);
+});
+test('shipped history cache policy also protects validation and missing-record replies',async t=>{
+ const f=await fixture(t);
+ const invalid=await f.call(f.history.CustomerOcppHistoryDetail,{}, {id:'invalid'});
+ assert.equal(invalid.code,400);assert.equal(invalid.headers.Vary,'Authorization');
+ const missing=await f.call(f.history.AdminOcppHistoryDetail);
+ assert.equal(missing.code,404);assert.equal(missing.headers['Cache-Control'],'private, no-store');
+ assert.equal(missing.headers.Vary,'Authorization');
 });

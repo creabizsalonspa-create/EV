@@ -23,7 +23,8 @@ def patch(root):
     helper=Path(__file__).resolve().parents[2]/'integrations/hasone-express/ocppSourceEvidence.mjs'
     resource=helper.parent/'ocppResourceScope.mjs'
     observation=helper.parent/'ocppConnectorObservation.mjs'
-    if not helper.is_file() or not resource.is_file() or not observation.is_file():
+    registry=helper.parent/'ocppChargerRegistry.mjs'
+    if not helper.is_file() or not resource.is_file() or not observation.is_file() or not registry.is_file():
         raise RuntimeError('OCPP evidence guard is missing')
     data={key:p.read_text(encoding='utf8') for key,p in paths.items()}
     def once(text,old,new,name):
@@ -38,7 +39,8 @@ router.use("/ChargingSession",(_req,res,next)=>{
     data['service']=once(data['service'],'import crypto from "crypto";',
       '''import crypto from "crypto";
 import mongoose from "mongoose";
-import { verifyOcppSource } from "../utils/ocppSourceEvidence.mjs";''',
+import { verifyOcppSource } from "../utils/ocppSourceEvidence.mjs";
+import { readUniqueOcppCharger } from "../utils/ocppChargerRegistry.mjs";''',
       'customer service source imports')
     data['booking']=once(data['booking'],
       'const BookingModel = mongoose.model("Booking", BookingSchema);',
@@ -76,10 +78,10 @@ const readCustomerOcppSource = async (user_id, session) => {
   });
   if (!booking || !/^[a-f0-9]{64}$/i.test(booking.ocppTokenHash || "")) return null;
   // Existing OCPP provisioning is the authoritative station-to-charger mapping.
-  const charger = await mongoose.connection.db.collection("ocpp_chargers").findOne({
+  const charger = await readUniqueOcppCharger(mongoose.connection.db.collection("ocpp_chargers"),{
     stationId:String(booking.stationId),
     chargerId:session.sourceChargerId,
-    enabled:true,
+    requireEnabled:true,
   });
   if (!charger || (booking.reservedChargerId && booking.reservedChargerId!==session.sourceChargerId)) return null;
   // Multi-charger stations require a pinned booking-to-charger assignment.
@@ -143,13 +145,15 @@ export const GetChargingStatusService = async (user_id, sessionId) => {
     helper_dest=root/'src/utils/ocppSourceEvidence.mjs'
     observation_dest=root/'src/utils/ocppConnectorObservation.mjs'
     resource_dest=root/'src/utils/ocppResourceScope.mjs'
-    if helper_dest.exists() or resource_dest.exists() or observation_dest.exists():
+    registry_dest=root/'src/utils/ocppChargerRegistry.mjs'
+    if helper_dest.exists() or resource_dest.exists() or observation_dest.exists() or registry_dest.exists():
         raise RuntimeError('OCPP source guard already present in staged tree')
     for key,p in paths.items():
         p.write_text(data[key],encoding='utf8')
     helper_dest.write_text(helper.read_text(encoding='utf8'),encoding='utf8')
     resource_dest.write_text(resource.read_text(encoding='utf8'),encoding='utf8')
     observation_dest.write_text(observation.read_text(encoding='utf8'),encoding='utf8')
+    registry_dest.write_text(registry.read_text(encoding='utf8'),encoding='utf8')
     print('STAGED_CUSTOMER_OCPP_STATUS_LINKED; physical charging and payments unchanged')
 
 if __name__=='__main__':

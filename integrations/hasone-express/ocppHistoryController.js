@@ -2,16 +2,17 @@ import mongoose from 'mongoose';
 import BookingModel from '../models/BookingModel.js';
 import ChargingSessionModel from '../models/ChargingSessionModel.js';
 import {parseHistoryPage,presentOcppHistory} from '../utils/ocppHistory.mjs';
+import {readUniqueOcppCharger} from '../utils/ocppChargerRegistry.mjs';
 const fail=(res,code,message)=>res.status(code).json({status:'fail',message});
 const validId=value=>typeof value==='string' && /^[a-f0-9]{24}$/i.test(value);
 async function rowFor(link){
  const booking=await BookingModel.findById(link.bookingId).lean();
  if(!booking || String(booking.userId)!==String(link.userId))return null;
  const db=mongoose.connection.db;
- const charger=await db.collection('ocpp_chargers').findOne({
+ const charger=await readUniqueOcppCharger(db.collection('ocpp_chargers'),{
    stationId:String(booking.stationId),chargerId:booking.ocppChargerId
- },{projection:{stationId:1,chargerId:1,protocol:1,enabled:1}});
- const source=validId(link.sourceSessionId)?await db.collection('ocpp_sessions').findOne({
+ });
+ const source=charger&&validId(link.sourceSessionId)?await db.collection('ocpp_sessions').findOne({
    _id:new mongoose.Types.ObjectId(link.sourceSessionId),
    chargerId:link.sourceChargerId
  }):null;
@@ -25,6 +26,7 @@ function scope(req,admin){
 }
 async function list(req,res,admin){
  res.set('Cache-Control','private, no-store');
+ res.vary('Authorization');
  let page;
  try{page=parseHistoryPage(req.query||{});}catch{return fail(res,400,'Invalid history cursor or limit (1–100).');}
  const query=scope(req,admin);
@@ -47,6 +49,7 @@ async function list(req,res,admin){
 }
 async function detail(req,res,admin){
  res.set('Cache-Control','private, no-store');
+ res.vary('Authorization');
  if(!validId(req.params.id))return fail(res,400,'Invalid history identifier');
  const query=scope(req,admin);
  if(!query)return fail(res,401,'Authentication required');

@@ -11,7 +11,12 @@ def patch(root):
     target=root/"src/controllers/ocppHistory.js"
     session=root/"src/models/ChargingSessionModel.js"
     helper=root/"src/utils/ocppHistory.mjs"
+    registry=root/"src/utils/ocppChargerRegistry.mjs"
     base=Path(__file__).resolve().parents[2]/"integrations/hasone-express"
+    # Customer status installs the same reviewed registry reader first. Refuse
+    # missing/drifted dependency before touching routes or session indexes.
+    if not registry.is_file() or registry.read_bytes()!=(base/"ocppChargerRegistry.mjs").read_bytes():
+        raise RuntimeError("Stage matching customer registry reader before history")
     if target.exists() or helper.exists():
         raise RuntimeError("History already staged")
     c=customer.read_text()

@@ -1,0 +1,46 @@
+{
+  "status": "SYNTHETIC_REGISTRY_READ_REGRESSION_VERIFIED_NOT_MERGED",
+  "date_client": "2026-11-10",
+  "parent_commit": "9cf36579d80228f33bc7c05d975ff07913c080b8",
+  "requirement_subsets": [
+    "2.7.5",
+    "2.7.9"
+  ],
+  "whole_atom_credit": false,
+  "changes": [
+    "Customer status/summary and customer/Admin history resolve globally unique registered charger identity with two-row bound; duplicate disabled/cross-station identities also redact",
+    "Unique explicitly disabled registered charger retains qualified history; current customer status still requires enabled=true",
+    "History list/detail uses private no-store and Vary Authorization including validation errors",
+    "History staging rejects missing or drifted reader dependency before source writes"
+  ],
+  "source_blobs": {
+    "integrations/hasone-express/ocppChargerRegistry.mjs": "ad45d2b4c9189a48f46ffe5d939096b790035f50",
+    "integrations/hasone-express/ocppHistoryController.js": "418ccad3f2eb4257db66da09352043b1ff197b57",
+    "integrations/hasone-express/tests/customerRegistryReads.test.mjs": "94ae54ae886b6f426472472dd13030d1869d8502",
+    "integrations/hasone-express/tests/adminProtocolAuthorization.test.mjs": "d03b0d5d1decc342bba15f00aac43e363c06188c",
+    "tools/agent2/stage_ocpp_customer_status.py": "4d1a33d39ebdb0e1d00b994f19042e4eb205447e",
+    "tools/agent2/stage_ocpp_history.py": "a2868b571de2dac4dab55fed3e38845a83f7e107",
+    "tools/agent2/run_all_isolated_validation.sh": "800955dd1511867fa5589d07423bb702d40383f8"
+  },
+  "tests": {
+    "node_passed": 181,
+    "node_failed": 0,
+    "node_skipped": 0,
+    "python_patch_contract_passed": 12,
+    "new_node_cases": 10,
+    "baseline_history_controller": "b6a74a4156a8ad2f413841ae9f29c67557cb413d",
+    "baseline_result": "New shipped-controller duplicate-history regression fails on old controller: sourceVerified true instead of false",
+    "syntax_whitespace": "passed"
+  },
+  "local_log_sha256": {
+    "registry-final-node.log": "852b19752305a4752a2dab99fd8f9b9908bac1b5cb57f3ede70e606223ba7bad",
+    "registry-final-python.log": "d4340f423292dd7fb427a89c3a81573c461850b1a9d6baf21ecdcc6eccfe3610",
+    "registry-baseline.log": "d0bcc8a233a22f529a00c7a9f5e504f60782f83ef88631481c9662a1e662be42"
+  },
+  "limits": [
+    "Isolated persistence adapters and synthetic source contracts; not actual Express/Mongo/browser acceptance for these changes",
+    "Original source hosts offline; local transient SDK/dependency toolchains no longer present",
+    "Required exact-head CI, final proprietary-app/API/native gates, Agent4 merge and canonical capacity/finance contracts remain",
+    "No index changes, customer data, hardware, PSP, production or percentage acceptance"
+  ]
+}
