@@ -42,6 +42,7 @@ final class PrivacyRequestController extends Controller
         ]);
         $reason = trim($v['reason'] ?? '');
         $reason = $reason === '' ? null : $reason;
+
         return DB::transaction(function () use ($request, $v, $reason) {
             // Serializes creates for this account even before the first request row exists.
             User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
@@ -50,6 +51,7 @@ final class PrivacyRequestController extends Controller
             if ($prior) {
                 abort_unless($prior->request_type === $v['request_type'] && $prior->reason === $reason,
                     409, 'Idempotency key was used for a different privacy request.');
+
                 return $this->privateResponse($prior);
             }
             $new = PrivacyRequest::create([
@@ -60,6 +62,7 @@ final class PrivacyRequestController extends Controller
                 'status' => 'submitted',
             ]);
             $this->audit($request->user()->id, 'privacy.request.submitted', $new->id);
+
             return $this->privateResponse($new, 201);
         });
     }
@@ -78,6 +81,7 @@ final class PrivacyRequestController extends Controller
             $row->withdrawn_at = now();
             $row->save();
             $this->audit($request->user()->id, 'privacy.request.withdrawn', $row->id);
+
             return $this->privateResponse($row);
         });
     }
@@ -90,6 +94,7 @@ final class PrivacyRequestController extends Controller
         if (isset($v['status'])) {
             $q->where('status', $v['status']);
         }
+
         return $this->privateResponse($q->orderByDesc('id')->paginate(25));
     }
 
@@ -112,6 +117,7 @@ final class PrivacyRequestController extends Controller
             }
             $v['decision_note'] = $note;
         }
+
         return DB::transaction(function () use ($request, $privacyRequest, $v) {
             $row = PrivacyRequest::whereKey($privacyRequest->id)->lockForUpdate()->firstOrFail();
             if ($row->status === $v['status']) {
@@ -119,6 +125,7 @@ final class PrivacyRequestController extends Controller
                 abort_unless($row->status === 'in_review' ||
                     ($row->resolution === ($v['resolution'] ?? null)
                     && $row->decision_note === trim((string) ($v['decision_note'] ?? ''))), 409);
+
                 return $this->privateResponse($row);
             }
             abort_unless(
@@ -135,6 +142,7 @@ final class PrivacyRequestController extends Controller
             }
             $row->save();
             $this->audit($request->user()->id, 'privacy.request.reviewed', $row->id);
+
             // Closing this review never deletes records or represents legal fulfillment.
             return $this->privateResponse($row);
         });
