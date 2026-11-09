@@ -1,3 +1,7 @@
+# Agent1 hosted continuation — 9 November 2026
+
+PR69 exact33bbb79 passed all14 hosted checks, including Android/iOS, both PostgreSQL jobs, financial browser, staging image and business platform. Agent4 integration remains required; no merge/deploy. PR83 b59caf4 passed native/PostgreSQL/image gates but both platform jobs failed at diagnostic-files initial fetch; raw job128714494008 shows `.env`-triggered Laravel development-server restart. Current fix prepares configuration-read and diagnostic-upload local flags before the already-required initial61-second authentication window, so per-suite idempotent setup no longer starts a server restart just before login. No assertions/transport writes are retried and no limits/guards are weakened. Four orchestration/preparation cases passed; full diagnostic/Citrine browser and exact-new-head hosted CI remain required. Continue actual OCPI partner review/reconciliation implementation while CI runs.
+
 # Agent 1 checkpoint — 8 November 2026
 
 Latest owner master directive assigns Agent1 canonical Laravel/OCPP/OCPI/charging/finance; Agent4 owns integration and merges. Preserve the other agents’ work and the unchanged312-feature inventory. Do not redeploy the live Hasone backend or send physical charger/payment commands.
