@@ -235,4 +235,33 @@ void main() {
     expect(api.mutationCount,0);
   });
 
+
+  testWidgets('background preserves uncertain token retry identity without revealing private data', (tester) async {
+    final api=RiderApi();
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:(){}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Register charging access'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first,'Retry after background');
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(api.bodies,hasLength(1));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('Private records hidden. Refresh to reload.'),findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Retry saved request'),findsOneWidget);
+    api.loseResponse=false;
+    await tester.tap(find.text('Retry saved request'));
+    await tester.pumpAndSettle();
+    expect(api.bodies,hasLength(2));
+    expect(api.bodies[1],api.bodies[0]);
+  });
+
 }
