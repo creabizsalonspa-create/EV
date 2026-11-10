@@ -263,15 +263,45 @@ function reservationForm(s, mapping = null) {
     i.required = true;
     l.append(i);
     f.append(l);
+    const actorEpoch = client.sessionEpoch;
+    const vehicleLabel = document.createElement("label");
+    const vehicle = document.createElement("select");
+    vehicle.name = "vehicle_id";
+    const empty = new Option("", "");
+    empty.dataset.en = "No vehicle association"; empty.dataset.ar = "دون ربط مركبة";
+    vehicle.append(empty);
+    vehicleLabel.append(batteryNode("span", "Vehicle (optional)", "المركبة (اختياري)"), vehicle);
+    const loadVehicle = batteryNode("button", "Load compatible vehicles", "تحميل المركبات المتوافقة");
+    loadVehicle.type = "button";
+    let vehiclePage = 0, vehicleLast = 1;
+    loadVehicle.onclick = async () => {
+        loadVehicle.disabled = true;
+        if (vehiclePage >= vehicleLast) {
+            vehiclePage = 0; vehicleLast = 1;
+            while (vehicle.options.length > 1) vehicle.remove(1);
+        }
+        try {
+            const result = await api("vehicles?connector_type=" + encodeURIComponent(mapping?.connector_type || s.connector_type) + "&page=" + (vehiclePage + 1));
+            if (!f.isConnected || actorEpoch !== client.sessionEpoch) return;
+            for (const row of result.data) vehicle.append(new Option(row.name, row.id));
+            vehiclePage = result.current_page; vehicleLast = result.last_page;
+            batteryText(loadVehicle, vehiclePage < vehicleLast ? "More compatible vehicles" : "Refresh compatible vehicles",
+                vehiclePage < vehicleLast ? "المزيد من المركبات المتوافقة" : "تحديث المركبات المتوافقة");
+        } catch (error) { notice(error); }
+        finally {loadVehicle.disabled = false;}
+    };
+    f.append(vehicleLabel, loadVehicle);
     let b = ui("button", "Reserve simulator slot");
     f.append(b);
     let bookingKey = crypto.randomUUID();
     f.onsubmit = async (e) => {
         e.preventDefault();
+        if (!f.isConnected || actorEpoch !== client.sessionEpoch) return;
         b.disabled = true;
         try {
             await api("reservations", "POST", {
                 station_id: s.id,
+                ...(vehicle.value ? { vehicle_id: Number(vehicle.value) } : {}),
                 ...(mapping ? { connector_mapping_id: mapping.id } : {}),
                 starts_at:
                     i.value.length === 16 ? i.value + ":00Z" : i.value + "Z",
@@ -608,6 +638,9 @@ async function bookings() {
                 status: { translate: r.status },
             },
         );
+        if (r.vehicle_connector_type) a.append(r.vehicle_label
+            ? node("p", r.vehicle_label + " · " + r.vehicle_connector_type)
+            : batteryNode("p", "Vehicle connector · " + r.vehicle_connector_type, "موصل المركبة · " + r.vehicle_connector_type));
         if (r.checked_in_at)
             a.append(
                 ui("p", "Self-reported arrival · {time}", {
@@ -1174,6 +1207,7 @@ const roamingWorkspace = createRoamingWorkspace({
     ui,
     actor: () => user,
     notice,
+    openInvoice: (id) => invoiceHistory.open(id),
 });
 const invoiceHistory = createInvoiceHistory({
     root: el("invoice-history"),

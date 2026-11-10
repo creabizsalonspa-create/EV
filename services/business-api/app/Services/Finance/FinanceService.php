@@ -203,7 +203,9 @@ class FinanceService
         $debit = (int) (clone $entries)->sum('debit_minor');
         $credit = (int) (clone $entries)->sum('credit_minor');
 
-        return ['invoice' => $invoice, 'paid_minor' => $paid, 'refunded_minor' => $refunded, 'net_collected_minor' => $paid - $refunded, 'credit_notes_minor' => $refunded, 'amount_due_minor' => $due, 'state' => $refunded > 0 ? ($refunded === $invoice->total_minor ? 'refunded' : 'partially_refunded') : ($due === 0 ? 'paid' : ($paid > 0 ? 'partially_paid' : 'unpaid')), 'ledger_balanced' => $debit === $credit, 'payment_provider' => 'SIMULATOR_ONLY', 'real_payment_processed' => false];
+        $origin = DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice->id)->first();
+
+        return ['invoice' => $invoice, 'paid_minor' => $paid, 'refunded_minor' => $refunded, 'net_collected_minor' => $paid - $refunded, 'credit_notes_minor' => $refunded, 'amount_due_minor' => $due, 'state' => $refunded > 0 ? ($refunded === $invoice->total_minor ? 'refunded' : 'partially_refunded') : ($due === 0 ? 'paid' : ($paid > 0 ? 'partially_paid' : 'unpaid')), 'ledger_balanced' => $debit === $credit, 'payment_provider' => 'SIMULATOR_ONLY', 'real_payment_processed' => false] + ($origin ? ['billing_origin' => 'OCPI_TEST_EXPLICIT_CONSENT', 'roaming_order_id' => $origin->order_id] : []);
     }
 
     private function audit(int $actor, string $action, int $id): void

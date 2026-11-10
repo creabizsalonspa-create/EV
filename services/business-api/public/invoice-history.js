@@ -226,5 +226,17 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
             }
         }
     }
-    return { setActor: () => load(1, true), clear };
+    return {
+        setActor: () => load(1, true),
+        clear,
+        open: async (id) => {
+            if (!actor() || !Number.isInteger(id) || id < 1) return;
+            request?.abort();
+            request = new AbortController();
+            generation++;
+            root.hidden = false;
+            await show(id, root, generation);
+            root.scrollIntoView({ block: "start" });
+        },
+    };
 };
