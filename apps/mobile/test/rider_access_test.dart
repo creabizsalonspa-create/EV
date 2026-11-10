@@ -264,4 +264,25 @@ void main() {
     expect(api.bodies[1],api.bodies[0]);
   });
 
+
+  testWidgets('background scrubs and dismisses unsaved card identifier form', (tester) async {
+    final api=PrivateRiderApi();
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:(){}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Register charging access'));
+    await tester.pumpAndSettle();
+    final secretField=find.byType(TextFormField).at(1);
+    await tester.enterText(secretField,'PRIVATE-TEST-NFC-ID');
+    final secretController=tester.widget<TextFormField>(secretField).controller!;
+    expect(secretController.text,'PRIVATE-TEST-NFC-ID');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    expect(secretController.text,isEmpty);
+    await tester.pumpAndSettle();
+    expect(find.text('Save'),findsNothing);
+    expect(find.text('Private records hidden. Refresh to reload.'),findsOneWidget);
+    expect(api.mutationCount,0);
+  });
+
 }
