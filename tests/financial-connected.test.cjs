@@ -118,6 +118,29 @@ test("post-finance operational windows preserve all suites and do not consume th
   }
 });
 
+test("operational flags are prepared before login windows and preparation failure stops the run", () => {
+  const { prepareOperationalAdapters } = require("./operational-connected.cjs");
+  const calls = [];
+  prepareOperationalAdapters((script) => {
+    calls.push(script);
+    return { status: 0 };
+  });
+  assert.deepEqual(calls, [
+    "./scripts/configuration-read-setup",
+    "./scripts/diagnostic-logs-setup",
+  ]);
+  const rejected = [];
+  assert.throws(
+    () =>
+      prepareOperationalAdapters((script) => {
+        rejected.push(script);
+        return { status: 1 };
+      }),
+    /Local operational preparation failed/,
+  );
+  assert.equal(rejected.length, 1);
+});
+
 test("operational adapter setup remains intact after adding the battery discovery suite", () => {
   const { prepareOperationalAdapters } = require("./operational-connected.cjs");
   const invoked = [];

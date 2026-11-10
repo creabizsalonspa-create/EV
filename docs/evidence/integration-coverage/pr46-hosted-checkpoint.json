@@ -1,0 +1,77 @@
+{
+  "source_sha": "005f7ae12085e8346df923b794d8d3a2a6601c3d",
+  "integrated_sha": "7e1b225e5add58da8a87e64d52292b76c5e99af5",
+  "pr": "https://github.com/creabizsalonspa-create/EV/pull/46",
+  "verified_main_head": "d2568039d597e9e274be38a4b915bcf70a4d7c78",
+  "required_checks": [
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327669382/job/128294378268"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327669382/job/128294377096"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327669382/job/128294377010"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327669382/job/128294376703"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327664447/job/128268937996"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327664447/job/128268937724"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327664447/job/128268936696"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327664447/job/128268936431"
+    },
+    {
+      "name": "financial-browser",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327669405/job/128267442014"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327669401/job/128266627031"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42327669401/job/128266626834"
+    }
+  ],
+  "evidence_scope": "Customer charging review creation/revision/withdrawal, source-qualified public ratings and Admin moderation with vendor read access across web/native.",
+  "limitations": "Reviews tied to eligible canonical simulation workflows; live charger and third-party network rating integration not accepted.",
+  "verification": "Exact-source GitHub Actions checks all succeeded, merged PR commit is an ancestor of integration head; no physical or production acceptance."
+}
