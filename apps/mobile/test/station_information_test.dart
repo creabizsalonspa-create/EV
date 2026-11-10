@@ -13,11 +13,13 @@ class _OwnedStationApi extends EvApi {
     this.stationName = 'Local Plaza',
     this.description,
     this.holdInfo,
+    this.rejectHeldInfo = false,
   }) : super(Uri.parse('https://example.invalid'));
   final int stationId;
   final String stationName;
   final String? description;
   final Completer<void>? holdInfo;
+  final bool rejectHeldInfo;
   final writes = <Map<String, dynamic>>[];
 
   @override
@@ -34,6 +36,9 @@ class _OwnedStationApi extends EvApi {
     }
     if (path == 'stations/$stationId/information' && method == 'GET') {
       if (holdInfo != null) await holdInfo!.future;
+      if (rejectHeldInfo) {
+        throw const ApiException(401, 'Previous vendor token expired');
+      }
       return {
         'revision': 1,
         'description_en': description, 'description_ar': null,
@@ -278,6 +283,33 @@ testWidgets('active vendor access notice is visible but expired notice is not', 
     await tester.pumpAndSettle();
     expect(find.textContaining('Operator access notice:'), findsNothing);
 
+  });
+
+
+  testWidgets('stale vendor information denial cannot sign out a new session',
+      (tester) async {
+    final held = Completer<void>();
+    final api = _OwnedStationApi(
+      holdInfo: held, rejectHeldInfo: true,
+    );
+    var expired = 0;
+    try {
+      await tester.pumpWidget(MaterialApp(home:
+        VendorStationInformationView(api: api, onExpired: () => expired++),
+      ));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Local Plaza'), findsOneWidget);
+      // The previous account is signed out while the old GET is in flight.
+      await api.forgetSession();
+      held.complete();
+      await tester.pumpAndSettle();
+      expect(expired, 0, reason: 'A stale 401 must not log out the next vendor');
+      expect(find.byKey(const Key('station-info-error')), findsNothing);
+    } finally {
+      if (!held.isCompleted) held.complete();
+      api.close();
+    }
   });
 
 }

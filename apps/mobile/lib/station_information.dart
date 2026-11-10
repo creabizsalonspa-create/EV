@@ -175,9 +175,9 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
       setState(() {page = result.current; lastPage = result.last; owned = result.items;});
       if (owned.isNotEmpty) await choose(owned.first);
     } catch (e) {
-      if (mounted && ticket == generation) fail(e);
+      if (mounted && ticket == generation && fence()) fail(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => busy = false);
+      if (mounted && ticket == generation && fence()) setState(() => busy = false);
     }
   }
   Future<void> choose(Map<String, dynamic> station) async {
@@ -204,9 +204,9 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
         access..clear()..addAll((data['accessibility'] as List? ?? []).whereType<String>().where(stationInfoAccess.containsKey));
       });
     } catch (e) {
-      if (mounted && ticket == generation) fail(e);
+      if (mounted && ticket == generation && fence()) fail(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => busy = false);
+      if (mounted && ticket == generation && fence()) setState(() => busy = false);
     }
   }
   Future<void> save() async {
@@ -244,9 +244,9 @@ class _VendorStationInfoState extends State<VendorStationInformationView> {
       if (!mounted || ticket != generation || !fence()) return;
       setState(() {info = Map<String, dynamic>.from(result as Map); success = t('Saved', 'تم الحفظ');});
     } catch (e) {
-      if (mounted && ticket == generation) fail(e);
+      if (mounted && ticket == generation && fence()) fail(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => saving = false);
+      if (mounted && ticket == generation && fence()) setState(() => saving = false);
     }
   }
   Widget multiline(String key, String en, String ar) => TextFormField(
