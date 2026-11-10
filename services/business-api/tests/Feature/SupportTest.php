@@ -261,18 +261,19 @@ class SupportTest extends TestCase
         // The authenticated PHP model still says Admin, but database
         // revocation must govern both legacy and v1 support routes.
         $this->assertSame('admin', $admin->role);
-        foreach (['/api/support', '/api/v1/support'] as $base) {
+        foreach (['/api/support' => 404, '/api/v1/support' => 403] as $base => $denial) {
             $this->getJson($base)->assertOk()->assertJsonPath('total', 0);
             $this->getJson($base.'/'.$ticket->id)->assertNotFound();
             $this->postJson($base.'/'.$ticket->id.'/messages', [
                 'body' => 'No private stale-role response',
                 'internal' => true,
             ])->assertNotFound();
-            // Unauthorized ticket IDs are intentionally concealed as 404.
+            // Legacy and v1 routes have distinct denial codes; neither
+            // may allow a stale Admin session to transition another ticket.
             $this->patchJson($base.'/'.$ticket->id.'/status', [
                 'status' => 'resolved',
                 'reason' => 'No stale-role resolution',
-            ])->assertNotFound();
+            ])->assertStatus($denial);
         }
         $this->assertDatabaseCount('ticket_messages', 0);
         $this->assertDatabaseCount('inbox_notifications', 0);
