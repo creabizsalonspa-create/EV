@@ -110,7 +110,13 @@ void main() {
         TextButton,
         'Search partner locations',
       );
-      await tester.ensureVisible(search);
+      // Search is below the fold after adding the source filters.
+      // Bring the real ListView button fully into the viewport.
+      await tester.scrollUntilVisible(
+        search,
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(search);
       await tester.pumpAndSettle();
       expect(queries.last, {
