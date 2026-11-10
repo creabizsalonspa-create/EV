@@ -18,6 +18,7 @@ const groups = [
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
   ["client-demo-lifecycle"], // six private fixture logins; dedicated window
   ["vehicle-battery"], // existing stopped fixture; private alerts -> compatible nearby discovery
+  ["vehicle-reservation"], // real garage/selected vehicle/future booking; scoped three-role reads, no charging
   ["charging-reviews"], // own unchanged authentication window
   ["ocpi-test-invoice", "ocpi-credit-picker"], // TEST billing and source-credit review: at most 4 logins; unchanged auth window
   ["partner-billing"], // scoped source-to-ledger workbench; separate authentication window
