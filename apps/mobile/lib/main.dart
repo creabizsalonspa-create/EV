@@ -1,3 +1,5 @@
+import 'reservation_vehicle.dart';
+import 'reservation_intent.dart';
 import 'vehicle_battery.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -156,6 +158,7 @@ class _WorkspaceState extends State<Workspace> {
   final loginForm = GlobalKey<FormState>();
   final catalogKey = GlobalKey<CatalogViewState>();
   final supportKey = GlobalKey<SupportViewState>();
+  final reservationIntents = ReservationIntentKeys();
   bool registering = false;
   List<Map<String, dynamic>> records = [];
   static const screens = [
@@ -229,6 +232,7 @@ class _WorkspaceState extends State<Workspace> {
   }
 
   void resetSession() {
+    reservationIntents.clear();
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
     setState(() {
@@ -384,19 +388,43 @@ class _WorkspaceState extends State<Workspace> {
   }
 
   Future<void> reserve(Station station) async {
+    final owner = account?.id;
+    final bookingApi = api;
+    if (owner == null || bookingApi == null || account?.role != 'customer')
+      return;
+    final bookingFence = bookingApi.sessionFence();
+    bool current() =>
+        mounted &&
+        bookingFence() &&
+        identical(api, bookingApi) &&
+        account?.id == owner &&
+        account?.role == 'customer';
+    final vehicle = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => ReservationVehiclePicker(
+        api: bookingApi,
+        connector: station.connector,
+        onExpired: expiredSession,
+      ),
+    );
+    if (!current() || vehicle == null) return;
+    if (vehicle['add_vehicle'] == true) {
+      setState(() => tab = 3);
+      return;
+    }
     final date = await showDatePicker(
       context: context,
       initialDate: DateTime.now().add(const Duration(days: 1)),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 29)),
     );
-    if (date == null || !mounted) return;
+    if (date == null || !current()) return;
     final time = await showTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 12, minute: 0),
       helpText: s.t('utcTime'),
     );
-    if (time == null || !mounted) return;
+    if (time == null || !current()) return;
     if (time.minute != 0 && time.minute != 30) {
       setState(() => error = 'halfHour');
       return;
@@ -411,7 +439,11 @@ class _WorkspaceState extends State<Workspace> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(s.t('reserveConfirm')),
+        title: Text(
+          vehicle['id'] == null
+              ? s.t('reserveConfirm')
+              : '${s.t('reserveConfirm')} · ${vehicle['name']}',
+        ),
         content: Text(
           '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${s.t('reservationTerms')}',
         ),
@@ -427,26 +459,44 @@ class _WorkspaceState extends State<Workspace> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !current()) return;
+    final startsAt = slot.toIso8601String().replaceFirst('.000Z', 'Z');
+    final intentKey = reservationIntents.forBooking(
+      api: bookingApi,
+      ownerId: owner,
+      stationId: station.id,
+      mappingId: station.mappingId,
+      vehicleId: vehicle['id'] as int?,
+      startsAtUtc: startsAt,
+      sessionFence: bookingFence,
+    );
+    final payload = <String, dynamic>{
+      'station_id': station.id,
+      if (vehicle['id'] != null) 'vehicle_id': vehicle['id'],
+      if (station.mappingId != null)
+        'connector_mapping_id': station.mappingId,
+      'starts_at': startsAt,
+      'idempotency_key': intentKey,
+    };
     await perform(() async {
-      await api!.request(
-        'reservations',
-        method: 'POST',
-        body: {
-          'station_id': station.id,
-          if (station.mappingId != null)
-            'connector_mapping_id': station.mappingId,
-          'starts_at': slot.toIso8601String().replaceFirst('.000Z', 'Z'),
-          'idempotency_key':
-              'mobile-${DateTime.now().microsecondsSinceEpoch}-${station.id}',
-        },
-      );
+      try {
+        await bookingApi.request(
+          'reservations',
+          method: 'POST',
+          body: payload,
+        );
+      } catch (_) {
+        if (!current()) return;
+        rethrow;
+      }
+      if (!current()) return;
       if (mounted) {
         setState(() => tab = 1);
         if (station.mappingId != null && Navigator.of(context).canPop())
           Navigator.of(context).pop();
       }
       await load();
+      if (current()) reservationIntents.acknowledge(intentKey);
     });
     if (mounted && station.mappingId != null && error != null)
       ScaffoldMessenger.of(
@@ -519,6 +569,10 @@ class _WorkspaceState extends State<Workspace> {
                   'id': row['station_id'],
                   'time': row['starts_at'],
                 }),
+              ),
+            if (tab == 1 && row['vehicle_connector_type'] != null)
+              Text(
+                '${row['vehicle_label'] ?? (s.arabic ? 'موصل المركبة' : 'Vehicle connector')} · ${row['vehicle_connector_type']}',
               ),
             if (tab == 1 && row['checked_in_at'] != null)
               Text(
