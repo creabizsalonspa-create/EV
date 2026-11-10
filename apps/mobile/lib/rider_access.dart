@@ -139,15 +139,16 @@ class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserv
       fail(e);
     }finally{if(mounted&&epoch==generation)setState(()=>busy=false);}
   }
-  Future<void> renew(Map<String,dynamic> row)async{final body=await form(t('Change expiry','تغيير الانتهاء'),[_RiderField('expires_at',t('Expiry UTC','الانتهاء UTC'),max:20)]);if(!mounted||body==null||privatePaused||!sessionAlive)return;await mutate('$path/${row['id']}','PATCH',body);}
+  Future<void> renew(Map<String,dynamic> row)async{final beforeDialog=generation;final identityFence=sessionFence;final body=await form(t('Change expiry','تغيير الانتهاء'),[_RiderField('expires_at',t('Expiry UTC','الانتهاء UTC'),max:20)]);if(!mounted||body==null||privatePaused||!sessionAlive||!identityFence()||beforeDialog!=generation)return;await mutate('$path/${row['id']}','PATCH',body);}
   Future<void> review(Map<String,dynamic> row)async{
+    final beforeDialog=generation;final identityFence=sessionFence;
     final body=await form(t('Review access request','مراجعة طلب الوصول'),[
       _RiderField('state',t('Decision','القرار'),initial:'approved',choices:{'approved':t('Approve','موافقة'),'rejected':t('Reject','رفض'),'revoked':t('Revoke','إبطال')}),
       _RiderField('expires_at',t('Approval expiry UTC','انتهاء الموافقة UTC'),required:false,max:20),
       _RiderField('note',t('Review notes (at least 10 characters)','ملاحظات المراجعة (١٠ أحرف على الأقل)'),min:10,max:2000),
-    ]);if(!mounted||body==null||privatePaused||!sessionAlive)return;if(body['expires_at']=='')body.remove('expires_at');await mutate('$path/${row['id']}/review','POST',body);
+    ]);if(!mounted||body==null||privatePaused||!sessionAlive||!identityFence()||beforeDialog!=generation)return;if(body['expires_at']=='')body.remove('expires_at');await mutate('$path/${row['id']}/review','POST',body);
   }
-  Future<void> requestStation()async{final station=await Navigator.of(context).push<int>(MaterialPageRoute(builder:(_)=>RiderAccessView(api:widget.api,onExpired:widget.onExpired,records:RiderRecords.stations)));if(!mounted||station==null||privatePaused||!sessionAlive)return;await mutate(path,'POST',{'station_id':station});}
+  Future<void> requestStation()async{final beforeDialog=generation;final identityFence=sessionFence;final station=await Navigator.of(context).push<int>(MaterialPageRoute(builder:(_)=>RiderAccessView(api:widget.api,onExpired:widget.onExpired,records:RiderRecords.stations)));if(!mounted||station==null||privatePaused||!sessionAlive||!identityFence()||beforeDialog!=generation)return;await mutate(path,'POST',{'station_id':station});}
   @override
   Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text(widget.records==RiderRecords.operatorRequests?t('Charging access requests','طلبات وصول الشحن'):widget.records==RiderRecords.grants?t('Station approvals','موافقات المحطات'):riderTitle(context))),body:ListView(padding:const EdgeInsets.all(16),children:[
     Text(t('Operator approval, source provisioning and a current booking are required. Test authorization is not physical card or hardware acceptance. Revocation does not forcibly stop active sessions.','تلزم موافقة المشغل وإعداد المصدر وحجز حالي. تفويض الاختبار ليس قبولاً للبطاقة أو الأجهزة الفعلية. لا يوقف الإبطال الجلسات النشطة قسراً.')),
