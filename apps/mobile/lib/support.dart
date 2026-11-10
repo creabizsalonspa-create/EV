@@ -5,10 +5,12 @@ import 'strings.dart';
 class SupportView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onSessionExpired;
+  final Future<void> Function(int)? onBatteryDiscovery;
   const SupportView({
     super.key,
     required this.api,
     required this.onSessionExpired,
+    this.onBatteryDiscovery,
   });
   @override
   SupportViewState createState() => SupportViewState();
@@ -135,25 +137,43 @@ class SupportViewState extends State<SupportView> {
                   children: [
                     if (notifications) ...[
                       Text(
-                        s.t(
-                          row['kind'] == 'support.reply'
-                              ? 'supportReply'
-                              : 'supportStatus',
-                        ),
+                        row['kind'] == 'vehicle.battery.simulated'
+                            ? '${Localizations.localeOf(context).languageCode == 'ar' ? 'محاكاة بطارية منخفضة' : 'Simulated low battery'} · #${row['metadata']['vehicle_id']} · ${row['metadata']['battery_percent']}%'
+                            : s.t(
+                                row['kind'] == 'support.reply'
+                                    ? 'supportReply'
+                                    : 'supportStatus',
+                              ),
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       Text(s.t(row['read_at'] == null ? 'unread' : 'read')),
+                      if (row['kind'] == 'vehicle.battery.simulated' &&
+                          widget.onBatteryDiscovery != null)
+                        TextButton(
+                          onPressed: loading
+                              ? null
+                              : () => widget.onBatteryDiscovery!(
+                                  row['metadata']['vehicle_id'] as int,
+                                ),
+                          child: Text(
+                            s.arabic
+                                ? 'البحث عن شواحن متوافقة'
+                                : 'Find compatible chargers',
+                          ),
+                        ),
+
                       Wrap(
                         spacing: 8,
                         children: [
-                          TextButton(
-                            onPressed: loading
-                                ? null
-                                : () => open(row['support_ticket_id'] as int),
-                            child: Text(
-                              s.t('ticket', {'id': row['support_ticket_id']}),
+                          if (row['support_ticket_id'] != null)
+                            TextButton(
+                              onPressed: loading
+                                  ? null
+                                  : () => open(row['support_ticket_id'] as int),
+                              child: Text(
+                                s.t('ticket', {'id': row['support_ticket_id']}),
+                              ),
                             ),
-                          ),
                           if (row['read_at'] == null)
                             TextButton(
                               onPressed: loading

@@ -122,7 +122,7 @@ class PlatformController extends Controller
 
     public function vehicles(Request $r)
     {
-        return Vehicle::where('user_id', $r->user()->id)->paginate(25);
+        return Vehicle::where('user_id', $r->user()->id)->paginate(25)->through(fn ($vehicle) => $vehicle->toArray() + ['can_simulate_battery' => $r->user()->role === 'customer' && VehicleBatteryController::enabled()]);
     }
 
     public function createVehicle(Request $r)

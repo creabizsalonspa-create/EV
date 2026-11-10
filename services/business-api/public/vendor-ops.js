@@ -1595,6 +1595,59 @@ window.createVendorWorkspace = ({
                     }
                     content.append(card);
                 }
+                if (data.feedback_groups !== undefined) {
+                    if (
+                        data.feedback_physical_charging_verified !== false ||
+                        data.feedback_scope !==
+                            "currently_published_revisions_created_in_window" ||
+                        !Array.isArray(data.feedback_groups)
+                    )
+                        throw Error("Unknown feedback report contract.");
+                    content.append(
+                        ui("h4", "Moderated charging feedback"),
+                        ui("p", "Feedback report window"),
+                    );
+                    for (const row of data.feedback_groups) {
+                        if (
+                            !data.sites.some(
+                                (s) => s.site_id === row.site_id,
+                            ) ||
+                            ![
+                                "SIMULATED_SOURCE_OBSERVED",
+                                "SIMULATED_APP_ONLY",
+                            ].includes(row.evidence) ||
+                            !Number.isSafeInteger(row.ratings) ||
+                            row.ratings < 1 ||
+                            !Number.isSafeInteger(row.rating_sum) ||
+                            row.rating_sum < row.ratings ||
+                            row.rating_sum > row.ratings * 5
+                        )
+                            throw Error("Invalid feedback metric.");
+                        content.append(
+                            ui(
+                                "p",
+                                row.evidence === "SIMULATED_SOURCE_OBSERVED"
+                                    ? "Observed simulator feedback"
+                                    : "App-only simulator feedback",
+                            ),
+                        );
+                        content.append(
+                            ui(
+                                "p",
+                                "Feedback totals: {count} ratings · {sum} points · site {site}",
+                                {
+                                    count: row.ratings,
+                                    sum: row.rating_sum,
+                                    site: row.site_id,
+                                },
+                            ),
+                        );
+                    }
+                    if (!data.feedback_groups.length)
+                        content.append(
+                            ui("p", "No approved feedback in report window"),
+                        );
+                }
                 if (data.financial_visible)
                     content.append(
                         ui("h4", "Invoice references, not cash or settlements"),
@@ -2871,6 +2924,20 @@ window.createVendorWorkspace = ({
         for (const grant of result.data) {
             const row = document.createElement("article");
             row.dataset.riderGrant = grant.id;
+            const activity = document.createElement("div");
+            row.append(activity);
+            button(row, "Charging access activity", () =>
+                window.loadRiderAccessHistory({
+                    root: activity,
+                    path:
+                        base +
+                        `companies/${company.id}/rider-grants/${grant.id}/activity`,
+                    api,
+                    ui,
+                    valid: () => valid(epoch),
+                    signal: controller?.signal,
+                }),
+            );
             row.append(
                 raw("h4", grant.label),
                 raw(

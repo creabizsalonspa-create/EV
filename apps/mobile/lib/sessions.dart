@@ -4,6 +4,7 @@ import 'invoice.dart';
 import 'strings.dart';
 import 'action_form.dart';
 import 'charging_operations.dart';
+import 'charging_reviews.dart';
 
 class SessionsView extends StatefulWidget {
   final EvApi api;
@@ -186,6 +187,26 @@ class _SessionsViewState extends State<SessionsView> {
             style: Theme.of(context).textTheme.headlineLarge,
           ),
           Text(s.t('meterDisclaimer')),
+          if (['customer', 'vendor'].contains(widget.role))
+            TextButton(
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ChargingReviewsView(
+                          api: widget.api,
+                          role: widget.role,
+                          onExpired: widget.onExpired,
+                        ),
+                      ),
+                    ),
+              child: Text(
+                Localizations.localeOf(context).languageCode == 'ar'
+                    ? 'ملاحظات الشحن'
+                    : 'Charging feedback',
+              ),
+            ),
+
           if (busy) const LinearProgressIndicator(),
           if (error != null) ...[
             Text(s.t(errorKey(error!))),
@@ -233,8 +254,18 @@ class _SessionsViewState extends State<SessionsView> {
                       }),
                     ),
                     if (row['csms_linked'] == true) Text(s.t('sourceControls')),
-                    if (row['authorization_method'] == 'rider_token') Text(Localizations.localeOf(context).languageCode == 'ar' ? 'التفويض ببطاقة أو رمز؛ دليل مصدر محاكاة فقط' : 'Card/token authorization; simulated source evidence only'),
-                    if (row['awaiting_rider_transaction'] == true) Text(Localizations.localeOf(context).languageCode == 'ar' ? 'تم تسجيل التفويض؛ بانتظار معاملة المصدر. تبقى السعة محجوزة حتى تسوية الحالة.' : 'Authorization recorded; awaiting a source transaction. Capacity stays reserved until reconciled.'),
+                    if (row['authorization_method'] == 'rider_token')
+                      Text(
+                        Localizations.localeOf(context).languageCode == 'ar'
+                            ? 'التفويض ببطاقة أو رمز؛ دليل مصدر محاكاة فقط'
+                            : 'Card/token authorization; simulated source evidence only',
+                      ),
+                    if (row['awaiting_rider_transaction'] == true)
+                      Text(
+                        Localizations.localeOf(context).languageCode == 'ar'
+                            ? 'تم تسجيل التفويض؛ بانتظار معاملة المصدر. تبقى السعة محجوزة حتى تسوية الحالة.'
+                            : 'Authorization recorded; awaiting a source transaction. Capacity stays reserved until reconciled.',
+                      ),
                     if (row['csms_linked'] == true) ...[
                       if (row['start_command_status'] != null)
                         Text(

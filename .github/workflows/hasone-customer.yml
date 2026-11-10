@@ -1,0 +1,75 @@
+name: Hasone customer development builds
+on:
+  pull_request:
+    paths: ['apps/hasone-customer/**', '.github/workflows/hasone-customer.yml']
+  push:
+    branches: [development/fullstack-continuation, development/platform-foundation]
+    # Match PR path scope so unrelated integration commits do not launch two
+    # full Flutter platform builds while PR and default-branch checks remain.
+    paths: ['apps/hasone-customer/**', '.github/workflows/hasone-customer.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+# Cancel superseded runs of the same workflow/event/ref. Keep push and PR
+# validations separate so a branch push cannot cancel a required PR check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    timeout-minutes: 90
+    # Keep these check contexts distinct from apps/mobile's native jobs.
+    # Both suites are required when a PR changes both app trees.
+    name: hasone-native (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/hasone-customer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            apps/hasone-customer/android/**/*.gradle*
+            apps/hasone-customer/android/gradle/wrapper/gradle-wrapper.properties
+      - name: Pinned compatible Flutter
+        run: |
+          git clone --depth 1 --branch 3.35.7 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = adc901062556672b4138e18a4dc62a4be8f4b3c2
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Cache lockfile-pinned Dart packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-hasone-3.35.7-pub-${{ hashFiles('apps/hasone-customer/pubspec.lock') }}
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter test --no-pub
+      - name: Android development APK
+        if: runner.os == 'Linux'
+        run: flutter build apk --debug --dart-define=EV_API_BASE_URL=https://api.hasone.io
+      - name: iOS simulator application
+        if: runner.os == 'macOS'
+        run: |
+          flutter build ios --simulator --no-codesign --debug --dart-define=EV_API_BASE_URL=https://api.hasone.io
+          tar -czf hasone-ios-simulator.tar.gz -C build/ios/iphonesimulator Runner.app
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: hasone-customer-android-development
+          path: apps/hasone-customer/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: hasone-customer-ios-simulator
+          path: apps/hasone-customer/hasone-ios-simulator.tar.gz
+          if-no-files-found: error

@@ -1,3 +1,4 @@
+import 'charging_reviews.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'station_map.dart';
@@ -130,6 +131,24 @@ class CatalogViewState extends State<CatalogView> {
       }
     });
     controller.load();
+  }
+
+  void compatibleWith(String type) {
+    if (!['CCS2', 'Type2', 'CHAdeMO'].contains(type)) return;
+    setState(() {
+      connector = type;
+      for (final field in [
+        search,
+        country,
+        power,
+        latitude,
+        longitude,
+        radius,
+      ]) {
+        field.clear();
+      }
+    });
+    controller.load(filter: CatalogFilter(connector: type));
   }
 
   void apply() {
@@ -483,6 +502,25 @@ class CatalogViewState extends State<CatalogView> {
                           textDirection: TextDirection.ltr,
                         ),
                         Text(s.t('unknownAvailability')),
+                        if (widget.discoveryApi != null)
+                          TextButton(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ChargingReviewsView(
+                                  api: widget.discoveryApi!,
+                                  stationId: station.id,
+                                  onExpired: widget.onExpired ?? () {},
+                                ),
+                              ),
+                            ),
+                            child: Text(
+                              Localizations.localeOf(context).languageCode ==
+                                      'ar'
+                                  ? 'ملاحظات الشحن'
+                                  : 'Charging feedback',
+                            ),
+                          ),
+
                         if (widget.customer && widget.onFavorite != null)
                           OutlinedButton.icon(
                             key: Key('favorite-${station.id}'),

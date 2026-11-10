@@ -23,6 +23,26 @@ void main() {
       final result = await api.request(path);
       expect(result['physical_uptime_verified'], false);
       expect(result['billing_authority'], false);
+      expect(result['feedback_physical_charging_verified'], false);
+      expect(
+        result['feedback_scope'],
+        'currently_published_revisions_created_in_window',
+      );
+      expect(result['feedback_groups'], isA<List>());
+      for (final group in result['feedback_groups'] as List) {
+        expect([
+          'SIMULATED_SOURCE_OBSERVED',
+          'SIMULATED_APP_ONLY',
+        ], contains(group['evidence']));
+        expect(group['ratings'], greaterThan(0));
+        expect(
+          group['rating_sum'],
+          inInclusiveRange(group['ratings'], group['ratings'] * 5),
+        );
+        expect(group.containsKey('body'), false);
+        expect(group.containsKey('user_id'), false);
+      }
+
       expect((result['sites'] as List).length, 2);
       expect(
         (result['sites'] as List).every(

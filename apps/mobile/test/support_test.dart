@@ -62,6 +62,35 @@ class SupportFixture extends FixtureApi {
   }
 }
 
+class BatteryFixture extends FixtureApi {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async => {
+    'data': path == 'notifications'
+        ? [
+            {
+              'id': 9,
+              'kind': 'vehicle.battery.simulated',
+              'support_ticket_id': null,
+              'read_at': null,
+              'metadata': {
+                'source': 'simulator',
+                'vehicle_id': 3,
+                'battery_percent': 15,
+              },
+            },
+          ]
+        : [],
+    'current_page': 1,
+    'last_page': 1,
+    'total': 1,
+  };
+}
+
 class PendingSupport extends FixtureApi {
   final response = Completer<dynamic>();
   @override
@@ -151,6 +180,32 @@ void main() {
       await tester.tap(find.text('Ticket #1'));
       await tester.pumpAndSettle();
       expect(find.text('Original public message'), findsOneWidget);
+    },
+  );
+  testWidgets(
+    'battery notification labels simulation without a support ticket link',
+    (tester) async {
+      int? chosen;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SupportView(
+              api: BatteryFixture(),
+              onSessionExpired: () {},
+              onBatteryDiscovery: (id) async {
+                chosen = id;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('support-notifications')));
+      await tester.pumpAndSettle();
+      expect(find.text('Simulated low battery · #3 · 15%'), findsOneWidget);
+      expect(find.textContaining('Ticket #'), findsNothing);
+      await tester.tap(find.text('Find compatible chargers'));
+      expect(chosen, 3);
     },
   );
 }
