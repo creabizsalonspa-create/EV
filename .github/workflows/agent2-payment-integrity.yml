@@ -1,9 +1,7 @@
 name: Agent 2 EV integration validations
 on:
   push:
-    branches:
-      - development/fullstack-continuation
-      - development/platform-foundation
+    branches: [development/fullstack-continuation, development/platform-foundation]
     paths:
       - 'integrations/hasone-express/**'
       - 'integrations/hasone-next-admin/**'
