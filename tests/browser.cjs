@@ -2,6 +2,25 @@ const { chromium } = require("playwright");
 const { execFileSync } = require("node:child_process");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
+
+// Shell role changes are privileged test mutations. Never print raw SQL or email.
+function provisionTestRole(email, role) {
+  try {
+    execFileSync("./scripts/php", ["artisan", "platform:role", email, role], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const output = String(error.stdout || "") + String(error.stderr || "");
+    const sqlstate = output.match(/SQLSTATE\[([A-Z0-9]{5})\]/);
+    throw new Error(
+      "Synthetic role provisioning failed: " +
+        (sqlstate ? "SQLSTATE " + sqlstate[1] : "SQLSTATE unavailable") +
+        "; inspect private CI evidence for cause.",
+      { cause: { exitCode: error.status } },
+    );
+  }
+}
 (async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -127,11 +146,7 @@ const { randomUUID } = require("node:crypto");
       /Email verified/,
     );
     assert.equal(await vendor.page.locator("#verify-email").isVisible(), false);
-    execFileSync(
-      "./scripts/php",
-      ["artisan", "platform:role", vendor.email, "vendor"],
-      { stdio: "pipe" },
-    );
+    provisionTestRole(vendor.email, "vendor");
     // Role changes must invalidate the old browser session. Reauthenticate
     // instead of expecting the prior customer session to inherit vendor access.
     await vendor.page.reload();
@@ -259,11 +274,7 @@ const { randomUUID } = require("node:crypto");
     // Distinct role principals avoid spending one actor's entire protected-read
     // budget on repeated full-workspace reloads. Production limits stay enabled.
     const admin = await account("Admin");
-    execFileSync(
-      "./scripts/php",
-      ["artisan", "platform:role", admin.email, "admin"],
-      { stdio: "pipe" },
-    );
+    provisionTestRole(admin.email, "admin");
     // Admin elevation is a new authentication boundary, not an in-place grant.
     await admin.page.reload();
     await admin.page.locator("#account [name=email]").fill(admin.email);
