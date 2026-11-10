@@ -144,7 +144,26 @@ const { randomUUID } = require("node:crypto");
         .split(" (Connection:")[0].slice(0, 240);
       throw new Error(`Audited role provisioning failed: ${reason}`, { cause });
     }
+    // The audited role promotion revokes the old browser authorization
+    // epoch. Verify that boundary, then sign in again as the vendor.
+    const staleVendorIdentity = vendor.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/me") &&
+        response.request().method() === "GET",
+    );
     await vendor.page.reload();
+    assert.equal((await staleVendorIdentity).status(), 401);
+    await vendor.page.locator("#account").waitFor({ state: "visible" });
+    await vendor.page.locator("#account [name=email]").fill(vendor.email);
+    await vendor.page.locator("#account [name=password]").fill(password);
+    const freshVendorLogin = vendor.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/login") &&
+        response.request().method() === "POST",
+    );
+    await vendor.page.locator("#account button[value=login]").click();
+    assert.equal((await freshVendorLogin).status(), 200);
+    await vendor.page.locator("#signed").waitFor({ state: "visible" });
     await vendor.page.locator("#vendor").waitFor({ state: "visible" });
     const f = vendor.page.locator("#station-form");
     for (const [key, value] of Object.entries({
@@ -266,12 +285,59 @@ const { randomUUID } = require("node:crypto");
     // Distinct role principals avoid spending one actor's entire protected-read
     // budget on repeated full-workspace reloads. Production limits stay enabled.
     const admin = await account("Admin");
+    // The operator CLI refuses Admin elevation without mailbox ownership.
+    // Confirm only this synthetic test mailbox through the normal signed
+    // development notification path; never bypass the production check.
+    const adminVerificationSent = admin.page.waitForResponse((response) =>
+      response.url().endsWith("/api/email/verification-notification"),
+    );
+    await admin.page.locator("#verify-email").click();
+    assert.equal((await adminVerificationSent).status(), 202);
+    const adminVerificationUrl = execFileSync(
+      "./scripts/php",
+      [
+        "-r",
+        `
+      require "vendor/autoload.php";
+      $app = require "bootstrap/app.php";
+      $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap();
+      Illuminate\\Support\\Facades\\URL::forceRootUrl($argv[2]);
+      $user = App\\Models\\User::where("email", $argv[1])->firstOrFail();
+      echo (new Illuminate\\Auth\\Notifications\\VerifyEmail)->toMail($user)->actionUrl;
+    `,
+        "--",
+        admin.email,
+        base,
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    ).trim();
+    await admin.page.goto(adminVerificationUrl);
+    await admin.page.getByRole("heading", { name: /Email verified/ }).waitFor();
+    await admin.page.getByRole("link", { name: /Return to your account/ }).click();
+    await admin.page.locator("#signed").waitFor({ state: "visible" });
     execFileSync(
       "./scripts/php",
       ["artisan", "platform:role", admin.email, "admin"],
       { stdio: "pipe" },
     );
+    const staleAdminIdentity = admin.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/me") &&
+        response.request().method() === "GET",
+    );
     await admin.page.reload();
+    assert.equal((await staleAdminIdentity).status(), 401);
+    await admin.page.locator("#account").waitFor({ state: "visible" });
+    await admin.page.locator("#account [name=email]").fill(admin.email);
+    await admin.page.locator("#account [name=password]").fill(password);
+    const freshAdminLogin = admin.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/login") &&
+        response.request().method() === "POST",
+    );
+    await admin.page.locator("#account button[value=login]").click();
+    assert.equal((await freshAdminLogin).status(), 200);
+    await admin.page.locator("#signed").waitFor({ state: "visible" });
     await admin.page.locator("#admin").waitFor({ state: "visible" });
     await admin.page.waitForFunction(() =>
       document.querySelector("#overview").textContent.includes("Audit history"),
