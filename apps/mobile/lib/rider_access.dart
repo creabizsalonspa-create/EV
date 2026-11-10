@@ -191,12 +191,21 @@ class _RiderDialog extends StatefulWidget {
   @override
   State<_RiderDialog> createState()=>_RiderDialogState();
 }
-class _RiderDialogState extends State<_RiderDialog> {
+class _RiderDialogState extends State<_RiderDialog> with WidgetsBindingObserver {
   final form=GlobalKey<FormState>();final controls=<String,TextEditingController>{};
   @override
-  void initState(){super.initState();for(final f in widget.fields)controls[f.key]=TextEditingController(text:f.initial);}
+  void initState(){super.initState();WidgetsBinding.instance.addObserver(this);for(final f in widget.fields)controls[f.key]=TextEditingController(text:f.initial);}
   @override
-  void dispose(){for(final c in controls.values)c.dispose();super.dispose();}
+  void didChangeAppLifecycleState(AppLifecycleState state){
+    if(state==AppLifecycleState.resumed||!mounted)return;
+    // A modal remains above its parent when it backgrounds: scrub identifiers
+    // directly, even if the navigator cannot dismiss an obscured dialog.
+    for(final controller in controls.values)controller.clear();
+    final route=ModalRoute.of(context);
+    if(route?.isCurrent==true)Navigator.of(context).pop();
+  }
+  @override
+  void dispose(){WidgetsBinding.instance.removeObserver(this);for(final c in controls.values)c.dispose();super.dispose();}
   @override
   Widget build(BuildContext context){final ar=Localizations.localeOf(context).languageCode=='ar';return AlertDialog(title:Text(widget.title),content:SingleChildScrollView(child:Form(key:form,child:Column(mainAxisSize:MainAxisSize.min,children:[for(final f in widget.fields)if(f.choices!=null)DropdownButtonFormField<String>(initialValue:controls[f.key]!.text,items:f.choices!.entries.map((e)=>DropdownMenuItem(value:e.key,child:Text(e.value))).toList(),onChanged:(v)=>controls[f.key]!.text=v??'',decoration:InputDecoration(labelText:f.label))else TextFormField(controller:controls[f.key],obscureText:f.secret,autocorrect:false,enableSuggestions:!f.secret,maxLength:f.max,decoration:InputDecoration(labelText:f.label),validator:(v)=>f.required&&(v?.trim().length??0)<f.min?(ar?'تحقق من الحقل المطلوب وطوله':'Check required value and minimum length'):null)]))),actions:[TextButton(onPressed:()=>Navigator.pop(context),child:Text(ar?'إلغاء':'Cancel')),FilledButton(onPressed:(){if(form.currentState!.validate())Navigator.pop(context,{for(final e in controls.entries)e.key:e.value.text.trim()});},child:Text(ar?'حفظ':'Save'))]);}
 }
