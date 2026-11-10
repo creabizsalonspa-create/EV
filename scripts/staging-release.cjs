@@ -11,6 +11,7 @@ const { parseSnapshot, checkSnapshot, localDockerSnapshot } = require('./staging
 const { getCurrentHead } = require('./staging-acceptance.cjs');
 const privateEnv = require('./staging-env-integrity.cjs');
 const composeIntegrity = require('./staging-compose-integrity.cjs');
+const {ancestorSnapshot,assertAncestorsUnchanged} = require('./staging-path-integrity.cjs');
 
 const PROJECT = 'ev-staging';
 const ROLES = ['application', 'worker', 'scheduler'];
@@ -289,16 +290,55 @@ function verifyRunning(expectedRef,expectedId,deps={}) {
 }
 
 function acquireLock(deps={}) {
-  // Exclusive lock prevents two independent staging app updates from interleaving.
-  // A crash deliberately leaves a lock requiring operator inspection, not an unsafe timeout unlock.
+  // A crash deliberately leaves a real owner-only lock for operator review.
+  // Never assume that a lock at the same pathname is still the inode we own.
   const file=deps.lockPath || '/tmp/ev-staging-agent10-release.lock';
-  if (fs.existsSync(file)) throw Error('A staging release is already active or requires operator reconciliation');
-  const fd=fs.openSync(file,'wx',0o600);
+  const ancestors=ancestorSnapshot(file);
+  const flags=fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
+    (fs.constants.O_NOFOLLOW || 0);
+  // O_EXCL refuses existing files and symlinks, including dangling symlinks.
+  const fd=fs.openSync(file,flags,0o600);
+  const original=fs.fstatSync(fd);
+  const checkOwned=()=>{
+    assertAncestorsUnchanged(ancestors);
+    const current=fs.lstatSync(file);
+    const opened=fs.fstatSync(fd);
+    if(!current.isFile() || current.isSymbolicLink() ||
+       current.dev!==original.dev || current.ino!==original.ino ||
+       opened.dev!==original.dev || opened.ino!==original.ino ||
+       current.nlink!==1 || opened.nlink!==1 ||
+       (process.platform!=='win32' && ((current.mode & 0o077)!==0 ||
+         (opened.mode & 0o077)!==0))) {
+      throw Error('Staging release lock identity changed; operator reconciliation required');
+    }
+    return true;
+  };
   try {
-    fs.writeSync(fd,JSON.stringify({project:PROJECT,pid:process.pid,started:new Date().toISOString()})+'\n');
+    if(!original.isFile() || original.nlink!==1 ||
+       (process.platform!=='win32' && (original.mode & 0o077)!==0)) {
+      throw Error('Staging release lock was not created privately');
+    }
+    fs.writeSync(fd,JSON.stringify({project:PROJECT,pid:process.pid,
+      started:new Date().toISOString()})+'\n');
     fs.fsyncSync(fd);
-  } catch(error) {fs.closeSync(fd);fs.unlinkSync(file);throw error;}
-  return () => {fs.closeSync(fd);fs.unlinkSync(file);};
+    checkOwned();
+  } catch(error) {
+    // If creating the lock failed after O_EXCL, never unlink a pathname that
+    // may now belong to a different process. Retain uncertain locks for review.
+    fs.closeSync(fd);
+    throw error;
+  }
+  let attempted=false;
+  return ()=>{
+    if(attempted)throw Error('Staging release lock cleanup already attempted');
+    attempted=true;
+    try {
+      checkOwned();
+      fs.unlinkSync(file);
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
 }
 function apply(config,deps={}) {
   // Acquire a shared release lock before inspecting the local deployment.
