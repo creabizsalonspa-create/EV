@@ -134,6 +134,24 @@ class CatalogViewState extends State<CatalogView> {
     controller.load();
   }
 
+  void compatibleWith(String type) {
+    if (!['CCS2', 'Type2', 'CHAdeMO'].contains(type)) return;
+    setState(() {
+      connector = type;
+      for (final field in [
+        search,
+        country,
+        power,
+        latitude,
+        longitude,
+        radius,
+      ]) {
+        field.clear();
+      }
+    });
+    controller.load(filter: CatalogFilter(connector: type));
+  }
+
   void apply() {
     if (form.currentState!.validate())
       controller.load(

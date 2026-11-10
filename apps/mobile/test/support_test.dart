@@ -185,10 +185,17 @@ void main() {
   testWidgets(
     'battery notification labels simulation without a support ticket link',
     (tester) async {
+      int? chosen;
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: SupportView(api: BatteryFixture(), onSessionExpired: () {}),
+            body: SupportView(
+              api: BatteryFixture(),
+              onSessionExpired: () {},
+              onBatteryDiscovery: (id) async {
+                chosen = id;
+              },
+            ),
           ),
         ),
       );
@@ -197,6 +204,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Simulated low battery · #3 · 15%'), findsOneWidget);
       expect(find.textContaining('Ticket #'), findsNothing);
+      await tester.tap(find.text('Find compatible chargers'));
+      expect(chosen, 3);
     },
   );
 }

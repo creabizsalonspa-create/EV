@@ -3,13 +3,13 @@
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ChargerCommandController;
 use App\Http\Controllers\ChargingReviewController;
+use App\Http\Controllers\StationInformationController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
-use App\Http\Controllers\StationInformationController;
 use App\Http\Controllers\SupportController;
 use App\Http\Controllers\VehicleBatteryController;
 use App\Models\ChargingSession;
@@ -33,6 +33,8 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/stations', [P::class, 'createStation']);
     Route::get('/api/vehicles', [P::class, 'vehicles']);
     Route::post('/api/vehicles', [P::class, 'createVehicle']);
+    Route::get('/api/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'show']);
+    Route::put('/api/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'update']);
     Route::post('/api/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
     Route::get('/api/reservations', [P::class, 'reservations']);
     Route::post('/api/reservations', [P::class, 'reserve']);
