@@ -10,6 +10,8 @@ use App\Models\User;
 use App\Services\Commercial\SettlementService;
 use App\Services\Finance\FinanceService;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Grammars\SQLiteGrammar;
+use Illuminate\Database\SQLiteConnection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -177,6 +179,48 @@ class SettlementTest extends TestCase
         $this->assertDatabaseHas('commercial_adjustments', ['id' => $id, 'amount_minor' => 333, 'minor_units' => 2]);
         $this->expectException(QueryException::class);
         DB::table('commercial_adjustments')->where('id', $id)->update(['amount_minor' => 1]);
+    }
+
+    public function test_legacy_sqlite_precision_rollback_preserves_update_and_delete_guards(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('Exercises the legacy SQLite table-rebuild path.');
+        }
+
+        $connection = DB::connection();
+        $connection->getSchemaBuilder();
+        $grammar = $connection->getSchemaGrammar();
+        $legacy = new class($connection->getPdo(), '', '', $connection->getConfig()) extends SQLiteConnection
+        {
+            public function getServerVersion(): string
+            {
+                return '3.34.0';
+            }
+        };
+        $connection->setSchemaGrammar(new SQLiteGrammar($legacy));
+        $migration = require database_path('migrations/2026_10_28_120002_snapshot_adjustment_precision.php');
+        try {
+            $migration->down();
+            $this->assertFalse(Schema::hasColumn('commercial_adjustments', 'minor_units'));
+            $id = DB::table('commercial_adjustments')->insertGetId(['vendor_id' => $this->vendor->id, 'currency' => 'AED', 'amount_minor' => 333, 'reason' => 'Legacy SQLite backfill', 'request_key' => hash('sha256', 'legacy-sqlite'), 'created_by' => $this->admin->id, 'created_at' => now()]);
+            foreach (['rollback', 'reapplied'] as $stage) {
+                foreach (['update', 'delete'] as $operation) {
+                    try {
+                        $query = DB::table('commercial_adjustments')->where('id', $id);
+                        $operation === 'update' ? $query->update(['amount_minor' => 1]) : $query->delete();
+                        $this->fail("Missing {$operation} immutability guard after {$stage}");
+                    } catch (QueryException $e) {
+                        $this->assertStringContainsString('Settlement records are immutable', $e->getMessage());
+                    }
+                }
+                if ($stage === 'rollback') {
+                    $migration->up();
+                    $this->assertDatabaseHas('commercial_adjustments', ['id' => $id, 'amount_minor' => 333, 'minor_units' => 2]);
+                }
+            }
+        } finally {
+            $connection->setSchemaGrammar($grammar);
+        }
     }
 
     public function test_precision_backfill_rejects_ambiguous_currency_before_schema_change(): void

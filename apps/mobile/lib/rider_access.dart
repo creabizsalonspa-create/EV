@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'rider_history.dart';
 import 'strings.dart';
 
 String riderTitle(BuildContext c) => Localizations.localeOf(c).languageCode=='ar' ? 'بطاقات ورموز الشحن' : 'Charging cards & tokens';
@@ -59,6 +60,7 @@ class _RiderAccessState extends State<RiderAccessView> {
     for(final row in data?.items??<Map<String,dynamic>>[])Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       Text('${row['label']??row['station_name']??row['name']??row['station_id']}'),
       if(widget.records==RiderRecords.tokens)...[
+        TextButton(onPressed:busy?null:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>RiderHistoryView(api:widget.api,onExpired:widget.onExpired,tokenId:row['id'] as int))),child:Text(t('Charging access activity','سجل وصول الشحن'))),
         Text('${row['token_type']} · ••••${row['suffix']}'),Text('${row['expires_at']}'),Text('${row['provisioning_state']}'),
         if(row['revoked_at']!=null)Text(t('Revoked','مبطل'))else...[
           TextButton(onPressed:busy?null:()async{if(await confirm(t('Revoke this token and all station approvals?','إبطال الرمز وجميع موافقات محطاته؟'))&&mounted)await mutate('$path/${row['id']}','DELETE',null);},child:Text(t('Revoke token','إبطال الرمز'))),TextButton(onPressed:busy?null:()=>renew(row),child:Text(t('Change expiry','تغيير الانتهاء'))),
@@ -66,6 +68,7 @@ class _RiderAccessState extends State<RiderAccessView> {
       ]else if(widget.records==RiderRecords.grants)...[
         Text('${row['state']} · ${row['expires_at']??'—'}'),if(row['revoked_at']==null)TextButton(onPressed:busy?null:()async{if(await confirm(t('Withdraw this station approval?','سحب موافقة هذه المحطة؟'))&&mounted)await mutate('$path/${row['id']}','DELETE',null);},child:Text(t('Withdraw approval','سحب الموافقة'))),
       ]else if(widget.records==RiderRecords.operatorRequests)...[
+        TextButton(onPressed:busy?null:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>RiderHistoryView(api:widget.api,onExpired:widget.onExpired,companyId:widget.companyId,grantId:row['id'] as int))),child:Text(t('Charging access activity','سجل وصول الشحن'))),
         Text('${row['token_type']} · ••••${row['suffix']} · ${row['state']}'),Text('${row['provisioning_state']}'),
         if(row['revoked_at']==null&&row['token_revoked_at']==null)TextButton(onPressed:busy?null:()=>review(row),child:Text(t('Review access request','مراجعة طلب الوصول'))),
         if(sourceEnabled&&row['state']=='approved'&&row['revoked_at']==null&&row['token_revoked_at']==null)TextButton(onPressed:busy?null:()=>mutate('vendor-ops/companies/${widget.companyId}/rider-tokens/${row['token_id']}/provision','POST',{}),child:Text(t('Provision test-source authorization','إعداد تفويض مصدر الاختبار'))),
