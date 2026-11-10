@@ -268,10 +268,11 @@ class SupportTest extends TestCase
                 'body' => 'No private stale-role response',
                 'internal' => true,
             ])->assertNotFound();
+            // Unauthorized ticket IDs are intentionally concealed as 404.
             $this->patchJson($base.'/'.$ticket->id.'/status', [
                 'status' => 'resolved',
                 'reason' => 'No stale-role resolution',
-            ])->assertForbidden();
+            ])->assertNotFound();
         }
         $this->assertDatabaseCount('ticket_messages', 0);
         $this->assertDatabaseCount('inbox_notifications', 0);
