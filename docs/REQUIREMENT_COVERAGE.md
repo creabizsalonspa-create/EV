@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 52.25% |
-| tested | 52.06% |
-| merged | 52.06% |
+| coded | 53.70% |
+| tested | 53.52% |
+| merged | 53.52% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -19,7 +19,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 |---|---|---:|---:|---:|---:|---:|
 | 2.1 | Identity, verification, 2FA, privacy | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
 | 2.2 | EV garage and driver preferences | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
-| 2.3 | Search, maps, routes, favorites, reviews | 9 | 4/9 | 4/9 | 4/9 | 0/9 |
+| 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
 | 2.4 | Location/connector details and pricing terms | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
 | 2.5 | Owned and network discovery | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 2.6 | Reservations and occupancy policy | 7 | 5/7 | 5/7 | 5/7 | 0/7 |
@@ -32,7 +32,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 3.3 | Vendor live operations and controls | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 3.4 | Vendor calendar/blocks/tariffs | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
 | 3.5 | Vendor finance/settlements | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
-| 3.6 | Vendor analytics/exports | 6 | 0/6 | 0/6 | 0/6 | 0/6 |
+| 3.6 | Vendor analytics/exports | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 3.7 | Vendor plans/marketing/ads | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
 | 3.8 | Vendor support/notifications/maintenance | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 4.1 | Admin accounts/KYC/moderation/roles | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
@@ -96,7 +96,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.3.6` [—] Supported live availability filters (evidence: none).
 - `2.3.7` [CTM] Routes and navigation (evidence: pr19).
 - `2.3.8` [—] Favorites (evidence: none).
-- `2.3.9` [—] Reviews/ratings and moderation (evidence: none).
+- `2.3.9` [CTM] Reviews/ratings and moderation (evidence: pr46).
 
 ### 2.4 Location/connector details and pricing terms
 
@@ -230,12 +230,12 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 
 ### 3.6 Vendor analytics/exports
 
-- `3.6.1` [—] Utilization dashboard (evidence: none).
+- `3.6.1` [CTM] Utilization dashboard (evidence: pr43).
 - `3.6.2` [—] Revenue dashboard (evidence: none).
 - `3.6.3` [—] Uptime/downtime analysis (evidence: none).
 - `3.6.4` [—] Energy/demand analysis (evidence: none).
-- `3.6.5` [—] Customer feedback analytics (evidence: none).
-- `3.6.6` [—] Vendor operational exports (evidence: none).
+- `3.6.5` [CTM] Customer feedback analytics (evidence: pr47).
+- `3.6.6` [CTM] Vendor operational exports (evidence: pr43).
 
 ### 3.7 Vendor plans/marketing/ads
 

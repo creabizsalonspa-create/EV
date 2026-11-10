@@ -54,18 +54,36 @@
       "test_result": "passed",
       "merge_sha": "d846de0bdcd6346578d8ffa1959807fcbd8762a6",
       "evidence": "docs/evidence/discovery-routing/hosted-checkpoint.json"
+    },
+    "pr43": {
+      "source_sha": "0f74b9433ddea88df9f4e8570b70774d8dc03e85",
+      "test_result": "passed",
+      "merge_sha": "137cb97dada285b5e779089c56461ea8e4c40ebb",
+      "evidence": "docs/evidence/integration-coverage/pr43-hosted-checkpoint.json"
+    },
+    "pr46": {
+      "source_sha": "005f7ae12085e8346df923b794d8d3a2a6601c3d",
+      "test_result": "passed",
+      "merge_sha": "7e1b225e5add58da8a87e64d52292b76c5e99af5",
+      "evidence": "docs/evidence/integration-coverage/pr46-hosted-checkpoint.json"
+    },
+    "pr47": {
+      "source_sha": "1fecc90c6ce03cdc7e806fc2321ce57f16230100",
+      "test_result": "passed",
+      "merge_sha": "f4f477d52cf8e4ee05390dbe5b3e89cb03a3545b",
+      "evidence": "docs/evidence/integration-coverage/pr47-hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
-    "coded": "52.25",
-    "tested": "52.06",
-    "merged": "52.06",
+    "coded": "53.70",
+    "tested": "53.52",
+    "merged": "53.52",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "20919/40040",
-    "tested": "62537/120120",
-    "merged": "62537/120120",
+    "coded": "580543/1081080",
+    "tested": "578563/1081080",
+    "merged": "578563/1081080",
     "production_accepted": "0"
   },
   "categories": [
@@ -308,9 +326,9 @@
       "requirement": "Search, maps, routes, favorites, reviews",
       "atoms": 9,
       "counts": {
-        "coded": 4,
-        "tested": 4,
-        "merged": 4,
+        "coded": 5,
+        "tested": 5,
+        "merged": 5,
         "production_accepted": 0
       },
       "details": [
@@ -421,13 +439,13 @@
         {
           "id": "2.3.9",
           "software_atom": "Reviews/ratings and moderation",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr46",
+          "note": "Verified PR46 canonical customer web/Flutter review creation, edit, withdrawal, public source-qualified ratings and Admin moderation. Source-observed simulator only; live/partner verification excluded.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         }
@@ -1816,22 +1834,22 @@
       "requirement": "Vendor analytics/exports",
       "atoms": 6,
       "counts": {
-        "coded": 0,
-        "tested": 0,
-        "merged": 0,
+        "coded": 3,
+        "tested": 3,
+        "merged": 3,
         "production_accepted": 0
       },
       "details": [
         {
           "id": "3.6.1",
           "software_atom": "Utilization dashboard",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr43",
+          "note": "Verified PR43 vendor web/Flutter site utilization summary from canonical observed busy time and mapped EVSE windows; missing data remains unknown. Does not measure physical utilization.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -1877,26 +1895,26 @@
         {
           "id": "3.6.5",
           "software_atom": "Customer feedback analytics",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr47",
+          "note": "Verified PR47 current moderated feedback aggregates by site and simulator source, private vendor/Admin web/native and bilingual reports. External network/physical feedback not accepted.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
         {
           "id": "3.6.6",
           "software_atom": "Vendor operational exports",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr43",
+          "note": "Verified PR43 tenant-scoped operational CSV exports and EN/AR private PDF across web/native. Simulator-source evidence; not an accounting or physical availability certificate.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         }

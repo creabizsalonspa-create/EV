@@ -1,3 +1,64 @@
+# CURRENT OWNER DIRECTIVE — TEN ACTIVE AGENTS (7 November 2026)
+
+This is the **latest authoritative owner assignment** and supersedes prior
+five-agent, single-owner, unavailable-agent, and takeover instructions in the
+preserved historical text below. Original 42 categories and 312 software
+subfeatures are unchanged; do not invent completion or rewrite their scope.
+
+| Agent | Primary ownership | Boundary |
+|---|---|---|
+| **1** | Canonical Laravel/PostgreSQL/CitrineOS OCPP 1.6/2.0.1, OCPI core, source authority, billing, PSP/recovery, settlements and subscriptions | Sole canonical finance and source-of-truth authority |
+| **2** | Staged Express/Mongo OCPP gateway and Next.js/customer charging integration, multi-charger, booking-token, status/history/recovery; PR #50 | No duplicate Laravel finance/charging ledger |
+| **3** | Notification center, operational/fault alerts, disaster recovery, isolated PostgreSQL restore and recovery acceptance; PRs #54/#55 | Own operational recovery/notifications, not feature finance |
+| **4** | Sole PR integration coordinator, merge conflicts, shared CI/CD, cross-platform contracts, source-verified merges, authoritative coverage, release integration | Do not overwrite active feature-agent branches |
+| **5** | Unowned customer/vendor business features, station hours/amenities/accessibility, privacy requests, usability/localization; PRs #58/#60 | Coordinate discovery/identity work with Agents 7/8 |
+| **6** | Shared customer/vendor Android/iOS infrastructure, native API/session/lifecycle, Flutter navigation/localization, release build configuration and artifacts | Feature-specific screens remain with owners 1/2/3/5 |
+| **7** | Admin accounts/KYC/verification/2FA, RBAC/staff permissions, approvals, audit and compliance | Do not duplicate Agent 5 privacy requests or canonical finance |
+| **8** | Licensed discovery/maps/provider adapters, catalog sync, search filters, provenance and accuracy of network availability | Agent 1 owns OCPI protocol and charging authority |
+| **9** | Independent end-to-end/browser/security/load/tenant isolation/concurrency/reconciliation test infrastructure and defect repairs | Agent 4 retains CI coordinator and merge authority |
+| **10** | Reproducible private staging, backend/web orchestration, demos, synthetic delivery fixtures, rollback/release packaging and smoke checks | Agent 6 owns mobile builds; Agent 3 owns backups; Agent 4 owns integration |
+
+## Permanent CONTINUE command
+
+`CONTINUE` means resume the latest verified owned branch/PR, implement and
+test coherent substantial batches, push real code, hand off to Agent 4, and
+continue independent useful development in the current execution session.
+Do not request repeated permission for ordinary work; do not claim background
+execution after the session ends or infer completion from a pending PR.
+
+## Integration rules and priority
+
+- **Target branch:** `development/fullstack-continuation`. All feature agents
+  preserve active branches and open focused PRs; Agent 4 coordinates merging.
+- Inspect open PRs, exact head commits, checks and overlap before editing.
+  Stacked PRs #56 (base: battery discovery) and #61 (base: OCPI test invoices)
+  must land after their respective verified parent PRs, not directly out of order.
+  Historical PR #3 has another target; never merge blindly.
+- Priority one: reproducible **customer/vendor/Admin/charging demo** with
+  truthful synthetic/source evidence; priority two: remaining original
+  software; priority three: complete regression and release integration.
+  Work on these in parallel only across non-overlapping owners.
+- Preserve all security, finance, charging, tenant, Android/iOS and
+  PostgreSQL verification. Do not force push, bypass required checks,
+  fabricate results, or merge pending/failed exact-source checks.
+- No physical charger commands, live captures, provider activation, production
+  deployment, public exposure or unsigned artifact misrepresentation without
+  explicit separate authorization and acceptance.
+- The original 42-category /312-atom checklist is measured with
+  `scripts/requirement-coverage`. Track **coded, tested, merged, and
+  production accepted** separately. Missing evidence never earns credit.
+
+## End-of-session status
+
+If any assigned scope or exact-source integration is incomplete, report:
+**STATUS: INCOMPLETE — CONTINUE REQUIRED**, with latest commit/branch,
+verified tests, blockers and next executable task. Only if all assigned
+software is implemented, tested and merged may an individual agent report
+**MY ASSIGNED WORK IS 100% COMPLETE — NO CONTINUE NEEDED**. Agent 4 alone
+verifies combined full-scope completion; production acceptance is separate.
+
+---
+
 # Permanent owner continuation directive — 5 November 2026
 
 Agent1 owns the full remaining platform. Read docs/AGENT1_CONTINUATION.md when resuming. CONTINUE resumes the exact pending source action and integration; do not restart audits or pause after an individual feature. Implement independent work while CI runs, preserve all existing ledgers/modules and merge only validated source. No physical/live partner/payment/store acceptance is inferred. This standing directive supersedes historical task/ownership restrictions below.

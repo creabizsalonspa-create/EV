@@ -2924,6 +2924,20 @@ window.createVendorWorkspace = ({
         for (const grant of result.data) {
             const row = document.createElement("article");
             row.dataset.riderGrant = grant.id;
+            const activity = document.createElement("div");
+            row.append(activity);
+            button(row, "Charging access activity", () =>
+                window.loadRiderAccessHistory({
+                    root: activity,
+                    path:
+                        base +
+                        `companies/${company.id}/rider-grants/${grant.id}/activity`,
+                    api,
+                    ui,
+                    valid: () => valid(epoch),
+                    signal: controller?.signal,
+                }),
+            );
             row.append(
                 raw("h4", grant.label),
                 raw(
