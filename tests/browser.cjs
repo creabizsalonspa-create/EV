@@ -132,7 +132,12 @@ const { randomUUID } = require("node:crypto");
       ["artisan", "platform:role", vendor.email, "vendor"],
       { stdio: "pipe" },
     );
+    // Role changes must invalidate the old browser session. Reauthenticate
+    // instead of expecting the prior customer session to inherit vendor access.
     await vendor.page.reload();
+    await vendor.page.locator("#account [name=email]").fill(vendor.email);
+    await vendor.page.locator("#account [name=password]").fill(password);
+    await vendor.page.locator("#account button[value=login]").click();
     await vendor.page.locator("#vendor").waitFor({ state: "visible" });
     const f = vendor.page.locator("#station-form");
     for (const [key, value] of Object.entries({
@@ -259,7 +264,11 @@ const { randomUUID } = require("node:crypto");
       ["artisan", "platform:role", admin.email, "admin"],
       { stdio: "pipe" },
     );
+    // Admin elevation is a new authentication boundary, not an in-place grant.
     await admin.page.reload();
+    await admin.page.locator("#account [name=email]").fill(admin.email);
+    await admin.page.locator("#account [name=password]").fill(password);
+    await admin.page.locator("#account button[value=login]").click();
     await admin.page.locator("#admin").waitFor({ state: "visible" });
     await admin.page.waitForFunction(() =>
       document.querySelector("#overview").textContent.includes("Audit history"),
