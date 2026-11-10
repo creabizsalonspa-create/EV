@@ -285,4 +285,31 @@ void main() {
     expect(api.mutationCount,0);
   });
 
+
+  testWidgets('account switch while backgrounded revokes pending rider request', (tester) async {
+    final api=PrivateRiderApi()..delayedIssue=Completer<dynamic>();
+    var expired=0;
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:()=>expired++),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Register charging access'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first,'Previous account card');
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    api.authGeneration++;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    api.delayedIssue!.complete({'value_once':'OLD-ACCOUNT-SECRET'});
+    await tester.pumpAndSettle();
+    expect(expired,1);
+    expect(find.text('OLD-ACCOUNT-SECRET'),findsNothing);
+    expect(find.text('Retry saved request'),findsNothing);
+    expect(find.text('Session expired. Sign in again.'),findsOneWidget);
+  });
+
 }
