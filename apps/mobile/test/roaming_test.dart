@@ -178,6 +178,11 @@ void main() {
       expect(dy, lessThanOrEqualTo(height - 40));
     }
 
+    final advanced = find.text('Advanced partner filters');
+    await reveal(advanced);
+    await tester.tap(advanced);
+    await tester.pumpAndSettle();
+
     final tileLabel =
         find.text('Manual partner-nearby search (1–200 km)');
     await reveal(tileLabel);

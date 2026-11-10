@@ -381,6 +381,17 @@ class _RoamingViewState extends State<RoamingView> {
                           : (value) => setState(() => connector = value ?? ''),
                     ),
 
+                    // Keep advanced filters accessible but closed initially.
+                    // On a phone, showing all of them by default pushes the
+                    // actual partner results below the visible screen.
+                    ExpansionTile(
+                      key: const Key('partner-advanced-filters'),
+                      maintainState: true,
+                      title: Text(tr(
+                        'Advanced partner filters',
+                        'فلاتر الشركاء المتقدمة',
+                      )),
+                      children: [
                     TextFormField(
                       key: const Key('partner-provider'),
                       controller: provider,
@@ -460,6 +471,8 @@ class _RoamingViewState extends State<RoamingView> {
                                   : null;
                             },
                           ),
+                      ],
+                    ),
                       ],
                     ),
                     TextButton(

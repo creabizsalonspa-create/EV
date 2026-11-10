@@ -958,6 +958,14 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('roaming-open')));
       await tester.tap(find.byKey(const Key('roaming-open')));
       await settle();
+      // More filter options are accessible but partner records must still be
+      // reachable by actual device scrolling, not only at larger viewport.
+      await tester.scrollUntilVisible(
+        find.text('Device partner fixture 1'),
+        220,
+        scrollable: find.byType(ListView).first,
+      );
+      await settle();
       expect(find.text('Device partner fixture 1'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.text('Next'),
