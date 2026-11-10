@@ -32,6 +32,7 @@ foreach ($metadata as $key => $connection) {
         'incoming_modules' => $connection['incoming_modules'] ?? [],
         'test_commands' => ($connection['test_commands'] ?? false) === true,
         'test_command_contract' => $connection['test_command_contract'] ?? null,
+        'test_billing_contract' => $connection['test_billing_contract'] ?? null,
         'party_country' => $connection['party_country'] ?? null,
         'party_id' => $connection['party_id'] ?? null,
         'party_role' => $connection['party_role'] ?? null,
@@ -42,4 +43,4 @@ foreach ($metadata as $key => $connection) {
     ];
 }
 
-return ['test_commands_enabled' => env('OCPI_TEST_COMMANDS_ENABLED', false), 'local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];
+return ['test_billing_enabled' => env('OCPI_TEST_BILLING_ENABLED', false), 'test_commands_enabled' => env('OCPI_TEST_COMMANDS_ENABLED', false), 'local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];
