@@ -233,6 +233,19 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('partner report map remains tile-free before map consent',
+      (tester) async {
+    await tester.pumpWidget(app((number) async => page(number)));
+    await tester.pumpAndSettle();
+    final button = find.byKey(const Key('partner-report-map-open'));
+    expect(button, findsOneWidget);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('partner-map-enable')), findsOneWidget);
+    expect(find.text('Start charging'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('disposed route ignores a pending response', (tester) async {
     final pending = Completer<ApiPage<RoamingLocation>>();
     await tester.pumpWidget(app((_) => pending.future));

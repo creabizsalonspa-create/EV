@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'sandbox_roaming.dart';
+import 'partner_report_map.dart';
 import 'vendor_forms.dart' show vendorDigits;
 
 /// A partner location cannot grant charging, availability or payment authority.
@@ -253,6 +254,19 @@ class _RoamingViewState extends State<RoamingView> {
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data;
+    // Only the public, currently loaded source page may be mapped. Saved-only
+    // account preferences never become a map snapshot after account changes.
+    final partnerMapPoints = !loading && error == null && !savedOnly && page != null
+        ? page.items
+            .where((item) => item.available)
+            .map((item) => PartnerMapPoint.fromPublishedLocation(
+                  item.location,
+                  providerLabel: item.providerLabel,
+                  reportedAgeMinutes: item.reportedSourceAgeMinutes,
+                ))
+            .whereType<PartnerMapPoint>()
+            .toList()
+        : <PartnerMapPoint>[];
     return Scaffold(
       appBar: AppBar(title: Text(s.t('roaming'))),
       body: RefreshIndicator(
@@ -262,6 +276,20 @@ class _RoamingViewState extends State<RoamingView> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             Text(s.t('roamingDisclaimer')),
+            if (partnerMapPoints.isNotEmpty)
+              OutlinedButton.icon(
+                key: const Key('partner-report-map-open'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PartnerReportMap(points: partnerMapPoints),
+                  ),
+                ),
+                icon: const Icon(Icons.map_outlined),
+                label: Text(tr(
+                  'Map this page of unverified partner reports',
+                  'خريطة تقارير الشركاء غير المؤكدة لهذه الصفحة',
+                )),
+              ),
             if (widget.api != null)
               TextButton(
                 onPressed: () => sandbox(),
