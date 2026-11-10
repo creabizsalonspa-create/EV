@@ -496,6 +496,34 @@ test('release unlock detects replaced real ancestor directory even with identica
   assert.deepEqual(fs.readFileSync(deps.lockPath),lockBytes);
   assert.equal(fs.existsSync(path.join(moved,'release.lock')),true);
 }));
+test('lock substitution after actual staging mutation reports uncertain release instead of preflight rejection',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),journalFile=path.join(dir,'actual-release.jsonl');
+  const retained=path.join(dir,'original-release-lock');
+  let changed=false;
+  deps.checkHttp=()=>{
+    if(!changed){
+      changed=true;
+      assert.equal(deps.state.mutations,1);
+      fs.renameSync(deps.lockPath,retained);
+      fs.writeFileSync(deps.lockPath,'SECOND_OPERATOR_STAGING_LOCK\n',{mode:0o600});
+    }
+    return true;
+  };
+  const captured=[];
+  const oldWrite=process.stderr.write;
+  process.stderr.write=function(part,...args){captured.push(String(part));return true;};
+  let exit;
+  try {exit=release.main(argv('apply',journalFile),deps);}
+  finally {process.stderr.write=oldWrite;}
+  assert.equal(exit,3);
+  assert.equal(deps.state.mutations,1);
+  assert.ok(captured.join('').includes('operator reconciliation required'));
+  assert.ok(!captured.join('').includes('preflight, approval'));
+  assert.equal(fs.readFileSync(deps.lockPath,'utf8'),'SECOND_OPERATOR_STAGING_LOCK\n');
+  assert.ok(fs.existsSync(retained));
+  const events=fs.readFileSync(journalFile,'utf8').trim().split('\n').map(JSON.parse).map(e=>e.event);
+  assert.deepEqual(events,['PREPARED','RELEASE_STARTED','RELEASE_VERIFIED']);
+}));
 test('staging lock removed after verified release or automatic rollback',()=>sandbox((dir,envFile)=>{
   const deps=mock(envFile);deps.state.failCandidate=true;
   const file=path.join(dir,'journal.jsonl');

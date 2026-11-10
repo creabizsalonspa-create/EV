@@ -23,6 +23,13 @@ const TIMEOUT = 120000;
 const composePath = path.resolve(__dirname, '../infra/staging/compose.yaml');
 const envPath = path.resolve(__dirname, '../infra/staging/.env');
 
+class ReleaseLockIntegrityError extends Error {
+  constructor() {
+    super('Staging release lock identity uncertain; operator reconciliation required');
+    this.name='ReleaseLockIntegrityError';
+  }
+}
+
 function parseArgs(args) {
   if (!Array.isArray(args) || !['plan', 'apply'].includes(args[0])) throw Error('Expected plan or apply');
   const mode = args[0];
@@ -417,7 +424,12 @@ function apply(config,deps={}) {
         return {ok:false,rollback_verified:false,plan};
       }
     }
-  } finally {unlock();}
+  } finally {
+    // A lock may be substituted after Compose has already changed containers.
+    // This is never a mere preflight rejection; report uncertain state, and
+    // retain any foreign lock and the original private release journal.
+    try {unlock();} catch {throw new ReleaseLockIntegrityError();}
+  }
 }
 
 function main(args=process.argv.slice(2),deps={}) {
@@ -436,8 +448,12 @@ function main(args=process.argv.slice(2),deps={}) {
         'FAIL: staging candidate did not pass; previous app image rollback verified. Inspect private journal.\n' :
         'FAIL: staging release uncertain; operator reconciliation required. Inspect private journal, do not touch database or issue real commands.\n');
     return outcome.ok?0:outcome.rollback_verified?1:3;
-  }catch{
-    process.stderr.write('FAIL: staging-only release preflight, approval or journal invalid; no production endpoint permitted.\n');
+  }catch(error){
+    if(error instanceof ReleaseLockIntegrityError){
+      process.stderr.write('FAIL: staging release lock identity uncertain after possible container changes; operator reconciliation required. Inspect private journal before any further release or rollback.\n');
+      return 3;
+    }
+    process.stderr.write('FAIL: staging-only release preflight, approval or journal invalid; release authorization not established.\n');
     return 2;
   }
 }
