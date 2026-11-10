@@ -31,6 +31,7 @@ class PrivateRiderApi extends FixtureApi {
   Completer<dynamic>? delayedRead;
   Completer<dynamic>? delayedIssue;
   int readCount=0;
+  String tokenLabel='Private test card';
 
   @override
   bool Function() sessionFence() {
@@ -42,7 +43,7 @@ class PrivateRiderApi extends FixtureApi {
     'data': [
       {
         'id': 42,
-        'label': 'Private test card',
+        'label': tokenLabel,
         'token_type': 'Central',
         'suffix': '7777',
         'expires_at': '2026-12-01T00:00:00Z',
@@ -178,6 +179,23 @@ void main() {
     expect(find.text('PRIOR-ACCOUNT-SECRET'),findsNothing);
     expect(find.text('Show identifier'),findsNothing);
     expect(expired,1);
+  });
+
+
+  testWidgets('switching API identity clears previous rider records and old response', (tester) async {
+    final oldApi=PrivateRiderApi()..delayedRead=Completer<dynamic>();
+    final newApi=PrivateRiderApi()..tokenLabel='New account token';
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:oldApi,onExpired:(){}),
+    ));
+    await tester.pump();
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:newApi,onExpired:(){}),
+    ));
+    oldApi.delayedRead!.complete(oldApi.tokenPage);
+    await tester.pumpAndSettle();
+    expect(find.text('Private test card'),findsNothing);
+    expect(find.text('New account token'),findsOneWidget);
   });
 
 }
