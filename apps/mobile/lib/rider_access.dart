@@ -30,7 +30,12 @@ class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserv
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
-    if(state!=AppLifecycleState.resumed)clearPrivate(background:true);
+    if(state==AppLifecycleState.resumed){
+      // An account may have been revoked while backgrounded.
+      if(!sessionAlive){clearPrivate();widget.onExpired();}
+      return;
+    }
+    clearPrivate(background:true);
   }
 
   String t(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
