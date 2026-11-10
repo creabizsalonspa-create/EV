@@ -158,8 +158,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls.length, 1);
     await tester.scrollUntilVisible(
-        find.byKey(const Key('partner-manual-nearby')), 180);
-    await tester.tap(find.byKey(const Key('partner-manual-nearby')));
+        find.byType(ExpansionTile).first, 180);
+    await tester.tap(find.byType(ExpansionTile).first);
     await tester.pumpAndSettle();
     for (final item in [
       ('partner-lat', '25.2'), ('partner-lng', '55.3'),
@@ -173,8 +173,8 @@ void main() {
     await tester.scrollUntilVisible(find.byKey(const Key('partner-radius')), 180);
     await tester.enterText(find.byKey(const Key('partner-radius')), '201');
     await tester.scrollUntilVisible(
-        find.byKey(const Key('partner-manual-nearby')), -180);
-    await tester.tap(find.byKey(const Key('partner-manual-nearby')));
+        find.byType(ExpansionTile).first, -180);
+    await tester.tap(find.byType(ExpansionTile).first);
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
         find.byKey(const Key('partner-search-submit')), 180);
@@ -182,8 +182,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls.length, 1);
     await tester.scrollUntilVisible(
-        find.byKey(const Key('partner-manual-nearby')), -180);
-    await tester.tap(find.byKey(const Key('partner-manual-nearby')));
+        find.byType(ExpansionTile).first, -180);
+    await tester.tap(find.byType(ExpansionTile).first);
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byKey(const Key('partner-radius')), 180);
     await tester.enterText(find.byKey(const Key('partner-radius')), '10');
