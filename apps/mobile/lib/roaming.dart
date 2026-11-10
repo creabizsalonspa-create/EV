@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'sandbox_roaming.dart';
+import 'vendor_forms.dart' show vendorDigits;
 
 /// A partner location cannot grant charging, availability or payment authority.
 class RoamingLocation {
@@ -68,8 +69,13 @@ class _RoamingViewState extends State<RoamingView> {
   Set<int> saved = {};
   final searchForm = GlobalKey<FormState>();
   final searchText = TextEditingController(),
-      countryText = TextEditingController();
-  String connector = '';
+      countryText = TextEditingController(),
+      provider = TextEditingController(),
+      ageHours = TextEditingController(),
+      lat = TextEditingController(),
+      lng = TextEditingController(),
+      radius = TextEditingController();
+  String connector = '', reportedStatus = '';
   Map<String, String> filters = {};
   String tr(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
@@ -88,7 +94,13 @@ class _RoamingViewState extends State<RoamingView> {
       filters = {};
       searchText.clear();
       countryText.clear();
+      provider.clear();
+      ageHours.clear();
+      lat.clear();
+      lng.clear();
+      radius.clear();
       connector = '';
+      reportedStatus = '';
       load(1);
     }
   }
@@ -206,6 +218,11 @@ class _RoamingViewState extends State<RoamingView> {
     generation++;
     searchText.dispose();
     countryText.dispose();
+    provider.dispose();
+    ageHours.dispose();
+    lat.dispose();
+    lng.dispose();
+    radius.dispose();
     super.dispose();
   }
 
@@ -311,7 +328,87 @@ class _RoamingViewState extends State<RoamingView> {
                           ? null
                           : (value) => setState(() => connector = value ?? ''),
                     ),
+
+                    TextFormField(
+                      key: const Key('partner-provider'),
+                      controller: provider,
+                      maxLength: 80,
+                      decoration: InputDecoration(labelText: tr(
+                        'Network label (not operator-verified)',
+                        'اسم الشبكة (غير مؤكد)')),
+                    ),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey('partner-status-$reportedStatus'),
+                      initialValue: reportedStatus,
+                      decoration: InputDecoration(labelText: tr(
+                        'Partner-reported status (not live)',
+                        'حالة الشريك المبلغ عنها (ليست مباشرة)')),
+                      items: [
+                        '', 'AVAILABLE', 'BLOCKED', 'CHARGING',
+                        'INOPERATIVE', 'OUTOFORDER', 'PLANNED',
+                        'REMOVED', 'RESERVED', 'UNKNOWN',
+                      ].map((v) => DropdownMenuItem(
+                        value: v,
+                        child: Text(v.isEmpty ? tr('Any status', 'أي حالة') : v),
+                      )).toList(),
+                      onChanged: loading || saving ? null
+                          : (v) => setState(() => reportedStatus = v ?? ''),
+                    ),
+                    TextFormField(
+                      key: const Key('partner-max-age'),
+                      controller: ageHours,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(labelText: tr(
+                        'Reported source age in hours (1–168, not live)',
+                        'عمر تقرير المصدر بالساعات (1–168، ليس مباشراً)')),
+                      validator: (value) {
+                        final v = vendorDigits((value ?? '').trim());
+                        if (v.isEmpty) return null;
+                        final n = int.tryParse(v);
+                        return n == null || n < 1 || n > 168
+                            ? tr('Enter 1–168', 'أدخل 1–168') : null;
+                      },
+                    ),
+                    ExpansionTile(
+                      key: const Key('partner-manual-nearby'),
+                      title: Text(tr('Manual partner-nearby search (1–200 km)',
+                          'بحث يدوي عن شركاء قريبين (1–200 كم)')),
+                      subtitle: Text(tr(
+                        'Search explicitly to transmit coordinates. Straight-line distance, not verified availability.',
+                        'اضغط بحث لإرسال الإحداثيات. المسافة بخط مستقيم وليست توفراً مؤكداً.')),
+                      children: [
+                        for (final entry in [
+                          ('partner-lat', lat, -90.0, 90.0,
+                              'Latitude', 'خط العرض'),
+                          ('partner-lng', lng, -180.0, 180.0,
+                              'Longitude', 'خط الطول'),
+                          ('partner-radius', radius, 1.0, 200.0,
+                              'Radius km', 'نطاق البحث بالكيلومتر'),
+                        ])
+                          TextFormField(
+                            key: Key(entry.$1),
+                            controller: entry.$2,
+                            textDirection: TextDirection.ltr,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true, signed: true),
+                            decoration: InputDecoration(
+                                labelText: tr(entry.$5, entry.$6)),
+                            validator: (value) {
+                              if ([lat, lng, radius].every(
+                                  (c) => c.text.trim().isEmpty)) return null;
+                              final n = double.tryParse(
+                                  vendorDigits((value ?? '').trim()));
+                              return n == null || !n.isFinite ||
+                                      n < entry.$3 || n > entry.$4
+                                  ? tr('Complete valid latitude, longitude and radius.',
+                                      'أدخل إحداثيات ونطاقاً صالحين.')
+                                  : null;
+                            },
+                          ),
+                      ],
+                    ),
                     TextButton(
+                      key: const Key('partner-search-submit'),
                       onPressed: loading || saving
                           ? null
                           : () {
@@ -327,6 +424,19 @@ class _RoamingViewState extends State<RoamingView> {
                                       .toUpperCase(),
                                 if (connector.isNotEmpty)
                                   'connector_standard': connector,
+                                if (provider.text.trim().isNotEmpty)
+                                  'provider': provider.text.trim(),
+                                if (reportedStatus.isNotEmpty)
+                                  'reported_evse_status': reportedStatus,
+                                if (ageHours.text.trim().isNotEmpty)
+                                  'max_source_age_hours':
+                                      vendorDigits(ageHours.text.trim()),
+                                if (lat.text.trim().isNotEmpty)
+                                  'latitude': vendorDigits(lat.text.trim()),
+                                if (lng.text.trim().isNotEmpty)
+                                  'longitude': vendorDigits(lng.text.trim()),
+                                if (radius.text.trim().isNotEmpty)
+                                  'radius_km': vendorDigits(radius.text.trim()),
                               };
                               load(1);
                             },
