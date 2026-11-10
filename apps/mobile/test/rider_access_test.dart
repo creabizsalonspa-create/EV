@@ -151,6 +151,7 @@ void main() {
     await tester.ensureVisible(find.text('Save'));
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Show identifier'));
     await tester.tap(find.text('Show identifier'));
     await tester.pump();
     expect(find.text('TEST-ONE-TIME-SECRET'),findsOneWidget);
@@ -225,6 +226,7 @@ void main() {
       home:RiderAccessView(api:api,onExpired:(){}),
     ));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Revoke token'));
     await tester.tap(find.text('Revoke token'));
     await tester.pumpAndSettle();
     api.authGeneration++;
