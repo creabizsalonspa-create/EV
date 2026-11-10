@@ -126,6 +126,7 @@ class SupportController extends Controller
                         409,
                         'Request key was already used with different reply content.'
                     );
+
                     // A replay after resolution/closure is still the original
                     // committed reply, not a new mutation or notification.
                     return response()->json($previous);
