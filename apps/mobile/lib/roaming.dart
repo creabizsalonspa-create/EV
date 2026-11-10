@@ -394,6 +394,9 @@ class _RoamingViewState extends State<RoamingView> {
                       },
                     ),
                     ExpansionTile(
+                      // Keep the FormFields registered even when collapsed.
+                      // Otherwise partial coordinates could bypass validation.
+                      maintainState: true,
                       key: const Key('partner-manual-nearby'),
                       title: Text(tr('Manual partner-nearby search (1–200 km)',
                           'بحث يدوي عن شركاء قريبين (1–200 كم)')),
