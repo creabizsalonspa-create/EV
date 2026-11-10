@@ -320,7 +320,7 @@ class _RoamingViewState extends State<RoamingView> {
                             ),
                     ),
                     DropdownButtonFormField<String>(
-                      key: ValueKey('partner-connector-${widget.accountId}'),
+                      key: ValueKey('partner-connector-${widget.accountId}-$connector'),
                       initialValue: connector,
                       isExpanded: true,
                       decoration: InputDecoration(
@@ -470,6 +470,26 @@ class _RoamingViewState extends State<RoamingView> {
                           'البحث في مواقع الشركاء',
                         ),
                       ),
+                    ),
+                    TextButton(
+                      key: const Key('partner-clear-filters'),
+                      onPressed: loading || saving ? null : () {
+                        searchText.clear();
+                        countryText.clear();
+                        provider.clear();
+                        ageHours.clear();
+                        lat.clear();
+                        lng.clear();
+                        radius.clear();
+                        setState(() {
+                          connector = '';
+                          reportedStatus = '';
+                          filters = {};
+                        });
+                        load(1);
+                      },
+                      child: Text(tr('Clear partner filters',
+                          'مسح فلاتر الشركاء')),
                     ),
                   ],
                 ),
