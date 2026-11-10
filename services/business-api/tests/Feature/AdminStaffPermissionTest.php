@@ -115,7 +115,10 @@ class AdminStaffPermissionTest extends TestCase
     {
         [$admin, , , , $membership] = $this->fixture();
         $url = '/api/admin/permission-grants/'.$membership->id.'/revoke';
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
         $this->actingAs($admin)->postJson($url, $this->payload(1, 'short'))->assertUnprocessable();
+        $this->postJson($url, $this->payload(1, '        short        '))
+            ->assertUnprocessable()->assertJsonValidationErrors('reason');
         $this->postJson($url, $this->payload(2))->assertStatus(409);
         $this->assertDatabaseCount('admin_permission_revocations', 0);
         $this->postJson($url, $this->payload())->assertOk();
@@ -242,7 +245,10 @@ class AdminStaffPermissionTest extends TestCase
         $this->actingAs($admin)->postJson($release, $this->payload())->assertStatus(409);
         $this->postJson('/api/admin/permission-grants/'.$member->id.'/revoke',
             $this->payload())->assertOk();
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
         $this->postJson($release, $this->payload(2, 'short'))->assertUnprocessable();
+        $this->postJson($release, $this->payload(2, '        short        '))
+            ->assertUnprocessable()->assertJsonValidationErrors('reason');
         $this->actingAs($owner)->postJson($release, $this->payload(2))->assertForbidden();
         $this->actingAs($admin)->postJson($release, $this->payload(2))->assertOk();
         $this->postJson($release, $this->payload(3))->assertStatus(409);

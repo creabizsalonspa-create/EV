@@ -26,6 +26,11 @@ class AccountPrivacyController extends Controller
      */
     public function submit(Request $request)
     {
+        // Validate the actual stored explanation independently of global
+        // request trimming, including direct native and browser API callers.
+        if (is_string($request->input('details'))) {
+            $request->merge(['details' => trim($request->input('details'))]);
+        }
         $input = $request->validate([
             'kind' => 'required|in:access,correction,erasure',
             'details' => 'required|string|min:10|max:2000',
@@ -45,7 +50,7 @@ class AccountPrivacyController extends Controller
                 'user_id' => $actor->id,
                 'kind' => $input['kind'],
                 'status' => 'pending',
-                'request_details_encrypted' => Crypt::encryptString(trim($input['details'])),
+                'request_details_encrypted' => Crypt::encryptString($input['details']),
             ]);
             DB::table('audit_events')->insert([
                 'actor_id' => $actor->id,
@@ -165,6 +170,11 @@ class AccountPrivacyController extends Controller
     public function review(Request $request, AccountPrivacyRequest $privacyCase)
     {
         $actor = $this->admin($request);
+        // Append-only review notes must meet the explanatory minimum after
+        // normalization, not merely through whitespace padding.
+        if (is_string($request->input('review_note'))) {
+            $request->merge(['review_note' => trim($request->input('review_note'))]);
+        }
         $input = $request->validate([
             'expected_status' => 'required|in:pending,reviewing,blocked_external,closed_review',
             'status' => 'required|in:reviewing,blocked_external,closed_review',
@@ -189,7 +199,7 @@ class AccountPrivacyController extends Controller
             abort_unless(in_array($input['status'], $allowed[$case->status], true),
                 409, 'Invalid privacy review transition.');
             $oldStatus = $case->status;
-            $note = trim($input['review_note']);
+            $note = $input['review_note'];
             // Preserve an immutable, encrypted decision timeline before the
             // latest-status summary is advanced. Both writes are atomic.
             DB::table('account_privacy_request_reviews')->insert([

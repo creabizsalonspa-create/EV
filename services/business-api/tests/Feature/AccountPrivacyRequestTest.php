@@ -278,6 +278,10 @@ class AccountPrivacyRequestTest extends TestCase
             $this->submit('unknown'))->assertUnprocessable();
         $this->postJson('/api/account/privacy-requests',
             $this->submit('erasure', 'short'))->assertUnprocessable();
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
+        $this->postJson('/api/account/privacy-requests',
+            $this->submit('erasure', '        short        '))
+            ->assertUnprocessable()->assertJsonValidationErrors('details');
         $this->assertDatabaseCount('account_privacy_requests', 0);
 
         $this->postJson('/api/account/privacy-requests',
@@ -285,6 +289,12 @@ class AccountPrivacyRequestTest extends TestCase
         $id = DB::table('account_privacy_requests')->value('id');
         $admin = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin)->patchJson('/api/admin/privacy-requests/'.$id.'/review', [
+            'expected_status' => 'pending',
+            'status' => 'reviewing',
+            'review_note' => '         short         ',
+        ])->assertUnprocessable()->assertJsonValidationErrors('review_note');
+        $this->assertDatabaseCount('account_privacy_request_reviews', 0);
+        $this->patchJson('/api/admin/privacy-requests/'.$id.'/review', [
             'expected_status' => 'pending',
             'status' => 'closed_review',
             'review_note' => 'Attempt to claim completion without review.',

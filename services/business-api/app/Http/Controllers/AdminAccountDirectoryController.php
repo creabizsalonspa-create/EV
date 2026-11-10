@@ -112,6 +112,12 @@ class AdminAccountDirectoryController extends Controller
     public function moderate(Request $request, User $target)
     {
         $actor = $this->requireActiveAdmin($request);
+        // Validate the normalized explanation even when global input
+        // trimming is unavailable. Do not write whitespace-only evidence
+        // to the encrypted moderation ledger.
+        if (is_string($request->input('reason'))) {
+            $request->merge(['reason' => trim($request->input('reason'))]);
+        }
         $input = $request->validate([
             'expected_status' => 'required|in:active,suspended',
             'account_status' => 'required|in:active,suspended',

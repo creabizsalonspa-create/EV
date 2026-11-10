@@ -140,8 +140,11 @@ class AdminAccountModerationTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $target = User::factory()->create(['role' => 'vendor']);
         $route = "/api/admin/accounts/{$target->id}/moderate";
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
         $this->actingAs($admin)->patchJson($route, $this->decision('suspended', 'active', 'short'))
             ->assertUnprocessable();
+        $this->patchJson($route, $this->decision('suspended', 'active', '       short       '))
+            ->assertUnprocessable()->assertJsonValidationErrors('reason');
         $this->patchJson($route, $this->decision('active'))->assertUnprocessable();
         $this->patchJson($route, $this->decision('active', 'suspended'))
             ->assertStatus(409);
