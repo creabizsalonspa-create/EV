@@ -114,6 +114,43 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('partner coordinates require explicit Search', (tester) async {
+    final calls = <Map<String, String>>[];
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('en'),
+      home: RoamingView(
+        loader: (p) async => page(p),
+        queryLoader: (f, p) async {
+          calls.add(Map.of(f));
+          return page(p);
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(calls.length, 1);
+    await tester.scrollUntilVisible(
+        find.byKey(const Key('partner-manual-nearby')), 180);
+    await tester.tap(find.byKey(const Key('partner-manual-nearby')));
+    await tester.pumpAndSettle();
+    for (final item in [
+      ('partner-lat', '25.2'), ('partner-lng', '55.3'),
+      ('partner-radius', '10'),
+    ]) {
+      await tester.scrollUntilVisible(find.byKey(Key(item.$1)), 180);
+      await tester.enterText(find.byKey(Key(item.$1)), item.$2);
+    }
+    expect(calls.length, 1);
+    await tester.scrollUntilVisible(
+        find.byKey(const Key('partner-search-submit')), 180);
+    await tester.tap(find.byKey(const Key('partner-search-submit')));
+    await tester.pumpAndSettle();
+    expect(calls.last['latitude'], '25.2');
+    expect(calls.last['longitude'], '55.3');
+    expect(calls.last['radius_km'], '10');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('disposed route ignores a pending response', (tester) async {
     final pending = Completer<ApiPage<RoamingLocation>>();
     await tester.pumpWidget(app((_) => pending.future));
