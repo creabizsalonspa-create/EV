@@ -8,7 +8,6 @@ use App\Models\Charging\ConnectorMapping;
 use App\Models\Charging\Evse;
 use App\Models\Charging\RiderAccessToken;
 use App\Models\Charging\SessionLink;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Crypt;
@@ -140,9 +139,14 @@ class SourceConsumer
             return 0;
         }
         $tx = $records[0];
+        $startedAt = SourceStatusTime::parse($tx['startTime'], 300);
+        $endedAt = $tx['endTime'] === null ? null : SourceStatusTime::parse($tx['endTime'], 300);
+        if ($endedAt && $endedAt->lt($startedAt)) {
+            throw new RuntimeException('Source transaction end predates its start.');
+        }
         if (($link->transaction_id !== null && $link->transaction_id !== (string) $tx['transactionId']) ||
             ($link->protocol === '2.0.1' && (int) $tx['remoteStartId'] !== (int) $link->start_command_id) ||
-            CarbonImmutable::parse($tx['startTime'])->lt($link->created_at->subSeconds(2))) {
+            $startedAt->lt($link->created_at->subSeconds(2))) {
             throw new RuntimeException('Source correlation conflict requires reconciliation.');
         }
         if ($link->connector_mapping_id) {
@@ -193,6 +197,10 @@ class SourceConsumer
                 continue;
             }
             $sample = $samples[0];
+            $sampleAt = SourceStatusTime::parse($row['timestamp'], 300);
+            if ($sampleAt->lt($startedAt) || ($endedAt && $sampleAt->gt($endedAt))) {
+                throw new RuntimeException('Source energy sample lies outside its transaction.');
+            }
             $meter = self::wh($sample['value'], $sample['unitOfMeasure']['unit'] ?? '', $sample['unitOfMeasure']['multiplier'] ?? 0);
             $ended = ($sample['context'] ?? '') === 'Transaction.End';
             if ($ended && ($tx['isActive'] || ! $tx['endTime'] || $tx['totalKwh'] === null || $meter - $baseline !== self::wh($tx['totalKwh'], 'kWh'))) {
