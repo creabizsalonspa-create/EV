@@ -136,6 +136,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Verify private staging and synthetic demo regressions without Docker
+        run: ./scripts/staging-offline-verify
       - name: Seed synthetic build-context exclusion canaries
         shell: bash
         run: |
