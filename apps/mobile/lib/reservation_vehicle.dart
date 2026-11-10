@@ -23,15 +23,35 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> {
   int page = 0, last = 1, generation = 0;
   bool loading = false;
   Object? error;
+  late bool Function() accountFence;
   String t(String en, String ar) => EvStrings.of(context).arabic ? ar : en;
   @override
   void initState() {
     super.initState();
+    accountFence = widget.api.sessionFence();
+    load(1);
+  }
+
+  @override
+  void didUpdateWidget(covariant ReservationVehiclePicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.api, widget.api) &&
+        oldWidget.connector == widget.connector &&
+        accountFence()) return;
+    // The dialog State can be reused for a different account or connector.
+    // Never show the prior actor's garage while a new GET is pending.
+    generation++;
+    accountFence = widget.api.sessionFence();
+    vehicles.clear();
+    page = 0;
+    last = 1;
+    loading = false;
+    error = null;
     load(1);
   }
 
   Future<void> load(int target) async {
-    final request = ++generation;
+    final request = ++generation, fence = widget.api.sessionFence();
     setState(() {
       loading = true;
       error = null;
@@ -42,7 +62,7 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> {
         query: {'connector_type': widget.connector, 'page': '$target'},
       );
       final data = ApiPage.fromJson(response, (row) => row);
-      if (!mounted || request != generation) return;
+      if (!mounted || request != generation || !fence()) return;
       setState(() {
         if (target == 1) vehicles.clear();
         vehicles.addAll(
@@ -52,13 +72,13 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> {
         last = data.last;
       });
     } catch (e) {
-      if (!mounted || request != generation) return;
+      if (!mounted || request != generation || !fence()) return;
       if (e is ApiException && [401, 419].contains(e.status))
         widget.onExpired();
       else
         setState(() => error = e);
     } finally {
-      if (mounted && request == generation) setState(() => loading = false);
+      if (mounted && request == generation && fence()) setState(() => loading = false);
     }
   }
 
@@ -101,7 +121,9 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> {
                     subtitle: Text('${vehicle['connector_type']}'),
                     onTap: loading
                         ? null
-                        : () => Navigator.pop(context, vehicle),
+                        : () {
+                            if (accountFence()) Navigator.pop(context, vehicle);
+                          },
                   ),
               ],
             ),
@@ -123,11 +145,15 @@ class _ReservationVehiclePickerState extends State<ReservationVehiclePicker> {
       TextButton(
         onPressed: loading
             ? null
-            : () => Navigator.pop(context, {'add_vehicle': true}),
+            : () {
+                if (accountFence()) Navigator.pop(context, {'add_vehicle': true});
+              },
         child: Text(t('Open garage', 'فتح المرآب')),
       ),
       TextButton(
-        onPressed: () => Navigator.pop(context, {'unassigned': true}),
+        onPressed: () {
+          if (accountFence()) Navigator.pop(context, {'unassigned': true});
+        },
         child: Text(t('Continue without a vehicle', 'المتابعة دون ربط مركبة')),
       ),
       TextButton(

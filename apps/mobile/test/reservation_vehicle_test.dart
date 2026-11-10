@@ -137,4 +137,51 @@ void main() {
     expect(expired, false);
     expect(tester.takeException(), null);
   });
+
+  testWidgets('reused picker drops a prior account response and garage', (
+    tester,
+  ) async {
+    final prior = PendingVehicles();
+    final current = VehicleFixture();
+    addTearDown(prior.close);
+    addTearDown(current.close);
+    var expired = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReservationVehiclePicker(
+          api: prior,
+          connector: 'Type2',
+          onExpired: () => expired = true,
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReservationVehiclePicker(
+          api: current,
+          connector: 'Type2',
+          onExpired: () => expired = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('My EV'), findsOneWidget);
+    expect(find.text('Wrong connector'), findsNothing);
+
+    // An old authenticated GET may settle after this widget is reused.
+    prior.response.complete({
+      'data': [
+        {'id': 77, 'name': 'Prior account EV', 'connector_type': 'Type2'},
+      ],
+      'current_page': 1,
+      'last_page': 1,
+      'total': 1,
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('Prior account EV'), findsNothing);
+    expect(find.text('My EV'), findsOneWidget);
+    expect(expired, false);
+    expect(tester.takeException(), null);
+  });
 }
