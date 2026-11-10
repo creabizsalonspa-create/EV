@@ -1,0 +1,83 @@
+{
+  "source_sha": "1fecc90c6ce03cdc7e806fc2321ce57f16230100",
+  "integrated_sha": "f4f477d52cf8e4ee05390dbe5b3e89cb03a3545b",
+  "pr": "https://github.com/creabizsalonspa-create/EV/pull/47",
+  "verified_main_head": "d2568039d597e9e274be38a4b915bcf70a4d7c78",
+  "required_checks": [
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328390773/job/128331485295"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328390773/job/128331471375"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328390773/job/128331452024"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328390773/job/128331450800"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328395025/job/128294372858"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328395025/job/128294372099"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328395025/job/128294372028"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328395025/job/128294371875"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328395057/job/128268964626"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328395057/job/128268964363"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328390690/job/128268949698"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/42328390690/job/128268949471"
+    }
+  ],
+  "evidence_scope": "Private vendor/Admin analytics of current approved customer feedback grouped by site and source evidence, across Laravel/web/native/CSV/PDF.",
+  "limitations": "Only approved/current simulator feedback; no personally identifiable review content, physical charging or complete vendor analytics category.",
+  "verification": "Exact-source GitHub Actions checks all succeeded, merged PR commit is an ancestor of integration head; no physical or production acceptance."
+}

@@ -3,6 +3,97 @@ window.EV_MESSAGES = {
         en: "Partner billing reconciliation",
         ar: "مطابقة فوترة الشريك",
     },
+    "Rider activity source.authorization.allowed": {
+        en: "Source authorization allowed; transaction not implied",
+        ar: "سُمح بتفويض المصدر؛ لا يعني ذلك بدء معاملة",
+    },
+    "Rider activity source.authorization.not_allowed": {
+        en: "Source authorization not allowed",
+        ar: "لم يسمح بتفويض المصدر",
+    },
+    "Rider activity source.authorization.blocked": {
+        en: "Source authorization blocked",
+        ar: "تم حظر تفويض المصدر",
+    },
+    "Rider activity source.authorization.expired": {
+        en: "Source authorization expired",
+        ar: "انتهت صلاحية تفويض المصدر",
+    },
+
+    "Charging access activity": {
+        en: "Charging access activity",
+        ar: "سجل وصول الشحن",
+    },
+    "Access lifecycle": { en: "Access lifecycle", ar: "دورة حياة الوصول" },
+    "Card charging attempts": {
+        en: "Card charging attempts",
+        ar: "محاولات الشحن بالبطاقة",
+    },
+    "No access activity": {
+        en: "No activity recorded",
+        ar: "لا توجد أنشطة مسجلة",
+    },
+    "Charging access history disclaimer": {
+        en: "Read-only TEST history. Approval is not a source transaction; revocation does not stop an active session. No physical charging or payment is verified.",
+        ar: "سجل اختبار للقراءة فقط. الموافقة ليست معاملة مصدر ولا يوقف الإبطال جلسة نشطة. لا يثبت شحناً فعلياً أو دفعاً.",
+    },
+    "Rider activity token.registered": {
+        en: "Token registered",
+        ar: "تم تسجيل الرمز",
+    },
+    "Rider activity token.revoked": {
+        en: "Token revoked",
+        ar: "تم إبطال الرمز",
+    },
+    "Rider activity token.expiry_changed": {
+        en: "Token expiry changed",
+        ar: "تم تغيير انتهاء الرمز",
+    },
+    "Rider activity grant.requested": {
+        en: "Station approval requested",
+        ar: "تم طلب موافقة المحطة",
+    },
+    "Rider activity grant.withdrawn": {
+        en: "Station approval withdrawn",
+        ar: "تم سحب موافقة المحطة",
+    },
+    "Rider activity grant.approved": {
+        en: "Operator approved access",
+        ar: "وافق المشغل على الوصول",
+    },
+    "Rider activity grant.rejected": {
+        en: "Operator rejected access",
+        ar: "رفض المشغل الوصول",
+    },
+    "Rider activity grant.revoked": {
+        en: "Operator revoked access",
+        ar: "أبطل المشغل الوصول",
+    },
+    "Rider activity source.provisioned": {
+        en: "TEST source authorization provisioned",
+        ar: "تم إعداد تفويض مصدر الاختبار",
+    },
+    "Rider session awaiting_source": {
+        en: "Awaiting source transaction",
+        ar: "بانتظار معاملة المصدر",
+    },
+    "Rider session closed_without_dispatch": {
+        en: "Closed without dispatch",
+        ar: "أغلقت دون إرسال",
+    },
+    "Rider session source_active": {
+        en: "Source start observed",
+        ar: "تم رصد بدء المصدر",
+    },
+    "Rider session source_ended": {
+        en: "Source start and end observed",
+        ar: "تم رصد بدء ونهاية المصدر",
+    },
+    "Rider session requires_review": {
+        en: "Source evidence requires review",
+        ar: "يتطلب دليل المصدر المراجعة",
+    },
+
     "Roaming credential state superseded": {
         en: "Enrollment replaced",
         ar: "تم استبدال التسجيل",
@@ -1475,7 +1566,59 @@ window.EV_MESSAGES = {
         en: "Partner-reported locations are unverified. Availability is unknown; reservations, remote charging and payments are unavailable here.",
         ar: "المواقع واردة من الشريك وغير متحقق منها. التوافر غير معروف؛ الحجز والشحن عن بُعد والمدفوعات غير متاحة هنا.",
     },
+    "Partner network label (unverified)": {
+        en: "Provider/network label (unverified)",
+        ar: "اسم مقدم الخدمة أو الشبكة (غير مؤكد)",
+    },
+    "Roaming configured provider": {
+        en: "Configured provider (not operator-certified):",
+        ar: "مقدم الخدمة المُسجل (دون اعتماد من المشغل):",
+    },
+    "Maximum reported source age (hours, not live)": {
+        en: "Reported source updated within (hours, 1–168; not live)",
+        ar: "آخر تحديث مبلغ عنه من الشريك (بالساعات، 1–168؛ ليس حالة مباشرة)",
+    },
+    "Roaming receipt age": {
+        en: "Our last receipt age (not live):",
+        ar: "الوقت منذ الاستلام (ليس حالة مباشرة):",
+    },
+    "Roaming partner clock ahead warning": {
+        en: "Warning: partner's reported timestamp is in the future; freshness cannot be confirmed.",
+        ar: "تحذير: طابع وقت الشريك في المستقبل؛ لا يمكن تأكيد حداثة البيانات.",
+    },
+    "Partner-reported EVSE state (unverified, not live)": {
+        en: "Partner-reported EVSE status (unverified, not live)",
+        ar: "حالة نقطة الشحن حسب الشريك (غير مؤكدة وليست مباشرة)",
+    },
+    "Any partner-reported state": {
+        en: "All reported states (not live)",
+        ar: "جميع الحالات المبلغ عنها (ليست مباشرة)",
+    },
+    "Clear partner filters": {
+        en: "Clear partner filters",
+        ar: "مسح مرشحات مواقع الشركاء",
+    },
+    "Roaming stale partner source warning": {
+        en: "Warning: partner record is more than 24 hours old; it may be outdated.",
+        ar: "تحذير: سجل الشريك أقدم من 24 ساعة وقد لا يكون محدثاً.",
+    },
+    "Roaming partner time unknown warning": {
+        en: "Warning: partner source update time is unavailable.",
+        ar: "تحذير: وقت تحديث بيانات الشريك غير متاح.",
+    },
     "Roaming coordinates": { en: "Coordinates:", ar: "الإحداثيات:" },
+    "Roaming straight-line distance": {
+        en: "Straight-line distance (not driving distance):",
+        ar: "المسافة بخط مستقيم (ليست مسافة قيادة):",
+    },
+    "Roaming partner source age": {
+        en: "Partner record age (not live availability):",
+        ar: "عمر سجل الشريك (ليس توافراً مباشراً):",
+    },
+    "Partner search latitude": { en: "Nearby latitude", ar: "خط العرض للبحث القريب" },
+    "Partner search longitude": { en: "Nearby longitude", ar: "خط الطول للبحث القريب" },
+    "Partner search radius km": { en: "Radius in km (1–200)", ar: "نطاق البحث بالكيلومتر (1–200)" },
+
     "Roaming source updated": {
         en: "Source updated (UTC):",
         ar: "تحديث المصدر (UTC):",

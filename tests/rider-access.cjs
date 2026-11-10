@@ -5,6 +5,7 @@ const { execFileSync } = require("node:child_process");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { SimulatedCharger, graph, poll } = require("./helpers/csms-local.cjs");
 (async () => {
+  await require("./rider-access-history.cjs")();
   execFileSync("./scripts/rider-auth-setup", { stdio: "pipe" });
   for (const prefix of ["16", "20"]) {
     const run = prefix + randomBytes(3).toString("hex"),
@@ -118,6 +119,27 @@ const { SimulatedCharger, graph, poll } = require("./helpers/csms-local.cjs");
       assert.equal(awaiting.authorization_method, "rider_token");
       assert.equal(awaiting.awaiting_rider_transaction, true);
       assert.equal(awaiting.can_cancel_before_dispatch, false);
+      const activityPath = `rider-access/tokens/${card.token.id}/activity`;
+      const activity = await customer.request(activityPath);
+      assert.equal(
+        activity.data.some((e) => e.action === "source.authorization.allowed"),
+        true,
+      );
+      assert.equal(activity.hardware_verified, false);
+      const admittedHistory = await customer.request(
+        activityPath + "?kind=sessions",
+      );
+      assert.equal(admittedHistory.data[0].state, "awaiting_source");
+      assert.equal(admittedHistory.data[0].source_start_observed, false);
+      const operatorActivity = await owner.request(
+        `vendor-ops/companies/${f.company_id}/rider-grants/${grant.id}/activity`,
+      );
+      assert.equal(
+        operatorActivity.data.some(
+          (e) => e.action === "source.authorization.allowed",
+        ),
+        true,
+      );
       const startAt = new Date().toISOString();
       let transactionId;
       const meter = (value, context, at) => [
@@ -233,6 +255,12 @@ const { SimulatedCharger, graph, poll } = require("./helpers/csms-local.cjs");
       );
       assert.equal(finished.status, "stopped");
       assert.equal(finished.awaiting_rider_transaction, false);
+      const endedHistory = await customer.request(
+        activityPath + "?kind=sessions",
+      );
+      assert.equal(endedHistory.data[0].state, "source_ended");
+      assert.equal(endedHistory.data[0].source_end_observed, true);
+      assert.equal(endedHistory.hardware_verified, false);
       assert.equal(Number(finished.energy_wh), 2500);
       const invoices = await customer.request("finance/invoices");
       assert.equal(

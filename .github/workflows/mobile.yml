@@ -2,6 +2,7 @@ name: Native client validation
 on:
   workflow_dispatch:
   push:
+    branches: [development/fullstack-continuation, development/platform-foundation]
     paths:
       [
         "apps/mobile/**",
@@ -179,8 +180,15 @@ on:
       ]
 permissions:
   contents: read
+# Cancel superseded runs of the same workflow/event/ref. Keep push and PR
+# validations separate so a branch push cannot cancel a required PR check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   native:
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
