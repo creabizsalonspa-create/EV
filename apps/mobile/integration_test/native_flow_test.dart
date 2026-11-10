@@ -960,13 +960,19 @@ void main() {
       await settle();
       // More filter options are accessible but partner records must still be
       // reachable by actual device scrolling, not only at larger viewport.
+      // scrollUntilVisible requires a Scrollable, not its ListView parent.
+      // This uses the actual outer scrollable and asserts a tappable visible
+      // partner row, rather than masking the simulator viewport regression.
       await tester.scrollUntilVisible(
         find.text('Device partner fixture 1'),
         220,
-        scrollable: find.byType(ListView).first,
+        scrollable: find.byType(Scrollable).first,
       );
       await settle();
-      expect(find.text('Device partner fixture 1'), findsOneWidget);
+      expect(
+        find.text('Device partner fixture 1').hitTestable(),
+        findsOneWidget,
+      );
       await tester.scrollUntilVisible(
         find.text('Next'),
         300,
