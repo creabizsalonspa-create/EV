@@ -132,7 +132,7 @@ jobs:
 
   staging-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Check safe staging config and prove negative test cases
