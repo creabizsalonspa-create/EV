@@ -176,6 +176,12 @@ void main() {
     expect(calls.last['latitude'], '25.2');
     expect(calls.last['longitude'], '55.3');
     expect(calls.last['radius_km'], '10');
+    await tester.scrollUntilVisible(
+        find.byKey(const Key('partner-clear-filters')), 180);
+    await tester.tap(find.byKey(const Key('partner-clear-filters')));
+    await tester.pumpAndSettle();
+    expect(calls.length, 3);
+    expect(calls.last, isEmpty);
     expect(tester.takeException(), isNull);
   });
 
