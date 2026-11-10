@@ -14,3 +14,12 @@ services/csms/rider/runtime/*
 !services/csms/rider/runtime/.gitkeep
 
 /services/business-api/storage/framework/csms-fault-worker.lock
+
+# Exactly five synthetic CI Docker-exclusion canaries.
+# Do not glob real untracked source or secrets: staging-image-build must still
+# reject all other untracked files in its committed-source checkout.
+/services/business-api/database/ev-image-guard.sqlite
+/services/business-api/database/ev-image-guard.sqlite3
+/services/business-api/database/ev-image-guard.sqlite-wal
+/services/business-api/database/ev-image-guard.sqlite3-journal
+/services/business-api/.env.image-canary
