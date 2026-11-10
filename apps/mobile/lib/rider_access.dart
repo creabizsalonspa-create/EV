@@ -20,8 +20,9 @@ class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserv
   void clearPrivate({bool background=false}){
     if(!mounted)return;
     generation++;
-    pendingCreate?.clear();
-    pendingCreate=null;
+    // Keep an uncertain registration's idempotency identity on background.
+    // Logout or account replacement must destroy it instead.
+    if(!background){pendingCreate?.clear();pendingCreate=null;}
     setState((){
       data=null;error=null;sourceEnabled=false;oneTime=null;reveal=false;
       busy=false;privatePaused=background;
