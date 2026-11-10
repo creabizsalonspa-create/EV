@@ -55,6 +55,7 @@ class SupportController extends Controller
                         409,
                         'Request key was already used for a different support ticket.'
                     );
+
                     return response()->json($previous);
                 }
             }
@@ -153,6 +154,7 @@ class SupportController extends Controller
                         && hash_equals((string) $old->body, $v['reason'])
                         && $t->status === $v['status'], 409,
                         'Request key is already used or the ticket state changed.');
+
                     return $t;
                 }
             }

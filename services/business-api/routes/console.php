@@ -135,7 +135,6 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
     return $failed ? 1 : 0;
 })->purpose('Bounded durable simulator fault observation; no hardware or capacity commands');
 
-
 Artisan::command('notifications:remind-faults {--limit=50} {--after=} {--older-than=15}', function () {
     $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT,
         ['options' => ['min_range' => 1, 'max_range' => 100]]);
