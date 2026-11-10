@@ -1,4 +1,94 @@
 window.EV_MESSAGES = {
+    "Rider activity source.authorization.allowed": {
+        en: "Source authorization allowed; transaction not implied",
+        ar: "سُمح بتفويض المصدر؛ لا يعني ذلك بدء معاملة",
+    },
+    "Rider activity source.authorization.not_allowed": {
+        en: "Source authorization not allowed",
+        ar: "لم يسمح بتفويض المصدر",
+    },
+    "Rider activity source.authorization.blocked": {
+        en: "Source authorization blocked",
+        ar: "تم حظر تفويض المصدر",
+    },
+    "Rider activity source.authorization.expired": {
+        en: "Source authorization expired",
+        ar: "انتهت صلاحية تفويض المصدر",
+    },
+
+    "Charging access activity": {
+        en: "Charging access activity",
+        ar: "سجل وصول الشحن",
+    },
+    "Access lifecycle": { en: "Access lifecycle", ar: "دورة حياة الوصول" },
+    "Card charging attempts": {
+        en: "Card charging attempts",
+        ar: "محاولات الشحن بالبطاقة",
+    },
+    "No access activity": {
+        en: "No activity recorded",
+        ar: "لا توجد أنشطة مسجلة",
+    },
+    "Charging access history disclaimer": {
+        en: "Read-only TEST history. Approval is not a source transaction; revocation does not stop an active session. No physical charging or payment is verified.",
+        ar: "سجل اختبار للقراءة فقط. الموافقة ليست معاملة مصدر ولا يوقف الإبطال جلسة نشطة. لا يثبت شحناً فعلياً أو دفعاً.",
+    },
+    "Rider activity token.registered": {
+        en: "Token registered",
+        ar: "تم تسجيل الرمز",
+    },
+    "Rider activity token.revoked": {
+        en: "Token revoked",
+        ar: "تم إبطال الرمز",
+    },
+    "Rider activity token.expiry_changed": {
+        en: "Token expiry changed",
+        ar: "تم تغيير انتهاء الرمز",
+    },
+    "Rider activity grant.requested": {
+        en: "Station approval requested",
+        ar: "تم طلب موافقة المحطة",
+    },
+    "Rider activity grant.withdrawn": {
+        en: "Station approval withdrawn",
+        ar: "تم سحب موافقة المحطة",
+    },
+    "Rider activity grant.approved": {
+        en: "Operator approved access",
+        ar: "وافق المشغل على الوصول",
+    },
+    "Rider activity grant.rejected": {
+        en: "Operator rejected access",
+        ar: "رفض المشغل الوصول",
+    },
+    "Rider activity grant.revoked": {
+        en: "Operator revoked access",
+        ar: "أبطل المشغل الوصول",
+    },
+    "Rider activity source.provisioned": {
+        en: "TEST source authorization provisioned",
+        ar: "تم إعداد تفويض مصدر الاختبار",
+    },
+    "Rider session awaiting_source": {
+        en: "Awaiting source transaction",
+        ar: "بانتظار معاملة المصدر",
+    },
+    "Rider session closed_without_dispatch": {
+        en: "Closed without dispatch",
+        ar: "أغلقت دون إرسال",
+    },
+    "Rider session source_active": {
+        en: "Source start observed",
+        ar: "تم رصد بدء المصدر",
+    },
+    "Rider session source_ended": {
+        en: "Source start and end observed",
+        ar: "تم رصد بدء ونهاية المصدر",
+    },
+    "Rider session requires_review": {
+        en: "Source evidence requires review",
+        ar: "يتطلب دليل المصدر المراجعة",
+    },
     "Simulator source fault escalation resolved · station #{id}": {
         en: "Simulator source fault escalation resolved · station #{id}",
         ar: "تم حل تصعيد العطل وفق مصدر المحاكاة · المحطة #{id}",
