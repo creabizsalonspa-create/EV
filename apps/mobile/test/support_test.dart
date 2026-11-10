@@ -1041,13 +1041,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('support-notifications')));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('review-simulator-monitor')),
-      180,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.byKey(const Key('review-simulator-monitor')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('review-simulator-monitor')));
+    final review = find.byKey(const Key('review-simulator-monitor'));
+    expect(review, findsOneWidget);
+    // The notification card can be below the viewport even though its
+    // lazily laid-out button exists; bring it fully on-screen before tap.
+    await tester.ensureVisible(review);
+    await tester.pumpAndSettle();
+    await tester.tap(review);
     await tester.pumpAndSettle();
     expect(find.text('Source diagnostics'), findsOneWidget);
     expect(fixture.reviewReads, [
