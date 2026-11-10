@@ -3,12 +3,25 @@ on:
   pull_request:
     paths: ['apps/hasone-customer/**', '.github/workflows/hasone-customer.yml']
   push:
-    branches: [development/hasone-connected-delivery]
+    branches: [development/fullstack-continuation, development/platform-foundation]
+    # Match PR path scope so unrelated integration commits do not launch two
+    # full Flutter platform builds while PR and default-branch checks remain.
+    paths: ['apps/hasone-customer/**', '.github/workflows/hasone-customer.yml']
   workflow_dispatch:
 permissions:
   contents: read
+# Cancel superseded runs of the same workflow/event/ref. Keep push and PR
+# validations separate so a branch push cannot cancel a required PR check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   native:
+    timeout-minutes: 90
+    # Keep these check contexts distinct from apps/mobile's native jobs.
+    # Both suites are required when a PR changes both app trees.
+    name: hasone-native (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -24,11 +37,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            apps/hasone-customer/android/**/*.gradle*
+            apps/hasone-customer/android/gradle/wrapper/gradle-wrapper.properties
       - name: Pinned compatible Flutter
         run: |
           git clone --depth 1 --branch 3.35.7 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = adc901062556672b4138e18a4dc62a4be8f4b3c2
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Cache lockfile-pinned Dart packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-hasone-3.35.7-pub-${{ hashFiles('apps/hasone-customer/pubspec.lock') }}
       - run: flutter pub get --enforce-lockfile
       - run: flutter test --no-pub
       - name: Android development APK

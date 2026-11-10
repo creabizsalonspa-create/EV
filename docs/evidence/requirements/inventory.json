@@ -52,6 +52,24 @@
       "test_result": "passed",
       "merge_sha": "d846de0bdcd6346578d8ffa1959807fcbd8762a6",
       "evidence": "docs/evidence/discovery-routing/hosted-checkpoint.json"
+    },
+    "pr43": {
+      "source_sha": "0f74b9433ddea88df9f4e8570b70774d8dc03e85",
+      "test_result": "passed",
+      "merge_sha": "137cb97dada285b5e779089c56461ea8e4c40ebb",
+      "evidence": "docs/evidence/integration-coverage/pr43-hosted-checkpoint.json"
+    },
+    "pr46": {
+      "source_sha": "005f7ae12085e8346df923b794d8d3a2a6601c3d",
+      "test_result": "passed",
+      "merge_sha": "7e1b225e5add58da8a87e64d52292b76c5e99af5",
+      "evidence": "docs/evidence/integration-coverage/pr46-hosted-checkpoint.json"
+    },
+    "pr47": {
+      "source_sha": "1fecc90c6ce03cdc7e806fc2321ce57f16230100",
+      "test_result": "passed",
+      "merge_sha": "f4f477d52cf8e4ee05390dbe5b3e89cb03a3545b",
+      "evidence": "docs/evidence/integration-coverage/pr47-hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -189,9 +207,9 @@
     {
       "prd": "2.3",
       "requirement": "Search, maps, routes, favorites, reviews",
-      "implemented_code_scope": "Merged nearby radius search plus canonical private favorites and consent-gated web/Flutter current-page maps, clustering/manual centre and opt-in web GPS (PR16 tested e942017, merged1bee9c9); PR19 consented foreground native GPS, bounded server-only address/routing provider, manual endpoints, up to three ordered canonical charging stops, sourced web/native route previews and separately consented fixed-origin external navigation",
-      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers; PR19 full Laravel/browser/native suites, actual Android/iOS builds and synthetic iOS GPS/route runtime assertions, all ten exact-source checks passed",
-      "remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, reviews/moderation, saved places and energy-aware charging-stop recommendations. Real GPS and live provider acceptance remain external.",
+      "implemented_code_scope": "Merged nearby radius search plus canonical private favorites and consent-gated web/Flutter current-page maps, clustering/manual centre and opt-in web GPS (PR16 tested e942017, merged1bee9c9); PR19 consented foreground native GPS, bounded server-only address/routing provider, manual endpoints, up to three ordered canonical charging stops, sourced web/native route previews and separately consented fixed-origin external navigation; verified PR46 canonical session-scoped ratings/review/moderation workflow across customer web/Flutter and Admin web, with simulator evidence provenance and consent.",
+      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers; PR19 full Laravel/browser/native suites, actual Android/iOS builds and synthetic iOS GPS/route runtime assertions, all ten exact-source checks passed; PR46 exact-head 11 passing GitHub checks including Linux/Apple native build and platform, finance and connector gates; verified merged ancestry.",
+      "remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, saved places and energy-aware charging-stop recommendations; live/provider physical review acceptance is external and unverified.",
       "atoms": [
         {
           "id": "2.3.1",
@@ -252,9 +270,9 @@
         {
           "id": "2.3.9",
           "software_atom": "Reviews/ratings and moderation",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr46",
+          "note": "Verified PR46 canonical customer web/Flutter review creation, edit, withdrawal, public source-qualified ratings and Admin moderation. Source-observed simulator only; live/partner verification excluded."
         }
       ]
     },
@@ -1027,16 +1045,16 @@
     {
       "prd": "3.6",
       "requirement": "Vendor analytics/exports",
-      "implemented_code_scope": "Basic shared operational counts are not a vendor analytics product",
-      "automated_evidence_scope": "No complete feature acceptance suite; not implemented. No completed merged product module",
-      "remaining_scope": "Utilization/revenue/uptime/downtime/energy/demand/feedback dashboards and exports",
+      "implemented_code_scope": "Merged PR43 canonical source-backed vendor utilization metrics (observed EVSE busy time, possible capacity and unknown periods) and private operational CSV/EN-AR PDF exports via Laravel/web/Flutter; PR47 moderated-feedback analytics across vendor/Admin surfaces. Simulator provenance is explicit; invoices are not cash and missing telemetry is not physical uptime.",
+      "automated_evidence_scope": "PR43: 12 exact-head passing GitHub Actions checks, and merged source-backed web/Flutter/CSV/PDF tests. PR47: 12 exact-head passing checks plus backend, native and approved-feedback export regressions; both merge commits confirmed ancestors of integration. Production hardware/payment/partner acceptance unverified.",
+      "remaining_scope": "Verified physical charger uptime/downtime, full realized revenue and settlement dashboards, simultaneous site demand analysis, production operator-data acceptance and broader live network analytics. Three original atoms remain uncredited.",
       "atoms": [
         {
           "id": "3.6.1",
           "software_atom": "Utilization dashboard",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr43",
+          "note": "Verified PR43 vendor web/Flutter site utilization summary from canonical observed busy time and mapped EVSE windows; missing data remains unknown. Does not measure physical utilization."
         },
         {
           "id": "3.6.2",
@@ -1062,16 +1080,16 @@
         {
           "id": "3.6.5",
           "software_atom": "Customer feedback analytics",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr47",
+          "note": "Verified PR47 current moderated feedback aggregates by site and simulator source, private vendor/Admin web/native and bilingual reports. External network/physical feedback not accepted."
         },
         {
           "id": "3.6.6",
           "software_atom": "Vendor operational exports",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr43",
+          "note": "Verified PR43 tenant-scoped operational CSV exports and EN/AR private PDF across web/native. Simulator-source evidence; not an accounting or physical availability certificate."
         }
       ]
     },

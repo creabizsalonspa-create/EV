@@ -7,6 +7,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -79,6 +80,7 @@ class ChargerDiagnosticsController extends Controller
         $previous = (int) ($v['before'] ?? 2147483647);
         foreach ($events as $event) {
             abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > 0 && $event['id'] < $previous && is_string($event['connectorStatus'] ?? null) && strlen($event['connectorStatus']) <= 40 && is_string($event['timestamp'] ?? null) && strlen($event['timestamp']) <= 50 && (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 503, 'Source status history is invalid.');
+            SourceStatusTime::parse($event['timestamp']);
             $previous = $event['id'];
         }
         $events = array_slice($events, 0, 25);

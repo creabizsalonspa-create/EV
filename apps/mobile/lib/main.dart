@@ -1,4 +1,5 @@
 import 'privacy_requests.dart';
+import 'vehicle_battery.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
@@ -482,6 +483,21 @@ class _WorkspaceState extends State<Workspace> {
     });
   }
 
+  void discoverCompatible(String connector) {
+    if (!mounted || account?.role != 'customer') return;
+    setState(() {
+      tab = 0;
+    });
+    catalogKey.currentState?.compatibleWith(connector);
+  }
+
+  Future<void> discoverBatteryVehicle(int id) async {
+    await perform(() async {
+      final values = await api!.request('vehicles/$id/battery-preferences');
+      if (mounted) discoverCompatible(values['connector_type'] as String);
+    });
+  }
+
   Widget recordCard(Map<String, dynamic> row) {
     final id = row['id'];
     final title = tab == 1
@@ -527,26 +543,13 @@ class _WorkspaceState extends State<Workspace> {
                   'currency': row['currency'],
                 }),
               ),
-            if (tab == 3 && row['can_simulate_battery'] == true)
-              TextButton(
-                onPressed: busy
-                    ? null
-                    : () => perform(() async {
-                        await api!.request(
-                          'vehicles/$id/battery-simulation',
-                          method: 'POST',
-                          body: {
-                            'operation_key': operationKey(),
-                            'battery_percent': 15,
-                          },
-                        );
-                        if (mounted) setState(() => message = 'saved');
-                      }),
-                child: Text(
-                  Localizations.localeOf(context).languageCode == 'ar'
-                      ? 'محاكاة تنبيه بطارية منخفضة 15٪'
-                      : 'Simulate low battery alert: 15%',
-                ),
+            if (tab == 3 && account?.role == 'customer')
+              VehicleBatteryView(
+                key: ValueKey('battery-$id-${account!.id}'),
+                api: api!,
+                vehicleId: id as int,
+                onExpired: expiredSession,
+                onDiscover: discoverCompatible,
               ),
             if (tab == 3)
               Text(
@@ -955,6 +958,7 @@ class _WorkspaceState extends State<Workspace> {
                       key: supportKey,
                       api: api!,
                       onSessionExpired: expiredSession,
+                      onBatteryDiscovery: discoverBatteryVehicle,
                     )
                   : tab == 5
                   ? FleetView(
