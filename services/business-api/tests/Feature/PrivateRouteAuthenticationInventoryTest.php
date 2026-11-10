@@ -17,6 +17,8 @@ class PrivateRouteAuthenticationInventoryTest extends TestCase
         'api/v1/stations/{station}/reviews',
         'api/v1/discovery/addresses',
         'api/v1/discovery/capabilities',
+        'api/v1/discovery/open-charge-map/capabilities',
+        'api/v1/discovery/open-charge-map/search',
         'api/v1/discovery/route',
     ];
 
