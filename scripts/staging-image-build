@@ -2,14 +2,34 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 image=${1:-creabiz-ev-business:local-review}
-case "$image" in creabiz-ev-business:*) ;; *) echo 'Use a Crea-Biz review image tag.' >&2; exit 2 ;; esac
+case "$image" in
+  creabiz-ev-business:*) ;;
+  *) echo 'Use a Crea-Biz review image tag.' >&2; exit 2 ;;
+esac
+if [[ ! "$image" =~ ^creabiz-ev-business:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+  echo 'Unsafe or malformed review image tag.' >&2
+  exit 2
+fi
+source_sha=$(git rev-parse --verify HEAD^{commit})
+if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'A complete Git commit ID is required for image provenance.' >&2
+  exit 2
+fi
+if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+  echo 'Build requires clean tracked source; never label dirty files as a committed revision.' >&2
+  exit 2
+fi
 export BUILDX_CONFIG=${BUILDX_CONFIG:-/tmp/ev-staging-buildx}
 mkdir -p "$BUILDX_CONFIG"
 bundle=${EV_BUILD_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}
 test -r "$bundle"
+# OCI source labels are self-declared build metadata; they do not replace signed provenance.
 # Docker predefined proxy arguments are not declared as ARG/ENV in the image.
 # CA trust stays a BuildKit secret; TLS and Debian package signatures remain on.
 docker build --build-arg HTTP_PROXY --build-arg HTTPS_PROXY --build-arg NO_PROXY \
+  --label "org.opencontainers.image.revision=$source_sha" \
+  --label "org.opencontainers.image.source=https://github.com/creabizsalonspa-create/EV" \
+  --label 'com.creabiz.ev.staging.review=true' \
   --secret "id=ev_ca_bundle,src=$bundle" \
   -f infra/staging/Dockerfile -t "$image" .
 ./scripts/staging-image-check "$image"

@@ -122,7 +122,9 @@ class PlatformController extends Controller
 
     public function vehicles(Request $r)
     {
-        return Vehicle::where('user_id', $r->user()->id)->paginate(25)->through(fn ($vehicle) => $vehicle->toArray() + ['can_simulate_battery' => $r->user()->role === 'customer' && VehicleBatteryController::enabled()]);
+        $filters = $r->validate(['connector_type' => 'sometimes|in:CCS2,Type2,CHAdeMO']);
+
+        return response()->json(Vehicle::where('user_id', $r->user()->id)->when(isset($filters['connector_type']), fn ($q) => $q->where('connector_type', $filters['connector_type']))->orderBy('id')->paginate(25)->through(fn ($vehicle) => $vehicle->toArray() + ['can_simulate_battery' => $r->user()->role === 'customer' && VehicleBatteryController::enabled()]))->header('Cache-Control', 'private, no-store');
     }
 
     public function createVehicle(Request $r)
@@ -144,28 +146,38 @@ class PlatformController extends Controller
         $page = $q->orderByDesc('id')->paginate(25);
         $bound = DB::table('csms_bindings')->whereIn('station_id', $page->getCollection()->pluck('station_id'))->pluck('station_id')->flip();
 
-        return $page->through(function ($reservation) use ($bound) {
+        $names = $r->user()->role === 'customer' ? Vehicle::where('user_id', $r->user()->id)->whereIn('id', $page->getCollection()->pluck('vehicle_id')->filter())->pluck('name', 'id') : collect();
+
+        return response()->json($page->through(function ($reservation) use ($bound, $names, $r) {
             $csms = $bound->has($reservation->station_id);
             if ($reservation->connector_mapping_id) {
                 $map = ConnectorMapping::findOrFail($reservation->connector_mapping_id);
                 $csms = Evse::findOrFail($map->evse_id)->mode === 'csms';
             }
 
-            return $reservation->toArray() + ['csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
-        });
+            $data = $reservation->toArray();
+            if ($r->user()->role === 'vendor') {
+                unset($data['vehicle_id']);
+            }
+            if ($r->user()->role === 'customer' && $reservation->vehicle_id) {
+                $data['vehicle_label'] = $names->get($reservation->vehicle_id);
+            }
+
+            return $data + ['csms_bound' => $csms, 'can_check_in' => app(ReservationLifecycle::class)->eligible($reservation), 'physical_presence_verified' => false];
+        }))->header('Cache-Control', 'private, no-store');
     }
 
     public function reserve(Request $r)
     {
         abort_unless($r->user()->role === 'customer', 403);
-        $v = $r->validate(['station_id' => 'required|integer|exists:stations,id', 'starts_at' => 'required|date_format:Y-m-d\TH:i:s\Z', 'idempotency_key' => 'required|string|max:100', 'connector_mapping_id' => 'nullable|integer|min:1']);
+        $v = $r->validate(['station_id' => 'required|integer|exists:stations,id', 'starts_at' => 'required|date_format:Y-m-d\TH:i:s\Z', 'idempotency_key' => 'required|string|max:100', 'connector_mapping_id' => 'nullable|integer|min:1', 'vehicle_id' => 'nullable|integer|min:1', 'vehicle_connector_type' => 'missing']);
         $v['station_id'] = (int) $v['station_id'];
         $start = CarbonImmutable::parse($v['starts_at'], 'UTC');
         abort_unless($start->second === 0 && in_array($start->minute, [0, 30]), 422, 'Use a UTC half-hour boundary.');
         $v['starts_at'] = $start->format('Y-m-d H:i:s');
         $prior = Reservation::where('user_id', $r->user()->id)->where('idempotency_key', $v['idempotency_key'])->first();
         if ($prior) {
-            abort_unless($prior->station_id === $v['station_id'] && $prior->starts_at === $v['starts_at'] && (int) $prior->connector_mapping_id === (int) ($v['connector_mapping_id'] ?? 0), 409, 'Idempotency key payload mismatch.');
+            abort_unless($prior->station_id === $v['station_id'] && $prior->starts_at === $v['starts_at'] && (int) $prior->connector_mapping_id === (int) ($v['connector_mapping_id'] ?? 0) && (int) $prior->vehicle_id === (int) ($v['vehicle_id'] ?? 0), 409, 'Idempotency key payload mismatch.');
 
             return response()->json($prior);
         }
@@ -176,16 +188,24 @@ class PlatformController extends Controller
                 $station = Station::whereKey($v['station_id'])->lockForUpdate()->firstOrFail();
                 $prior = Reservation::where('user_id', $r->user()->id)->where('idempotency_key', $v['idempotency_key'])->first();
                 if ($prior) {
-                    abort_unless($prior->station_id === $v['station_id'] && $prior->starts_at === $v['starts_at'] && (int) $prior->connector_mapping_id === (int) ($v['connector_mapping_id'] ?? 0), 409, 'Idempotency key payload mismatch.');
+                    abort_unless($prior->station_id === $v['station_id'] && $prior->starts_at === $v['starts_at'] && (int) $prior->connector_mapping_id === (int) ($v['connector_mapping_id'] ?? 0) && (int) $prior->vehicle_id === (int) ($v['vehicle_id'] ?? 0), 409, 'Idempotency key payload mismatch.');
 
                     return response()->json($prior);
                 }
                 $bookingStart = CarbonImmutable::parse($v['starts_at'], 'UTC');
                 app(StationGate::class)->requireReady($station, isset($v['connector_mapping_id']) ? (int) $v['connector_mapping_id'] : null, $bookingStart, $bookingStart->addMinutes(30));
+                $connectorType = $station->connector_type;
                 if (! empty($v['connector_mapping_id'])) {
                     $target = app(ConnectorTopology::class)->target($station, (int) $v['connector_mapping_id']);
                     $v['charging_evse_id'] = $target['evse']->id;
+                    $connectorType = $target['connector']->connector_type;
                     abort_if(Reservation::where('station_id', $station->id)->where('starts_at', $v['starts_at'])->where('status', 'confirmed')->whereNull('connector_mapping_id')->exists(), 409, 'Legacy reservation owns this slot.');
+                }
+                if (! empty($v['vehicle_id'])) {
+                    $vehicle = Vehicle::where('user_id', $r->user()->id)->whereKey($v['vehicle_id'])->lockForUpdate()->firstOrFail();
+                    abort_unless($vehicle->connector_type === $connectorType, 422, 'Selected vehicle connector does not match the reserved connector.');
+                    $v['vehicle_id'] = (int) $vehicle->id;
+                    $v['vehicle_connector_type'] = $vehicle->connector_type;
                 }
                 $b = Reservation::create($v + ['user_id' => $r->user()->id]);
                 $this->audit($r, 'reservation.created', (string) $b->id);
