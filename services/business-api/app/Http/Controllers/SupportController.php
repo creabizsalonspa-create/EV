@@ -10,9 +10,20 @@ use Illuminate\Support\Facades\DB;
 
 class SupportController extends Controller
 {
+    /** Role revocation must invalidate a cached authenticated Admin model. */
+    private function currentRole(Request $r, bool $forUpdate = false): ?string
+    {
+        $actor = DB::table('users')->where('id', $r->user()->id);
+        if ($forUpdate) {
+            $actor->lockForUpdate();
+        }
+
+        return $actor->value('role');
+    }
+
     private function access(Request $r, SupportTicket $t): void
     {
-        abort_unless($r->user()->role === 'admin' || $t->user_id === $r->user()->id, 404);
+        abort_unless($this->currentRole($r) === 'admin' || $t->user_id === $r->user()->id, 404);
     }
 
     private function audit(Request $r, string $action, int $id): void
@@ -24,7 +35,7 @@ class SupportController extends Controller
     {
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
-        return SupportTicket::when($r->user()->role !== 'admin', fn ($q) => $q->where('user_id', $r->user()->id))->orderByDesc('id')->paginate(25);
+        return SupportTicket::when($this->currentRole($r) !== 'admin', fn ($q) => $q->where('user_id', $r->user()->id))->orderByDesc('id')->paginate(25);
     }
 
     public function create(Request $r)
@@ -77,7 +88,7 @@ class SupportController extends Controller
         $this->access($r, $ticket);
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
-        return response()->json(['ticket' => $ticket, 'messages' => TicketMessage::where('support_ticket_id', $ticket->id)->when($r->user()->role !== 'admin', fn ($q) => $q->where('internal', false))->orderBy('id')->paginate(50)]);
+        return response()->json(['ticket' => $ticket, 'messages' => TicketMessage::where('support_ticket_id', $ticket->id)->when($this->currentRole($r) !== 'admin', fn ($q) => $q->where('internal', false))->orderBy('id')->paginate(50)]);
     }
 
     public function reply(Request $r, SupportTicket $ticket)
@@ -90,10 +101,16 @@ class SupportController extends Controller
             // reply with the same cryptographically random request key.
             'idempotency_key' => ['sometimes', 'string', 'regex:/^[a-f0-9]{32}$/'],
         ]);
-        abort_if(($v['internal'] ?? false) && $r->user()->role !== 'admin', 403);
+        abort_if(($v['internal'] ?? false) && $this->currentRole($r) !== 'admin', 403);
 
         return DB::transaction(function () use ($r, $ticket, $v) {
+            // Lock the account before the ticket, serializing authorization
+            // with role revocation even when the auth model is stale.
+            $role = $this->currentRole($r, true);
+            abort_unless($role !== null, 403);
             $t = SupportTicket::whereKey($ticket->id)->lockForUpdate()->firstOrFail();
+            abort_unless($role === 'admin' || $t->user_id === $r->user()->id, 404);
+            abort_if(($v['internal'] ?? false) && $role !== 'admin', 403);
             // Ticket lock serializes concurrent same-key requests on
             // PostgreSQL. The composite unique index is a second safeguard.
             // Existing clients without a key preserve their old behavior.
@@ -122,7 +139,7 @@ class SupportController extends Controller
                 'internal' => $v['internal'] ?? false,
                 'idempotency_key' => $v['idempotency_key'] ?? null,
             ]);
-            if ($r->user()->role !== 'admin' && $t->status === 'resolved') {
+            if ($role !== 'admin' && $t->status === 'resolved') {
                 $t->update(['status' => 'open']);
             }
             if ($r->user()->id !== $t->user_id && (bool) $m->internal === false) {
@@ -136,7 +153,7 @@ class SupportController extends Controller
 
     public function transition(Request $r, SupportTicket $ticket)
     {
-        abort_unless($r->user()->role === 'admin', 403);
+        abort_unless($this->currentRole($r) === 'admin', 403);
         $v = $r->validate([
             'status' => 'required|in:open,in_progress,resolved,closed',
             'reason' => 'required|string|max:1000',
@@ -144,6 +161,7 @@ class SupportController extends Controller
         ]);
 
         return DB::transaction(function () use ($r, $ticket, $v) {
+            abort_unless($this->currentRole($r, true) === 'admin', 403);
             $t = SupportTicket::whereKey($ticket->id)->lockForUpdate()->firstOrFail();
             if (isset($v['idempotency_key'])) {
                 $old = TicketMessage::where('support_ticket_id', $t->id)

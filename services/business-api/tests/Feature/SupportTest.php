@@ -245,4 +245,44 @@ class SupportTest extends TestCase
         $this->actingAs($u)->postJson('/api/support/'.$t->id.'/messages', ['body' => 'Reply'])->assertConflict();
         $this->actingAs($a)->patchJson('/api/support/'.$t->id.'/status', ['status' => 'open', 'reason' => 'Reopened by support'])->assertOk();
     }
+
+    public function test_cached_admin_role_revocation_blocks_cross_owner_support_access_and_mutations(): void
+    {
+        $owner = User::factory()->create(['role' => 'customer']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $ticket = SupportTicket::create([
+            'user_id' => $owner->id,
+            'subject' => 'Private customer support request',
+        ]);
+
+        $this->actingAs($admin);
+        $this->getJson('/api/support')->assertOk()->assertJsonPath('total', 1);
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'customer']);
+        // The authenticated PHP model still says Admin, but database
+        // revocation must govern both legacy and v1 support routes.
+        $this->assertSame('admin', $admin->role);
+        foreach (['/api/support', '/api/v1/support'] as $base) {
+            $this->getJson($base)->assertOk()->assertJsonPath('total', 0);
+            $this->getJson($base.'/'.$ticket->id)->assertNotFound();
+            $this->postJson($base.'/'.$ticket->id.'/messages', [
+                'body' => 'No private stale-role response',
+                'internal' => true,
+            ])->assertNotFound();
+            $this->patchJson($base.'/'.$ticket->id.'/status', [
+                'status' => 'resolved',
+                'reason' => 'No stale-role resolution',
+            ])->assertForbidden();
+        }
+        $this->assertDatabaseCount('ticket_messages', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+        $this->assertSame('open', $ticket->fresh()->status);
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'admin']);
+        $this->postJson('/api/support/'.$ticket->id.'/messages', [
+            'body' => 'Privileged internal investigation',
+            'internal' => true,
+        ])->assertCreated();
+        $this->assertDatabaseCount('ticket_messages', 1);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+    }
 }
