@@ -31,6 +31,7 @@ class PrivateRiderApi extends FixtureApi {
   Completer<dynamic>? delayedRead;
   Completer<dynamic>? delayedIssue;
   int readCount=0;
+  int mutationCount=0;
   String tokenLabel='Private test card';
 
   @override
@@ -70,9 +71,11 @@ class PrivateRiderApi extends FixtureApi {
       return tokenPage;
     }
     if(method=='POST'){
+      mutationCount++;
       if(delayedIssue!=null)return delayedIssue!.future;
       return {'value_once': 'TEST-ONE-TIME-SECRET'};
     }
+    mutationCount++;
     throw StateError('Unexpected test method: $method');
   }
 }
@@ -196,6 +199,38 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Private test card'),findsNothing);
     expect(find.text('New account token'),findsOneWidget);
+  });
+
+
+  testWidgets('registration form from previous session cannot issue token', (tester) async {
+    final api=PrivateRiderApi();
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:(){}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Register charging access'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first,'Old session card');
+    api.authGeneration++;
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(api.mutationCount,0);
+    expect(find.text('Show identifier'),findsNothing);
+  });
+
+  testWidgets('confirmation started in another session cannot revoke token', (tester) async {
+    final api=PrivateRiderApi();
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:(){}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Revoke token'));
+    await tester.pumpAndSettle();
+    api.authGeneration++;
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.mutationCount,0);
   });
 
 }
