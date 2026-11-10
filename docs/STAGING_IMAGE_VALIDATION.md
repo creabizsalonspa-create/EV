@@ -24,3 +24,14 @@ Still required for production: authorized deployment domain/TLS and secret provi
 ## First hosted attempt and correction
 
 Sourcea1b9412 built successfully and passed the offline image/asset/data audit, then the real application failed its40-second HTTP-readiness check. Review found that authoritative Composer metadata was generated before copying application namespaces; Laravel can silently omit unavailable configured providers during package discovery. Application/database namespaces are now copied before generation, and the audit explicitly loads real controllers, middleware and every configured application provider. Runtime source read/traverse permissions are normalized in the image while remaining root-owned; private storage is0700 and worker-owned. Host source permissions and secrets are not changed. Failed smoke runs now retain redacted application startup/error output before deleting only their own resources. Corrected sourcecbed320 passed both full image audits and actual PostgreSQL17/HTTP/private-volume runs, followed by all remaining regression checks. The failed attempt remains recorded as failed.
+
+## Reviewed private dependency image digests (8 November 2026)
+
+The private staging Compose file pins both its PostgreSQL and Caddy **OCI multiarchitecture index digests** rather than relying on mutable tags:
+
+- PostgreSQL 17-alpine: sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b (registry index HTTP 200, returned digest matches; linux/amd64 configuration has PG_MAJOR=17, PG_VERSION=17.11).
+- Caddy 2-alpine: sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9 (registry index and linux/amd64 manifest retrieved; image configuration has CADDY_VERSION=v2.11.9).
+
+Registry verification was **read-only metadata retrieval**, not a Docker image pull or runtime/container test. Keep these values synchronized with Agent 10's PR #66 effective-Compose and runtime acceptance gates. A different or newer image requires review and corresponding test/manifest updates; do not silently float to an unreviewed tag.
+
+**Existing staged infrastructure:** Docker Compose changing either pinned dependency can recreate a database or gateway. Do not run an infrastructure-wide up, down, force-recreate, database migration, volume replacement, certificate reset, or gateway restart on an existing host as part of this source update. Require Agent 4/operator review and a separately authorized, backed-up staging maintenance procedure.

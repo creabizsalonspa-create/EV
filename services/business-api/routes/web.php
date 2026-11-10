@@ -32,6 +32,8 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/stations', [P::class, 'createStation']);
     Route::get('/api/vehicles', [P::class, 'vehicles']);
     Route::post('/api/vehicles', [P::class, 'createVehicle']);
+    Route::get('/api/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'show']);
+    Route::put('/api/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'update']);
     Route::post('/api/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
     Route::get('/api/reservations', [P::class, 'reservations']);
     Route::post('/api/reservations', [P::class, 'reserve']);
