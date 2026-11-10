@@ -54,6 +54,9 @@ class RecordSynchronizer
                     if ($updated->equalTo($existing->source_updated_at)) {
                         throw new OcpiException('Conflicting OCPI replay at the same source timestamp.');
                     }
+                    if ($module === 'sessions' && DB::table('ocpi_test_invoice_receipts')->where('source_session_record_id', $existing->id)->exists()) {
+                        throw new OcpiException('Consented TEST invoice source is immutable; a separate correction requires review.');
+                    }
                     if ($module === 'sessions' && ($existing->normalized['status'] === 'COMPLETED' && $n['status'] !== 'COMPLETED')) {
                         throw new OcpiException('Completed OCPI session cannot return to an active state.');
                     }

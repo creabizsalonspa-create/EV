@@ -32,7 +32,7 @@ class SimulationController extends Controller
 
     public function index(Request $r)
     {
-        $q = ChargingSession::query();
+        $q = ChargingSession::whereNull('roaming_order_id');
         if ($r->user()->role === 'vendor') {
             $q->whereIn('reservation_id', Reservation::whereIn('station_id', Station::where('vendor_id', $r->user()->id)->select('id'))->select('id'));
         } elseif ($r->user()->role !== 'admin') {
