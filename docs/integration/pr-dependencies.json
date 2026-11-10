@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "target_branch": "development/fullstack-continuation",
+  "dependencies": {
+    "56": [
+      53
+    ],
+    "61": [
+      59
+    ],
+    "63": [
+      61
+    ],
+    "67": [
+      57
+    ],
+    "69": [
+      63
+    ],
+    "70": [
+      50,
+      52
+    ]
+  },
+  "notes": {
+    "56": "Vehicle reservation link stacks on Agent 1 battery-discovery PR #53.",
+    "61": "Charging-invoice UI stacks on canonical OCPI invoice PR #59.",
+    "63": "Credit CDR review stacks on charging-invoice UI PR #61.",
+    "67": "Superseded PR-event provenance child of Agent 4 PR #57; never merge out of order.",
+    "69": "Credit refund review stacks on credit CDR provenance PR #63 (transitively #61 and #59).",
+    "70": "Private customer charging-history and booking recovery require both source-status UI PR #52 and separately staged Express/Mongo source-history API PR #50."
+  }
+}

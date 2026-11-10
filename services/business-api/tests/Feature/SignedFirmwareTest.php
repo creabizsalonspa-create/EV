@@ -9,6 +9,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -23,6 +24,17 @@ class SignedFirmwareTest extends TestCase
     use RefreshDatabase;
 
     private ?string $catalogRoot = null;
+
+    public function test_download_route_rejects_malformed_capabilities_before_entering_the_disabled_adapter(): void
+    {
+        config(['csms.firmware_enabled' => false]);
+        foreach ([str_repeat('a', 63), str_repeat('a', 65), str_repeat('A', 64), str_repeat('g', 64), '123456', 'not-a-capability'] as $invalid) {
+            $this->get('/api/internal/firmware/'.$invalid)->assertNotFound();
+        }
+        // A correctly shaped capability still reaches the guarded controller;
+        // the existing two-protocol deployment test exercises a genuine token.
+        $this->get('/api/internal/firmware/'.str_repeat('a', 64))->assertServiceUnavailable();
+    }
 
     protected function tearDown(): void
     {
@@ -62,9 +74,9 @@ class SignedFirmwareTest extends TestCase
         return compact('owner', 'admin', 'station', 'company', 'charger', 'binding', 'releases', 'path', 'entry', 'bytes', 'pin', 'protocol');
     }
 
-    private function source(array $f, bool $unknown = false, bool $loss = false): void
+    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null): void
     {
-        Http::fake(function ($r) use ($f, $unknown, $loss) {
+        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime) {
             if (str_contains($r->url(), '/capabilities')) {
                 parse_str(parse_url($r->url(), PHP_URL_QUERY), $query);
 
@@ -84,7 +96,7 @@ class SignedFirmwareTest extends TestCase
                     return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'protocol' => $f['protocol'], 'isOnline' => true, 'firmwareVersion' => 'sim-fw-v1', 'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture']]]]);
                 }
 
-                return Http::response(['data' => ['Transactions' => [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => now()->toISOString()]]]]);
+                return Http::response(['data' => ['Transactions' => [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
             }
             if (str_ends_with($r->url(), '/dev/token')) {
                 return Http::response(['accessToken' => 'synthetic-source-token']);
@@ -101,6 +113,25 @@ class SignedFirmwareTest extends TestCase
     public static function protocols(): array
     {
         return [['1.6'], ['2.0.1']];
+    }
+
+    #[DataProvider('protocols')]
+    public function test_relative_idle_source_time_cannot_dispatch_or_complete_firmware(string $protocol): void
+    {
+        $f = $this->fixture($protocol);
+        $this->source($f, statusTime: 'now');
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], ['catalog_key' => 'synthetic-v1', 'note' => 'Approved pinned synthetic bytes'])->assertCreated()->json('id');
+        $body = ['release_id' => $release, 'reason' => 'Strict firmware source time validation', 'idempotency_key' => 'strict-time'];
+        $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertServiceUnavailable();
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/signedUpdateFirmware?') || str_contains($r->url(), '/updateFirmware?'));
+        Http::swap(new Factory);
+        $this->source($f);
+        $id = $this->postJson($f['path'], $body)->assertCreated()->json('id');
+        Http::swap(new Factory);
+        $this->source($f, statusTime: 'now');
+        $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Malformed source time cannot confirm installation'])->assertServiceUnavailable();
+        $this->assertDatabaseHas('charger_firmware_operations', ['id' => $id, 'reviewed_at' => null, 'status' => 'transport_submitted']);
     }
 
     #[DataProvider('protocols')]
