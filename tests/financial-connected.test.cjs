@@ -101,6 +101,8 @@ test("post-finance operational windows preserve all suites and do not consume th
       "charging-business",
       "station-favorites",
       "client-demo-lifecycle",
+      "vehicle-battery",
+      "vehicle-reservation",
       "charging-reviews",
       "sandbox-roaming",
       "partner-favorites",
@@ -115,4 +117,17 @@ test("post-finance operational windows preserve all suites and do not consume th
     assert.equal(starts[offset].time - (offset ? ends[offset - 1] : 0), 61000);
     offset += group.length;
   }
+});
+
+test("operational adapter setup remains intact after adding the battery discovery suite", () => {
+  const { prepareOperationalAdapters } = require("./operational-connected.cjs");
+  const invoked = [];
+  prepareOperationalAdapters((script, args) => {
+    invoked.push({ script, args });
+    return { status: 0 };
+  });
+  assert.deepEqual(invoked, [
+    { script: "./scripts/configuration-read-setup", args: [] },
+    { script: "./scripts/diagnostic-logs-setup", args: [] },
+  ]);
 });
