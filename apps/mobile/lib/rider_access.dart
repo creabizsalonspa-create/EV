@@ -37,6 +37,22 @@ class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserv
   @override
   void initState(){super.initState();sessionFence=widget.api.sessionFence();WidgetsBinding.instance.addObserver(this);load();}
   @override
+  void didUpdateWidget(covariant RiderAccessView oldWidget){
+    super.didUpdateWidget(oldWidget);
+    if(oldWidget.api!=widget.api || oldWidget.records!=widget.records ||
+        oldWidget.tokenId!=widget.tokenId || oldWidget.companyId!=widget.companyId){
+      generation++;
+      pendingCreate?.clear();
+      pendingCreate=null;
+      data=null;error=null;busy=false;sourceEnabled=false;
+      oneTime=null;reveal=false;privatePaused=false;
+      sessionFence=widget.api.sessionFence();
+      WidgetsBinding.instance.addPostFrameCallback((_){
+        if(mounted&&!privatePaused)load();
+      });
+    }
+  }
+  @override
   void dispose(){generation++;WidgetsBinding.instance.removeObserver(this);search.dispose();pendingCreate?.clear();pendingCreate=null;oneTime=null;data=null;super.dispose();}
   void fail(Object e){if(!mounted)return;if(!sessionAlive || (e is ApiException&&[401,419].contains(e.status))){clearPrivate();widget.onExpired();return;}setState(()=>error=e);}
   Future<void> load({int page=1}) async {
