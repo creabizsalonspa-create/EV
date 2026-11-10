@@ -11,7 +11,7 @@ x-application: &application
   environment:
     APP_ENV: staging
     APP_DEBUG: 'false'
-    APP_URL: https://${STAGING_HOST:?Set an authorized staging hostname}
+    APP_URL: https://${STAGING_HOST:?Set an authorized staging hostname}:8443
     DB_CONNECTION: pgsql
     DB_HOST: database
     DB_PORT: '5432'
@@ -46,7 +46,7 @@ services:
     healthcheck:
       disable: true
   database:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     environment:
       POSTGRES_DB: ev_business
       POSTGRES_USER: ev_business
@@ -60,7 +60,7 @@ services:
       retries: 20
     restart: unless-stopped
   gateway:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
     environment:
       STAGING_HOST: ${STAGING_HOST}
       ACME_EMAIL: ${ACME_EMAIL:?Supply the responsible certificate contact}

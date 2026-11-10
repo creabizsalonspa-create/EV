@@ -44,7 +44,7 @@ class SourceConsumerTest extends TestCase
     public function test_source_authentication_signed_delivery_restart_cursor_and_final_reconciliation(bool $localInbox): void
     {
         $link = $this->link();
-        $at = now()->startOfSecond();
+        $at = now()->toImmutable()->startOfSecond();
         $tx = ['id' => 10, 'transactionId' => 'fixture-transaction', 'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000000', 'startTime' => $at->toIso8601String(), 'endTime' => null, 'isActive' => true, 'totalKwh' => null];
         $rows = [
             ['id' => 1, 'timestamp' => $at->toIso8601String(), 'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]]],
@@ -113,6 +113,56 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 1); // Observing never dispatches/creates commands.
         $this->assertSame('source_observed', DB::table('charger_commands')->value('status'));
         $this->assertDatabaseHas('command_source_observations', ['prior_status' => 'pending', 'observed_state' => 'started', 'command_acceptance_verified' => false]);
+    }
+
+    public static function invalidSourceTimes(): array
+    {
+        return [['naive_start'], ['naive_meter'], ['before_start'], ['after_end'], ['end_before_start']];
+    }
+
+    #[DataProvider('invalidSourceTimes')]
+    public function test_invalid_transaction_or_meter_time_cannot_finalize_and_corrected_source_can_resume(string $kind): void
+    {
+        $link = $this->link();
+        $at = now()->toImmutable()->startOfSecond();
+        $tx = ['id' => 10, 'transactionId' => 'fixture-transaction', 'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000000', 'startTime' => $at->toIso8601String(), 'endTime' => $at->addSeconds(2)->toIso8601String(), 'isActive' => false, 'totalKwh' => '2.500000'];
+        $row = ['id' => 1, 'timestamp' => $tx['endTime'], 'sampledValue' => [['measurand' => 'Energy.Active.Import.Register', 'value' => '3.500', 'context' => 'Transaction.End', 'unitOfMeasure' => ['unit' => 'kWh']]]];
+        $validTx = $tx;
+        $validRow = $row;
+        match ($kind) {
+            'naive_start' => $tx['startTime'] = $at->format('Y-m-d H:i:s'),
+            'naive_meter' => $row['timestamp'] = $at->addSeconds(2)->format('Y-m-d H:i:s'),
+            'before_start' => $row['timestamp'] = $at->subSecond()->toIso8601String(),
+            'after_end' => $row['timestamp'] = $at->addSeconds(3)->toIso8601String(),
+            'end_before_start' => $tx['endTime'] = $at->subSecond()->toIso8601String(),
+        };
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use (&$tx, &$row) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => ['ChargingStations' => [['id' => 8]], 'Authorizations' => [['id' => 9]]]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [$tx]]]);
+            }
+
+            return Http::response(['data' => ['MeterValues' => [$row]]]);
+        });
+        try {
+            app(SourceConsumer::class)->consume($link, true);
+            $this->fail('Invalid source chronology was accepted.');
+        } catch (RuntimeException) {
+            $this->assertDatabaseCount('finance_invoices', 0);
+            $this->assertSame(0, (int) $link->fresh()->source_meter_cursor);
+            $this->assertNull($link->fresh()->ended_at);
+            $this->assertSame(0, DB::table('charging_sessions')->where('id', $link->charging_session_id)->value('energy_wh'));
+        }
+        $tx = $validTx;
+        $row = $validRow;
+        app(SourceConsumer::class)->consume($link->fresh(), true);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseHas('charging_sessions', ['id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500]);
+        $this->assertDatabaseCount('charger_commands', 1);
     }
 
     public function test_ambiguous_source_identity_is_rejected_without_advancing_business_state(): void

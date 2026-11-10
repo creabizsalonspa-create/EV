@@ -48,13 +48,13 @@ const assert = require("node:assert/strict");
         .then((t) => t.includes("straight-line distance"))),
     );
     await page.locator("#filters summary").click();
-    await page.locator("[name=latitude]").first().fill("25.2");
+    await page.locator("#filters [name=latitude]").fill("25.2");
     assert.equal(
       await page.locator("#filters").evaluate((form) => form.checkValidity()),
       false,
     );
-    await page.locator("[name=longitude]").first().fill("55.3");
-    await page.locator("[name=radius_km]").fill("10");
+    await page.locator("#filters [name=longitude]").fill("55.3");
+    await page.locator("#filters [name=radius_km]").fill("10");
     const request = page.waitForRequest(
       (r) =>
         new URL(r.url()).pathname === "/api/stations" &&
