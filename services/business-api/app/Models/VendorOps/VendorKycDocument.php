@@ -12,7 +12,7 @@ class VendorKycDocument extends Model
 
     protected $attributes = [];
 
-    protected $hidden = ['storage_path'];
+    protected $hidden = ['storage_path', 'sha256'];
 
     protected function casts(): array
     {

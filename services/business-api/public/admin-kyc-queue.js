@@ -5,6 +5,7 @@
 window.EvAdminKycQueue = (() => {
     const root = document.getElementById("admin-kyc-queue");
     let generation = 0;
+    let currentAdminId = null;
     let currentFetch = null;
     let request = null;
     let status = null;
@@ -103,8 +104,14 @@ window.EvAdminKycQueue = (() => {
         });
         card.append(documentButton, documentHost);
 
+        // Owners may inspect their cases, but cannot review them.
+        const selfReview = currentAdminId !== null &&
+            Number(company.owner?.id) === currentAdminId;
         const decisions = allowDecisions(company);
-        if (decisions.length) {
+        if (selfReview) {
+            card.append(element("p",
+                "Independent Admin review required; you cannot review your own company."));
+        } else if (decisions.length) {
             const form = element("form");
             form.setAttribute("aria-label", "KYC decision for company " + companyId);
             const choice = element("select");
@@ -229,9 +236,13 @@ window.EvAdminKycQueue = (() => {
         currentFetch?.abort();
         currentFetch = null;
         request = null;
+        currentAdminId = null;
         root.replaceChildren();
         if (user?.role !== "admin") return;
 
+        const adminId = Number(user.id);
+        currentAdminId = Number.isSafeInteger(adminId) && adminId > 0
+            ? adminId : null;
         request = api;
         const filters = element("form");
         filters.setAttribute("aria-label", "KYC queue filters");

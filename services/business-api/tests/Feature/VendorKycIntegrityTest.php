@@ -7,6 +7,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -49,6 +50,88 @@ class VendorKycIntegrityTest extends TestCase
         )->assertCreated();
 
         return VendorKycDocument::where('company_id', $company->id)->firstOrFail();
+    }
+
+    public function test_private_upload_fingerprint_is_not_disclosed_in_kyc_metadata_responses(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        $bytes = "%PDF-1.4\nSYNTHETIC-PRIVATE-EVIDENCE-FINGERPRINT";
+        $digest = hash('sha256', $bytes);
+        $base = '/api/vendor-ops/companies/'.$company->id;
+
+        $this->actingAs($owner, 'web')->post(
+            $base.'/documents',
+            [
+                'kind' => 'identity',
+                'document' => UploadedFile::fake()->createWithContent('fingerprint.pdf', $bytes),
+            ],
+            ['Accept' => 'application/json']
+        )->assertCreated()
+            ->assertJsonMissingPath('sha256')
+            ->assertJsonMissingPath('storage_path')
+            ->assertDontSee($digest)
+            ->assertHeader('Cache-Control', 'no-store, private');
+
+        $document = VendorKycDocument::where('company_id', $company->id)->firstOrFail();
+        $this->assertSame($digest, $document->sha256);
+        $this->assertSame(strlen($bytes), (int) $document->size_bytes);
+
+        foreach ([$owner, $admin] as $viewer) {
+            $this->actingAs($viewer, 'web')->getJson($base.'/documents')
+                ->assertOk()
+                ->assertJsonCount(1, 'data')
+                ->assertJsonMissingPath('data.0.sha256')
+                ->assertJsonMissingPath('data.0.storage_path')
+                ->assertDontSee($digest)
+                ->assertJsonPath('data.0.size_bytes', strlen($bytes));
+        }
+
+        $this->actingAs($owner, 'web')
+            ->get($base.'/documents/'.$document->id)
+            ->assertOk()->assertContent($bytes);
+    }
+
+    public function test_admin_private_kyc_metadata_and_review_reads_are_audited_without_evidence_details(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $company = $this->company($owner);
+        $document = $this->upload($owner, $company, "%PDF-1.4\nPRIVATE-AUDIT-EVIDENCE");
+        $base = '/api/vendor-ops/companies/'.$company->id;
+
+        $this->actingAs($admin, 'web')->getJson($base.'/documents')
+            ->assertOk()->assertJsonMissingPath('data.0.sha256')
+            ->assertHeader('Cache-Control', 'no-store, private');
+        $this->getJson($base.'/reviews')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private');
+
+        foreach ([
+            'vendor_ops.document.metadata_viewed',
+            'vendor_ops.review.history_viewed',
+        ] as $action) {
+            $this->assertDatabaseHas('audit_events', [
+                'actor_id' => $admin->id,
+                'action' => $action,
+                'subject' => (string) $company->id,
+            ]);
+        }
+        $this->assertSame(1, DB::table('audit_events')
+            ->where('actor_id', $admin->id)
+            ->where('action', 'vendor_ops.document.metadata_viewed')->count());
+        $this->assertStringNotContainsString($document->sha256,
+            DB::table('audit_events')->get()->toJson());
+
+        $this->actingAs($other, 'web')->getJson($base.'/documents')->assertNotFound();
+        $this->getJson($base.'/reviews')->assertNotFound();
+        $this->assertSame(2, DB::table('audit_events')
+            ->where('actor_id', $admin->id)
+            ->whereIn('action', [
+                'vendor_ops.document.metadata_viewed',
+                'vendor_ops.review.history_viewed',
+            ])->count());
     }
 
     public function test_owner_private_kyc_metadata_and_review_history_are_never_shared_cacheable(): void

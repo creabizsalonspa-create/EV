@@ -135,7 +135,12 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
 
-        return response()->json(VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25))->header('Cache-Control', 'no-store, private');
+        $history = VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25);
+        if ($r->user()->role === 'admin') {
+            $this->access->audit($r->user(), 'review.history_viewed', $company->id);
+        }
+
+        return response()->json($history)->header('Cache-Control', 'no-store, private');
     }
 
     private function operationalWrite(Request $r, VendorCompany $company): VendorCompany
@@ -151,7 +156,12 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
 
-        return response()->json(VendorKycDocument::where('company_id', $company->id)->paginate(25))->header('Cache-Control', 'no-store, private');
+        $metadata = VendorKycDocument::where('company_id', $company->id)->paginate(25);
+        if ($r->user()->role === 'admin') {
+            $this->access->audit($r->user(), 'document.metadata_viewed', $company->id);
+        }
+
+        return response()->json($metadata)->header('Cache-Control', 'no-store, private');
     }
 
     public function upload(Request $r, VendorCompany $company)
@@ -290,10 +300,20 @@ class VendorOpsController extends Controller
     public function review(Request $r, VendorCompany $company)
     {
         abort_unless($r->user()->role === 'admin', 403);
-        $v = $r->validate(['status' => 'required|in:approved,rejected,changes_requested,suspended', 'reason' => 'required|string|max:2000']);
+        // Validate the persisted explanation even without global input trimming.
+        if (is_string($r->input('reason'))) {
+            $r->merge(['reason' => trim($r->input('reason'))]);
+        }
+        $v = $r->validate([
+            'status' => 'required|in:approved,rejected,changes_requested,suspended',
+            'reason' => 'required|string|min:10|max:2000',
+        ]);
 
         $result = DB::transaction(function () use ($r, $company, $v) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            // An Admin must not review a company they also own.
+            abort_if($c->owner_id === $r->user()->id, 403,
+                'A separate administrator must review their own company.');
             $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended', 'changes_requested'], 'suspended' => ['approved', 'changes_requested']];
             abort_unless(in_array($v['status'], $allowed[$c->status]), 409, 'Invalid review transition.');
             $owner = null;
@@ -360,7 +380,11 @@ class VendorOpsController extends Controller
     public function invite(Request $r, VendorCompany $company)
     {
         $this->access->owner($r->user(), $company);
-        $v = $r->validate(['email' => 'required|email', 'permissions' => 'required|array|min:1', 'permissions.*' => ['required', Rule::in(VendorAccess::PERMISSIONS)]]);
+        $v = $r->validate([
+            'email' => 'required|email',
+            'permissions' => 'required|array|min:1|max:3',
+            'permissions.*' => ['required', 'distinct', Rule::in(VendorAccess::PERMISSIONS)],
+        ]);
         $u = User::where('email', $v['email'])->first();
         if ($u && $u->id !== $company->owner_id) {
             DB::transaction(function () use ($r, $company, $u, $v) {
