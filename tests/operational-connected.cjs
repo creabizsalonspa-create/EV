@@ -19,6 +19,7 @@ const groups = [
   ["client-demo-lifecycle"], // six private fixture logins; dedicated window
   ["vehicle-battery"], // existing stopped fixture; private alerts -> compatible nearby discovery
   ["charging-reviews"], // own unchanged authentication window
+  ["ocpi-test-invoice"], // explicit TEST consent and lost-response recovery; own auth window
   ["sandbox-roaming"], // isolated synthetic CPO contract; own auth window
   ["partner-favorites"], // own customer/Admin authentication window
   ["charger-configuration"], // two explicit source-device read workflows; own authentication window

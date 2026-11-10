@@ -6,6 +6,7 @@ window.createRoamingWorkspace = ({
     ui,
     actor,
     notice,
+    openInvoice,
 }) => {
     let publicRequest,
         privateRequest,
@@ -461,7 +462,17 @@ window.createRoamingWorkspace = ({
             row.evidence !== "SANDBOX_PARTNER_UNVERIFIED" ||
             row.billing_eligible !== false ||
             row.live_commands_enabled !== false ||
-            row.local_invoice_created !== false ||
+            (row.local_invoice_created !== false &&
+                !(
+                    row.local_invoice_created === true &&
+                    Number.isInteger(row.test_invoice_id) &&
+                    row.test_invoice_id > 0 &&
+                    row.test_invoice_evidence ===
+                        "SIMULATED_CANONICAL_LEDGER" &&
+                    row.real_payment_processed === false
+                )) ||
+            (row.local_invoice_created === false &&
+                row.test_invoice_id != null) ||
             row.physical_charging_verified !== false
         )
             throw new Error("Unexpected sandbox capability.");
@@ -583,6 +594,35 @@ window.createRoamingWorkspace = ({
                         `${cmd.action} · ${cmd.state} · ${cmd.transport_result ?? "—"} · ${cmd.callback_result ?? "—"}`,
                     ),
                 );
+            if (
+                (!providerId && row.can_preview_test_invoice === true) ||
+                row.test_invoice_id
+            ) {
+                const invoiceArea = document.createElement("section");
+                card.append(invoiceArea);
+                if (providerId && row.test_invoice_id)
+                    button(card, "View simulated roaming invoice", () =>
+                        openInvoice?.(row.test_invoice_id),
+                    );
+                else
+                    button(card, "Review simulated roaming invoice", () => {
+                        if (
+                            !current() ||
+                            roamingPending ||
+                            typeof openInvoice !== "function"
+                        )
+                            return;
+                        window.mountOcpiTestInvoice({
+                            container: invoiceArea,
+                            api,
+                            ui,
+                            actor,
+                            orderId: row.id,
+                            current,
+                            openInvoice,
+                        });
+                    }).disabled = !!roamingPending;
+            }
             if (!providerId) {
                 button(card, "Refresh sandbox source", async () => {
                     const updated = await request(
@@ -743,6 +783,7 @@ window.createRoamingWorkspace = ({
         generation++;
         publicRequest?.abort();
         window.dispatchEvent(new CustomEvent("roaming-map-data", { detail: [] }));
+        window.resetOcpiTestInvoiceViews?.(actor()?.id ?? null);
         roamingVersion++;
         roamingPending = null;
         details++;
