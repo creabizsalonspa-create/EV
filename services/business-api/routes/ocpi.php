@@ -3,11 +3,12 @@
 use App\Http\Controllers\OcpiController;
 use App\Http\Controllers\OcpiCredentialsController;
 use App\Http\Controllers\OcpiProvisioningController;
+use App\Http\Controllers\PartnerLocationDiscoveryController;
 use App\Http\Controllers\PartnerLocationFavoriteController;
 use App\Http\Controllers\RoamingOrderController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/api/roaming/locations', [OcpiController::class, 'locations'])->middleware('throttle:catalog');
+Route::get('/api/roaming/locations', [PartnerLocationDiscoveryController::class, 'index'])->middleware('throttle:catalog');
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api/ocpi')->group(function () {
     Route::get('/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations']);
     Route::get('/connection-options', [OcpiProvisioningController::class, 'connections']);

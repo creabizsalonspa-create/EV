@@ -2,6 +2,7 @@
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 require("./vehicle-driver-preferences.cjs");
+require("./station-information.cjs");
 (async () => {
   const browser = await chromium.launch({
     headless: true,

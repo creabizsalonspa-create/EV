@@ -752,6 +752,12 @@ form label {
 #discovery-map input[type=checkbox] {width:1.25rem;flex-shrink:0}
 #station-map {height:420px;isolation:isolate;border-radius:20px;max-width:100%}
 .station-map-pin {background:#087f75;color:white;border:2px solid white;border-radius:50%;display:grid;place-items:center;font-weight:700;box-shadow:0 2px 8px #0006}
+.partner-map-pin {background:#653b97;border-style:dashed;} /* Unverified partner source, visually distinct from canonical stations */
+.ocm-map-pin {background:#896621;border-style:double;color:#fff;} /* Licensed Open Charge Map data is discovery-only, not an actionable station */
+.ocm-map-pin.ocm-pin-stale {background:#5b5960;border-style:dotted;} /* Crowd report >=24h old, not live */
+.ocm-map-pin.ocm-pin-uncertain {background:#76542d;border-style:dashed;} /* Missing/future-dated source time */
+.partner-map-pin.partner-pin-stale {background:#62636a;border-style:dotted;} /* Partner update >=24h old; still unverified */
+.partner-map-pin.partner-pin-uncertain {background:#785422;border-style:double;} /* Missing/future source time; never implies available */
 #station-map .leaflet-popup-content {color:#17242b;max-height:260px;overflow:auto}
 #station-map .leaflet-popup-content a {display:block;color:#075e57;margin-block:12px}
 .discovery-tools {min-width:0;display:grid;gap:1rem}
@@ -792,6 +798,22 @@ form label {
     margin-inline: 0;
     accent-color: var(--accent);
 }
+
+/* Operator-supplied station information, separated from charger source truth. */
+.station-information { margin-block: .75rem; overflow-wrap:anywhere; }
+#station-information-vendor { margin-block: 1.5rem; padding-block: 1rem; border-block-start:1px solid var(--border, #888); }
+#station-information-vendor > select { display:block; width:100%; max-width:36rem; margin-block:.75rem; }
+#station-information-vendor > button { margin-inline-end:.5rem; }
+.station-information-form { display:grid; grid-template-columns:minmax(0,1fr); gap:.75rem; max-width:62rem; }
+.station-information-form > * { min-width:0; }
+.station-information-form textarea { width:100%; resize:vertical; }
+.station-information-form fieldset { display:grid; grid-template-columns:minmax(0,1fr); gap:.5rem; padding:1rem; max-width:100%; }
+.station-information-form fieldset label:has(input[type=checkbox]) { display:flex; flex-direction:row; align-items:center; gap:.65rem; }
+.station-information-form input[type=checkbox] { width:auto; min-width:1.2rem; }
+.station-hours-row { display:grid; grid-template-columns: minmax(0,2fr) repeat(2,minmax(0,1fr)); gap:.75rem; align-items:end; }
+.station-hours-row label { min-width:0; }
+.station-hours-row input[type=time] { min-width:0; width:100%; }
+@media(max-width:640px) {.station-hours-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.station-hours-row label:first-child{grid-column:1/-1}}
 
 /* Per-vehicle preferences are separate from charging-source authority. */
 #driver-preferences-editor {margin-block: 1rem; border-block-start:1px solid var(--border,#888); padding-block:1rem;max-width:54rem;}

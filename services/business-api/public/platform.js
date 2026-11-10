@@ -78,6 +78,7 @@ function clearPrivateViews() {
     riderWorkspace.clear();
     vendorWorkspace.clear();
     driverPreferences.clear();
+    stationInfo.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
     invoiceHistory.clear();
@@ -242,6 +243,7 @@ async function identity() {
         await support();
     }
     await vendorWorkspace.setActor(user);
+    await stationInfo.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
     await chargingReviews.setActor(user);
@@ -531,6 +533,7 @@ async function stations(query = "") {
             ),
         );
         a.append(details);
+        StationInformation.attachCard(a, s);
         const feedback = document.createElement("button");
         feedback.type = "button";
         feedback.dataset.en = "Charging feedback";
@@ -1136,11 +1139,18 @@ el("station-form").onsubmit = async (e) => {
             Object.fromEntries(new FormData(e.target)),
         );
         await stations();
+        await stationInfo.reload();
         notice("Station registered.");
     } catch (e) {
         notice(e);
     }
 };
+const stationInfo = StationInformation.createVendorWorkspace({
+    root: el("station-information-vendor"),
+    api,
+    actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
 const driverPreferences = VehicleDriverPreferences.create({
     root: el("driver-preferences-editor"), api, actor: () => user,
     epoch: () => client.sessionEpoch,

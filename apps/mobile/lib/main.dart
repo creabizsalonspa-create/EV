@@ -1031,6 +1031,7 @@ class _WorkspaceState extends State<Workspace> {
                     MaterialPageRoute<void>(
                       builder: (_) => VendorInventoryView(
                         api: api!,
+                        metadataEditor: account?.role == 'vendor',
                         onExpired: expiredSession,
                       ),
                     ),

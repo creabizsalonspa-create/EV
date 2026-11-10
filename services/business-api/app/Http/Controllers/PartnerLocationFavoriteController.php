@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
+use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -20,14 +21,37 @@ class PartnerLocationFavoriteController extends Controller
     {
         $user = $this->customer($r);
         $page = OcpiRecord::join('partner_location_favorites as f', 'f.record_id', '=', 'ocpi_records.id')->where('f.user_id', $user)->where('module', 'locations')->select(['ocpi_records.*', 'f.created_at as favorite_since'])->orderByDesc('f.created_at')->orderByDesc('ocpi_records.id')->paginate(25);
-        $authorized = OcpiProvider::whereIn('id', $page->getCollection()->pluck('ocpi_provider_id'))->where('authorized', true)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $authorized = OcpiProvider::whereIn('id', $page->getCollection()->pluck('ocpi_provider_id'))
+            ->where('authorized', true)->pluck('name', 'id')->all();
+        $now = now()->getTimestamp();
 
-        $page->through(function ($record) use ($authorized) {
-            $available = in_array((int) $record->ocpi_provider_id, $authorized, true) && ($record->normalized['publish'] ?? false) === true;
+        $page->through(function ($record) use ($authorized, $now) {
+            $providerId = (int) $record->ocpi_provider_id;
+            $available = array_key_exists($providerId, $authorized) && ($record->normalized['publish'] ?? false) === true;
+            $source = $available ? $record->source_updated_at?->getTimestamp() : null;
+            $receipt = $available ? $record->received_at?->getTimestamp() : null;
 
-            return ['id' => $record->id, 'provider_id' => $record->ocpi_provider_id, 'location_available' => $available, 'location' => $available ? $record->normalized : null,
-                'received_at' => $available ? $record->received_at : null, 'favorite_since' => $record->favorite_since, 'is_favorite' => true,
-                'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'availability' => 'unknown', 'remote_control' => false, 'reservable' => false];
+            return [
+                'id' => $record->id,
+                'provider_id' => $record->ocpi_provider_id,
+                'provider_label' => $available ? $authorized[$providerId] : null,
+                'provider_label_evidence' => $available ? 'PROVIDER_CONFIGURED_UNVERIFIED' : null,
+                'location_available' => $available,
+                'location' => $available ? PublicPartnerLocation::project($record->normalized ?? []) : null,
+                'received_at' => $available ? $record->received_at : null,
+                'received_age_minutes' => $receipt !== null && $receipt <= $now ? intdiv($now - $receipt, 60) : null,
+                'received_timestamp_evidence' => $available ? 'LOCAL_INGESTION_TIME' : null,
+                'source_updated_at' => $available ? $record->source_updated_at : null,
+                'reported_source_age_minutes' => $source !== null && $source <= $now ? intdiv($now - $source, 60) : null,
+                'source_clock_evidence' => ! $available ? null : ($source === null ? 'SOURCE_TIMESTAMP_UNKNOWN' : ($source > $now ? 'PARTNER_CLOCK_AHEAD' : 'PARTNER_REPORTED_TIME')),
+                'source_timestamp_evidence' => $available ? 'PARTNER_REPORTED_ONLY' : null,
+                'favorite_since' => $record->favorite_since,
+                'is_favorite' => true,
+                'evidence' => 'PARTNER_REPORTED_UNVERIFIED',
+                'availability' => 'unknown',
+                'remote_control' => false,
+                'reservable' => false,
+            ];
         });
 
         return response()->json($page)->header('Cache-Control', 'private, no-store');

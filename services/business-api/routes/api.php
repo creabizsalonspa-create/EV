@@ -20,6 +20,7 @@ use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RiderSourceController;
 use App\Http\Controllers\RoamingOrderController;
 use App\Http\Controllers\SimulationController as S;
+use App\Http\Controllers\StationInformationController;
 use App\Http\Controllers\SupportController as T;
 use App\Http\Controllers\VehicleBatteryController;
 use App\Models\Station;
@@ -112,7 +113,7 @@ require __DIR__.'/corporate_hosted_webhook.php';
 
 Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationController::class)->middleware('throttle:charger-admission');
 
-Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->whereNumber('operation')->middleware('throttle:30,1');
+Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->where('token', '[a-f0-9]{64}')->middleware('throttle:30,1');
 
 Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
     Route::post('2.2.1/commands/{key}', [OcpiRoamingProtocolController::class, 'callback'])->whereUuid('key');
@@ -134,5 +135,9 @@ Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogControl
 
 Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
 Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
+
+// Operator-supplied station access information is not charger-source availability.
+Route::get('/v1/stations/{station}/information', [StationInformationController::class, 'show'])->whereNumber('station')->middleware('throttle:catalog');
+Route::put('/v1/stations/{station}/information', [StationInformationController::class, 'save'])->whereNumber('station')->middleware(['auth:sanctum', 'throttle:platform-api']);
 
 Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/vehicle_driver_preferences.php');
