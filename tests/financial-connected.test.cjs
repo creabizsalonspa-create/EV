@@ -102,6 +102,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "station-favorites",
       "client-demo-lifecycle",
       "vehicle-battery",
+      "vehicle-reservation",
       "charging-reviews",
       "ocpi-test-invoice",
       "sandbox-roaming",
