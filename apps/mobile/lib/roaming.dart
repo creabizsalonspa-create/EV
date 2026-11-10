@@ -10,13 +10,37 @@ class RoamingLocation {
   final String? received;
   final int? id;
   final bool available;
+  final String? providerLabel;
+  final int? reportedSourceAgeMinutes;
+  final String? sourceClockEvidence;
+  final double? distanceKm;
   RoamingLocation.fromJson(Map<String, dynamic> json)
     : id = json['id'] as int?,
       available = json['location_available'] != false,
       location = json['location'] is Map
           ? Map<String, dynamic>.from(json['location'] as Map)
           : {},
-      received = json['received_at'] as String? {
+      received = json['received_at'] as String?,
+      providerLabel = json['provider_label_evidence'] ==
+                  'PROVIDER_CONFIGURED_UNVERIFIED' &&
+              json['provider_label'] is String
+          ? json['provider_label'] as String
+          : null,
+      reportedSourceAgeMinutes =
+          json['reported_source_age_minutes'] is int &&
+                  (json['reported_source_age_minutes'] as int) >= 0
+              ? json['reported_source_age_minutes'] as int
+              : null,
+      sourceClockEvidence = json['source_clock_evidence'] is String
+          ? json['source_clock_evidence'] as String
+          : null,
+      distanceKm = json['distance_basis'] == 'great_circle' &&
+              json['distance_km'] is num &&
+              (json['distance_km'] as num).isFinite &&
+              (json['distance_km'] as num) >= 0 &&
+              (json['distance_km'] as num) <= 200
+          ? (json['distance_km'] as num).toDouble()
+          : null {
     if ((available && (json['location'] is! Map || received == null)) ||
         (!available &&
             (id == null ||
@@ -527,6 +551,25 @@ class _RoamingViewState extends State<RoamingView> {
                           Text(
                             '${row.location['address']} · ${row.location['city']} · ${row.location['country']}',
                           ),
+                          if (row.providerLabel != null &&
+                              row.providerLabel!.trim().isNotEmpty)
+                            Text(tr('Network label (unverified): ',
+                                    'اسم الشبكة (غير مؤكد): ') +
+                                row.providerLabel!),
+                          if (row.distanceKm != null)
+                            Text(tr('Great-circle distance (not a route): ',
+                                    'المسافة بخط مستقيم (ليست مساراً): ') +
+                                row.distanceKm!.toStringAsFixed(3) + ' km'),
+                          if (row.reportedSourceAgeMinutes != null)
+                            Text(tr('Partner source age (not live): ',
+                                    'عمر تقرير الشريك (ليس مباشراً): ') +
+                                row.reportedSourceAgeMinutes.toString() + ' min'),
+                          if (row.sourceClockEvidence == 'PARTNER_CLOCK_AHEAD' ||
+                              row.sourceClockEvidence == 'SOURCE_TIMESTAMP_UNKNOWN')
+                            Text(tr(
+                              'Partner source time is future-dated or unknown.',
+                              'تاريخ مصدر الشريك مستقبلي أو غير معروف.',
+                            )),
                           SelectableText(
                             s.t('roamingCoordinates', {
                               'value':
