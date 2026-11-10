@@ -169,6 +169,24 @@ void main() {
       await tester.enterText(find.byKey(Key(item.$1)), item.$2);
     }
     expect(calls.length, 1);
+    // Invalid coordinates stay invalid even with the tile collapsed.
+    await tester.scrollUntilVisible(find.byKey(const Key('partner-radius')), 180);
+    await tester.enterText(find.byKey(const Key('partner-radius')), '201');
+    await tester.scrollUntilVisible(
+        find.byKey(const Key('partner-manual-nearby')), -180);
+    await tester.tap(find.byKey(const Key('partner-manual-nearby')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+        find.byKey(const Key('partner-search-submit')), 180);
+    await tester.tap(find.byKey(const Key('partner-search-submit')));
+    await tester.pumpAndSettle();
+    expect(calls.length, 1);
+    await tester.scrollUntilVisible(
+        find.byKey(const Key('partner-manual-nearby')), -180);
+    await tester.tap(find.byKey(const Key('partner-manual-nearby')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byKey(const Key('partner-radius')), 180);
+    await tester.enterText(find.byKey(const Key('partner-radius')), '10');
     await tester.scrollUntilVisible(
         find.byKey(const Key('partner-search-submit')), 180);
     await tester.tap(find.byKey(const Key('partner-search-submit')));
