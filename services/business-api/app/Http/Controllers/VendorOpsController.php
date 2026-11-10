@@ -307,11 +307,16 @@ class VendorOpsController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
         // The Admin UI requires an explanatory note; enforce the same
         // minimum on direct API calls before any transition or audit writes.
+        // Check the minimum against the persisted explanation, not a
+        // whitespace-padded pre-normalization value. The endpoint must
+        // remain safe if framework TrimStrings middleware is disabled.
+        if (is_string($r->input('reason'))) {
+            $r->merge(['reason' => trim($r->input('reason'))]);
+        }
         $v = $r->validate([
             'status' => 'required|in:approved,rejected,changes_requested,suspended',
             'reason' => 'required|string|min:10|max:2000',
         ]);
-        $v['reason'] = trim($v['reason']);
 
         $result = DB::transaction(function () use ($r, $company, $v) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();

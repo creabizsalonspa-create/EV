@@ -177,11 +177,16 @@ class VendorKycReviewIntegrityTest extends TestCase
             '/api/vendor-ops/companies/'.$company->id.'/submit'
         )->assertOk();
 
+        // Confirm the controller validates the persisted value even when
+        // the framework's global whitespace trimmer is not running.
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
         foreach (['approved', 'rejected', 'changes_requested'] as $status) {
-            $this->actingAs($admin, 'web')->postJson(
-                '/api/vendor-ops/companies/'.$company->id.'/review',
-                ['status' => $status, 'reason' => 'ok']
-            )->assertUnprocessable()->assertJsonValidationErrors('reason');
+            foreach (['ok', '         ok         '] as $reason) {
+                $this->actingAs($admin, 'web')->postJson(
+                    '/api/vendor-ops/companies/'.$company->id.'/review',
+                    ['status' => $status, 'reason' => $reason]
+                )->assertUnprocessable()->assertJsonValidationErrors('reason');
+            }
         }
 
         $this->assertSame('submitted', $company->fresh()->status);

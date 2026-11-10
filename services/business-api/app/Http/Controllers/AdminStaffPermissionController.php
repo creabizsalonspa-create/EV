@@ -101,6 +101,11 @@ class AdminStaffPermissionController extends Controller
     public function revoke(Request $request, VendorCompanyStaff $membership)
     {
         $actor = $this->activeAdmin($request);
+        // Enforce the minimum on the explanation actually stored, not
+        // whitespace padding supplied by a direct API caller.
+        if (is_string($request->input('reason'))) {
+            $request->merge(['reason' => trim($request->input('reason'))]);
+        }
         $input = $request->validate([
             'expected_version' => 'required|integer|min:1',
             'reason' => 'required|string|min:10|max:2000',
@@ -129,7 +134,7 @@ class AdminStaffPermissionController extends Controller
                 'actor_user_id' => $actor->id,
                 'replaced_version' => $previousVersion,
                 'action' => 'revoked',
-                'reason_encrypted' => Crypt::encryptString(trim($input['reason'])),
+                'reason_encrypted' => Crypt::encryptString($input['reason']),
                 'created_at' => now(),
             ]);
             DB::table('audit_events')->insert([
@@ -155,6 +160,11 @@ class AdminStaffPermissionController extends Controller
     public function release(Request $request, VendorCompanyStaff $membership)
     {
         $actor = $this->activeAdmin($request);
+        // Enforce the minimum on the explanation actually stored, not
+        // whitespace padding supplied by a direct API caller.
+        if (is_string($request->input('reason'))) {
+            $request->merge(['reason' => trim($request->input('reason'))]);
+        }
         $input = $request->validate([
             'expected_version' => 'required|integer|min:1',
             'reason' => 'required|string|min:10|max:2000',
@@ -182,7 +192,7 @@ class AdminStaffPermissionController extends Controller
                 'actor_user_id' => $actor->id,
                 'replaced_version' => $previousVersion,
                 'action' => 'released',
-                'reason_encrypted' => Crypt::encryptString(trim($input['reason'])),
+                'reason_encrypted' => Crypt::encryptString($input['reason']),
                 'created_at' => now(),
             ]);
             DB::table('audit_events')->insert([
