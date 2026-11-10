@@ -44,12 +44,10 @@ jobs:
         run: |
           python3 -B -m unittest discover -s tests -p agent3_staging_preflight_test.py
           python3 scripts/staging-release-preflight.py --output artifacts/agent3-preflight/validation.json
-      - name: Seed disposable build-context exclusion canaries
+      - name: Verify synthetic local database and secret artifacts stay out of Docker context
         run: |
-          for suffix in sqlite sqlite3 sqlite-wal sqlite3-journal; do
-            printf 'synthetic image-exclusion canary\n' > "services/business-api/database/ev-image-guard.$suffix"
-          done
-          printf 'EV_IMAGE_CANARY=synthetic-only\n' > services/business-api/.env.image-canary
+          bash -n scripts/staging-image-exclusion-smoke
+          bash scripts/staging-image-exclusion-smoke
       - name: Build reviewed staging image without deployment
         run: ./scripts/staging-image-build creabiz-ev-business:ci-review
       - name: Verify isolated PostgreSQL17 migrations and private-storage ownership

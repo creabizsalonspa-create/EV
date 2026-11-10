@@ -149,13 +149,10 @@ jobs:
           if-no-files-found: warn
       - name: Run all Agent 3 recovery policies and negative security cases
         run: python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q
-      - name: Seed synthetic build-context exclusion canaries
-        shell: bash
+      - name: Verify synthetic local database and secret artifacts stay out of Docker context
         run: |
-          for suffix in sqlite sqlite3 sqlite-wal sqlite3-journal; do
-            printf 'synthetic image-exclusion canary\n' > "services/business-api/database/ev-image-guard.$suffix"
-          done
-          printf 'EV_IMAGE_CANARY=synthetic-only\n' > services/business-api/.env.image-canary
+          bash -n scripts/staging-image-exclusion-smoke
+          bash scripts/staging-image-exclusion-smoke
       - name: Build pinned staging runtime and verify offline image boundaries
         run: ./scripts/staging-image-build creabiz-ev-business:ci-review
       - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership
