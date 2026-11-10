@@ -9,6 +9,7 @@ use App\Models\InboxNotification;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class EnterpriseTest extends TestCase
@@ -143,9 +144,9 @@ class EnterpriseTest extends TestCase
         $this->actingAs($thirdParty)->getJson('/api/v1/notifications?category=fleet')
             ->assertOk()->assertJsonPath('total', 0);
 
-        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+        $this->assertSame(1, DB::table('audit_events')
             ->where('actor_id', $driver->id)->where('action', 'fleet.vehicle_assigned')->count());
-        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+        $this->assertSame(1, DB::table('audit_events')
             ->where('actor_id', $driver->id)->where('action', 'fleet.vehicle_cost_center_changed')->count());
     }
 
@@ -209,7 +210,7 @@ class EnterpriseTest extends TestCase
             ->where('kind', 'fleet.invitation.withdrawn')->count());
         $this->assertSame(0, InboxNotification::where('user_id', $driver->id)
             ->where('kind', 'fleet.membership.revoked')->count());
-        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('audit_events')
+        $this->assertSame(1, DB::table('audit_events')
             ->where('actor_id', $owner->id)
             ->where('action', 'fleet.invitation_withdrawn')->count());
 

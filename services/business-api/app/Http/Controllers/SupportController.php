@@ -124,7 +124,7 @@ class SupportController extends Controller
             if ($r->user()->role !== 'admin' && $t->status === 'resolved') {
                 $t->update(['status' => 'open']);
             }
-            if ($r->user()->id !== $t->user_id && ! $m->internal) {
+            if ($r->user()->id !== $t->user_id && (bool) $m->internal === false) {
                 InboxNotification::create(['user_id' => $t->user_id, 'kind' => 'support.reply', 'support_ticket_id' => $t->id]);
             }
             $this->audit($r, 'support.replied', $t->id);

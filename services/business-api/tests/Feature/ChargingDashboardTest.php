@@ -9,8 +9,8 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
-use App\Models\VendorOps\VendorSite;
 use App\Models\VendorOps\VendorCharger;
+use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -83,7 +83,9 @@ class ChargingDashboardTest extends TestCase
                 'connector_type' => 'CCS2',
                 'power_kw' => 50,
             ]);
-            if ($offset === 0) $firstStationId = $station->id;
+            if ($offset === 0) {
+                $firstStationId = $station->id;
+            }
             $company = VendorCompany::create([
                 'owner_id' => $vendor->id,
                 'legal_name' => 'Synthetic vendor '.$offset,

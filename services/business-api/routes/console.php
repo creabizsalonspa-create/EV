@@ -24,7 +24,7 @@ Artisan::command('inspire', function () {
 
 Artisan::command('platform:role {email} {role}', function () {
     $role = $this->argument('role');
-    if (! in_array($role, ['customer', 'vendor', 'admin'])) {
+    if (in_array($role, ['customer', 'vendor', 'admin']) === false) {
         $this->error('Invalid role');
 
         return 1;
@@ -61,13 +61,13 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
     }
     $interval = filter_var($this->option('interval'), FILTER_VALIDATE_INT);
     $id = $this->option('link');
-    if ($interval === false || $interval < 1 || $interval > 60 || ($id !== null && (! ctype_digit($id) || (int) $id < 1))) {
+    if ($interval === false || $interval < 1 || $interval > 60 || ($id !== null && (ctype_digit($id) === false || (int) $id < 1))) {
         $this->error('Use interval 1..60 and a positive link ID.');
 
         return 1;
     }
     $lock = fopen(storage_path('framework/csms-consumer.lock'), 'c');
-    if (! $lock || ! flock($lock, LOCK_EX | LOCK_NB)) {
+    if ($lock === false || flock($lock, LOCK_EX | LOCK_NB) === false) {
         $this->error('A local source consumer already owns the lock.');
 
         return 1;
@@ -100,7 +100,7 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
 })->purpose('Continuously forward authenticated simulator observations; never dispatch commands');
 
 Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--before=}', function () {
-    if (app()->environment('production') || ! config('csms.session_bridge_enabled')) {
+    if (app()->environment('production') || (bool) config('csms.session_bridge_enabled') === false) {
         $this->error('Only the configured local simulator source monitor is enabled.');
 
         return 1;
@@ -109,7 +109,7 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
     $after = filter_var($this->option('after'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
     $bindingId = $this->option('binding');
     $before = $this->option('before');
-    if ($limit === false || $after === false || ($bindingId !== null && (! ctype_digit($bindingId) || (int) $bindingId < 1)) || ($before !== null && ($bindingId === null || ! ctype_digit($before) || (int) $before < 1 || (int) $before > 2147483647))) {
+    if ($limit === false || $after === false || ($bindingId !== null && (ctype_digit($bindingId) === false || (int) $bindingId < 1)) || ($before !== null && ($bindingId === null || ctype_digit($before) === false || (int) $before < 1 || (int) $before > 2147483647))) {
         $this->error('Use limit1–100, after>=0, and a positive binding for bounded before-cursor catch-up.');
 
         return 1;

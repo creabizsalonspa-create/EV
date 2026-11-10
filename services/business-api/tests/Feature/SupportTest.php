@@ -168,7 +168,7 @@ class SupportTest extends TestCase
         $ticket = SupportTicket::create(['user_id' => $owner->id, 'subject' => 'Replay validation']);
         $this->actingAs($owner);
         foreach (['short', str_repeat('a', 31), str_repeat('z', 32),
-                  str_repeat('a', 33)] as $invalid) {
+            str_repeat('a', 33)] as $invalid) {
             $this->postJson('/api/v1/support/'.$ticket->id.'/messages', [
                 'body' => 'No unsafe duplicates', 'idempotency_key' => $invalid,
             ])->assertUnprocessable();

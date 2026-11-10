@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\Station;
 use App\Models\InboxNotification;
+use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
