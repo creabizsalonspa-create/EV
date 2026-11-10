@@ -11,16 +11,34 @@ class RiderAccessView extends StatefulWidget {
   @override
   State<RiderAccessView> createState()=>_RiderAccessState();
 }
-class _RiderAccessState extends State<RiderAccessView> {
+class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserver {
   ApiPage<Map<String,dynamic>>? data; Object? error; bool busy=false,sourceEnabled=false,reveal=false;String? oneTime;
   int generation=0;Map<String,dynamic>? pendingCreate;final search=TextEditingController();
+  late bool Function() sessionFence;
+  bool privatePaused=false;
+  bool get sessionAlive => sessionFence();
+  void clearPrivate({bool background=false}){
+    if(!mounted)return;
+    generation++;
+    pendingCreate?.clear();
+    pendingCreate=null;
+    setState((){
+      data=null;error=null;sourceEnabled=false;oneTime=null;reveal=false;
+      busy=false;privatePaused=background;
+    });
+  }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state){
+    if(state!=AppLifecycleState.resumed)clearPrivate(background:true);
+  }
+
   String t(String en,String ar)=>Localizations.localeOf(context).languageCode=='ar'?ar:en;
   String get path=>switch(widget.records){RiderRecords.tokens=>'rider-access/tokens',RiderRecords.grants=>'rider-access/tokens/${widget.tokenId}/grants',RiderRecords.operatorRequests=>'vendor-ops/companies/${widget.companyId}/rider-grants',RiderRecords.stations=>'rider-access/stations'};
   @override
-  void initState(){super.initState();load();}
+  void initState(){super.initState();sessionFence=widget.api.sessionFence();WidgetsBinding.instance.addObserver(this);load();}
   @override
-  void dispose(){search.dispose();pendingCreate?.clear();oneTime=null;super.dispose();}
-  void fail(Object e){if(!mounted)return;setState(()=>error=e);if(e is ApiException&&[401,419].contains(e.status))widget.onExpired();}
+  void dispose(){generation++;WidgetsBinding.instance.removeObserver(this);search.dispose();pendingCreate?.clear();pendingCreate=null;oneTime=null;data=null;super.dispose();}
+  void fail(Object e){if(!mounted)return;if(!sessionAlive || (e is ApiException&&[401,419].contains(e.status))){clearPrivate();widget.onExpired();return;}setState(()=>error=e);}
   Future<void> load({int page=1})async{
     final epoch=++generation;setState((){busy=true;error=null;});
     try{final response=await widget.api.request(path,query:{'page':'$page',if(widget.records==RiderRecords.stations)'q':search.text});if(mounted&&epoch==generation)setState((){data=ApiPage.fromJson(response,(v)=>v);sourceEnabled=response['source_adapter_enabled']==true;});}
