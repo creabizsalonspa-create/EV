@@ -86,10 +86,15 @@ window.createRoamingWorkspace = ({
         ])
             button(parent, label, () => load(target)).disabled = !enabled;
     }
-    function location(parent, item) {
+    function location(parent, item, metadata = null) {
         const card = document.createElement("article");
         card.className = "station-card";
+        if (Number.isSafeInteger(metadata?.id))
+            card.dataset.partnerLocationId = String(metadata.id);
         card.append(raw("h3", item.name || item.id));
+        if (metadata?.provider_label_evidence === "PROVIDER_CONFIGURED_UNVERIFIED" &&
+            typeof metadata.provider_label === "string" && metadata.provider_label.trim())
+            line(card, "Roaming configured provider", metadata.provider_label);
         card.append(
             raw(
                 "p",
@@ -104,6 +109,18 @@ window.createRoamingWorkspace = ({
             `${item.latitude}, ${item.longitude}`,
         );
         line(card, "Roaming source updated", item.last_updated);
+        if (metadata?.distance_basis === "great_circle" && Number.isFinite(Number(metadata.distance_km)))
+            line(card, "Roaming straight-line distance", `${Number(metadata.distance_km).toFixed(2)} km`);
+        if (Number.isSafeInteger(metadata?.reported_source_age_minutes) && metadata.reported_source_age_minutes >= 0)
+            line(card, "Roaming partner source age", `${metadata.reported_source_age_minutes} min · not live availability`);
+        if (metadata?.source_clock_evidence === "PARTNER_CLOCK_AHEAD")
+            card.append(ui("p", "Roaming partner clock ahead warning"));
+        else if (metadata?.source_clock_evidence === "SOURCE_TIMESTAMP_UNKNOWN")
+            card.append(ui("p", "Roaming partner time unknown warning"));
+        else if (Number.isSafeInteger(metadata?.reported_source_age_minutes) && metadata.reported_source_age_minutes >= 1440)
+            card.append(ui("p", "Roaming stale partner source warning"));
+        if (Number.isSafeInteger(metadata?.received_age_minutes) && metadata.received_age_minutes >= 0)
+            line(card, "Roaming receipt age", String(metadata.received_age_minutes) + " min · not live availability");
         for (const evse of item.evses || []) {
             const group = document.createElement("div");
             line(group, "Roaming EVSE", evse.uid);
@@ -153,9 +170,61 @@ window.createRoamingWorkspace = ({
         }
         connector.value = catalogFilters.connector_standard || "";
         field("Connector", connector);
+        const reportedStatus = document.createElement("select");
+        reportedStatus.name = "reported_evse_status";
+        for (const state of ["", "AVAILABLE", "BLOCKED", "CHARGING", "INOPERATIVE", "OUTOFORDER", "PLANNED", "REMOVED", "RESERVED", "UNKNOWN"]) {
+            const option = ui("option", state || "Any partner-reported state");
+            option.value = state;
+            reportedStatus.append(option);
+        }
+        reportedStatus.value = catalogFilters.reported_evse_status || "";
+        field("Partner-reported EVSE state (unverified, not live)", reportedStatus);
+        const provider = document.createElement("input");
+        provider.name = "partner_provider";
+        provider.maxLength = 80;
+        provider.value = catalogFilters.provider || "";
+        field("Partner network label (unverified)", provider);
+        const maxSourceAge = document.createElement("input");
+        maxSourceAge.name = "max_source_age_hours";
+        maxSourceAge.type = "number";
+        maxSourceAge.step = "1";
+        maxSourceAge.min = "1";
+        maxSourceAge.max = "168";
+        maxSourceAge.value = catalogFilters.max_source_age_hours || "";
+        field("Maximum reported source age (hours, not live)", maxSourceAge);
+        // Optional coordinates are a single grouped filter. They never request device location.
+        const latitude = document.createElement("input");
+        const longitude = document.createElement("input");
+        const radius = document.createElement("input");
+        for (const [input, name, min, max, value, label] of [
+            [latitude, "latitude", -90, 90, catalogFilters.latitude, "Partner search latitude"],
+            [longitude, "longitude", -180, 180, catalogFilters.longitude, "Partner search longitude"],
+            [radius, "radius_km", 1, 200, catalogFilters.radius_km, "Partner search radius km"],
+        ]) {
+            input.name = name;
+            input.type = "number";
+            input.step = "any";
+            input.min = String(min);
+            input.max = String(max);
+            input.value = value ?? "";
+            field(label, input);
+        }
+        const nearby = [latitude, longitude, radius];
+        const requireGroup = () => {
+            const used = nearby.some(input => input.value.trim() !== "");
+            for (const input of nearby) input.required = used;
+        };
+        for (const input of nearby) input.addEventListener("input", requireGroup);
+        requireGroup();
         const submit = ui("button", "Search partner locations");
         submit.type = "submit";
-        form.append(submit);
+        const clear = ui("button", "Clear partner filters");
+        clear.type = "button";
+        clear.onclick = () => {
+            catalogFilters = {};
+            void catalog(1, false);
+        };
+        form.append(submit, clear);
         form.onsubmit = async (event) => {
             event.preventDefault();
             submit.disabled = true;
@@ -167,6 +236,14 @@ window.createRoamingWorkspace = ({
                 ...(connector.value
                     ? { connector_standard: connector.value }
                     : {}),
+                ...(reportedStatus.value ? { reported_evse_status: reportedStatus.value } : {}),
+                ...(provider.value.trim() ? { provider: provider.value.trim() } : {}),
+                ...(maxSourceAge.value.trim() ? { max_source_age_hours: maxSourceAge.value.trim() } : {}),
+                ...(nearby.every(input => input.value.trim() !== "") ? {
+                    latitude: latitude.value,
+                    longitude: longitude.value,
+                    radius_km: radius.value,
+                } : {}),
             };
             await catalog(1);
         };
@@ -177,6 +254,8 @@ window.createRoamingWorkspace = ({
             epoch = generation;
         if (savedOnly && viewer?.role !== "customer") return catalog(1, false);
         publicRequest?.abort();
+        // Clear old partner pins before any refresh, filtering or revocation check.
+        window.dispatchEvent(new CustomEvent("roaming-map-data", { detail: [] }));
         const request = new AbortController();
         publicRequest = request;
         publicRoot.setAttribute("aria-busy", "true");
@@ -250,6 +329,7 @@ window.createRoamingWorkspace = ({
             if (savedOnly) content.dataset.privateRoaming = "";
             const list = document.createElement("div");
             list.className = "station-grid";
+            const mapRows = [];
             for (const row of result.data) {
                 // Fail closed if a future API changes the safety contract.
                 if (
@@ -266,7 +346,8 @@ window.createRoamingWorkspace = ({
                     );
                     list.append(card);
                 } else {
-                    location(list, row.location);
+                    mapRows.push(row);
+                    location(list, row.location, row);
                     line(
                         list.lastElementChild,
                         "Roaming received",
@@ -338,6 +419,7 @@ window.createRoamingWorkspace = ({
                     ),
                 );
             content.append(list);
+            window.dispatchEvent(new CustomEvent("roaming-map-data", { detail: mapRows }));
             pager(content, result, (page) => catalog(page, savedOnly));
             publicRoot.append(content);
         } catch (e) {
@@ -353,6 +435,25 @@ window.createRoamingWorkspace = ({
                 publicRoot.removeAttribute("aria-busy");
         }
     }
+    window.addEventListener("partner-nearby-search", (event) => {
+        if (!publicRoot.isConnected) return;
+        const candidate = event.detail;
+        if (!candidate || typeof candidate !== "object") return;
+        const latitude = Number(candidate.latitude);
+        const longitude = Number(candidate.longitude);
+        const radius = Number(candidate.radius_km);
+        if (![latitude, longitude, radius].every(Number.isFinite) ||
+            Math.abs(latitude) > 90 || Math.abs(longitude) > 180 ||
+            radius < 1 || radius > 200) return;
+        // Explicit map-to-partner search is independent of stale text/country
+        // filters, but never bypasses server-side partner authorization.
+        catalogFilters = {
+            latitude: latitude.toFixed(6),
+            longitude: longitude.toFixed(6),
+            radius_km: String(radius),
+        };
+        void catalog(1, false);
+    });
     // This private workspace never changes the public discovery capability contract.
     let roamingPending = null,
         roamingVersion = 0;
@@ -680,6 +781,8 @@ window.createRoamingWorkspace = ({
     }
     function clear() {
         generation++;
+        publicRequest?.abort();
+        window.dispatchEvent(new CustomEvent("roaming-map-data", { detail: [] }));
         window.resetOcpiTestInvoiceViews?.(actor()?.id ?? null);
         roamingVersion++;
         roamingPending = null;

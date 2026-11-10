@@ -5,10 +5,12 @@ import 'strings.dart';
 class SupportView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onSessionExpired;
+  final Future<void> Function(int)? onBatteryDiscovery;
   const SupportView({
     super.key,
     required this.api,
     required this.onSessionExpired,
+    this.onBatteryDiscovery,
   });
   @override
   SupportViewState createState() => SupportViewState();
@@ -145,6 +147,21 @@ class SupportViewState extends State<SupportView> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       Text(s.t(row['read_at'] == null ? 'unread' : 'read')),
+                      if (row['kind'] == 'vehicle.battery.simulated' &&
+                          widget.onBatteryDiscovery != null)
+                        TextButton(
+                          onPressed: loading
+                              ? null
+                              : () => widget.onBatteryDiscovery!(
+                                  row['metadata']['vehicle_id'] as int,
+                                ),
+                          child: Text(
+                            s.arabic
+                                ? 'البحث عن شواحن متوافقة'
+                                : 'Find compatible chargers',
+                          ),
+                        ),
+
                       Wrap(
                         spacing: 8,
                         children: [

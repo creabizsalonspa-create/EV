@@ -3,6 +3,7 @@
 namespace App\Services\Discovery;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /** Great-circle discovery distance, never driving distance or availability. */
 final class CatalogGeo
@@ -11,6 +12,9 @@ final class CatalogGeo
 
     public function within(Builder $query, float $latitude, float $longitude, float $radius): void
     {
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            SqliteGeoMath::register(DB::connection()->getPdo());
+        }
         $angle = $radius / self::EARTH_KM;
         $delta = rad2deg($angle);
         $query->whereBetween('latitude', [max(-90, $latitude - $delta), min(90, $latitude + $delta)]);
