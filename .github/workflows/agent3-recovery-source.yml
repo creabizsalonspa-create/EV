@@ -1,0 +1,35 @@
+name: Agent 3 recovery source verification
+
+on:
+  push:
+    branches:
+      - development/agent3-disaster-recovery-acceptance
+    paths:
+      - '.github/workflows/agent3-recovery-source.yml'
+      - 'scripts/backup-artifact-guard.py'
+      - 'scripts/recovery-*.py'
+      - 'scripts/recovery_proof_writer.py'
+      - 'scripts/staging-recovery-smoke'
+      - 'scripts/csms-recovery-smoke'
+      - 'scripts/staging-release-preflight.py'
+      - 'tests/agent3_*_test.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent3-recovery-source-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-negative-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run existing recovery negative tests without Docker
+        run: python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q
+      - name: Parse existing disposable recovery shell scripts
+        run: |
+          bash -n scripts/staging-recovery-smoke
+          bash -n scripts/csms-recovery-smoke
