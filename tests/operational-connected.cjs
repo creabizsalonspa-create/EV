@@ -23,10 +23,27 @@ const groups = [
   ["charger-configuration"], // two explicit source-device read workflows; own authentication window
   ["diagnostic-files"], // two scoped file-transfer proofs; dedicated unchanged authentication window
 ];
+// Prepare local adapter flags before the existing initial authentication wait.
+// Rewriting .env immediately before a suite races artisan serve's process restart.
+function prepareOperationalAdapters(execute) {
+  for (const script of [
+    "./scripts/configuration-read-setup",
+    "./scripts/diagnostic-logs-setup",
+  ]) {
+    const result = execute(script, [], { encoding: "utf8" });
+    if (result.error) throw result.error;
+    assert.equal(
+      result.status,
+      0,
+      "Local operational preparation failed: " + script,
+    );
+  }
+}
 if (require.main === module) {
   const { spawnSync } = require("node:child_process");
   const fs = require("node:fs");
   fs.mkdirSync("artifacts/operational-browser", { recursive: true });
+  prepareOperationalAdapters(spawnSync);
   runPacedSuites(groups, {
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     run: (suite) => {
@@ -62,4 +79,4 @@ if (require.main === module) {
     process.exitCode = 1;
   });
 }
-module.exports = { groups };
+module.exports = { groups, prepareOperationalAdapters };

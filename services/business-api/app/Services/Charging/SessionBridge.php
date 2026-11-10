@@ -15,6 +15,7 @@ use App\Services\Finance\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class SessionBridge
 {
@@ -147,7 +148,11 @@ class SessionBridge
     public function ingest(array $v): array
     {
         $this->enabled();
-        $at = CarbonImmutable::parse($v['occurred_at'])->utc();
+        try {
+            $at = SourceStatusTime::parse($v['occurred_at'], 300);
+        } catch (HttpExceptionInterface) {
+            abort(422, 'Source event requires a valid absolute timestamp within the clock tolerance.');
+        }
         abort_if($v['protocol'] === '1.6' && (! ctype_digit($v['transaction_id']) || (int) $v['transaction_id'] > 2147483647), 422, 'Invalid OCPP 1.6 transaction identifier.');
         abort_if($at->gt(now()->addMinutes(5)), 422, 'Source event time is in the future.');
         $identity = [(int) $v['session_id'], $v['identifier'], $v['protocol'], $v['transaction_id'], $v['type'], (int) $v['sequence'], (int) $v['meter_wh'], $at->format('Y-m-d\TH:i:s.u\Z')];
