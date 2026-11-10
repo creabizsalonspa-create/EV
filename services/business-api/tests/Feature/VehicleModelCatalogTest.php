@@ -176,6 +176,26 @@ class VehicleModelCatalogTest extends TestCase
             ->assertOk()->assertJsonCount(5, 'data');
     }
 
+
+    public function test_catalog_search_treats_percent_underscore_and_backslash_as_literals(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $driver = User::factory()->create(['role' => 'customer']);
+
+        foreach (['G_100%', 'Gx1000', 'Back\\slash', 'Backslash'] as $make) {
+            $input = $this->input();
+            $input['make'] = $make;
+            $this->actingAs($admin)->postJson('/api/vehicle-models', $input)->assertCreated();
+        }
+
+        foreach (['G_100%', 'Back\\slash'] as $term) {
+            $this->actingAs($driver)->getJson('/api/vehicle-models?q='.rawurlencode($term))
+                ->assertOk()
+                ->assertJsonPath('total', 1)
+                ->assertJsonPath('data.0.make', $term);
+        }
+    }
+
     public function test_sanctum_mobile_get_and_update_share_model_validation(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
