@@ -1,3 +1,4 @@
+import 'vehicle_driver_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api.dart';
@@ -545,6 +546,21 @@ class _WorkspaceState extends State<Workspace> {
                   Localizations.localeOf(context).languageCode == 'ar'
                       ? 'محاكاة تنبيه بطارية منخفضة 15٪'
                       : 'Simulate low battery alert: 15%',
+                ),
+              ),
+            if (tab == 3 && account?.role == 'customer')
+              TextButton.icon(
+                key: Key('driver-preferences-$id'),
+                icon: const Icon(Icons.tune),
+                label: Text(Localizations.localeOf(context).languageCode == 'ar'
+                    ? 'تفضيلات الشحن'
+                    : 'Driver charging preferences'),
+                onPressed: busy ? null : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => VehicleDriverPreferencesView(
+                      api: api!, vehicleId: id as int, onExpired: expiredSession,
+                    ),
+                  ),
                 ),
               ),
             if (tab == 3)

@@ -144,3 +144,5 @@ Route::get('/api/vendor/stations', function (Request $r) {
 
     return Station::where('vendor_id', $r->user()->id)->orderByDesc('id')->paginate(25);
 })->middleware(['auth', 'throttle:platform-api']);
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/vehicle_driver_preferences.php');

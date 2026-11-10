@@ -139,3 +139,5 @@ Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', 'throttle:pla
 // Operator-supplied station access information is not charger-source availability.
 Route::get('/v1/stations/{station}/information', [StationInformationController::class, 'show'])->whereNumber('station')->middleware('throttle:catalog');
 Route::put('/v1/stations/{station}/information', [StationInformationController::class, 'save'])->whereNumber('station')->middleware(['auth:sanctum', 'throttle:platform-api']);
+
+Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/vehicle_driver_preferences.php');
