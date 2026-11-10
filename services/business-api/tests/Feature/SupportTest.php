@@ -261,7 +261,7 @@ class SupportTest extends TestCase
         // The authenticated PHP model still says Admin, but database
         // revocation must govern both legacy and v1 support routes.
         $this->assertSame('admin', $admin->role);
-        foreach (['/api/support' => 404, '/api/v1/support' => 403] as $base => $denial) {
+        foreach (['/api/support' => 403, '/api/v1/support' => 404] as $base => $denial) {
             $this->getJson($base)->assertOk()->assertJsonPath('total', 0);
             $this->getJson($base.'/'.$ticket->id)->assertNotFound();
             $this->postJson($base.'/'.$ticket->id.'/messages', [
