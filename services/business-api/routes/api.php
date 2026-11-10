@@ -41,6 +41,8 @@ Route::prefix('v1')->group(function () {
         Route::patch('/profile', [A::class, 'profile']);
         Route::get('/vehicles', [P::class, 'vehicles']);
         Route::post('/vehicles', [P::class, 'createVehicle']);
+        Route::get('/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'show']);
+        Route::put('/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'update']);
         Route::post('/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
         Route::post('/stations', [P::class, 'createStation']);
         Route::get('/vendor/stations', function (Request $r) {
@@ -112,7 +114,7 @@ require __DIR__.'/corporate_hosted_webhook.php';
 
 Route::post('/internal/remote-session-authorize', RemoteSessionAuthorizationController::class)->middleware('throttle:charger-admission');
 
-Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->whereNumber('operation')->middleware('throttle:30,1');
+Route::get('/internal/firmware/{token}', [ChargerFirmwareController::class, 'download'])->where('token', '[a-f0-9]{64}')->middleware('throttle:30,1');
 
 Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function () {
     Route::post('2.2.1/commands/{key}', [OcpiRoamingProtocolController::class, 'callback'])->whereUuid('key');
