@@ -94,6 +94,15 @@ void main() {
         reason: 'Guarded synthetic approval must succeed',
       );
       expect(jsonDecode(approve.stdout)['status'], 'approved');
+      // Role promotion revokes the prior authenticated session by design.
+      // Never relax the role boundary merely to keep a fixture signed in.
+      await expectLater(
+        api.request('me'),
+        throwsA(
+          isA<ApiException>().having((e) => e.status, 'status', 401),
+        ),
+      );
+      await api.signIn(f['owner'], f['password']);
       expect((await api.request('me'))['role'], 'vendor');
       expect((await api.request('$base/reviews'))['total'], 1);
       final catalog = await api.request('$base/catalog-stations');
