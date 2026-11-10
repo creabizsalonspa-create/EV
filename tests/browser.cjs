@@ -132,7 +132,27 @@ const { randomUUID } = require("node:crypto");
       ["artisan", "platform:role", vendor.email, "vendor"],
       { stdio: "pipe" },
     );
+    // Role promotion deliberately revokes the customer's browser grant.
+    // Exercise the real session boundary and obtain a fresh vendor login
+    // before attempting simulator inventory operations.
+    const staleIdentity = vendor.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/me") &&
+        response.request().method() === "GET",
+    );
     await vendor.page.reload();
+    assert.equal((await staleIdentity).status(), 401);
+    await vendor.page.locator("#account").waitFor({ state: "visible" });
+    await vendor.page.locator("#account [name=email]").fill(vendor.email);
+    await vendor.page.locator("#account [name=password]").fill(password);
+    const freshLogin = vendor.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/login") &&
+        response.request().method() === "POST",
+    );
+    await vendor.page.locator("#account button[value=login]").click();
+    assert.equal((await freshLogin).status(), 200);
+    await vendor.page.locator("#signed").waitFor({ state: "visible" });
     await vendor.page.locator("#vendor").waitFor({ state: "visible" });
     const f = vendor.page.locator("#station-form");
     for (const [key, value] of Object.entries({
