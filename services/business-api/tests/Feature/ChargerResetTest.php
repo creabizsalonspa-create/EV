@@ -33,17 +33,17 @@ class ChargerResetTest extends TestCase
         return compact('owner', 'station', 'company', 'charger', 'binding', 'path', 'protocol');
     }
 
-    private function source(array $f, bool $active = false, bool $uncertain = false): void
+    private function source(array $f, bool $active = false, bool $uncertain = false, ?string $statusTime = null): void
     {
         Http::swap(new Factory);
         Http::preventStrayRequests();
-        Http::fake(function ($r) use ($f, $active, $uncertain) {
+        Http::fake(function ($r) use ($f, $active, $uncertain, $statusTime) {
             if ($r->url() === 'http://source.test/graphql') {
                 if (str_contains($r['query'], 'ChargingStations')) {
                     return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'isOnline' => true, 'protocol' => $f['protocol']]]]]);
                 }
 
-                return Http::response(['data' => ['Transactions' => $active ? [['id' => 1]] : [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => now()->toISOString()]]]]);
+                return Http::response(['data' => ['Transactions' => $active ? [['id' => 1]] : [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
             }
             if (str_ends_with($r->url(), '/dev/token')) {
                 return Http::response(['accessToken' => 'synthetic-source-token']);
@@ -70,6 +70,25 @@ class ChargerResetTest extends TestCase
             $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Reviewing fresh source state'])->assertOk()->assertJsonPath('charging_sessions_closed', false);
             $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Reviewing fresh source state'])->assertOk();
             $this->assertSame(1, DB::table('audit_events')->where('subject', (string) $id)->where('action', 'charger.reset_source_reviewed')->count());
+        }
+    }
+
+    public function test_relative_source_time_neither_dispatches_reset_nor_releases_an_existing_hold(): void
+    {
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            $f = $this->fixture($protocol);
+            $this->source($f, statusTime: 'now');
+            $body = ['reason' => 'Source timestamp safety review', 'idempotency_key' => 'strict-time-'.$protocol];
+            $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertServiceUnavailable();
+            Http::assertNotSent(fn ($r) => str_contains($r->url(), '/configuration/reset?'));
+            $this->assertSame(0, DB::table('charger_reset_operations')->where('binding_id', $f['binding'])->count());
+            $this->source($f);
+            $id = $this->postJson($f['path'], $body)->assertCreated()->json('id');
+            $this->travel(21)->seconds();
+            $this->source($f, statusTime: 'now');
+            $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Malformed source evidence must retain the hold'])->assertServiceUnavailable();
+            $this->assertDatabaseHas('charger_reset_operations', ['id' => $id, 'reviewed_at' => null, 'status' => 'transport_submitted']);
+            Http::assertNotSent(fn ($r) => str_contains($r->url(), '/configuration/reset?'));
         }
     }
 

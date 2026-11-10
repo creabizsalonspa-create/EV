@@ -8,6 +8,7 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\Vehicle;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
@@ -207,5 +208,64 @@ class ConnectorTopologyTest extends TestCase
         $this->getJson('/api/stations?q=Canonical&min_power_kw=50')->assertOk()->assertJsonPath('total', 0);
         $f['connectors'][2]->update(['connector_type' => 'CCS2', 'max_power_kw' => 100]);
         $this->getJson('/api/stations?q=Canonical&connector_type=Type2&min_power_kw=50')->assertOk()->assertJsonPath('total', 0);
+    }
+
+    public function test_owned_vehicle_matches_canonical_connector_and_is_part_of_the_replay_identity(): void
+    {
+        $f = $this->topology();
+        $f['connectors'][0]->update(['connector_type' => 'Type2']);
+        $make = fn ($owner, $type, $name = 'Private garage name') => Vehicle::create(['user_id' => $owner->id, 'name' => $name, 'connector_type' => $type]);
+        $correct = $make($f['customer'], 'Type2');
+        $wrong = $make($f['customer'], 'CCS2');
+        $foreign = $make(User::factory()->create(), 'Type2');
+        $body = $this->book($f, 0, 'vehicle-request');
+        $this->postJson('/api/reservations', $body + ['vehicle_id' => $wrong->id])->assertUnprocessable();
+        $this->postJson('/api/reservations', $body + ['vehicle_id' => $foreign->id])->assertNotFound();
+        foreach (['CCS2', null, []] as $forged) {
+            $this->postJson('/api/reservations', $body + ['vehicle_id' => $correct->id, 'vehicle_connector_type' => $forged])->assertUnprocessable();
+        }
+        $this->assertDatabaseCount('reservations', 0);
+        $booking = $this->postJson('/api/reservations', $body + ['vehicle_id' => $correct->id])->assertCreated()->assertJsonPath('vehicle_connector_type', 'Type2')->json();
+        $this->postJson('/api/reservations', $body + ['vehicle_id' => $correct->id])->assertOk()->assertJsonPath('id', $booking['id']);
+        $other = $make($f['customer'], 'Type2', 'Another own EV');
+        $this->postJson('/api/reservations', $body + ['vehicle_id' => $other->id])->assertConflict();
+        $this->getJson('/api/reservations')->assertJsonPath('data.0.vehicle_label', 'Private garage name');
+        $this->getJson('/api/vehicles?connector_type=Type2')->assertJsonCount(2, 'data');
+        $this->postJson('/api/reservations', $this->book($f, 2, 'legacy-booking'))->assertCreated()->assertJsonPath('vehicle_id', null);
+        $this->actingAs($f['owner'])->getJson('/api/reservations')->assertOk()->assertJsonMissingPath('data.0.vehicle_label')->assertJsonMissingPath('data.0.vehicle_id')->assertJsonMissingPath('data.1.vehicle_id')->assertJsonMissingPath('data.1.vehicle_label')->assertJsonPath('data.1.vehicle_connector_type', 'Type2');
+        $this->actingAs(User::factory()->create())->getJson('/api/reservations')->assertJsonCount(0, 'data');
+        $this->assertDatabaseCount('reservations', 2);
+    }
+
+    public function test_vehicle_schema_changes_preserve_active_slot_indexes_and_existing_bookings(): void
+    {
+        $f = $this->topology();
+        $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'before-schema'))->assertCreated()->json();
+        $indexes = fn () => DB::getDriverName() === 'pgsql'
+            ? DB::table('pg_indexes')->where('schemaname', DB::raw('current_schema()'))->where('tablename', 'reservations')->orderBy('indexname')->pluck('indexdef', 'indexname')->all()
+            : DB::table('sqlite_master')->where('type', 'index')->where('tbl_name', 'reservations')->whereNotNull('sql')->orderBy('name')->pluck('sql', 'name')->all();
+        $before = $indexes();
+        $migration = require database_path('migrations/2026_11_13_000001_link_reservation_vehicles.php');
+        $migration->down();
+        $migration->up();
+        $this->assertSame($before, $indexes());
+        $this->assertDatabaseHas('reservations', ['id' => $booking['id'], 'status' => 'confirmed']);
+        $this->postJson('/api/reservations', $this->book($f, 1, 'same-evse'))->assertConflict();
+        $this->postJson('/api/reservations', $this->book($f, 2, 'parallel-evse'))->assertCreated();
+    }
+
+    public function test_rollback_cannot_erase_vehicle_linked_history(): void
+    {
+        $f = $this->topology();
+        $vehicle = Vehicle::create(['user_id' => $f['customer']->id, 'name' => 'EV', 'connector_type' => 'CCS2']);
+        $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'linked') + ['vehicle_id' => $vehicle->id])->assertCreated()->json();
+        $migration = require database_path('migrations/2026_11_13_000001_link_reservation_vehicles.php');
+        try {
+            $migration->down();
+            $this->fail('Rollback must retain the historical vehicle link.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Retain vehicle-linked booking history', $e->getMessage());
+        }
+        $this->assertDatabaseHas('reservations', ['id' => $booking['id'], 'vehicle_id' => $vehicle->id, 'vehicle_connector_type' => 'CCS2']);
     }
 }
