@@ -134,7 +134,7 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
         success = t('Request recorded for review.', 'تم تسجيل الطلب للمراجعة.');
       });
     } catch (e) {
-      if (mounted && ticket == generation) failure(e);
+      if (mounted && ticket == generation && fence()) failure(e);
     } finally {
       if (mounted && ticket == generation && fence()) setState(() => sending = false);
     }
@@ -149,9 +149,9 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView> {
       setState(() => sending = false);
       await refresh(page);
     } catch (e) {
-      if (mounted && ticket == generation) failure(e);
+      if (mounted && ticket == generation && fence()) failure(e);
     } finally {
-      if (mounted && ticket == generation) setState(() => sending = false);
+      if (mounted && ticket == generation && fence()) setState(() => sending = false);
     }
   }
   @override

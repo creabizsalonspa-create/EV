@@ -12,7 +12,10 @@ class _PrivacyApi extends EvApi {
   final rows = <Map<String, dynamic>>[];
   final received = <Map<String, dynamic>>[];
   Completer<void>? holdGet;
+  Completer<void>? holdPost;
+  Completer<void>? holdWithdraw;
   bool failReadbackOnce = false;
+  bool failPostAfterHold = false;
 
   @override
   Future<dynamic> request(String path, {
@@ -32,6 +35,10 @@ class _PrivacyApi extends EvApi {
       };
     }
     if (path == 'privacy-requests' && method == 'POST') {
+      if (holdPost != null) await holdPost!.future;
+      if (failPostAfterHold) {
+        throw const ApiException(401, 'Prior account request was rejected');
+      }
       final payload = Map<String, dynamic>.from(body!);
       received.add(payload);
       final prior = rows.where((r) =>
@@ -45,6 +52,10 @@ class _PrivacyApi extends EvApi {
       };
       rows.add(row);
       return row;
+    }
+    if (path.endsWith('/withdraw') && method == 'POST') {
+      if (holdWithdraw != null) await holdWithdraw!.future;
+      throw const ApiException(401, 'Prior account withdrawal was rejected');
     }
     throw ApiException(404, 'Unexpected test endpoint: $method $path');
   }
@@ -135,6 +146,62 @@ void main() {
     } finally {
       if (!(first.holdGet?.isCompleted ?? true)) first.holdGet!.complete();
       first.close();second.close();
+    }
+  });
+
+
+  testWidgets('late privacy submission denial cannot expire a newer session',
+      (tester) async {
+    final api = _PrivacyApi()
+      ..holdPost = Completer<void>()
+      ..failPostAfterHold = true;
+    var expired = 0;
+    try {
+      await tester.pumpWidget(MaterialApp(home: PrivacyRequestsView(
+        api: api, onExpired: () => expired++,
+      )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('privacy-confirm')));
+      await tester.ensureVisible(find.byKey(const Key('privacy-submit')));
+      await tester.tap(find.byKey(const Key('privacy-submit')));
+      await tester.pump();
+      // An explicit sign-out/new sign-in invalidates the request's session.
+      // A delayed 401 from the old operation must not log out the next account.
+      await api.forgetSession();
+      api.holdPost!.complete();
+      await tester.pumpAndSettle();
+      expect(expired, 0);
+      expect(find.byKey(const Key('privacy-error')), findsNothing);
+    } finally {
+      if (!(api.holdPost?.isCompleted ?? true)) api.holdPost!.complete();
+      api.close();
+    }
+  });
+
+  testWidgets('late privacy withdrawal denial cannot expire a newer session',
+      (tester) async {
+    final api = _PrivacyApi()..holdWithdraw = Completer<void>();
+    api.rows.add({
+      'id': 33, 'status': 'submitted', 'request_type': 'data_access',
+      'reason': 'Old account private request', 'resolution': null,
+      'decision_note': null,
+    });
+    var expired = 0;
+    try {
+      await tester.pumpWidget(MaterialApp(home: PrivacyRequestsView(
+        api: api, onExpired: () => expired++,
+      )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Withdraw request'));
+      await tester.pump();
+      await api.forgetSession();
+      api.holdWithdraw!.complete();
+      await tester.pumpAndSettle();
+      expect(expired, 0);
+      expect(find.byKey(const Key('privacy-error')), findsNothing);
+    } finally {
+      if (!(api.holdWithdraw?.isCompleted ?? true)) api.holdWithdraw!.complete();
+      api.close();
     }
   });
 
