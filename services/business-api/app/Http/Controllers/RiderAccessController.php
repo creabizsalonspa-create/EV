@@ -6,6 +6,7 @@ use App\Models\Charging\RiderAccessToken;
 use App\Models\Station;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\RiderAccessHistory;
 use App\Services\Charging\RiderSourceProvisioner;
 use App\Services\Charging\RiderTokenRegistry;
 use Carbon\CarbonImmutable;
@@ -85,6 +86,24 @@ class RiderAccessController extends Controller
         abort_unless($r->user()->role === 'customer', 403);
 
         return response()->json(RiderAccessToken::where('user_id', $r->user()->id)->orderByDesc('id')->paginate(25))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function activity(Request $r, RiderAccessToken $token, RiderAccessHistory $history)
+    {
+        $this->owner($r, $token);
+
+        return $history->response($r, $token);
+    }
+
+    public function grantActivity(Request $r, VendorCompany $company, int $grant, RiderAccessHistory $history)
+    {
+        abort_unless(in_array($r->user()->role, ['vendor', 'admin'], true), 404);
+        $this->reviewer($r, $company);
+        $row = DB::table('rider_charging_grants as g')->join('stations as s', 's.id', '=', 'g.station_id')
+            ->where('g.id', $grant)->where('g.company_id', $company->id)->where('s.vendor_id', $company->owner_id)->select('g.token_id')->first();
+        abort_unless($row, 404);
+
+        return $history->response($r, RiderAccessToken::findOrFail($row->token_id), $grant);
     }
 
     public function issue(Request $r, RiderTokenRegistry $registry)

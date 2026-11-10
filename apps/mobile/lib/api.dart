@@ -116,6 +116,9 @@ class EvApi {
   final SessionVault? vault;
   bool _remembered = false;
   int _epoch = 0;
+  // Block UI requests that could use an old account while credentials change.
+  int? _authTransitionEpoch;
+  String? _authTransitionOperation;
   Future<void> _vaultTail = Future.value();
   // Capture the authenticated context across secure-storage or UI awaits.
   bool Function() sessionFence() {
@@ -206,12 +209,19 @@ class EvApi {
 
   Future<Account?> restoreSession() async {
     if (!canRemember) return null;
+    // A logout, new sign-in or app shutdown can invalidate a vault read while
+    // secure storage is still responding. Never rehydrate stale credentials.
+    final restoreEpoch = _epoch;
     String? raw;
     try {
       raw = await _vaultOperation(() => vault!.read(base.origin));
     } catch (_) {
+      // A newer logout/identity supersedes even a failed platform read.
+      // Do not show an obsolete Keychain error on the next account's screen.
+      if (restoreEpoch != _epoch) return null;
       throw const SessionStorageException();
     }
+    if (restoreEpoch != _epoch) return null;
     if (raw == null) return null;
     final now = DateTime.now().toUtc();
     try {
@@ -244,23 +254,35 @@ class EvApi {
         _cookies[cookie.name] = cookie;
       }
     } catch (_) {
+      // Do not delete a newer login's credentials on a stale restore.
+      if (restoreEpoch != _epoch) return null;
       await forgetSession();
+      // Deletion can await Keychain/Keystore. Never clear a new identity
+      // that started signing in while the old snapshot was being removed.
+      if (_epoch != restoreEpoch + 1) return null;
       _cookies.clear();
       _csrf = null;
       return null;
     }
+    if (restoreEpoch != _epoch) return null;
     try {
       final current = Account.fromJson(
         Map<String, dynamic>.from(await request('me') as Map),
       );
+      if (restoreEpoch != _epoch) return null;
       if (!['customer', 'vendor'].contains(current.role)) {
         await signOut();
         return null;
       }
       await csrf();
+      if (restoreEpoch != _epoch) return null;
       await rememberSession();
+      // An explicit forgetSession() between a save and response must not
+      // surface the previously authenticated account to the UI.
+      if (restoreEpoch != _epoch) return null;
       return current;
     } on ApiException catch (e) {
+      if (restoreEpoch != _epoch) return null;
       _cookies.clear();
       _csrf = null;
       if ([401, 419].contains(e.status)) return null;
@@ -416,9 +438,24 @@ class EvApi {
       'image/png',
       'image/jpeg',
     ],
+    bool internalAuthHandshake = false,
   }) async {
     if (!RegExp(r'^[a-z0-9/-]+$').hasMatch(path)) {
       throw ArgumentError('Invalid API path');
+    }
+    // Only this client's private handshake calls may pass the transition
+    // fence. Path matching alone would allow external UI requests to send
+    // another login, logout or CSRF request before old credentials are erased.
+    final allowedHandshake = internalAuthHandshake &&
+        ((_authTransitionOperation == 'login' &&
+                ((path == 'csrf' && method == 'GET') ||
+                    ((path == 'login' || path == 'register') &&
+                        method == 'POST'))) ||
+            (_authTransitionOperation == 'logout' &&
+                path == 'logout' &&
+                method == 'POST'));
+    if (_authTransitionEpoch == _epoch && !allowedHandshake) {
+      throw const ApiException(409, 'Session changed.');
     }
     final epoch = _epoch;
     try {
@@ -484,7 +521,9 @@ class EvApi {
         try {
           await forgetSession();
         } on SessionStorageException {
-          _remembered = false;
+          // Remote authentication has failed, but the encrypted credential
+          // may still be on the device. Do not falsely mark it as erased.
+          // The next explicit sign-in/logout must retry secure deletion.
         }
         throw ApiException(
           response.statusCode,
@@ -532,36 +571,98 @@ class EvApi {
     }
   }
 
-  Future<void> csrf() async {
-    final data = await request('csrf');
+  Future<void> csrf() => _refreshCsrf(internalAuthHandshake: false);
+
+  Future<void> _refreshCsrf({required bool internalAuthHandshake}) async {
+    final epoch = _epoch;
+    final data = await _request(
+      'csrf',
+      internalAuthHandshake: internalAuthHandshake,
+    );
+    // A stale response cannot overwrite a different user's CSRF token.
+    if (epoch != _epoch)
+      throw const ApiException(409, 'Session changed.');
     _csrf = data['token'] as String;
   }
 
   Future<Account> signIn(String email, String password, {String? name}) async {
-    await forgetSession();
+    // The next account begins a new epoch before any secure-storage await.
+    final signInEpoch = _epoch + 1;
+    _authTransitionEpoch = signInEpoch;
+    _authTransitionOperation = 'login';
     _cookies.clear();
     _csrf = null;
-    await csrf();
-    final data = await request(
-      name == null ? 'login' : 'register',
-      method: 'POST',
-      body: {
-        'email': email,
-        'password': password,
-        if (name != null) 'name': name,
-      },
-    );
-    await csrf();
-    return Account.fromJson(Map<String, dynamic>.from(data as Map));
+    try {
+      await forgetSession();
+      if (signInEpoch != _epoch)
+        throw const ApiException(409, 'Session changed.');
+      await _refreshCsrf(internalAuthHandshake: true);
+      if (signInEpoch != _epoch)
+        throw const ApiException(409, 'Session changed.');
+      final data = await _request(
+        name == null ? 'login' : 'register',
+        method: 'POST',
+        body: {
+          'email': email,
+          'password': password,
+          if (name != null) 'name': name,
+        },
+        internalAuthHandshake: true,
+      );
+      if (signInEpoch != _epoch)
+        throw const ApiException(409, 'Session changed.');
+      await _refreshCsrf(internalAuthHandshake: true);
+      if (signInEpoch != _epoch)
+        throw const ApiException(409, 'Session changed.');
+      return Account.fromJson(Map<String, dynamic>.from(data as Map));
+    } catch (_) {
+      // Login is a single credential transition, including the final CSRF
+      // refresh. If any part fails, discard cookies received during the
+      // partial handshake instead of leaving an authenticated UI session
+      // behind a failed sign-in response. Never clear a newer identity.
+      if (signInEpoch == _epoch &&
+          _authTransitionEpoch == signInEpoch &&
+          _authTransitionOperation == 'login') {
+        _cookies.clear();
+        _csrf = null;
+      }
+      rethrow;
+    } finally {
+      // A server rejection may have advanced the epoch during cleanup.
+      // Release only this transition, never a newer concurrent transition.
+      if (_authTransitionEpoch == signInEpoch &&
+          _authTransitionOperation == 'login') {
+        _authTransitionEpoch = null;
+        _authTransitionOperation = null;
+      }
+    }
   }
 
   Future<void> signOut() async {
-    await forgetSession();
+    // Allow only this identity's logout handshake during vault deletion.
+    final logoutEpoch = _epoch + 1;
+    _authTransitionEpoch = logoutEpoch;
+    _authTransitionOperation = 'logout';
     try {
-      await request('logout', method: 'POST');
+      await forgetSession();
+      if (logoutEpoch != _epoch) return;
+      await _request(
+        'logout',
+        method: 'POST',
+        internalAuthHandshake: true,
+      );
     } finally {
-      _cookies.clear();
-      _csrf = null;
+      // Even if platform deletion fails, don't retain active cookies.
+      // Never wipe a newer login's cookie jar when superseded.
+      if (logoutEpoch == _epoch) {
+        _cookies.clear();
+        _csrf = null;
+      }
+      if (_authTransitionEpoch == logoutEpoch &&
+          _authTransitionOperation == 'logout') {
+        _authTransitionEpoch = null;
+        _authTransitionOperation = null;
+      }
     }
   }
 

@@ -19,7 +19,7 @@
     "test:command-recovery": "node tests/command-recovery.cjs",
     "test:nearby": "node tests/nearby-catalog.cjs",
     "test:favorites": "node tests/station-favorites.cjs",
-    "test:maps": "node tests/map-assets.cjs && node tests/discovery-map.cjs",
+    "test:maps": "node tests/map-assets.cjs && node tests/discovery-map.cjs && node tests/partner-nearby.cjs && node tests/open-charge-map-ui.cjs",
     "test:payout-documents": "node tests/payout-documents.cjs",
     "test:corporate": "node tests/corporate-billing.cjs",
     "test:external-disputes": "node tests/external-disputes.cjs && node tests/external-disputes-ui.cjs",
@@ -29,6 +29,7 @@
     "test:commercial-campaigns": "node tests/commercial-campaigns.cjs",
     "test:hosted-checkout": "node tests/hosted-checkout.cjs",
     "test:corporate-hosted": "node tests/corporate-hosted.cjs",
+    "test:partner-nearby": "node tests/partner-nearby.cjs",
     "test:station-information": "node tests/station-information.cjs && node tests/station-information-vendor-session.cjs",
     "test:e2e:station-information": "node tests/station-information-e2e.cjs"
   },

@@ -1,5 +1,6 @@
 """Progress evidence must fail closed; tests never invent feature acceptance."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -40,6 +41,80 @@ class CoverageEvidenceTest(unittest.TestCase):
         atoms = self.inventory['categories'][0]['atoms']
         atoms[1]['id'] = atoms[0]['id']
         self.rejected(self.inventory, 'AssertionError')
+
+
+    def test_checkpoint_evidence_outside_repository_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / 'fake-hosted-checkpoint.json'
+            checkpoint = self.inventory['checkpoints']['pr14']
+            evidence.write_text(json.dumps({
+                'source_sha': checkpoint['source_sha'],
+                'integrated_sha': checkpoint['merge_sha'],
+            }))
+            checkpoint['evidence'] = str(evidence)
+            self.rejected(self.inventory, 'evidence must stay within repository')
+
+    def test_relative_checkpoint_escape_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / 'fake-checkpoint.json'
+            checkpoint = self.inventory['checkpoints']['pr14']
+            evidence.write_text(json.dumps({
+                'source_sha': checkpoint['source_sha'],
+                'integrated_sha': checkpoint['merge_sha'],
+            }))
+            checkpoint['evidence'] = os.path.relpath(evidence, ROOT)
+            self.rejected(self.inventory, 'evidence must stay within repository')
+
+    def test_original_312_atom_inventory_cannot_silently_shrink(self):
+        self.inventory['categories'][0]['atoms'].pop()
+        self.rejected(self.inventory, 'Original 312 requirement atoms are mandatory')
+
+
+    def test_category_rebalance_cannot_change_weighted_denominators(self):
+        # Move an item while retaining 312 distinct IDs. Total-size checks
+        # alone permit such a change to category weights.
+        moved = self.inventory['categories'][0]['atoms'].pop()
+        moved['id'] = '2.2.8'
+        self.inventory['categories'][1]['atoms'].append(moved)
+        self.rejected(self.inventory, 'Original category atom count changed')
+
+    def test_original_atom_identifier_cannot_be_renumbered(self):
+        self.inventory['categories'][0]['atoms'][0]['id'] = '2.1.99'
+        self.rejected(self.inventory, 'Original atom IDs/order changed')
+
+    def test_atom_reordering_requires_explicit_inventory_review(self):
+        atoms = self.inventory['categories'][0]['atoms']
+        atoms[0], atoms[1] = atoms[1], atoms[0]
+        self.rejected(self.inventory, 'Original atom IDs/order changed')
+
+
+    def reject_modified_hosted_check(self, mutate, message):
+        evidence_path = ROOT / 'docs/evidence/integration-coverage/pr43-hosted-checkpoint.json'
+        proof = json.loads(evidence_path.read_text())
+        mutate(proof)
+        with tempfile.TemporaryDirectory(dir=ROOT / 'docs/evidence/requirements') as directory:
+            temporary_proof = Path(directory) / 'synthetic-hosted-proof.json'
+            temporary_proof.write_text(json.dumps(proof))
+            self.inventory['checkpoints']['pr43']['evidence'] = str(temporary_proof.relative_to(ROOT))
+            self.rejected(self.inventory, message)
+
+    def test_queued_job_cannot_be_passing_coverage_evidence(self):
+        self.reject_modified_hosted_check(
+            lambda proof: proof['required_checks'][0].update(status='queued', conclusion=None),
+            'mandatory CI checks must be successful',
+        )
+
+    def test_missing_hosted_job_list_cannot_be_passing_coverage_evidence(self):
+        self.reject_modified_hosted_check(
+            lambda proof: proof.update(required_checks=[]),
+            'mandatory CI checks must be recorded',
+        )
+
+    def test_fabricated_hosted_job_url_is_rejected(self):
+        self.reject_modified_hosted_check(
+            lambda proof: proof['required_checks'][0].update(details_url='https://example.com/not-a-github-job'),
+            'source-linked CI job URL required',
+        )
 
 
 if __name__ == '__main__':

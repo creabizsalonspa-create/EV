@@ -1,1 +1,3 @@
 #include "Generated.xcconfig"
+// Optional, untracked owner-provided production signing identity.
+#include? "ReleaseIdentity.xcconfig"
