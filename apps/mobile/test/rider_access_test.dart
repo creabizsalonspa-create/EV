@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -24,6 +25,57 @@ class RiderApi extends FixtureApi {
   }
 }
 
+
+class PrivateRiderApi extends FixtureApi {
+  int authGeneration=0;
+  Completer<dynamic>? delayedRead;
+  Completer<dynamic>? delayedIssue;
+  int readCount=0;
+
+  @override
+  bool Function() sessionFence() {
+    final captured=authGeneration;
+    return () => captured==authGeneration;
+  }
+
+  Map<String,dynamic> get tokenPage => {
+    'data': [
+      {
+        'id': 42,
+        'label': 'Private test card',
+        'token_type': 'Central',
+        'suffix': '7777',
+        'expires_at': '2026-12-01T00:00:00Z',
+        'provisioning_state': 'test',
+        'revoked_at': null,
+      },
+    ],
+    'current_page': 1,
+    'last_page': 1,
+    'total': 1,
+  };
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method='GET',
+    Map<String,dynamic>? body,
+    Map<String,String> query=const {},
+  }) async {
+    expect(path,'rider-access/tokens');
+    if(method=='GET'){
+      readCount++;
+      if(delayedRead!=null)return delayedRead!.future;
+      return tokenPage;
+    }
+    if(method=='POST'){
+      if(delayedIssue!=null)return delayedIssue!.future;
+      return {'value_once': 'TEST-ONE-TIME-SECRET'};
+    }
+    throw StateError('Unexpected test method: $method');
+  }
+}
+
 void main() {
   testWidgets('uncertain registration waits for explicit retry and keeps its original request identity', (tester) async {
     final api = RiderApi();
@@ -47,4 +99,85 @@ void main() {
     expect(find.text('Show identifier'), findsNothing);
     expect(find.text('Register charging access'), findsOneWidget);
   });
+
+  testWidgets('stale rider token load cannot show a prior account', (tester) async {
+    final api=PrivateRiderApi()..delayedRead=Completer<dynamic>();
+    var expired=0;
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:()=>expired++),
+    ));
+    await tester.pump();
+    api.authGeneration++;
+    api.delayedRead!.complete(api.tokenPage);
+    await tester.pumpAndSettle();
+    expect(find.text('Private test card'),findsNothing);
+    expect(find.text('Session expired. Sign in again.'),findsOneWidget);
+    expect(expired,1);
+  });
+
+  testWidgets('background hides private rider records until explicit refresh', (tester) async {
+    final api=PrivateRiderApi();
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:(){}),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Private test card'),findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('Private test card'),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('Private test card'),findsNothing);
+    expect(api.readCount,1);
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(find.text('Private test card'),findsOneWidget);
+    expect(api.readCount,2);
+  });
+
+  testWidgets('background clears revealed one-time token and saved retry', (tester) async {
+    final api=PrivateRiderApi();
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:(){}),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Register charging access'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first,'Private test card');
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Show identifier'));
+    await tester.pump();
+    expect(find.text('TEST-ONE-TIME-SECRET'),findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('TEST-ONE-TIME-SECRET'),findsNothing);
+    expect(find.text('Show identifier'),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('TEST-ONE-TIME-SECRET'),findsNothing);
+  });
+
+  testWidgets('late token issuance after account switch reveals no secret', (tester) async {
+    final api=PrivateRiderApi()..delayedIssue=Completer<dynamic>();
+    var expired=0;
+    await tester.pumpWidget(MaterialApp(
+      home:RiderAccessView(api:api,onExpired:()=>expired++),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Register charging access'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first,'Private test card');
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    api.authGeneration++;
+    api.delayedIssue!.complete({'value_once':'PRIOR-ACCOUNT-SECRET'});
+    await tester.pumpAndSettle();
+    expect(find.text('PRIOR-ACCOUNT-SECRET'),findsNothing);
+    expect(find.text('Show identifier'),findsNothing);
+    expect(expired,1);
+  });
+
 }
