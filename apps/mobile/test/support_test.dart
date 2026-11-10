@@ -590,6 +590,33 @@ void main() {
     expect(fixture.preferences['external_delivery_available'], false);
   });
 
+  testWidgets('saved Other notification default remains editable and persists',
+      (tester) async {
+    final fixture = SupportFixture();
+    fixture.preferences['default_category'] = 'other';
+    addTearDown(fixture.close);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: SupportView(api: fixture, onSessionExpired: () {})),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('support-notifications')));
+    await tester.pumpAndSettle();
+    expect(fixture.selectedCategory, 'other');
+
+    await tester.tap(find.byKey(const Key('notification-preferences-open')));
+    await tester.pumpAndSettle();
+    final category = tester.widget<DropdownButton<String>>(
+      find.byKey(const Key('notification-preference-category')),
+    );
+    expect(category.value, 'other');
+    expect(category.items!.any((item) => item.value == 'other'), isTrue);
+    await tester.tap(find.byKey(const Key('notification-preferences-confirm')));
+    await tester.pumpAndSettle();
+    expect(fixture.preferenceWrites, 1);
+    expect(fixture.preferences['default_category'], 'other');
+    expect(fixture.selectedCategory, 'other');
+  });
+
   test('unknown operational notices do not impersonate support status', () {
     final en = EvStrings(const Locale('en'));
     final ar = EvStrings(const Locale('ar'));
