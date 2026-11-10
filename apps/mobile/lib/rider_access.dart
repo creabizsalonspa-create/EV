@@ -45,7 +45,7 @@ class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserv
       pendingCreate?.clear();
       pendingCreate=null;
       data=null;error=null;busy=false;sourceEnabled=false;
-      oneTime=null;reveal=false;privatePaused=false;
+      oneTime=null;reveal=false;
       sessionFence=widget.api.sessionFence();
       WidgetsBinding.instance.addPostFrameCallback((_){
         if(mounted&&!privatePaused)load();
@@ -100,12 +100,14 @@ class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserv
   Future<Map<String,dynamic>?> form(String title,List<_RiderField> fields)=>showDialog<Map<String,dynamic>>(context:context,builder:(_)=>_RiderDialog(title:title,fields:fields));
   Future<void> issue()async{
     if(!sessionAlive||privatePaused){if(!sessionAlive){clearPrivate();widget.onExpired();}return;}
+    final beforeDialog=generation;
+    final identityFence=sessionFence;
     if(pendingCreate==null){final fields=await form(t('Register charging access','تسجيل وصول الشحن'),[
       _RiderField('label',t('Label','الاسم'),max:80),
       _RiderField('token_type',t('Identifier type','نوع المعرّف'),initial:'Central',choices:{'Central':t('Virtual token','رمز افتراضي'),'ISO14443':'ISO14443','ISO15693':'ISO15693'}),
       _RiderField('value',t('Card identifier (optional for virtual)','معرّف البطاقة (اختياري للرمز الافتراضي)'),required:false,secret:true,max:20),
       _RiderField('expires_at',t('Expiry UTC (YYYY-MM-DDTHH:mm:ssZ)','الانتهاء UTC (YYYY-MM-DDTHH:mm:ssZ)'),initial:DateTime.now().toUtc().add(const Duration(days:30)).toIso8601String().replaceFirst(RegExp(r'\.\d+Z$'),'Z'),max:20),
-    ]);if(!mounted||fields==null||privatePaused)return;if(!sessionAlive){clearPrivate();widget.onExpired();return;}if(fields['value']=='')fields.remove('value');pendingCreate={...fields,'idempotency_key':operationKey()};}
+    ]);if(!mounted||fields==null||privatePaused||beforeDialog!=generation||!identityFence())return;if(!sessionAlive){clearPrivate();widget.onExpired();return;}if(fields['value']=='')fields.remove('value');pendingCreate={...fields,'idempotency_key':operationKey()};}
     final epoch=++generation;
     setState((){busy=true;error=null;});
     try{
