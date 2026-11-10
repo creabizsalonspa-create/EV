@@ -115,6 +115,34 @@ void main() {
     },
   );
 
+
+  test('partner report distance is not driving or live availability', () {
+    final report = RoamingLocation.fromJson({
+      ...record(),
+      'provider_label': 'Unverified Network',
+      'provider_label_evidence': 'PROVIDER_CONFIGURED_UNVERIFIED',
+      'reported_source_age_minutes': 1550,
+      'source_clock_evidence': 'PARTNER_REPORTED_TIME',
+      'distance_basis': 'great_circle',
+      'distance_km': 25.123,
+    });
+    expect(report.providerLabel, 'Unverified Network');
+    expect(report.reportedSourceAgeMinutes, 1550);
+    expect(report.distanceKm, 25.123);
+    expect(RoamingLocation.fromJson({
+      ...record(), 'distance_basis': 'great_circle',
+      'distance_km': double.infinity,
+    }).distanceKm, isNull);
+    expect(RoamingLocation.fromJson({
+      ...record(), 'distance_basis': 'driving',
+      'distance_km': 10.0,
+    }).distanceKm, isNull);
+    expect(RoamingLocation.fromJson({
+      ...record(), 'provider_label': 'Untrusted',
+      'provider_label_evidence': 'PROVIDER_CERTIFIED',
+    }).providerLabel, isNull);
+  });
+
   testWidgets('partner coordinates require explicit Search', (tester) async {
     final calls = <Map<String, String>>[];
     await tester.pumpWidget(MaterialApp(
