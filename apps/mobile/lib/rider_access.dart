@@ -39,12 +39,47 @@ class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserv
   @override
   void dispose(){generation++;WidgetsBinding.instance.removeObserver(this);search.dispose();pendingCreate?.clear();pendingCreate=null;oneTime=null;data=null;super.dispose();}
   void fail(Object e){if(!mounted)return;if(!sessionAlive || (e is ApiException&&[401,419].contains(e.status))){clearPrivate();widget.onExpired();return;}setState(()=>error=e);}
-  Future<void> load({int page=1})async{
-    final epoch=++generation;setState((){busy=true;error=null;});
-    try{final response=await widget.api.request(path,query:{'page':'$page',if(widget.records==RiderRecords.stations)'q':search.text});if(mounted&&epoch==generation)setState((){data=ApiPage.fromJson(response,(v)=>v);sourceEnabled=response['source_adapter_enabled']==true;});}
-    catch(e){if(mounted&&epoch==generation){setState(()=>data=null);fail(e);}}finally{if(mounted&&epoch==generation)setState(()=>busy=false);}
+  Future<void> load({int page=1}) async {
+    if (!mounted) return;
+    if (!sessionAlive) {clearPrivate();widget.onExpired();return;}
+    final epoch=++generation;
+    setState((){busy=true;error=null;data=null;sourceEnabled=false;privatePaused=false;});
+    try {
+      final response=await widget.api.request(
+        path,query:{'page':'$page',if(widget.records==RiderRecords.stations)'q':search.text},
+      );
+      if (!mounted||epoch!=generation||privatePaused) return;
+      if (!sessionAlive) {clearPrivate();widget.onExpired();return;}
+      setState((){
+        data=ApiPage.fromJson(response,(v)=>v);
+        sourceEnabled=response['source_adapter_enabled']==true;
+      });
+    } catch(e) {
+      if (!mounted||epoch!=generation||privatePaused)return;
+      if (!sessionAlive){clearPrivate();widget.onExpired();return;}
+      fail(e);
+    } finally {
+      if(mounted&&epoch==generation)setState(()=>busy=false);
+    }
   }
-  Future<void> mutate(String url,String method,Map<String,dynamic>? body)async{setState((){busy=true;error=null;});try{await widget.api.request(url,method:method,body:body);if(mounted)await load(page:data?.current??1);}catch(e){fail(e);}finally{if(mounted)setState(()=>busy=false);}}
+  Future<void> mutate(String url,String method,Map<String,dynamic>? body) async {
+    if(!sessionAlive||privatePaused){
+      if(!sessionAlive){clearPrivate();widget.onExpired();}
+      return;
+    }
+    final epoch=++generation;
+    setState((){busy=true;error=null;});
+    try {
+      await widget.api.request(url,method:method,body:body);
+      if(!mounted||epoch!=generation||privatePaused)return;
+      if(!sessionAlive){clearPrivate();widget.onExpired();return;}
+      await load(page:data?.current??1);
+    } catch(e) {
+      if(mounted&&epoch==generation&&!privatePaused)fail(e);
+    } finally {
+      if(mounted&&epoch==generation)setState(()=>busy=false);
+    }
+  }
   Future<bool> confirm(String text)async=>await showDialog<bool>(context:context,builder:(c)=>AlertDialog(content:Text(text),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:Text(t('Cancel','إلغاء'))),FilledButton(onPressed:()=>Navigator.pop(c,true),child:Text(t('Confirm','تأكيد')))]))??false;
   Future<Map<String,dynamic>?> form(String title,List<_RiderField> fields)=>showDialog<Map<String,dynamic>>(context:context,builder:(_)=>_RiderDialog(title:title,fields:fields));
   Future<void> issue()async{
