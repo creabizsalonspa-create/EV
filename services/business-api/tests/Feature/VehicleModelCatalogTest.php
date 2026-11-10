@@ -176,13 +176,12 @@ class VehicleModelCatalogTest extends TestCase
             ->assertOk()->assertJsonCount(5, 'data');
     }
 
-
     public function test_catalog_search_treats_percent_underscore_and_backslash_as_literals(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $driver = User::factory()->create(['role' => 'customer']);
 
-        foreach (['G_100%', 'Gx1000', 'Back\\slash', 'Backslash'] as $make) {
+        foreach (['G_100%', 'Gx1000', 'Gx100%', 'G_1000', 'Back\\slash', 'Backslash'] as $make) {
             $input = $this->input();
             $input['make'] = $make;
             $this->actingAs($admin)->postJson('/api/vehicle-models', $input)->assertCreated();
