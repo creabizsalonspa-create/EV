@@ -87,7 +87,7 @@ final class VehicleModelCatalogController extends Controller
         if (isset($v['connector_type'])) {
             $q->where('connector_type', $v['connector_type']);
         }
-        if (! empty($v['q'])) {
+        if (isset($v['q']) && trim($v['q']) !== '') {
             $term = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($v['q']));
             $pattern = '%'.$term.'%';
             $q->where(function ($query) use ($pattern) {

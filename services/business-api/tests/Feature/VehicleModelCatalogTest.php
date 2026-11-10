@@ -195,6 +195,25 @@ class VehicleModelCatalogTest extends TestCase
         }
     }
 
+
+    public function test_zero_search_is_not_treated_as_empty_query(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $driver = User::factory()->create(['role' => 'customer']);
+        foreach (['Series 0', 'Series Alpha'] as $modelName) {
+            $input = $this->input();
+            $input['model'] = $modelName;
+            $this->actingAs($admin)->postJson('/api/vehicle-models', $input)->assertCreated();
+        }
+
+        $this->actingAs($driver)->getJson('/api/vehicle-models?q=0')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.model', 'Series 0');
+        $this->actingAs($driver, 'sanctum')->getJson('/api/v1/vehicle-models?q=0')
+            ->assertOk()->assertJsonPath('total', 1);
+    }
+
     public function test_sanctum_mobile_get_and_update_share_model_validation(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
