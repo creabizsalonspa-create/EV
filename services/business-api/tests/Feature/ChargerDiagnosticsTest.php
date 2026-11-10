@@ -101,12 +101,22 @@ class ChargerDiagnosticsTest extends TestCase
 
     public function test_native_admin_access_uses_same_scope_and_production_source_is_disabled(): void
     {
-        [, , , $url] = $this->fixture();
+        [$owner, , , $url] = $this->fixture();
         Sanctum::actingAs(User::factory()->create(['role' => 'admin']));
         Http::fakeSequence()->push(['data' => ['ChargingStations' => []]]);
         $native = str_replace('/api/', '/api/v1/', $url);
         $this->getJson($native)->assertOk()->assertJsonPath('source_registered', false);
         $this->app->instance('env', 'production');
+
+        // Mandatory Admin MFA is checked before the source adapter. A native
+        // Admin bearer must not reveal whether source diagnostics are enabled.
+        $this->getJson($native)->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true)
+            ->assertJsonMissingPath('source_online');
+
+        // Independently prove production still refuses source reads for an
+        // otherwise authorized vendor, instead of weakening the MFA gate.
+        Sanctum::actingAs($owner);
         $this->getJson($native)->assertServiceUnavailable()->assertJsonMissingPath('source_online');
         Http::assertSentCount(1);
     }
