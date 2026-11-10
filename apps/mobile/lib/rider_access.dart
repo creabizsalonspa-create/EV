@@ -96,7 +96,21 @@ class _RiderAccessState extends State<RiderAccessView> with WidgetsBindingObserv
       if(mounted&&epoch==generation)setState(()=>busy=false);
     }
   }
-  Future<bool> confirm(String text)async=>await showDialog<bool>(context:context,builder:(c)=>AlertDialog(content:Text(text),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:Text(t('Cancel','إلغاء'))),FilledButton(onPressed:()=>Navigator.pop(c,true),child:Text(t('Confirm','تأكيد')))]))??false;
+  Future<bool> confirm(String text)async{
+    final beforeDialog=generation;
+    final identityFence=sessionFence;
+    final approved=await showDialog<bool>(
+      context:context,
+      builder:(c)=>AlertDialog(
+        content:Text(text),
+        actions:[
+          TextButton(onPressed:()=>Navigator.pop(c,false),child:Text(t('Cancel','إلغاء'))),
+          FilledButton(onPressed:()=>Navigator.pop(c,true),child:Text(t('Confirm','تأكيد'))),
+        ],
+      ),
+    );
+    return approved==true&&mounted&&!privatePaused&&identityFence()&&sessionAlive&&beforeDialog==generation;
+  }
   Future<Map<String,dynamic>?> form(String title,List<_RiderField> fields)=>showDialog<Map<String,dynamic>>(context:context,builder:(_)=>_RiderDialog(title:title,fields:fields));
   Future<void> issue()async{
     if(!sessionAlive||privatePaused){if(!sessionAlive){clearPrivate();widget.onExpired();}return;}
