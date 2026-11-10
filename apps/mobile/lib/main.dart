@@ -1,4 +1,5 @@
 import 'reservation_vehicle.dart';
+import 'reservation_intent.dart';
 import 'vehicle_battery.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -157,6 +158,7 @@ class _WorkspaceState extends State<Workspace> {
   final loginForm = GlobalKey<FormState>();
   final catalogKey = GlobalKey<CatalogViewState>();
   final supportKey = GlobalKey<SupportViewState>();
+  final reservationIntents = ReservationIntentKeys();
   bool registering = false;
   List<Map<String, dynamic>> records = [];
   static const screens = [
@@ -230,6 +232,7 @@ class _WorkspaceState extends State<Workspace> {
   }
 
   void resetSession() {
+    reservationIntents.clear();
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
     setState(() {
@@ -389,8 +392,10 @@ class _WorkspaceState extends State<Workspace> {
     final bookingApi = api;
     if (owner == null || bookingApi == null || account?.role != 'customer')
       return;
+    final bookingFence = bookingApi.sessionFence();
     bool current() =>
         mounted &&
+        bookingFence() &&
         identical(api, bookingApi) &&
         account?.id == owner &&
         account?.role == 'customer';
@@ -455,20 +460,30 @@ class _WorkspaceState extends State<Workspace> {
       ),
     );
     if (confirmed != true || !current()) return;
+    final startsAt = slot.toIso8601String().replaceFirst('.000Z', 'Z');
+    final intentKey = reservationIntents.forBooking(
+      api: bookingApi,
+      ownerId: owner,
+      stationId: station.id,
+      mappingId: station.mappingId,
+      vehicleId: vehicle['id'] as int?,
+      startsAtUtc: startsAt,
+      sessionFence: bookingFence,
+    );
+    final payload = <String, dynamic>{
+      'station_id': station.id,
+      if (vehicle['id'] != null) 'vehicle_id': vehicle['id'],
+      if (station.mappingId != null)
+        'connector_mapping_id': station.mappingId,
+      'starts_at': startsAt,
+      'idempotency_key': intentKey,
+    };
     await perform(() async {
       try {
         await bookingApi.request(
           'reservations',
           method: 'POST',
-          body: {
-            'station_id': station.id,
-            if (vehicle['id'] != null) 'vehicle_id': vehicle['id'],
-            if (station.mappingId != null)
-              'connector_mapping_id': station.mappingId,
-            'starts_at': slot.toIso8601String().replaceFirst('.000Z', 'Z'),
-            'idempotency_key':
-                'mobile-${DateTime.now().microsecondsSinceEpoch}-${station.id}',
-          },
+          body: payload,
         );
       } catch (_) {
         if (!current()) return;
@@ -481,6 +496,7 @@ class _WorkspaceState extends State<Workspace> {
           Navigator.of(context).pop();
       }
       await load();
+      if (current()) reservationIntents.acknowledge(intentKey);
     });
     if (mounted && station.mappingId != null && error != null)
       ScaffoldMessenger.of(
