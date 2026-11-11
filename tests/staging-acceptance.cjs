@@ -89,6 +89,42 @@ test('output is created privately once and original cannot be overwritten',()=>p
   assert.throws(()=>writeEvidence(file,{schema:'overwritten'}));
   assert.equal(JSON.parse(fs.readFileSync(file)).schema,evidenceSchema);
 }));
+test('partial interrupted write never publishes final evidence or leaves a temporary file',()=>privateDestination(file=>{
+  assert.throws(()=>writeEvidence(file,{status:'PRIVATE_PREREQUISITES_PASSED'},{
+    writePayload(fd) {fs.writeSync(fd,'{"incomplete":');throw Error('SIMULATED_INTERRUPT');}
+  }),/SIMULATED_INTERRUPT/);
+  assert.equal(fs.existsSync(file),false);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)),[]);
+  writeEvidence(file,{status:'INCOMPLETE'});
+  assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).status,'INCOMPLETE');
+}));
+test('invalid, circular and oversized reports fail before publishing final output',()=>privateDestination(file=>{
+  const circular={};circular.self=circular;
+  for(const invalid of [circular,{large:'x'.repeat(270000)},undefined]){
+    assert.throws(()=>writeEvidence(file,invalid));
+    assert.equal(fs.existsSync(file),false);
+    assert.deepEqual(fs.readdirSync(path.dirname(file)),[]);
+  }
+}));
+test('dangling destination symlink and existing report cannot be overwritten',()=>privateDestination(file=>{
+  fs.symlinkSync(path.join(path.dirname(file),'absent.json'),file);
+  assert.throws(()=>writeEvidence(file,{status:'pass'}));
+  assert.equal(fs.lstatSync(file).isSymbolicLink(),true);
+  fs.unlinkSync(file);
+  writeEvidence(file,{status:'first'});
+  assert.equal(fs.statSync(file).nlink,1);
+  assert.throws(()=>writeEvidence(file,{status:'second'}));
+  assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).status,'first');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)),[path.basename(file)]);
+}));
+test('symlinked grandparent evidence directory is rejected before publication',()=>privateDestination(file=>{
+  const root=path.dirname(file),inner=path.join(root,'real'),nested=path.join(inner,'private');
+  fs.mkdirSync(nested,{recursive:true,mode:0o700});
+  const alias=path.join(root,'alias');fs.symlinkSync(inner,alias);
+  const unsafe=path.join(alias,'private','report.json');
+  assert.throws(()=>writeEvidence(unsafe,{status:'pass'}));
+  assert.equal(fs.existsSync(path.join(nested,'report.json')),false);
+}));
 test('group-readable evidence directory is rejected', {skip:process.platform==='win32'},()=>privateDestination(file=>{
   fs.chmodSync(path.dirname(file),0o755);
   assert.throws(()=>writeEvidence(file,{}));

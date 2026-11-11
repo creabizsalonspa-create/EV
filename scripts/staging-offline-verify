@@ -9,10 +9,12 @@ if ! command -v node >/dev/null || ! command -v python3 >/dev/null; then
   exit 2
 fi
 
-# Some hardened hosts mount /tmp noexec. Synthetic test fixtures run local
-# mock CLI shims; give them a dedicated, owner-only, executable-home temp dir.
+# Synthetic fixtures execute local mock CLI shims. Use a writable temporary
+# root rather than HOME, which is read-only in managed cloud environments.
+# Hosts with noexec temporary storage can explicitly choose an executable
+# workspace root via EV_STAGING_TEST_TMPDIR; HOME is never reassigned.
 # Only files under this mktemp-created directory are removed by the trap.
-test_tmp=$(mktemp -d "$HOME/.ev-staging-offline.XXXXXXXX")
+test_tmp=$(mktemp -d "${EV_STAGING_TEST_TMPDIR:-${TMPDIR:-/tmp}}/ev-staging-offline.XXXXXXXX")
 trap 'rm -rf -- "$test_tmp"' EXIT
 export TMPDIR="$test_tmp"
 

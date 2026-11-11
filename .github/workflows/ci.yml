@@ -167,6 +167,8 @@ jobs:
           if-no-files-found: warn
       - name: Run all Agent 3 recovery policies and negative security cases
         run: python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q
+      - name: Verify private staging and synthetic demo regressions without Docker
+        run: ./scripts/staging-offline-verify
       - name: Seed synthetic build-context exclusion canaries
         shell: bash
         run: |

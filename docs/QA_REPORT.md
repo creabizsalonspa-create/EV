@@ -12,6 +12,21 @@ passed, three charging-provenance widget tests passed, and complete mobile
 analysis reported no issues. Hosted tests must validate the updated head;
 previous PR61 checks do not establish this new merge candidate's success.
 No new coverage-atom or physical/live/payment acceptance credit is claimed.
+# Atomic staging evidence integration — 11 November 2026
+
+Existing PR89 safely incorporates PR64's source and main PR90 without
+conflicts; merge PR64 first. Offline staging verification initially failed
+because HOME is read-only. The runner now uses the configured temporary
+root (or explicit executable EV_STAGING_TEST_TMPDIR), preserving HOME.
+A second failure was an unsafe-permissions fixture created under umask0077:
+the creation mode became0600, so it did not exercise denial. The fixture
+now explicitly chmods only its synthetic file to0640/0604/0644 and verifies
+the actual mode before asserting rejection; no permission guard is weakened.
+Final `./scripts/staging-offline-verify`:389 Node tests passed,21 Python
+CI-evidence tests passed. Includes interrupted-write/no-final-file, symlink,
+no-overwrite and bounded atomic evidence publication regressions. This is
+source-only evidence; no staging deployment or production acceptance.
+Updated exact-head hosted checks remain required before integration.
 
 # Single-owner integration QA — 11 November 2026
 
