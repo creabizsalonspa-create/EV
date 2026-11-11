@@ -12,6 +12,15 @@ class StationInformationTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_public_station_information_rejects_unbounded_route_ids(): void
+    {
+        foreach (['/api', '/api/v1'] as $prefix) {
+            foreach (['invalid', '-1', '1.5', '9223372036854775808', str_repeat('9', 128)] as $id) {
+                $this->getJson($prefix.'/stations/'.$id.'/information')->assertNotFound();
+            }
+        }
+    }
+
     private function station(User $vendor): Station
     {
         return Station::create([

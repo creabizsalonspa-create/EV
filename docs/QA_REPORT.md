@@ -1,5 +1,12 @@
 # Station-information native CI repair — 11 November 2026
 
+Final local full Flutter:317 passed/26 deliberate live-fixture skips. The
+integrated offline route inventory also caught the feature's new unbounded
+station/vehicle model-binding routes; all now use18-digit bounds rather than
+adding exceptions. Both public station aliases have overflow-denial tests.
+Updated focused backend14 tests/101 assertions and all48 security regressions
+pass. Hosted checks must run on this final source, not its superseded head.
+
 PR58's stale-vendor-denial widget failure was reproduced locally: an ignored
 old-session response left a perpetual progress indicator. The editor now
 clears stale private state and loading flags without expiring the new account.

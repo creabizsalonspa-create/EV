@@ -139,8 +139,8 @@ Route::get('/payments/corporate-hosted-simulation/{checkout}', function (string 
 Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
 
-Route::get('/api/stations/{station}/information', [StationInformationController::class, 'show'])->whereNumber('station')->middleware('throttle:catalog');
-Route::put('/api/stations/{station}/information', [StationInformationController::class, 'save'])->whereNumber('station')->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/stations/{station}/information', [StationInformationController::class, 'show'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
+Route::put('/api/stations/{station}/information', [StationInformationController::class, 'save'])->where('station', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/vendor/stations', function (Request $r) {
     abort_unless($r->user()->role === 'vendor', 403);
 
