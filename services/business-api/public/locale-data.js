@@ -1,4 +1,5 @@
 window.EV_MESSAGES = {
+    "Verify your email before viewing company staff invitations.": {en: "Verify your email before viewing company staff invitations.", ar: "تحقق من بريدك الإلكتروني قبل عرض دعوات موظفي الشركة."},
     "Checking trade-license evidence…": {en: "Checking trade-license evidence…", ar: "جارٍ التحقق من مستند الرخصة التجارية…"},
     "Charger certificates": { en: "Charger certificates", ar: "شهادات الشاحن" },
     "admission.event.certificate_enroll": {

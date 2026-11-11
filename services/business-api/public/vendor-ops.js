@@ -3571,6 +3571,10 @@ window.createVendorWorkspace = ({
                 epoch,
             );
             if (!valid(epoch)) return;
+            if (!actor()?.email_verified_at) {
+                invites.append(ui("p", "Verify your email before viewing company staff invitations."));
+                return;
+            }
             await paged(
                 invites,
                 "staff-invitations",
