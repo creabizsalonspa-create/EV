@@ -90,16 +90,22 @@
       "merge_sha": null,
       "test_result": "pending",
       "evidence": "docs/evidence/integration-coverage/pr60-hosted-checkpoint.json"
+    },
+    "operating_calendar": {
+      "source_sha": "f2b56cb3191ee71d6edcbbdbda87c87f9a421cc7",
+      "merge_sha": null,
+      "test_result": "pending",
+      "evidence": "docs/evidence/operating-calendar/local-checkpoint.json"
     }
   },
   "weighted_percent": {
-    "coded": "55.76",
+    "coded": "56.40",
     "tested": "53.70",
     "merged": "53.70",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "2109973/3783780",
+    "coded": "8536417/15135120",
     "tested": "580543/1081080",
     "merged": "580543/1081080",
     "production_accepted": "0"
@@ -682,7 +688,7 @@
       "requirement": "Reservations and occupancy policy",
       "atoms": 7,
       "counts": {
-        "coded": 5,
+        "coded": 6,
         "tested": 5,
         "merged": 5,
         "production_accepted": 0
@@ -769,11 +775,11 @@
         {
           "id": "2.6.7",
           "software_atom": "Operating calendar and reservation blocks",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "operating_calendar",
+          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -1605,7 +1611,7 @@
       "requirement": "Vendor calendar/blocks/tariffs",
       "atoms": 8,
       "counts": {
-        "coded": 4,
+        "coded": 5,
         "tested": 4,
         "merged": 4,
         "production_accepted": 0
@@ -1666,11 +1672,11 @@
         {
           "id": "3.4.5",
           "software_atom": "Operating calendars/schedules",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "operating_calendar",
+          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false

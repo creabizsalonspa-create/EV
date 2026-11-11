@@ -1,3 +1,53 @@
+# 12 November 2026, 01:36 Dubai — verified local operating-calendar vertical slice; existing PR58 continuation
+
+Single completion agent; original42 categories/312 atoms and financial/source invariants
+are preserved. Main remains `b4224ddc11a0921c2e522277657888fd3025ace4` pending verified
+integration. PR84 current source `fcef152c9b7578b9551486d8404da29eca6f1e89`; PR60
+`4bad250d22de9478f89240c0c71b34af17b4e251`. Both include actual payout request-budget
+repair and corrected anonymous-bootstrap cookie race, including immediate authenticated
+logout. Hosted gates are running; prior failed sources are not reported green.
+
+Existing PR58 (`development/agent5-feature-completion`) is safely continued from the
+combined source, preserving its original head and both integration histories. Calendar
+code checkpoint `f2b56cb3191ee71d6edcbbdbda87c87f9a421cc7`; explicit dependency58->[84,60].
+No replacement branch/PR, force push, duplicate calendar or financial ledger was created.
+
+Implemented: owner opt-in calendar enforcement using existing station weekly/overnight/
+24-hour/holiday metadata, IANA zone and DST-aware whole booking windows; default advisory
+compatibility and preserved omitted flags; server-only database-immutable booking snapshots;
+new start, pending RFID replay, remote publication/online callback and pre-dispatch gates.
+Calendar closure does not fake source evidence, end active charging, discard bookings or
+change pricing. Pending commands remain unsent/cancellable. Web and canonical Flutter
+provide EN/AR control/explanations, safe acknowledgements and native station/revision/account
+validation, background privacy and localized errors. API/FRONTEND/CHARGING/VENDOR_OPS docs
+contain the precise semantics and rollback limits.
+
+Local passed: Laravel952/19341; PostgreSQL207/2431 plus27 races/383, including both
+closure/booking lock orders and both OCPP protocol callback/RFID boundaries; Flutter401
+passes/31 explicit fixture-only skips, clean analysis;19 focused widget/error tests;
+actual isolated Laravel operator/customer phone UI and native bearer booking, calendar
+closure, immutable replay, tenant denial and cancellation; scheduler9, dependency11,
+coverage14, source DOM/privacy checks and affected PHP style. Final connected calendar
+proof uses separate real actor sessions and nine ordinary authentication requests. The
+31 generic-run skips are not credited as passes; the new connected fixture test actually ran.
+Evidence: `docs/evidence/operating-calendar/local-checkpoint.json`.
+
+The broader operational rerun has passed the formerly intermittent dual-protocol remote
+and RFID demo/report lifecycle; remaining scheduled phases are still running. Earlier
+failed run remains recorded. Simulator/current-slot QA fixtures are not normal customer
+booking or physical acceptance. Normal future bookings are independently exercised.
+
+Coverage: coded56.40%, tested/merged53.70%, production0.00%;180 coded/171 tested/171 merged
+of312. Only named calendar atoms2.6.7 and3.4.5 gain coded credit. Hosted checks/verified
+merges are still required for tested/merged promotion. No broad platform/native completion.
+
+Next: finish current hosted gates and safely merge84 then60, prove/close incorporated
+historical PR heads; verify/merge58 after its dependencies and its own Android/iOS/platform
+gates. Record full operational result, update exact-source coverage, then the original
+unfinished no-show/occupancy, OCPP/OCPI, discovery, commercial, Admin/native/security atoms.
+External live hardware/PSP/roaming, configured private staging, signing/store and production
+acceptance remain unverified. No autonomous background execution is claimed.
+
 # 12 November 2026, 01:25 Dubai — preserve immediate logout; corrected current-source revalidation required
 
 Hosted jobs130791415972/130791656495 on88e37ad/1fb724f exposed a regression

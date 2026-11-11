@@ -8,7 +8,7 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 55.76% |
+| coded | 56.40% |
 | tested | 53.70% |
 | merged | 53.70% |
 | production_accepted | 0.00% |
@@ -22,7 +22,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
 | 2.4 | Location/connector details and pricing terms | 8 | 6/8 | 4/8 | 4/8 | 0/8 |
 | 2.5 | Owned and network discovery | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
-| 2.6 | Reservations and occupancy policy | 7 | 5/7 | 5/7 | 5/7 | 0/7 |
+| 2.6 | Reservations and occupancy policy | 7 | 6/7 | 5/7 | 5/7 | 0/7 |
 | 2.7 | Remote charging and monitoring | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 2.8 | Checkout, wallet, invoices, disputes | 10 | 6/10 | 6/10 | 6/10 | 0/10 |
 | 2.9 | Loyalty/rewards/promotions/referrals | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
@@ -30,7 +30,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 3.1 | Vendor onboarding/KYC/staff | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
 | 3.2 | Vendor inventory/provisioning | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 3.3 | Vendor live operations and controls | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
-| 3.4 | Vendor calendar/blocks/tariffs | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
+| 3.4 | Vendor calendar/blocks/tariffs | 8 | 5/8 | 4/8 | 4/8 | 0/8 |
 | 3.5 | Vendor finance/settlements | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 3.6 | Vendor analytics/exports | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 3.7 | Vendor plans/marketing/ads | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
@@ -126,7 +126,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.6.4` [CTM] Self-reported arrival (evidence: main638).
 - `2.6.5` [CTM] Unused booking expiry and known-unsent closure (evidence: main638).
 - `2.6.6` [—] Complete no-show/occupancy policy (evidence: none).
-- `2.6.7` [—] Operating calendar and reservation blocks (evidence: none).
+- `2.6.7` [C] Operating calendar and reservation blocks (evidence: operating_calendar).
 
 ### 2.7 Remote charging and monitoring
 
@@ -211,7 +211,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `3.4.2` [CTM] Connector maintenance gates (evidence: main638).
 - `3.4.3` [CTM] Exact simulator tariff publication web/native (evidence: main638).
 - `3.4.4` [CTM] Immutable tariff/commission snapshots (evidence: main638).
-- `3.4.5` [—] Operating calendars/schedules (evidence: none).
+- `3.4.5` [C] Operating calendars/schedules (evidence: operating_calendar).
 - `3.4.6` [—] Availability blocks and operational notices (evidence: none).
 - `3.4.7` [—] Dynamic-rate policies (evidence: none).
 - `3.4.8` [—] Full commercial tariff acceptance (evidence: none).

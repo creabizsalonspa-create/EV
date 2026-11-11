@@ -1,3 +1,13 @@
+## Current single-agent source checkpoint — 12 November 2026 (Dubai)
+
+One agent retains full-platform ownership, including finance, superseding historical
+parallel restrictions below. PR84/PR60 exact-source gates remain mandatory; existing PR58
+now adds the tested local opt-in calendar vertical slice and depends on both. Read the
+latest PROGRESS/QA headers and calendar evidence for actual code/test/merge distinctions,
+current source SHAs and exact next operations. No duplicate modules or economic source
+of truth were created. Preserve historical records and never equate simulator results
+or coded-only atom credit with production acceptance.
+
 ## Final source integration gate — 11 Nov 2026
 
 One completion agent remains authoritative. Latest actual status, tests, candidate failures/fixes, original42/312 weighted coverage and exact continuation are at the top of PROGRESS.md and QA_REPORT.md. Verified main is b4224dd; PR84/PR60 remain unmerged pending their final exact-source hosted checks. Do not infer acceptance from prior-source builds or promote candidate atoms to merged before the normal verified merge. Preserve the original branches and canonical Flutter client.
