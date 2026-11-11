@@ -154,7 +154,9 @@ jobs:
 
   staging-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Check safe staging config and prove negative test cases
@@ -192,6 +194,14 @@ jobs:
           EV_STAGING_CANARIES
       - name: Inspect staging checkout dirtiness without exposing contents
         run: git status --porcelain --untracked-files=normal
+      - name: Verify synthetic local database and secret artifacts stay out of Docker context
+        run: |
+          bash -n scripts/staging-image-exclusion-smoke
+          bash scripts/staging-image-exclusion-smoke
+      - name: Enforce clean source before commit-stamped image build
+        run: |
+          git status --short --untracked-files=normal
+          test -z "$(git status --porcelain --untracked-files=normal)"
       - name: Build pinned staging runtime and verify offline image boundaries
         run: ./scripts/staging-image-build creabiz-ev-business:ci-review
       - name: Verify PostgreSQL17 migrations, HTTP discovery and fresh private-volume ownership
@@ -234,6 +244,7 @@ jobs:
   recovery-acceptance:
     needs: [business-platform, finance-postgres, connector-postgres, staging-image, csms-recovery]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Fetch exact-run Laravel recovery evidence

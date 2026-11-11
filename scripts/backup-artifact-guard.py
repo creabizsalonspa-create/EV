@@ -140,6 +140,11 @@ def inspect(pg_dump, private_tar=None):
         require(fingerprint(private_tar, b'\x1f\x8b') == before,
                 'Private archive changed during validation')
         result['private'] = {**before, **structure}
+    # Database and private archives form one synthetic proof. Re-read the
+    # database last so a concurrent rewrite during private-tar validation
+    # cannot publish a mixed-generation PASS manifest.
+    require(fingerprint(pg_dump, b'PGDMP') == result['database'],
+            'Database archive changed during validation')
     return result
 
 def manifest_mac(record, key):

@@ -1,4 +1,8 @@
 node_modules/
+
+# Python recovery preflight and fixture bytecode are generated, not source.
+__pycache__/
+*.py[cod]
 artifacts/
 playwright-report/
 test-results/

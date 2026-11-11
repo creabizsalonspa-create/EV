@@ -26,6 +26,8 @@ x-application: &application
     LOG_CHANNEL: stderr
     LOG_LEVEL: warning
     CSMS_SIMULATOR_ENABLED: 'false'
+    CSMS_SESSION_BRIDGE_ENABLED: 'false'
+    CSMS_FAULT_WORKER_ENABLED: 'false'
     CSMS_COMMAND_WORKER_ENABLED: 'false'
     CSMS_REMOTE_AUTHORIZATION_ENABLED: 'false'
     OCPI_TEST_COMMANDS_ENABLED: 'false'

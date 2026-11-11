@@ -28,6 +28,8 @@ class Agent3SyntheticQueueRecoveryTest extends TestCase
             'queue.default' => 'database',
             'csms.command_worker_enabled' => false,
             'csms.simulator_enabled' => false,
+            'csms.session_bridge_enabled' => false,
+            'csms.fault_worker_enabled' => false,
         ]);
     }
 
@@ -89,7 +91,10 @@ class Agent3SyntheticQueueRecoveryTest extends TestCase
     public function test_command_worker_or_simulator_enabled_refuses_probe(): void
     {
         $this->makeSyntheticStore();
-        foreach (['csms.command_worker_enabled', 'csms.simulator_enabled'] as $flag) {
+        foreach ([
+            'csms.command_worker_enabled', 'csms.simulator_enabled',
+            'csms.session_bridge_enabled', 'csms.fault_worker_enabled',
+        ] as $flag) {
             config([$flag => true]);
             try {
                 (new Probe(Probe::TOKEN))->handle();

@@ -21,6 +21,9 @@ def valid():
         'ACME_EMAIL': 'operator@creabiz.example-services.com',
         'STAGING_BIND_IP': '127.0.0.1',
         'EV_IMAGE_TAG': 'sha-'+'a'*40,
+        'MAIL_MAILER': 'log',
+        'LOG_CHANNEL': 'stderr',
+        'LOG_LEVEL': 'warning',
         **{key:'false' for key in p.DISABLED},
     }
 
@@ -47,6 +50,39 @@ class PreflightTests(unittest.TestCase):
                 env[key] = value
                 with self.assertRaises(p.PreflightError):
                     p.validate_env(env)
+
+    def test_database_url_compose_and_delivery_override_fail_closed(self):
+        unsafe = {
+            'DB_URL': 'postgres://another-database.invalid/example',
+            'DATABASE_URL': 'postgres://another-database.invalid/example',
+            'COMPOSE_FILE': '/tmp/alternate-staging.yaml',
+            'COMPOSE_PROFILES': 'production',
+            'COMPOSE_PROJECT_NAME': 'external-project',
+            'COMPOSE_ENV_FILES': '/tmp/unreviewed.env',
+            'COMPOSE_DISABLE_ENV_FILE': 'true',
+            'DOCKER_HOST': 'tcp://other-host.invalid:2376',
+            'DOCKER_CONTEXT': 'another-cluster',
+            'MAIL_MAILER': 'smtp',
+            'LOG_CHANNEL': 'slack',
+            'LOG_LEVEL': 'debug',
+        }
+        for key, value in unsafe.items():
+            env = valid()
+            env[key] = value
+            with self.subTest(setting=key), self.assertRaises(p.PreflightError):
+                p.validate_env(env)
+        # Absence of logging or delivery restrictions cannot silently fall
+        # back to Laravel's stack/debug configuration.
+        for key in ('MAIL_MAILER', 'LOG_CHANNEL', 'LOG_LEVEL'):
+            env = valid()
+            env.pop(key)
+            with self.subTest(missing=key), self.assertRaises(p.PreflightError):
+                p.validate_env(env)
+        for key in ('CSMS_SESSION_BRIDGE_ENABLED', 'CSMS_FAULT_WORKER_ENABLED'):
+            env = valid()
+            env[key] = 'true'
+            with self.subTest(worker=key), self.assertRaises(p.PreflightError):
+                p.validate_env(env)
 
     def test_missing_required_fields(self):
         for key in p.REQUIRED:
@@ -213,6 +249,33 @@ class PreflightTests(unittest.TestCase):
                     (stage/'compose.yaml').write_text(changed)
                     with self.assertRaises(p.PreflightError):
                         p.check_policy(root)
+
+    def test_unreviewed_staging_service_commands_and_global_options_are_denied(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            stage = root/'infra/staging'
+            stage.mkdir(parents=True)
+            source = (ROOT/'infra/staging'/'compose.yaml').read_text()
+            for name in ('Caddyfile', 'Dockerfile'):
+                (stage/name).write_text((ROOT/'infra/staging'/name).read_text())
+            mutations = [
+                source + 'networks:\n  default:\n    external: true\n',
+                source + 'include:\n  - /tmp/unreviewed.yaml\n',
+                source.replace('command: [php, artisan, queue:work, --sleep=3, --tries=3, --timeout=90]', 'command: [php, artisan, migrate:fresh, --force]'),
+                source.replace('command: [php, artisan, schedule:work]', 'command: [php, artisan, db:wipe, --force]'),
+                source.replace('    healthcheck:\n      disable: true', '    healthcheck:\n      test: [CMD-SHELL, false]', 1),
+                source.replace('      POSTGRES_DB: ev_business', '      POSTGRES_DB: unreviewed_database'),
+                source.replace('    restart: unless-stopped', '    restart: always', 1),
+                source.replace('      STAGING_HOST: ${STAGING_HOST}', '      STAGING_HOST: unreviewed.example.invalid'),
+                source.replace('  private-storage:\n', '  private-storage:\n    driver: local\n    driver_opts:\n      type: none\n      o: bind\n      device: /host'),
+                source.replace('    file: ${EV_BUILD_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}', '    file: /host/unreviewed-ca'),
+                source.replace('        condition: service_healthy', '        condition: service_started'),
+            ]
+            for index, mutated in enumerate(mutations):
+                self.assertNotEqual(mutated, source)
+                (stage/'compose.yaml').write_text(mutated)
+                with self.subTest(index=index), self.assertRaises(p.PreflightError):
+                    p.check_policy(root)
 
     def test_duplicate_compose_services_and_environment_keys_are_rejected(self):
         with tempfile.TemporaryDirectory() as d:

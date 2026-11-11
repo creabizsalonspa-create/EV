@@ -175,3 +175,108 @@ The staging recovery preflight now requires the exact synthetic staging Compose 
 ### Effective-runtime recovery logging confinement
 
 The disposable Laravel database recovery drill already sets `LOG_CHANNEL=stderr` and `LOG_LEVEL=warning` for both temporary application containers. `recovery-runtime-guard.py` now checks those **effective Docker `Config.Env` values**, alongside the existing `MAIL_MAILER=log`, database/network/key isolation and disabled integration/charging/payment switches. A container that overrides logging to another destination, lowers the reviewed log threshold, or omits either setting fails the preflight before recovery validation can be accepted. Synthetic negative unit cases cover `LOG_CHANNEL=slack`, `LOG_LEVEL=debug` and both missing keys. This is not a guarantee that a separate Laravel compiled configuration cache is absent; actual staging acceptance still requires the verified built image, full local/hosted suites and Agent 4 review. No live logging destination, customer data or production infrastructure is modified.
+
+### Staging Compose command and external-network confinement
+
+A syntactically valid staging Compose service could previously retain the reviewed
+`command` or `healthcheck` **key** while substituting a destructive Artisan
+command or a different healthcheck **value**. Unreviewed top-level `networks`
+and `include` sections, or external volume-driver/secret changes, could also
+appear after the reviewed services and evade the service-key allowlist.
+
+The preflight now requires the five reviewed service definitions to match their
+exact expected runtime command, environment, healthcheck, mount, dependency
+and restart lines; it rejects extra or duplicated top-level Compose sections
+and enforces the existing named-volume/build-CA-secret layout. Eleven synthetic
+negative policy cases target worker/scheduler command changes, healthcheck
+replacement, altered database identity, gateway hostname/dependency changes,
+unsafe restart changes, external network/includes, host bind-volume drivers
+and build-CA path changes. Legitimate staging Compose changes must be
+re-reviewed against this narrow preflight rather than silently accepted.
+
+These checks inspect **repository configuration only**. They do not claim that
+a Docker daemon actually executed these settings, that a restore was run,
+or that production, PostgreSQL, DNS, certificates or hardware were accepted.
+
+### Staging env_file database URL and notification/logging confinement
+
+Laravel reads `DB_URL` from the environment before individual PostgreSQL host
+settings. Earlier staging preflight checks required a reviewed Compose
+`DB_HOST: database` but still permitted a non-empty `DB_URL` inherited from
+the private `.env`, potentially redirecting database access. The preflight
+now rejects `DB_URL` and `DATABASE_URL`, as well as deployment-related
+`COMPOSE_FILE`, `COMPOSE_PROFILES`, `COMPOSE_PROJECT_NAME`,
+`COMPOSE_ENV_FILES`, `COMPOSE_DISABLE_ENV_FILE`, `DOCKER_HOST` and
+`DOCKER_CONTEXT` overrides in the reviewed private staging file.
+
+The private staging file must explicitly restrict `MAIL_MAILER=log`,
+`LOG_CHANNEL=stderr` and `LOG_LEVEL=warning`. Simulator session-bridge and
+fault-worker flags must stay disabled in the private file and in the reviewed
+Compose application anchor. The sample staging environment now documents
+these synthetic-only, no-external-delivery settings. Negative tests cover
+database URL redirection, alternate Compose/daemon context, mail delivery,
+debug logging, missing logging values and enabled source workers.
+
+This is a **static configuration preflight**, not a deployed effective-runtime
+inspection. It does not prevent operators deliberately invoking Docker with
+alternative CLI files or exporting unreviewed shell environment variables;
+reviewed deployment commands and effective-container inspection remain
+separate Agent 4 acceptance gates. No live database, mail transport or
+charger was contacted.
+
+### Synthetic recovery queue probe worker isolation and formatter gate
+
+The synthetic database-queue probe must not execute when either
+`csms.session_bridge_enabled` or `csms.fault_worker_enabled` is active,
+in addition to the existing command-worker and simulator exclusions. Its
+synthetic test fixture explicitly disables those four capabilities and checks
+that enabling each one prevents the probe from writing a completed marker.
+This is isolated software-only evidence, never a live charger job.
+
+The hosted Platform job on the preceding PR #54 head reached Composer and
+`Laravel Pint --test` but stopped on three formatting findings in Agent 3's
+queue/session probe files. The queue probe constants, test import order, and
+unused test import have been corrected in the source. Until a fresh hosted
+run completes, formatter success, full PHP acceptance, Docker/Postgres
+restore and the merged integration gate remain **unverified** on this commit.
+A previous isolated PR #54 Python suite ran successfully (99 tests) on
+`ea6ec4660188230ae9ba1ba46236f97f4e82bff0`; it does not establish
+PHP tests or acceptance of the new queue-probe changes.
+
+### Effective PostgreSQL authentication and data-volume confinement
+
+The disposable recovery container inspector now rejects an unreviewed
+`POSTGRES_HOST_AUTH_METHOD=trust` or `md5` override: a strong
+`POSTGRES_PASSWORD` alone does **not** prove authenticated host connections
+when this entrypoint setting bypasses or weakens authentication. It permits
+the expected image-default mode or the explicitly reviewed
+`scram-sha-256` mode.
+
+The inspector also rejects nonempty `POSTGRES_INITDB_ARGS` and
+`POSTGRES_INITDB_WALDIR` and requires any inherited `PGDATA` directory
+to remain `/var/lib/postgresql/data`, the exact volume destination
+already checked by the runtime guard. This prevents a modified initdb
+authentication command or database/WAL path from making a disposable
+restore pass while bypassing the reviewed persistence layout.
+
+Synthetic no-Docker tests prove the reviewed baseline and explicit secure
+settings pass and reject seven adversarial database initialization/env
+variants plus a separate PostGIS trust-authentication override. This protects the recovery *evidence boundary* only; a production
+PostgreSQL authentication audit, PITR, network firewall, offsite backup
+review, and actual deployed Docker/PostGIS restore are separate gates.
+
+### Private-only Docker namespace modes in recovery containers
+
+The runtime inspector previously denied the literal Docker namespace value
+`host`, but a `container:existing-app` PID or IPC mode can also share
+another running container's namespace. That could violate isolation even
+when the reviewed network is private and the database password is synthetic.
+
+The inspector now requires default/private namespace modes for PID, IPC,
+user, cgroup and UTS namespaces. Five additional negative fixtures check
+a `container:existing-app` mode in each field. The original safe
+synthetic Docker inspection fixture still uses its default private modes.
+
+These static, synthetic tests are not proof of a real Docker container or
+PostgreSQL restore. Agent 4 must verify effective namespacing and
+cross-container isolation in a disposable acceptance environment.

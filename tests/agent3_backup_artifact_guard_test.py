@@ -164,6 +164,35 @@ class ArchiveTests(unittest.TestCase):
                 with self.assertRaises(guard.ArchiveError):
                     guard.inspect(dump, private)
 
+    def test_database_rewrite_during_private_validation_rejects_mixed_proof(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            database = root / 'db.dump'
+            private = root / 'private.tar.gz'
+            sample_db(database)
+            sample_tar(private)
+            original_inspector = guard.safe_tar
+
+            def rewrite_database_after_private_check(path):
+                result = original_inspector(path)
+                database.write_bytes(database.read_bytes() + b'concurrent-generation')
+                return result
+
+            with patch.object(guard, 'safe_tar',
+                              side_effect=rewrite_database_after_private_check):
+                with self.assertRaisesRegex(
+                        guard.ArchiveError, 'Database archive changed'):
+                    guard.inspect(database, private)
+
+            manifest = root / 'manifest.json'
+            sample_db(database)
+            args = ['--pg-dump', str(database), '--private-tar',
+                    str(private), '--manifest', str(manifest)]
+            with patch.object(guard, 'safe_tar',
+                              side_effect=rewrite_database_after_private_check):
+                self.assertEqual(guard.main(['record'] + args), 1)
+            self.assertFalse(manifest.exists())
+
     def test_named_pipe_cannot_stall_archive_or_hmac_key_reader(self):
         import os
         if not hasattr(os, 'mkfifo'):
