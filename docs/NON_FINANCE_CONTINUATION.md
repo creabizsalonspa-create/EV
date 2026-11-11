@@ -1,3 +1,7 @@
+## Final source integration gate — 11 Nov 2026
+
+One completion agent remains authoritative. Latest actual status, tests, candidate failures/fixes, original42/312 weighted coverage and exact continuation are at the top of PROGRESS.md and QA_REPORT.md. Verified main is b4224dd; PR84/PR60 remain unmerged pending their final exact-source hosted checks. Do not infer acceptance from prior-source builds or promote candidate atoms to merged before the normal verified merge. Preserve the original branches and canonical Flutter client.
+
 # Current single-owner continuation — 11 November 2026
 
 One agent now owns the entire platform, including finance, superseding the

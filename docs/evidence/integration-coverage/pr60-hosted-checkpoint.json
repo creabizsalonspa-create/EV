@@ -1,0 +1,74 @@
+{
+  "source_sha": "c55ca95021e4057fed7209706fc5efe7009cf10f",
+  "integrated_sha": null,
+  "required_checks": [
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "in_progress",
+      "conclusion": null,
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778828/job/130746392728"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "in_progress",
+      "conclusion": null,
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778828/job/130746392186"
+    },
+    {
+      "name": "hasone-native (macos-15)",
+      "status": "in_progress",
+      "conclusion": null,
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778726/job/130746389738"
+    },
+    {
+      "name": "hasone-native (ubuntu-latest)",
+      "status": "in_progress",
+      "conclusion": null,
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778726/job/130746389423"
+    },
+    {
+      "name": "business-platform",
+      "status": "in_progress",
+      "conclusion": null,
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778770/job/130746200294"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "in_progress",
+      "conclusion": null,
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778770/job/130746200260"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778770/job/130746200094"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778770/job/130746200055"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778770/job/130746199627"
+    },
+    {
+      "name": "financial-browser",
+      "status": "in_progress",
+      "conclusion": null,
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778848/job/130746199208"
+    },
+    {
+      "name": "integration-guards",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43084778887/job/130746198433"
+    }
+  ],
+  "scope": "Canonical privacy/security candidate; local full Laravel936/19185, Flutter394/30 explicit fixture skips, PostgreSQL182/2199 plus25 races/351 and actual customer/vendor/Admin browsers passed. Hosted exact-source and dependency PR84 remain pending.",
+  "production_accepted": false
+}
