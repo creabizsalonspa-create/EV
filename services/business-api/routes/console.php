@@ -65,7 +65,7 @@ Artisan::command('platform:role {email} {role} {--ticket=}', function () {
         ]);
 
         return true;
-    });
+    }, 3); // Retry only database-confirmed rolled-back concurrency conflicts.
     if ($changed === 'unverified') {
         $this->error('Verify the account email address before granting Admin access.');
 

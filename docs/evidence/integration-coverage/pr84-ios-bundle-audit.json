@@ -1,0 +1,15 @@
+{
+  "source_sha": "6e91950955a257eb1c017cea37bac80cc33f3654",
+  "workflow_run_id": 43079695636,
+  "artifact_id": 13884827659,
+  "artifact_zip_sha256": "cb893fa8b9ec7bd6467399a9b03f40f8442c07f40c807724a71a041ac1fadc86",
+  "bundle_id": "com.creabiz.creabizEv",
+  "locales": {
+    "en": "foreground privacy text verified from compiled bundle",
+    "ar": "foreground privacy text verified from compiled bundle"
+  },
+  "background_location": false,
+  "signed_release": false,
+  "physical_device_acceptance": false,
+  "scope": "Downloaded actual unsigned iOS simulator build; static compiled bundle inspection only. Full simulator UI job still pending."
+}

@@ -78,16 +78,28 @@
       "merge_sha": "b4224ddc11a0921c2e522277657888fd3025ace4",
       "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr89-hosted-checkpoint.json"
+    },
+    "pr84": {
+      "source_sha": "4fd8f2749f340618c0d39ea7109a2668aa98a094",
+      "merge_sha": null,
+      "test_result": "pending",
+      "evidence": "docs/evidence/integration-coverage/pr84-hosted-checkpoint.json"
+    },
+    "pr60": {
+      "source_sha": "c55ca95021e4057fed7209706fc5efe7009cf10f",
+      "merge_sha": null,
+      "test_result": "pending",
+      "evidence": "docs/evidence/integration-coverage/pr60-hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
-    "coded": "53.70",
+    "coded": "55.76",
     "tested": "53.70",
     "merged": "53.70",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "580543/1081080",
+    "coded": "2109973/3783780",
     "tested": "580543/1081080",
     "merged": "580543/1081080",
     "production_accepted": "0"
@@ -98,7 +110,7 @@
       "requirement": "Identity, verification, 2FA, privacy",
       "atoms": 9,
       "counts": {
-        "coded": 5,
+        "coded": 6,
         "tested": 5,
         "merged": 5,
         "production_accepted": 0
@@ -211,11 +223,11 @@
         {
           "id": "2.1.9",
           "software_atom": "Privacy/deletion requests",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr60",
+          "note": "Canonical encrypted privacy request intake/review/withdrawal only. Automated erasure/export remains uncredited.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -228,7 +240,7 @@
       "requirement": "EV garage and driver preferences",
       "atoms": 7,
       "counts": {
-        "coded": 3,
+        "coded": 6,
         "tested": 3,
         "merged": 3,
         "production_accepted": 0
@@ -276,11 +288,11 @@
         {
           "id": "2.2.4",
           "software_atom": "Vehicle model catalog",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr84",
+          "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -289,11 +301,11 @@
         {
           "id": "2.2.5",
           "software_atom": "Preferred charging speed and driver preferences",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr84",
+          "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -302,11 +314,11 @@
         {
           "id": "2.2.6",
           "software_atom": "Manual SOC",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr84",
+          "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -462,7 +474,7 @@
       "requirement": "Location/connector details and pricing terms",
       "atoms": 8,
       "counts": {
-        "coded": 4,
+        "coded": 6,
         "tested": 4,
         "merged": 4,
         "production_accepted": 0
@@ -523,11 +535,11 @@
         {
           "id": "2.4.5",
           "software_atom": "Hours and amenities",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr84",
+          "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -536,11 +548,11 @@
         {
           "id": "2.4.6",
           "software_atom": "Accessibility details",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr84",
+          "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -4167,7 +4179,7 @@
       "requirement": "RBAC/privacy/security/operations",
       "atoms": 13,
       "counts": {
-        "coded": 7,
+        "coded": 8,
         "tested": 7,
         "merged": 7,
         "production_accepted": 0
@@ -4254,11 +4266,11 @@
         {
           "id": "9.1.7",
           "software_atom": "Admin 2FA",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr84",
+          "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false

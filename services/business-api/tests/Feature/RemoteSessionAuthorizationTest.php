@@ -11,6 +11,7 @@ use App\Services\Charging\RemoteSessionAuthorization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -75,5 +76,34 @@ class RemoteSessionAuthorizationTest extends TestCase
         $this->withToken($bearer)->postJson('/api/internal/remote-session-authorize', $body)->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
         Http::assertNothingSent();
         $this->assertDatabaseCount('csms_session_links', 1);
+    }
+
+    public function test_empty_remote_authorization_schema_can_roundtrip_without_dangling_indexes(): void
+    {
+        $migration = require database_path('migrations/2026_11_08_000005_add_remote_session_authorization.php');
+        $this->assertDatabaseCount('csms_session_links', 0);
+        $migration->down();
+        $this->assertFalse(Schema::hasColumn('csms_session_links', 'remote_token_digest'));
+        $this->assertFalse(Schema::hasColumn('csms_session_links', 'remote_registration_nonce'));
+        $migration->up();
+        $this->assertTrue(Schema::hasColumns('csms_session_links', ['remote_token_digest', 'remote_registration_nonce', 'remote_authorization_id']));
+        $indexes = collect(Schema::getIndexes('csms_session_links'));
+        $this->assertTrue($indexes->contains(fn ($index) => $index['unique'] && $index['columns'] === ['remote_token_digest']));
+        $this->assertTrue($indexes->contains(fn ($index) => $index['unique'] && $index['columns'] === ['remote_registration_nonce']));
+    }
+
+    public function test_populated_remote_authorization_rollback_retains_opaque_credentials(): void
+    {
+        [, , , , $link] = $this->fixture();
+        $digest = $link->remote_token_digest;
+        $migration = require database_path('migrations/2026_11_08_000005_add_remote_session_authorization.php');
+        try {
+            $migration->down();
+            $this->fail('Retained remote credentials must block rollback.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('Preserve remote authorization history before rollback.', $error->getMessage());
+        }
+        $this->assertTrue(Schema::hasColumn('csms_session_links', 'remote_token_digest'));
+        $this->assertSame($digest, $link->fresh()->remote_token_digest);
     }
 }
