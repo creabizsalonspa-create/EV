@@ -34,7 +34,7 @@ jobs:
       - name: Print read-only candidate summary, no cancellation
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -B scripts/ci_queue_triage.py --summary-only --page-limit 12
+        run: python3 -B scripts/ci_queue_triage.py --summary-only --page-limit 30
 
   apply:
     if: ${{ inputs.apply == true }}
@@ -64,4 +64,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MAX_CANCEL: ${{ inputs.max_cancel }}
         shell: bash
-        run: python3 -B scripts/ci_queue_triage.py --apply --summary-only --max-cancel "$MAX_CANCEL" --page-limit 12
+        run: python3 -B scripts/ci_queue_triage.py --apply --summary-only --max-cancel "$MAX_CANCEL" --page-limit 30

@@ -20,6 +20,11 @@ const {BusinessClient} = require('./helpers/business-client.cjs');
   station=result.data.find(s=>s.id===target.station_id);if(station||page>=result.last_page)break;
  }
  assert(station, 'Owned fixture station must be publicly discoverable');
+ const options = await clients.customer.request(`stations/${station.id}/connectors`);
+ const expectedMapping = options.data.find(row => row.id === target.connector_mapping_id);
+ assert(expectedMapping && expectedMapping.reservable === true,
+  'Owned fixture mapping must be explicitly reservable before the browser journey');
+
  const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||'/usr/bin/chromium',args:['--no-sandbox']});
  let booking=null;
  try {
@@ -38,9 +43,30 @@ const {BusinessClient} = require('./helpers/business-client.cjs');
   const vehicle=await vehicleResponse.json();
   await p.evaluate(q=>stations('?q='+encodeURIComponent(q)),station.name);
   const card=p.locator(`#stations [data-station-id="${station.id}"]`);
+  assert.equal(await p.evaluate(() => user?.role), 'customer');
+  const connectorRead = p.waitForResponse(r =>
+   new URL(r.url()).pathname === `/api/stations/${station.id}/connectors` &&
+   r.request().method() === 'GET');
   await card.getByRole('button',{name:'Choose connector',exact:true}).click();
+  const connectorResponse = await connectorRead;
+  assert.equal(connectorResponse.status(), 200, 'Connector discovery must succeed before vehicle selection');
+  const visibleOptions = await connectorResponse.json();
+  const visibleMapping = visibleOptions.data.find(row => row.id === target.connector_mapping_id);
+  assert(visibleMapping && visibleMapping.reservable === true,
+   'The browser must receive the same available canonical mapping');
   const form=card.locator(`[data-mapping-id="${target.connector_mapping_id}"] form`);
-  await form.getByRole('button',{name:'Load compatible vehicles',exact:true}).click();
+  try {
+   await form.getByRole('button',{name:'Load compatible vehicles',exact:true}).click();
+  } catch (error) {
+   // Retain only bounded public fixture state; no cookies, accounts, text,
+   // payloads or private browser screenshots enter CI diagnostics.
+   console.error(JSON.stringify({stage:'vehicle_picker',station_id:station.id,
+    mapping_id:target.connector_mapping_id,reservable:visibleMapping.reservable,
+    role:await p.evaluate(()=>['customer','vendor','admin'].includes(user?.role)?user.role:'none'),
+    locale:await p.locator('html').getAttribute('lang'),
+    matching_forms:await form.count()}));
+   throw error;
+  }
   await form.locator(`[name=vehicle_id] option[value="${vehicle.id}"]`).waitFor({state:'attached'});
   await form.locator('[name=vehicle_id]').selectOption(String(vehicle.id));
   const day=new Date(Date.now()+86400000).toISOString().slice(0,10);

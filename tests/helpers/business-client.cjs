@@ -24,17 +24,33 @@ class BusinessClient {
     // Snapshot once so a rate-limit wait cannot alter an idempotency payload.
     const raw = body === undefined ? undefined : JSON.stringify(body);
     for (let attempt = 0; attempt < 2; attempt++) {
-      const r = await this.fetch(this.base + "/api/" + path, {
-        method,
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          Cookie: [...this.cookies].map(([k, v]) => k + "=" + v).join("; "),
-          ...(this.csrf ? { "X-CSRF-TOKEN": this.csrf } : {}),
-        },
-        body: raw,
-        signal: AbortSignal.timeout(30000),
-      });
+      let r;
+      try {
+        r = await this.fetch(this.base + "/api/" + path, {
+          method,
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Cookie: [...this.cookies].map(([k, v]) => k + "=" + v).join("; "),
+            ...(this.csrf ? { "X-CSRF-TOKEN": this.csrf } : {}),
+          },
+          body: raw,
+          signal: AbortSignal.timeout(30000),
+        });
+      } catch (error) {
+        // Unknown transport outcomes must never replay a payment, charging or
+        // diagnostic mutation. Report only the sanitized low-level error code:
+        // request paths, credentials, headers and payloads stay out of CI logs.
+        const rawCode = error?.cause?.code ?? error?.code;
+        const code = typeof rawCode === "string" && /^[A-Z][A-Z0-9_]{1,40}$/.test(rawCode)
+          ? rawCode
+          : error?.name === "TimeoutError" ? "TIMEOUT" : "NETWORK_FAILURE";
+        const verb = /^(GET|POST|PUT|PATCH|DELETE)$/.test(method) ? method : "REQUEST";
+        throw new Error(
+          "Synthetic loopback " + verb + " transport failed (" + code +
+          "); outcome unknown, no request replay",
+        );
+      }
       for (const cookie of r.headers.getSetCookie()) {
         const kv = cookie.split(";")[0],
           n = kv.indexOf("=");

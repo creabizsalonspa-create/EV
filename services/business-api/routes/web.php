@@ -1,14 +1,24 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AccountPrivacyController;
+use App\Http\Controllers\AdminAccountDirectoryController;
+use App\Http\Controllers\AdminAuditTrailController;
+use App\Http\Controllers\AdminKycQueueController;
+use App\Http\Controllers\AdminOperatorRoleHistoryController;
+use App\Http\Controllers\AdminSecondFactorController;
+use App\Http\Controllers\AdminSessionController;
+use App\Http\Controllers\AdminStaffPermissionController;
 use App\Http\Controllers\ChargerCommandController;
 use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
+use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
+use App\Http\Controllers\StationInformationController;
 use App\Http\Controllers\SupportController;
 use App\Http\Controllers\VehicleBatteryController;
 use App\Models\ChargingSession;
@@ -20,6 +30,22 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'platform');
+
+// Status/page refreshes are safe and should not consume password/code
+// challenge attempts. Every factor mutation uses the tighter auth limiter.
+Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
+    Route::get('/admin/second-factor', [AdminSecondFactorController::class, 'page']);
+    Route::get('/api/admin/second-factor/status', [AdminSecondFactorController::class, 'status']);
+});
+Route::middleware(['auth', 'throttle:authentication'])->group(function () {
+    Route::post('/api/admin/second-factor/begin', [AdminSecondFactorController::class, 'begin']);
+    Route::post('/api/admin/second-factor/confirm', [AdminSecondFactorController::class, 'confirm']);
+    Route::post('/api/admin/second-factor/verify', [AdminSecondFactorController::class, 'verify']);
+    Route::post('/api/admin/second-factor/recover', [AdminSecondFactorController::class, 'recover']);
+    Route::post('/api/admin/second-factor/reset-after-recovery', [AdminSecondFactorController::class, 'resetAfterRecovery']);
+    Route::post('/api/admin/second-factor/rotate-recovery-codes', [AdminSecondFactorController::class, 'rotateRecoveryCodes']);
+});
+
 Route::get('/api/csrf', fn () => response()->json(['token' => csrf_token()]));
 Route::middleware('throttle:authentication')->group(function () {
     Route::post('/api/register', [P::class, 'register']);
@@ -46,6 +72,24 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::put('/api/simulations/{session}/meter', [SimulationController::class, 'meter']);
     Route::post('/api/simulations/{session}/stop', [SimulationController::class, 'stop']);
 });
+
+Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/admin/sessions/revoke-all', [AdminSessionController::class, 'revokeAll'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/account/privacy-requests', [AccountPrivacyController::class, 'mine'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/account/privacy-requests', [AccountPrivacyController::class, 'submit'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/privacy-requests', [AccountPrivacyController::class, 'adminIndex'])->middleware(['auth', 'throttle:platform-api']);
+Route::patch('/api/admin/privacy-requests/{privacyCase}/review', [AccountPrivacyController::class, 'review'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/privacy-requests/{privacyCase}/reviews', [AccountPrivacyController::class, 'adminHistory'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/audit-events', [AdminAuditTrailController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/kyc-queue', [AdminKycQueueController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/permission-grants', [AdminStaffPermissionController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/admin/permission-grants/{membership}/revoke', [AdminStaffPermissionController::class, 'revoke'])->middleware(['auth', 'throttle:authentication']);
+Route::post('/api/admin/permission-grants/{membership}/release', [AdminStaffPermissionController::class, 'release'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/permission-grants/{membership}/revocations', [AdminStaffPermissionController::class, 'revocations'])->middleware(['auth', 'throttle:platform-api']);
+Route::patch('/api/admin/accounts/{target}/moderate', [AdminAccountDirectoryController::class, 'moderate'])->middleware(['auth', 'throttle:authentication']);
+Route::get('/api/admin/accounts/{target}/moderations', [AdminAccountDirectoryController::class, 'moderationHistory'])->middleware(['auth', 'throttle:platform-api']);
+
+Route::get('/api/admin/operator-role-changes', [AdminOperatorRoleHistoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/admin/overview', function (Request $r) {
     abort_unless($r->user()->role === 'admin', 403);
@@ -89,8 +133,21 @@ Route::middleware(['auth', 'throttle:support'])->group(function () {
     Route::get('/api/support/{ticket}', [$c, 'show']);
     Route::post('/api/support/{ticket}/messages', [$c, 'reply']);
     Route::patch('/api/support/{ticket}/status', [$c, 'transition']);
-    Route::get('/api/notifications', [$c, 'notifications']);
-    Route::post('/api/notifications/{notification}/read', [$c, 'read']);
+});
+
+// The existing session-backed /api routes and bearer-token /api/v1 routes
+// must expose equivalent scoped inbox operations. Inbox reads never exhaust
+// the support-ticket action allowance, and writes receive a tighter budget.
+Route::middleware(['auth', 'throttle:notification-read'])->group(function () {
+    Route::get('/api/notifications', [SupportController::class, 'notifications']);
+    Route::get('/api/notifications/summary', [NotificationCenterController::class, 'summary']);
+    Route::get('/api/notifications/preferences', [NotificationCenterController::class, 'preferences']);
+});
+Route::middleware(['auth', 'throttle:notification-write'])->group(function () {
+    Route::put('/api/notifications/preferences', [NotificationCenterController::class, 'updatePreferences']);
+    Route::post('/api/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
+    Route::post('/api/notifications/{notification}/read', [SupportController::class, 'read']);
+    Route::post('/api/notifications/{notification}/unread', [NotificationCenterController::class, 'markUnread']);
 });
 
 Route::post('/api/email/verification-notification', [AccountController::class, 'sendVerification'])
@@ -125,17 +182,27 @@ Route::get('/payments/hosted-simulation/{checkout}', function (string $checkout)
     abort_unless(app()->environment('local', 'testing') && config('payments.provider') === 'mock', 404);
 
     return response()->view('payments.hosted-return', ['simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
-})->whereNumber('checkout')->middleware('auth');
+})->where('checkout', '[0-9]{1,18}')->middleware('auth');
 
 // Server-selected corporate family; query parameters never choose an API or prove payment.
-Route::get('/payments/corporate-hosted-return', fn () => response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate'])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer'));
+Route::get('/payments/corporate-hosted-return', fn () => response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate'])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"));
 Route::get('/payments/corporate-hosted-simulation/{checkout}', function (string $checkout) {
     abort_unless(app()->environment('local', 'testing') && config('payments.provider') === 'mock', 404);
 
-    return response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate', 'simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer');
-})->whereNumber('checkout')->middleware('auth');
+    return response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate', 'simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+})->where('checkout', '[0-9]{1,18}')->middleware('auth');
 
-Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
+Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
 
-Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/privacy_requests.php');
+Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/vehicle_model_catalog.php');
+Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/vehicle_manual_soc.php');
+Route::get('/api/stations/{station}/information', [StationInformationController::class, 'show'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
+Route::put('/api/stations/{station}/information', [StationInformationController::class, 'save'])->where('station', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/vendor/stations', function (Request $r) {
+    abort_unless($r->user()->role === 'vendor', 403);
+
+    return Station::where('vendor_id', $r->user()->id)->orderByDesc('id')->paginate(25);
+})->middleware(['auth', 'throttle:platform-api']);
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/vehicle_driver_preferences.php');

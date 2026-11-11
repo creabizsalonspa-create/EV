@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'ocpi_credentials.dart';
 import 'sandbox_roaming.dart';
+import 'partner_billing.dart';
 
 String partnerOperationsTitle(BuildContext context) =>
     Localizations.localeOf(context).languageCode == 'ar'
@@ -29,12 +30,20 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
   String? module, message;
   bool busy = false, uncertain = false;
   int generation = 0;
+  final scroll = ScrollController();
   String tr(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   @override
   void initState() {
     super.initState();
     refresh();
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    scroll.dispose();
+    super.dispose();
   }
 
   Future<void> refresh({int? page}) async {
@@ -155,7 +164,10 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
           );
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (mounted && epoch == generation) {
+        setState(() => busy = false);
+        if (uncertain && scroll.hasClients) scroll.jumpTo(0);
+      }
     }
   }
 
@@ -342,6 +354,28 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
           Text(
             '${(component as Map)['type']} · ${component['price']} · ${tr('Step', 'الخطوة')} ${component['step_size']}',
           ),
+      if (row['reconciliation'] is Map &&
+          (row['reconciliation'] as Map)['credit_review'] is Map) ...[
+        Text(
+          ((row['reconciliation'] as Map)['credit_review']
+                      as Map)['reference_state'] ==
+                  'matched'
+              ? tr(
+                  'Credit CDR original reference matched',
+                  'تطابق مرجع سجل الشحن الأصلي للإشعار الدائن',
+                )
+              : tr(
+                  'Credit CDR original reference requires review',
+                  'يتطلب مرجع سجل الشحن الأصلي للإشعار الدائن المراجعة',
+                ),
+        ),
+        Text(
+          tr(
+            'A source reference does not approve a refund or change the original invoice.',
+            'لا يعني مرجع المصدر الموافقة على استرداد أو تغيير الفاتورة الأصلية.',
+          ),
+        ),
+      ],
       if (row['reconciliation'] is Map) ...[
         Text(
           (row['reconciliation'] as Map)['status'] == 'source_consistent'
@@ -379,6 +413,7 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(partnerOperationsTitle(context))),
     body: ListView(
+      controller: scroll,
       padding: const EdgeInsets.all(16),
       children: [
         Text(
@@ -498,6 +533,25 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
                           ),
                         ),
                     ],
+                    TextButton(
+                      onPressed: busy
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => PartnerBillingPage(
+                                  api: widget.api,
+                                  providerId: p['id'],
+                                  onExpired: widget.onExpired,
+                                ),
+                              ),
+                            ),
+                      child: Text(
+                        tr(
+                          'Partner billing reconciliation',
+                          'مطابقة فوترة الشريك',
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),

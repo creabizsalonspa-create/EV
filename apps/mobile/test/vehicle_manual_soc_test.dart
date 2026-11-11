@@ -1,0 +1,350 @@
+import 'package:creabiz_ev/api.dart';
+import 'package:creabiz_ev/vehicle_manual_soc.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// Deterministic contract fixture. Real HTTP transport is covered by api_test.dart
+/// and the Laravel manual-SOC feature tests; widget tests must not create sockets
+/// under Flutter's fake-async test binding.
+class _SocApi extends EvApi {
+  _SocApi() : super(Uri.parse('https://example.invalid'));
+  final writes = <Map<String, dynamic>>[];
+  final requestPaths = <String>[];
+  Completer<void>? holdVehicle17;
+  bool failReadbackOnce = false;
+  bool hideHistoryOnce = false;
+  bool staleCurrentOnce = false;
+  bool denyNewAccount = false;
+  bool supersedeAfterPost = false;
+  int? earlierPercent;
+  int revision = 0;
+  int? percent;
+  int otherRevision = 4;
+  int otherPercent = 80;
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    requestPaths.add('$method $path');
+    if (path == 'vehicles/18/manual-soc' && method == 'GET') {
+      return {
+        'vehicle_id': 18, 'revision': otherRevision,
+        'battery_percent': otherPercent,
+        'source': 'CUSTOMER_MANUAL_SELF_REPORT',
+        'measured_by_phone': false, 'measured_by_vehicle_api': false,
+        'charging_capability_verified': false,
+        'reported_at': '2026-11-07T14:00:00+00:00',
+      };
+    }
+    if (path == 'vehicles/18/manual-soc/history' && method == 'GET') {
+      return {
+        'current_page': 1, 'last_page': 1, 'total': 1,
+        'data': [{
+          'vehicle_id': 18, 'battery_percent': otherPercent,
+          'revision': otherRevision, 'reported_at': '2026-11-07T14:00:00+00:00',
+          'source': 'CUSTOMER_MANUAL_SELF_REPORT',
+        }],
+      };
+    }
+    if (path == 'vehicles/18/manual-soc' && method == 'POST') {
+      writes.add(Map<String, dynamic>.from(body!));
+      if (body['expected_revision'] != otherRevision) {
+        throw const ApiException(409, 'stale vehicle 18');
+      }
+      otherPercent = body['battery_percent'] as int;
+      otherRevision++;
+      return {'vehicle_id': 18, 'revision': otherRevision,
+        'battery_percent': otherPercent, 'source': 'CUSTOMER_MANUAL_SELF_REPORT'};
+    }
+    if (path == 'vehicles/17/manual-soc' && method == 'GET') {
+      if (denyNewAccount) throw const ApiException(404, 'Vehicle not owned');
+      if (holdVehicle17 != null) await holdVehicle17!.future;
+      if (revision > 0 && failReadbackOnce) {
+        failReadbackOnce = false;
+        throw const ApiException(503, 'readback failed after accepted POST');
+      }
+      if (revision > 0 && staleCurrentOnce) {
+        staleCurrentOnce = false;
+        return {
+          'vehicle_id': 17, 'revision': revision - 1,
+          'battery_percent': null,
+          'source': 'CUSTOMER_MANUAL_SELF_REPORT',
+          'measured_by_phone': false, 'measured_by_vehicle_api': false,
+          'charging_capability_verified': false,
+        };
+      }
+      return {
+        'vehicle_id': 17, 'revision': revision, 'battery_percent': percent,
+        'source': 'CUSTOMER_MANUAL_SELF_REPORT',
+        'measured_by_phone': false, 'measured_by_vehicle_api': false,
+        'charging_capability_verified': false,
+        'reported_at': percent == null ? null : '2026-11-07 14:00:00',
+        'replayed': false,
+      };
+    }
+    if (path == 'vehicles/17/manual-soc/history' && method == 'GET') {
+      final suppress = revision > 0 && hideHistoryOnce;
+      if (suppress) hideHistoryOnce = false;
+      return {
+        'current_page': 1, 'last_page': 1, 'total': revision,
+        'data': revision == 0 || suppress ? [] : [
+          {'vehicle_id': 17, 'battery_percent': percent, 'revision': revision,
+            'reported_at': '2026-11-07 14:00:00',
+            'source': 'CUSTOMER_MANUAL_SELF_REPORT'},
+          if(earlierPercent!=null)
+            {'vehicle_id':17,'battery_percent':earlierPercent,
+              'revision':revision-1,'reported_at':'2026-11-07 13:59:00',
+              'source':'CUSTOMER_MANUAL_SELF_REPORT'},
+        ],
+      };
+    }
+    if (path == 'vehicles/17/manual-soc' && method == 'POST') {
+      final submitted = Map<String, dynamic>.from(body!);
+      final replay = writes.any((prior) =>
+        prior['operation_key'] == submitted['operation_key']);
+      writes.add(submitted);
+      if (replay) {
+        return {'revision': revision, 'battery_percent': percent,
+          'source': 'CUSTOMER_MANUAL_SELF_REPORT'};
+      }
+      if (submitted['expected_revision'] != revision) {
+        throw const ApiException(409, 'stale report');
+      }
+      revision++;
+      percent = submitted['battery_percent'] as int;
+      final acceptedRevision=revision, acceptedPercent=percent;
+      if(supersedeAfterPost){
+        earlierPercent=percent;
+        revision++;
+        percent=28;
+      }
+      // The POST acknowledges the submitted observation, while a separate
+      // current-state GET may already reflect another device's newer report.
+      return {'revision': acceptedRevision, 'battery_percent': acceptedPercent,
+        'source': 'CUSTOMER_MANUAL_SELF_REPORT',
+        'measured_by_phone': false, 'measured_by_vehicle_api': false};
+    }
+    throw ApiException(404, 'Unknown test endpoint $path');
+  }
+}
+
+void main() {
+  testWidgets('customer explicitly records a battery estimate with source labels',
+      (tester) async {
+    final api = _SocApi();
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('phone does not measure vehicle SOC'), findsOneWidget);
+      expect(find.text('No report yet.'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '61');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(1));
+      expect(api.writes.single['battery_percent'], 61);
+      expect(api.writes.single['expected_revision'], 0);
+      expect((api.writes.single['operation_key'] as String).length, 36);
+      expect(find.text('Manual battery report recorded.'), findsOneWidget);
+      expect(find.textContaining('Latest estimate: 61%'), findsOneWidget);
+    } finally {
+      api.close();
+    }
+  });
+  testWidgets('post-commit readback failure keeps same-key retry in native SOC',
+      (tester) async {
+    final api = _SocApi()..failReadbackOnce = true;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '61');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(1));
+      expect(find.text('Retry identical report'), findsOneWidget);
+      expect(find.byKey(const Key('manual-soc-error')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(2));
+      expect(api.writes[1]['operation_key'], api.writes[0]['operation_key']);
+      expect(api.writes[1]['expected_revision'], api.writes[0]['expected_revision']);
+      expect(find.text('Manual battery report recorded.'), findsOneWidget);
+      expect(find.text('Save manual report'), findsOneWidget);
+    } finally {
+      api.close();
+    }
+  });
+
+  testWidgets('native manual SOC resets when a reused widget switches vehicle',
+      (tester) async {
+    final api = _SocApi()..holdVehicle17 = Completer<void>();
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pump();
+      expect(api.requestPaths, contains('GET vehicles/17/manual-soc'));
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 18, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(api.requestPaths, contains('GET vehicles/18/manual-soc'));
+      expect(find.textContaining('Latest estimate: 80%'), findsOneWidget);
+      api.holdVehicle17!.complete();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Latest estimate: 80%'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '55');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.requestPaths, contains('POST vehicles/18/manual-soc'));
+      expect(api.writes.last['expected_revision'], 4);
+      expect(api.writes.last['battery_percent'], 55);
+    } finally {
+      if (!(api.holdVehicle17?.isCompleted ?? true)) api.holdVehicle17!.complete();
+      api.close();
+    }
+  });
+
+  testWidgets('reused same-vehicle view clears prior account SOC and input on session change',
+      (tester) async {
+    final api = _SocApi()..revision = 1..percent = 73;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Latest estimate: 73%'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '42');
+      // An auth epoch change can reuse the same EvApi object and vehicle id;
+      // neither the old percentage nor the pending edit may remain visible.
+      api.denyNewAccount = true;
+      await api.forgetSession();
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Latest estimate: 73%'), findsNothing);
+      expect(find.text('73%'), findsNothing);
+      expect(find.byKey(const Key('manual-soc-percent')), findsNothing);
+      expect(find.byKey(const Key('manual-soc-error')), findsOneWidget);
+      expect(api.writes, isEmpty);
+    } finally {
+      api.close();
+    }
+  });
+
+  testWidgets('stale current readback preserves pending report and original retry key',
+      (tester) async {
+    final api = _SocApi()..staleCurrentOnce = true;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '61');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.revision, 1, reason: 'Server accepted the first write');
+      expect(find.text('Manual battery report recorded.'), findsNothing);
+      expect(find.text('Retry identical report'), findsOneWidget);
+      expect(find.byKey(const Key('manual-soc-error')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.revision, 1, reason: 'Retry must not create a second observation');
+      expect(api.writes, hasLength(2));
+      expect(api.writes.last['operation_key'], api.writes.first['operation_key']);
+      expect(find.text('Manual battery report recorded.'), findsOneWidget);
+    } finally {
+      api.close();
+    }
+  });
+
+  testWidgets('native refresh confirms an accepted report without second POST',
+      (tester) async {
+    final api=_SocApi()..failReadbackOnce=true;
+    try{
+      await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+        api:api,vehicleId:17,onExpired:(){},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')),'54');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1));
+      expect(find.text('Retry identical report'),findsOneWidget);
+      final refresh=find.text('Refresh from server');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1),
+        reason:'Readback refresh cannot repeat an already accepted POST');
+      expect(find.text('Manual battery report recorded.'),findsOneWidget);
+      expect(find.text('Save manual report'),findsOneWidget);
+      expect(find.textContaining('Latest estimate: 54%'),findsOneWidget);
+    }finally{api.close();}
+  });
+
+  testWidgets('native manual SOC distinguishes superseded accepted observation',
+      (tester) async {
+    final api=_SocApi()..supersedeAfterPost=true;
+    try{
+      await tester.pumpWidget(MaterialApp(home:VehicleManualSocView(
+        api:api,vehicleId:17,onExpired:(){},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')),'54');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes,hasLength(1));
+      expect(api.revision,2);
+      expect(find.textContaining('a newer battery report is now the latest'),
+        findsOneWidget);
+      expect(find.textContaining('Latest estimate: 28%'),findsOneWidget);
+      expect(find.text('Save manual report'),findsOneWidget);
+      expect(find.text('Retry identical report'),findsNothing);
+    }finally{api.close();}
+  });
+
+  testWidgets('missing history readback cannot mark a battery report confirmed',
+      (tester) async {
+    final api = _SocApi()..hideHistoryOnce = true;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleManualSocView(
+        api: api, vehicleId: 17, onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('manual-soc-percent')), '37');
+      await tester.ensureVisible(find.byKey(const Key('manual-soc-save')));
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.revision, 1);
+      expect(find.text('Manual battery report recorded.'), findsNothing);
+      expect(find.text('Retry identical report'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('manual-soc-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(2));
+      expect(api.writes.first['operation_key'], api.writes.last['operation_key']);
+      expect(api.revision, 1);
+      expect(find.text('Manual battery report recorded.'), findsOneWidget);
+      expect(find.textContaining('Latest estimate: 37%'), findsOneWidget);
+    } finally {
+      api.close();
+    }
+  });
+
+}

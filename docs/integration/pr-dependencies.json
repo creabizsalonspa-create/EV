@@ -6,7 +6,8 @@
       53
     ],
     "61": [
-      59
+      59,
+      64
     ],
     "63": [
       61
@@ -24,7 +25,7 @@
   },
   "notes": {
     "56": "Vehicle reservation link stacks on Agent 1 battery-discovery PR #53.",
-    "61": "Charging-invoice UI stacks on canonical OCPI invoice PR #59.",
+    "61": "Charging-invoice UI requires canonical OCPI invoice PR #59 and the reviewed security/demo integration fixes in PR #64. Both must be verified and merged first.",
     "63": "Credit CDR review stacks on charging-invoice UI PR #61.",
     "67": "Superseded PR-event provenance child of Agent 4 PR #57; never merge out of order.",
     "69": "Credit refund review stacks on credit CDR provenance PR #63 (transitively #61 and #59).",

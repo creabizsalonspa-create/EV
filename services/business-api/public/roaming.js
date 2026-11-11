@@ -1017,6 +1017,21 @@ window.createRoamingWorkspace = ({
                     button(card, `Roaming ${module}`, () =>
                         records(provider, module, detail),
                     );
+                button(card, "Partner billing reconciliation", () => {
+                    const epoch = generation,
+                        version = ++details;
+                    detail.replaceChildren();
+                    window.mountPartnerBilling({
+                        root: detail,
+                        provider,
+                        api,
+                        actor,
+                        ui,
+                        signal: privateRequest.signal,
+                        valid: () =>
+                            epoch === generation && version === details,
+                    });
+                });
                 button(card, "Roaming credentials", () =>
                     credentialWorkspace(provider, detail),
                 );
@@ -1300,6 +1315,17 @@ window.createRoamingWorkspace = ({
                 card.append(
                     ui("p", "Source comparison does not authorize billing"),
                 );
+                if (report.credit_review) {
+                    card.append(
+                        ui(
+                            "p",
+                            report.credit_review.reference_state === "matched"
+                                ? "Credit CDR original reference matched"
+                                : "Credit CDR original reference requires review",
+                        ),
+                        ui("p", "Credit reference does not authorize a refund"),
+                    );
+                }
                 for (const issue of report.issues || [])
                     card.append(
                         ui(

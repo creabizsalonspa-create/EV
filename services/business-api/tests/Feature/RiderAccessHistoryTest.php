@@ -55,7 +55,12 @@ class RiderAccessHistoryTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($operator)->assertNotFound();
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($operator)->assertOk()->assertJsonCount(2, 'data');
         $vendor->forceFill(['role' => 'customer'])->save();
-        $this->actingAs($vendor->fresh())->getJson($operator)->assertNotFound();
+        // A changed role invalidates the old browser grant before ownership
+        // scoping is checked; after fresh login the foreign grant is still 404.
+        $this->actingAs($vendor->fresh())->getJson($operator)->assertUnauthorized();
+        $this->actingAs($vendor->fresh())
+            ->withSession(['account_auth_epoch' => $vendor->fresh()->auth_epoch])
+            ->getJson($operator)->assertNotFound();
         $this->assertDatabaseCount('charger_commands', 0);
         $this->assertDatabaseCount('finance_invoices', 0);
     }

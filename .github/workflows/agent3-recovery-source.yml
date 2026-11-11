@@ -1,0 +1,118 @@
+name: Agent 3 recovery source verification
+
+on:
+  push:
+    branches:
+      - development/agent3-disaster-recovery-acceptance
+    paths:
+      - '.github/workflows/agent3-recovery-source.yml'
+      - 'scripts/backup-artifact-guard.py'
+      - 'scripts/recovery-*.py'
+      - 'scripts/recovery_proof_writer.py'
+      - 'scripts/staging-recovery-smoke'
+      - 'scripts/csms-recovery-smoke'
+      - 'scripts/staging-release-preflight.py'
+      - 'tests/agent3_*_test.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent3-recovery-source-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-negative-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run existing recovery negative tests without Docker
+        run: python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q
+      - name: Parse existing disposable recovery shell scripts
+        run: |
+          bash -n scripts/staging-recovery-smoke
+          bash -n scripts/csms-recovery-smoke
+
+  business-restore:
+    needs: source-negative-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate staging configuration without privileged deployment
+        run: |
+          python3 -B -m unittest discover -s tests -p agent3_staging_preflight_test.py
+          python3 scripts/staging-release-preflight.py --output artifacts/agent3-preflight/validation.json
+      - name: Verify synthetic local database and secret artifacts stay out of Docker context
+        run: |
+          bash -n scripts/staging-image-exclusion-smoke
+          bash scripts/staging-image-exclusion-smoke
+      - name: Enforce clean source before commit-stamped image build
+        run: |
+          git status --short --untracked-files=normal
+          test -z "$(git status --porcelain --untracked-files=normal)"
+      - name: Build reviewed staging image without deployment
+        run: ./scripts/staging-image-build creabiz-ev-business:ci-review
+      - name: Verify isolated PostgreSQL17 migrations and private-storage ownership
+        run: ./scripts/staging-image-smoke creabiz-ev-business:ci-review
+      - name: Execute disposable PostgreSQL/Laravel backup and restore drill
+        run: bash scripts/staging-recovery-smoke creabiz-ev-business:ci-review
+      - name: Retain bounded synthetic business recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent3-run-business-recovery
+          path: artifacts/agent3-recovery/validation.json
+          if-no-files-found: warn
+
+  csms-restore:
+    needs: source-negative-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify isolated PostGIS recovery policy
+        run: python3 -B -m unittest discover -s tests -p agent3_csms_recovery_policy_test.py
+      - name: Execute disposable PostGIS16 snapshot and restore drill
+        run: bash scripts/csms-recovery-smoke
+      - name: Retain bounded synthetic CSMS recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent3-run-csms-recovery
+          path: artifacts/agent3-csms-recovery/validation.json
+          if-no-files-found: warn
+
+  same-run-evidence:
+    needs: [business-restore, csms-restore]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read same-run business evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: agent3-run-business-recovery
+          path: artifacts/agent3-input/business
+      - name: Read same-run PostGIS evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: agent3-run-csms-recovery
+          path: artifacts/agent3-input/csms
+      - name: Reject inconsistent or stale synthetic recovery proof
+        run: |
+          python3 scripts/recovery-evidence-gate.py \
+            --business artifacts/agent3-input/business/validation.json \
+            --csms artifacts/agent3-input/csms/validation.json \
+            --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --output artifacts/agent3-accepted-summary.json
+      - name: Retain explicitly non-production synthetic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent3-same-run-synthetic-summary
+          path: artifacts/agent3-accepted-summary.json
+          if-no-files-found: error

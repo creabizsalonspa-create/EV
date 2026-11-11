@@ -16,6 +16,6 @@ class VendorCompanyStaff extends Model
 
     protected function casts(): array
     {
-        return ['permissions' => 'array', 'invitation_version' => 'integer', 'accepted_at' => 'immutable_datetime'];
+        return ['permissions' => 'array', 'invitation_version' => 'integer', 'accepted_at' => 'immutable_datetime', 'admin_revoked_at' => 'immutable_datetime'];
     }
 }

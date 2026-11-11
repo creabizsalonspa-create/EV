@@ -17,7 +17,8 @@ const httpPass=()=>({ok:true,results:routes.map(x=>({path:x.path,status:x.kind==
 const argv=(output)=>['--source-sha',SHA,'--url',url,'--output',output];
 function fixture(extra={}){
   return {getHead:()=>SHA,checkReleaseIdle:()=>true,
-    inspectEnv:()=>({host:HOST,checker:()=>[],env_digest:'b'.repeat(64)}),
+    inspectEnv:()=>({host:HOST,checker:()=>[],env_digest:'b'.repeat(64),
+      env_identity_digest:'c'.repeat(64)}),
     inspectEffective:()=>true,inspectImages:proof,checkHttp:async()=>httpPass(),
     now:()=> '2026-11-08T03:30:00.000Z',...extra};
 }
@@ -194,7 +195,8 @@ test('replaced private environment content during HTTPS probe prevents false rea
   const result=await gate.inspect(gate.parseArgs(argv('report.json')),fixture({
     inspectEnv:()=>{
       attempts++;
-      return {host:HOST,checker:()=>[],env_digest:(attempts===1?'b':'c').repeat(64)};
+      return {host:HOST,checker:()=>[],env_digest:(attempts===1?'b':'c').repeat(64),
+        env_identity_digest:'d'.repeat(64)};
     }
   }));
   assert.equal(result.status,'INCOMPLETE');
@@ -202,6 +204,43 @@ test('replaced private environment content during HTTPS probe prevents false rea
   assert.equal(result.checks.private_https_routes,true);
   assert.equal(result.checks.private_environment_stable_after_http,false);
 });
+test('same private environment bytes with changed real ancestor identity fail after HTTPS',async()=>{
+  let reads=0;
+  const result=await gate.inspect(gate.parseArgs(argv('report.json')),fixture({
+    inspectEnv:()=>({host:HOST,checker:()=>[],env_digest:'b'.repeat(64),
+      env_identity_digest:(++reads===1?'c':'d').repeat(64)})
+  }));
+  assert.equal(reads,2);
+  assert.equal(result.status,'INCOMPLETE');
+  assert.equal(result.checks.private_https_routes,true);
+  assert.equal(result.checks.private_environment_stable_after_http,false);
+});
+test('missing environment inode and ancestor proof blocks inspection before Docker or HTTPS',async()=>{
+  let runtimeChecks=0;
+  const result=await gate.inspect(gate.parseArgs(argv('report.json')),fixture({
+    inspectEnv:()=>({host:HOST,checker:()=>[],env_digest:'b'.repeat(64)}),
+    inspectImages:()=>{runtimeChecks++;return proof();},
+    checkHttp:async()=>{runtimeChecks++;return httpPass();}
+  }));
+  assert.equal(result.status,'INCOMPLETE');
+  assert.equal(runtimeChecks,0);
+});
+test('private env read rejects symlinked ancestors and multiply linked regular files',async()=>privatePath(async(_output,dir)=>{
+  const real=path.join(dir,'real'),nested=path.join(real,'private');
+  fs.mkdirSync(real,{mode:0o700});
+  fs.mkdirSync(nested,{mode:0o700});
+  const file=path.join(nested,'private.env');
+  fs.writeFileSync(file,'APP_KEY=SYNTHETIC_ONLY\nDB_PASSWORD=synthetic\n',{mode:0o600});
+  assert.ok(gate.readPrivateEnv(file).includes(Buffer.from('SYNTHETIC_ONLY')));
+  const alias=path.join(dir,'alias');
+  fs.symlinkSync(real,alias);
+  assert.throws(()=>gate.readPrivateEnv(path.join(alias,'private','private.env')));
+  const second=path.join(nested,'second.env');
+  fs.linkSync(file,second);
+  assert.throws(()=>gate.readPrivateEnv(file));
+  fs.unlinkSync(second);
+  assert.ok(gate.readPrivateEnv(file).includes(Buffer.from('SYNTHETIC_ONLY')));
+}));
 test('private staging env read rejects public modes, symlinks and invalid file types',async()=>privatePath(async(_output,dir)=>{
   const file=path.join(dir,'private.env');
   fs.writeFileSync(file,'APP_KEY=SYNTHETIC_ONLY\nDB_PASSWORD=synthetic\n',{mode:0o600});

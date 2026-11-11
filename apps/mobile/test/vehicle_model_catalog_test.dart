@@ -1,0 +1,313 @@
+import 'package:creabiz_ev/api.dart';
+import 'package:creabiz_ev/vehicle_model_catalog.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// Deterministic widget contract. Actual HTTP transport is tested by api_test
+/// and tenant-specific model-link rules by VehicleModelCatalogTest.php.
+class _ModelsApi extends EvApi {
+  _ModelsApi({this.forAdmin = false}) : super(Uri.parse('https://example.invalid'));
+  final bool forAdmin;
+  final writes = <Map<String, dynamic>>[];
+  int? selectedModel;
+  final catalogQueries = <Map<String, String>>[];
+  final requestPaths = <String>[];
+  Completer<void>? holdVehicle12;
+  bool denyNewAccount = false;
+  bool poisonNextVehicleGet=false, poisonNextCatalogGet=false, poisonNextSave=false;
+
+  final model = <String, dynamic>{
+    'id': 4, 'make': 'Test brand', 'model': 'Demo E', 'variant': null,
+    'model_year': 2026, 'connector_type': 'CCS2',
+    'source_url': 'https://example.com/catalog/demo-e',
+    'published': true, 'revision': 1,
+    'provenance': 'ADMIN_CURATED_UNVERIFIED',
+  };
+  Map<String,dynamic> get secondModel => {
+    ...model,
+    'id':5,
+    'model':'Second compatible',
+    'source_url':'https://example.com/catalog/second',
+  };
+  Map<String,dynamic> get type2Model => {
+    ...model,
+    'id':6,
+    'model':'Type2 compatible',
+    'connector_type':'Type2',
+    'source_url':'https://example.com/catalog/type2',
+  };
+
+  @override
+  Future<dynamic> request(String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    requestPaths.add('$method $path');
+    if (denyNewAccount && method == 'GET') {
+      throw const ApiException(404, 'No access in changed account');
+    }
+    if (path == 'vehicles/13/model' && method == 'GET') {
+      return {
+        'vehicle_id': 13, 'vehicle_connector_type': 'Type2',
+        'model_id': null, 'model': null, 'published': false,
+        'does_not_override_connector': true,
+      };
+    }
+    if (path == 'vehicles/12/model' && method == 'GET') {
+      if (holdVehicle12 != null) await holdVehicle12!.future;
+      final bad=poisonNextVehicleGet;
+      poisonNextVehicleGet=false;
+      return {
+        'vehicle_id': bad ? 999 : 12, 'vehicle_connector_type': 'CCS2',
+        'model_id': selectedModel, 'model': selectedModel == null
+          ? null : (selectedModel == 5 ? secondModel : model),
+        'published': selectedModel != null,
+        'does_not_override_connector': true,
+      };
+    }
+    if (path == 'vehicle-models' && method == 'GET') {
+      catalogQueries.add(Map<String, String>.from(query));
+      // Simulate a server catalog with many unrelated connector types.
+      // Without server-side connector filtering the first page is empty.
+      final visible = forAdmin ? <Map<String,dynamic>>[]
+          : query['connector_type'] == 'CCS2'
+              ? <Map<String,dynamic>>[model, secondModel]
+              : query['connector_type'] == 'Type2'
+                  ? <Map<String,dynamic>>[type2Model]
+                  : <Map<String,dynamic>>[];
+      final bad=poisonNextCatalogGet;
+      poisonNextCatalogGet=false;
+      return {
+        'current_page': 1, 'last_page': 1, 'total': visible.length,
+        'data': bad && visible.isNotEmpty
+          ? [{...visible.first,'provenance':'MANUFACTURER_CERTIFIED'}]
+          : visible,
+      };
+    }
+    if (path == 'vehicles/13/model' && method == 'PUT') {
+      final payload = Map<String, dynamic>.from(body!);
+      writes.add(payload);
+      return {
+        'vehicle_id': 13, 'model_id': payload['model_id'],
+        'vehicle_connector_type': 'Type2',
+        'does_not_override_connector': true,
+        'model': payload['model_id'] == null ? null : type2Model,
+      };
+    }
+    if (path == 'vehicles/12/model' && method == 'PUT') {
+      final payload = Map<String, dynamic>.from(body!);
+      writes.add(payload);
+      selectedModel = payload['model_id'] as int?;
+      final bad=poisonNextSave;
+      poisonNextSave=false;
+      return {
+        'vehicle_id': bad ? 999 : 12, 'model_id': selectedModel,
+        'vehicle_connector_type': 'CCS2',
+        'does_not_override_connector': true,
+        'model': selectedModel == null ? null : model,
+      };
+    }
+    if (path == 'vehicle-models' && method == 'POST') {
+      final payload = Map<String, dynamic>.from(body!);
+      writes.add(payload);
+      return {...payload, 'id': 7, 'revision': 1};
+    }
+    throw ApiException(404, 'Unexpected test endpoint: $method $path');
+  }
+}
+
+void main() {
+  testWidgets('customer links a curated compatible model without changing connector',
+      (tester) async {
+    final api = _ModelsApi();
+    try {
+      await tester.pumpWidget(MaterialApp(
+        home: VehicleModelAssociationView(
+          api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Test brand Demo E'), findsWidgets);
+      expect(find.textContaining('not manufacturer-verified'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('model-link-save')));
+      await tester.tap(find.byKey(const Key('model-link-save')));
+      await tester.pumpAndSettle();
+      expect(api.catalogQueries.single['connector_type'], 'CCS2');
+      expect(api.writes, hasLength(1));
+      expect(api.writes.single['model_id'], 4);
+      expect(api.writes.single['expected_model_id'], null);
+      expect(find.text('Vehicle model association saved.'), findsOneWidget);
+    } finally {
+      api.close();
+    }
+  });
+
+
+  testWidgets('saved compatible link is preselected when filtered models reload',
+      (tester) async {
+    final api = _ModelsApi()..selectedModel = 5;
+    try {
+      await tester.pumpWidget(MaterialApp(
+        home: VehicleModelAssociationView(
+          api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.catalogQueries.single['connector_type'], 'CCS2');
+      final picker = tester.widget<DropdownButtonFormField<int>>(
+        find.byKey(const ValueKey('model-options-1-5')),
+      );
+      expect(picker.initialValue, 5);
+      expect(find.textContaining('Linked: Test brand Second compatible'), findsOneWidget);
+      expect(api.writes, isEmpty);
+    } finally {api.close();}
+  });
+
+  testWidgets('native model picker rejects wrong vehicle and uncertified source replies',
+      (tester) async {
+    final api=_ModelsApi()..poisonNextVehicleGet=true;
+    try {
+      await tester.pumpWidget(MaterialApp(home:VehicleModelAssociationView(
+        api:api,vehicleId:12,vehicleConnector:'CCS2',onExpired:(){},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('model-link-error')),findsOneWidget);
+      expect(find.textContaining('Unexpected vehicle model response'),findsOneWidget);
+      expect(find.byKey(const Key('model-link-save')),findsNothing,
+        reason:'Wrong-vehicle link must not open an editable model picker');
+      api.poisonNextCatalogGet=true;
+      await tester.tap(find.text('Refresh catalog'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Unexpected curated vehicle catalog'),findsOneWidget);
+      expect(find.byKey(const Key('model-link-save')),findsNothing,
+        reason:'Uncertified catalog provenance cannot be labeled curated');
+      await tester.tap(find.text('Refresh catalog'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('model-link-save')),findsOneWidget);
+      api.poisonNextSave=true;
+      await tester.ensureVisible(find.byKey(const Key('model-link-save')));
+      await tester.tap(find.byKey(const Key('model-link-save')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Unexpected vehicle model save response'),findsOneWidget);
+      expect(find.text('Vehicle model association saved.'),findsNothing);
+      expect(api.writes,hasLength(1));
+    } finally {api.close();}
+  });
+
+  testWidgets('Admin can create a source-backed unpublished catalog record',
+      (tester) async {
+    final api = _ModelsApi(forAdmin: true);
+    try {
+      await tester.pumpWidget(MaterialApp(
+        home: AdminVehicleModelCatalogView(api: api, onExpired: () {}),
+      ));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('admin-model-make')), 'Test maker');
+      await tester.enterText(find.byKey(const Key('admin-model-model')), 'E city');
+      await tester.enterText(
+        find.byKey(const Key('admin-model-source')),
+        'https://example.com/source',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('admin-model-save')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('admin-model-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(1));
+      expect(api.writes.single['make'], 'Test maker');
+      expect(api.writes.single['model'], 'E city');
+      expect(api.writes.single['published'], false);
+      expect(api.writes.single['source_url'], 'https://example.com/source');
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('admin-model-success')),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Catalog record saved.'), findsOneWidget);
+    } finally {
+      api.close();
+    }
+  });
+  testWidgets('reused native model picker resets connector and ignores former vehicle GET',
+      (tester) async {
+    final api = _ModelsApi()..holdVehicle12 = Completer<void>();
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleModelAssociationView(
+        api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+      )));
+      await tester.pump();
+      expect(api.requestPaths, contains('GET vehicles/12/model'));
+      await tester.pumpWidget(MaterialApp(home: VehicleModelAssociationView(
+        api: api, vehicleId: 13, vehicleConnector: 'Type2', onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(api.requestPaths, contains('GET vehicles/13/model'));
+      expect(api.catalogQueries.last['connector_type'], 'Type2');
+      expect(find.textContaining('Test brand Type2 compatible'), findsWidgets);
+      api.holdVehicle12!.complete();
+      await tester.pumpAndSettle();
+      expect(api.catalogQueries.last['connector_type'], 'Type2',
+        reason: 'Old model GET must not trigger a stale connector query');
+      expect(find.textContaining('Test brand Type2 compatible'), findsWidgets);
+      await tester.ensureVisible(find.byKey(const Key('model-link-save')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('model-link-save')));
+      await tester.pumpAndSettle();
+      expect(api.requestPaths.last, 'PUT vehicles/13/model');
+      expect(api.writes.last['model_id'], 6);
+    } finally {
+      if (!(api.holdVehicle12?.isCompleted ?? true)) api.holdVehicle12!.complete();
+      api.close();
+    }
+  });
+
+  testWidgets('same vehicle/API after session change hides previous account model link',
+      (tester) async {
+    final api = _ModelsApi()..selectedModel = 5;
+    try {
+      await tester.pumpWidget(MaterialApp(home: VehicleModelAssociationView(
+        api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Linked: Test brand Second compatible'), findsOneWidget);
+      api.denyNewAccount = true;
+      await api.forgetSession();
+      await tester.pumpWidget(MaterialApp(home: VehicleModelAssociationView(
+        api: api, vehicleId: 12, vehicleConnector: 'CCS2', onExpired: () {},
+      )));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Linked: Test brand Second compatible'), findsNothing);
+      expect(find.byKey(const Key('model-link-save')), findsNothing);
+      expect(api.writes,isEmpty);
+    } finally {api.close();}
+  });
+
+  testWidgets('reused Admin catalog clears former account private editor fields',
+      (tester) async {
+    final api = _ModelsApi(forAdmin: true);
+    try {
+      await tester.pumpWidget(MaterialApp(home:
+        AdminVehicleModelCatalogView(api: api, onExpired: () {})));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('admin-model-make')), 'Old admin private draft');
+      await tester.enterText(find.byKey(const Key('admin-model-model')), 'Unpublished private vehicle');
+      api.denyNewAccount = true;
+      await api.forgetSession();
+      await tester.pumpWidget(MaterialApp(home:
+        AdminVehicleModelCatalogView(api: api, onExpired: () {})));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('admin-model-make'))).controller!.text, '');
+      expect(tester.widget<TextFormField>(
+        find.byKey(const Key('admin-model-model'))).controller!.text, '');
+      expect(find.textContaining('Old admin private draft'), findsNothing);
+      expect(api.writes,isEmpty);
+    } finally {api.close();}
+  });
+
+}

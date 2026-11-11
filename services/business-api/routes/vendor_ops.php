@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ChargerCertificateController;
 use App\Http\Controllers\ChargerConfigurationController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerDiagnosticsController;
@@ -26,6 +27,7 @@ Route::post('/companies/{company}/staff', [V::class, 'invite']);
 Route::get('/staff-invitations', [V::class, 'invitations']);
 Route::post('/staff-invitations/{membership}/accept', [V::class, 'accept']);
 Route::delete('/companies/{company}/staff/{membership}', [V::class, 'revoke']);
+Route::patch('/companies/{company}/staff/{membership}/permissions', [V::class, 'updateStaffPermissions']);
 Route::get('/companies/{company}/catalog-stations', [V::class, 'catalogStations']);
 Route::get('/companies/{company}/sites', [V::class, 'sites']);
 Route::post('/companies/{company}/sites', [V::class, 'createSite']);
@@ -36,7 +38,7 @@ Route::post('/companies/{company}/chargers/{charger}/connectors', [V::class, 'cr
 Route::patch('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance', [V::class, 'maintenance']);
 Route::get('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows', [MaintenanceWindowController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows', [MaintenanceWindowController::class, 'create']);
-Route::delete('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows/{window}', [MaintenanceWindowController::class, 'cancel'])->whereNumber('window');
+Route::delete('/companies/{company}/chargers/{charger}/connectors/{connector}/maintenance-windows/{window}', [MaintenanceWindowController::class, 'cancel'])->where('window', '[0-9]{1,18}');
 
 Route::patch('/companies/{company}', [V::class, 'updateCompany']);
 Route::get('/companies/{company}/reviews', [V::class, 'reviews']);
@@ -50,10 +52,10 @@ Route::get('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissio
 Route::get('/companies/{company}/chargers/{charger}/source-diagnostics', ChargerDiagnosticsController::class);
 Route::get('/companies/{company}/chargers/{charger}/configuration-reads', [ChargerConfigurationController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/configuration-reads', [ChargerConfigurationController::class, 'create']);
-Route::post('/companies/{company}/chargers/{charger}/configuration-reads/{operation}/observe', [ChargerConfigurationController::class, 'observe'])->whereNumber('operation');
+Route::post('/companies/{company}/chargers/{charger}/configuration-reads/{operation}/observe', [ChargerConfigurationController::class, 'observe'])->where('operation', '[0-9]{1,18}');
 Route::post('/companies/{company}/chargers/{charger}/fault-alerts/inspect', [ChargerDiagnosticsController::class, 'inspect']);
 Route::get('/companies/{company}/chargers/{charger}/fault-alerts', [ChargerDiagnosticsController::class, 'alerts']);
-Route::patch('/companies/{company}/chargers/{charger}/fault-alerts/{alert}/acknowledge', [ChargerDiagnosticsController::class, 'acknowledge'])->whereNumber('alert');
+Route::patch('/companies/{company}/chargers/{charger}/fault-alerts/{alert}/acknowledge', [ChargerDiagnosticsController::class, 'acknowledge'])->where('alert', '[0-9]{1,18}');
 Route::post('/companies/{company}/chargers/{charger}/admission', [ChargerAdmissionController::class, 'configure']);
 Route::post('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'credential']);
 Route::delete('/companies/{company}/chargers/{charger}/admission/credential', [ChargerAdmissionController::class, 'revoke']);
@@ -62,27 +64,31 @@ Route::get('/companies/{company}/chargers/{charger}/admission/events', [ChargerA
 
 Route::get('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/reset-operations', [ChargerResetController::class, 'create']);
-Route::post('/companies/{company}/chargers/{charger}/reset-operations/{operation}/review', [ChargerResetController::class, 'review'])->whereNumber('operation');
+Route::post('/companies/{company}/chargers/{charger}/reset-operations/{operation}/review', [ChargerResetController::class, 'review'])->where('operation', '[0-9]{1,18}');
 
 Route::get('/companies/{company}/firmware-releases', [ChargerFirmwareController::class, 'releases']);
 Route::post('/companies/{company}/firmware-releases', [ChargerFirmwareController::class, 'approve']);
-Route::delete('/companies/{company}/firmware-releases/{release}', [ChargerFirmwareController::class, 'revoke'])->whereNumber('release');
+Route::delete('/companies/{company}/firmware-releases/{release}', [ChargerFirmwareController::class, 'revoke'])->where('release', '[0-9]{1,18}');
 Route::get('/companies/{company}/chargers/{charger}/firmware-operations', [ChargerFirmwareController::class, 'operations']);
 Route::post('/companies/{company}/chargers/{charger}/firmware-operations', [ChargerFirmwareController::class, 'deploy']);
-Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/review', [ChargerFirmwareController::class, 'review'])->whereNumber('operation');
+Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/review', [ChargerFirmwareController::class, 'review'])->where('operation', '[0-9]{1,18}');
 
-Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/cancel', [ChargerFirmwareController::class, 'cancel'])->whereNumber('operation');
+Route::post('/companies/{company}/chargers/{charger}/firmware-operations/{operation}/cancel', [ChargerFirmwareController::class, 'cancel'])->where('operation', '[0-9]{1,18}');
 
 Route::get('/companies/{company}/chargers/{charger}/repair-orders', [ChargingRepairController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/repair-orders', [ChargingRepairController::class, 'save']);
-Route::get('/companies/{company}/chargers/{charger}/repair-orders/{order}/history', [ChargingRepairController::class, 'history'])->whereNumber('order');
+Route::get('/companies/{company}/chargers/{charger}/repair-orders/{order}/history', [ChargingRepairController::class, 'history'])->where('order', '[0-9]{1,18}');
 
 Route::get('/companies/{company}/chargers/{charger}/diagnostic-logs', [ChargerDiagnosticLogController::class, 'index']);
 Route::post('/companies/{company}/chargers/{charger}/diagnostic-logs', [ChargerDiagnosticLogController::class, 'create']);
-Route::post('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}/observe', [ChargerDiagnosticLogController::class, 'observe'])->whereNumber('operation');
-Route::get('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}/download', [ChargerDiagnosticLogController::class, 'download'])->whereNumber('operation');
-Route::delete('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'cancel'])->whereNumber('operation');
+Route::post('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}/observe', [ChargerDiagnosticLogController::class, 'observe'])->where('operation', '[0-9]{1,18}');
+Route::get('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}/download', [ChargerDiagnosticLogController::class, 'download'])->where('operation', '[0-9]{1,18}');
+Route::delete('/companies/{company}/chargers/{charger}/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'cancel'])->where('operation', '[0-9]{1,18}');
 
 Route::get('/companies/{company}/operational-analytics', [OperationalAnalyticsController::class, 'show']);
 Route::get('/companies/{company}/operational-analytics/export', [OperationalAnalyticsController::class, 'export']);
 Route::get('/companies/{company}/operational-analytics/pdf', [OperationalAnalyticsController::class, 'pdf']);
+
+Route::get('/companies/{company}/chargers/{charger}/admission/certificates', [ChargerCertificateController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/admission/certificates/resolve', [ChargerCertificateController::class, 'resolve']);
+Route::post('/companies/{company}/chargers/{charger}/admission/certificates/{action}', [ChargerCertificateController::class, 'apply'])->whereIn('action', ['enroll', 'revoke']);

@@ -72,7 +72,7 @@ class ChargerFirmwareController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['note' => 'required|string|min:10|max:2000']);
 
-        return DB::transaction(function () use ($r, $company, $release) {
+        return DB::transaction(function () use ($r, $company, $release, $v) {
             VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             $row = DB::table('charger_firmware_releases')->where('company_id', $company->id)->where('id', $release)->lockForUpdate()->first();
             abort_unless($row, 404);

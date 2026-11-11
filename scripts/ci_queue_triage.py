@@ -10,6 +10,7 @@ import argparse
 from collections import Counter
 import json
 import os
+import re
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -20,7 +21,7 @@ PROTECTED = frozenset((
     "development/platform-foundation",
     "main", "master",
 ))
-MAX_PAGE_COUNT = 12
+MAX_PAGE_COUNT = 30
 
 
 def _int(value):
@@ -66,7 +67,7 @@ def classify(run, heads, by_number, paired, repo=REPO):
     """Return a narrowly justified obsolete-work reason, or None to protect."""
     if run.get("status") != "queued" or not _int(run.get("id")):
         return None
-    if (run.get("repository") or {}).get("full_name", repo) != repo:
+    if (run.get("repository") or {}).get("full_name") != repo:
         return None
     branch, sha, event = (
         run.get("head_branch"), run.get("head_sha"), run.get("event"))
@@ -81,7 +82,9 @@ def classify(run, heads, by_number, paired, repo=REPO):
         if not isinstance(links, list) or not links:
             return None
         numbers = {p.get("number") for p in links if isinstance(p, dict)}
-        if not numbers or any(n not in by_number for n in numbers):
+        if (not numbers or any(n not in by_number for n in numbers)
+                or any(not _same_repository(by_number[n], repo)
+                       for n in numbers)):
             return None
         if all(by_number[n].get("head", {}).get("sha") != sha for n in numbers):
             return "superseded_pr_head"
@@ -132,17 +135,95 @@ class Github:
             return json.load(response) if method == "GET" else response.status
 
     def pages(self, suffix, key, limit=MAX_PAGE_COUNT):
+        """Never treat GitHub's 1,000-run result ceiling as a complete queue.
+
+        Some Actions responses report >1,000 queued runs on page one but
+        return an empty page eleven. Compare the reported total with every
+        row actually retrieved, including when a later page reports zero.
+        """
         out = []
+        expected_total = None
         for index in range(1, limit + 1):
             sep = "&" if "?" in suffix else "?"
             payload = self.request(suffix + sep + "per_page=100&page=" + str(index))
+            if isinstance(payload, dict):
+                reported = payload.get("total_count")
+                if type(reported) is int and reported >= 0:
+                    expected_total = max(expected_total or 0, reported)
             rows = payload if isinstance(payload, list) else payload.get(key)
             if not isinstance(rows, list):
                 raise ValueError("Unexpected GitHub pagination response")
             out.extend(rows)
             if len(rows) < 100:
-                return out, False
+                return out, expected_total is not None and len(out) < expected_total
         return out, True
+
+
+    def queued_pages(self, limit=MAX_PAGE_COUNT):
+        """Recover older queued runs hidden behind GitHub's 1,000-result cap.
+
+        Never authorize cancellation if result IDs, pagination totals or
+        creation timestamps cannot be reconciled to a fresh API count.
+        """
+        source = "/actions/runs?status=queued"
+        latest, incomplete = self.pages(source, "workflow_runs", limit=limit)
+        if not incomplete:
+            return latest, False
+        if not latest:
+            return [], True
+
+        by_id = {}
+        for item in latest:
+            if not _int(item.get("id")):
+                return latest, True
+            by_id[item["id"]] = item
+        if len(by_id) != len(latest):
+            return latest, True
+
+        def oldest(items):
+            stamps = [item.get("created_at") for item in items]
+            if any(not isinstance(x, str) or
+                   not re.fullmatch(
+                       r"[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+                       r"[0-9]{2}:[0-9]{2}:[0-9]{2}Z", x)
+                   for x in stamps):
+                return None
+            return min(stamps)
+
+        cutoff = oldest(latest)
+        if cutoff is None:
+            return latest, True
+        # Include the cutoff second twice and deduplicate by run ID to avoid
+        # dropping runs that share a timestamp at the pagination boundary.
+        for _ in range(20):
+            older, still_incomplete = self.pages(
+                source + "&created=1970-01-01T00:00:00Z.." + cutoff,
+                "workflow_runs", limit=limit)
+            if not older:
+                return list(by_id.values()), True
+            old_cutoff = oldest(older)
+            if old_cutoff is None:
+                return list(by_id.values()), True
+            for run in older:
+                if not _int(run.get("id")):
+                    return list(by_id.values()), True
+                by_id[run["id"]] = run
+            if not still_incomplete:
+                break
+            if old_cutoff >= cutoff:
+                return list(by_id.values()), True
+            cutoff = old_cutoff
+        else:
+            return list(by_id.values()), True
+
+        # Other agents may push/cancel work during scanning; never authorize
+        # action using a partial or temporally inconsistent API snapshot.
+        final = self.request(source + "&per_page=1")
+        reported = final.get("total_count")
+        result = list(by_id.values())
+        if type(reported) is not int or reported != len(result):
+            return result, True
+        return result, False
 
 
 def inspect(github, page_limit=MAX_PAGE_COUNT):
@@ -151,8 +232,7 @@ def inspect(github, page_limit=MAX_PAGE_COUNT):
                                        limit=page_limit)
     # GitHub's PR list returns a JSON array rather than a named collection.
     # This is handled by Github.pages below without weakening validation.
-    runs, runs_truncated = github.pages("/actions/runs?status=queued",
-                                         "workflow_runs", limit=page_limit)
+    runs, runs_truncated = github.queued_pages(limit=page_limit)
     if prs_truncated:
         raise ValueError("Open PR enumeration truncated; refuse stale-run decisions")
     heads, by_number, paired = build_context(prs, runs, github.repo)
@@ -190,29 +270,37 @@ def cancel_candidates(github, report, max_cancel):
     cancelled, skipped, errors = [], [], []
     for candidate in report["candidates"][:max_cancel]:
         try:
-            # Never apply a stale dry-run decision after another agent pushes.
+            # Current-head duplicate pushes are informational only: they
+            # need an independently revalidated PR-event run. Never cancel
+            # them merely because a matching job existed in a past snapshot.
+            if candidate["reason"] == "duplicate_feature_push_with_pr_event":
+                skipped.append(candidate["id"])
+                continue
+            if candidate["reason"] not in ("superseded_pr_head",
+                                           "superseded_feature_push"):
+                skipped.append(candidate["id"])
+                continue
+            # Recheck the selected run and CURRENT open-PR head list, rather
+            # than downloading >1,000 queued runs again for every candidate.
+            # The initial complete scan is mandatory and checked above.
+            path = "/actions/runs/" + str(candidate["id"])
+            current = github.request(path)
             prs, truncated = github.pages("/pulls?state=open", "pull_requests")
             if truncated:
                 raise ValueError("PR inventory truncated before cancellation")
-            queued, queue_truncated = github.pages("/actions/runs?status=queued",
-                                                    "workflow_runs")
-            if queue_truncated:
-                raise ValueError("Queued runs exceeded safe scan limit")
-            heads, by_number, paired = build_context(prs, queued, github.repo)
-            current = next((r for r in queued if r.get("id") == candidate["id"]),
-                           None)
-            if (current is None or
-                    classify(current, heads, by_number, paired, github.repo)
-                    != candidate["reason"]):
+            heads, by_number, _ = build_context(prs, [], github.repo)
+            if classify(current, heads, by_number, set(), github.repo) != candidate["reason"]:
                 skipped.append(candidate["id"])
                 continue
             # Last status/refetch guard before POST; never intentionally
             # cancel in-progress jobs. GitHub state can still race between
             # GET and POST; operators must inspect the returned outcome.
-            latest = github.request("/actions/runs/" + str(candidate["id"]))
+            latest = github.request(path)
             if (latest.get("status") != "queued"
                     or latest.get("head_sha") != candidate["sha"]
-                    or latest.get("event") != candidate["event"]):
+                    or latest.get("event") != candidate["event"]
+                    or latest.get("head_branch") != candidate["branch"]
+                    or latest.get("repository", {}).get("full_name") != github.repo):
                 skipped.append(candidate["id"])
                 continue
             github.request("/actions/runs/" + str(candidate["id"]) + "/cancel",
@@ -235,7 +323,7 @@ def main(argv=None):
     p.add_argument("--page-limit", type=int, default=MAX_PAGE_COUNT)
     args = p.parse_args(argv)
     if args.page_limit < 1 or args.page_limit > MAX_PAGE_COUNT:
-        p.error("--page-limit must be within 1..12")
+        p.error(f"--page-limit must be within 1..{MAX_PAGE_COUNT}")
     try:
         token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
         if args.apply and not token:

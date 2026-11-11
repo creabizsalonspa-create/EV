@@ -14,12 +14,14 @@ class ChargerDiagnosticsView extends StatefulWidget {
   final EvApi api;
   final int companyId, chargerId;
   final VoidCallback onExpired;
+  final bool openFaultAlerts;
   const ChargerDiagnosticsView({
     super.key,
     required this.api,
     required this.companyId,
     required this.chargerId,
     required this.onExpired,
+    this.openFaultAlerts = false,
   });
   @override
   State<ChargerDiagnosticsView> createState() => _DiagnosticsState();
@@ -37,7 +39,16 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
   @override
   void initState() {
     super.initState();
-    load();
+    if (widget.openFaultAlerts) {
+      // Sequential loads prevent a later alert query from invalidating the
+      // diagnostic response's request generation. No POST/PATCH is performed.
+      () async {
+        await load();
+        if (mounted) await loadAlerts();
+      }();
+    } else {
+      load();
+    }
   }
 
   Future<void> load({int? before}) async {

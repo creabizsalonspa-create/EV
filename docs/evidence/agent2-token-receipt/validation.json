@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-07",
+  "parent_commit": "2e8c1520515d45736ea0e739863ffe23eb178db2",
+  "scope": "One-time credential receipt lifecycle and authoritative UI recovery",
+  "regression": {
+    "parent": "Hidden-tab delayed response restored Reveal token control",
+    "fixed": "Receipt discarded and mutation authority reloaded without automatic write replay"
+  },
+  "results": {
+    "node_guards": 104,
+    "callback_http": 13,
+    "backend_ocpp": 109,
+    "next_typescript": "passed",
+    "next_webpack_build": "passed",
+    "mocked_chrome": 13,
+    "actual_api_chrome": 9,
+    "backend_with_actual_browser": 110,
+    "wrapper_exit": 0,
+    "test_port_3453_released": true
+  },
+  "source_sha256": {
+    "integrations/hasone-next-admin/OcppBookingWorkflow.tsx": "c76535d198bdc79dd84591c0ddd86c26f13146f125814d3f431ed991bd4fb319",
+    "tools/agent2/test_next_admin_multicharger_browser.mjs": "b5ab53cb61da80b586dea2a09f3195838f58126a91a39427c4bdccd2518c09fd",
+    "tools/agent2/test_actual_admin_browser.mjs": "41128507b8d3535d638413e1f7c47dbd75abcc589f49074573f2dae04c6e2929"
+  },
+  "logs": {
+    "before": {
+      "path": "/home/hasio/agent2-work/pr50-token-delivery-before.log",
+      "sha256": "16abe50104d59dade9ad91cbdf7d0d4089d71544c760149c6394c5538fada48d"
+    },
+    "final": {
+      "path": "/home/hasio/agent2-work/pr50-token-delivery-final.log",
+      "sha256": "cb7b6ef02fb1ce2e3da104a85ea23f9af85a7ae91591f1696dbd8f79b40e34ad"
+    }
+  },
+  "hosted_checks": "separate required integration gate",
+  "production_changed": false,
+  "physical_or_psp_acceptance": false
+}

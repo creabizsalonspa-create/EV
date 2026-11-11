@@ -14,6 +14,11 @@ async function withCredentialsFixture(
 ) {
   if (billing) roaming = true;
   const reuse = process.env.EV_OCPI_REUSE_PHP === "1";
+  const phpContainer = process.env.EV_OCPI_PHP_CONTAINER || "ev-business-api";
+  assert(
+    !reuse || /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(phpContainer),
+    "Invalid fixture container name.",
+  );
   assert(
     !reuse || roaming,
     "Existing PHP reuse is only supported for guarded roaming fixtures.",
@@ -143,7 +148,7 @@ async function withCredentialsFixture(
       execFileSync(
         "docker",
         reuse
-          ? [...execArgs(), "ev-business-api", "php", ...seed]
+          ? [...execArgs(), phpContainer, "php", ...seed]
           : ["run", "--rm", ...args, ...seed],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       ),
@@ -163,7 +168,7 @@ async function withCredentialsFixture(
           ...execArgs().slice(0, 1),
           "-d",
           ...execArgs().slice(1),
-          "ev-business-api",
+          phpContainer,
           "sh",
           "-c",
           `echo $$ > /tmp/ev-roaming-${run}.pid; exec php -S 127.0.0.1:${port} -t public tests/Fixtures/roaming-router.php`,
@@ -206,7 +211,14 @@ async function withCredentialsFixture(
       forwarder = net.createServer((socket) => {
         const relay = spawn(
           "docker",
-          ["exec", "-i", "ev-business-api", "php", "tests/Fixtures/roaming-relay.php", String(port)],
+          [
+            "exec",
+            "-i",
+            phpContainer,
+            "php",
+            "tests/Fixtures/roaming-relay.php",
+            String(port),
+          ],
           { stdio: ["pipe", "pipe", "ignore"] },
         );
         const channel = { socket, relay };
@@ -249,9 +261,7 @@ async function withCredentialsFixture(
             execFileSync(
               "docker",
               [
-                ...(reuse
-                  ? [...execArgs(), "ev-business-api"]
-                  : ["exec", name]),
+                ...(reuse ? [...execArgs(), phpContainer] : ["exec", name]),
                 "php",
                 "tests/Fixtures/roaming-source.php",
                 run,
@@ -280,7 +290,7 @@ async function withCredentialsFixture(
           "docker",
           [
             "exec",
-            "ev-business-api",
+            phpContainer,
             "php",
             "tests/Fixtures/stop-roaming-server.php",
             run,

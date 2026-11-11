@@ -1,0 +1,136 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\User;
+use App\Security\AdminTotp;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class AdminSessionMfaIntegrationTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_password_only_admin_cannot_read_private_surfaces_or_moderate_accounts(): void
+    {
+        if (! is_file(app_path('Security/AdminTotp.php'))) {
+            $this->markTestSkipped('PR80 Admin MFA has not yet been integrated.');
+        }
+        config()->set('admin_security.enforce_in_local_tests', true);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $customer = User::factory()->create(['role' => 'customer']);
+        $secretEmail = $customer->email;
+        $readOnly = [
+            '/api/admin/overview',
+            '/api/admin/accounts',
+            '/api/admin/kyc-queue',
+            '/api/admin/permission-grants',
+            '/api/admin/privacy-requests',
+            '/api/admin/audit-events',
+            '/api/admin/operator-role-changes',
+            '/api/vendor-ops/companies',
+        ];
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk()->assertJsonPath('admin_second_factor_required', true);
+
+        foreach ($readOnly as $uri) {
+            $this->getJson($uri)->assertForbidden()
+                ->assertJsonPath('admin_second_factor_required', true)
+                ->assertDontSee($secretEmail);
+        }
+        $moderation = "/api/admin/accounts/{$customer->id}/moderate";
+        $this->patchJson($moderation, [
+            'expected_status' => 'active',
+            'account_status' => 'suspended',
+            'reason' => 'Synthetic MFA security regression confirmation.',
+        ])->assertForbidden()->assertJsonPath('admin_second_factor_required', true);
+        $this->assertDatabaseHas('users', [
+            'id' => $customer->id, 'account_status' => 'active',
+        ]);
+        $this->assertDatabaseCount('audit_events', 0);
+        // The API group is not a session-bound Admin portal. Browser MFA
+        // must not silently unlock the native API on the same account.
+        $this->getJson('/api/v1/me')->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
+
+        $secret = $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'password',
+        ])->assertOk()->json('secret');
+        $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep($secret, intdiv(now()->timestamp, 30)),
+        ])->assertOk()->assertJsonPath('verified', true);
+
+        foreach ($readOnly as $uri) {
+            $this->getJson($uri)->assertOk();
+        }
+        $this->getJson('/api/v1/me')->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
+        $this->patchJson($moderation, [
+            'expected_status' => 'active',
+            'account_status' => 'suspended',
+            'reason' => 'Synthetic MFA security regression confirmation.',
+        ])->assertOk()->assertJsonPath('account_status', 'suspended');
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.account.suspended',
+            'subject' => (string) $customer->id,
+        ]);
+    }
+
+    public function test_password_revoke_all_requires_a_fresh_admin_factor_when_mfa_is_installed(): void
+    {
+        // PR72 is independently testable before Agent4 integrates PR80. This
+        // cross-PR acceptance test executes in the combined source tree, and
+        // explicitly reports the missing integration dependency in isolation.
+        if (! is_file(app_path('Security/AdminTotp.php'))) {
+            $this->markTestSkipped('Admin TOTP source from PR80 is not yet integrated.');
+        }
+        config()->set('admin_security.enforce_in_local_tests', true);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $oldToken = $admin->createToken('prior-mobile', ['platform'], now()->addDay())
+            ->accessToken->id;
+
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk()->assertJsonPath('admin_second_factor_required', true);
+
+        // A correctly supplied password alone must not bypass mandatory
+        // Admin TOTP, including on this self-revocation endpoint.
+        $this->postJson('/api/admin/sessions/revoke-all', ['password' => 'password'])
+            ->assertForbidden()->assertJsonPath('admin_second_factor_required', true);
+        $this->assertDatabaseHas('personal_access_tokens', ['id' => $oldToken]);
+        $this->assertDatabaseCount('audit_events', 0);
+
+        $secret = $this->postJson('/api/admin/second-factor/begin', [
+            'password' => 'password',
+        ])->assertOk()->json('secret');
+        $this->postJson('/api/admin/second-factor/confirm', [
+            'code' => AdminTotp::codeAtStep(
+                $secret, intdiv(now()->timestamp, 30)
+            ),
+        ])->assertOk()->assertJsonPath('verified', true);
+
+        $this->postJson('/api/admin/sessions/revoke-all', ['password' => 'password'])
+            ->assertNoContent();
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $oldToken]);
+        $this->assertSame(1, $admin->fresh()->auth_epoch);
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $admin->id,
+            'action' => 'admin.sessions.revoked_all',
+            'subject' => (string) $admin->id,
+        ]);
+        $this->getJson('/api/admin/overview')->assertUnauthorized();
+
+        // A new password login is not an MFA grant; authenticator is still
+        // enrolled and a fresh code will be required on the next device.
+        $this->postJson('/api/login', [
+            'email' => $admin->email, 'password' => 'password',
+        ])->assertOk()->assertJsonPath('admin_second_factor_required', true);
+        $this->getJson('/api/admin/overview')->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
+        $this->assertDatabaseCount('admin_second_factors', 1);
+    }
+}

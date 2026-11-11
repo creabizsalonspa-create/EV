@@ -94,6 +94,14 @@ void main() {
         reason: 'Guarded synthetic approval must succeed',
       );
       expect(jsonDecode(approve.stdout)['status'], 'approved');
+      // Customer-to-vendor approval rotates the authorization epoch. The old
+      // session must fail closed; a fresh sign-in obtains the vendor grant.
+      await expectLater(
+        api.request('me'),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 401)),
+      );
+      final promoted = await api.signIn(f['owner'], f['password']);
+      expect(promoted.role, 'vendor');
       expect((await api.request('me'))['role'], 'vendor');
       expect((await api.request('$base/reviews'))['total'], 1);
       final catalog = await api.request('$base/catalog-stations');

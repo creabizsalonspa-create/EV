@@ -1,3 +1,4 @@
+import 'station_information.dart';
 import 'charging_reviews.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
@@ -502,6 +503,10 @@ class CatalogViewState extends State<CatalogView> {
                           textDirection: TextDirection.ltr,
                         ),
                         Text(s.t('unknownAvailability')),
+                        StationInformationPanel(
+                          information: station.information,
+                          timezone: station.timezone,
+                        ),
                         if (widget.discoveryApi != null)
                           TextButton(
                             onPressed: () => Navigator.of(context).push(

@@ -32,6 +32,9 @@ class CommercialFinanceTest extends TestCase
     public function test_customer_request_vendor_review_credit_note_and_private_report(): void
     {
         [$u,$v,$i] = $this->fixture();
+        $this->actingAs($u)->getJson('/api/finance/invoices/'.$i->id.'/source-credits')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('invoice_id', $i->id)
+            ->assertJsonPath('total', 0)->assertJsonPath('financial_authority', false)->assertJsonCount(0, 'data');
         $body = ['amount_minor' => 60, 'reason' => 'Service issue', 'idempotency_key' => 'refund-one'];
         $a = $this->actingAs($u)->postJson("/api/finance/invoices/$i->id/refund-requests", $body)->assertCreated()->json();
         $this->postJson("/api/finance/invoices/$i->id/refund-requests", $body)->assertOk()->assertJsonPath('id', $a['id']);

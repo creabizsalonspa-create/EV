@@ -60,8 +60,14 @@ test('world/group-readable secret files refused', {skip:process.platform==='win3
   try {
     const parent=path.join(base,'client-demo');fs.mkdirSync(parent,{mode:0o700});
     const dir=path.join(parent,run);fs.mkdirSync(dir,{mode:0o700});
-    const file=path.join(dir,'access.json');fs.writeFileSync(file,JSON.stringify(fixture()),{mode:0o644});
-    assert.throws(()=>inspectManifest(file));
+    const file=path.join(dir,'access.json');fs.writeFileSync(file,JSON.stringify(fixture()),{mode:0o600});
+    // Creation modes are masked by the caller's umask. Explicitly make only
+    // this disposable synthetic fixture unsafe, then verify the real mode.
+    for (const mode of [0o640, 0o604, 0o644]) {
+      fs.chmodSync(file,mode);
+      assert.equal(fs.statSync(file).mode & 0o777,mode);
+      assert.throws(()=>inspectManifest(file));
+    }
   }finally{fs.rmSync(base,{recursive:true,force:true});}
 });
 test('symlinked secret file refused',()=>{

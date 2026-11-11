@@ -1,0 +1,40 @@
+{
+  "source_blobs": {
+    "apps/hasone-customer/lib/feature/Booking/UI/screen/charging_screen.dart": "d48dbab49a571cb753ad3a20037f997c737c16f9",
+    "apps/hasone-customer/test/source_status_test.dart": "847c0e6c3099efc94875dfa96f8dab51dc17358c",
+    "apps/hasone-customer/test/source_progress_test.dart": "ce97a40d70a0638c9aa908938837669f57466e65",
+    "apps/hasone-customer/test/source_recovery_test.dart": "c1e451945897d2a5c80d9f1903b1ceef544322e4"
+  },
+  "restricted_log_sha256": {
+    "recovery-flutter-tests-v5.log": "c33681bda8e7efaf818c02800394608b2d6fd270e348425333e92d794fb78702",
+    "recovery-flutter-analysis-v5.log": "c2f774024ac91dbf2e5000d8c8ab8a6d9ce762ae1a446ba90a6f2a33bae787ce"
+  },
+  "status": "STAGED_VERIFIED_NOT_MERGED",
+  "owner": "Agent 2",
+  "branch": "development/agent2-mobile-source-history",
+  "parent_commit": "20ba05478829794bdf67ba87dffe2737e41e983a",
+  "requirements": [
+    {
+      "id": "2.7.5",
+      "scope": "Read recovery and identity fencing without replay",
+      "full_atom_credit": false
+    },
+    {
+      "id": "2.7.9",
+      "scope": "Interrupted source-status read UX subset",
+      "full_atom_credit": false
+    }
+  ],
+  "results": {
+    "flutter_passed": 49,
+    "default_opt_in_skips": 3,
+    "new_recovery_widget_tests": 6,
+    "changed_file_analysis": "No issues found"
+  },
+  "boundaries": [
+    "Read-only refresh; no command/payment action",
+    "Account change checked before request and before accepting a reply; no global session infrastructure changes",
+    "Existing backend/native API evidence belongs to prior progress source checkpoint",
+    "Full incident UX, canonical resource capacity/expiry/finance and required hosted/native/Agent4 integration remain unfinished"
+  ]
+}

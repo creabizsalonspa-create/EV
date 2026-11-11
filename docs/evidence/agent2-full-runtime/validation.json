@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-07",
+  "parent": "d145b17b4e0c9b43c8870374f76c06ef0e2dfea6",
+  "verified_git_blob_count": 51,
+  "source_changes": "Two test harness corrections only",
+  "results": {
+    "node_guards": 97,
+    "callback_http": 13,
+    "backend_ocpp": 102,
+    "mocked_chrome": 11,
+    "actual_api_chrome": 7,
+    "backend_with_actual_browser": 103,
+    "next_typescript": "passed",
+    "next_webpack_build": "passed",
+    "wrapper_exit": 0,
+    "test_port_released": 3453
+  },
+  "source_sha256": {
+    "tools/agent2/run_isolated_backend_demo.mjs": "b10ce6c871ebf65e946cf5e954ccdc97b4013d77e0e2357b327dd3ce22358fae",
+    "tools/agent2/test_next_admin_multicharger_browser.mjs": "cde8a1074782b2abe5b71f83ab6a85ecb63c040cd12034ad542a1a667438f862"
+  },
+  "log": {
+    "path": "/home/hasio/agent2-work/pr50-runtime-v3.log",
+    "sha256": "27b8780926d63665b5f1f4e44ad90b84c9f8b12367b6c878fef7ecaf926e7d5c"
+  },
+  "hosted_ci": "separately required",
+  "production_changed": false,
+  "physical_accepted": false,
+  "psp_accepted": false
+}

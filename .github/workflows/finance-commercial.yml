@@ -69,7 +69,8 @@ concurrency:
 
 jobs:
   financial-browser:
-    runs-on: ubuntu-latest
+    # Pin the browser dependency baseline; ubuntu-latest may advance past Playwright support.
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +82,9 @@ jobs:
       - run: ./scripts/php /usr/bin/composer validate --strict
       - run: ./scripts/php /usr/bin/composer audit --no-interaction
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium and required OS dependencies
+        timeout-minutes: 10
+        run: npx playwright install --with-deps chromium
       - run: ./scripts/payout-test-setup
       - run: ./scripts/campaign-test-setup
       - run: ./scripts/start > /tmp/finance-commercial-start.txt

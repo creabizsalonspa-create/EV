@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
 import 'sandbox_roaming.dart';
+import 'partner_report_map.dart';
+import 'vendor_forms.dart' show vendorDigits;
 
 /// A partner location cannot grant charging, availability or payment authority.
 class RoamingLocation {
@@ -9,13 +11,37 @@ class RoamingLocation {
   final String? received;
   final int? id;
   final bool available;
+  final String? providerLabel;
+  final int? reportedSourceAgeMinutes;
+  final String? sourceClockEvidence;
+  final double? distanceKm;
   RoamingLocation.fromJson(Map<String, dynamic> json)
     : id = json['id'] as int?,
       available = json['location_available'] != false,
       location = json['location'] is Map
           ? Map<String, dynamic>.from(json['location'] as Map)
           : {},
-      received = json['received_at'] as String? {
+      received = json['received_at'] as String?,
+      providerLabel = json['provider_label_evidence'] ==
+                  'PROVIDER_CONFIGURED_UNVERIFIED' &&
+              json['provider_label'] is String
+          ? json['provider_label'] as String
+          : null,
+      reportedSourceAgeMinutes =
+          json['reported_source_age_minutes'] is int &&
+                  (json['reported_source_age_minutes'] as int) >= 0
+              ? json['reported_source_age_minutes'] as int
+              : null,
+      sourceClockEvidence = json['source_clock_evidence'] is String
+          ? json['source_clock_evidence'] as String
+          : null,
+      distanceKm = json['distance_basis'] == 'great_circle' &&
+              json['distance_km'] is num &&
+              (json['distance_km'] as num).isFinite &&
+              (json['distance_km'] as num) >= 0 &&
+              (json['distance_km'] as num) <= 200
+          ? (json['distance_km'] as num).toDouble()
+          : null {
     if ((available && (json['location'] is! Map || received == null)) ||
         (!available &&
             (id == null ||
@@ -68,8 +94,13 @@ class _RoamingViewState extends State<RoamingView> {
   Set<int> saved = {};
   final searchForm = GlobalKey<FormState>();
   final searchText = TextEditingController(),
-      countryText = TextEditingController();
-  String connector = '';
+      countryText = TextEditingController(),
+      provider = TextEditingController(),
+      ageHours = TextEditingController(),
+      lat = TextEditingController(),
+      lng = TextEditingController(),
+      radius = TextEditingController();
+  String connector = '', reportedStatus = '';
   Map<String, String> filters = {};
   String tr(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
@@ -88,7 +119,13 @@ class _RoamingViewState extends State<RoamingView> {
       filters = {};
       searchText.clear();
       countryText.clear();
+      provider.clear();
+      ageHours.clear();
+      lat.clear();
+      lng.clear();
+      radius.clear();
       connector = '';
+      reportedStatus = '';
       load(1);
     }
   }
@@ -206,12 +243,30 @@ class _RoamingViewState extends State<RoamingView> {
     generation++;
     searchText.dispose();
     countryText.dispose();
+    provider.dispose();
+    ageHours.dispose();
+    lat.dispose();
+    lng.dispose();
+    radius.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final s = EvStrings.of(context), page = data;
+    // Only the public, currently loaded source page may be mapped. Saved-only
+    // account preferences never become a map snapshot after account changes.
+    final partnerMapPoints = !loading && error == null && !savedOnly && page != null
+        ? page.items
+            .where((item) => item.available)
+            .map((item) => PartnerMapPoint.fromPublishedLocation(
+                  item.location,
+                  providerLabel: item.providerLabel,
+                  reportedAgeMinutes: item.reportedSourceAgeMinutes,
+                ))
+            .whereType<PartnerMapPoint>()
+            .toList()
+        : <PartnerMapPoint>[];
     return Scaffold(
       appBar: AppBar(title: Text(s.t('roaming'))),
       body: RefreshIndicator(
@@ -221,6 +276,20 @@ class _RoamingViewState extends State<RoamingView> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             Text(s.t('roamingDisclaimer')),
+            if (partnerMapPoints.isNotEmpty)
+              OutlinedButton.icon(
+                key: const Key('partner-report-map-open'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PartnerReportMap(points: partnerMapPoints),
+                  ),
+                ),
+                icon: const Icon(Icons.map_outlined),
+                label: Text(tr(
+                  'Map this page of unverified partner reports',
+                  'خريطة تقارير الشركاء غير المؤكدة لهذه الصفحة',
+                )),
+              ),
             if (widget.api != null)
               TextButton(
                 onPressed: () => sandbox(),
@@ -279,7 +348,7 @@ class _RoamingViewState extends State<RoamingView> {
                             ),
                     ),
                     DropdownButtonFormField<String>(
-                      key: ValueKey('partner-connector-${widget.accountId}'),
+                      key: ValueKey('partner-connector-${widget.accountId}-$connector'),
                       initialValue: connector,
                       isExpanded: true,
                       decoration: InputDecoration(
@@ -311,7 +380,103 @@ class _RoamingViewState extends State<RoamingView> {
                           ? null
                           : (value) => setState(() => connector = value ?? ''),
                     ),
+
+                    // Keep advanced filters accessible but closed initially.
+                    // On a phone, showing all of them by default pushes the
+                    // actual partner results below the visible screen.
+                    ExpansionTile(
+                      key: const Key('partner-advanced-filters'),
+                      maintainState: true,
+                      title: Text(tr(
+                        'Advanced partner filters',
+                        'فلاتر الشركاء المتقدمة',
+                      )),
+                      children: [
+                    TextFormField(
+                      key: const Key('partner-provider'),
+                      controller: provider,
+                      maxLength: 80,
+                      decoration: InputDecoration(labelText: tr(
+                        'Network label (not operator-verified)',
+                        'اسم الشبكة (غير مؤكد)')),
+                    ),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey('partner-status-$reportedStatus'),
+                      initialValue: reportedStatus,
+                      decoration: InputDecoration(labelText: tr(
+                        'Partner-reported status (not live)',
+                        'حالة الشريك المبلغ عنها (ليست مباشرة)')),
+                      items: [
+                        '', 'AVAILABLE', 'BLOCKED', 'CHARGING',
+                        'INOPERATIVE', 'OUTOFORDER', 'PLANNED',
+                        'REMOVED', 'RESERVED', 'UNKNOWN',
+                      ].map((v) => DropdownMenuItem(
+                        value: v,
+                        child: Text(v.isEmpty ? tr('Any status', 'أي حالة') : v),
+                      )).toList(),
+                      onChanged: loading || saving ? null
+                          : (v) => setState(() => reportedStatus = v ?? ''),
+                    ),
+                    TextFormField(
+                      key: const Key('partner-max-age'),
+                      controller: ageHours,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(labelText: tr(
+                        'Reported source age in hours (1–168, not live)',
+                        'عمر تقرير المصدر بالساعات (1–168، ليس مباشراً)')),
+                      validator: (value) {
+                        final v = vendorDigits((value ?? '').trim());
+                        if (v.isEmpty) return null;
+                        final n = int.tryParse(v);
+                        return n == null || n < 1 || n > 168
+                            ? tr('Enter 1–168', 'أدخل 1–168') : null;
+                      },
+                    ),
+                    ExpansionTile(
+                      // Keep the FormFields registered even when collapsed.
+                      // Otherwise partial coordinates could bypass validation.
+                      maintainState: true,
+                      key: const Key('partner-manual-nearby'),
+                      title: Text(tr('Manual partner-nearby search (1–200 km)',
+                          'بحث يدوي عن شركاء قريبين (1–200 كم)')),
+                      subtitle: Text(tr(
+                        'Search explicitly to transmit coordinates. Straight-line distance, not verified availability.',
+                        'اضغط بحث لإرسال الإحداثيات. المسافة بخط مستقيم وليست توفراً مؤكداً.')),
+                      children: [
+                        for (final entry in [
+                          ('partner-lat', lat, -90.0, 90.0,
+                              'Latitude', 'خط العرض'),
+                          ('partner-lng', lng, -180.0, 180.0,
+                              'Longitude', 'خط الطول'),
+                          ('partner-radius', radius, 1.0, 200.0,
+                              'Radius km', 'نطاق البحث بالكيلومتر'),
+                        ])
+                          TextFormField(
+                            key: Key(entry.$1),
+                            controller: entry.$2,
+                            textDirection: TextDirection.ltr,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true, signed: true),
+                            decoration: InputDecoration(
+                                labelText: tr(entry.$5, entry.$6)),
+                            validator: (value) {
+                              if ([lat, lng, radius].every(
+                                  (c) => c.text.trim().isEmpty)) return null;
+                              final n = double.tryParse(
+                                  vendorDigits((value ?? '').trim()));
+                              return n == null || !n.isFinite ||
+                                      n < entry.$3 || n > entry.$4
+                                  ? tr('Complete valid latitude, longitude and radius.',
+                                      'أدخل إحداثيات ونطاقاً صالحين.')
+                                  : null;
+                            },
+                          ),
+                      ],
+                    ),
+                      ],
+                    ),
                     TextButton(
+                      key: const Key('partner-search-submit'),
                       onPressed: loading || saving
                           ? null
                           : () {
@@ -327,6 +492,19 @@ class _RoamingViewState extends State<RoamingView> {
                                       .toUpperCase(),
                                 if (connector.isNotEmpty)
                                   'connector_standard': connector,
+                                if (provider.text.trim().isNotEmpty)
+                                  'provider': provider.text.trim(),
+                                if (reportedStatus.isNotEmpty)
+                                  'reported_evse_status': reportedStatus,
+                                if (ageHours.text.trim().isNotEmpty)
+                                  'max_source_age_hours':
+                                      vendorDigits(ageHours.text.trim()),
+                                if (lat.text.trim().isNotEmpty)
+                                  'latitude': vendorDigits(lat.text.trim()),
+                                if (lng.text.trim().isNotEmpty)
+                                  'longitude': vendorDigits(lng.text.trim()),
+                                if (radius.text.trim().isNotEmpty)
+                                  'radius_km': vendorDigits(radius.text.trim()),
                               };
                               load(1);
                             },
@@ -336,6 +514,26 @@ class _RoamingViewState extends State<RoamingView> {
                           'البحث في مواقع الشركاء',
                         ),
                       ),
+                    ),
+                    TextButton(
+                      key: const Key('partner-clear-filters'),
+                      onPressed: loading || saving ? null : () {
+                        searchText.clear();
+                        countryText.clear();
+                        provider.clear();
+                        ageHours.clear();
+                        lat.clear();
+                        lng.clear();
+                        radius.clear();
+                        setState(() {
+                          connector = '';
+                          reportedStatus = '';
+                          filters = {};
+                        });
+                        load(1);
+                      },
+                      child: Text(tr('Clear partner filters',
+                          'مسح فلاتر الشركاء')),
                     ),
                   ],
                 ),
@@ -417,6 +615,25 @@ class _RoamingViewState extends State<RoamingView> {
                           Text(
                             '${row.location['address']} · ${row.location['city']} · ${row.location['country']}',
                           ),
+                          if (row.providerLabel != null &&
+                              row.providerLabel!.trim().isNotEmpty)
+                            Text(tr('Network label (unverified): ',
+                                    'اسم الشبكة (غير مؤكد): ') +
+                                row.providerLabel!),
+                          if (row.distanceKm != null)
+                            Text(tr('Great-circle distance (not a route): ',
+                                    'المسافة بخط مستقيم (ليست مساراً): ') +
+                                row.distanceKm!.toStringAsFixed(3) + ' km'),
+                          if (row.reportedSourceAgeMinutes != null)
+                            Text(tr('Partner source age (not live): ',
+                                    'عمر تقرير الشريك (ليس مباشراً): ') +
+                                row.reportedSourceAgeMinutes.toString() + ' min'),
+                          if (row.sourceClockEvidence == 'PARTNER_CLOCK_AHEAD' ||
+                              row.sourceClockEvidence == 'SOURCE_TIMESTAMP_UNKNOWN')
+                            Text(tr(
+                              'Partner source time is future-dated or unknown.',
+                              'تاريخ مصدر الشريك مستقبلي أو غير معروف.',
+                            )),
                           SelectableText(
                             s.t('roamingCoordinates', {
                               'value':

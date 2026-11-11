@@ -265,6 +265,7 @@ class StripeSandboxProvider implements PaymentProvider
     public function verifyWebhook(string $raw, string $signature): array
     {
         abort_if(app()->environment('production'), 503);
+        abort_if(strlen($raw) > 65536, 413);
         $secret = config('payments.stripe_test_webhook_secret');
         abort_unless(is_string($secret) && str_starts_with($secret, 'whsec_') && strlen($secret) >= 32, 503, 'Stripe test webhook signing key is missing.');
         preg_match('/(?:^|,)t=([0-9]+)(?:,|$)/', $signature, $time);
@@ -276,7 +277,6 @@ class StripeSandboxProvider implements PaymentProvider
             $valid = hash_equals($expected, $candidate) || $valid;
         }
         abort_unless($timestamp !== '' && abs(time() - (int) $timestamp) <= 300 && $valid, 401, 'Invalid or expired Stripe webhook signature.');
-        abort_if(strlen($raw) > 65536, 413);
         try {
             $event = json_decode($raw, true, 24, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {

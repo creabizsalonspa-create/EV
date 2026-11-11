@@ -91,7 +91,7 @@ class CITriggerTest(unittest.TestCase):
         # Preserve every mandatory job; never skip tests to optimize the queue.
         budgets = {
             "ci.yml": {"business-platform": 120, "finance-postgres": 60,
-                       "connector-postgres": 40, "staging-image": 20},
+                       "connector-postgres": 40, "staging-image": 30},
             "mobile.yml": {"native": 150},
             "hasone-customer.yml": {"native": 90},
             "finance-commercial.yml": {"financial-browser": 90},
@@ -168,7 +168,7 @@ class CITriggerTest(unittest.TestCase):
         self.assertIn("test \"$GITHUB_REPOSITORY\" = creabizsalonspa-create/EV", apply)
         self.assertIn("test \"$APPLY\" = true", apply)
         self.assertIn("--apply --summary-only", apply)
-        self.assertIn("--page-limit 12", apply)
+        self.assertIn("--page-limit 30", apply)
         self.assertRegex(workflow, r"(?m)^  cancel-in-progress: false$")
 
 

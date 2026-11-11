@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
@@ -21,18 +22,59 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('platform:role {email} {role}', function () {
+Artisan::command('platform:role {email} {role} {--ticket=}', function () {
     $role = $this->argument('role');
-    if (! in_array($role, ['customer', 'vendor', 'admin'])) {
+    if (! in_array($role, ['customer', 'vendor', 'admin'], true)) {
         $this->error('Invalid role');
 
         return 1;
     }
-    $u = User::where('email', $this->argument('email'))->firstOrFail();
-    $u->role = $role;
-    $u->save();
-    $this->info('Role updated for existing user.');
-})->purpose('Operator-only role provisioning; no public role elevation endpoint');
+    // Optional operator ticket is a correlation reference, not verified
+    // operator identity. Privileged shell logs remain the actor evidence.
+    $ticket = $this->option('ticket');
+    if ($ticket !== null && ($ticket === '' || strlen($ticket) > 100
+        || ! preg_match('/^[A-Za-z0-9._:-]+$/D', $ticket))) {
+        $this->error('Ticket reference must be 1-100 letters, numbers, dot, underscore, colon or dash.');
+
+        return 1;
+    }
+    $changed = DB::transaction(function () use ($role, $ticket) {
+        $account = User::where('email', $this->argument('email'))
+            ->lockForUpdate()->firstOrFail();
+        if ($account->role === $role) {
+            return false;
+        }
+        // Operator CLI is the only intended role-elevation path. Before
+        // granting Admin rights, establish mailbox ownership under the same
+        // row lock; rejected promotions must not revoke sessions or audit a
+        // successful privilege change.
+        if ($role === 'admin' && ! $account->hasVerifiedEmail()) {
+            return 'unverified';
+        }
+
+        $before = $account->role;
+        $account->role = $role;
+        $account->save(); // Preserve browser epoch + bearer revocation events.
+        DB::table('operator_role_changes')->insert([
+            'target_user_id' => $account->id,
+            'previous_role' => $before,
+            'assigned_role' => $role,
+            'source' => 'platform:role',
+            'ticket_reference' => $ticket,
+            'created_at' => now(),
+        ]);
+
+        return true;
+    });
+    if ($changed === 'unverified') {
+        $this->error('Verify the account email address before granting Admin access.');
+
+        return 1;
+    }
+    $this->info($changed
+        ? 'Role changed and recorded; existing sessions require sign-in.'
+        : 'Role unchanged; no new privilege change recorded.');
+})->purpose('Operator-only audited role provisioning; no public elevation endpoint');
 
 Artisan::command('csms:dispatch {id}', function () {
     $c = app(CsmsDispatcher::class)->dispatch((int) $this->argument('id'));
@@ -60,13 +102,13 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
     }
     $interval = filter_var($this->option('interval'), FILTER_VALIDATE_INT);
     $id = $this->option('link');
-    if ($interval === false || $interval < 1 || $interval > 60 || ($id !== null && (! ctype_digit($id) || (int) $id < 1))) {
+    if ($interval === false || $interval < 1 || $interval > 60 || ($id !== null && (ctype_digit($id) === false || (int) $id < 1))) {
         $this->error('Use interval 1..60 and a positive link ID.');
 
         return 1;
     }
     $lock = fopen(storage_path('framework/csms-consumer.lock'), 'c');
-    if (! $lock || ! flock($lock, LOCK_EX | LOCK_NB)) {
+    if ($lock === false || flock($lock, LOCK_EX | LOCK_NB) === false) {
         $this->error('A local source consumer already owns the lock.');
 
         return 1;
@@ -99,7 +141,7 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
 })->purpose('Continuously forward authenticated simulator observations; never dispatch commands');
 
 Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--before=}', function () {
-    if (app()->environment('production') || ! config('csms.session_bridge_enabled')) {
+    if (app()->environment('production') || (bool) config('csms.session_bridge_enabled') === false) {
         $this->error('Only the configured local simulator source monitor is enabled.');
 
         return 1;
@@ -108,7 +150,7 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
     $after = filter_var($this->option('after'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
     $bindingId = $this->option('binding');
     $before = $this->option('before');
-    if ($limit === false || $after === false || ($bindingId !== null && (! ctype_digit($bindingId) || (int) $bindingId < 1)) || ($before !== null && ($bindingId === null || ! ctype_digit($before) || (int) $before < 1 || (int) $before > 2147483647))) {
+    if ($limit === false || $after === false || ($bindingId !== null && (ctype_digit($bindingId) === false || (int) $bindingId < 1)) || ($before !== null && ($bindingId === null || ctype_digit($before) === false || (int) $before < 1 || (int) $before > 2147483647))) {
         $this->error('Use limit1–100, after>=0, and a positive binding for bounded before-cursor catch-up.');
 
         return 1;
@@ -134,4 +176,36 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
     return $failed ? 1 : 0;
 })->purpose('Bounded durable simulator fault observation; no hardware or capacity commands');
 
+Artisan::command('notifications:remind-faults {--limit=50} {--after=} {--older-than=15}', function () {
+    $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1, 'max_range' => 100]]);
+    $afterOption = $this->option('after');
+    $after = $afterOption === null || $afterOption === ''
+        ? -1
+        : filter_var($afterOption, FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 0]]);
+    $age = filter_var($this->option('older-than'), FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 5, 'max_range' => 1440]]);
+    if ($limit === false || $after === false || $age === false) {
+        $this->error('Use limit 1..100, optional after >=0 and older-than 5..1440 minutes.');
+
+        return 1;
+    }
+    try {
+        $result = app(FaultReminderEscalator::class)->scan($limit, $after, $age);
+        $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+    } catch (Throwable $error) {
+        // Do not expose private alert records, secrets or raw source messages.
+        $this->error('Simulator fault reminder scan failed ('.$error::class.').');
+
+        return 1;
+    }
+
+    return 0;
+})->purpose('Bounded, owner-only, simulator in-app fault reminders; never hardware/external delivery');
+
 Schedule::command('csms:expire-diagnostic-files --limit=100')->everyTenMinutes()->withoutOverlapping();
+if (app()->environment(['local', 'testing'])) {
+    Schedule::command('notifications:remind-faults --limit=50 --older-than=15')
+        ->everyTenMinutes()->withoutOverlapping();
+}

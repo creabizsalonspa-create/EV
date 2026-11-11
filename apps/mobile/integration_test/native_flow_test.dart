@@ -958,7 +958,21 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('roaming-open')));
       await tester.tap(find.byKey(const Key('roaming-open')));
       await settle();
-      expect(find.text('Device partner fixture 1'), findsOneWidget);
+      // More filter options are accessible but partner records must still be
+      // reachable by actual device scrolling, not only at larger viewport.
+      // scrollUntilVisible requires a Scrollable, not its ListView parent.
+      // This uses the actual outer scrollable and asserts a tappable visible
+      // partner row, rather than masking the simulator viewport regression.
+      await tester.scrollUntilVisible(
+        find.text('Device partner fixture 1'),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle();
+      expect(
+        find.text('Device partner fixture 1').hitTestable(),
+        findsOneWidget,
+      );
       await tester.scrollUntilVisible(
         find.text('Next'),
         300,
@@ -1432,12 +1446,32 @@ void main() {
         'DEVICE: versioned saved mandate revocation verified; no external PSP',
       );
 
+      // The account menu may leave another tab selected. Explicitly restore
+      // discovery before paginating, then place the button clear of the
+      // bottom navigation bar on compact iOS simulators.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.byIcon(Icons.ev_station_outlined),
+        ),
+      );
+      await settle();
+      final catalogNext = find.byKey(const Key('catalog-next'));
+      // ListView builds this button lazily. Materialize it before asking the
+      // Scrollable to place its hit box above the compact iOS bottom bar.
       await tester.scrollUntilVisible(
-        find.byKey(const Key('catalog-next')),
-        300,
+        catalogNext,
+        180,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.byKey(const Key('catalog-next')));
+      await settle();
+      await Scrollable.ensureVisible(
+        tester.element(catalogNext),
+        alignment: 0.35,
+      );
+      await settle();
+      expect(catalogNext.hitTestable(), findsOneWidget);
+      await tester.tap(catalogNext);
       await settle();
       expect(find.text('Device fixture station 2'), findsOneWidget);
       await tester.tap(find.byKey(const Key('settings')));

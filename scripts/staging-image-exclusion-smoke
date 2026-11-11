@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Verify real Docker .dockerignore filtering with run-local fixtures, without
+# dirtying the tracked source used for OCI revision provenance.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+command -v docker >/dev/null
+
+workspace=$(mktemp -d)
+trap 'rm -rf -- "$workspace"' EXIT
+context="$workspace/context"
+output="$workspace/output"
+mkdir -p "$context/services/business-api/database" "$output"
+cp .dockerignore "$context/.dockerignore"
+cat > "$context/Dockerfile" <<'DOCKERFILE'
+FROM scratch
+COPY . /audit/
+DOCKERFILE
+printf '%s\n' 'expected non-sensitive fixture' > "$context/public-marker.txt"
+for suffix in sqlite sqlite3 sqlite-wal sqlite3-journal; do
+  printf '%s\n' 'FORBIDDEN synthetic local database' > "$context/services/business-api/database/ev-image-guard.$suffix"
+done
+printf '%s\n' 'EV_IMAGE_CANARY=forbidden' > "$context/services/business-api/.env.image-canary"
+
+# The scratch exporter tests Docker's actual context filtering. It has no
+# services, credentials, external base image or source revision label.
+if ! docker build --progress=plain \
+  --output "type=local,dest=$output" \
+  -f "$context/Dockerfile" "$context" > "$workspace/build.log" 2>&1; then
+  cat "$workspace/build.log" >&2
+  exit 1
+fi
+
+if [[ ! -f "$output/audit/public-marker.txt" ]]; then
+  echo 'Docker build context test did not copy its positive fixture.' >&2
+  exit 1
+fi
+for suffix in sqlite sqlite3 sqlite-wal sqlite3-journal; do
+  if [[ -e "$output/audit/services/business-api/database/ev-image-guard.$suffix" ]]; then
+    echo "Local .$suffix database artifact entered Docker build context." >&2
+    exit 1
+  fi
+done
+if [[ -e "$output/audit/services/business-api/.env.image-canary" ]]; then
+  echo 'Local environment secret entered Docker build context.' >&2
+  exit 1
+fi
+printf '%s\n' 'PASS: Docker excludes local database/journal and environment canaries; committed source was not modified.'

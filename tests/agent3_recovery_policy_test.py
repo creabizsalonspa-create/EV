@@ -1,0 +1,241 @@
+"""Structural safety checks; the hosted Docker drill is the runtime acceptance test."""
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+import shutil
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "staging-recovery-smoke"
+
+
+class Agent3RecoveryPolicyTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = SCRIPT.read_text(encoding="utf-8")
+
+    def test_hosted_staging_job_runs_all_agent3_security_policies(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        command = "python3 -B -m unittest discover -s tests -p 'agent3_*_test.py' -q"
+        self.assertEqual(workflow.count(command), 1)
+        self.assertLess(workflow.index(command),
+                        workflow.index('./scripts/staging-image-build creabiz-ev-business:ci-review'))
+        self.assertLess(workflow.index(command),
+                        workflow.index('bash scripts/staging-recovery-smoke creabiz-ev-business:ci-review'))
+
+    def test_script_parses_as_bash(self):
+        subprocess.run(["bash", "-n", str(SCRIPT)], check=True, timeout=10)
+
+    def test_only_run_owned_disposable_resources_are_removed(self):
+        code = self.source
+        self.assertIn('review_id="ev-recovery-$RANDOM-$$"', code)
+        self.assertIn('scratch=$(mktemp -d /tmp/ev-recovery.XXXXXXXX)', code)
+        self.assertIn("trap cleanup EXIT", code)
+        self.assertIn('rm -f -- "$root/artifacts/agent3-recovery/validation.json"', code)
+        self.assertIn('docker rm -fv "$id"', code)
+        self.assertIn('docker network rm "$id"', code)
+        self.assertNotRegex(code, r"docker\s+(?:system|volume|image)\s+prune")
+        self.assertNotIn("docker volume rm", code)
+        self.assertNotIn("docker rm -f $(docker", code)
+
+    def test_invalid_input_erases_stale_pass_before_any_docker_action(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root/'scripts').mkdir()
+            (root/'artifacts/agent3-recovery').mkdir(parents=True)
+            script = root/'scripts/staging-recovery-smoke'
+            shutil.copyfile(SCRIPT, script)
+            artifact = root/'artifacts/agent3-recovery/validation.json'
+            artifact.write_text('{"status":"PASS","outdated":true}')
+            run = subprocess.run(
+                ['/bin/bash', str(script), 'non-review-image'],
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertNotEqual(run.returncode, 0)
+            self.assertFalse(artifact.exists())
+            self.assertIn('non-review', run.stderr)
+
+    def test_applications_cannot_reach_external_networks_or_host_ports(self):
+        code = self.source
+        self.assertEqual(code.count("docker network create --internal"), 2)
+        self.assertEqual(code.count("--network \"$source_net\""), 2)
+        self.assertEqual(code.count("--network \"$target_net\""), 2)
+        self.assertNotIn("--network host", code)
+        self.assertNotIn("--privileged", code)
+        self.assertNotIn("--mount type=bind", code)
+        self.assertNotRegex(code, r"docker run [^\n]*(?: -p | --publish )")
+        for flag in (
+            "CSMS_SIMULATOR_ENABLED",
+            "CSMS_COMMAND_WORKER_ENABLED",
+            "CSMS_REMOTE_AUTHORIZATION_ENABLED",
+            "OCPI_TEST_COMMANDS_ENABLED",
+            "SUBSCRIPTION_COLLECTION_ENABLED",
+            "PAYOUT_TEST_ENABLED",
+            "EV_BATTERY_SIMULATOR_ENABLED",
+        ):
+            self.assertIn("'" + flag + "': 'false'", code)
+
+    def test_postgres_and_recovery_fingerprint_gates(self):
+        code = self.source
+        self.assertRegex(code, r"postgres:17-alpine@sha256:[0-9a-f]{64}")
+        for required in (
+            "pg_dump -U ev_recovery_review",
+            "--format=custom --no-owner --no-privileges",
+            "pg_restore -U ev_recovery_review",
+            "--clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction",
+            "migration_fingerprint",
+            "probe_fingerprint",
+            "php artisan migrate:status",
+            "restored_http_catalog",
+            "private-probe.tar.gz",
+            "queue:work --once",
+            "artisan schedule:list",
+            "post-snapshot",
+            "tampered-business.dump",
+            "tampered-private.tar.gz",
+            "synthetic_private_archive_sha256",
+            "PHP_ENCRYPT",
+            "PHP_DECRYPT",
+            "acceptedWrongKey",
+            "Crypt::encryptString",
+            "Crypt::decryptString",
+            "Recovered APP_KEY could not decrypt source data.",
+            "fileperms($p) & 0777",
+            "classification': 'disposable staging software only'",
+        ):
+            self.assertIn(required, code)
+
+    def test_backup_integrity_checked_around_database_and_private_restores(self):
+        code = self.source
+        db_restore = code.index('pg_restore -U ev_recovery_review')
+        private_restore = code.index('tar --no-same-owner --no-same-permissions')
+        guard = 'backup-artifact-guard.py" check'
+        self.assertIn(guard, code[db_restore-350:db_restore])
+        self.assertIn(guard, code[db_restore:db_restore+400])
+        self.assertIn(guard, code[private_restore-350:private_restore])
+        self.assertIn(guard, code[private_restore:private_restore+400])
+
+    def test_late_private_write_cannot_enter_restored_snapshot(self):
+        source = self.source
+        name = 'agent3-post-snapshot-private.bin'
+        self.assertIn(name, source)
+        archive = source.index('private-probe.tar.gz')
+        created = source.index('file_put_contents($p, "not-in-private-snapshot"')
+        restored = source.index('if (file_exists("/var/www/html/storage/app/private/' +
+                                name + '")) exit(1);')
+        self.assertLess(archive, created)
+        self.assertLess(created, restored)
+        self.assertIn("'post_snapshot_private_write_excluded': True", source)
+
+    def test_private_file_restore_cannot_run_as_root_or_preserve_archive_owners(self):
+        code = self.source
+        self.assertIn('docker exec -i --user www-data "$target_app" sh -ceu', code)
+        self.assertIn('umask 077; tar --no-same-owner --no-same-permissions', code)
+        self.assertNotIn('docker exec -i "$target_app" tar -C', code)
+        self.assertIn('fileperms($p) & 0777', code)
+
+    def test_effective_docker_runtime_must_be_verified_before_any_restore(self):
+        code = self.source
+        self.assertIn('recovery-runtime-guard.py" networks', code)
+        self.assertEqual(code.count('recovery-runtime-guard.py" containers'), 3)
+        self.assertLess(code.index('recovery-runtime-guard.py" networks'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertLess(code.index('recovery-runtime-guard.py" containers'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertIn("'isolated_runtime_verified': True", code)
+
+    def test_database_session_and_cache_snapshot_includes_only_original_values(self):
+        code = self.source
+        self.assertIn("PHP_SESSION_CACHE_BEFORE", code)
+        self.assertIn("PHP_SESSION_CACHE_LATE", code)
+        self.assertIn("PHP_SESSION_CACHE_TARGET", code)
+        self.assertIn("PHP_SESSION_CACHE_SOURCE", code)
+        self.assertLess(code.index("PHP_SESSION_CACHE_BEFORE"), code.index("pg_dump -U ev_recovery_review"))
+        self.assertGreater(code.index("PHP_SESSION_CACHE_LATE"), code.index("pg_dump -U ev_recovery_review"))
+        self.assertGreater(code.index("PHP_SESSION_CACHE_TARGET"), code.index("pg_restore -U ev_recovery_review"))
+        self.assertIn("'database_session_cache_restored': True", code)
+        self.assertIn("'post_snapshot_session_cache_changes_excluded': True", code)
+
+    def test_target_is_fresh_distinct_postgresql_cluster_before_restore(self):
+        code = self.source
+        self.assertIn('pg_control_system()', code)
+        self.assertIn('"$source_cluster_id" != "$target_cluster_id"', code)
+        self.assertEqual(code.count("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'"), 2)
+        self.assertLess(code.index('source_cluster_id=$(query'), code.index('pg_dump -U ev_recovery_review'))
+        self.assertLess(code.rindex('Laravel target became nonempty before isolated restore'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertIn("'distinct_cluster_system_ids_verified': True", code)
+        self.assertIn("'restore_target_previously_empty': True", code)
+
+    def test_durable_laravel_queue_is_restored_and_post_snapshot_job_is_excluded(self):
+        code = self.source
+        self.assertEqual(code.count('Bus::dispatch(new \\App\\Jobs\\Agent3SyntheticQueueRecoveryProbe'), 2)
+        self.assertLess(code.index('PHP_QUEUE_ENQUEUE'), code.index('pg_dump -U ev_recovery_review'))
+        self.assertGreater(code.index('PHP_QUEUE_AFTER_SNAPSHOT'), code.index('pg_dump -U ev_recovery_review'))
+        self.assertIn("'durable_queue_job_restored_and_executed': True", code)
+        self.assertIn("'post_snapshot_queue_write_excluded': True", code)
+        self.assertIn('queue:work --once', code)
+        self.assertIn('SELECT count(*) FROM failed_jobs', code)
+        self.assertIn('queue-snapshot-executed', code)
+
+    def test_runtime_guard_requires_only_reviewed_database_and_private_mounts(self):
+        guard = (ROOT / 'scripts/recovery-runtime-guard.py').read_text()
+        self.assertIn("destination = '/var/lib/postgresql/data'", guard)
+        self.assertIn("destination = '/var/www/html/storage/app/private'", guard)
+        self.assertIn('len(mounts) == 1', guard)
+        self.assertIn("mount.get('RW') is True", guard)
+
+    def test_all_disposable_network_members_are_checked_before_restore(self):
+        code = self.source
+        self.assertEqual(code.count('recovery-runtime-guard.py" networks'), 4)
+        self.assertIn('--source-container "$source_app"', code)
+        self.assertIn('--target-container "$target_app"', code)
+        self.assertIn('--source-container "$source_db"', code)
+        self.assertIn('--target-container "$target_db"', code)
+
+    def test_disposable_restore_checks_exact_image_reference_and_id(self):
+        code = self.source
+        self.assertEqual(code.count('--reviewed-db-image "$postgres_image"'), 3)
+        self.assertEqual(code.count('--reviewed-app-image "$image"'), 3)
+        source = (ROOT / 'scripts/recovery-runtime-guard.py').read_text()
+        self.assertIn('Source and target of same recovery role use different image IDs', source)
+
+    def test_timed_recovery_proof_covers_private_snapshot_and_laravel_boot(self):
+        code = self.source
+        self.assertIn('drill_started_epoch=$(date -u +%s)', code)
+        self.assertLess(code.index('snapshot_started_epoch=$(date -u +%s)'),
+                        code.index('private-probe.tar.gz'))
+        self.assertLess(code.index('restore_started_epoch=$(date -u +%s)'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertGreater(code.index('drill_completed_epoch=$(date -u +%s)'),
+                           code.index('PHP_HTTP'))
+        self.assertIn("'drill_completed_epoch': int(drill_end)", code)
+
+    def test_disposable_hmac_key_rejects_tampered_manifest_before_restore(self):
+        code = self.source
+        self.assertIn('auth_key="$scratch/backup-hmac.key"', code)
+        self.assertIn('stream.write(os.urandom(32))', code)
+        self.assertEqual(code.count('backup-artifact-guard.py" record'), 1)
+        self.assertGreaterEqual(code.count('--auth-key-file "$auth_key"'), 7)
+        self.assertLess(code.index('auth_key="$scratch/backup-hmac.key"'),
+                        code.index('pg_restore -U ev_recovery_review'))
+        self.assertIn("'run_local_manifest_hmac_verified': True", code)
+
+    def test_success_evidence_is_written_atomically_through_shared_publisher(self):
+        code = self.source
+        self.assertIn('from recovery_proof_writer import publish', code)
+        self.assertIn('publish(path, record)', code)
+        self.assertNotIn('os.O_TRUNC, 0o600', code)
+
+    def test_no_sensitive_data_in_artifact_schema(self):
+        code = self.source
+        artifact = code.split("record = {", 1)[1].split("\n}", 1)[0]
+        self.assertNotRegex(artifact, re.compile(r"password|secret|app_key|token", re.I))
+        self.assertIn("dump_sha256", artifact)
+        self.assertIn("laravel_migration_rows", artifact)
+        self.assertIn("synthetic_private_archive_sha256", artifact)
+
+
+if __name__ == "__main__":
+    unittest.main()

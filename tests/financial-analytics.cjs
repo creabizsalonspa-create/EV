@@ -31,6 +31,11 @@ const assert = require("node:assert/strict");
       p.setDefaultTimeout(20000);
       p.on("pageerror", (e) => errors.push(e.message));
       await p.goto(base);
+      assert.equal(
+        await p.evaluate(() => typeof document.querySelector("#account")?.onsubmit),
+        "function",
+        `Sign-in handler missing after load; script errors: ${errors.slice(-5).join(" | ")}`,
+      );
       await p
         .locator("#account [name=email]")
         .fill(`payout-${role}-${run}@example.test`);
@@ -41,7 +46,17 @@ const assert = require("node:assert/strict");
             r.url().endsWith("/api/login") && r.request().method() === "POST",
         );
         await p.locator("button[value=login]").click();
-        return r;
+        try {
+          return await r;
+        } catch (cause) {
+          const state = await p.evaluate(() => ({
+            formValid: document.querySelector("#account")?.checkValidity(),
+            handlerInstalled: typeof document.querySelector("#account")?.onsubmit === "function",
+            buttonDisabled: document.querySelector('button[value="login"]')?.disabled,
+            path: location.pathname,
+          })).catch(() => ({pageClosed: true}));
+          throw new Error(`Login POST response absent; state=${JSON.stringify(state)}; pageErrors=${errors.slice(-5).join(" | ")}`, {cause});
+        }
       }
       let r = await submit();
       if (r.status() === 429) {

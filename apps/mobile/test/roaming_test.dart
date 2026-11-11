@@ -114,6 +114,143 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+
+  test('partner report distance is not driving or live availability', () {
+    final report = RoamingLocation.fromJson({
+      ...record(),
+      'provider_label': 'Unverified Network',
+      'provider_label_evidence': 'PROVIDER_CONFIGURED_UNVERIFIED',
+      'reported_source_age_minutes': 1550,
+      'source_clock_evidence': 'PARTNER_REPORTED_TIME',
+      'distance_basis': 'great_circle',
+      'distance_km': 25.123,
+    });
+    expect(report.providerLabel, 'Unverified Network');
+    expect(report.reportedSourceAgeMinutes, 1550);
+    expect(report.distanceKm, 25.123);
+    expect(RoamingLocation.fromJson({
+      ...record(), 'distance_basis': 'great_circle',
+      'distance_km': double.infinity,
+    }).distanceKm, isNull);
+    expect(RoamingLocation.fromJson({
+      ...record(), 'distance_basis': 'driving',
+      'distance_km': 10.0,
+    }).distanceKm, isNull);
+    expect(RoamingLocation.fromJson({
+      ...record(), 'provider_label': 'Untrusted',
+      'provider_label_evidence': 'PROVIDER_CERTIFIED',
+    }).providerLabel, isNull);
+  });
+
+  testWidgets('partner coordinates require explicit Search', (tester) async {
+    final calls = <Map<String, String>>[];
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('en'),
+      home: RoamingView(
+        loader: (p) async => page(p),
+        queryLoader: (filters, p) async {
+          calls.add(Map.of(filters));
+          return page(p);
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(calls.length, 1);
+
+    // The Form is eager and the test tree can contain several Scrollables
+    // (including editable text). Drive only the outer ListView and verify
+    // each field is in the hit-test viewport before editing/tapping.
+    Future<void> reveal(Finder target) async {
+      final height =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
+      for (var attempt = 0; attempt < 24; attempt++) {
+        final dy = tester.getRect(target).center.dy;
+        if (dy >= 80 && dy <= height - 40) return;
+        await tester.drag(
+          find.byType(ListView).first,
+          Offset(0, dy > height - 40 ? -180 : 180),
+        );
+        await tester.pumpAndSettle();
+      }
+      final dy = tester.getRect(target).center.dy;
+      expect(dy, greaterThanOrEqualTo(80));
+      expect(dy, lessThanOrEqualTo(height - 40));
+    }
+
+    final advanced = find.text('Advanced partner filters');
+    await reveal(advanced);
+    await tester.tap(advanced);
+    await tester.pumpAndSettle();
+
+    final tileLabel =
+        find.text('Manual partner-nearby search (1–200 km)');
+    await reveal(tileLabel);
+    await tester.tap(tileLabel);
+    await tester.pumpAndSettle();
+
+    for (final item in [
+      ('partner-lat', '25.2'),
+      ('partner-lng', '55.3'),
+      ('partner-radius', '10'),
+    ]) {
+      final field = find.byKey(Key(item.$1));
+      await reveal(field);
+      await tester.enterText(field, item.$2);
+      await tester.pumpAndSettle();
+    }
+    expect(calls.length, 1);
+
+    // A radius above the backend's 200km maximum must fail even if the
+    // nearby section has been collapsed with fields kept alive.
+    final radius = find.byKey(const Key('partner-radius'));
+    await reveal(radius);
+    await tester.enterText(radius, '201');
+    await reveal(tileLabel);
+    await tester.tap(tileLabel);
+    await tester.pumpAndSettle();
+
+    final submit = find.byKey(const Key('partner-search-submit'));
+    await reveal(submit);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(calls.length, 1);
+
+    await reveal(tileLabel);
+    await tester.tap(tileLabel);
+    await tester.pumpAndSettle();
+    await reveal(radius);
+    await tester.enterText(radius, '10');
+    await reveal(submit);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(calls.length, 2);
+    expect(calls.last['latitude'], '25.2');
+    expect(calls.last['longitude'], '55.3');
+    expect(calls.last['radius_km'], '10');
+
+    final clear = find.byKey(const Key('partner-clear-filters'));
+    await reveal(clear);
+    await tester.tap(clear);
+    await tester.pumpAndSettle();
+    expect(calls.length, 3);
+    expect(calls.last, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('partner report map remains tile-free before map consent',
+      (tester) async {
+    await tester.pumpWidget(app((number) async => page(number)));
+    await tester.pumpAndSettle();
+    final button = find.byKey(const Key('partner-report-map-open'));
+    expect(button, findsOneWidget);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('partner-map-enable')), findsOneWidget);
+    expect(find.text('Start charging'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('disposed route ignores a pending response', (tester) async {
     final pending = Completer<ApiPage<RoamingLocation>>();
     await tester.pumpWidget(app((_) => pending.future));

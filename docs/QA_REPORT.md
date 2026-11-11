@@ -1,3 +1,180 @@
+# Selected-route visibility repair — 11 November 2026
+
+After resolving catalog429, the local full discovery batch exposed a real map
+bug: fitting distant catalog results could collapse short selected route legs
+to zero-length SVG paths. The map now fits a consented selected journey when
+it is enabled or a new route arrives, falling back to loaded catalog points
+only without route geometry. No location/API request or tile-consent change.
+The route regression adds an unrelated distant station and asserts a visible
+nonzero route. The actual Chromium routing/consent/GPS/Arabic/privacy suite
+passes; the complete paced discovery batch is running on this final source.
+
+# Shared discovery budget correction — 11 November 2026
+
+Hosted d8163cd passed924 Laravel tests, then discovery-routing's capability
+GET received429 after preceding anonymous map suites exhausted the shared
+60/min catalog budget. Production limit remains60. The CI driver now runs
+all six original discovery files once in separate catalog windows, using the
+existing bounded61-second pacing helper. Two scheduling/fail-fast tests pass;
+no assertion retry, cache reset or request identity spoofing is introduced.
+The previous native/certificate/recovery suites remain required.
+
+Additional combined local PostgreSQL finance:348 tests/8865 assertions with
+one explicit SQLite-only skip;83 actual concurrency tests/1212 assertions
+passed. Both run-owned PostgreSQL drills cleaned up their own containers and
+networks; live source services and existing databases were preserved.
+
+# Combined candidate and verified PR89 — 11 November 2026
+
+PR89 source806a1bb94e9c966fb4b48c356dbeab2318de9e3c merged at
+b4224ddc11a0921c2e522277657888fd3025ace4 after all seven required exact-source
+PR-event jobs passed; source and merge trees are identical. Full job URLs are
+in docs/evidence/integration-coverage/pr89-hosted-checkpoint.json. GitHub marked
+PR64 merged indirectly; its earlier failed vehicle-picker run is not rewritten
+as a pass. The same workflow passed on verified PR89 source, and both combined
+local booking runs passed. The booking regression now asserts authoritative
+mapping availability and the actual browser connector response, retaining only
+bounded non-secret fixture diagnostics if the picker is absent; no assertion
+retry, source command or money action was added.
+
+PR84 combined source:924 Laravel tests/19069 assertions,387 Flutter passes/
+29 explicit live-fixture skips, clean analysis, actual web registration/email/
+role rotation/vendor inventory/customer booking/fleet/support/Admin/Arabic
+journey and frontend contract suites passed. Fixed notifications' missing
+Admin-bearer guard and duplicate public inventory entries. Actual PostgreSQL
+connector suite162/1994 and concurrency22/316 passed in isolated run-owned
+containers; local app/source DBs were preserved. Recovery101 policy tests and
+offline staging389 Node/21 Python tests passed. CI package installation is
+bounded to10 minutes; the30-minute staging restore job budget is preserved.
+New exact-source hosted gates remain mandatory; this is not full-product,
+public staging, physical, live partner/payment or store acceptance.
+
+# Verified integration-base and invoice-provenance tests — 11 November 2026
+
+PR64 source `6a4126a5e1182ec045a13c352f2d0f210b8f3ac6`:
+full Laravel678 tests/14413 assertions passed with the daemon stopped;
+Flutter301 passed/26 explicit live-fixture skips; no worker-lock bypass.
+The earlier overlapping daemon run remains recorded below as failed.
+
+Existing PR61 safely incorporates PR64's reviewed source and PR90's main
+checkpoint. It must merge **after PR64**; the machine-readable dependency
+manifest enforces this. Integrated focused backend37 tests/584 assertions
+passed, three charging-provenance widget tests passed, and complete mobile
+analysis reported no issues. Hosted tests must validate the updated head;
+previous PR61 checks do not establish this new merge candidate's success.
+No new coverage-atom or physical/live/payment acceptance credit is claimed.
+# Atomic staging evidence integration — 11 November 2026
+
+Existing PR89 safely incorporates PR64's source and main PR90 without
+conflicts; merge PR64 first. Offline staging verification initially failed
+because HOME is read-only. The runner now uses the configured temporary
+root (or explicit executable EV_STAGING_TEST_TMPDIR), preserving HOME.
+A second failure was an unsafe-permissions fixture created under umask0077:
+the creation mode became0600, so it did not exercise denial. The fixture
+now explicitly chmods only its synthetic file to0640/0604/0644 and verifies
+the actual mode before asserting rejection; no permission guard is weakened.
+Final `./scripts/staging-offline-verify`:389 Node tests passed,21 Python
+CI-evidence tests passed. Includes interrupted-write/no-final-file, symlink,
+no-overwrite and bounded atomic evidence publication regressions. This is
+source-only evidence; no staging deployment or production acceptance.
+Updated exact-head hosted checks remain required before integration.
+# Vehicle model catalog integration repairs — 11 November 2026
+
+Final hosted security inventory exposed two additional unbounded model-binding
+routes. They now use the same18-digit policy; malformed/overflow tests cover
+model update and both vehicle association endpoints on both API aliases.
+Final backend11 tests/152 assertions and all48 Node security regressions pass.
+No new audit exemption or production limiter change was introduced.
+
+PR77 safely incorporates PR64/main PR90, retaining Admin curation and customer
+web/Flutter model linking. Its existing hosted failure was PHP class-attribute
+spacing; Pint corrected it. The integrated typed-controller audit then found
+an unbounded model ID: the update route now limits IDs to18 decimal digits.
+New tests assert malformed/overflowing paths return404 across both API aliases
+without catalog mutation. Backend11 tests/128 assertions pass;7 native catalog
+widgets pass; the web model contract suite passes. Actual localhost browser
+checks pass both honest empty-catalog/customer logout and Admin publish ->
+customer association -> persisted model -> Admin archive -> customer unlink.
+Browser launchers respect EV_CHROMIUM_PATH; no test is removed. Test credentials
+remain private local fixtures. Merge PR64 first and require new exact-head
+hosted checks. Manufacturer compatibility, full garage parity and production
+acceptance remain unverified; no coverage atom is newly credited here.
+# Station-information native CI repair — 11 November 2026
+
+Authentication inventory review: both new information GET aliases intentionally
+publish the same bounded vendor-reported catalog metadata. Their explicit
+public-read inventories now include them; no private write route changed.
+An anonymous regression asserts the exact public field set, no owner email,
+source qualification,401 on both guest PUT aliases and unchanged revision.
+Final focused authorization/metadata suite17 tests/920 assertions passes.
+
+Final local full Flutter:317 passed/26 deliberate live-fixture skips. The
+integrated offline route inventory also caught the feature's new unbounded
+station/vehicle model-binding routes; all now use18-digit bounds rather than
+adding exceptions. Both public station aliases have overflow-denial tests.
+Updated focused backend14 tests/101 assertions and all48 security regressions
+pass. Hosted checks must run on this final source, not its superseded head.
+
+PR58's stale-vendor-denial widget failure was reproduced locally: an ignored
+old-session response left a perpetual progress indicator. The editor now
+clears stale private state and loading flags without expiring the new account.
+It also scrubs station/form data on background, requires explicit foreground
+refresh and refuses old-editor saves under a changed account fence. Generation
+checks prevent late old responses from clearing the next account's data.
+Existing denial assertions remain intact; three additional privacy/write/lifecycle
+regressions pass. Focused native16 tests pass; full mobile analysis is clean.
+Backend13 tests/91 assertions pass, Pint543 files passes, and all three station,
+preference and session-isolation web contract suites pass. Actual localhost
+browsers pass vendor station creation/expiring notice persistence/switching/
+logout and customer garage preferences/persisted reload/logout. Full Flutter
+and updated exact-head Android/iOS hosted validation remain required. PR64 is
+the integrated source prerequisite; no physical or production claim is made.
+# Recovery backlog source verification — 11 November 2026
+
+PR54 safely incorporates reviewed PR64/main PR90 without conflicts. All101
+Agent3 recovery policy/archive/runtime/evidence/preflight tests pass locally.
+The combined recovery evidence job now has a10-minute timeout; all restore
+and negative tests remain required. Original head b3b767c passed its ten
+hosted jobs, but this updated integration source must pass its own gates.
+The disposable PostgreSQL/PostGIS restore runners preserve independent
+networks, run-owned cleanup, private key/queue/session/cache recovery and
+same-run evidence boundaries; no production backup or DR acceptance claim.
+
+Historical PR2 head0fe9e753c54cd2527658977406e2f82df658da48 and PR3
+head2e87ff997168c1ae58800050202f04417e2b16a6 were closed as redundant:
+both exact heads are ancestors of authoritative main2e87ff9, with zero
+unique source commits. Branches and historical records remain preserved.
+PR1 remains open: its nine unique Actions-maintenance commits need review.
+PR84 remains conflicted and unmerged; unique changes have not been discarded.
+
+# Single-owner integration QA — 11 November 2026
+
+- PR90 source `67e03f69f07b1ddd604ad5b232d0db9f8873d8cd`: all six
+  required hosted jobs succeeded; seven garage privacy widgets passed;
+  merge `2e87ff997168c1ae58800050202f04417e2b16a6` has the same tree.
+- PR64 merge parent `ac470cb46085f1a817d4106e08b8d3bb8a9e818e`:
+  focused route/tenant/security suite14 tests265 assertions passed. Hosted
+  browser jobs failed during Playwright OS installation, not test execution;
+  financial/connector PostgreSQL and staging-image jobs succeeded. Updated
+  source must pass its own full mandatory gates before merge.
+- Fixed source: all48 Agent9 Node security regressions passed, including
+  three new single-clock meter tests. CI trigger7 tests and integration
+  dependency/readiness34 tests passed. Pint passed535 files.
+- `EV_CHROMIUM_PATH=/usr/bin/chromium node tests/client-demo-lifecycle.cjs`
+  passed both remote and RFID phases, both OCPP protocols, source-backed
+  meter/stop/invoice, private EN/AR reports and source feedback. Independent
+  browser-session validity is asserted after logout. The old failed meter
+  journal remains preserved rather than repaired/replayed.
+- First full Laravel run:676 passed,2 worker-lock failures while the
+  deliberate integration daemon owned the lock. Repeating with workers
+  stopped is required; do not weaken the worker lock or count that run green.
+  Updated full Laravel/Flutter and hosted Android/iOS results are pending
+  until explicitly recorded below.
+
+Evidence is local synthetic QA, not customer booking, physical charging,
+real-payment, live-roaming, public staging or store acceptance. Existing
+42/312 coverage remains unchanged; no release completion is asserted.
+
 # Required iOS navigation correction
 
 Earlier candidate33cd1dd passed Android/actual Laravel native suites but its iOS runtime failed after verified subscription enrollment: the next test navigation looked up the now-offstage Workspace and found no element. The evidence route now uses the active SubscriptionActionView context. Every consent/upload/private/runtime assertion and marker is retained; no failed assertion is retried or removed. Clean analysis/host recovery guards pass; exact-source hosted iOS and full CI must pass before PR23 merge. This is not a production-device or provider acceptance claim.

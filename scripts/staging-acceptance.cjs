@@ -4,6 +4,8 @@
 // Never starts or changes services; an operator must independently authorize staging.
 const fs = require('node:fs');
 const path = require('node:path');
+const {randomBytes} = require('node:crypto');
+const {ancestorSnapshot,assertAncestorsUnchanged} = require('./staging-path-integrity.cjs');
 const { execFileSync } = require('node:child_process');
 const { parseSnapshot, checkSnapshot, readSnapshotFile } = require('./staging-runtime-gate.cjs');
 const { inspectManifest } = require('./demo-fixture-guard.cjs');
@@ -55,6 +57,7 @@ function getCurrentHead(runner = execFileSync) {
 function checkOutputDestination(filePath) {
   const target = path.resolve(filePath);
   const parent = path.dirname(target);
+  ancestorSnapshot(target); // Reject symlinks in every ancestor, not only the leaf parent.
   const details = fs.lstatSync(parent);
   if (!details.isDirectory() || details.isSymbolicLink()) throw Error('Evidence directory is not a real directory');
   if (process.platform !== 'win32' && (details.mode & 0o077) !== 0) {
@@ -65,20 +68,80 @@ function checkOutputDestination(filePath) {
   return target;
 }
 
-function writeEvidence(filePath, data) {
+function writeEvidence(filePath, data, deps = {}) {
   const target = checkOutputDestination(filePath);
-  let fd;
-  let created = false;
+  const parent = path.dirname(target);
+  const ancestors = ancestorSnapshot(target);
+  const directory = fs.lstatSync(parent);
+  // Serialize before creating anything: a failed serializer never leaves an
+  // apparently final JSON report. An interrupted write leaves no final path.
+  const serialized = JSON.stringify(data, null, 2);
+  if (typeof serialized !== 'string') throw Error('Invalid staging evidence JSON');
+  const bytes = Buffer.from(serialized + '\n', 'utf8');
+  if (bytes.length === 0 || bytes.length > 256 * 1024) {
+    throw Error('Staging evidence exceeds the private report size boundary');
+  }
+  const temporary = path.join(parent, '.ev-stage-proof-' + randomBytes(16).toString('hex') + '.tmp');
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
+    (fs.constants.O_NOFOLLOW || 0);
+  let fd, tempIdentity, linked = false;
   try {
-    fd = fs.openSync(target, 'wx', 0o600);
-    created = true;
-    fs.writeFileSync(fd, JSON.stringify(data, null, 2) + '\n', { encoding: 'utf8' });
+    fd = fs.openSync(temporary, flags, 0o600);
+    tempIdentity = fs.fstatSync(fd);
+    if (!tempIdentity.isFile() || tempIdentity.nlink !== 1 ||
+        (process.platform !== 'win32' && (tempIdentity.mode & 0o077) !== 0)) {
+      throw Error('Temporary staging evidence inode is unsafe');
+    }
+    // Optional injected writer is exclusively for source-isolated fault tests.
+    (deps.writePayload || ((handle, payload) => fs.writeFileSync(handle, payload)))(fd, bytes);
+    if (fs.fstatSync(fd).size !== bytes.length) {
+      throw Error('Private staging evidence write is incomplete');
+    }
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = undefined;
+
+    assertAncestorsUnchanged(ancestors);
+    const current = fs.lstatSync(parent);
+    if (current.dev !== directory.dev || current.ino !== directory.ino ||
+        !current.isDirectory() || current.isSymbolicLink() ||
+        (process.platform !== 'win32' && (current.mode & 0o077) !== 0)) {
+      throw Error('Private staging evidence directory changed');
+    }
+    // Hardlink publication is atomic and refuses an existing regular file,
+    // symlink, or dangling symlink. Rename would silently overwrite evidence.
+    fs.linkSync(temporary, target);
+    linked = true;
+    fs.unlinkSync(temporary);
+    // Persist the directory rename/link operations as well as file contents.
+    if (process.platform !== 'win32') {
+      const directoryFd = fs.openSync(parent, fs.constants.O_RDONLY |
+        (fs.constants.O_DIRECTORY || 0) | (fs.constants.O_NOFOLLOW || 0));
+      try {
+        const opened = fs.fstatSync(directoryFd);
+        if (opened.dev !== directory.dev || opened.ino !== directory.ino) {
+          throw Error('Private evidence directory changed during publication');
+        }
+        fs.fsyncSync(directoryFd);
+      } finally {
+        fs.closeSync(directoryFd);
+      }
+    }
   } catch (error) {
     if (fd !== undefined) fs.closeSync(fd);
-    if (created) fs.unlinkSync(target);
+    // Never delete a substituted inode in a changed directory. A successfully
+    // published target must not be unlinked on cleanup failures.
+    if (tempIdentity) {
+      try {
+        const latest = fs.lstatSync(temporary);
+        if (latest.isFile() && latest.dev === tempIdentity.dev &&
+            latest.ino === tempIdentity.ino) fs.unlinkSync(temporary);
+      } catch (cleanup) {
+        if (cleanup.code !== 'ENOENT') {
+          // Preserve original failure without deleting unverified files.
+        }
+      }
+    }
     throw error;
   }
 }
