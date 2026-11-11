@@ -16,6 +16,6 @@ class AdmissionProfile extends Model
 
     protected function casts(): array
     {
-        return ['enabled' => 'boolean', 'credential_version' => 'integer', 'expires_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime'];
+        return ['enabled' => 'boolean', 'credential_version' => 'integer', 'managed_certificate_id' => 'integer', 'expires_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime'];
     }
 }

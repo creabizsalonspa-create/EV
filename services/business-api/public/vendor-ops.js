@@ -2734,6 +2734,23 @@ window.createVendorWorkspace = ({
             pane.append(raw("p", profile.expires_at + " UTC"));
         const stateKey = "admission.state." + result.credential_state;
         if (result.credential_state) pane.append(ui("p", stateKey));
+        if (result.certificate_management_available === true)
+            button(pane, "Charger certificates", () => {
+                pane.querySelector("[data-charger-certificates]")?.remove();
+                const certificates = document.createElement("section");
+                certificates.dataset.chargerCertificates = "";
+                pane.append(certificates);
+                window.mountChargerCertificates({
+                    root: certificates,
+                    endpoint: path + "/certificates",
+                    profileId: profile.id,
+                    actor,
+                    api,
+                    valid: live,
+                    signal: controller.signal,
+                    refreshAdmission: refresh,
+                });
+            });
         const history = document.createElement("div");
         pane.append(history);
         async function events(page = 1) {

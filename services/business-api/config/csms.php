@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'certificate_management_enabled' => env('CSMS_CERTIFICATE_MANAGEMENT_ENABLED', false),
+    'certificate_issuer_bundle' => env('CSMS_CERTIFICATE_ISSUER_BUNDLE', storage_path('app/private/charger-certificates/issuers.pem')),
+    'certificate_issuer_pins' => array_values(array_filter(explode(',', (string) env('CSMS_CERTIFICATE_ISSUER_PINS', '')))),
     'diagnostic_logs_enabled' => env('CSMS_DIAGNOSTIC_LOGS_ENABLED', false),
     'diagnostic_upload_origin' => env('CSMS_DIAGNOSTIC_UPLOAD_ORIGIN', 'http://127.0.0.1:8000'),
     'configuration_read_enabled' => env('CSMS_CONFIGURATION_READ_ENABLED', false),

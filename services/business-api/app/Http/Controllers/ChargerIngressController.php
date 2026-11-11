@@ -6,6 +6,7 @@ use App\Models\Charging\AdmissionProfile;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\AdmissionIdentity;
+use App\Services\Charging\ChargerCertificates;
 use App\Services\VendorOps\VendorAccess;
 use Illuminate\Cache\DatabaseStore;
 use Illuminate\Cache\RedisStore;
@@ -42,6 +43,12 @@ class ChargerIngressController extends Controller
         abort_unless($charger->ocpp_protocol === $p->protocol && $company->status === 'approved' && app(VendorAccess::class)->licenseValid($company), 401);
 
         abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $p->identity, $p->protocol, app()->environment('production')), 401);
+
+        try {
+            app(ChargerCertificates::class)->usable($p);
+        } catch (\Throwable) {
+            abort(401);
+        }
 
         // Handshake admission is not source registration, live status or command authority.
         return response('', 204)->header('Cache-Control', 'no-store');
