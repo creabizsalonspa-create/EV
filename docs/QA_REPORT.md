@@ -1,3 +1,14 @@
+# Selected-route visibility repair — 11 November 2026
+
+After resolving catalog429, the local full discovery batch exposed a real map
+bug: fitting distant catalog results could collapse short selected route legs
+to zero-length SVG paths. The map now fits a consented selected journey when
+it is enabled or a new route arrives, falling back to loaded catalog points
+only without route geometry. No location/API request or tile-consent change.
+The route regression adds an unrelated distant station and asserts a visible
+nonzero route. The actual Chromium routing/consent/GPS/Arabic/privacy suite
+passes; the complete paced discovery batch is running on this final source.
+
 # Shared discovery budget correction — 11 November 2026
 
 Hosted d8163cd passed924 Laravel tests, then discovery-routing's capability

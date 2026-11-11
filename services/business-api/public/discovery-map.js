@@ -656,7 +656,7 @@
         ocmMarkers = L.layerGroup().addTo(map);
         routeLines = L.layerGroup().addTo(map);
         renderRoute();
-        fitLoaded();
+        if (!fitRoute()) fitLoaded();
         map.on("popupopen", () => { popupOpen = true; });
         map.on("popupclose", () => { popupOpen = false; });
         // Screen-space bucketing may be recalculated on viewport changes, but
@@ -708,6 +708,20 @@
             { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 },
         );
     };
+    function fitRoute() {
+        if (!map) return false;
+        // The chosen journey has priority over unrelated distant catalog
+        // points. At world zoom short charging legs otherwise collapse into
+        // zero-length SVG paths despite valid provider geometry.
+        const points = routeSegments.flatMap(line => Array.isArray(line)
+            ? line.filter(p => p && Number.isFinite(p.latitude) &&
+                Number.isFinite(p.longitude) && Math.abs(p.latitude) <= 85.05112878 &&
+                Math.abs(p.longitude) <= 180).map(p => [p.latitude, p.longitude])
+            : []);
+        if (points.length < 2) return false;
+        map.fitBounds(points, {maxZoom: 13, padding: [24, 24], animate: false});
+        return true;
+    }
     function renderRoute() {
         if (!routeLines) return;
         routeLines.clearLayers();
@@ -729,6 +743,7 @@
             onRoute: (segments) => {
                 routeSegments = segments;
                 renderRoute();
+                fitRoute();
             },
         });
         planner.update(records);
