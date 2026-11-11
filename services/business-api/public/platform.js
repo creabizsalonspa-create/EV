@@ -38,12 +38,15 @@ window.dispatchEvent(
     }),
 );
 let identityBusy = false;
+// Session cookies from an anonymous startup reply must settle before login can regenerate them.
+let identityInitializing = true;
 function setIdentityBusy(value) {
     identityBusy = value;
+    el("account").setAttribute("aria-busy", String(value || identityInitializing));
     el("account")
         .querySelectorAll("input,button")
-        .forEach((n) => (n.disabled = value));
-    el("logout").disabled = el("logout-retry").disabled = value;
+        .forEach((n) => (n.disabled = value || identityInitializing));
+    el("logout").disabled = el("logout-retry").disabled = value || identityInitializing;
 }
 function pendingLogout(value) {
     try {
@@ -1125,7 +1128,7 @@ el("region-config").onsubmit = async (e) => {
 };
 el("account").onsubmit = async (e) => {
     e.preventDefault();
-    if (identityBusy) return;
+    if (identityBusy || identityInitializing) return;
     const mode = e.submitter.value,
         values = Object.fromEntries(new FormData(e.target));
     const epoch = clearIdentity();
@@ -1276,6 +1279,7 @@ const tariffWorkspace = createTariffWorkspace({
     ui,
     actor: () => user,
 });
+setIdentityBusy(false);
 (async () => {
     // Resolve the initial account once before rendering its public/private catalog.
     // A second late startup load otherwise replaces a page the visitor selected.
@@ -1285,7 +1289,10 @@ const tariffWorkspace = createTariffWorkspace({
     } else await identity();
     await stations();
     await regions();
-})().catch((e) => notice(e));
+})().catch((e) => notice(e)).finally(() => {
+    identityInitializing = false;
+    setIdentityBusy(identityBusy);
+});
 
 el("forgot-password").onsubmit = async (e) => {
     e.preventDefault();

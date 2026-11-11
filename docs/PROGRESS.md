@@ -1,3 +1,23 @@
+# 12 November 2026, 01:10 Dubai — startup cookie race repaired; integration still gated
+
+The broader local operational run passed canonical charging, continuous consumers/restart,
+both OCPP protocols, ingress/certificate revocation, OCPI reception and remote/RFID source
+meter/stop/invoice proofs. Its second vendor-report browser found an intermittent startup
+failure. A controlled actual anonymous-response delay reproduced HTTP200 login followed
+by HTTP401 identity: a late guest Set-Cookie overwrote the regenerated session cookie.
+Account submission is now disabled and guarded until initial bootstrap settles, including
+failure cleanup; retained epoch checks, roles and production limits are unchanged. The new
+`tests/auth-bootstrap.cjs` passes delayed-response and initial-outage cases with real login,
+identity and logout, no successful-login mock or charging replay. Scheduler nine tests pass.
+Evidence: `docs/evidence/payout-integration-repair/auth-bootstrap.json`.
+
+The original full operational command stopped at that failure; it is not reported as a full
+pass. Its remaining phases must run, and the repaired full lifecycle must be reverified.
+PR84 must still pass every current-source hosted gate before normal merge, then PR60.
+GitHub currently allocates no jobs to either candidate; permission inspection returns403.
+Do not infer quota/billing, skip gates, force merge, or claim production acceptance.
+Original42/312 inventory and weighted stage credits remain unchanged.
+
 # Payout integration repair — 12 November 2026 (Dubai)
 
 Both current PR84 source0953524 and PR60 source79a8472 failed at the commercial payout locator; PR60's scheduler inventory correction passed. Reproduced against the exact PR84 application in a fresh disposable SQLite/Docker loopback instance without altering retained local ledgers. Approval can commit successfully while the unchanged60/min protected-read budget makes the subsequent workspace reload return429; the original test then waits for a missing payout button. Retained history also exposed an ambiguous global payout selector.
