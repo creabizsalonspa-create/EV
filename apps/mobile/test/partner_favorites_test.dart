@@ -110,7 +110,22 @@ void main() {
         TextButton,
         'Search partner locations',
       );
-      await tester.ensureVisible(search);
+      // This is an eagerly built Form inside a ListView: scrollUntilVisible
+      // can return before its button is actually hit-testable on a 600px screen.
+      // Use visible gestures, never forced taps or an assertion retry.
+      final viewportHeight =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
+      for (var attempt = 0;
+          attempt < 12 &&
+              tester.getRect(search).center.dy > viewportHeight - 40;
+          attempt++) {
+        await tester.drag(
+          find.byType(ListView).first,
+          const Offset(0, -180),
+        );
+        await tester.pumpAndSettle();
+      }
+      expect(tester.getRect(search).center.dy, lessThan(viewportHeight - 40));
       await tester.tap(search);
       await tester.pumpAndSettle();
       expect(queries.last, {
