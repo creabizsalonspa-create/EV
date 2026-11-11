@@ -1,3 +1,28 @@
+# Combined candidate and verified PR89 — 11 November 2026
+
+PR89 source806a1bb94e9c966fb4b48c356dbeab2318de9e3c merged at
+b4224ddc11a0921c2e522277657888fd3025ace4 after all seven required exact-source
+PR-event jobs passed; source and merge trees are identical. Full job URLs are
+in docs/evidence/integration-coverage/pr89-hosted-checkpoint.json. GitHub marked
+PR64 merged indirectly; its earlier failed vehicle-picker run is not rewritten
+as a pass. The same workflow passed on verified PR89 source, and both combined
+local booking runs passed. The booking regression now asserts authoritative
+mapping availability and the actual browser connector response, retaining only
+bounded non-secret fixture diagnostics if the picker is absent; no assertion
+retry, source command or money action was added.
+
+PR84 combined source:924 Laravel tests/19069 assertions,387 Flutter passes/
+29 explicit live-fixture skips, clean analysis, actual web registration/email/
+role rotation/vendor inventory/customer booking/fleet/support/Admin/Arabic
+journey and frontend contract suites passed. Fixed notifications' missing
+Admin-bearer guard and duplicate public inventory entries. Actual PostgreSQL
+connector suite162/1994 and concurrency22/316 passed in isolated run-owned
+containers; local app/source DBs were preserved. Recovery101 policy tests and
+offline staging389 Node/21 Python tests passed. CI package installation is
+bounded to10 minutes; the30-minute staging restore job budget is preserved.
+New exact-source hosted gates remain mandatory; this is not full-product,
+public staging, physical, live partner/payment or store acceptance.
+
 # Verified integration-base and invoice-provenance tests — 11 November 2026
 
 PR64 source `6a4126a5e1182ec045a13c352f2d0f210b8f3ac6`:

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
+use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -115,7 +116,7 @@ class AdminStaffPermissionTest extends TestCase
     {
         [$admin, , , , $membership] = $this->fixture();
         $url = '/api/admin/permission-grants/'.$membership->id.'/revoke';
-        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
+        $this->withoutMiddleware(TrimStrings::class);
         $this->actingAs($admin)->postJson($url, $this->payload(1, 'short'))->assertUnprocessable();
         $this->postJson($url, $this->payload(1, '        short        '))
             ->assertUnprocessable()->assertJsonValidationErrors('reason');
@@ -245,7 +246,7 @@ class AdminStaffPermissionTest extends TestCase
         $this->actingAs($admin)->postJson($release, $this->payload())->assertStatus(409);
         $this->postJson('/api/admin/permission-grants/'.$member->id.'/revoke',
             $this->payload())->assertOk();
-        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
+        $this->withoutMiddleware(TrimStrings::class);
         $this->postJson($release, $this->payload(2, 'short'))->assertUnprocessable();
         $this->postJson($release, $this->payload(2, '        short        '))
             ->assertUnprocessable()->assertJsonValidationErrors('reason');

@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "candidate_pr": 84,
+  "original_candidate_sha": "7f83492864409ce6f025e37a0ebfe0e8b44a1669",
+  "base_integration_sha": "2e87ff997168c1ae58800050202f04417e2b16a6",
+  "members": [
+    {
+      "pr": 1,
+      "source_sha": "bb9092be1418af8c2fe826b52a311d58bf04b36e",
+      "original_base": "EV"
+    },
+    {
+      "pr": 50,
+      "source_sha": "71b05bb62b8ae421733f30121159b8e68a2a91bf",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 52,
+      "source_sha": "36930ab220ecbdf8ba539c134ed57321516fab06",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 54,
+      "source_sha": "30982fe3cfe8f5266f6dac9c359b8961d3349673",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 55,
+      "source_sha": "b2029f746d731b44cad501e62db7096d3bd9d0b1",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 58,
+      "source_sha": "c60f0c52d3fba4f7d701bf916191f7affb717276",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 61,
+      "source_sha": "987e78185ec3075a3f3fc178297f355a701d93fd",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 63,
+      "source_sha": "5974caaabc46725ed1b698dbf66977dee8fa25bb",
+      "original_base": "development/charging-invoice-provenance"
+    },
+    {
+      "pr": 64,
+      "source_sha": "6a4126a5e1182ec045a13c352f2d0f210b8f3ac6",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 69,
+      "source_sha": "98d387dc4df70f88e4ced70407b0e9aac5fe8cba",
+      "original_base": "development/ocpi-credit-references"
+    },
+    {
+      "pr": 70,
+      "source_sha": "2c69d4bc488e9f72c14b9e94ddbe0c62270d7eea",
+      "original_base": "development/hasone-source-status"
+    },
+    {
+      "pr": 72,
+      "source_sha": "03c261be496b9b7d52f658b06a5a18f630cbd713",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 76,
+      "source_sha": "e744418c79114bf1b865809f9239367576967a71",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 77,
+      "source_sha": "c1d297a1a7fd62a36fac20ffdceefdfed216790f",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 79,
+      "source_sha": "43e0e24d20adb0bdbe624f49a3d6d525ac3469a3",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 80,
+      "source_sha": "ab749f7df083b20d1cbbce5c44a8afbfc390cbb0",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 85,
+      "source_sha": "935d248d66acc3f595fc21c219514b824faea142",
+      "original_base": "development/ocpi-credit-refund-link"
+    },
+    {
+      "pr": 86,
+      "source_sha": "7034c4a1b643338615b07b626a7f45d457f1ef69",
+      "original_base": "development/agent1-rider-access-history"
+    },
+    {
+      "pr": 88,
+      "source_sha": "4cddde567594f1f282784e7b3cffec992a694851",
+      "original_base": "development/fullstack-continuation"
+    },
+    {
+      "pr": 89,
+      "source_sha": "806a1bb94e9c966fb4b48c356dbeab2318de9e3c",
+      "original_base": "development/fullstack-continuation"
+    }
+  ],
+  "excluded": [
+    {
+      "pr": 60,
+      "reason": "Separate privacy-request business logic collides with existing AccountPrivacy service/Admin route. Preserve its branch and port unique native intake/withdrawal onto one canonical workflow before integration."
+    }
+  ],
+  "state": "unmerged_candidate_pending_exact_source_ci",
+  "production_accepted": false
+}

@@ -77,12 +77,12 @@ Route::prefix('v1')->group(function () {
     });
     // Inbox navigation cannot consume the customer's 30/minute support-action
     // allowance. Writes have a distinct, tighter authenticated limiter.
-    Route::middleware(['auth:sanctum', 'throttle:notification-read'])->group(function () {
+    Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:notification-read'])->group(function () {
         Route::get('/notifications', [T::class, 'notifications']);
         Route::get('/notifications/summary', [NotificationCenterController::class, 'summary']);
         Route::get('/notifications/preferences', [NotificationCenterController::class, 'preferences']);
     });
-    Route::middleware(['auth:sanctum', 'throttle:notification-write'])->group(function () {
+    Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:notification-write'])->group(function () {
         Route::put('/notifications/preferences', [NotificationCenterController::class, 'updatePreferences']);
         Route::post('/notifications/read-through', [NotificationCenterController::class, 'readThrough']);
         Route::post('/notifications/{notification}/read', [T::class, 'read']);

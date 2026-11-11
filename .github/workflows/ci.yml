@@ -60,7 +60,9 @@ jobs:
       - run: npm ci
       - name: Verify Agent 9 offline security regression guards
         run: node --test tests/agent9-*.test.cjs
-      - run: npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium and required OS dependencies
+        timeout-minutes: 10
+        run: npx playwright install --with-deps chromium
       - run: ./scripts/start
       - run: npm run test:e2e
       - run: npm run test:frontend
@@ -155,7 +157,7 @@ jobs:
 
   staging-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       PYTHONDONTWRITEBYTECODE: '1'
     steps:

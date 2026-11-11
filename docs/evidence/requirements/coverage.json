@@ -72,18 +72,24 @@
       "test_result": "passed",
       "merge_sha": "f4f477d52cf8e4ee05390dbe5b3e89cb03a3545b",
       "evidence": "docs/evidence/integration-coverage/pr47-hosted-checkpoint.json"
+    },
+    "pr89": {
+      "source_sha": "806a1bb94e9c966fb4b48c356dbeab2318de9e3c",
+      "merge_sha": "b4224ddc11a0921c2e522277657888fd3025ace4",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr89-hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
     "coded": "53.70",
-    "tested": "53.52",
-    "merged": "53.52",
+    "tested": "53.70",
+    "merged": "53.70",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
     "coded": "580543/1081080",
-    "tested": "578563/1081080",
-    "merged": "578563/1081080",
+    "tested": "580543/1081080",
+    "merged": "580543/1081080",
     "production_accepted": "0"
   },
   "categories": [
@@ -4162,8 +4168,8 @@
       "atoms": 13,
       "counts": {
         "coded": 7,
-        "tested": 6,
-        "merged": 6,
+        "tested": 7,
+        "merged": 7,
         "production_accepted": 0
       },
       "details": [
@@ -4314,12 +4320,12 @@
           "id": "9.1.12",
           "software_atom": "Staging container release packaging",
           "coded": true,
-          "checkpoint": null,
-          "note": "Existing code is not yet fully verified",
+          "checkpoint": "pr89",
+          "note": "Verified PR89 exact-source staging container build/PostgreSQL HTTP smoke, immutable evidence publication and offline staging guards. Private packaging only; public staging deployment and production acceptance remain unverified.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

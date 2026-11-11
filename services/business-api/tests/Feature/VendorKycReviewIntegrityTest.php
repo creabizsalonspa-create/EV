@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyReview;
 use App\Models\VendorOps\VendorKycDocument;
+use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -179,7 +180,7 @@ class VendorKycReviewIntegrityTest extends TestCase
 
         // Confirm the controller validates the persisted value even when
         // the framework's global whitespace trimmer is not running.
-        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
+        $this->withoutMiddleware(TrimStrings::class);
         foreach (['approved', 'rejected', 'changes_requested'] as $status) {
             foreach (['ok', '         ok         '] as $reason) {
                 $this->actingAs($admin, 'web')->postJson(

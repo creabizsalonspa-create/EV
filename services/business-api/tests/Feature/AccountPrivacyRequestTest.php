@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -278,7 +279,7 @@ class AccountPrivacyRequestTest extends TestCase
             $this->submit('unknown'))->assertUnprocessable();
         $this->postJson('/api/account/privacy-requests',
             $this->submit('erasure', 'short'))->assertUnprocessable();
-        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\TrimStrings::class);
+        $this->withoutMiddleware(TrimStrings::class);
         $this->postJson('/api/account/privacy-requests',
             $this->submit('erasure', '        short        '))
             ->assertUnprocessable()->assertJsonValidationErrors('details');

@@ -1,3 +1,29 @@
+# Single-owner verified integration — 11 November 2026, 17:46 UTC
+
+Main is `b4224ddc11a0921c2e522277657888fd3025ace4`: PR89 merged after
+seven exact-source PR-event gates passed; its tree matches source806a1bb.
+GitHub also marked PR64 merged through that verified integration, retaining
+the earlier failed vehicle-browser run as history. PR90 was merged earlier.
+Historical PR2/3 were closed only after proving complete source ancestry.
+Twenty PRs remain open. No branch was force-pushed or deleted.
+
+Existing PR84 now preserves its unique changes plus all20 reviewed source
+heads (manifest: docs/integration/pr84-consolidation.json), except duplicated
+PR60 privacy intake. The latter remains intact and must be adapted to one
+canonical AccountPrivacy workflow; its separate Admin API collides with the
+existing one. Candidate is UNMERGED pending exact-head hosted verification.
+Combined local evidence:924 Laravel/19069 assertions,387 Flutter passes with
+29 explicit live-fixture skips, clean analysis, three-role browser journey,
+frontend contracts,389 offline staging tests/21 evidence tests,101 recovery
+negative/policy tests,162 PostgreSQL connector tests/1994 assertions and22
+actual concurrency tests/316 assertions. No physical/live/payment acceptance.
+
+Verified staging packaging atom9.1.12 now cites PR89's real source/merge gates;
+fixed42/312 coverage is regenerated. Full original scope remains incomplete.
+Next: run the consolidated candidate's hosted matrices, fix any real failure,
+merge only that verified source, then close incorporated PRs by ancestry and
+complete canonical privacy/native delivery and remaining original atoms.
+
 # Single-owner integration execution — 11 November 2026
 
 The latest uploaded owner directive restores **one completion agent for the
