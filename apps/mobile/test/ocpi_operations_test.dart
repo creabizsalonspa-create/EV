@@ -82,6 +82,11 @@ class CdrApi extends PartnerApi {
             'reconciliation': {
               'status': 'requires_review',
               'issues': ['energy_mismatch'],
+              'credit_review': {
+                'reference_state': 'matched',
+                'financial_authority': false,
+                'automatic_refund': false,
+              },
               'billing_eligible': false,
             },
           },
@@ -152,6 +157,16 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Session and CDR energy differ'), findsOneWidget);
+      expect(
+        find.text('Credit CDR original reference matched'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'A source reference does not approve a refund or change the original invoice.',
+        ),
+        findsOneWidget,
+      );
       expect(find.textContaining('PRIVATE PARTNER TOKEN'), findsNothing);
       expect(api.mutations, 0);
     },

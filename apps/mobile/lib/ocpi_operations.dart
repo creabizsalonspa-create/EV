@@ -342,6 +342,28 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
           Text(
             '${(component as Map)['type']} · ${component['price']} · ${tr('Step', 'الخطوة')} ${component['step_size']}',
           ),
+      if (row['reconciliation'] is Map &&
+          (row['reconciliation'] as Map)['credit_review'] is Map) ...[
+        Text(
+          ((row['reconciliation'] as Map)['credit_review']
+                      as Map)['reference_state'] ==
+                  'matched'
+              ? tr(
+                  'Credit CDR original reference matched',
+                  'تطابق مرجع سجل الشحن الأصلي للإشعار الدائن',
+                )
+              : tr(
+                  'Credit CDR original reference requires review',
+                  'يتطلب مرجع سجل الشحن الأصلي للإشعار الدائن المراجعة',
+                ),
+        ),
+        Text(
+          tr(
+            'A source reference does not approve a refund or change the original invoice.',
+            'لا يعني مرجع المصدر الموافقة على استرداد أو تغيير الفاتورة الأصلية.',
+          ),
+        ),
+      ],
       if (row['reconciliation'] is Map) ...[
         Text(
           (row['reconciliation'] as Map)['status'] == 'source_consistent'
