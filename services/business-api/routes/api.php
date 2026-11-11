@@ -133,9 +133,9 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
 Route::middleware(['auth:sanctum', 'throttle:platform-api'])->prefix('v1/roaming')->group(__DIR__.'/roaming_orders.php');
 Route::get('v1/ocpi/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations'])->middleware(['auth:sanctum', 'throttle:platform-api']);
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
-Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->whereNumber('operation')->middleware('throttle:30,1');
+Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->where('operation', '[0-9]{1,18}')->middleware('throttle:30,1');
 
-Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
+Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
 
 // Operator-supplied station access information is not charger-source availability.

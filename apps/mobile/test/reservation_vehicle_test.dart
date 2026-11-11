@@ -44,6 +44,26 @@ class PendingVehicles extends FixtureApi {
   }) => response.future;
 }
 
+class ScopedVehicleFixture extends VehicleFixture {
+  int identityEpoch = 0;
+
+  @override
+  bool Function() sessionFence() {
+    final saved = identityEpoch;
+    return () => identityEpoch == saved;
+  }
+}
+
+class ScopedPendingVehicles extends PendingVehicles {
+  int identityEpoch = 0;
+
+  @override
+  bool Function() sessionFence() {
+    final saved = identityEpoch;
+    return () => identityEpoch == saved;
+  }
+}
+
 void main() {
   testWidgets(
     'owned compatible vehicle picker paginates and returns explicit selection',
@@ -184,4 +204,97 @@ void main() {
     expect(expired, false);
     expect(tester.takeException(), null);
   });
+
+  testWidgets('background hides a loaded private garage until explicit refresh', (
+    tester,
+  ) async {
+    final api = VehicleFixture();
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(
+      home: ReservationVehiclePicker(
+        api: api,
+        connector: 'Type2',
+        onExpired: () {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('My EV'), findsOneWidget);
+    expect(api.queries, hasLength(1));
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.text('My EV'), findsNothing);
+    expect(find.text('Garage hidden. Refresh to reload.'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('My EV'), findsNothing);
+    expect(api.queries, hasLength(1));
+    await tester.tap(find.text('Refresh garage'));
+    await tester.pumpAndSettle();
+    expect(find.text('My EV'), findsOneWidget);
+    expect(api.queries, hasLength(2));
+  });
+
+  testWidgets('account changed during background invalidates cached garage', (
+    tester,
+  ) async {
+    final api = ScopedVehicleFixture();
+    addTearDown(api.close);
+    var expired = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: ReservationVehiclePicker(
+        api: api,
+        connector: 'Type2',
+        onExpired: () => expired++,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('My EV'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    api.identityEpoch++;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(expired, 1);
+    expect(find.text('My EV'), findsNothing);
+    expect(find.text('Session changed. Reopen your garage.'), findsOneWidget);
+    expect(
+      tester.widget<TextButton>(
+        find.widgetWithText(TextButton, 'Continue without a vehicle'),
+      ).onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('old in-flight garage response cannot cross reauthentication', (
+    tester,
+  ) async {
+    final api = ScopedPendingVehicles();
+    addTearDown(api.close);
+    var expired = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: ReservationVehiclePicker(
+        api: api,
+        connector: 'Type2',
+        onExpired: () => expired++,
+      ),
+    ));
+    await tester.pump();
+    api.identityEpoch++;
+    api.response.complete({
+      'data': [
+        {'id': 42, 'name': 'Previous account garage', 'connector_type': 'Type2'},
+      ],
+      'current_page': 1,
+      'last_page': 1,
+      'total': 1,
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('Previous account garage'), findsNothing);
+    expect(expired, 1);
+  });
+
 }
