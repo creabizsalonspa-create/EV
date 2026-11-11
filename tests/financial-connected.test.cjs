@@ -159,3 +159,70 @@ test("operational adapter setup remains intact after adding the battery discover
     { script: "./scripts/diagnostic-logs-setup", args: [] },
   ]);
 });
+
+test("a protected financial phase waits one real window in bounded pieces", async () => {
+  const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+  let clock = 0;
+  const waits = [];
+  await waitForFreshWindow({
+    now: () => clock,
+    log: () => {},
+    wait: async (ms) => {
+      assert(ms > 0 && ms <= 30000);
+      waits.push(ms);
+      clock += ms;
+    },
+  });
+  assert.equal(clock, 61000);
+  assert.deepEqual(waits, [30000, 30000, 1000]);
+});
+test("phase readiness respects elapsed time without clearing or probing server state", async () => {
+  const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+  let clock = 20000;
+  const waits = [];
+  await waitForFreshWindow({
+    completed: 0,
+    now: () => clock,
+    log: () => {},
+    wait: async (ms) => {
+      waits.push(ms);
+      clock += ms;
+    },
+  });
+  assert.deepEqual(waits, [30000, 11000]);
+  assert.equal(clock, 61000);
+});
+test("a failed rate-window wait aborts before the financial phase can run", async () => {
+  const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+  const failure = new Error("timer unavailable");
+  let writes = 0;
+  await assert.rejects(
+    async () => {
+      await waitForFreshWindow({
+        now: () => 0,
+        log: () => {},
+        wait: async () => {
+          throw failure;
+        },
+      });
+      writes++;
+    },
+    (error) => error === failure,
+  );
+  assert.equal(writes, 0);
+});
+
+test("fractional deadline crossings never schedule a zero or negative timer", async () => {
+  const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+  const readings = [0, 60999.9, 61000.5];
+  const waits = [];
+  await waitForFreshWindow({
+    now: () => readings.shift() ?? 61001,
+    log: () => {},
+    wait: async (ms) => {
+      assert(ms > 0 && ms <= 30000);
+      waits.push(ms);
+    },
+  });
+  assert.deepEqual(waits, [1]);
+});
