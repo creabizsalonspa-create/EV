@@ -20,6 +20,7 @@ const groups = [
   ["client-demo-lifecycle"], // eight private fixture/browser logins; dedicated window
   ["vehicle-battery"], // existing stopped fixture; private alerts -> compatible nearby discovery
   ["vehicle-reservation"], // real garage/selected vehicle/future booking; scoped three-role reads, no charging
+  ["privacy-e2e", "privacy-admin-e2e"], // canonical rights UI; three synthetic logins; no erasure or money
   ["charging-reviews"], // own unchanged authentication window
   ["ocpi-test-invoice", "ocpi-credit-picker"], // TEST billing and source-credit review: at most 4 logins; unchanged auth window
   ["partner-billing"], // scoped source-to-ledger workbench; separate authentication window

@@ -1,119 +1,110 @@
-// Authenticated browser acceptance against an isolated localhost Laravel DB.
-// Creates disposable customer data; remote/staging/production URLs are forbidden.
-const {chromium} = require('playwright');
-const crypto = require('node:crypto');
-const assert = require('node:assert/strict');
-
-if (!process.env.EV_TEST_URL) throw Error('Set EV_TEST_URL to an isolated localhost Laravel server.');
-const target = new URL(process.env.EV_TEST_URL);
-if (!['127.0.0.1','localhost','::1','[::1]'].includes(target.hostname))
-  throw Error('Privacy E2E requires localhost. Never use live or staging customers.');
-
-(async () => {
-  const browser = await chromium.launch({headless:true});
-  const context = await browser.newContext({viewport:{width:1280,height:850}});
-  const page = await context.newPage();
-  const errors = [], calls = [], postBodies = [];
-  let submittedOnce = false, failNextReadback = true;
-  page.on('pageerror', e => errors.push(e.message));
-  page.on('request', r => {
-    if (new URL(r.url()).pathname === '/api/privacy-requests' && r.method() === 'POST') {
-      postBodies.push(r.postDataJSON());
-      submittedOnce = true;
-    }
-  });
-  page.on('response', r => {
-    const pathname = new URL(r.url()).pathname;
-    if (pathname.startsWith('/api/privacy-requests')) {
-      calls.push({path:pathname,method:r.request().method(),status:r.status()});
-    }
+// Actual isolated Laravel customer UI; no erasure, export or financial mutation.
+const { chromium } = require("playwright");
+const assert = require("node:assert/strict");
+const { withPrivacyFixture } = require("./helpers/privacy-local.cjs");
+withPrivacyFixture(async (fixture) => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.EV_CHROMIUM_PATH || undefined,
+    args: ["--no-sandbox"],
   });
   try {
-    await page.goto(target.origin,{waitUntil:'networkidle'});
-    const email = 'agent5-privacy-' + crypto.randomBytes(6).toString('hex') + '@example.invalid';
-    const password = 'Qa!2026' + crypto.randomBytes(16).toString('hex');
-    await page.locator('#account input[name=name]').fill('Sandbox Privacy Customer');
-    await page.locator('#account input[name=email]').fill(email);
-    await page.locator('#account input[name=password]').fill(password);
-    await page.locator('#account button[value=register]').click();
-    await page.locator('#signed').waitFor({state:'visible',timeout:20000});
-    await page.locator('#privacy-self form').waitFor({state:'visible',timeout:20000});
-
-    // Simulate a successful POST but a temporary GET failure immediately
-    // afterwards. The following retry MUST replay the same operation key.
-    await page.route('**/api/privacy-requests?page=1',async route => {
-      if (submittedOnce && failNextReadback) {
-        failNextReadback = false;
-        return route.fulfill({
-          status:503,contentType:'application/json',
-          body:JSON.stringify({message:'Simulated post-commit list readback failure'}),
-        });
+    const page = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+    });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.name));
+    await page.goto(fixture.base);
+    await page
+      .locator("#account [name=email]")
+      .fill(fixture.accounts.customer.email);
+    await page
+      .locator("#account [name=password]")
+      .fill(fixture.accounts.customer.password);
+    const login = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === "/api/login" &&
+        r.request().method() === "POST",
+    );
+    await page.locator("button[value=login]").click();
+    assert.equal((await login).status(), 200);
+    const root = page.locator("#account-privacy");
+    const form = root.getByRole("form", {
+      name: "Personal privacy rights request",
+    });
+    await form.waitFor();
+    await form.getByLabel("Request kind").selectOption("erasure");
+    await form
+      .getByLabel("Private request details")
+      .fill("Review my retained <b>personal</b> data.");
+    let attempts = 0,
+      firstId;
+    const identities = [];
+    await page.route("**/api/account/privacy-requests", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      attempts++;
+      identities.push(route.request().postDataJSON().idempotency_key);
+      if (attempts === 1) {
+        const reply = await route.fetch();
+        assert.equal(reply.status(), 201);
+        firstId = (await reply.json()).id;
+        return route.abort("failed");
       }
-      await route.continue();
+      return route.continue();
     });
-    await page.locator('#privacy-self select[name=request_type]').selectOption('account_deletion');
-    const privateReason = 'Private review reference ' + crypto.randomBytes(7).toString('hex');
-    await page.locator('#privacy-self textarea[name=reason]')
-      .fill(privateReason);
-    await page.locator('#privacy-self input[type=checkbox]').check();
-    await page.locator('#privacy-self form button[type=submit]').click();
-    await page.locator('#privacy-self').getByText('Request may be recorded, but list verification failed.',{exact:false})
-      .waitFor({timeout:20000});
-    assert.equal(failNextReadback,false,'Must exercise simulated failed readback');
-    assert.equal(await page.locator('#privacy-self select[name=request_type]').inputValue(),'account_deletion');
-    assert.equal(await page.locator('#privacy-self textarea[name=reason]').inputValue(),privateReason);
-    await page.locator('#privacy-self input[type=checkbox]').check();
-    await page.locator('#privacy-self form button[type=submit]').click();
-    await page.locator('#privacy-self').getByText('Status: Submitted',{exact:false})
-      .waitFor({timeout:20000});
-    assert.equal(postBodies.length,2,'One initial submission and one idempotent replay');
-    assert.equal(postBodies[0].idempotency_key,postBodies[1].idempotency_key,
-      'Lost readback must not replace the operation identity');
-    assert.ok(calls.some(c=>c.method==='POST'&&c.status===201));
-    assert.ok(calls.some(c=>c.method==='POST'&&c.status===200),
-      'Replay must return original request rather than a duplicate');
-    const beforeWithdrawal=await page.evaluate(async () => {
-      const response=await fetch('/api/privacy-requests');
-      return await response.json();
-    });
-    assert.equal(beforeWithdrawal.total,1,'Post-commit failure must not create duplicate review records');
-    await page.locator('#privacy-self').getByText('Withdraw request',{exact:false}).click();
-    await page.locator('#privacy-self').getByText('Status: Withdrawn',{exact:false})
-      .waitFor({timeout:20000});
-
-    await page.reload({waitUntil:'networkidle'});
-    await page.locator('#privacy-self').getByText('Status: Withdrawn',{exact:false})
-      .waitFor({timeout:20000});
-    assert.ok(calls.some(c=>c.method==='POST'&&c.status===201));
-    assert.ok(calls.some(c=>c.path.endsWith('/withdraw')&&c.status===200));
-    assert.deepEqual(errors,[],'Uncaught page errors');
-    await page.locator('#logout').click();
-    await page.locator('#signed').waitFor({state:'hidden',timeout:20000});
-    // A second authenticated account must never inherit the previous user's
-    // private reason, request status, or stale in-flight DOM state.
-    const secondEmail = 'agent5-privacy-other-' +
-      crypto.randomBytes(6).toString('hex') + '@example.invalid';
-    await page.locator('#account input[name=name]').fill('Second Sandbox Customer');
-    await page.locator('#account input[name=email]').fill(secondEmail);
-    await page.locator('#account input[name=password]')
-      .fill('Qa!2026' + crypto.randomBytes(16).toString('hex'));
-    await page.locator('#account button[value=register]').click();
-    await page.locator('#signed').waitFor({state:'visible',timeout:20000});
-    await page.locator('#privacy-self').getByText('No privacy requests submitted.')
-      .waitFor({timeout:20000});
-    assert.ok(!(await page.locator('#privacy-self').innerText()).includes(privateReason),
-      'Privacy reason leaked across customer sessions.');
-    const own = await page.evaluate(async () => {
-      const result = await fetch('/api/privacy-requests');
-      return {status:result.status,body:await result.json()};
-    });
-    assert.equal(own.status,200);
-    assert.deepEqual(own.body.data,[]);
-    assert.deepEqual(errors,[],'Uncaught page errors');
-    await page.locator('#logout').click();
-    await page.locator('#signed').waitFor({state:'hidden',timeout:20000});
-    console.log('PASS: privacy POST/readback failure replay kept original key; one request, withdrawal, reload, second-account isolation, logout.');
+    await form.locator("button[type=submit]").click();
+    await root
+      .getByText(
+        "Request could not be confirmed. Check history or retry the unchanged request safely.",
+        { exact: true },
+      )
+      .waitFor();
+    await form.locator("button[type=submit]").click();
+    await root
+      .getByText(
+        "Request recorded for manual review. No data has been automatically deleted.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.equal(attempts, 2);
+    assert.equal(identities[0], identities[1]);
+    assert.match(identities[0], /^[0-9a-f-]{36}$/);
+    const card = root
+      .locator("article")
+      .filter({ hasText: `Request #${firstId} ·` });
+    assert.equal(await root.locator("article").count(), 1);
+    assert.equal(await card.locator("b").count(), 0);
+    await card
+      .getByRole("button", {
+        name: "Withdraw request / سحب الطلب",
+        exact: true,
+      })
+      .click();
+    await card.getByText(new RegExp("withdrawn")).waitFor();
+    assert.equal(
+      await root
+        .getByRole("button", {
+          name: "Withdraw request / سحب الطلب",
+          exact: true,
+        })
+        .count(),
+      0,
+    );
+    const me = await page.request.get(fixture.base + "/api/me");
+    assert.equal(me.status(), 200);
+    await page.locator("#language").click();
+    assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
+    await page.locator("#logout").click();
+    await page.locator("#account").waitFor({ state: "visible" });
+    assert.equal(await root.innerText(), "");
+    assert.deepEqual(errors, []);
+    console.log(
+      "PASS actual canonical customer privacy UI: committed lost response, same-key retry, owner history, withdrawal, account retention and logout/RTL privacy. No erasure/payment.",
+    );
   } finally {
     await browser.close();
   }
-})().catch(e=>{console.error(e);process.exitCode=1;});
+}).catch((e) => {
+  console.error(e.message);
+  process.exitCode = 1;
+});

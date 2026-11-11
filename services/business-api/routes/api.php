@@ -40,6 +40,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(function () {
         Route::get('/privacy-requests', [AccountPrivacyController::class, 'mine']);
         Route::post('/privacy-requests', [AccountPrivacyController::class, 'submit']);
+        Route::post('/privacy-requests/{privacyCase}/withdraw', [AccountPrivacyController::class, 'withdraw'])->where('privacyCase', '[0-9]{1,18}');
         Route::group([], __DIR__.'/finance.php');
         Route::prefix('vendor-ops')->group(__DIR__.'/vendor_ops.php');
         Route::get('/me', fn (Request $r) => response()->json($r->user()));

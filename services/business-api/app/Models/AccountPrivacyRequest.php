@@ -12,12 +12,13 @@ class AccountPrivacyRequest extends Model
 
     // Private reason and internal review notes must never be serialized
     // through Eloquent defaults. Controllers provide explicit allowlists.
-    protected $hidden = ['request_details_encrypted', 'review_note_encrypted'];
+    protected $hidden = ['request_details_encrypted', 'review_note_encrypted', 'idempotency_key', 'legacy_privacy_request_id'];
 
     protected function casts(): array
     {
         return [
             'reviewed_at' => 'immutable_datetime',
+            'withdrawn_at' => 'immutable_datetime',
         ];
     }
 }

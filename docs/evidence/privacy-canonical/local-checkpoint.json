@@ -1,0 +1,71 @@
+{
+  "scope": "Local canonical privacy implementation; per-file working-tree hashes identify tested software. Hosted/build/merge acceptance remains pending.",
+  "base_source_sha": "6e91950955a257eb1c017cea37bac80cc33f3654",
+  "laravel": {
+    "passed": 931,
+    "assertions": 19148
+  },
+  "postgresql": {
+    "passed": 179,
+    "assertions": 2182,
+    "process_races_passed": 25,
+    "process_race_assertions": 351,
+    "new_privacy_races": 3
+  },
+  "flutter_full": {
+    "passed": 393,
+    "explicit_fixture_skips": 30
+  },
+  "native_actual_laravel": "passed: canonical private creation, replay, tenant denial and withdrawal",
+  "actual_chromium": [
+    "customer lost POST response and immutable retry, withdrawal, retained account, RTL/logout",
+    "independent Admin versioned transitions, private encrypted history, customer note isolation, logout"
+  ],
+  "web_unit_passed": 13,
+  "production_accepted": false,
+  "automated_erasure_performed": false,
+  "resource_failure": "Initial concurrent local VFS tests hit disk exhaustion. Fresh disposable PostgreSQL rerun with bounded optional1GiB tmpfs passed; no application volume was reset.",
+  "implementation_sha256": {
+    ".github/workflows/ci.yml": "8b9a679b18e1bdb7f69bd83f8c07bc37974d584a0f2edc6cd143e0a5bd2c5e93",
+    ".github/workflows/mobile.yml": "e9d4b92d78c9888425013925ca5d3ec60857551af1fc9ec4f64cad140872461b",
+    "apps/mobile/lib/main.dart": "630b5cd878ffb7dd460a52d6bc4d4e87e3cc607370ea1ed66988dee88fb7b244",
+    "apps/mobile/lib/privacy_requests.dart": "35339d459656a648acb0f2855daca2f256a003a3221a9037ab63e7a26bbc8be5",
+    "apps/mobile/test/privacy_requests_test.dart": "66847c9c3948ac9fe98e25bcf05e57c5691a74eb007c75ca45a6e56b97817b83",
+    "package.json": "7749cae8dbc4d702905a9d7a2d447a1c0232488c31913f2cb7b6171cfa09b89e",
+    "services/business-api/app/Http/Controllers/AccountPrivacyController.php": "89cb81f1c76d180457faf7fb43e31e785bac2e3da645f4a5fe6d9933e268c4a4",
+    "services/business-api/app/Models/AccountPrivacyRequest.php": "87431e1403f16aaedfbe429229e80c94fb9cf023df361e84154dd2741ff4209f",
+    "services/business-api/public/account-privacy.js": "f8fb5b748aea54edf02708dd42ec4c73a35d71622fd750ca001160cdf1f59451",
+    "services/business-api/routes/api.php": "05d6b171b79b139d3c81ce950ac4469b914cef7c42fdfa351f4740335316f4ab",
+    "services/business-api/routes/web.php": "4be4c61e5947724e16570470473225aa93a6a438b93f80be5f5559403334e738",
+    "services/business-api/tests/Feature/PrivacyRequestTest.php": "e238b050ab7d5d318770e850f08473cf0ddf0ca65d40d9f454dcf865be256939",
+    "services/business-api/tests/Postgres/run-connectors": "b3aa73f77023c3e0dd0f9e308fa6e33e9c8d26bd9471df0104fce8ac64e1952b",
+    "services/business-api/tests/Support/connector-reservation-worker.php": "bf4c070765a0cfc2969d490872f282cd4c9eafb52f505c741afffbb48212f558",
+    "tests/account-privacy.cjs": "b113d631f583b88604bc0003f62a362cbc3a7029476921e4fcb23b7573b19cbc",
+    "tests/integration_dependencies_test.py": "ac7e5014a8ad422ffaf4e1f14b6bb5cd82681a6b026e93f8b1df662b3d72c973",
+    "tests/native-connected.cjs": "d9039a71f06b598d87aa0e29e4fdbe4f77c72ea00ff22a1482cc0da96fbfaf65",
+    "tests/operational-connected.cjs": "08dd9d0a1ea9f6f53a1cea459bff3d606e4a89995e88d742724bac6b39223f68",
+    "tests/privacy-admin-browser-fixture.cjs": "b6356308ee35377886b609a977cc52934fc383160943775df7c6cd426e748f51",
+    "tests/privacy-admin-e2e.cjs": "90bb401fefec02db81f922fc2467279cd5be4d1b892a4930e2a615b63eb0540d",
+    "tests/privacy-e2e.cjs": "b8dca5fc2abe70f03ebcd899748c0a392eee2d6701cd2e7c60b4a0608c005b0f",
+    "tests/privacy-requests.cjs": "7975c01a99d932d9517d97275f57e6cd12b1153d2bebd7b1dd6a508c814e5eb6",
+    "apps/mobile/test/live_privacy_requests_test.dart": "9591cd9833feb4fc0f1f60989528d5891df73280f2be697827c3375de48f84a4",
+    "services/business-api/app/Services/Privacy/LegacyPrivacyIntakeImporter.php": "6b21c23080bd8bd0fa5c69c46c38db5d932a43475ef3270f555a4b7b6386a8d0",
+    "services/business-api/database/migrations/2026_11_21_000001_add_privacy_request_identities.php": "2af9f072f940380f384e5c72761e3240a57773d11fbbf1a38443137bb44759f7",
+    "services/business-api/tests/Feature/LegacyPrivacyIntakeImportTest.php": "d40c873bec1f153a80c6b06f9c4a0cf75935f2f4b81a5b7a6279623ecc2e1091",
+    "services/business-api/tests/Postgres/PrivacyRequestConcurrencyTest.php": "7d413a64987ac49d8359208303b5bfa49bed693b35ce32b8e3374063e04bb756",
+    "tests/helpers/privacy-local.cjs": "1105e1dded42f820e58106ba169149a90c7c092a79f8c1a82f99b15d53212319",
+    "tests/native-privacy.cjs": "46f7d83ac5520919bfa874d78a6df8d3218f6a34223d392bd2504e82c4cdc2b9"
+  },
+  "final_focused_laravel": {
+    "passed": 18,
+    "assertions": 195
+  },
+  "final_native_widgets": {
+    "passed": 7,
+    "arabic_width_px": 390,
+    "overflow_fixed": true,
+    "stale_withdrawal_dispatch_asserted": true
+  },
+  "final_analysis": "passed",
+  "regression_scope_note": "Full931 Laravel and179 PostgreSQL baseline passed before the final bounded-pagination regression was added; final18 focused Laravel tests passed afterward. Full393 Flutter passed before final Arabic regression; final7 widget tests passed afterward."
+}

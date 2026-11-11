@@ -1,3 +1,4 @@
+import 'privacy_requests.dart';
 import 'vehicle_model_catalog.dart';
 import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
@@ -1105,6 +1106,10 @@ class _WorkspaceState extends State<Workspace> {
               onSelected: (value) async {
                 if (value == 'profile') {
                   profile();
+                } else if (value == 'privacyRequests') {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => PrivacyRequestsView(api: api!, onExpired: expiredSession),
+                  ));
                 } else if (value == 'ocpiOperations') {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1410,6 +1415,11 @@ class _WorkspaceState extends State<Workspace> {
                     enabled: !busy,
                     child: Text(riderTitle(context)),
                   ),
+                PopupMenuItem(
+                  value: 'privacyRequests', enabled: !busy,
+                  child: Text(Localizations.localeOf(context).languageCode == 'ar'
+                      ? 'طلبات الخصوصية والبيانات' : 'Privacy and data requests'),
+                ),
                 PopupMenuItem(
                   value: 'profile',
                   enabled: !busy,

@@ -12,10 +12,16 @@ class AccountPrivacyController extends Controller
 {
     public function mine(Request $request)
     {
+        $request->validate(['page' => 'sometimes|integer|min:1|max:100000']);
         $page = AccountPrivacyRequest::query()
             ->where('user_id', $request->user()->id)
-            ->select(['id', 'kind', 'status', 'created_at', 'updated_at'])
-            ->orderByDesc('id')->paginate(25);
+            ->select(['id', 'kind', 'status', 'request_details_encrypted', 'created_at', 'updated_at'])
+            ->orderByDesc('id')->paginate(25)
+            ->through(fn (AccountPrivacyRequest $case) => [
+                'id' => $case->id, 'kind' => $case->kind, 'status' => $case->status,
+                'details' => Crypt::decryptString($case->request_details_encrypted),
+                'created_at' => $case->created_at, 'updated_at' => $case->updated_at,
+            ]);
 
         return response()->json($page)->header('Cache-Control', 'no-store, private');
     }
@@ -34,11 +40,23 @@ class AccountPrivacyController extends Controller
         $input = $request->validate([
             'kind' => 'required|in:access,correction,erasure',
             'details' => 'required|string|min:10|max:2000',
+            'idempotency_key' => 'sometimes|required|string|min:12|max:100|regex:/^[A-Za-z0-9_-]+$/D',
         ]);
         $actor = $request->user();
 
         return DB::transaction(function () use ($actor, $input) {
             User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            if (isset($input['idempotency_key'])) {
+                $prior = AccountPrivacyRequest::where('user_id', $actor->id)
+                    ->where('idempotency_key', $input['idempotency_key'])->lockForUpdate()->first();
+                if ($prior) {
+                    abort_unless($prior->kind === $input['kind']
+                        && Crypt::decryptString($prior->request_details_encrypted) === $input['details'],
+                        409, 'Request identity was used for different privacy details.');
+
+                    return $this->receipt($prior);
+                }
+            }
             $already = AccountPrivacyRequest::query()
                 ->where('user_id', $actor->id)
                 ->where('kind', $input['kind'])
@@ -51,6 +69,7 @@ class AccountPrivacyController extends Controller
                 'kind' => $input['kind'],
                 'status' => 'pending',
                 'request_details_encrypted' => Crypt::encryptString($input['details']),
+                'idempotency_key' => $input['idempotency_key'] ?? null,
             ]);
             DB::table('audit_events')->insert([
                 'actor_id' => $actor->id,
@@ -59,13 +78,38 @@ class AccountPrivacyController extends Controller
                 'created_at' => now(),
             ]);
 
-            return response()->json([
-                'id' => $record->id,
-                'kind' => $record->kind,
-                'status' => $record->status,
-                'manual_processing_required' => true,
-                'automated_erasure_performed' => false,
-            ], 201)->header('Cache-Control', 'no-store, private');
+            return $this->receipt($record, 201);
+        });
+    }
+
+    private function receipt(AccountPrivacyRequest $record, int $status = 200)
+    {
+        return response()->json([
+            'id' => $record->id, 'kind' => $record->kind, 'status' => $record->status,
+            'manual_processing_required' => true, 'automated_erasure_performed' => false,
+        ], $status)->header('Cache-Control', 'no-store, private');
+    }
+
+    public function withdraw(Request $request, AccountPrivacyRequest $privacyCase)
+    {
+        abort_unless($privacyCase->user_id === $request->user()->id, 404);
+
+        return DB::transaction(function () use ($request, $privacyCase) {
+            User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+            $record = AccountPrivacyRequest::whereKey($privacyCase->id)->lockForUpdate()->firstOrFail();
+            abort_unless($record->user_id === $request->user()->id, 404);
+            if ($record->status === 'withdrawn') {
+                return $this->receipt($record);
+            }
+            abort_unless(in_array($record->status, ['pending', 'reviewing', 'blocked_external'], true),
+                409, 'A completed review cannot be withdrawn.');
+            $record->update(['status' => 'withdrawn', 'withdrawn_at' => now()]);
+            DB::table('audit_events')->insert([
+                'actor_id' => $request->user()->id, 'action' => 'privacy.request.withdrawn',
+                'subject' => (string) $record->id, 'created_at' => now(),
+            ]);
+
+            return $this->receipt($record);
         });
     }
 
@@ -83,7 +127,7 @@ class AccountPrivacyController extends Controller
     {
         $actor = $this->admin($request);
         $filters = $request->validate([
-            'status' => 'sometimes|required|in:pending,reviewing,blocked_external,closed_review',
+            'status' => 'sometimes|required|in:pending,reviewing,blocked_external,closed_review,withdrawn',
             'kind' => 'sometimes|required|in:access,correction,erasure',
             'user_id' => 'sometimes|integer|min:1',
             'page' => 'sometimes|integer|min:1|max:100000',
@@ -176,7 +220,7 @@ class AccountPrivacyController extends Controller
             $request->merge(['review_note' => trim($request->input('review_note'))]);
         }
         $input = $request->validate([
-            'expected_status' => 'required|in:pending,reviewing,blocked_external,closed_review',
+            'expected_status' => 'required|in:pending,reviewing,blocked_external,closed_review,withdrawn',
             'status' => 'required|in:reviewing,blocked_external,closed_review',
             'review_note' => 'required|string|min:10|max:2000',
         ]);
@@ -195,6 +239,7 @@ class AccountPrivacyController extends Controller
                 'reviewing' => ['blocked_external', 'closed_review'],
                 'blocked_external' => ['reviewing', 'closed_review'],
                 'closed_review' => [],
+                'withdrawn' => [],
             ];
             abort_unless(in_array($input['status'], $allowed[$case->status], true),
                 409, 'Invalid privacy review transition.');

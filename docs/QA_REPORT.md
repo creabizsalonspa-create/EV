@@ -1,3 +1,13 @@
+## Single-agent canonical privacy implementation — 11 Nov 2026 (candidate, not merged)
+
+Verified integration main remains `b4224ddc11a0921c2e522277657888fd3025ace4`; PR90 and PR89 are merged and PR64 is incorporated. PR84 source `6e91950955a257eb1c017cea37bac80cc33f3654` consolidates the reviewed backlog and is running exact-source hosted validation. Both protocol simulations with continuous consumer/restart/recovery, the complete vendor KYC/staff/inventory browser, eight secured-fixture/transport tests and immutable bounded429 retry passed locally. Required Android/iOS and complete business checks must pass before normal merge.
+
+PR60 now preserves its source history while porting its native/browser scenarios into the single encrypted account-privacy case service. Added per-account frozen request identities, same-key receipt replay/conflict controls, explicit owner withdrawal, private paginated history, independent append-only Admin review preservation and additive protected import of any staged legacy encrypted intake. Canonical Flutter consumes cookie/CSRF account routes, clears private state on background/account changes and supports English/Arabic RTL. The duplicate backend/table/workspace is retired; no financial ledger or account data is erased.
+
+Local QA: full Laravel931/19148; PostgreSQL179/2182 plus25 actual process races/351; full Flutter393 passes/30 explicit fixture skips; clean analysis; actual-Laravel native private request/replay/isolation/withdrawal passed; actual customer/Admin Chromium privacy flows and13 web contract tests passed. Final focused tests:18 Laravel/195 assertions and7 native widgets, including actual stale-withdrawal dispatch, background clearing and Arabic390px RTL. The Arabic check exposed and fixed a real dropdown overflow; clean final analysis. Initial concurrent local Docker runs exhausted the workspace and failed firmware/DB setup; reruns with the disposable database on an optional bounded1GiB tmpfs passed, preserving all application volumes. No test or security requirement was removed.
+
+Next: publish verified PR60, pass exact-source Android/iOS/platform validation, merge PR84 before PR60, then update the original42/312 weighted inventory using actual merge evidence. Current conservative recorded coverage is53.70 coded/tested/merged,0 production; pending candidates earn no merged or production credit. Automated privacy erasure/export, customer2FA and the original uncredited software remain unfinished; physical chargers/live partner/PSP/store acceptance remains external.
+
 # Selected-route visibility repair — 11 November 2026
 
 After resolving catalog429, the local full discovery batch exposed a real map

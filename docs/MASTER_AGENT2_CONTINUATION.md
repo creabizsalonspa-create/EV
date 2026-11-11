@@ -847,3 +847,6 @@ DO NOT REBUILD ALREADY COMPLETED MODULES.
 DO NOT REDUCE SCOPE.
 
 IMPLEMENT SUBSTANTIAL WORK, VERIFY IT, COMMIT IT, PUSH IT, AND CONTINUE THROUGHOUT YOUR ACTIVE SESSION WITHOUT WAITING FOR ANOTHER USER COMMAND.
+## 11 Nov 2026 — single completion agent supersedes historical parallel ownership
+
+The latest owner directive restores one agent with full source/integration ownership; do not spawn agents or wait on historical account assignments. Preserve all original histories and use verified PR integration. Main has verified PR90 (`2e87ff9`) and PR89 (`b4224dd`); PR64 is incorporated through PR89. Consolidated PR84 source `6e91950` includes the reviewed backlog and security-compatible fixture repairs; it must pass exact-source hosted validation before merge. PR60 is safely based on that consolidated ancestry and ports its scenarios/native client into the existing canonical privacy service, preserving any privately staged encrypted intake through additive import. Do not merge PR60 before PR84. Financial, hardware, roaming, staging and release acceptance remain separate from simulator tests.
