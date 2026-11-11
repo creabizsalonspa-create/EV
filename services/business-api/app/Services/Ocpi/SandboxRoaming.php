@@ -169,6 +169,10 @@ class SandboxRoaming
             }
         }
 
-        return ['reported_cost' => $cost, 'can_stop' => $canStop, 'can_revoke' => $driver && $order->token_revoked_at === null, 'id' => $order->id, 'provider_id' => $order->provider_id, 'location_name' => $target['location_name'], 'evse_uid' => $target['evse_uid'], 'connector_id' => $target['connector_id'], 'state' => $order->state, 'token_state' => $order->token_state, 'expires_at' => $order->expires_at, 'energy_wh' => $order->energy_wh, 'source_status' => $order->source_status, 'reconciliation_state' => $order->reconciliation_state, 'source_observed_at' => $order->source_observed_at, 'created_at' => $order->created_at, 'commands' => $commands, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'billing_eligible' => false, 'local_invoice_created' => false, 'physical_charging_verified' => false, 'live_commands_enabled' => false];
+        $invoice = DB::table('ocpi_test_invoice_receipts')->where('order_id', $order->id)->first();
+        $canInvoice = $driver && app(TestInvoiceLineage::class)->available(User::findOrFail($order->user_id), $order);
+        $invoiceId = $invoice && ($driver || OcpiProvider::find($order->provider_id)?->owner_id === $order->provider_owner_id) ? $invoice->invoice_id : null;
+
+        return ['reported_cost' => $cost, 'can_stop' => $canStop, 'can_revoke' => $driver && $order->token_revoked_at === null, 'id' => $order->id, 'provider_id' => $order->provider_id, 'location_name' => $target['location_name'], 'evse_uid' => $target['evse_uid'], 'connector_id' => $target['connector_id'], 'state' => $order->state, 'token_state' => $order->token_state, 'expires_at' => $order->expires_at, 'energy_wh' => $order->energy_wh, 'source_status' => $order->source_status, 'reconciliation_state' => $order->reconciliation_state, 'source_observed_at' => $order->source_observed_at, 'created_at' => $order->created_at, 'commands' => $commands, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'billing_eligible' => false, 'local_invoice_created' => $invoiceId !== null, 'test_invoice_id' => $invoiceId, 'test_invoice_evidence' => $invoiceId ? 'SIMULATED_CANONICAL_LEDGER' : null, 'can_preview_test_invoice' => $canInvoice, 'real_payment_processed' => false, 'physical_charging_verified' => false, 'live_commands_enabled' => false];
     }
 }
