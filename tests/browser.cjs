@@ -2,6 +2,25 @@ const { chromium } = require("playwright");
 const { execFileSync } = require("node:child_process");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
+
+// Shell role changes are privileged test mutations. Never print raw SQL or email.
+function provisionTestRole(email, role) {
+  try {
+    execFileSync("./scripts/php", ["artisan", "platform:role", email, role], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const output = String(error.stdout || "") + String(error.stderr || "");
+    const sqlstate = output.match(/SQLSTATE\[([A-Z0-9]{5})\]/);
+    throw new Error(
+      "Synthetic role provisioning failed: " +
+        (sqlstate ? "SQLSTATE " + sqlstate[1] : "SQLSTATE unavailable") +
+        "; inspect private CI evidence for cause.",
+      { cause: { exitCode: error.status } },
+    );
+  }
+}
 (async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -127,23 +146,7 @@ const { randomUUID } = require("node:crypto");
       /Email verified/,
     );
     assert.equal(await vendor.page.locator("#verify-email").isVisible(), false);
-    // Keep the real audited role transition mandatory. If its isolated
-    // SQLite provisioner fails, surface only the SQLSTATE reason—not fixture
-    // credentials or a full database query—so CI failures can be repaired.
-    try {
-      execFileSync(
-        "./scripts/php",
-        ["artisan", "platform:role", vendor.email, "vendor"],
-        { stdio: "pipe" },
-      );
-    } catch (cause) {
-      const output = String(cause.stdout || "");
-      const sqlstate = output.split(String.fromCharCode(10))
-        .find((line) => line.includes("SQLSTATE[")) || "SQLSTATE unavailable";
-      const reason = sqlstate.slice(Math.max(0, sqlstate.indexOf("SQLSTATE[")))
-        .split(" (Connection:")[0].slice(0, 240);
-      throw new Error(`Audited role provisioning failed: ${reason}`, { cause });
-    }
+    provisionTestRole(vendor.email, "vendor");
     // The audited role promotion revokes the old browser authorization
     // epoch. Verify that boundary, then sign in again as the vendor.
     const staleVendorIdentity = vendor.page.waitForResponse(
@@ -315,11 +318,7 @@ const { randomUUID } = require("node:crypto");
     await admin.page.getByRole("heading", { name: /Email verified/ }).waitFor();
     await admin.page.getByRole("link", { name: /Return to your account/ }).click();
     await admin.page.locator("#signed").waitFor({ state: "visible" });
-    execFileSync(
-      "./scripts/php",
-      ["artisan", "platform:role", admin.email, "admin"],
-      { stdio: "pipe" },
-    );
+    provisionTestRole(admin.email, "admin");
     const staleAdminIdentity = admin.page.waitForResponse(
       (response) =>
         response.url().endsWith("/api/me") &&
