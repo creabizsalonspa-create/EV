@@ -72,6 +72,7 @@ jobs:
       - run: npm run test:vehicle-models
       - run: npm run test:driver-preferences
       - run: npm run test:station-information
+      - run: npm run test:manual-soc
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
       - run: ./scripts/signed-firmware-validator-test

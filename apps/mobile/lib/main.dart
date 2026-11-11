@@ -2,7 +2,6 @@ import 'vehicle_model_catalog.dart';
 import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
 import 'reservation_intent.dart';
-import 'vehicle_model_catalog.dart';
 import 'vehicle_driver_preferences.dart';
 import 'vehicle_battery.dart';
 import 'package:flutter/material.dart';
