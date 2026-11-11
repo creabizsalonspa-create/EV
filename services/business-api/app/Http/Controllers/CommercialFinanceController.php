@@ -7,6 +7,7 @@ use App\Models\Finance\Payment;
 use App\Models\Finance\Refund;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
+use App\Services\Ocpi\CreditRefundEvidence;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -32,15 +33,16 @@ class CommercialFinanceController extends Controller
         // database snapshot and avoids a query per invoice on long financial reports.
         $payments = DB::table('finance_payments')->select('invoice_id')->selectRaw('SUM(amount_minor) AS paid')->groupBy('invoice_id');
         $refunds = DB::table('finance_refunds')->select('invoice_id')->selectRaw('SUM(amount_minor) AS refunded, SUM(commission_minor) AS commission_refunded, SUM(vendor_minor) AS vendor_refunded')->groupBy('invoice_id');
+        $credits = DB::table('finance_unpaid_credits')->select('invoice_id')->selectRaw('SUM(amount_minor) AS credited, SUM(commission_minor) AS commission_credited, SUM(vendor_minor) AS vendor_credited')->groupBy('invoice_id');
         $rows = DB::query()->fromSub($q->select('id', 'currency', 'minor_units', 'total_minor', 'commission_minor', 'vendor_minor'), 'i')
-            ->leftJoinSub($payments, 'p', 'p.invoice_id', '=', 'i.id')->leftJoinSub($refunds, 'r', 'r.invoice_id', '=', 'i.id')
-            ->select('i.currency', 'i.minor_units')->selectRaw('COUNT(*) AS invoice_count, SUM(i.total_minor) AS invoiced_minor, SUM(COALESCE(p.paid,0)) AS paid_minor, SUM(COALESCE(r.refunded,0)) AS refunded_minor, SUM(CASE WHEN i.total_minor > COALESCE(p.paid,0) THEN i.total_minor - COALESCE(p.paid,0) ELSE 0 END) AS outstanding_minor, SUM(i.commission_minor) AS commission_minor, SUM(i.vendor_minor) AS vendor_allocated_minor, SUM(COALESCE(r.commission_refunded,0)) AS commission_refunded_minor, SUM(COALESCE(r.vendor_refunded,0)) AS vendor_refunded_minor')
+            ->leftJoinSub($payments, 'p', 'p.invoice_id', '=', 'i.id')->leftJoinSub($refunds, 'r', 'r.invoice_id', '=', 'i.id')->leftJoinSub($credits, 'c', 'c.invoice_id', '=', 'i.id')
+            ->select('i.currency', 'i.minor_units')->selectRaw('COUNT(*) AS invoice_count, SUM(i.total_minor) AS invoiced_minor, SUM(COALESCE(p.paid,0)) AS paid_minor, SUM(COALESCE(r.refunded,0)) AS refunded_minor, SUM(COALESCE(c.credited,0)) AS unpaid_credited_minor, SUM(CASE WHEN i.total_minor > COALESCE(p.paid,0) + COALESCE(c.credited,0) THEN i.total_minor - COALESCE(p.paid,0) - COALESCE(c.credited,0) ELSE 0 END) AS outstanding_minor, SUM(i.commission_minor) AS commission_minor, SUM(i.vendor_minor) AS vendor_allocated_minor, SUM(COALESCE(r.commission_refunded,0)) AS commission_refunded_minor, SUM(COALESCE(r.vendor_refunded,0)) AS vendor_refunded_minor, SUM(COALESCE(c.commission_credited,0)) AS commission_credited_minor, SUM(COALESCE(c.vendor_credited,0)) AS vendor_credited_minor')
             ->groupBy('i.currency', 'i.minor_units')->orderBy('i.currency')->orderBy('i.minor_units')->get();
         $groups = $rows->map(function ($row) use ($r) {
             $result = ['currency' => $row->currency, 'minor_units' => (int) $row->minor_units, 'evidence' => 'SIMULATED'];
-            $fields = ['invoice_count', 'invoiced_minor', 'paid_minor', 'refunded_minor', 'outstanding_minor'];
+            $fields = ['invoice_count', 'invoiced_minor', 'paid_minor', 'refunded_minor', 'unpaid_credited_minor', 'outstanding_minor'];
             if (in_array($r->user()->role, ['vendor', 'admin'], true)) {
-                $fields = array_merge($fields, ['commission_minor', 'vendor_allocated_minor', 'commission_refunded_minor', 'vendor_refunded_minor']);
+                $fields = array_merge($fields, ['commission_minor', 'vendor_allocated_minor', 'commission_refunded_minor', 'vendor_refunded_minor', 'commission_credited_minor', 'vendor_credited_minor']);
             }
             foreach ($fields as $field) {
                 $amount = filter_var($row->$field, FILTER_VALIDATE_INT);
@@ -49,8 +51,8 @@ class CommercialFinanceController extends Controller
             }
             $result['net_collected_minor'] = $result['paid_minor'] - $result['refunded_minor'];
             if (isset($result['commission_minor'])) {
-                $result['net_commission_allocated_minor'] = $result['commission_minor'] - $result['commission_refunded_minor'];
-                $result['net_vendor_allocated_minor'] = $result['vendor_allocated_minor'] - $result['vendor_refunded_minor'];
+                $result['net_commission_allocated_minor'] = $result['commission_minor'] - $result['commission_refunded_minor'] - $result['commission_credited_minor'];
+                $result['net_vendor_allocated_minor'] = $result['vendor_allocated_minor'] - $result['vendor_refunded_minor'] - $result['vendor_credited_minor'];
             }
 
             return $result;
@@ -61,26 +63,40 @@ class CommercialFinanceController extends Controller
 
     public function requests(Request $r)
     {
-        return DB::table('finance_refund_requests')->whereIn('invoice_id', $this->invoices($r)->select('id'))->orderByDesc('id')->paginate(25);
+        return response()->json(DB::table('finance_refund_requests')->whereIn('invoice_id', $this->invoices($r)->select('id'))->orderByDesc('id')->paginate(25)->through(function ($row) {
+            if ($row->ocpi_credit_record_id !== null) {
+                $row->source_credit_evidence = app(CreditRefundEvidence::class)->present(Invoice::findOrFail($row->invoice_id), (int) $row->ocpi_credit_record_id);
+            }
+
+            return $row;
+        }))->header('Cache-Control', 'private, no-store');
     }
 
     public function requestRefund(Request $r, Invoice $invoice)
     {
         abort_unless($invoice->user_id === $r->user()->id, 404);
-        $v = $r->validate(['amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
+        $v = $r->validate(['ocpi_credit_record_id' => 'sometimes|integer|min:1', 'amount_minor' => 'required|integer|between:1,2000000000', 'reason' => 'required|string|max:500', 'idempotency_key' => 'required|string|max:100']);
+
+        if (isset($v['ocpi_credit_record_id'])) {
+            $v['ocpi_credit_record_id'] = (int) $v['ocpi_credit_record_id'];
+        }
 
         return DB::transaction(function () use ($r, $invoice, $v) {
             User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
             $old = DB::table('finance_refund_requests')->where('user_id', $r->user()->id)->where('request_key', $v['idempotency_key'])->first();
             if ($old) {
-                abort_unless($old->invoice_id === $invoice->id && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'], 409, 'Refund request key conflict.');
+                abort_unless($old->invoice_id === $invoice->id && (int) $old->amount_minor === (int) $v['amount_minor'] && $old->reason === $v['reason'] && ($old->ocpi_credit_record_id ?? null) === ($v['ocpi_credit_record_id'] ?? null), 409, 'Refund request key conflict.');
 
                 return response()->json($old);
             }
+            if (isset($v['ocpi_credit_record_id'])) {
+                $credit = app(CreditRefundEvidence::class)->require($invoice, (int) $v['ocpi_credit_record_id']);
+                abort_if(DB::table('finance_refund_requests')->where('ocpi_credit_record_id', $credit->id)->exists(), 409, 'Credit source already has a refund review.');
+            }
             $available = (int) Payment::where('invoice_id', $invoice->id)->sum('amount_minor') - (int) Refund::where('invoice_id', $invoice->id)->sum('amount_minor') - (int) DB::table('finance_refund_requests')->where('invoice_id', $invoice->id)->where('status', 'pending')->sum('amount_minor');
             abort_unless((int) $v['amount_minor'] <= $available, 409, 'Requested amount exceeds unreserved captured funds.');
-            $id = DB::table('finance_refund_requests')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $r->user()->id, 'request_key' => $v['idempotency_key'], 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('finance_refund_requests')->insertGetId(['invoice_id' => $invoice->id, 'user_id' => $r->user()->id, 'request_key' => $v['idempotency_key'], 'ocpi_credit_record_id' => $v['ocpi_credit_record_id'] ?? null, 'amount_minor' => (int) $v['amount_minor'], 'reason' => $v['reason'], 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
 
             return response()->json(DB::table('finance_refund_requests')->find($id), 201);
         }, 3);
@@ -102,6 +118,9 @@ class CommercialFinanceController extends Controller
                 abort_unless($row->status === $status && $row->decision_note === $v['note'], 409, 'Refund request already reviewed.');
 
                 return response()->json($row);
+            }
+            if ($status === 'approved' && $row->ocpi_credit_record_id !== null) {
+                app(CreditRefundEvidence::class)->require($invoice, (int) $row->ocpi_credit_record_id);
             }
             abort_if($status === 'approved' && (config('payments.provider', 'mock') !== 'mock' || DB::table('gateway_checkouts')->where('invoice_id', $invoice->id)->where('provider', '!=', 'mock')->exists()), 503, 'Provider refund execution is required; ledger-only approval is disabled.');
             $refund = $status === 'approved' ? $finance->refund($invoice, $r->user()->id, (int) $row->amount_minor, 'request-'.$row->id, $row->reason) : null;

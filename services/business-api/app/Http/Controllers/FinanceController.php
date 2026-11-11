@@ -13,6 +13,7 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Services\Finance\ChargingProvenance;
 use App\Services\Finance\FinanceService;
+use App\Services\Ocpi\CreditRefundEvidence;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -114,7 +115,7 @@ class FinanceController extends Controller
             $q->where('user_id', $r->user()->id);
         }
 
-        return $q->orderByDesc('id')->paginate(25);
+        return $q->select('finance_invoices.*')->selectSub(DB::table('finance_unpaid_credits')->select('amount_minor')->whereColumn('invoice_id', 'finance_invoices.id')->limit(1), 'unpaid_credited_minor')->orderByDesc('id')->paginate(25);
     }
 
     public function issue(Request $r, ChargingSession $session, FinanceService $finance)
@@ -130,7 +131,9 @@ class FinanceController extends Controller
     {
         $this->invoiceAccess($r, $invoice);
 
-        return response()->json($finance->summary($invoice) + ['payments' => Payment::where('invoice_id', $invoice->id)->get(), 'refunds' => Refund::where('invoice_id', $invoice->id)->get()]);
+        $operator = $r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id);
+
+        return response()->json($finance->summary($invoice) + ['can_review_unpaid_credit' => $operator && DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice->id)->exists(), 'can_issue_unpaid_credit' => $operator && $finance->unpaidCreditAvailable($invoice), 'payments' => Payment::where('invoice_id', $invoice->id)->get(), 'refunds' => Refund::where('invoice_id', $invoice->id)->get()])->header('Cache-Control', 'private, no-store');
     }
 
     public function sourceEvidence(Request $r, Invoice $invoice, ChargingProvenance $provenance)
@@ -138,6 +141,36 @@ class FinanceController extends Controller
         $this->invoiceAccess($r, $invoice);
 
         return response()->json($provenance->inspect($invoice))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function sourceCredits(Request $r, Invoice $invoice, CreditRefundEvidence $evidence)
+    {
+        $this->invoiceAccess($r, $invoice);
+        $v = $r->validate(['page' => 'sometimes|integer|min:1|max:100000', 'full_reversal' => 'sometimes|boolean']);
+
+        return response()->json($evidence->options($invoice, (int) ($v['page'] ?? 1), (bool) ($v['full_reversal'] ?? false)))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function unpaidCredit(Request $r, Invoice $invoice, FinanceService $finance)
+    {
+        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id), 404);
+        $v = $r->validate(['expected_actor_id' => 'required|integer|min:1', 'expected_invoice_number' => 'required|string|max:100', 'credit_record_id' => 'required|integer|min:1', 'idempotency_key' => 'required|uuid', 'reason' => 'required|string|min:10|max:500', 'consent' => 'required|boolean', 'expected_total_minor' => 'required|integer|min:1', 'expected_currency' => 'required|regex:/^[A-Z]{3}$/D', 'expected_minor_units' => 'required|integer|between:0,3']);
+        foreach (['expected_actor_id', 'credit_record_id', 'expected_total_minor', 'expected_minor_units'] as $field) {
+            $v[$field] = (int) $v[$field];
+        }
+        $v['consent'] = (bool) $v['consent'];
+
+        return response()->json(['credit_note' => $finance->creditUnpaid($invoice, $r->user()->id, $v), 'invoice_id' => $invoice->id, 'cash_moved' => false, 'refund_created' => false])->header('Cache-Control', 'private, no-store');
+    }
+
+    public function resolveUnpaidCredit(Request $r, Invoice $invoice, FinanceService $finance)
+    {
+        abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $invoice->vendor_id), 404);
+        $v = $r->validate(['expected_actor_id' => 'required|integer|min:1', 'expected_invoice_number' => 'required|string|max:100', 'idempotency_key' => 'required|uuid', 'cancel_unissued' => 'required|boolean']);
+        $v['expected_actor_id'] = (int) $v['expected_actor_id'];
+        $v['cancel_unissued'] = (bool) $v['cancel_unissued'];
+
+        return response()->json($finance->resolveUnpaidCredit($invoice, $r->user()->id, $v))->header('Cache-Control', 'private, no-store');
     }
 
     private function mockOnly(Invoice $invoice): void

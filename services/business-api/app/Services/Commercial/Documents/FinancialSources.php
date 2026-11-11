@@ -4,6 +4,7 @@ namespace App\Services\Commercial\Documents;
 
 use App\Models\User;
 use App\Services\Commercial\CorporateBilling;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 
 class FinancialSources
@@ -11,6 +12,7 @@ class FinancialSources
     public const TABLES = [
         'charging_invoice' => 'finance_invoices',
         'charging_credit' => 'finance_refunds',
+        'charging_unpaid_credit' => 'finance_unpaid_credits',
         'subscription_invoice' => 'commercial_subscription_invoices',
         'subscription_credit' => 'subscription_credits',
         'vendor_settlement' => 'commercial_settlements',
@@ -81,8 +83,8 @@ class FinancialSources
                 'total_minor' => $credit ? (int) $row->amount_minor : (int) $row->total_minor,
                 'currency' => $invoice->currency, 'minor_units' => (int) $invoice->minor_units,
                 'evidence' => $row->evidence,
-                'description_en' => $credit ? 'Charging credit note' : 'Charging session',
-                'description_ar' => $credit ? 'إشعار دائن للشحن' : 'جلسة شحن',
+                'description_en' => $kind === 'charging_unpaid_credit' ? 'Unpaid charging invoice credit (no cash or refund)' : ($credit ? 'Charging credit note' : 'Charging session'),
+                'description_ar' => $kind === 'charging_unpaid_credit' ? 'تسوية فاتورة شحن غير مدفوعة دون حركة نقدية أو استرداد' : ($credit ? 'إشعار دائن للشحن' : 'جلسة شحن'),
                 'energy_wh' => $credit ? null : (int) $invoice->energy_wh,
             ];
         } else {
@@ -107,6 +109,6 @@ class FinancialSources
         abort_unless($values['minor_units'] >= 0 && $values['minor_units'] <= 3 && $values['total_minor'] === $values['subtotal_minor'] + $values['tax_minor'], 409, 'Source financial record does not reconcile.');
         $buyer = User::findOrFail($user);
 
-        return $values + ['source_kind' => $kind, 'source_id' => $id, 'user_id' => $user, 'vendor_id' => $vendor, 'issued_at' => $row->created_at, 'reason' => $credit ? $row->reason : null, 'recipient' => ['id' => $user, 'name' => $buyer->name, 'email' => $buyer->email]];
+        return $values + ['source_kind' => $kind, 'source_id' => $id, 'user_id' => $user, 'vendor_id' => $vendor, 'issued_at' => $row->created_at, 'reason' => $kind === 'charging_unpaid_credit' ? Crypt::decryptString($row->reason) : ($credit ? $row->reason : null), 'recipient' => ['id' => $user, 'name' => $buyer->name, 'email' => $buyer->email]];
     }
 }

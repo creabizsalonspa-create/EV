@@ -1,3 +1,27 @@
+# Agent 1 checkpoint — 8 November 2026: connected unpaid OCPI TEST credits
+
+Active source: local `development/agent1-credit-completion`, pushed to existing PR69 `development/ocpi-credit-refund-link`. Continue this head; do not recreate modules or reset databases. Agent4 owns integration and coverage. Parent order remains #59 → #61 → #63 → #69; settlement trigger repair #82 is an integration prerequisite; source/rider operations #83 is independent. Fixed312 inventory unchanged.
+
+Implemented: explicit vendor/Admin full noncash correction of untouched unpaid canonical OCPI TEST invoices, authenticated raw source/full-value matching, immutable balanced reversal using the original ledger, actor/invoice/price-bound request replay and cancellation tombstones, private documents and reporting, EN/AR web and Flutter selection/recovery. Original invoices and source receipts remain unchanged. Any payment, checkout, refund review, claim, statement, settlement or reward history blocks this operation. No cash payment/refund is created; later collection and corporate claims are blocked. Partial credits, previously attempted invoices and live/provider billing remain outside this capability. Oversized payment webhooks are rejected before signature work, retaining strict signature/time checks.
+
+Local evidence: selected affected SQLite group89/1254; unpaid feature8/200 before final extra delete assertions, followed by changed immutable update/delete case1/56 on both SQLite and PostgreSQL; affected PostgreSQL35/732 plus four actual concurrent races120 assertions. Flutter24 affected widgets, then five invoice/unpaid widgets, focused analysis clean. Actual isolated Laravel browser unpaid lost-response/reload resolution and actual native HTTP consent/replay/private history passed; existing paid credit/refund browser regression also passed. Arabic private PDF/CSV lineage passed. PHP style17 changed files and new JS formatting passed. These are overlapping focused runs, not a combined test count or physical/merchant acceptance.
+
+Mandatory exact-head hosted platform, financial PostgreSQL, connector PostgreSQL, browser, Android and iOS gates remain required before integration; last prior head had all14 checks queued. No merge/deploy was performed. Live Hasone/physical charger configuration untouched. Agent4 alone integrates validated heads. Agent9 firmware token route correction is in PR83; webhook size fix is in this PR69 chain.
+
+Next: hand this exact pushed source to Agent4, resolve genuine hosted failures, then continue independently implementable core charging/authorized OCPI backend requirements in coordination with other agents. No repeated full inventory audit, no competing charging or money authority. Live hardware, partner, merchant, legal and signed store acceptance remain external.
+
+---
+
+
+# Agent 4 PR69 parent integration reconciliation
+
+Earlier handoffs remain historical; the new source and payment requirements must pass exact-head CI before deployment.
+
+
+# Agent 4 — PR69 refreshed source-credit dependency
+
+Noncash TEST invoice corrections and credit links are source-scoped, not merchant refund authorization. Current parent notes are retained.
+
 SOURCE_PROVENANCE_BATCH: development/charging-invoice-provenance is stacked on PR59 d801cae. Adds private read-only canonical invoice source-evidence across Laravel, web and Flutter: OCPP1.6/2.0.1 applied start/final meter receipts versus stopped session/invoice, and OCPI encrypted consent/source-session/CDR hashes. Application-only invoices never become source verified; missing/damaged receipts require review. All current proof remains simulated, grants no command/payment/physical authority and returns no raw secrets. Owner/customer/vendor/Admin privacy, unknown contracts, background/late-response guards preserved. No schema/data/live-server changes in this batch.
 SOURCE_PROVENANCE_EVIDENCE: /tmp/ev-charge-provenance-php.log34/531 focused SQLite; /tmp/ev-charge-provenance-pg.log34/526 focused PostgreSQL; final empty-proof-object contract4/173;5 affected widgets and clean analysis. Actual synthetic CPO -> canonical invoice -> explicit web source-evidence -> Arabic/no-overflow/logout privacy passed in ev-charge-provenance-browser.log. Pint/syntax checks pass. Android/iOS exact-head mandatory CI pending; Agent4 owns final integration/release validation. No full project/physical/production acceptance claim. PR59 remains standalone source invoice workflow, do not recreate it.
 NEXT_EXACT_ACTION: Commit/push provenance batch and deliver stacked PR to Agent4; preserve PR53/56/59 and other agent branches. Required hosted gates before integration. Continue remaining Agent1 core source-authorized OCPI/charging/billing requirements, keeping approved production partner/payment/hardware acceptance separate. Latest local APK remains3b4a4a8 vehicle batch at /workspace/EV/artifacts/delivery/vehicle-reservation-current and does not include this new OCPI/provenance branch.

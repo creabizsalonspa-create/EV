@@ -22,6 +22,7 @@ const financialEn = {
       'Prepare a historical document from the authorized canonical record. This does not initiate payment.',
   'charging_invoice': 'Charging invoice',
   'charging_credit': 'Charging credit',
+  'charging_unpaid_credit': 'Unpaid charging credit (no cash)',
   'subscription_invoice': 'Subscription invoice',
   'subscription_credit': 'Subscription credit',
   'vendor_settlement': 'Vendor settlement',
@@ -51,6 +52,7 @@ const financialAr = {
       'إعداد مستند تاريخي من السجل الأصلي المصرح به. لا يبدأ ذلك عملية دفع.',
   'charging_invoice': 'فاتورة شحن',
   'charging_credit': 'إشعار دائن للشحن',
+  'charging_unpaid_credit': 'تسوية شحن غير مدفوعة دون حركة نقدية',
   'subscription_invoice': 'فاتورة اشتراك',
   'subscription_credit': 'إشعار دائن للاشتراك',
   'vendor_settlement': 'كشف تسوية المورد',
@@ -71,6 +73,7 @@ String financialText(BuildContext c, String key) =>
 const financialKinds = [
   'charging_invoice',
   'charging_credit',
+  'charging_unpaid_credit',
   'subscription_invoice',
   'subscription_credit',
   'vendor_settlement',
