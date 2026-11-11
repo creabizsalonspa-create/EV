@@ -1,10 +1,12 @@
 <?php
 
+use App\Http\Controllers\AccountPrivacyController;
 use App\Http\Controllers\ChargerAdmissionController;
 use App\Http\Controllers\ChargingOperationsController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\VendorOpsController;
+use App\Models\AccountPrivacyRequest;
 use App\Models\ChargerCommand;
 use App\Models\Charging\AdmissionProfile;
 use App\Models\Reservation;
@@ -41,7 +43,13 @@ try {
     $request = Request::create('/api/reservations', 'POST', $body);
     $request->setUserResolver(fn () => $actor);
     $operation = $argv[5] ?? 'reserve';
-    if ($operation === 'vendor_company_create') {
+    if ($operation === 'privacy_submit') {
+        echo app(AccountPrivacyController::class)->submit($request)->getStatusCode();
+    } elseif ($operation === 'privacy_withdraw') {
+        echo app(AccountPrivacyController::class)->withdraw($request, AccountPrivacyRequest::findOrFail($body['case_id']))->getStatusCode();
+    } elseif ($operation === 'privacy_review') {
+        echo app(AccountPrivacyController::class)->review($request, AccountPrivacyRequest::findOrFail($body['case_id']))->getStatusCode();
+    } elseif ($operation === 'vendor_company_create') {
         echo app(VendorOpsController::class)->createCompany($request)->getStatusCode();
     } elseif ($operation === 'vendor_staff_accept') {
         app(VendorOpsController::class)->accept($request, VendorCompanyStaff::findOrFail($body['membership_id']));

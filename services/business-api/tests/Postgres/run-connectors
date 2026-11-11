@@ -30,7 +30,13 @@ PY
 docker build --secret id=host_ca,src=/etc/ssl/certs/ca-certificates.crt \
   -t "$review_image" "$root/services/business-api/tests/Postgres"
 docker network create "$review_id" >/dev/null
-docker run -d --name "$review_id" --network "$review_id" \
+# Optional bounded RAM-backed storage is confined to this disposable test DB.
+# It avoids VFS workspace exhaustion; never changes any application DB/volume.
+review_storage=()
+if [[ ${EV_REVIEW_DATABASE_TMPFS:-0} == 1 ]]; then
+  review_storage=(--tmpfs /var/lib/postgresql/data:rw,size=1073741824)
+fi
+docker run -d --name "$review_id" --network "$review_id" "${review_storage[@]}" \
   --env-file "$review_directory/database.env" \
   postgis/postgis:16-3.5@sha256:94146ac37bc61e2322f88016056c5920729cb8c64c8542ed590af8fc2abdac07 >/dev/null
 review_ready=false
@@ -40,5 +46,5 @@ for attempt in {1..40}; do
 done
 [[ "$review_ready" == true ]] || { echo 'Disposable finance PostgreSQL did not become ready.' >&2; exit 1; }
 runner=(docker run --rm --name "${review_id}-php" --network "$review_id" --user "$(id -u):$(id -g)" --env-file "$review_directory/database.env" -v "$root:/app" -w /app/services/business-api "$review_image" php vendor/bin/phpunit)
-"${runner[@]}" --filter='ChargerCertificateTest|OcpiCredentialsTest|ContinuousFaultObserverTest|SignedFirmwareTest|RemoteSessionAuthorizationTest|CommandWorkerTest|ChargerResetTest|RiderAccessTest|MaintenanceWindowTest|ChargerDiagnosticsTest|OcpiAuthorizationBoundaryTest|StationFavoriteTest|CatalogGeoTest|ConnectorTopologyTest|ReservationLifecycleTest|CommandReconciliationTest|ChargerAdmissionTest|ChargingOperationsTest|SourceConsumerTest|CanonicalTopologyRollbackTest' --testdox | tee "$evidence/postgres-topology.txt"
-"${runner[@]}" --filter='ChargerCertificateConcurrencyTest|OcpiAuthorizationConcurrencyTest|ConnectorReservationConcurrencyTest|ReservationLifecycleConcurrencyTest|CommandReconciliationConcurrencyTest|ChargerAdmissionConcurrencyTest' tests/Postgres --testdox | tee "$evidence/postgres-connector-concurrency.txt"
+"${runner[@]}" --filter='ChargerCertificateTest|OcpiCredentialsTest|ContinuousFaultObserverTest|SignedFirmwareTest|RemoteSessionAuthorizationTest|CommandWorkerTest|ChargerResetTest|RiderAccessTest|MaintenanceWindowTest|ChargerDiagnosticsTest|OcpiAuthorizationBoundaryTest|StationFavoriteTest|CatalogGeoTest|ConnectorTopologyTest|ReservationLifecycleTest|CommandReconciliationTest|ChargerAdmissionTest|ChargingOperationsTest|SourceConsumerTest|CanonicalTopologyRollbackTest|PrivacyRequestTest|AccountPrivacyTest|AdminPrivacyReviewTest|LegacyPrivacyIntakeImportTest' --testdox | tee "$evidence/postgres-topology.txt"
+"${runner[@]}" --filter='ChargerCertificateConcurrencyTest|OcpiAuthorizationConcurrencyTest|ConnectorReservationConcurrencyTest|ReservationLifecycleConcurrencyTest|CommandReconciliationConcurrencyTest|ChargerAdmissionConcurrencyTest|PrivacyRequestConcurrencyTest' tests/Postgres --testdox | tee "$evidence/postgres-connector-concurrency.txt"

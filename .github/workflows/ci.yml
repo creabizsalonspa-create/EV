@@ -66,6 +66,7 @@ jobs:
       - run: ./scripts/start
       - run: npm run test:e2e
       - run: npm run test:frontend
+      - run: npm run test:privacy
       - name: Verify every discovery browser suite within the production catalog budget
         run: npm run test:discovery-connected
       - run: npm run test:localization
