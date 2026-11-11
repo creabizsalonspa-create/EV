@@ -1,3 +1,36 @@
+# 12 November 2026, 02:04 Dubai — full local operations passed; native CI dependency repaired
+
+All36 operational suites/20 paced batches passed (exit0), including both protocols,
+managed remote/RFID demo/report/review lifecycle, certificates, privacy, calendar,
+vehicle/favorites, OCPI consent/credits/roaming and source configuration/diagnostic files.
+Evidence includes fresh per-suite log digests; previous failed run remains historical.
+PR84 and PR60 current hosted full financial browser phases and both native platform
+matrices have passed. Their operational/recovery gates remain pending; no early merge.
+
+PR58 sourcebb02c79 reached the new native calendar wrapper after every preceding connected
+suite passed, then failed with `Cannot find module playwright`. Native Ubuntu now installs
+the locked root Node dependencies and Playwright Chromium/OS dependencies, on supported
+Ubuntu24.04 while retaining required context names. Every test and timeout remains intact.
+Local locked install/module resolution and8 trigger/order guards pass. Corrected hosted
+checks must rerun; neither oldfailed source nor pending iOS runtime is reported green.
+The downloaded bb02c79 simulator artifact digest and real shared-app EN/AR foreground-only
+privacy metadata are verified, explicitly as a historical unsigned simulator artifact.
+
+The read-only source audit now also requires both unconditional recovery jobs, derives
+conditional gates from actual workflow PR path filters, rejects non-GitHub-Actions check
+impersonation, verifies complete declared source-file inventories and rechecks moving
+base/source/review metadata. Real PR60 has513 changed files: all are now read within the
+explicit3000-file API bound instead of a five-page truncation/error.47 provenance/ancestry/
+workflow/pagination tests pass, including forged-app and moving-integration cases. The
+actual current-source audit correctly remains blocked; no merge or bypass was executed.
+
+See `docs/evidence/operating-calendar/{ci-repair,operational-checkpoint}.json` and latest
+PR bodies. The original42/312 stages remain56.40 coded/53.70 tested/53.70 merged/0 production.
+Continue current exact-source gates, merge84 then60 then58, close only proven incorporated
+historical heads, and record merge-bound42-row coverage before the next original atom.
+Single-agent/full-platform ownership and external hardware/live money/partner/store limits
+remain unchanged. No background execution is claimed.
+
 # 12 November 2026, 01:36 Dubai — verified local operating-calendar vertical slice; existing PR58 continuation
 
 Single completion agent; original42 categories/312 atoms and financial/source invariants

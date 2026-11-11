@@ -1,0 +1,16 @@
+{
+  "failed_source_sha": "bb02c793b197fb2c799914f1c9a8193b177dd529",
+  "failed_job_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43104665552/job/130804733707",
+  "failure": "Native Ubuntu connected calendar wrapper could not resolve playwright; native CI previously installed only Dart dependencies. All preceding connected suites passed.",
+  "fix": "Install root package-lock with npm ci and pinned Playwright Chromium/dependencies on supported Ubuntu24.04 before native build/connected validation; retain existing native (ubuntu-latest) and macos-15 check names and all tests/timeouts.",
+  "local_verification": {
+    "locked_npm_ci": "passed",
+    "playwright_module_resolves": true,
+    "ci_trigger_and_dependency_order_guards": 8,
+    "readiness_dependency_provenance_guards": 47,
+    "complete_web_native_calendar_wrapper_after_locked_install": "passed against actual local Laravel"
+  },
+  "readiness_hardening": "Require all unconditional recovery gates, derive conditional jobs from actual PR path filters, require official GitHub Actions app identity and exact PR-event/source association; read complete declared source files through GitHub3000-file cap and reject truncated/duplicate/moving inventories.",
+  "live_audit": "Real PR60 has513 files; old five-page guard rejected it. Revised guard reads all513 and correctly remains blocked on PR84 dependency, draft and pending recovery/business gates. No automated merge or bypass.",
+  "hosted_status": "Corrected source requires all own current-source checks; previous failure is not reported green"
+}

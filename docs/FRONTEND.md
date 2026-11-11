@@ -377,3 +377,11 @@ PR58 safely continues its original branch, requiring PR84 and PR60 first. Hosted
 Android/iOS verification and integration remain separate from the completed local
 checks. Physical charging, partner, payment, signed-release and store acceptance
 remain unverified. Original42/312 weights are unchanged.
+
+
+The new connected native calendar test includes the actual web editor/customer flow.
+The Linux native job therefore installs the same locked Playwright tooling as the
+business job, using Ubuntu24.04 while preserving required check names. A missing-module
+failure onbb02c79 is recorded and must be replaced by passing corrected-source CI;
+existing tests, timeouts and production rate limits are retained. The shared canonical
+client produces one role-based debug APK/simulator app, not separately signed store apps.

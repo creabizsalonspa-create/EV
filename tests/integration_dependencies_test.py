@@ -20,7 +20,7 @@ TARGET_SHA = "c" * 40
 def pr(n=70, head=SHA, base=gate.TARGET, state="open", merged_at=None,
        merge_commit_sha=None):
     return {
-        "number": n, "title": "Synthetic cross-PR workflow",
+        "number": n, "title": "Synthetic cross-PR workflow", "changed_files": 1,
         "head": {"ref": f"development/test-{n}", "sha": head},
         "base": {"ref": base}, "state": state, "draft": False,
         "mergeable": True, "merged_at": merged_at,
@@ -32,6 +32,7 @@ def evidence(n=70):
     return [{
         "name": name, "status": "completed", "conclusion": "success",
         "head_sha": SHA, "pull_requests": [{"number": n}],
+             "app": {"id": 15368, "slug": "github-actions"},
         "details_url": "https://github.com/creabizsalonspa-create/EV/"
                        "actions/runs/54321/job/98765",
     } for name in sorted(gate.CORE)]

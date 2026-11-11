@@ -1,0 +1,195 @@
+{
+  "observed_at_utc": "2026-11-11T21:52:37.830277+00:00",
+  "command_exit_code": 0,
+  "group_count": 20,
+  "suite_count": 36,
+  "source_code_checkpoint": "f2b56cb3191ee71d6edcbbdbda87c87f9a421cc7",
+  "source_note": "Same application/calendar code plus the separately verified authenticated-bootstrap refinement; later working edits are read-only merge-audit tooling only",
+  "local_only": true,
+  "physical_acceptance": false,
+  "live_money": false,
+  "live_roaming": false,
+  "earlier_run_retained_as_failed": true,
+  "checks": [
+    {
+      "suite": "auth-bootstrap",
+      "sha256": "eb1312c851fe808ffeaeebff17731726598922ce1c48b14e976ded87ff306319",
+      "result": "passed"
+    },
+    {
+      "suite": "invoice-history",
+      "sha256": "a2ce26294ba732ebff0fe2cb76f2af64b73a74b63af177fadfdcaa435cbd3e31",
+      "result": "passed"
+    },
+    {
+      "suite": "money-input",
+      "sha256": "9225017caaf1f5d595071dcbac2a181b599b35a848c160d73c2ea4dea9d4021a",
+      "result": "passed"
+    },
+    {
+      "suite": "tariffs",
+      "sha256": "e1f37165c10bc068ea3f2ed415fb5503232f9501620d3255f02b90919f9c0177",
+      "result": "passed"
+    },
+    {
+      "suite": "managed-gate",
+      "sha256": "d1e597783d5ea75f9eae3453399b835014cb847af694441953cd64344ad6783e",
+      "result": "passed"
+    },
+    {
+      "suite": "canonical-topology",
+      "sha256": "202312cbd37a3c66c7dc708bbfad713eed86496f0966dd909610e859896eda86",
+      "result": "passed"
+    },
+    {
+      "suite": "reservation-lifecycle",
+      "sha256": "aeaed17496ffe3eb5cbd7cf65f806b2ba2dc437fb5758432d7e589abf61933a0",
+      "result": "passed"
+    },
+    {
+      "suite": "command-recovery",
+      "sha256": "089faeec80f707bf7a529dc8e566bfa86f688854273843bdd1ac1057921d49e4",
+      "result": "passed"
+    },
+    {
+      "suite": "charger-ingress",
+      "sha256": "7f78b339e5763ebeebd3c9d5b4f0eb71927c9d4b7c15d7e0253838c3738a1124",
+      "result": "passed"
+    },
+    {
+      "suite": "charger-operations",
+      "sha256": "c0a265fb946ee7887f31f1cd3d76022a7d566b81e71b0f4ec852285f43be7636",
+      "result": "passed"
+    },
+    {
+      "suite": "charger-diagnostics",
+      "sha256": "ec867c91d6b18907be360ca9987a8fef15503275b749730d80cffd38ad50487a",
+      "result": "passed"
+    },
+    {
+      "suite": "maintenance-windows",
+      "sha256": "92e674e517e3d5d8c9f2ee86fcc86dcc9763424dd3d5ff32cdfc9046d2bb26bf",
+      "result": "passed"
+    },
+    {
+      "suite": "signed-firmware",
+      "sha256": "ae9eaf0a8a4e6a410ebbc16c55037b7dd92e297d3999383d9462e52d8bbf317d",
+      "result": "passed"
+    },
+    {
+      "suite": "ocpi-credentials",
+      "sha256": "8cdc2a6ab4e70dbde799b240b4b82ab932ea001b89d146e440e5ecec2962a1a8",
+      "result": "passed"
+    },
+    {
+      "suite": "ocpi-incoming",
+      "sha256": "fbb47bc47f545595b15e6dbdddbf18868d5ed05b59f4b348b375bcd4ffde5796",
+      "result": "passed"
+    },
+    {
+      "suite": "ocpi-receiver",
+      "sha256": "8e2c226d26fe916b2d54d656c6022e93b2417dacef4110bca0422cf082a0ac0d",
+      "result": "passed"
+    },
+    {
+      "suite": "charger-certificates",
+      "sha256": "b5dfa6ebb250ca18b14b4ff7d4416986be69c29281cdde4b00d392f8c41779f1",
+      "result": "passed"
+    },
+    {
+      "suite": "rider-access",
+      "sha256": "183867068a85eda559979bbfc9e65d5b2ce27134113e124fed43790cfa65318f",
+      "result": "passed"
+    },
+    {
+      "suite": "charger-resets",
+      "sha256": "f2a5911d9075e1eca151adfba9a37149bf5b3416a2cd81e9fd417e678100791a",
+      "result": "passed"
+    },
+    {
+      "suite": "charging-business",
+      "sha256": "f43f730a0c1d2cd2b3bfe8865a34ab82dfb1443b107d27e5ec3daa7213f3ce69",
+      "result": "passed"
+    },
+    {
+      "suite": "station-favorites",
+      "sha256": "70061353cbad4d924eb8de1c82480ed43ad58f03edeb92c37529494432c559fa",
+      "result": "passed"
+    },
+    {
+      "suite": "client-demo-lifecycle",
+      "sha256": "44ff9c9665b9988e44d17b3849ae273e05ffc117c4fa75d3d579120764e24759",
+      "result": "passed"
+    },
+    {
+      "suite": "vehicle-battery",
+      "sha256": "e53f993ee2fa28f1e01ae7be8a459c7358543c973d2ab2ee6dbb4116a0dc059e",
+      "result": "passed"
+    },
+    {
+      "suite": "operating-calendar",
+      "sha256": "a82dc646ada6a75c0dc45afd5f881e62d1b8af76f168d4819cb680ef7847e065",
+      "result": "passed"
+    },
+    {
+      "suite": "vehicle-reservation",
+      "sha256": "435150bc2cdb89a1a48008d84c00e0a82061e401d0bc74411170b84ca80dac6d",
+      "result": "passed"
+    },
+    {
+      "suite": "privacy-e2e",
+      "sha256": "f40bf8e3448b8610d5cbcf0f20eb0b46d919afc0ed8f1076fa4289fea3ffd6a0",
+      "result": "passed"
+    },
+    {
+      "suite": "privacy-admin-e2e",
+      "sha256": "fb347c9b411cdc0f22e6b66505da1050c90fb98834867208186f33df8529c33a",
+      "result": "passed"
+    },
+    {
+      "suite": "charging-reviews",
+      "sha256": "835cae5c989e3e6c9a44efbb985ff469971fcbd04edb1d0b1afbff5e9d2d0a52",
+      "result": "passed"
+    },
+    {
+      "suite": "ocpi-test-invoice",
+      "sha256": "e8529e233ce8ec38519036ab16ec24032954192cd84837d6503eebfefb685361",
+      "result": "passed"
+    },
+    {
+      "suite": "ocpi-credit-picker",
+      "sha256": "1e7e6a091b98f954753bb1300bf9bc68f5e28bd96046e85d6a185c43e38ec917",
+      "result": "passed"
+    },
+    {
+      "suite": "partner-billing",
+      "sha256": "fd7deeb919e8987738961f55e72d194b0ca1cab9943e74d66e11a568d0325262",
+      "result": "passed"
+    },
+    {
+      "suite": "ocpi-unpaid-credit",
+      "sha256": "9de24659e69ae4ad71dd12b10fb43ac0b0ce120315e604dbc056cc6efa6b765c",
+      "result": "passed"
+    },
+    {
+      "suite": "sandbox-roaming",
+      "sha256": "6b7ba58442bdc2077bb3d61a81f31f795e3b0a2f92b52d1c85b29482601c035f",
+      "result": "passed"
+    },
+    {
+      "suite": "partner-favorites",
+      "sha256": "71152af385e8bae3a39be7bf0d9b162e6358944fc392cdbacaaa2a709d3a4384",
+      "result": "passed"
+    },
+    {
+      "suite": "charger-configuration",
+      "sha256": "0c9c0e376cc593a2978aed6996386bfe6c3f6c030e32d7af41a6ebdc55cace0f",
+      "result": "passed"
+    },
+    {
+      "suite": "diagnostic-files",
+      "sha256": "9851218c9d338f10b70a52d8dabebcc7b61dd108a1dc7a4d326981e15592fcea",
+      "result": "passed"
+    }
+  ]
+}

@@ -219,7 +219,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-15]
-    runs-on: ${{ matrix.os }}
+    # Keep required context names stable while using Playwright's supported Linux baseline.
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Select supported Xcode 16.4
@@ -239,6 +240,17 @@ jobs:
           cache-dependency-path: |
             apps/mobile/android/**/*.gradle*
             apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
+      - uses: actions/setup-node@v4
+        if: runner.os == 'Linux'
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install locked browser tooling for connected web/native integration
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
       - name: Install pinned official Flutter source
         shell: bash
         run: |

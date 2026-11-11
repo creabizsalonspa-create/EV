@@ -6,6 +6,7 @@ A 'candidate' means manual exact-source, review, security and dependency
 approval is still required before using GitHub's merge API.
 """
 import argparse
+import ast
 import json
 import os
 from pathlib import Path
@@ -17,7 +18,8 @@ from urllib.request import Request, urlopen
 REPOSITORY = "creabizsalonspa-create/EV"
 TARGET = "development/fullstack-continuation"
 CORE = frozenset(("business-platform", "finance-postgres",
-                  "connector-postgres", "staging-image"))
+                  "connector-postgres", "staging-image",
+                  "csms-recovery", "recovery-acceptance"))
 NATIVE = frozenset(("native (ubuntu-latest)", "native (macos-15)"))
 HASONE_NATIVE = frozenset(("hasone-native (ubuntu-latest)",
                           "hasone-native (macos-15)"))
@@ -91,8 +93,87 @@ def dependency_status(github, number, target, target_sha, active_prs):
 
 
 
+def workflow_pr_paths(filename):
+    """Read the repository's deliberately simple positive PR path filters.
+
+    This is not a general YAML loader: unsupported filters/shapes fail closed
+    instead of silently dropping mandatory suites. No executable YAML is read.
+    """
+    lines = Path(filename).read_text().splitlines()
+    starts = [i for i, line in enumerate(lines)
+              if re.fullmatch(r"  pull_request:\s*(?:#.*)?", line)]
+    if len(starts) != 1:
+        raise ValueError("Exactly one pull_request trigger required: " + str(filename))
+    body = []
+    for line in lines[starts[0] + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if len(line) - len(line.lstrip()) <= 2:
+            break
+        body.append(line)
+    if not body:
+        return None  # No path restriction; every PR must run this workflow.
+    match = re.fullmatch(r"    paths:\s*(.*)", body[0])
+    if not match:
+        raise ValueError("Unsupported PR trigger filters: " + str(filename))
+    rest = ([match[1]] if match[1] else []) + body[1:]
+    text = "\n".join(rest).strip()
+    try:
+        if text.startswith("["):
+            values = ast.literal_eval(text)
+        else:
+            values = []
+            for line in rest:
+                item = re.fullmatch(r"      - (.+)", line)
+                if not item:
+                    raise ValueError("Unsupported path list")
+                values.append(ast.literal_eval(item[1]))
+    except (ValueError, SyntaxError, TypeError) as error:
+        raise ValueError("Unsupported PR path list: " + str(filename)) from error
+    if (not isinstance(values, list) or not values or
+            any(not isinstance(v, str) or not v or v.startswith("!") or
+                any(c in v for c in "[]{}\\") for v in values)):
+        raise ValueError("Only positive simple PR path globs supported: " + str(filename))
+    return tuple(values)
+
+
+def github_path_matches(path, pattern):
+    """Slash-aware *, ** and ? matching; **/ may match zero directories."""
+    out, index = "", 0
+    while index < len(pattern):
+        if pattern[index:index + 3] == "**/":
+            out += "(?:.*/)?"
+            index += 3
+        elif pattern[index:index + 2] == "**":
+            out += ".*"
+            index += 2
+        elif pattern[index] == "*":
+            out += "[^/]*"
+            index += 1
+        elif pattern[index] == "?":
+            out += "[^/]"
+            index += 1
+        else:
+            out += re.escape(pattern[index])
+            index += 1
+    return re.fullmatch(out, path) is not None
+
+
 def required_checks(paths):
     required = set(CORE)
+    # Source-backed trigger parity includes backend/native integration paths,
+    # not just app source directories. Missing/unsupported policy is an error.
+    workflow_root = Path(__file__).resolve().parents[1] / ".github/workflows"
+    for filename, names in [
+        ("mobile.yml", NATIVE),
+        ("hasone-customer.yml", HASONE_NATIVE),
+        ("finance-commercial.yml", {"financial-browser"}),
+        ("agent2-payment-integrity.yml", {"integration-guards"}),
+    ]:
+        filters = workflow_pr_paths(workflow_root / filename)
+        if filters is None or any(github_path_matches(path, pattern)
+                                  for path in paths for pattern in filters):
+            required.update(names)
     if any(p.startswith("apps/mobile/")
            or p == ".github/workflows/mobile.yml" for p in paths):
         required.update(NATIVE)
@@ -169,8 +250,13 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET,
               if isinstance(r.get("pull_requests"), list)
               and any(isinstance(link, dict) and link.get("number") == number
                       for link in r["pull_requests"])]
-    relevant = [r for r in linked
-                if action_workflow_run_id(r.get("details_url"), repo) in approved]
+    attributable = [r for r in linked
+                    if action_workflow_run_id(r.get("details_url"), repo) in approved]
+    relevant = [r for r in attributable
+                if isinstance(r.get("app"), dict)
+                and type(r["app"].get("id")) is int
+                and r["app"].get("id") == 15368
+                and r["app"].get("slug") == "github-actions"]
     if not linked:
         reasons.append("no_pr_associated_exact_head_checks")
     if not relevant:
@@ -212,7 +298,9 @@ def assess(pr, check_runs, paths, parents=None, target=TARGET,
         "mergeable": pr.get("mergeable"), "changed_file_count": len(paths),
         "check_count": len(relevant), "ignored_unassociated_checks":
             len(check_runs) - len(linked), "ignored_non_pr_event_checks":
-            len(linked) - len(relevant), "missing_required": missing,
+            len(linked) - len(attributable),
+        "ignored_non_actions_checks": len(attributable) - len(relevant),
+        "missing_required": missing,
         "status": "candidate_for_manual_review" if not reasons else "blocked",
         "blockers": reasons,
         "merge_executed": False,
@@ -266,7 +354,10 @@ class GitHub:
 
     def pages(self, suffix, key=None):
         out = []
-        for page in range(1, 6):
+        # GitHub serves at most3000 changed files. Large consolidated PRs
+        # require more than five pages; other collections retain their bound.
+        max_pages = 30 if re.fullmatch(r"/pulls/[1-9][0-9]*/files", suffix) else 5
+        for page in range(1, max_pages + 1):
             sep = "&" if "?" in suffix else "?"
             result = self.get(suffix + sep + "per_page=100&page=" + str(page))
             items = result[key] if key else result
@@ -316,7 +407,14 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
         # Re-read detail: list results do not expose reliable mergeability.
         before = github.get("/pulls/" + str(number))
         files = github.pages("/pulls/" + str(number) + "/files")
+        if any(not isinstance(f, dict) or not isinstance(f.get("filename"), str)
+               or not f["filename"] for f in files):
+            raise ValueError("Malformed GitHub changed-file inventory")
         paths = [f["filename"] for f in files]
+        declared_files = before.get("changed_files")
+        complete_files = (type(declared_files) is int
+                          and declared_files == len(paths)
+                          and len(paths) == len(set(paths)))
         changed_by_pr[number] = paths
         checks = github.pages("/commits/" + before["head"]["sha"] +
                               "/check-runs", key="check_runs")
@@ -333,12 +431,24 @@ def inspect_live(repo=REPOSITORY, target=TARGET, limit=100, only_pr=None,
             prerequisites=dependency_graph.get(number, ()),
             prerequisite_status=verified_dependencies,
         )
+        if not complete_files:
+            evaluated["status"] = "blocked"
+            evaluated["blockers"].append("incomplete_changed_file_inventory")
+        evaluated["declared_changed_files"] = declared_files
         # Guard against moving heads while reading separate API resources.
         after = github.get("/pulls/" + str(number))
         if (after["head"]["sha"] != before["head"]["sha"]
-                or after["base"]["ref"] != before["base"]["ref"]):
+                or after["base"]["ref"] != before["base"]["ref"]
+                or after["base"].get("sha") != before["base"].get("sha")):
             evaluated["status"] = "blocked"
             evaluated["blockers"].append("head_or_base_changed_during_inspection")
+        if after.get("changed_files") != declared_files:
+            evaluated["status"] = "blocked"
+            evaluated["blockers"].append("file_inventory_changed_during_inspection")
+        if any(after.get(key) != before.get(key)
+               for key in ("state", "draft", "mergeable")):
+            evaluated["status"] = "blocked"
+            evaluated["blockers"].append("pr_readiness_changed_during_inspection")
         results.append(evaluated)
     overlap = shared_changed_files(changed_by_pr)
     for evaluated in results:
@@ -379,7 +489,7 @@ def main(argv=None):
         result = inspect_live(repo=args.repo, target=args.target,
                               limit=args.limit, only_pr=args.pr,
                               non_draft_target=args.non_draft_target)
-    except (ValueError, KeyError, HTTPError, URLError, TimeoutError) as error:
+    except (ValueError, KeyError, OSError, HTTPError, URLError, TimeoutError) as error:
         print(json.dumps({"status": "blocked", "error": str(error),
                           "merge_executed": False}), file=sys.stderr)
         return 2

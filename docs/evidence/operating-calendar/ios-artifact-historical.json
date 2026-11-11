@@ -1,0 +1,22 @@
+{
+  "source_sha": "bb02c793b197fb2c799914f1c9a8193b177dd529",
+  "workflow_run_id": 43104665552,
+  "artifact_id": 13893228978,
+  "archive_digest_verified": true,
+  "sha256": "5c6dfb4223abb611a07af2f15b75cf89648ca071d1a8b4effc8812145e3a492f",
+  "client": "canonical shared customer/vendor role client; one debug simulator application",
+  "bundle": {
+    "path": "Runner.app/Info.plist",
+    "bundle_id": "com.creabiz.creabizEv",
+    "platforms": [
+      "iPhoneSimulator"
+    ],
+    "build_platform": "iphonesimulator",
+    "foreground_location_description": true,
+    "background_location_description": false,
+    "english_privacy_resource": true,
+    "arabic_privacy_resource": true,
+    "native_executable_magic": "cafebabe"
+  },
+  "physical_or_store_acceptance": false
+}

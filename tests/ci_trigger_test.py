@@ -203,5 +203,21 @@ class CITriggerTest(unittest.TestCase):
                               concurrence)
 
 
+
+class NativeConnectedBrowserDependenciesTest(unittest.TestCase):
+    def test_native_browser_dependency_is_ready_before_connected_calendar_test(self):
+        source = (ROOT / '.github/workflows/mobile.yml').read_text()
+        start = source.index('      - name: Install locked browser tooling for connected web/native integration')
+        end = source.index('      - name: Install pinned official Flutter source', start)
+        preparation = source[start:end]
+        self.assertIn("if: runner.os == 'Linux'", preparation)
+        self.assertIn('working-directory: .', preparation)
+        self.assertIn('npm ci --no-audit --no-fund', preparation)
+        self.assertIn('npx playwright install --with-deps chromium', preparation)
+        self.assertLess(start, source.index('node tests/native-connected.cjs'))
+        self.assertIn('os: [ubuntu-latest, macos-15]', source)
+        self.assertIn("matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os", source)
+        self.assertIn('node-version: "24"', source)
+
 if __name__ == "__main__":
     unittest.main()
