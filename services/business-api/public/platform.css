@@ -830,3 +830,7 @@ form label {
 .station-hours-row label { min-width:0; }
 .station-hours-row input[type=time] { min-width:0; width:100%; }
 @media(max-width:640px) {.station-hours-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.station-hours-row label:first-child{grid-column:1/-1}}
+[data-charging-source-evidence] {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}

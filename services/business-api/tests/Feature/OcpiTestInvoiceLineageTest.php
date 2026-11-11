@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Services\Ocpi\TestInvoiceLineage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\TestWith;
@@ -48,6 +49,24 @@ class OcpiTestInvoiceLineageTest extends TestCase
         $this->assertNull(DB::table('charging_sessions')->value('reservation_id'));
         $this->assertSame($id, DB::table('charging_sessions')->value('roaming_order_id'));
         $this->actingAs($owner)->getJson('/api/finance/invoices/'.$invoice['id'])->assertOk();
+        $proofPath = '/api/finance/invoices/'.$invoice['id'].'/source-evidence';
+        $proof = $this->getJson($proofPath)->assertOk()->assertJsonPath('kind', 'OCPI_SANDBOX')->assertJsonPath('source_verified', true)->assertJsonPath('physical_charging_verified', false)->assertJsonPath('payment_authority', false)->assertJsonCount(2, 'proofs')->json();
+        $this->assertStringNotContainsString('ciphertext', json_encode($proof));
+        $this->assertStringNotContainsString('token', json_encode($proof));
+        $receipt = DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice['id'])->first();
+        $facts = json_decode(Crypt::decryptString($receipt->snapshot_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+        DB::table('ocpi_test_invoice_receipts')->where('id', $receipt->id)->update(['actor_id' => $owner->id]);
+        $this->getJson($proofPath)->assertOk()->assertJsonPath('source_verified', false)->assertJsonPath('status', 'requires_review')->assertJsonCount(0, 'proofs');
+        DB::table('ocpi_test_invoice_receipts')->where('id', $receipt->id)->update(['actor_id' => $receipt->actor_id]);
+        foreach (['vendor_id', 'provider_id', 'order_id', 'source_session_record_id', 'source_cdr_record_id'] as $field) {
+            $changed = $facts;
+            $changed[$field]++;
+            DB::table('ocpi_test_invoice_receipts')->where('id', $receipt->id)->update(['snapshot_ciphertext' => Crypt::encryptString(json_encode($changed, JSON_THROW_ON_ERROR))]);
+            $this->getJson($proofPath)->assertOk()->assertJsonPath('source_verified', false)->assertJsonPath('status', 'requires_review')->assertJsonCount(0, 'proofs');
+        }
+        DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice['id'])->update(['snapshot_ciphertext' => 'corrupt private proof']);
+        $this->getJson($proofPath)->assertOk()->assertJsonPath('source_verified', false)->assertJsonPath('status', 'requires_review')->assertJsonCount(0, 'proofs');
+
         $this->actingAs($driver)->getJson('/api/simulations')->assertOk()->assertJsonCount(0, 'data');
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson('/api/simulations')->assertOk()->assertJsonCount(0, 'data');
     }

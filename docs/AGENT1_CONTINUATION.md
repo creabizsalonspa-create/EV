@@ -1,3 +1,17 @@
+SOURCE_PROVENANCE_BATCH: development/charging-invoice-provenance is stacked on PR59 d801cae. Adds private read-only canonical invoice source-evidence across Laravel, web and Flutter: OCPP1.6/2.0.1 applied start/final meter receipts versus stopped session/invoice, and OCPI encrypted consent/source-session/CDR hashes. Application-only invoices never become source verified; missing/damaged receipts require review. All current proof remains simulated, grants no command/payment/physical authority and returns no raw secrets. Owner/customer/vendor/Admin privacy, unknown contracts, background/late-response guards preserved. No schema/data/live-server changes in this batch.
+SOURCE_PROVENANCE_EVIDENCE: /tmp/ev-charge-provenance-php.log34/531 focused SQLite; /tmp/ev-charge-provenance-pg.log34/526 focused PostgreSQL; final empty-proof-object contract4/173;5 affected widgets and clean analysis. Actual synthetic CPO -> canonical invoice -> explicit web source-evidence -> Arabic/no-overflow/logout privacy passed in ev-charge-provenance-browser.log. Pint/syntax checks pass. Android/iOS exact-head mandatory CI pending; Agent4 owns final integration/release validation. No full project/physical/production acceptance claim. PR59 remains standalone source invoice workflow, do not recreate it.
+NEXT_EXACT_ACTION: Commit/push provenance batch and deliver stacked PR to Agent4; preserve PR53/56/59 and other agent branches. Required hosted gates before integration. Continue remaining Agent1 core source-authorized OCPI/charging/billing requirements, keeping approved production partner/payment/hardware acceptance separate. Latest local APK remains3b4a4a8 vehicle batch at /workspace/EV/artifacts/delivery/vehicle-reservation-current and does not include this new OCPI/provenance branch.
+
+
+# Agent 4 PR61 integration handoff — source evidence merged with updated parent
+
+Historic notes retained; source-backed mock invoices remain subject to final acceptance.
+
+
+# Agent 4 — PR61 reconciled with latest integration
+
+Historical source notes retained. This is simulated charging evidence; no physical charging, merchant acceptance or deployment implied.
+
 # Agent1 hosted continuation — 9 November 2026
 
 PR69 exact33bbb79 passed all14 hosted checks, including Android/iOS, both PostgreSQL jobs, financial browser, staging image and business platform. Agent4 integration remains required; no merge/deploy. PR83 b59caf4 passed native/PostgreSQL/image gates but both platform jobs failed at diagnostic-files initial fetch; raw job128714494008 shows `.env`-triggered Laravel development-server restart. Current fix prepares configuration-read and diagnostic-upload local flags before the already-required initial61-second authentication window, so per-suite idempotent setup no longer starts a server restart just before login. No assertions/transport writes are retried and no limits/guards are weakened. Four orchestration/preparation cases passed; full diagnostic/Citrine browser and exact-new-head hosted CI remain required. Continue actual OCPI partner review/reconciliation implementation while CI runs.

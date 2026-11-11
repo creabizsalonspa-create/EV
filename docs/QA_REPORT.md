@@ -1,3 +1,18 @@
+# Verified integration-base and invoice-provenance tests — 11 November 2026
+
+PR64 source `6a4126a5e1182ec045a13c352f2d0f210b8f3ac6`:
+full Laravel678 tests/14413 assertions passed with the daemon stopped;
+Flutter301 passed/26 explicit live-fixture skips; no worker-lock bypass.
+The earlier overlapping daemon run remains recorded below as failed.
+
+Existing PR61 safely incorporates PR64's reviewed source and PR90's main
+checkpoint. It must merge **after PR64**; the machine-readable dependency
+manifest enforces this. Integrated focused backend37 tests/584 assertions
+passed, three charging-provenance widget tests passed, and complete mobile
+analysis reported no issues. Hosted tests must validate the updated head;
+previous PR61 checks do not establish this new merge candidate's success.
+No new coverage-atom or physical/live/payment acceptance credit is claimed.
+
 # Single-owner integration QA — 11 November 2026
 
 - PR90 source `67e03f69f07b1ddd604ad5b232d0db9f8873d8cd`: all six

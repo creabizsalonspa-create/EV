@@ -142,6 +142,21 @@ withSource(async (f) => {
     await invoice
       .getByRole("heading", { name: "Invoice details", exact: true })
       .waitFor();
+    await invoice
+      .getByRole("button", { name: "Charging source evidence", exact: true })
+      .click();
+    await invoice
+      .getByText("Source receipts match this simulated invoice", {
+        exact: true,
+      })
+      .waitFor();
+    await invoice.getByText("OCPI 2.2.1", { exact: true }).waitFor();
+    const proof = await f.driverClient.request(
+      `finance/invoices/${(await f.driverClient.request(`roaming/sandbox-orders/${f.order_id}`)).test_invoice_id}/source-evidence`,
+    );
+    assert.equal(proof.physical_charging_verified, false);
+    assert.equal(proof.source_verified, true);
+    assert.equal(proof.kind, "OCPI_SANDBOX");
     const order = await f.driverClient.request(
       `roaming/sandbox-orders/${f.order_id}`,
     );
