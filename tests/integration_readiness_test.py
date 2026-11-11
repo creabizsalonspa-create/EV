@@ -199,6 +199,8 @@ class IntegrationReadinessTest(unittest.TestCase):
         parent = pr(number=59)
         parent["head"]["ref"] = "development/ocpi-test-invoice-lineage"
         child = pr(number=61, base=parent["head"]["ref"])
+        security_parent = pr(number=64)
+        security_parent["head"]["ref"] = "development/agent9-payment-return-csp-20261107"
 
         class FakeGitHub:
             def __init__(self, *args, **kwargs):
@@ -211,7 +213,7 @@ class IntegrationReadinessTest(unittest.TestCase):
 
             def pages(self, suffix, key=None):
                 if suffix == "/pulls?state=open":
-                    return [parent, child]
+                    return [parent, security_parent, child]
                 if suffix == "/pulls/61/files":
                     return [{"filename": "README.md"}]
                 if suffix.startswith("/commits/"):
@@ -226,6 +228,7 @@ class IntegrationReadinessTest(unittest.TestCase):
         self.assertEqual("blocked", report["prs"][0]["status"])
         self.assertEqual(59, report["prs"][0]["dependency_pr"])
         self.assertIn("stacked_parent_pending:59", report["prs"][0]["blockers"])
+        self.assertIn("unintegrated_pr_dependencies:59,64", report["prs"][0]["blockers"])
 
 
     def test_flutter_requires_its_own_two_hosted_platform_checks(self):

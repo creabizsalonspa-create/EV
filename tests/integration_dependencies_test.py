@@ -43,7 +43,7 @@ class DependenciesTest(unittest.TestCase):
         self.assertEqual((50, 52), graph[70])
         self.assertEqual((63,), graph[69])
         self.assertEqual((61,), graph[63])
-        self.assertEqual((59,), graph[61])
+        self.assertEqual((59, 64), graph[61])
         self.assertEqual((53,), graph[56])
         self.assertEqual((57,), graph[67])
 
@@ -188,7 +188,7 @@ class DependenciesTest(unittest.TestCase):
         self.assertEqual([50, 52], report["prs"][0]["prerequisites"])
         self.assertIn("unintegrated_pr_dependencies:50,52",
                       report["prs"][0]["blockers"])
-        self.assertEqual(7, report["declared_dependency_edges"])
+        self.assertEqual(8, report["declared_dependency_edges"])
 
 
     def test_non_draft_target_audit_avoids_fetching_thirty_plus_drafts(self):
