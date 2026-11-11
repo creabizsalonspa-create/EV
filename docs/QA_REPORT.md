@@ -1,3 +1,21 @@
+# Recovery backlog source verification — 11 November 2026
+
+PR54 safely incorporates reviewed PR64/main PR90 without conflicts. All101
+Agent3 recovery policy/archive/runtime/evidence/preflight tests pass locally.
+The combined recovery evidence job now has a10-minute timeout; all restore
+and negative tests remain required. Original head b3b767c passed its ten
+hosted jobs, but this updated integration source must pass its own gates.
+The disposable PostgreSQL/PostGIS restore runners preserve independent
+networks, run-owned cleanup, private key/queue/session/cache recovery and
+same-run evidence boundaries; no production backup or DR acceptance claim.
+
+Historical PR2 head0fe9e753c54cd2527658977406e2f82df658da48 and PR3
+head2e87ff997168c1ae58800050202f04417e2b16a6 were closed as redundant:
+both exact heads are ancestors of authoritative main2e87ff9, with zero
+unique source commits. Branches and historical records remain preserved.
+PR1 remains open: its nine unique Actions-maintenance commits need review.
+PR84 remains conflicted and unmerged; unique changes have not been discarded.
+
 # Single-owner integration QA — 11 November 2026
 
 - PR90 source `67e03f69f07b1ddd604ad5b232d0db9f8873d8cd`: all six

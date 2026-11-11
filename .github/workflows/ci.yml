@@ -204,6 +204,7 @@ jobs:
   recovery-acceptance:
     needs: [business-platform, finance-postgres, connector-postgres, staging-image, csms-recovery]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Fetch exact-run Laravel recovery evidence
