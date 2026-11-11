@@ -9,7 +9,7 @@ if (!['127.0.0.1','localhost','[::1]','::1'].includes(base.hostname)) {
   throw Error('Customer catalog E2E forbids remote/staging/production hosts.');
 }
 (async () => {
-  const browser=await chromium.launch({headless:true});
+  const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined});
   const context=await browser.newContext({viewport:{width:390,height:844}});
   const page=await context.newPage();
   const errors=[],calls=[];

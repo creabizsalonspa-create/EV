@@ -12,6 +12,17 @@ class VehicleModelCatalogTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_catalog_integer_routes_reject_malformed_and_overflowing_ids_before_dispatch(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        foreach (['/api', '/api/v1'] as $prefix) {
+            foreach (['not-an-id', '-1', '1.5', '1e3', '9223372036854775808', str_repeat('9', 128)] as $id) {
+                $this->putJson($prefix.'/vehicle-models/'.$id, $this->input())->assertNotFound();
+            }
+        }
+        $this->assertDatabaseCount('vehicle_model_catalog', 0);
+    }
+
     private function input(): array
     {
         return [
@@ -194,7 +205,6 @@ class VehicleModelCatalogTest extends TestCase
                 ->assertJsonPath('data.0.make', $term);
         }
     }
-
 
     public function test_zero_search_is_not_treated_as_empty_query(): void
     {
