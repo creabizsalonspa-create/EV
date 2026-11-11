@@ -1017,6 +1017,21 @@ window.createRoamingWorkspace = ({
                     button(card, `Roaming ${module}`, () =>
                         records(provider, module, detail),
                     );
+                button(card, "Partner billing reconciliation", () => {
+                    const epoch = generation,
+                        version = ++details;
+                    detail.replaceChildren();
+                    window.mountPartnerBilling({
+                        root: detail,
+                        provider,
+                        api,
+                        actor,
+                        ui,
+                        signal: privateRequest.signal,
+                        valid: () =>
+                            epoch === generation && version === details,
+                    });
+                });
                 button(card, "Roaming credentials", () =>
                     credentialWorkspace(provider, detail),
                 );

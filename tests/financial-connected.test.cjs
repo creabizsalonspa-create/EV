@@ -107,6 +107,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "charging-reviews",
       "ocpi-test-invoice",
       "ocpi-credit-picker",
+      "partner-billing",
       "ocpi-unpaid-credit",
       "sandbox-roaming",
       "partner-favorites",

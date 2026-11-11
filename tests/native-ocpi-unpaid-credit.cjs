@@ -16,6 +16,7 @@ withSource(async (f) => {
         other: f.other,
         password: f.password,
         invoice_id: f.invoice.id,
+        provider_id: f.provider_id,
         credit_id: f.credit.id,
         owner: f.owner,
       }),

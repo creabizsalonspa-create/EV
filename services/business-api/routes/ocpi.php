@@ -20,6 +20,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->prefix('/api/ocpi')->group
     Route::patch('/providers/{provider}/authorization', [OcpiController::class, 'authorization']);
     Route::post('/providers/{provider}/negotiate', [OcpiController::class, 'negotiate']);
     Route::post('/providers/{provider}/sync/{module}', [OcpiController::class, 'sync']);
+    Route::get('/providers/{provider}/billing-reconciliation', [OcpiController::class, 'billingReconciliation']);
     Route::get('/providers/{provider}/records/{module}', [OcpiController::class, 'records']);
 });
 

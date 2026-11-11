@@ -8,6 +8,10 @@ window.EV_MESSAGES = {
         en: "Client certificate revoked locally",
         ar: "أُبطلت شهادة العميل محلياً",
     },
+    "Partner billing reconciliation": {
+        en: "Partner billing reconciliation",
+        ar: "مطابقة فوترة الشريك",
+    },
     "Rider activity source.authorization.allowed": {
         en: "Source authorization allowed; transaction not implied",
         ar: "سُمح بتفويض المصدر؛ لا يعني ذلك بدء معاملة",

@@ -22,6 +22,7 @@ const groups = [
   ["vehicle-reservation"], // real garage/selected vehicle/future booking; scoped three-role reads, no charging
   ["charging-reviews"], // own unchanged authentication window
   ["ocpi-test-invoice", "ocpi-credit-picker"], // TEST billing and source-credit review: at most 4 logins; unchanged auth window
+  ["partner-billing"], // scoped source-to-ledger workbench; separate authentication window
   ["ocpi-unpaid-credit"], // source-qualified noncash correction; own unchanged auth window
   ["sandbox-roaming"], // isolated synthetic CPO contract; own auth window
   ["partner-favorites"], // own customer/Admin authentication window
