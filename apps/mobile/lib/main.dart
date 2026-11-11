@@ -1056,6 +1056,7 @@ class _WorkspaceState extends State<Workspace> {
                   ? SupportView(
                       key: supportKey,
                       api: api!,
+                      accountId: account!.id,
                       onSessionExpired: expiredSession,
                       onBatteryDiscovery: discoverBatteryVehicle,
                     )

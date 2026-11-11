@@ -8,6 +8,8 @@ class RepairApi extends FixtureApi {
   bool lose = false, unsafe = false, denied = false;
   int attempts = 0, writes = 0;
   Map<String, dynamic>? first;
+  Map<String, String>? lastReadQuery;
+  final List<Map<String, String>> readQueries = [];
   @override
   Future<dynamic> request(
     String path, {
@@ -27,9 +29,14 @@ class RepairApi extends FixtureApi {
       }
       return {'state': 'open', 'version': 1};
     }
+    lastReadQuery = Map<String, String>.from(query);
+    readQueries.add(lastReadQuery!);
+    final requested = query['focus_order_id'] != null ? 2
+        : int.tryParse(query['page'] ?? '1') ?? 1;
     return {
       'data': <dynamic>[],
-      'current_page': 1,
+      'current_page': requested,
+      if (query['focus_order_id'] != null) 'focus_page': requested,
       'last_page': 1,
       'total': 0,
       'can_manage': true,
@@ -40,15 +47,42 @@ class RepairApi extends FixtureApi {
   }
 }
 
-Widget app(RepairApi api, VoidCallback expired) => MaterialApp(
+Widget app(RepairApi api, VoidCallback expired,
+    {int? orderId, int? alertId}) => MaterialApp(
   home: ChargerRepairsView(
     api: api,
     companyId: 2,
     chargerId: 3,
+    initialOrderId: orderId,
+    initialAlertId: alertId,
     onExpired: expired,
   ),
 );
 void main() {
+  testWidgets('repair alert focuses older scoped page only once', (tester) async {
+    final api = RepairApi();
+    await tester.pumpWidget(app(api, () {}, orderId: 44, alertId: 7));
+    await tester.pumpAndSettle();
+    expect(api.readQueries.first['focus_order_id'], '44');
+    expect(api.readQueries.first['page'], '1');
+    expect(find.text('Repair work orders'), findsOneWidget);
+    await tester.tap(find.text('Refresh'));
+    await tester.pumpAndSettle();
+    expect(api.lastReadQuery?['page'], '2');
+    expect(api.lastReadQuery?.containsKey('focus_order_id'), false);
+  });
+
+  testWidgets('new alert selection refreshes prefilled repair alert', (tester) async {
+    final api = RepairApi();
+    await tester.pumpWidget(app(api, () {}, alertId: 7));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text, '7');
+    await tester.pumpWidget(app(api, () {}, alertId: 9));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text, '9');
+  });
+
   testWidgets(
     'lost repair receipt keeps the original version and identity for explicit resolution',
     (tester) async {

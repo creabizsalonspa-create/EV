@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
@@ -101,13 +102,13 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
     }
     $interval = filter_var($this->option('interval'), FILTER_VALIDATE_INT);
     $id = $this->option('link');
-    if ($interval === false || $interval < 1 || $interval > 60 || ($id !== null && (! ctype_digit($id) || (int) $id < 1))) {
+    if ($interval === false || $interval < 1 || $interval > 60 || ($id !== null && (ctype_digit($id) === false || (int) $id < 1))) {
         $this->error('Use interval 1..60 and a positive link ID.');
 
         return 1;
     }
     $lock = fopen(storage_path('framework/csms-consumer.lock'), 'c');
-    if (! $lock || ! flock($lock, LOCK_EX | LOCK_NB)) {
+    if ($lock === false || flock($lock, LOCK_EX | LOCK_NB) === false) {
         $this->error('A local source consumer already owns the lock.');
 
         return 1;
@@ -140,7 +141,7 @@ Artisan::command('csms:consume {--once} {--link=} {--interval=2}', function () {
 })->purpose('Continuously forward authenticated simulator observations; never dispatch commands');
 
 Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--before=}', function () {
-    if (app()->environment('production') || ! config('csms.session_bridge_enabled')) {
+    if (app()->environment('production') || (bool) config('csms.session_bridge_enabled') === false) {
         $this->error('Only the configured local simulator source monitor is enabled.');
 
         return 1;
@@ -149,7 +150,7 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
     $after = filter_var($this->option('after'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
     $bindingId = $this->option('binding');
     $before = $this->option('before');
-    if ($limit === false || $after === false || ($bindingId !== null && (! ctype_digit($bindingId) || (int) $bindingId < 1)) || ($before !== null && ($bindingId === null || ! ctype_digit($before) || (int) $before < 1 || (int) $before > 2147483647))) {
+    if ($limit === false || $after === false || ($bindingId !== null && (ctype_digit($bindingId) === false || (int) $bindingId < 1)) || ($before !== null && ($bindingId === null || ctype_digit($before) === false || (int) $before < 1 || (int) $before > 2147483647))) {
         $this->error('Use limit1–100, after>=0, and a positive binding for bounded before-cursor catch-up.');
 
         return 1;
@@ -175,4 +176,36 @@ Artisan::command('csms:monitor-faults {--limit=25} {--after=0} {--binding=} {--b
     return $failed ? 1 : 0;
 })->purpose('Bounded durable simulator fault observation; no hardware or capacity commands');
 
+Artisan::command('notifications:remind-faults {--limit=50} {--after=} {--older-than=15}', function () {
+    $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1, 'max_range' => 100]]);
+    $afterOption = $this->option('after');
+    $after = $afterOption === null || $afterOption === ''
+        ? -1
+        : filter_var($afterOption, FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 0]]);
+    $age = filter_var($this->option('older-than'), FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 5, 'max_range' => 1440]]);
+    if ($limit === false || $after === false || $age === false) {
+        $this->error('Use limit 1..100, optional after >=0 and older-than 5..1440 minutes.');
+
+        return 1;
+    }
+    try {
+        $result = app(FaultReminderEscalator::class)->scan($limit, $after, $age);
+        $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+    } catch (Throwable $error) {
+        // Do not expose private alert records, secrets or raw source messages.
+        $this->error('Simulator fault reminder scan failed ('.$error::class.').');
+
+        return 1;
+    }
+
+    return 0;
+})->purpose('Bounded, owner-only, simulator in-app fault reminders; never hardware/external delivery');
+
 Schedule::command('csms:expire-diagnostic-files --limit=100')->everyTenMinutes()->withoutOverlapping();
+if (app()->environment(['local', 'testing'])) {
+    Schedule::command('notifications:remind-faults --limit=50 --older-than=15')
+        ->everyTenMinutes()->withoutOverlapping();
+}

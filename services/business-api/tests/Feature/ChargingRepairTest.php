@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\InboxNotification;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -94,6 +95,134 @@ class ChargingRepairTest extends TestCase
         $this->getJson($url)->assertOk()->assertJsonCount(0, 'data');
         $this->getJson($url.'/1/history')->assertNotFound();
         $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertNotFound();
+    }
+
+    public function test_admin_repair_review_and_source_based_closure_notify_owner_once(): void
+    {
+        [$owner, $company, $charger, $url, $alert, $binding] = $this->repairFixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $outsider = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($admin);
+
+        $open = $this->intent($alert, 0, 'open');
+        $this->postJson($url, $open)->assertOk();
+        $this->postJson($url, $this->intent($alert, 1, 'in_progress'))->assertOk();
+        $review = $this->intent($alert, 2, 'review');
+        $this->postJson($url, $review)->assertOk();
+        $this->postJson($url, $review)->assertOk()->assertJsonPath('replayed', true);
+        $note = InboxNotification::where('kind', 'charging.repair.review_requested.simulated')
+            ->firstOrFail();
+        $this->assertSame($owner->id, $note->user_id);
+        $this->assertSame($company->id, $note->metadata['company_id']);
+        $this->assertSame($charger->id, $note->metadata['charger_id']);
+        $this->assertSame($alert, $note->metadata['alert_id']);
+        $this->assertSame('simulator', $note->metadata['source']);
+        $this->assertFalse($note->metadata['physical_verification']);
+        $this->assertStringNotContainsString($review['note'], json_encode($note->metadata));
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.repair.opened.simulated')->count());
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.repair.work_started.simulated')->count());
+
+        // A case cannot be closed merely by an operator assertion.
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertConflict();
+        $this->assertDatabaseCount('inbox_notifications', 3);
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [[
+                'id' => 11, 'evseId' => 1, 'connectorId' => 1,
+                'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                'timestamp' => now()->toISOString(),
+            ]],
+        ]);
+        $close = $this->intent($alert, 3, 'closed');
+        $this->postJson($url, $close)->assertOk();
+        $this->postJson($url, $close)->assertOk()->assertJsonPath('replayed', true);
+        $closed = InboxNotification::where('kind', 'charging.repair.review_closed.simulated')
+            ->firstOrFail();
+        $this->assertSame($owner->id, $closed->user_id);
+        $this->assertFalse($closed->metadata['physical_verification']);
+        $this->assertTrue($closed->metadata['review_only']);
+        $this->assertDatabaseCount('inbox_notifications', 4);
+        $this->postJson($url, $this->intent($alert, 4, 'open'))
+            ->assertOk()->assertJsonPath('state', 'open');
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.repair.reopened.simulated')->count());
+        $this->assertDatabaseCount('inbox_notifications', 5);
+        $this->actingAs($owner)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 5);
+        $this->actingAs($outsider)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_scoped_repair_notification_focus_finds_older_order_page(): void
+    {
+        [$owner, , , $url, $alert, $binding] = $this->repairFixture();
+        $this->actingAs($owner);
+        $firstId = $this->postJson($url, $this->intent($alert, 0, 'open'))
+            ->assertOk()->json('id');
+        // Synthetic historical order rows only. Never create hardware or
+        // financial state. Force a real second-page focus target.
+        for ($i = 1; $i <= 26; $i++) {
+            $observation = DB::table('charging_status_observations')->insertGetId([
+                'binding_id' => $binding->id,
+                'source_generation' => FaultMonitor::generation($binding),
+                'source_event_id' => 100 + $i,
+                'fingerprint' => hash('sha256', 'repair-focus-'.$i),
+                'evse_number' => 1, 'connector_number' => 1,
+                'status' => 'Faulted', 'error_code' => 'GroundFailure',
+                'occurred_at' => now()->subMinutes(5), 'created_at' => now(),
+            ]);
+            $newAlert = DB::table('charging_fault_alerts')->insertGetId([
+                'observation_id' => $observation,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('charging_repair_orders')->insert([
+                'alert_id' => $newAlert, 'created_by' => $owner->id,
+                'state' => 'open', 'version' => 1,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $this->getJson($url.'?focus_order_id='.$firstId)
+            ->assertOk()->assertJsonPath('focus_page', 2)
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('total', 27)
+            ->assertJsonPath('data.1.id', $firstId);
+        $this->getJson(str_replace('/api/', '/api/v1/', $url)
+            .'?focus_order_id='.$firstId)
+            ->assertOk()->assertJsonPath('focus_page', 2);
+        $this->getJson($url.'?focus_order_id=0')->assertUnprocessable();
+        $this->getJson($url.'?focus_order_id=not-a-number')->assertUnprocessable();
+        $this->getJson($url.'?focus_order_id=900000000')->assertNotFound();
+        $outsider = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($outsider)->getJson($url.'?focus_order_id='.$firstId)
+            ->assertNotFound();
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_owner_repair_updates_do_not_generate_self_notices(): void
+    {
+        [$owner, , , $url, $alert, $binding] = $this->repairFixture();
+        $this->actingAs($owner);
+        foreach ([
+            [0, 'open'], [1, 'in_progress'], [2, 'review'],
+        ] as [$version, $state]) {
+            $this->postJson($url, $this->intent($alert, $version, $state))->assertOk();
+        }
+        app(FaultMonitor::class)->ingest($binding, [
+            'source_generation' => FaultMonitor::generation($binding),
+            'events' => [[
+                'id' => 11, 'evseId' => 1, 'connectorId' => 1,
+                'connectorStatus' => 'Available', 'errorCode' => 'NoError',
+                'timestamp' => now()->toISOString(),
+            ]],
+        ]);
+        $this->postJson($url, $this->intent($alert, 3, 'closed'))->assertOk();
+        $this->assertDatabaseCount('inbox_notifications', 0);
     }
 
     public function test_native_admin_uses_same_version_and_source_guards(): void

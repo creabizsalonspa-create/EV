@@ -7,24 +7,28 @@ class FleetView extends StatefulWidget {
   final EvApi api;
   final int accountId;
   final VoidCallback onExpired;
+  final bool initialInvitations;
   const FleetView({
     super.key,
     required this.api,
     required this.accountId,
     required this.onExpired,
+    this.initialInvitations = false,
   });
   @override
   State<FleetView> createState() => _FleetViewState();
 }
 
 class _FleetViewState extends State<FleetView> {
-  bool invitations = false, busy = false;
+  late bool invitations;
+  bool busy = false;
   Object? error;
   ApiPage<Map<String, dynamic>>? data;
   int generation = 0;
   @override
   void initState() {
     super.initState();
+    invitations = widget.initialInvitations;
     load();
   }
 

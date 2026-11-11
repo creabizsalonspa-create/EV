@@ -5,6 +5,8 @@ return [
     'diagnostic_upload_origin' => env('CSMS_DIAGNOSTIC_UPLOAD_ORIGIN', 'http://127.0.0.1:8000'),
     'configuration_read_enabled' => env('CSMS_CONFIGURATION_READ_ENABLED', false),
     'fault_worker_enabled' => env('CSMS_FAULT_WORKER_ENABLED', false),
+    // Opt-in simulator-only on-call Admin. No default recipient or external delivery.
+    'fault_escalation_admin_user_id' => env('CSMS_FAULT_ESCALATION_ADMIN_USER_ID', 0),
     'firmware_enabled' => env('CSMS_SIGNED_FIRMWARE_ENABLED', false),
     'firmware_catalog_root' => storage_path('app/private/firmware/catalog'),
     'firmware_signer_pins' => array_values(array_filter(explode(',', (string) env('CSMS_FIRMWARE_SIGNER_PINS', '')))),

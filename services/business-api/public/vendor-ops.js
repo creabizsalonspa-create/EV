@@ -2377,6 +2377,7 @@ window.createVendorWorkspace = ({
             };
             for (const row of data.data) {
                 const card = document.createElement("article");
+                card.dataset.repairOrderId = String(row.id);
                 card.append(
                     raw("h4", `#${row.id} · ${row.alert_id}`),
                     ui("p", states[row.state] || "Repair state unavailable"),
@@ -3377,6 +3378,88 @@ window.createVendorWorkspace = ({
             epoch,
         );
     }
+    // Read-only path to the existing authorized vendor fault alert UI.
+    // Never acknowledge the alert, release capacity or send charger commands.
+    // Read-only source-monitor review; never automatically inspect source,
+    // acknowledge a fault or run any physical device control operation.
+    async function openMonitorNotice(companyId, chargerId) {
+        if (![companyId, chargerId].every(
+            (id) => Number.isSafeInteger(id) && id > 0,
+        )) throw new Error("Invalid simulator monitor navigation target.");
+        const epoch = generation;
+        if (!valid(epoch)) return;
+        const company = await api(base + "companies/" + companyId);
+        if (!valid(epoch)) return;
+        await detail(company);
+        if (!valid(epoch)) return;
+        const host = root.querySelector("[data-company-detail]");
+        if (!host || !host.isConnected) return;
+        const pane = document.createElement("section");
+        pane.dataset.notificationMonitorReview = String(chargerId);
+        host.append(pane);
+        await diagnostics(company, { id: chargerId }, pane, epoch);
+        if (!valid(epoch) || !pane.isConnected) return;
+        pane.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+
+    async function openRepairNotice(companyId, chargerId, orderId) {
+        if (![companyId, chargerId, orderId].every(
+            (id) => Number.isSafeInteger(id) && id > 0,
+        )) throw new Error("Invalid simulator repair navigation target.");
+        const epoch = generation;
+        if (!valid(epoch)) return;
+        const company = await api(base + "companies/" + companyId);
+        if (!valid(epoch)) return;
+        await detail(company);
+        if (!valid(epoch)) return;
+        const host = root.querySelector("[data-company-detail]");
+        if (!host || !host.isConnected) return;
+        const pane = document.createElement("section");
+        pane.dataset.notificationRepairReview = String(orderId);
+        host.append(pane);
+        const target = await api(
+            base + "companies/" + companyId + "/chargers/" + chargerId +
+            "/repair-orders?focus_order_id=" + orderId,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        if (!Number.isSafeInteger(target?.focus_page) || target.focus_page < 1 ||
+            target.physical_repair_verified !== false ||
+            target.commands_sent !== false) {
+            throw new Error("Unable to verify the scoped repair work order.");
+        }
+        await repairOrders(company, { id: chargerId }, pane, epoch, target.focus_page);
+        if (!valid(epoch) || !pane.isConnected) return;
+        const found = Array.from(pane.querySelectorAll("[data-repair-order-id]")).find(
+            (node) => Number(node.dataset.repairOrderId) === orderId,
+        );
+        if (found) found.scrollIntoView({ block: "center", behavior: "smooth" });
+        else pane.append(ui("p", "Repair work order not on this page. Use Next to review older orders."));
+    }
+
+    async function openFaultNotice(companyId, chargerId, alertId) {
+        if (![companyId, chargerId, alertId].every(
+            (id) => Number.isSafeInteger(id) && id > 0,
+        )) throw new Error("Invalid simulator fault navigation target.");
+        const epoch = generation;
+        if (!valid(epoch)) return;
+        const company = await api(base + "companies/" + companyId);
+        if (!valid(epoch)) return;
+        await detail(company);
+        if (!valid(epoch)) return;
+        const host = root.querySelector("[data-company-detail]");
+        if (!host || !host.isConnected) return;
+        const pane = document.createElement("section");
+        pane.dataset.notificationFaultReview = String(alertId);
+        host.append(pane);
+        await faultAlerts(company, { id: chargerId }, pane, epoch);
+        if (!valid(epoch) || !pane.isConnected) return;
+        const found = Array.from(pane.querySelectorAll("[data-fault-alert]")).find(
+            (node) => Number(node.dataset.faultAlert) === alertId,
+        );
+        if (found) found.scrollIntoView({ block: "center", behavior: "smooth" });
+        else pane.append(ui("p", "Fault alert not on this page. Use Next to review older alerts."));
+    }
+
     async function setActor(user) {
         clear();
         if (!user) return;
@@ -3522,5 +3605,5 @@ window.createVendorWorkspace = ({
             }
         }
     }
-    return { clear, setActor };
+    return { clear, setActor, openFaultNotice, openMonitorNotice, openRepairNotice };
 };
