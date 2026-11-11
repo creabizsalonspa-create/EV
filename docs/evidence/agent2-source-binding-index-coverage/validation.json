@@ -1,0 +1,81 @@
+{
+  "status": "DISPOSABLE_MONGODB_INDEX_VERIFIED_NOT_MERGED",
+  "owner": "Agent 2",
+  "date_utc": "2026-11-09",
+  "parent_commit": "d3a611b7693740b87f90db444f4e7d0359fdc404",
+  "requirements": [
+    {
+      "id": "2.7.5",
+      "scope": "Source-to-booking uniqueness/index enforcement evidence",
+      "full_atom_credit": false
+    }
+  ],
+  "changes": [
+    "Index field names and unique flag alone no longer establish coverage; audit verifies canonical partial filters or an unfiltered unique index",
+    "bindingUniquenessEnforced explicitly distinguishes actual reviewed index presence from a clear data preflight",
+    "Narrow/unknown partial filters and conflicting required index names require review; disposable ensure refuses before any write",
+    "Valid unfiltered protections are reused, and final index metadata is rechecked after creation; acknowledgements alone do not establish enforcement",
+    "No existing index is dropped, altered or migrated by this change; production write refusal and disposable approval gates remain"
+  ],
+  "final_results": {
+    "node_tests_passed": 171,
+    "node_failed": 0,
+    "node_skipped": 0,
+    "actual_mongodb_checks_passed": 10,
+    "mongodb": "7.0.14",
+    "driver": "6.12.0",
+    "concurrency": "Two independent8-request races, exactly1 winner and7 E11000 rejections each",
+    "syntax_whitespace": "passed"
+  },
+  "actual_mongodb_proof": {
+    "status": "DISPOSABLE_MONGODB_INDEX_PASS",
+    "passed": 10,
+    "findings": [
+      "empty read-only preflight does not claim that missing indexes enforce uniqueness",
+      "actual canonical partial index definitions verify and repeated ensure creates nothing extra",
+      "eight concurrent source claims for one booking have exactly one database winner",
+      "eight concurrent booking claims for one physical source have exactly one database winner",
+      "legacy unbound rows remain outside the canonical partial uniqueness filters",
+      "real narrow source index permits duplicate OCPP sources and audit rejects its claimed coverage",
+      "real narrow booking index permits duplicate booking claims and ensure leaves indexes untouched",
+      "wrong-key canonical names block every index write before either create",
+      "unfiltered unique indexes already cover bound rows without adding duplicate indexes",
+      "non-staging database and absent explicit disposable approval refuse mutations"
+    ],
+    "mongodb_version": "7.0.14",
+    "mongodb_driver": "6.12.0",
+    "source_blobs": {
+      "integrations/hasone-express/ocppSourceBindingIndexAudit.mjs": "4a82da14f5db06b1b0ffedaac8a7efd974bedbf1",
+      "tools/agent2/test_source_binding_indexes_mongo.mjs": "793613bcd3b58dff2beada38aea7b8069bcbd219"
+    },
+    "boundaries": [
+      "Owned disposable loopback mongod only, no external URI",
+      "No production data/indexes, charging/finance business changes, hardware or PSP acceptance",
+      "Original Express/Mongo app integration and release gates remain separate"
+    ]
+  },
+  "baseline_reproduction": {
+    "old_claimed_both_indexes": true,
+    "fixed_claimed_both_indexes": false,
+    "actual_concurrent_duplicate_booking_inserts_accepted": 8,
+    "mongodb": "7.0.14",
+    "scope": "Owned disposable loopback fixture only"
+  },
+  "baseline_audit_blob": "8981b1de91e2f88cc2cf542493779ddba52b7dbe",
+  "local_log_sha256": {
+    "index-node-final.log": "9e248ca84290a70be0490351e693c682002e23604219014ac88f7bb5be179058",
+    "index-mongo-run.log": "179e9163babc210aac9d688823f9d7ce2e439b6ef62914809cf161e7915ac760",
+    "index-baseline-run.log": "21522535af87c2d4de3d2ac03a75333904371594c93d4876b611c1d839bf7333"
+  },
+  "component_evidence": "docs/evidence/agent2-admin-component-local/validation.json at parentd3a611b: exact component/helper unchanged, Next build/strict TypeScript/21 mocked Chrome cases passed in synthetic shell; not rerun unnecessarily for independent index-audit change",
+  "pending": [
+    "Original purchased Admin app and actual Express/Mongo/browser final-source integration",
+    "Required hosted/native release gates and Agent4 merge",
+    "Canonical cross-store identities, independent connector inventory/capacity/expiry and paid reschedule contracts"
+  ],
+  "boundaries": [
+    "All MongoDB data/index writes target only an owned disposable loopback server and explicitly named test database",
+    "No real charging, production/customer data, live index mutation, ledger/finance rules or PSP changes",
+    "Read-only preflight readiness is not full software/production acceptance; no original whole-atom or coverage uplift"
+  ]
+}

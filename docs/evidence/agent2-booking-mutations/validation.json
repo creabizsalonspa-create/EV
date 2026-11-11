@@ -1,0 +1,61 @@
+{
+  "status": "STAGED_VERIFIED_NOT_MERGED",
+  "owner": "Agent 2",
+  "branch": "development/agent2-live-demo-readiness",
+  "parent_source": "9993cce19f6c1a0e862c151304962ec10fcdeb80",
+  "requirements": [
+    {
+      "id": "2.6.3",
+      "scope": "Legacy Express atomic unused unpaid cancellation/rescheduling safety subset",
+      "new_full_atom_credit": false
+    },
+    {
+      "id": "2.7.9",
+      "scope": "Preserve source booking authority after arrival/token/session linkage",
+      "new_full_atom_credit": false
+    }
+  ],
+  "checks": {
+    "node_guards_passed": 111,
+    "backend_ocpp_passed": 117,
+    "actual_flutter_private_api_passed": 1,
+    "combined_harness_passed": 118,
+    "actual_payment_callback_checks_passed": 13,
+    "source_blobs": {
+      "integrations/hasone-express/bookingMutationPolicy.mjs": "d2f7e4c2357710ceb8aaf939a03ec446055ca6df",
+      "integrations/hasone-express/bookingMutationService.js": "edaa560bc71f88a1507464d643230e1c78fc7b67",
+      "integrations/hasone-express/tests/bookingMutationPolicy.test.mjs": "a8fcb95053c70d908e21a027ced29f30ed5072a0",
+      "integrations/hasone-express/adminOcppBooking.js": "c835ae3c2c3ccd46ad88e742dc181d0efd1f9330",
+      "integrations/hasone-express/tests/ocppBookingToken.test.mjs": "cf16b3fe8b6c5c2cffcdfa0a2b78164aab8d5e78",
+      "integrations/hasone-express/ocppStartAuthorization.mjs": "4cdd1b601ed96a3f9767ee7907216abe163bbad6",
+      "integrations/hasone-express/tests/ocppStartAuthorization.test.mjs": "3ca89926081f4611a58faf8db425706342148810",
+      "tools/agent2/stage_booking_mutation_safety.py": "1275f316291d1d9f8b4cc18ee835e3882673a248",
+      "tools/agent2/run_isolated_backend_demo.mjs": "ce0c7a8436c636f26dc3c6879a8dad18b8d1c4d3",
+      "tools/agent2/run_all_isolated_validation.sh": "688feffd43c92dec6da557d1c80fed686d579178"
+    },
+    "staged_runtime_copies_matched": 4,
+    "restricted_log_sha256": {
+      "booking-mutations-node-final.log": "3d9896128558f6805035f4e4a2eb1c027b30eba3cdb4f0ca8201d017b9200d4e",
+      "booking-mutations-actual-final.log": "5e4f04eee45e1c3e3ba95bc6d01bd51a3e81300817e21b67b798f6841d69ec24",
+      "booking-mutations-callbacks.log": "225cf6c8c643f0d4f9a93e01f60ecb74e234af3d48853bb50c6272f4924bcd9a"
+    },
+    "python_compile": "passed",
+    "node_shell_syntax": "passed",
+    "repeat_staging": "rejected without writes"
+  },
+  "behavior": [
+    "Only unused unpaid unarrived bookings without session or authorization pins can use legacy customer mutations",
+    "Mutations compare owner/status/date/time/slots/payment/arrival/token state atomically",
+    "Reschedule requires existing available station slot and unchanged quoted duration",
+    "Paid changes need canonical financial/operator review; no refund or repricing is performed",
+    "Cancelled legacy bookings cannot bind new source transactions",
+    "Station-wide active-slot uniqueness/index remains intact"
+  ],
+  "limitations": [
+    "Required hosted checks and Agent4 integration remain pending",
+    "PR70 mobile history and PR52 source status remain separate integration dependencies",
+    "No fresh Next/Admin browser build on this head is claimed; prior frontend evidence belongs to0c5c771",
+    "Charger/connector-level independent resource reservation and full incident/live-cost scope remain unfinished",
+    "No production, PSP, live hardware, partner or native store acceptance"
+  ]
+}

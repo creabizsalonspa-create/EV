@@ -1,0 +1,73 @@
+{
+  "status": "STAGED_VERIFIED_NOT_MERGED",
+  "owner": "Agent 2",
+  "branch": "development/agent2-live-demo-readiness",
+  "parent_commit": "d4165dd8e20ffdc648b4118ed116190c292cfb7a",
+  "requirements": [
+    {
+      "id": "2.6.3",
+      "scope": "Explicit calendar identity, static-slot overlap protection and legacy reservation mutation safety",
+      "full_atom_credit": false
+    },
+    {
+      "id": "2.6.7",
+      "scope": "Read-only capacity/calendar preflight; no dynamic independent-resource allocation credit",
+      "full_atom_credit": false
+    }
+  ],
+  "results": {
+    "node_guards": 122,
+    "callback_http": 13,
+    "backend_ocpp": 133,
+    "mocked_chrome": 13,
+    "actual_api_chrome": 11,
+    "backend_plus_browser": 134,
+    "backend_plus_native": 134,
+    "actual_flutter_api_tests": 2,
+    "flutter_passed": 39,
+    "flutter_default_opt_in_skips": 2,
+    "next_typescript": "passed",
+    "next_webpack_build": "passed",
+    "native_analysis": "No issues found"
+  },
+  "source_blobs": {
+    "integrations/hasone-express/adminMultiCharger.js": "bec77e1b286eac23f844f1ddb1928735f289d79d",
+    "integrations/hasone-express/bookingMutationPolicy.mjs": "e7b56173a57ad0350408b56b3aa0e53c036075f6",
+    "integrations/hasone-express/bookingMutationService.js": "4120a1a52d7f2ba1bb4edd2ddd92e3b87e68184b",
+    "integrations/hasone-next-admin/OcppBookingWorkflow.tsx": "ddba416ccdf50bc1d295a06b5a7a389c8d25abae",
+    "tools/agent2/isolatedAdminApiRelay.mjs": "11a79e18282c7fef6a8b1b2cb3f49365803c2519",
+    "tools/agent2/run_all_isolated_validation.sh": "8baf083df9da52a577b63e42efb72617bd03a877",
+    "tools/agent2/run_isolated_backend_demo.mjs": "b0d8d696d8b39a18abd4d3b547532cfbf01f7327",
+    "tools/agent2/stage_admin_ocpp_binding.py": "30790e45f31c329f947cab141ba26f7f322d9aa8",
+    "tools/agent2/test_actual_admin_browser.mjs": "39fb981b4281082fe79aca296b6be4b9f11dc8ed",
+    "integrations/hasone-express/reservationCapacityAudit.mjs": "061ba078851f4de6637457d339d6e7a6135abbef",
+    "integrations/hasone-express/reservationCalendarPolicy.mjs": "72f0517f7426b40c80ac92b93d1e217285a67a81",
+    "integrations/hasone-express/reservationCalendarGuard.js": "23f24536c1ba4f295ce073837c66b839dd7c975a",
+    "integrations/hasone-express/tests/reservationCapacityAudit.test.mjs": "623db8b27535a9a0672eb80df36d231b5c6bfadd",
+    "tools/agent2/stage_reservation_calendar_safety.py": "4fb60561db89cc358e88e68db5e1b69e35d3cbeb"
+  },
+  "native_source_blobs": {
+    "apps/hasone-customer/lib/core/utils/reservation_date.dart": "2e2b224a3b045d7263bf10ed48b504ed500308ea",
+    "apps/hasone-customer/lib/feature/Booking/UI/controller/booking_controller.dart": "368969d9b3035b2575661724afcc063b833333ec",
+    "apps/hasone-customer/lib/feature/Booking/UI/screen/rebooking_screen.dart": "d3ebd7c548b502d80b486f586848b0a2a7d81539",
+    "apps/hasone-customer/lib/feature/viewdetails/UI/screen/view_details_screen.dart": "f8d9fe22319fa33ab9a74b91efa35bcc56e9df28",
+    "apps/hasone-customer/test/reservation_date_test.dart": "ecfa9b3dda11d0c082b800fd2b3c9e3514e00544",
+    "apps/hasone-customer/test/source_history_api_test.dart": "c9a579e8be39105a0c696f2324586b6c011fd0dd",
+    "tools/agent2/run_mobile_history_api.py": "056a33d728969f5051e7449af4ed80d4b449bdf7"
+  },
+  "restricted_log_sha256": {
+    "calendar-full-v1.log": "9d96c03815fd8da5fb6bf3d947c866635be6c56eac7232a21e2d34b393367842",
+    "calendar-flutter-tests-v2.log": "ecfce2ea193f8f433879fca9b9e41552bfcfe21330eca81cb9b07ffcd893527a",
+    "calendar-flutter-analysis-v2.log": "5f42da5ffb54648d35594dc7e6fd7d4397a33da79762dca32396606990148cd6",
+    "calendar-native-api-v1.log": "d397753106357a22d46e973bfa65f9969ef3e1b26c7aecbf12e817b354b4a6b1"
+  },
+  "boundaries": [
+    "No production, live indexes, physical chargers or payment providers changed",
+    "Bounded preflight remains read-only/indexChangeAllowed=false",
+    "Legacy missing years require explicit operator review; no automatic date rewrite",
+    "Static calendar checks retain station-wide exact-slot index",
+    "Concurrent calendar edits, transactional independent-resource capacity and explicit migration remain unfinished",
+    "Paired backend/native rollout and ambiguous-record review are mandatory",
+    "Required hosted/native and Agent4 integration gates remain outstanding"
+  ]
+}

@@ -1,0 +1,141 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {hashOcppToken,claimOcppStartToken,sameActiveOcpp16Retry} from '../ocppStartAuthorization.mjs';
+const now=new Date('2026-11-07T10:00:00Z');
+const charger='OCPP-DEMO-1';
+const raw='random-unused-staging-charger-token';
+class AtomicTokenCollection {
+ constructor(entries=[]){this.rows=entries;}
+ // Synchronous match and update before Promise resolution models Mongo's
+ // atomic findOneAndUpdate compare-and-swap for this unique token.
+ async findOneAndUpdate(q,u){
+  const row=this.rows.find(x=>x.chargerId===q.chargerId
+    && x.tokenHash===q.tokenHash && x.enabled===true
+    && !Object.hasOwn(x,'consumedAt') && x.expiresAt>q.expiresAt.$gt);
+  if(!row)return null;
+  Object.assign(row,u.$set);
+  for(const key of Object.keys(u.$unset||{}))delete row[key];
+  return {...row};
+ }
+}
+function fresh(){
+ const record={chargerId:charger,tokenHash:hashOcppToken(raw),
+   enabled:true,expiresAt:new Date(now.getTime()+600000)};
+ return new AtomicTokenCollection([record]);
+}
+test('valid start consumes credential and stores hash, never the raw token',async()=>{
+ const c=fresh();
+ const x=await claimOcppStartToken(c,charger,raw,now);
+ assert.equal(x.accepted,true);
+ assert.equal(x.tokenHash,hashOcppToken(raw));
+ assert.equal(c.rows[0].enabled,false);
+ assert.deepEqual(c.rows[0].consumedAt,now);
+ assert.equal(c.rows[0].expiresAt,undefined);
+ assert.equal(JSON.stringify(c.rows).includes(raw),false);
+});
+test('legacy Mongo metadata wrapper refuses no-match and replay',async()=>{
+ class LegacyMongoTokens extends AtomicTokenCollection {
+  async findOneAndUpdate(query,update){
+   const value=await super.findOneAndUpdate(query,update);
+   return {ok:1,lastErrorObject:{n:value?1:0},value};
+  }
+ }
+ const c=new LegacyMongoTokens(fresh().rows);
+ const mismatch=await claimOcppStartToken(c,'OCPP-OTHER',raw,now);
+ assert.equal(mismatch.accepted,false);
+ assert.equal(mismatch.tokenHash,null);
+ const first=await claimOcppStartToken(c,charger,raw,now);
+ assert.equal(first.accepted,true);
+ const replay=await claimOcppStartToken(c,charger,raw,now);
+ assert.equal(replay.accepted,false);
+ assert.equal(replay.tokenHash,null);
+ assert.equal(c.rows[0].enabled,false);
+});
+test('unexpected truthy Mongo response cannot authorize an OCPP start',async()=>{
+ const bogus={
+  async findOneAndUpdate(){return {ok:1,lastErrorObject:{n:0}};}
+ };
+ const denied=await claimOcppStartToken(bogus,charger,raw,now);
+ assert.deepEqual(denied,{accepted:false,tokenHash:null});
+});
+
+test('32 concurrent physical starts consume a credential exactly once',async()=>{
+ const c=fresh();
+ const responses=await Promise.all(Array.from({length:32},
+   ()=>claimOcppStartToken(c,charger,raw,now)));
+ assert.equal(responses.filter(x=>x.accepted).length,1);
+ assert.equal(responses.filter(x=>!x.accepted).length,31);
+});
+test('replay after start is rejected even within the original expiry window',async()=>{
+ const c=fresh();
+ assert.equal((await claimOcppStartToken(c,charger,raw,now)).accepted,true);
+ assert.equal((await claimOcppStartToken(c,charger,raw,
+   new Date(now.getTime()+2000))).accepted,false);
+});
+test('a credential is specific to one provisioned charger',async()=>{
+ const c=fresh();
+ assert.equal((await claimOcppStartToken(c,'OCPP-OTHER',raw,now)).accepted,false);
+ assert.equal(c.rows[0].enabled,true);
+ assert.equal((await claimOcppStartToken(c,charger,raw,now)).accepted,true);
+});
+test('expired, revoked and previously consumed tokens are refused',async()=>{
+ const expired=fresh();expired.rows[0].expiresAt=new Date(now.getTime()-1);
+ assert.equal((await claimOcppStartToken(expired,charger,raw,now)).accepted,false);
+ const revoked=fresh();revoked.rows[0].enabled=false;
+ assert.equal((await claimOcppStartToken(revoked,charger,raw,now)).accepted,false);
+ const claimed=fresh();claimed.rows[0].consumedAt=new Date(now.getTime()-2000);
+ assert.equal((await claimOcppStartToken(claimed,charger,raw,now)).accepted,false);
+});
+test('invalid IDs, token shapes and times cannot enter the claim query',async()=>{
+ const c=fresh();
+ for(const args of [
+  [charger,'a',now],['OTHER BAD ID',raw,now],[charger,raw,new Date('invalid')],
+  [charger,{},now],[charger,raw,null],[charger,'x'.repeat(65),now],
+ ]){
+  const z=await claimOcppStartToken(c,...args);
+  assert.equal(z.accepted,false);
+ }
+ assert.equal(c.rows[0].enabled,true);
+});
+test('hash preflight is read-only and cannot consume the token',()=>{
+ const c=fresh();
+ assert.equal(hashOcppToken(raw),c.rows[0].tokenHash);
+ assert.equal(c.rows[0].enabled,true);
+ assert.equal(c.rows[0].consumedAt,undefined);
+});
+const session={chargerId:charger,protocol:'ocpp1.6',idTagHash:hashOcppToken(raw),
+ connectorId:2,meterStartWh:1000,status:'active',transactionId:12,
+ createdAt:new Date(Date.now()-1000)};
+test('same active OCPP1.6 source is reusable for exact lost response retry',()=>{
+ assert.equal(sameActiveOcpp16Retry(session,{
+   chargerId:charger,tokenHash:hashOcppToken(raw),connectorId:2,meterStart:1000}),true);
+});
+test('different charger, token, connector, start meter or completed session not retried',()=>{
+ const baseline={chargerId:charger,tokenHash:hashOcppToken(raw),connectorId:2,meterStart:1000};
+ assert.equal(sameActiveOcpp16Retry({...session,status:'ended'},baseline),false);
+ assert.equal(sameActiveOcpp16Retry(session,{...baseline,chargerId:'OTHER'}),false);
+ assert.equal(sameActiveOcpp16Retry(session,{...baseline,tokenHash:'b'.repeat(64)}),false);
+ assert.equal(sameActiveOcpp16Retry(session,{...baseline,connectorId:1}),false);
+ assert.equal(sameActiveOcpp16Retry(session,{...baseline,meterStart:900}),false);
+ assert.equal(sameActiveOcpp16Retry(session,{...baseline,connectorId:0}),false);
+ assert.equal(sameActiveOcpp16Retry(null,baseline),false);
+});
+test('old active sessions cannot accept delayed duplicate OCPP1.6 starts',()=>{
+ const input={chargerId:charger,tokenHash:hashOcppToken(raw),
+   connectorId:2,meterStart:1000,now};
+ assert.equal(sameActiveOcpp16Retry({...session,
+   createdAt:new Date(now.getTime()-120001)},input),false);
+ assert.equal(sameActiveOcpp16Retry({...session,
+   createdAt:new Date(now.getTime()-120000)},input),true);
+ assert.equal(sameActiveOcpp16Retry({...session,
+   createdAt:new Date(now.getTime()+1000)},input),false);
+ assert.equal(sameActiveOcpp16Retry({...session,createdAt:null},input),false);
+ assert.equal(sameActiveOcpp16Retry({...session,createdAt:'not-a-date'},input),false);
+ assert.equal(sameActiveOcpp16Retry(session,{...input,now:new Date('bad')}),false);
+});
+test('a reused active source never creates a second session or charges again',()=>{
+ const c=fresh(); const before=c.rows.length;
+ assert.equal(sameActiveOcpp16Retry(session,{
+   chargerId:charger,tokenHash:hashOcppToken(raw),connectorId:2,meterStart:1000}),true);
+ assert.equal(c.rows.length,before);
+});

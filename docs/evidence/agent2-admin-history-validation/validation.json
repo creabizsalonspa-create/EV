@@ -1,0 +1,78 @@
+{
+  "status": "COMPONENT_FIXTURE_ONLY_PASS",
+  "source_blobs": {
+    "integrations/hasone-next-admin/OcppBookingWorkflow.tsx": "9cf89abb82b3dd141c7d37e4c522a030ed442752",
+    "integrations/hasone-next-admin/ocppWorkflowEvidence.mjs": "08f4d421e30557bf15edaad0fccad40858037ac9",
+    "integrations/hasone-next-admin/ocppWorkflowEvidence.d.mts": "9348ac5387c2117768fb6225c75db46057e7e288",
+    "tools/agent2/test_next_admin_multicharger_browser.mjs": "135ec01c423255cd8e261ba72af35eea520000b6",
+    "tools/agent2/run_admin_component_validation.mjs": "92ec03e544521133f54550e96fccc30a3f2f3540",
+    "tools/agent2/admin-component-fixture.package.json": "4c85a7511e3a793e3302c98999527bb1307e7ace",
+    "tools/agent2/admin-component-fixture.package-lock.json": "538b4469b976b8c3b7f6c8185808e18d7b3e3aa7",
+    "integrations/hasone-next-admin/ocpp-history-page.tsx": "6733c5f618521e6ba091e7d86b076d13efbfadd1",
+    "integrations/hasone-next-admin/ocppHistoryEvidence.mjs": "5cef0ea4414dfc1e8cae56e9214fe253d5c48aa6",
+    "integrations/hasone-next-admin/ocppHistoryEvidence.d.mts": "a848bea42892a932281b5bac149c8fa2851d05ae",
+    "tools/agent2/test_admin_history_browser.mjs": "068a682cf02dfeda417e7daa499370f2086567ba"
+  },
+  "versions": {
+    "next": "16.1.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "lucide-react": "0.468.0",
+    "typescript": "5.9.3",
+    "@types/node": "22.10.2",
+    "@types/react": "19.2.0",
+    "@types/react-dom": "19.2.0",
+    "puppeteer-core": "24.31.0"
+  },
+  "dependency_lock_sha256": "788019259bc8ca413101cad24e12f779df4b8194eb47c936771671ca6202ab22",
+  "results": {
+    "next_build": "passed",
+    "typescript": "passed",
+    "mocked_browser": 21,
+    "history_browser": 12
+  },
+  "logs_sha256": {
+    "next_build": "30c0d7e9d0c7101584518f674f77cf042b17083c59257bf5ce598c9ac9c5b206",
+    "typescript": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "mocked_browser": "897b3730adeb67537f132cff5f96a2025952db9d9f28dad382d4fed8fa26a788",
+    "history_browser": "4f9c84fb9b3b1706b03313038d372eb4f9058ce3d02aea76b673c24b98c2f678"
+  },
+  "limits": [
+    "Synthetic shell, theme and HTTP adapter; actual shipped component/helper copied unchanged",
+    "Not the purchased Admin application build or actual Express/Mongo/browser acceptance",
+    "No physical chargers, production services or PSP actions"
+  ],
+  "date_client": "2026-11-10",
+  "parent_commit": "95bc40f6faf64d78cab3a76e1b9b0cfaba2ffbb4",
+  "requirement_subsets": [
+    "2.7.5",
+    "2.7.9"
+  ],
+  "whole_atom_credit": false,
+  "node_passed": 186,
+  "python_patch_contract_passed": 15,
+  "source_contracts": "Five Node history evidence cases use actual backend history projections, plus three new Python staging contracts",
+  "changes": [
+    "History row/page validation rejects unsupported telemetry/totals, malformed identifiers, repeated/nonprogressing cursors and inconsistent read-only/unpaid evidence",
+    "Detail response must match both selected session and booking; list/detail replies fenced by current Admin identity and page generation",
+    "Identity storage/focus changes clear private list/detail; delayed replies cannot restore prior identity data",
+    "Real history page and mjs/type guards are staged unchanged with dependency conflict preflight",
+    "Agent4 requested CI correction: push only verified integration/default branches, retain PR validation, separate event concurrency; include both Express/Admin source paths and execute Python source contracts"
+  ],
+  "ci_validation": "YAML parsed; push branches fullstack-continuation/platform-foundation (default confirmed via remote HEAD), PR source path coverage, event-separated concurrency, mandatory Node/Python steps passed",
+  "additional_source_blobs": {
+    "tools/agent2/stage_next_ocpp_history.py": "7707ddfb9b9ac6578ae4851c67322ca9cc5ee876",
+    "tests/agent2_history_stage_test.py": "ca76189f0a94d403a945f1a028226f4a6068c1b4",
+    "integrations/hasone-express/tests/adminHistoryEvidence.test.mjs": "35fe33cca5ec0581fd8af0277f7a34e8f6a7a4b3",
+    ".github/workflows/agent2-payment-integrity.yml": "a39e28634ab027ebbdaa2c55ec91ac06e8d1d35a"
+  },
+  "test_log_sha256": {
+    "history-final-node.log": "e3832392e7c7ab53eaf5a7d7c4ee2ead4f6c159cbd8d46d937b180cc2165ba70",
+    "history-final-python.log": "c9c5d04674805784f38ba3baafa8fc326ca1d484428c673263404c8472f76d0f"
+  },
+  "pending": [
+    "Original purchased Admin application build and real Express/Mongo/browser journey on final source; both source hosts offline",
+    "Latest Agent6/native combination, required hosted Android/iOS/release checks and Agent4 integration/merge",
+    "Canonical cross-store identity, independent connector capacity/expiry and paid reschedule/finance contracts"
+  ]
+}

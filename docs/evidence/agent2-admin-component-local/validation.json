@@ -1,0 +1,119 @@
+{
+  "status": "COMPONENT_FIXTURE_VERIFIED_ORIGINAL_APP_INTEGRATION_PENDING",
+  "owner": "Agent 2",
+  "verified_date_utc": "2026-11-09",
+  "parent_commit": "aa89537eebc151bb9f46de1306be74aef418f057",
+  "requirements": [
+    {
+      "id": "2.7.5",
+      "scope": "Admin charging response and authorization receipt identity",
+      "full_atom_credit": false
+    },
+    {
+      "id": "2.7.9",
+      "scope": "Late-response/unknown-result charging workflow recovery",
+      "full_atom_credit": false
+    }
+  ],
+  "changes": [
+    "Fixed local receipt/context validation errors being replaced by generic messages; only known safe local validation messages are exposed",
+    "Added optional reproducible feature-specific Next shell and pinned dependency lock, reusing actual component/helper and existing browser suite",
+    "Browser CDP uses pipes; matching official Chrome headless shell runs within the local execution environment",
+    "Runner snapshots and hashes tested bytes, checks lock/version identity, verifies unique loopback readiness, rejects concurrent source changes, cleans up its own app/server"
+  ],
+  "final_verification": {
+    "node_tests_passed": 166,
+    "node_failed": 0,
+    "node_skipped": 0,
+    "python_source_patch_tests_passed": 12,
+    "component_fixture_next_build": "passed",
+    "component_fixture_strict_typescript": "passed",
+    "component_fixture_mocked_chrome_cases_passed": 21,
+    "syntax_whitespace": "passed"
+  },
+  "component_fixture_proof": {
+    "status": "COMPONENT_FIXTURE_ONLY_PASS",
+    "source_blobs": {
+      "integrations/hasone-next-admin/OcppBookingWorkflow.tsx": "9cf89abb82b3dd141c7d37e4c522a030ed442752",
+      "integrations/hasone-next-admin/ocppWorkflowEvidence.mjs": "08f4d421e30557bf15edaad0fccad40858037ac9",
+      "integrations/hasone-next-admin/ocppWorkflowEvidence.d.mts": "9348ac5387c2117768fb6225c75db46057e7e288",
+      "tools/agent2/test_next_admin_multicharger_browser.mjs": "135ec01c423255cd8e261ba72af35eea520000b6",
+      "tools/agent2/run_admin_component_validation.mjs": "00c9314bd63e76eb5e4add5fcd206547c2d350ec",
+      "tools/agent2/admin-component-fixture.package.json": "4c85a7511e3a793e3302c98999527bb1307e7ace",
+      "tools/agent2/admin-component-fixture.package-lock.json": "538b4469b976b8c3b7f6c8185808e18d7b3e3aa7"
+    },
+    "versions": {
+      "next": "16.1.6",
+      "react": "19.2.0",
+      "react-dom": "19.2.0",
+      "lucide-react": "0.468.0",
+      "typescript": "5.9.3",
+      "@types/node": "22.10.2",
+      "@types/react": "19.2.0",
+      "@types/react-dom": "19.2.0",
+      "puppeteer-core": "24.31.0"
+    },
+    "dependency_lock_sha256": "788019259bc8ca413101cad24e12f779df4b8194eb47c936771671ca6202ab22",
+    "results": {
+      "next_build": "passed",
+      "typescript": "passed",
+      "mocked_browser": 21
+    },
+    "logs_sha256": {
+      "next_build": "7220048127752f5abad8005552192338ec9e6911ff9397ff7190a526cfd31910",
+      "typescript": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mocked_browser": "897b3730adeb67537f132cff5f96a2025952db9d9f28dad382d4fed8fa26a788"
+    },
+    "limits": [
+      "Synthetic shell, theme and HTTP adapter; actual shipped component/helper copied unchanged",
+      "Not the purchased Admin application build or actual Express/Mongo/browser acceptance",
+      "No physical chargers, production services or PSP actions"
+    ]
+  },
+  "browser_coverage": [
+    "Original authorization, scoped source selection, calculated-unpaid completion, redacted audit pagination and hidden-tab/uncertain-write recovery",
+    "Mismatched booking, charger or scope token receipt discarded, followed by GET only; exactly one write",
+    "Wrong booking/station operations cannot load source data or controls",
+    "Closed/reopened dialog rejects an older delayed operations reply",
+    "Admin identity switch during delayed token delivery closes private dialog and never exposes credential"
+  ],
+  "source_limits": [
+    "Actual shipped component/helper copied unchanged into synthetic shell",
+    "Theme, booking list, router and HTTP adapter are test fixtures; no claim of the purchased app build or real API acceptance",
+    "No native code or backend charging/financial business source changed in this increment"
+  ],
+  "previous_full_runtime_checkpoint": {
+    "backend": "8ca52c5598479d82923765313207ecc4cbb1d5f3",
+    "native": "077820efc3b2782195c754e849d9633bd3a10da1",
+    "scope": "149 actual disposable backend/OCPP and previous original-app browser/Next/native evidence remains scoped to those source blobs"
+  },
+  "ci_observed_for_parent": {
+    "head": "aa89537eebc151bb9f46de1306be74aef418f057",
+    "agent2_workflow": {
+      "id": 42474030640,
+      "conclusion": "success"
+    },
+    "platform_workflow": {
+      "id": 42474030725,
+      "conclusion": "success"
+    },
+    "limit": "These successful hosted runs are on the parent; they do not certify this new source."
+  },
+  "external_runtime_blocker": {
+    "original_device": "host.crea-biz.com offline, last seen34h ago",
+    "alternate_device": "host.crea-biz.us online heartbeat, but read-only start_process probe returned MCP request timed out",
+    "missing_local_fixture": "Purchased original Next Admin and Express/Mongo source/dependency fixture",
+    "next": "On a responsive authorized source host, upload exact committed helpers/declaration/runner and execute original full isolated validation with mocked and actual API browser modes."
+  },
+  "local_log_sha256": {
+    "admin-local-node-final.log": "748388fc11567b1a7f0d103cc99623005d7bb211b9fa1e2210e65b8d8ed6787d",
+    "admin-local-python-final.log": "87a143aa0050d2658efcbeed67f5e08aeace61e8e69ed7783b23ed89fa500baa",
+    "admin-component-final.log": "67017d2838e4077c1d5697c4a55d2cffda82bff69d35b06cb014945193437992"
+  },
+  "boundaries": [
+    "Draft/unmerged; no full-atom or percentage uplift",
+    "Original-app/actual-API final-source integration, native release gates and Agent4 merge remain outstanding",
+    "Canonical cross-store identity and reservation capacity/expiry/paid-reschedule contracts remain incomplete",
+    "No production source/data/indexes, public listener, real charger or PSP modified"
+  ]
+}

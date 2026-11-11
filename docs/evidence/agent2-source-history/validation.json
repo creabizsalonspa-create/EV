@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-07",
+  "parent_commit": "1d9c159f17163359e13d78b4be14ff7c68978245",
+  "scope": "Customer/private and Admin source history, evidence inspector, disabled charger retention and EN/AR UI",
+  "related_requirement_atoms": [
+    "2.7.5",
+    "4.2.1"
+  ],
+  "coverage_credit_claimed": false,
+  "results": {
+    "node_guard_tests": 104,
+    "callback_http": 13,
+    "backend_ocpp": 109,
+    "mocked_chrome": 11,
+    "actual_api_chrome": 9,
+    "backend_with_actual_browser": 110,
+    "next_typescript": "passed",
+    "next_webpack_build": "passed",
+    "wrapper_exit": 0,
+    "test_port_3453_released": true
+  },
+  "core_source_sha256": {
+    "integrations/hasone-express/ocppHistory.mjs": "47307c345682d15950a8d76ac5617c9edbb5088c562f493cdbfaac83307c25b3",
+    "integrations/hasone-express/ocppHistoryController.js": "3a42981cdeb2ce06f40b6d5f8087a67d9000ef69a009901b582e8e3957bb4aee",
+    "integrations/hasone-next-admin/ocpp-history-page.tsx": "1e1347a350a31f50cec83a8c50e79abf6ff1a55a91678aeb7ac023beec13d239",
+    "tools/agent2/run_isolated_backend_demo.mjs": "2eec31e152fba948255480393749e62b5c29ad7b0566e0c317a79806a25d51eb",
+    "tools/agent2/test_actual_admin_browser.mjs": "595624dd92c4fcd710104398ee714d94900d6224af67f5283cf76c88fd844a82"
+  },
+  "log": {
+    "path": "/home/hasio/agent2-work/pr50-history-v4.log",
+    "sha256": "32206b7d71342f2d439502cadcb4938384aa83ef6f3c16716ef041fc704935ed"
+  },
+  "preserved_failures": [
+    "History language pointer control was obscured after scrolling in the mobile Admin shell. Fixed with accessible sticky control bar; test still asserts actual pointer hit and Arabic RTL."
+  ],
+  "production_changed": false,
+  "hosted_ci": "separate gate",
+  "physical_or_psp_acceptance": false
+}

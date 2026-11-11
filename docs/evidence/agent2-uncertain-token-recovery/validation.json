@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-07",
+  "parent_commit": "8a8f292b0c7bc82475e91a05044fa30c709ffc14",
+  "scope": "Staging-only uncertain OCPP token registration recovery and isolated runner cleanup",
+  "source_sha256": {
+    "integrations/hasone-express/adminOcppBooking.js": "bbccf69b9409f47cc204f0912646720ea42e9685ebe7e09c94b2adac487c7691",
+    "tools/agent2/run_isolated_backend_demo.mjs": "d1633c5edd4c3d16368a1a86d27bf3c7727ff81b97338ed3ed63496166678082",
+    "tools/agent2/run_all_isolated_validation.sh": "0b9fb805216c20011d10539056e4e0edaacaff49313fbf07fa0b25ee206fbd1d"
+  },
+  "regression": {
+    "before_fix": "New integration assertion fails because initial issue clears booking hash after injected insert failure",
+    "after_fix": "Six storage-fault scenarios pass for initial issue and reissue; retained pin/time, no raw credential, eight concurrent issue retries rejected, early reissue rejected"
+  },
+  "verification": {
+    "pure_guards": 83,
+    "payment_callback_http": 13,
+    "isolated_express_mongo_ocpp": 99,
+    "mocked_api_chrome_admin": 9,
+    "next_typescript": "passed",
+    "next_webpack_build": "passed",
+    "loopback_test_ports_released": [
+      3428,
+      3443
+    ],
+    "hosted_ci": "separately pending; not inferred from local tests"
+  },
+  "restricted_host_logs": {
+    "before_fix": {
+      "path": "/home/hasio/agent2-work/uncertain-token-before-fix.log",
+      "sha256": "cd7a7fa37aa315064140a0d7c90ccd83c97ce55c2d7cb3c335b8ccacafcdf540"
+    },
+    "final": {
+      "path": "/home/hasio/agent2-work/uncertain-token-final-validation.log",
+      "sha256": "61bc0981b851cb2dd600489769b15a7d541338d9f424d3331839b05c3e4218a0"
+    }
+  },
+  "production_changes": false,
+  "physical_charger_commands": false,
+  "actual_psp_acceptance": false,
+  "limitations": [
+    "Browser API responses are mocked on localhost.",
+    "Mongo/Express/OCPP handler integration uses synthetic data and disposable loopback Mongo.",
+    "Production deployment, hosted CI, canonical-ledger integration and hardware/PSP acceptance remain separate gates."
+  ]
+}

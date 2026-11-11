@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-07",
+  "parent_commit": "64621337933c62e4d3f69eff9bc6418095a917cd",
+  "scope": "OCPP 1.6-compatible booking credential generation, staged start guard and Admin receipt contract",
+  "contract": {
+    "wire_characters": 20,
+    "alphabet": "uppercase hexadecimal",
+    "random_bytes": 10,
+    "entropy_bits": 80,
+    "stored_sha256_characters": 64
+  },
+  "reference": {
+    "author": "Open Charge Alliance",
+    "document": "OCPP 1.6 edition 2",
+    "section": "7.28 IdToken / CiString20Type",
+    "url": "https://downloads.regulations.gov/FHWA-2022-0008-0403/attachment_6.pdf"
+  },
+  "executed": {
+    "node_tests": {
+      "total": 97,
+      "passed": 97,
+      "failed": 0
+    },
+    "changed_javascript_syntax": "passed",
+    "python_stagers_compile": "passed",
+    "fixed_fixture_lengths": "both 20 characters",
+    "obsolete_48_character_assertions_in_changed_flows": "none"
+  },
+  "unexecuted": [
+    "Full Express/Mongo/OCPP integration including oversized-start negative",
+    "Next Admin TypeScript/production build",
+    "Mocked and actual-API Chrome journeys",
+    "Hosted CI"
+  ],
+  "blocker": "Authorized Desktop Commander host offline",
+  "source_sha256": {
+    "integrations/hasone-express/ocppBookingToken.mjs": "b9e6eba1bd7b5117c8b2dc3452830505ac6f97d379e4af33f677a0fbb5a53e03",
+    "integrations/hasone-express/tests/ocppBookingToken.test.mjs": "b94b2efd739a46b8eed40c3c4df62e52ce5dba38cd5651e11f340e10309df1c9",
+    "integrations/hasone-express/adminOcppBooking.js": "859931620023b1959447a1114dd62b8e9ebb321a80bb6529daa48e90542d5091",
+    "tools/agent2/stage_admin_ocpp_binding.py": "5a7c35dfeef0c0e6b8ebbfda660b73ade869084d3e41521fac02ac42c371c38f",
+    "integrations/hasone-next-admin/OcppBookingWorkflow.tsx": "da83e8b9be31a7d303d9089eeaf96f1ae89c098d008d559ac09fa42e3e6375ee",
+    "tools/agent2/test_next_admin_multicharger_browser.mjs": "f15fffe3258341e0e7d06ab39c86f40b5720d30698ee3b7d5d4c6971e6004236",
+    "tools/agent2/run_isolated_backend_demo.mjs": "3b06334a0497fb5568b866b6ee98a6021261afd15247e185af81efa369d89e76",
+    "tools/agent2/test_actual_admin_browser.mjs": "1b7e883beb1c325bd0767a29cddb88e75f307cb0fbc4df0ec7af80532ea913b5",
+    ".github/workflows/agent2-payment-integrity.yml": "a3f35f06fe81949b8b2a7a134775fb70c008f3fc0c7b8e51094abcec0d97185f",
+    "tools/agent2/stage_ocpp201_token_binding.py": "e07a6a0fc5442ba158ce51c98c6d0ef6ef98aec74c9f04fe7976c6ddeb852e5b"
+  },
+  "local_guard_log_sha256": "2db3e5df055d7e0e3d244d821143c7db43bc6afe3bd2db02993002c57430f720",
+  "production_changed": false,
+  "physical_charger_accepted": false,
+  "payment_settled": false
+}
