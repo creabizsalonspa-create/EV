@@ -10,6 +10,7 @@ const {getCurrentHead,checkOutputDestination,writeEvidence}=require('./staging-a
 const {parseArgs:parseHealthArgs,checks:routes,run:runHealth}=require('./staging-health.cjs');
 const {localInspect}=require('./staging-image-provenance.cjs');
 const {liveConfig,runReview}=require('./staging-effective-config.cjs');
+const privateEnv=require('./staging-env-integrity.cjs');
 
 const SCHEMA='ev-private-source-linked-staging-acceptance-v1';
 const SHA=/^[a-f0-9]{40}$/;
@@ -52,6 +53,8 @@ function parseArgs(args) {
   return {source_sha:args[1],health,output:args[5]};
 }
 function readPrivateEnv(file=ENV_FILE) {
+  // Pin the entire real path lineage and the private inode, not only the bytes.
+  const checkpoint=privateEnv.capture(file);
   // Read a single owner-only regular inode with no-follow. A concurrent
   // replacement must never turn the acceptance gate into a secrets reader.
   const flags=fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW||0) |
@@ -71,22 +74,36 @@ function readPrivateEnv(file=ENV_FILE) {
     }
     const content=fs.readFileSync(fd);
     if(content.length!==opened.size)throw Error('Staging environment changed during read');
+    privateEnv.assertUnchanged(file,checkpoint);
+    if(crypto.createHash('sha256').update(content).digest('hex')!==checkpoint.digest) {
+      throw Error('Private staging environment bytes no longer match reviewed inode');
+    }
     return content;
   }finally{fs.closeSync(fd);}
 }
 function reviewEnv() {
   // PR #62 must be merged before this workflow can succeed.
   const canonical=require('./staging-preflight.cjs');
+  const baseline=privateEnv.capture(ENV_FILE);
   const initial=readPrivateEnv();
   const check=canonical.reviewFile(ENV_FILE);
   if(!check || check.ok!==true)throw Error('Private staging environment failed');
   const latest=readPrivateEnv();
+  privateEnv.assertUnchanged(ENV_FILE,baseline);
   const firstDigest=crypto.createHash('sha256').update(initial).digest('hex');
   const finalDigest=crypto.createHash('sha256').update(latest).digest('hex');
-  if(firstDigest!==finalDigest)throw Error('Private environment changed during review');
+  if(firstDigest!==finalDigest || finalDigest!==baseline.digest) {
+    throw Error('Private environment content or original inode changed during review');
+  }
   const {values,errors}=canonical.parseEnv(latest.toString('utf8'));
   if(errors.length || !canonical.validDomain(values.STAGING_HOST))throw Error('Invalid staging hostname');
-  return {host:values.STAGING_HOST,checker:canonical.checkValues,env_digest:finalDigest};
+  // The opaque identity is held in memory only. This prevents an identical
+  // .env inode and bytes reparented below a different real directory from
+  // being certified by separate checks before and after the HTTP probe.
+  const identityDigest=crypto.createHash('sha256').update(JSON.stringify([
+    baseline.dev,baseline.ino,baseline.size,baseline.ancestorDigest])).digest('hex');
+  return {host:values.STAGING_HOST,checker:canonical.checkValues,
+    env_digest:finalDigest,env_identity_digest:identityDigest};
 }
 function reviewEffective(checker) {
   const source=liveConfig(execFileSync,process.env);
@@ -148,7 +165,8 @@ async function inspect(config,deps={}) {
     const stage=inspectEnv();
     if(!stage || stage.host!==config.health.url.hostname ||
         typeof stage.checker!=='function' ||
-        !/^[a-f0-9]{64}$/.test(stage.env_digest||'')) {
+        !/^[a-f0-9]{64}$/.test(stage.env_digest||'') ||
+        !/^[a-f0-9]{64}$/.test(stage.env_identity_digest||'')) {
       throw Error('Private staging origin differs from reviewed environment');
     }
     result.checks.private_environment=true;
@@ -168,6 +186,7 @@ async function inspect(config,deps={}) {
     const afterEnv=inspectEnv();
     if(!afterEnv || afterEnv.host!==stage.host ||
         afterEnv.env_digest!==stage.env_digest ||
+        afterEnv.env_identity_digest!==stage.env_identity_digest ||
         typeof afterEnv.checker!=='function') {
       throw Error('Reviewed private environment changed during HTTPS probe');
     }

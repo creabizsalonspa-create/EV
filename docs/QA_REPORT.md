@@ -1,3 +1,47 @@
+# Atomic staging evidence integration — 11 November 2026
+
+Existing PR89 safely incorporates PR64's source and main PR90 without
+conflicts; merge PR64 first. Offline staging verification initially failed
+because HOME is read-only. The runner now uses the configured temporary
+root (or explicit executable EV_STAGING_TEST_TMPDIR), preserving HOME.
+A second failure was an unsafe-permissions fixture created under umask0077:
+the creation mode became0600, so it did not exercise denial. The fixture
+now explicitly chmods only its synthetic file to0640/0604/0644 and verifies
+the actual mode before asserting rejection; no permission guard is weakened.
+Final `./scripts/staging-offline-verify`:389 Node tests passed,21 Python
+CI-evidence tests passed. Includes interrupted-write/no-final-file, symlink,
+no-overwrite and bounded atomic evidence publication regressions. This is
+source-only evidence; no staging deployment or production acceptance.
+Updated exact-head hosted checks remain required before integration.
+
+# Single-owner integration QA — 11 November 2026
+
+- PR90 source `67e03f69f07b1ddd604ad5b232d0db9f8873d8cd`: all six
+  required hosted jobs succeeded; seven garage privacy widgets passed;
+  merge `2e87ff997168c1ae58800050202f04417e2b16a6` has the same tree.
+- PR64 merge parent `ac470cb46085f1a817d4106e08b8d3bb8a9e818e`:
+  focused route/tenant/security suite14 tests265 assertions passed. Hosted
+  browser jobs failed during Playwright OS installation, not test execution;
+  financial/connector PostgreSQL and staging-image jobs succeeded. Updated
+  source must pass its own full mandatory gates before merge.
+- Fixed source: all48 Agent9 Node security regressions passed, including
+  three new single-clock meter tests. CI trigger7 tests and integration
+  dependency/readiness34 tests passed. Pint passed535 files.
+- `EV_CHROMIUM_PATH=/usr/bin/chromium node tests/client-demo-lifecycle.cjs`
+  passed both remote and RFID phases, both OCPP protocols, source-backed
+  meter/stop/invoice, private EN/AR reports and source feedback. Independent
+  browser-session validity is asserted after logout. The old failed meter
+  journal remains preserved rather than repaired/replayed.
+- First full Laravel run:676 passed,2 worker-lock failures while the
+  deliberate integration daemon owned the lock. Repeating with workers
+  stopped is required; do not weaken the worker lock or count that run green.
+  Updated full Laravel/Flutter and hosted Android/iOS results are pending
+  until explicitly recorded below.
+
+Evidence is local synthetic QA, not customer booking, physical charging,
+real-payment, live-roaming, public staging or store acceptance. Existing
+42/312 coverage remains unchanged; no release completion is asserted.
+
 # Required iOS navigation correction
 
 Earlier candidate33cd1dd passed Android/actual Laravel native suites but its iOS runtime failed after verified subscription enrollment: the next test navigation looked up the now-offstage Workspace and found no element. The evidence route now uses the active SubscriptionActionView context. Every consent/upload/private/runtime assertion and marker is retained; no failed assertion is retried or removed. Clean analysis/host recovery guards pass; exact-source hosted iOS and full CI must pass before PR23 merge. This is not a production-device or provider acceptance claim.

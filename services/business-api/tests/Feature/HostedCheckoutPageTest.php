@@ -34,6 +34,11 @@ class HostedCheckoutPageTest extends TestCase
         $response->assertOk()->assertSee('data-checkout-family="corporate"', false)->assertDontSee('untrusted-corporate-value', false)->assertDontSee('data-simulation-checkout=', false);
         $this->assertSame('no-referrer', $response->headers->get('Referrer-Policy'));
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        $policy = $response->headers->get('Content-Security-Policy');
+        $this->assertStringContainsString("base-uri 'none'", $policy);
+        $this->assertStringContainsString("frame-ancestors 'none'", $policy);
+        $this->assertStringContainsString("object-src 'none'", $policy);
+        $this->assertStringContainsString("form-action 'self'", $policy);
         $this->get('/payments/hosted-return?checkout_family=corporate')->assertOk()->assertSee('data-checkout-family="invoice"', false);
         Http::assertNothingSent();
     }

@@ -5,11 +5,28 @@ namespace Tests\Feature;
 use App\Models\Station;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class CatalogGeoTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Some PHP SQLite builds omit optional SQL math functions. Register
+        // their PHP equivalents in this test connection only so the same
+        // Haversine SQL is exercised without modifying production queries.
+        $connection = DB::connection();
+        if ($connection->getDriverName() === 'sqlite') {
+            $pdo = $connection->getPdo();
+            foreach (['sqrt', 'sin', 'cos', 'asin'] as $function) {
+                $pdo->sqliteCreateFunction($function, $function, 1);
+            }
+        }
+    }
 
     private function station(float $lat, float $lon, string $name = 'Nearby'): Station
     {

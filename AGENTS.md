@@ -1,3 +1,18 @@
+# Current owner directive — single completion agent (11 November 2026)
+
+The owner's latest uploaded **FINAL MASTER DIRECTIVE — SINGLE EV PROJECT
+COMPLETION AGENT** supersedes the historical parallel assignments below. One
+agent owns backend, finance, EV, web, native, security, release integration and
+internal QA. Do not delegate to the former agents. Preserve their work, close
+existing PRs in dependency order after exact-source verification, and retain
+unique changes from conflicted PR84. Ordinary fixes, tests, commits, pushes and
+verified merges are authorized. Physical charging, live payments/roaming,
+production deployment and store acceptance require their actual external gates.
+The original 42 categories/312 atoms and evidence-based weights remain fixed.
+Do not claim autonomous background execution after the active session ends.
+
+The prior ownership instructions below are retained as historical records.
+
 # CURRENT OWNER DIRECTIVE — TEN ACTIVE AGENTS (7 November 2026)
 
 This is the **latest authoritative owner assignment** and supersedes prior

@@ -13,7 +13,8 @@ concurrency:
 
 jobs:
   business-platform:
-    runs-on: ubuntu-latest
+    # Pin the browser dependency baseline; ubuntu-latest may advance past Playwright support.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +43,8 @@ jobs:
           python3 -B -m unittest discover -s tests -p requirement_coverage_test.py
       - run: ./scripts/php artisan test --compact
       - run: npm ci
+      - name: Verify Agent 9 offline security regression guards
+        run: node --test tests/agent9-*.test.cjs
       - run: npx playwright install --with-deps chromium
       - run: ./scripts/start
       - run: npm run test:e2e
@@ -136,6 +139,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Verify private staging and synthetic demo regressions without Docker
+        run: ./scripts/staging-offline-verify
       - name: Seed synthetic build-context exclusion canaries
         shell: bash
         run: |

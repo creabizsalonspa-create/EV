@@ -446,6 +446,84 @@ test('concurrent or crashed release lock fails closed, without Docker mutation',
   } finally {lock();}
   assert.equal(fs.existsSync(deps.lockPath),false);
 }));
+test('release unlock refuses a swapped inode and preserves a foreign replacement lock',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  const unlock=release.acquireLock(deps);
+  const old=path.join(dir,'original-lock-retained');
+  fs.renameSync(deps.lockPath,old);
+  fs.writeFileSync(deps.lockPath,'FOREIGN_LOCK_MUST_SURVIVE\n',{mode:0o600});
+  assert.throws(()=>unlock(),/identity changed/);
+  assert.equal(fs.readFileSync(deps.lockPath,'utf8'),'FOREIGN_LOCK_MUST_SURVIVE\n');
+  assert.equal(fs.readFileSync(old,'utf8').includes('"project":"ev-staging"'),true);
+  assert.equal(deps.state.mutations,0);
+}));
+test('release unlock refuses a newly substituted symlink without touching its target',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),unlock=release.acquireLock(deps);
+  const target=path.join(dir,'foreign.txt');
+  fs.writeFileSync(target,'DO_NOT_DELETE',{mode:0o600});
+  fs.unlinkSync(deps.lockPath);
+  fs.symlinkSync(target,deps.lockPath);
+  assert.throws(()=>unlock(),/identity changed/);
+  assert.equal(fs.readFileSync(target,'utf8'),'DO_NOT_DELETE');
+  assert.equal(fs.lstatSync(deps.lockPath).isSymbolicLink(),true);
+}));
+test('release lock rejects symlinked ancestor and dangling symlink at lock path',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile);
+  const real=path.join(dir,'private-locks');
+  fs.mkdirSync(real,{mode:0o700});
+  const alias=path.join(dir,'alias-locks');
+  fs.symlinkSync(real,alias);
+  deps.lockPath=path.join(alias,'release.lock');
+  assert.throws(()=>release.acquireLock(deps),/unsafe parent/);
+  assert.equal(fs.existsSync(path.join(real,'release.lock')),false);
+  const dangling=path.join(real,'release.lock');
+  fs.symlinkSync(path.join(real,'no-target'),dangling);
+  deps.lockPath=dangling;
+  assert.throws(()=>release.acquireLock(deps));
+  assert.equal(fs.lstatSync(dangling).isSymbolicLink(),true);
+}));
+test('release unlock detects replaced real ancestor directory even with identical lock bytes',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),originalParent=path.join(dir,'private-locks');
+  fs.mkdirSync(originalParent,{mode:0o700});
+  deps.lockPath=path.join(originalParent,'release.lock');
+  const unlock=release.acquireLock(deps);
+  const lockBytes=fs.readFileSync(deps.lockPath);
+  const moved=path.join(dir,'moved-lock-directory');
+  fs.renameSync(originalParent,moved);
+  fs.mkdirSync(originalParent,{mode:0o700});
+  fs.writeFileSync(deps.lockPath,lockBytes,{mode:0o600});
+  assert.throws(()=>unlock(),/ancestor directory changed/);
+  assert.deepEqual(fs.readFileSync(deps.lockPath),lockBytes);
+  assert.equal(fs.existsSync(path.join(moved,'release.lock')),true);
+}));
+test('lock substitution after actual staging mutation reports uncertain release instead of preflight rejection',()=>sandbox((dir,envFile)=>{
+  const deps=mock(envFile),journalFile=path.join(dir,'actual-release.jsonl');
+  const retained=path.join(dir,'original-release-lock');
+  let changed=false;
+  deps.checkHttp=()=>{
+    if(!changed){
+      changed=true;
+      assert.equal(deps.state.mutations,1);
+      fs.renameSync(deps.lockPath,retained);
+      fs.writeFileSync(deps.lockPath,'SECOND_OPERATOR_STAGING_LOCK\n',{mode:0o600});
+    }
+    return true;
+  };
+  const captured=[];
+  const oldWrite=process.stderr.write;
+  process.stderr.write=function(part,...args){captured.push(String(part));return true;};
+  let exit;
+  try {exit=release.main(argv('apply',journalFile),deps);}
+  finally {process.stderr.write=oldWrite;}
+  assert.equal(exit,3);
+  assert.equal(deps.state.mutations,1);
+  assert.ok(captured.join('').includes('operator reconciliation required'));
+  assert.ok(!captured.join('').includes('preflight, approval'));
+  assert.equal(fs.readFileSync(deps.lockPath,'utf8'),'SECOND_OPERATOR_STAGING_LOCK\n');
+  assert.ok(fs.existsSync(retained));
+  const events=fs.readFileSync(journalFile,'utf8').trim().split('\n').map(JSON.parse).map(e=>e.event);
+  assert.deepEqual(events,['PREPARED','RELEASE_STARTED','RELEASE_VERIFIED']);
+}));
 test('staging lock removed after verified release or automatic rollback',()=>sandbox((dir,envFile)=>{
   const deps=mock(envFile);deps.state.failCandidate=true;
   const file=path.join(dir,'journal.jsonl');
