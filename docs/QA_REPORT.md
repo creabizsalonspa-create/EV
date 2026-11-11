@@ -1,3 +1,36 @@
+# 12 November 2026, 01:25 Dubai — preserve immediate logout; corrected current-source revalidation required
+
+Hosted jobs130791415972/130791656495 on88e37ad/1fb724f exposed a regression
+in the initial cookie-race fix: the existing held-private-response test could not log out.
+Logout remains immediate; a validated existing identity now releases the anonymous-only
+startup account gate before private panels finish. The full original web-session client
+and browser assertions pass unchanged, including account replacement, role downgrade,
+late401/unreadable identity, failed logout/reload/retry and Arabic errors. Both actual
+delayed anonymous-cookie and initial-outage login/logout cases also pass on isolated
+HTTP8010. No timeout, session epoch, privacy assertion, production limit or auth gate
+was removed. Previous failed sources are not eligible to merge; rerun every exact-source
+gate before PR84 then PR60 integration. See the appended auth-bootstrap JSON evidence.
+
+# 12 November 2026, 01:10 Dubai — startup cookie race repaired; integration still gated
+
+The broader local operational run passed canonical charging, continuous consumers/restart,
+both OCPP protocols, ingress/certificate revocation, OCPI reception and remote/RFID source
+meter/stop/invoice proofs. Its second vendor-report browser found an intermittent startup
+failure. A controlled actual anonymous-response delay reproduced HTTP200 login followed
+by HTTP401 identity: a late guest Set-Cookie overwrote the regenerated session cookie.
+Account submission is now disabled and guarded until initial bootstrap settles, including
+failure cleanup; retained epoch checks, roles and production limits are unchanged. The new
+`tests/auth-bootstrap.cjs` passes delayed-response and initial-outage cases with real login,
+identity and logout, no successful-login mock or charging replay. Scheduler nine tests pass.
+Evidence: `docs/evidence/payout-integration-repair/auth-bootstrap.json`.
+
+The original full operational command stopped at that failure; it is not reported as a full
+pass. Its remaining phases must run, and the repaired full lifecycle must be reverified.
+PR84 must still pass every current-source hosted gate before normal merge, then PR60.
+GitHub currently allocates no jobs to either candidate; permission inspection returns403.
+Do not infer quota/billing, skip gates, force merge, or claim production acceptance.
+Original42/312 inventory and weighted stage credits remain unchanged.
+
 # Payout integration repair — 12 November 2026 (Dubai)
 
 Both current PR84 source0953524 and PR60 source79a8472 failed at the commercial payout locator; PR60's scheduler inventory correction passed. Reproduced against the exact PR84 application in a fresh disposable SQLite/Docker loopback instance without altering retained local ledgers. Approval can commit successfully while the unchanged60/min protected-read budget makes the subsequent workspace reload return429; the original test then waits for a missing payout button. Retained history also exposed an ambiguous global payout selector.
