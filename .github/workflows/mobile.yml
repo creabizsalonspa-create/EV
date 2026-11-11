@@ -6,6 +6,8 @@ on:
     paths:
       [
         "apps/mobile/**",
+        "services/business-api/app/Http/Middleware/StableReadSessionCookie.php",
+        "services/business-api/bootstrap/app.php",
         ".github/workflows/mobile.yml",
         "tests/native-inventory.cjs",
         "tests/native-topology.cjs",
@@ -107,6 +109,8 @@ on:
     paths:
       [
         "apps/mobile/**",
+        "services/business-api/app/Http/Middleware/StableReadSessionCookie.php",
+        "services/business-api/bootstrap/app.php",
         ".github/workflows/mobile.yml",
         "tests/native-inventory.cjs",
         "tests/native-topology.cjs",

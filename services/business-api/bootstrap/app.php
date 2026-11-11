@@ -3,6 +3,8 @@
 use App\Http\Middleware\AccountStatusGate;
 use App\Http\Middleware\AdminSecondFactorGate;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\StableReadSessionCookie;
+use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -19,7 +21,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(SecurityHeaders::class);
         // Run after the web session/auth middleware so Admin identity and
         // challenge proof are both available before protected handlers execute.
-        $middleware->web(append: [AccountStatusGate::class, AdminSecondFactorGate::class]);
+        $middleware->web(append: [AccountStatusGate::class, AdminSecondFactorGate::class, StableReadSessionCookie::class]);
+        $middleware->appendToPriorityList(EncryptCookies::class, StableReadSessionCookie::class);
         // Resolve Sanctum Admin identity on v1 routes before route handlers.
         // The same gate denies unverified Admin cookie/API sessions.
         $middleware->api(append: [AccountStatusGate::class, AdminSecondFactorGate::class]);

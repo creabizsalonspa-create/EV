@@ -9,18 +9,18 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 | Stage | Weighted coverage |
 |---|---:|
 | coded | 56.40% |
-| tested | 53.70% |
-| merged | 53.70% |
+| tested | 55.76% |
+| merged | 55.76% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
 
 | PRD | Requirement | Atoms | Coded | Tested | Merged | Production accepted |
 |---|---|---:|---:|---:|---:|---:|
-| 2.1 | Identity, verification, 2FA, privacy | 9 | 6/9 | 5/9 | 5/9 | 0/9 |
-| 2.2 | EV garage and driver preferences | 7 | 6/7 | 3/7 | 3/7 | 0/7 |
+| 2.1 | Identity, verification, 2FA, privacy | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
+| 2.2 | EV garage and driver preferences | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
 | 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
-| 2.4 | Location/connector details and pricing terms | 8 | 6/8 | 4/8 | 4/8 | 0/8 |
+| 2.4 | Location/connector details and pricing terms | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
 | 2.5 | Owned and network discovery | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 2.6 | Reservations and occupancy policy | 7 | 6/7 | 5/7 | 5/7 | 0/7 |
 | 2.7 | Remote charging and monitoring | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
@@ -55,7 +55,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 7.3 | End-to-end ledgers/reconciliation | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 7.4 | Wallet/stored value | 2 | 0/2 | 0/2 | 0/2 | 0/2 |
 | 8.1 | Enterprise organizations/billing | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
-| 9.1 | RBAC/privacy/security/operations | 13 | 8/13 | 7/13 | 7/13 | 0/13 |
+| 9.1 | RBAC/privacy/security/operations | 13 | 8/13 | 8/13 | 8/13 | 0/13 |
 | 9.2 | Accessible responsive release surfaces | 10 | 5/10 | 5/10 | 5/10 | 0/10 |
 | 9.3 | Maintainable architecture/tests/licensing | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
 | 9.4 | International readiness | 6 | 4/6 | 4/6 | 4/6 | 0/6 |
@@ -74,16 +74,16 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.1.6` [—] Phone verification (evidence: none).
 - `2.1.7` [—] Approved social login (evidence: none).
 - `2.1.8` [—] Customer/admin 2FA (evidence: none).
-- `2.1.9` [C] Privacy/deletion requests (evidence: pr60).
+- `2.1.9` [CTM] Privacy/deletion requests (evidence: pr60).
 
 ### 2.2 EV garage and driver preferences
 
 - `2.2.1` [CTM] Scoped vehicle garage web/native (evidence: main638).
 - `2.2.2` [CTM] Connector compatibility (evidence: main638).
 - `2.2.3` [CTM] Fleet vehicle association (evidence: main638).
-- `2.2.4` [C] Vehicle model catalog (evidence: pr84).
-- `2.2.5` [C] Preferred charging speed and driver preferences (evidence: pr84).
-- `2.2.6` [C] Manual SOC (evidence: pr84).
+- `2.2.4` [CTM] Vehicle model catalog (evidence: pr84).
+- `2.2.5` [CTM] Preferred charging speed and driver preferences (evidence: pr84).
+- `2.2.6` [CTM] Manual SOC (evidence: pr84).
 - `2.2.7` [—] Authorized vehicle API SOC (evidence: none).
 
 ### 2.3 Search, maps, routes, favorites, reviews
@@ -104,8 +104,8 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.4.2` [CTM] Canonical EVSE/connector capabilities (evidence: main638).
 - `2.4.3` [CTM] Simulator tariff and invoice snapshots (evidence: main638).
 - `2.4.4` [CTM] Partner reported source timestamps (evidence: main638).
-- `2.4.5` [C] Hours and amenities (evidence: pr84).
-- `2.4.6` [C] Accessibility details (evidence: pr84).
+- `2.4.5` [CTM] Hours and amenities (evidence: pr84).
+- `2.4.6` [CTM] Accessibility details (evidence: pr84).
 - `2.4.7` [—] Customer pre-charge estimate/fee acceptance (evidence: none).
 - `2.4.8` [—] Reservation terms and per-connector freshness (evidence: none).
 
@@ -461,7 +461,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `9.1.4` [CTM] Private bounded uploads (evidence: main638).
 - `9.1.5` [CTM] Safe production rate limiting (evidence: main638).
 - `9.1.6` [CTM] Guarded migrations/source recovery (evidence: main638).
-- `9.1.7` [C] Admin 2FA (evidence: pr84).
+- `9.1.7` [CTM] Admin 2FA (evidence: pr84).
 - `9.1.8` [—] Global/cross-tab session revocation (evidence: none).
 - `9.1.9` [—] Privacy deletion workflows (evidence: none).
 - `9.1.10` [—] Verified backup/restore (evidence: none).

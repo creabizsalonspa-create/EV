@@ -1,3 +1,17 @@
+## Browser session response ordering — 12 November 2026
+
+The web middleware suppresses only the session cookie on GET/HEAD when the decrypted
+incoming session ID and final session ID are identical. This prevents a delayed private
+read from restoring actorA's old cookie after logout and actorB's login. Fresh anonymous
+bootstrap and rotated sessions still emit cookies; POST/PUT/PATCH/DELETE retain normal
+framework refresh. XSRF and unrelated cookie attributes remain unchanged. Native bearer
+authentication is unaffected. Unchanged reads no longer extend browser cookie expiry;
+server inactivity storage lifetime is unchanged, and bootstrap/rotation/writes retain
+normal cookie refresh. Clients must still fence stale response bodies and wait for
+initial anonymous bootstrap before login. Read regression uses two real synthetic actors,
+normal login/logout and an actually delayed successful protected GET; no charging/money
+mutation, assertion retry, production rate change or browser-cookie spoof is used.
+
 # Durable fault operations (candidate)
 
 Under each existing charger path, GET `fault-alerts` provides scoped25/page durable observations; POST `fault-alerts/inspect` reads one authenticated source page and atomically records immutable events/alerts (inventory.write). Its `next_before` supports bounded catch-up. PATCH `fault-alerts/{id}/acknowledge` requires a10..2000-character note, stores the first encrypted acknowledgment once and audits it; it cannot resolve a fault or change charging capacity. Changed source-event replay conflicts, generation changes and revoked access fail closed. Recovery requires newer, later Available/NoError source evidence on the same component. GET remains read-only; no remote command/payment is sent. Cookie and bearer prefixes share records. Inspect/acknowledge do not blindly retry unknown responses. Bounded monitor: `scripts/csms-monitor-faults`; source simulator-only truth labels remain in force.

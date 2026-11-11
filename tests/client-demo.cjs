@@ -16,6 +16,8 @@ async function waitFor(fn, message) {
   } while (Date.now() < deadline);
   throw Error(message);
 }
+let activeFixture;
+let activeStation;
 async function main() {
   const base = path.resolve("artifacts/client-demo");
   const file = fs.realpathSync(
@@ -38,7 +40,9 @@ async function main() {
     clients[role] = client;
   }
   const customer = clients.customer;
+  activeFixture = file;
   for (const station of fixture.stations) {
+    activeStation = station;
     const device = JSON.parse(
       fs.readFileSync(
         path.join(
@@ -178,6 +182,22 @@ async function main() {
   await require("./helpers/charging-review-source-proof.cjs")(fixture, clients);
 }
 main().catch((error) => {
+  if (activeFixture && activeStation) {
+    try {
+      console.error(
+        JSON.stringify(
+          require("./helpers/client-demo-failure.cjs").capture(
+            activeFixture,
+            activeStation,
+          ),
+        ),
+      );
+    } catch {
+      console.error(
+        "Owned failure diagnostic unavailable; private source state retained.",
+      );
+    }
+  }
   console.error(error.message);
   console.error(
     "Persistent local charging proof failed; inspect private source/operator state without replaying unknown commands.",

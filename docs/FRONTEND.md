@@ -1,3 +1,17 @@
+## Browser session response ordering — 12 November 2026
+
+The web middleware suppresses only the session cookie on GET/HEAD when the decrypted
+incoming session ID and final session ID are identical. This prevents a delayed private
+read from restoring actorA's old cookie after logout and actorB's login. Fresh anonymous
+bootstrap and rotated sessions still emit cookies; POST/PUT/PATCH/DELETE retain normal
+framework refresh. XSRF and unrelated cookie attributes remain unchanged. Native bearer
+authentication is unaffected. Unchanged reads no longer extend browser cookie expiry;
+server inactivity storage lifetime is unchanged, and bootstrap/rotation/writes retain
+normal cookie refresh. Clients must still fence stale response bodies and wait for
+initial anonymous bootstrap before login. Read regression uses two real synthetic actors,
+normal login/logout and an actually delayed successful protected GET; no charging/money
+mutation, assertion retry, production rate change or browser-cookie spoof is used.
+
 # Private case evidence candidate — local validation
 
 Continued immediately after verified PR22 integration70ac899. Canonical customer disputes now support native invoice-context creation/scoped history plus encrypted private evidence on backend/web/Flutter and Admin review. Consent,4MiB/file/20-file bounds, exact upload identity/fingerprint replay, immutable metadata, closed-case controls, integrity-checked private downloads and native original-file reselection are implemented. Files are snapshotted before async work; no provider submission, refund or financial journal is created by evidence upload. See PRIVATE_CASE_EVIDENCE.md and docs/evidence/private-case-evidence/local-checkpoint.json.

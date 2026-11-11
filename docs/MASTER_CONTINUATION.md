@@ -1,3 +1,59 @@
+# 12 November 2026 — single-agent verified integration and continued source delivery
+
+**Verified integration main: `a9e291e6e541f4f4da7c39fa823ede7941b572a0`.**
+PR84 source `fcef152c9b7578b9551486d8404da29eca6f1e89` passed all12 exact-source
+mandatory official Actions checks and merged normally at `961c234998d261ca74ddb0767b1e6f2a1e556a3b`.
+PR60 source `4bad250d22de9478f89240c0c71b34af17b4e251` independently passed all12
+and merged normally at the current main SHA. Source and merge trees match. The payout
+repair preserves authorization, ledger, test-only status and all existing assertions;
+its actual protected-read429 and ambiguous historical-row causes were reproduced.
+The anonymous startup cookie ordering correction is included in both verified sources.
+
+All17 historical PR heads are preserved in main. Eleven became merged through PR84:
+88,80,79,77,76,72,61,55,54,52,50. Six differently based PRs were closed as incorporated
+with fresh head/ancestry proof and comments:86,85,70,69,63,1; these are not individually
+verified merges and their old failed checks remain historical. Only PR58 remains open.
+Evidence: `docs/evidence/integration-coverage/{pr84-hosted-checkpoint,pr60-hosted-checkpoint,backlog-incorporation-checkpoint}.json`.
+
+PR58 includes the complete explicit operating-calendar vertical slice (Laravel/web/
+canonical shared customer/vendor Flutter, immutable booking snapshots, both OCPP start
+admission paths and deterministic PostgreSQL closure/booking races). Current hosted
+source `ccec1ad6c18017ec299e1a159ae4a1f945d0f506` passed both Android/iOS canonical
+native jobs, both Hasone jobs, financial-browser, both PostgreSQL jobs, staging-image,
+CSMS recovery and integration guards. Business-platform failed when the second remote
+OCPP2.0.1 simulated session produced no meter convergence; recovery-acceptance was skipped.
+The old retained logs establish no root cause. This source is **not merge eligible**.
+A successor retains only whitelist-redacted owned command/device diagnostic state on
+failure; it never uploads private device journals, tokens, payloads or source credentials,
+never replays commands and keeps all original charging/invoice assertions and timeouts.
+See `docs/evidence/operating-calendar/hosted-blocker.json`; do not call this hardware acceptance.
+
+A separate actual browser defect was reproduced: a private GET from actorA, held across
+logout and actorB login, returned actorA's old session cookie and invalidated actorB.
+The successor suppresses only an unchanged existing GET/HEAD session cookie, after
+framework decryption and before session middleware response unwinding. Bootstrap and
+rotated sessions, all writes and other cookies retain framework behavior. Delayed-read
+browser regression now passes with actorB still authenticated; guest startup and existing
+controlled browser account/role/logout regression also pass. Unchanged reads no longer
+extend browser cookie expiry; server inactivity lifetime is unchanged and bootstrap/
+rotation/writes retain cookie refresh. Unit/actual HTTP coverage guards those boundaries.
+
+The fixed original42-category/312-atom inventory now records **180 coded,178 tested,
+178 merged;56.40% coded,55.76% tested,55.76% merged,0.00% production accepted**.
+The two calendar atoms remain coded-only until fresh mandatory hosted checks and merge;
+no extra atom credit is taken for regression repairs. Full software remains **INCOMPLETE**.
+Local36-suite operational evidence is retained separately from the latest hosted failure.
+No production deployment, physical charger, live PSP/bank, live authorized OCPI partner,
+signed device/store release or production acceptance occurred. Staging image validation
+is not a deployed/accepted staging environment.
+
+Continue the existing PR58 source, obtain all mandatory current-source green checks,
+inspect retained command/device failure state if OCPP2.0.1 stalls, then merge normally
+only against the verified main. Do not create another feature branch/PR to evade this
+backlog. Resume uncredited original atoms after verified integration. Sole-agent full
+project ownership supersedes historical two-agent instructions; retain old records.
+
+
 # CREA-BIZ EV — MASTER AUTONOMOUS DEVELOPMENT & CONTINUATION PROMPT
 
 **Repository:** https://github.com/creabizsalonspa-create/EV

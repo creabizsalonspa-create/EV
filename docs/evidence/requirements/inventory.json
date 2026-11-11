@@ -78,15 +78,15 @@
       "evidence": "docs/evidence/integration-coverage/pr89-hosted-checkpoint.json"
     },
     "pr84": {
-      "source_sha": "4fd8f2749f340618c0d39ea7109a2668aa98a094",
-      "merge_sha": null,
-      "test_result": "pending",
+      "source_sha": "fcef152c9b7578b9551486d8404da29eca6f1e89",
+      "merge_sha": "961c234998d261ca74ddb0767b1e6f2a1e556a3b",
+      "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr84-hosted-checkpoint.json"
     },
     "pr60": {
-      "source_sha": "c55ca95021e4057fed7209706fc5efe7009cf10f",
-      "merge_sha": null,
-      "test_result": "pending",
+      "source_sha": "4bad250d22de9478f89240c0c71b34af17b4e251",
+      "merge_sha": "a9e291e6e541f4f4da7c39fa823ede7941b572a0",
+      "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr60-hosted-checkpoint.json"
     },
     "operating_calendar": {
@@ -101,8 +101,8 @@
     {
       "prd": "2.1",
       "requirement": "Identity, verification, 2FA, privacy",
-      "implemented_code_scope": "Verified email/password web/native identity and encrypted session persistence; role changes revoke old browser/bearer authority; independent web Admin TOTP and canonical encrypted privacy request/review/withdrawal software. Privacy candidate source and pending hosted status are explicit.",
-      "automated_evidence_scope": "PlatformTest, AccountTest, MobileAuthTest, EmailVerificationTest; browser web-session; native persistence. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "implemented_code_scope": "Verified email/password web/native identity and encrypted session persistence; role changes revoke old browser/bearer authority; independent web Admin TOTP and canonical encrypted privacy request/review/withdrawal software. Canonical privacy source passed all12 mandatory checks and is merged at a9e291e; automated export/erasure remains uncredited.",
+      "automated_evidence_scope": "PlatformTest, AccountTest, MobileAuthTest, EmailVerificationTest; browser web-session; native persistence. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Phone verification, approved social login, customer2FA, authorized data export/erasure fulfillment, configured delivery and full security/device review.",
       "atoms": [
         {
@@ -174,7 +174,7 @@
       "prd": "2.2",
       "requirement": "EV garage and driver preferences",
       "implemented_code_scope": "Scoped web/native garage, connector compatibility and fleet links; Admin-curated published/archived model catalog, customer model linkage, versioned driver/charging-speed preferences and manual SOC with strict ownership and separate source observations.",
-      "automated_evidence_scope": "PlatformTest, EnterpriseTest; native live_api. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "PlatformTest, EnterpriseTest; native live_api. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Authorized vehicle-provider SOC integration and remaining real-device/provider acceptance; no inferred vehicle telemetry.",
       "atoms": [
         {
@@ -232,7 +232,7 @@
       "prd": "2.3",
       "requirement": "Search, maps, routes, favorites, reviews",
       "implemented_code_scope": "Merged nearby radius search plus canonical private favorites and consent-gated web/Flutter current-page maps, clustering/manual centre and opt-in web GPS (PR16 tested e942017, merged1bee9c9); PR19 consented foreground native GPS, bounded server-only address/routing provider, manual endpoints, up to three ordered canonical charging stops, sourced web/native route previews and separately consented fixed-origin external navigation; verified PR46 canonical session-scoped ratings/review/moderation workflow across customer web/Flutter and Admin web, with simulator evidence provenance and consent.",
-      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers; PR19 full Laravel/browser/native suites, actual Android/iOS builds and synthetic iOS GPS/route runtime assertions, all ten exact-source checks passed; PR46 exact-head 11 passing GitHub checks including Linux/Apple native build and platform, finance and connector gates; verified merged ancestry.; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "All ten PR16 exact-source platform/PostgreSQL/Android/iOS checks; source-specific hosted evidence and actual favorites/map/Keychain/Arabic/private-PDF runtime markers; PR19 full Laravel/browser/native suites, actual Android/iOS builds and synthetic iOS GPS/route runtime assertions, all ten exact-source checks passed; PR46 exact-head 11 passing GitHub checks including Linux/Apple native build and platform, finance and connector gates; verified merged ancestry.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Unified authorized partner discovery/maps/favorites, address/operator/access/price and supported live availability filters, saved places and energy-aware charging-stop recommendations; live/provider physical review acceptance is external and unverified.",
       "atoms": [
         {
@@ -304,7 +304,7 @@
       "prd": "2.4",
       "requirement": "Location/connector details and pricing terms",
       "implemented_code_scope": "Source/capability labels, reported connector/status timestamps, versioned tariff and invoice snapshots; vendor-edited hours, amenities and accessibility consumed by public web and canonical native station details.",
-      "automated_evidence_scope": "FinanceTest, ConnectorTopologyTest, OcpiIntegrationTest; tariffs/topology clients. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "FinanceTest, ConnectorTopologyTest, OcpiIntegrationTest; tariffs/topology clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Customer pre-charge estimate/fee acceptance, complete reservation terms, authoritative per-connector freshness and remaining partner metadata parity.",
       "atoms": [
         {
@@ -369,7 +369,7 @@
       "prd": "2.5",
       "requirement": "Owned and network discovery",
       "implemented_code_scope": "Existing station catalog plus separate web/native paginated normalized OCPI locations; fail-closed capability/provenance checks",
-      "automated_evidence_scope": "OcpiIntegrationTest, PlatformTest; roaming/native topology. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "OcpiIntegrationTest, PlatformTest; roaming/native topology. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Unified provider search/discovery adapters and authorized actionable roaming",
       "atoms": [
         {
@@ -420,7 +420,7 @@
       "prd": "2.6",
       "requirement": "Reservations and occupancy policy",
       "implemented_code_scope": "Canonical company/site/charger/EVSE/connector/source mapping; shared-EVSE capacity and parallel reservations; scoped web/native connector selection, cancellation, arrival reporting, unused expiry; PostgreSQL process races; PR58 opt-in station-local weekly/overnight/holiday operating calendar, immutable booking-policy snapshots, both-protocol start/authorization/claim gates and web/native editor/customer parity",
-      "automated_evidence_scope": "ConnectorTopologyTest, ReservationLifecycleTest; PostgreSQL connector/lifecycle races. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; current hosted verification and merge pending, coded-only credit for two named calendar atoms.",
+      "automated_evidence_scope": "ConnectorTopologyTest, ReservationLifecycleTest; PostgreSQL connector/lifecycle races. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; current hosted verification and merge pending, coded-only credit for two named calendar atoms.",
       "remaining_scope": "Complete no-show/occupancy policy and physical occupancy acceptance; reported arrival never proves physical presence",
       "atoms": [
         {
@@ -478,7 +478,7 @@
       "prd": "2.7",
       "requirement": "Remote charging and monitoring",
       "implemented_code_scope": "Both OCPP protocols simulated; continuous signed source observations/meters; command uncertainty and applied-source reconciliation; scoped web/native operations and final simulated invoices",
-      "automated_evidence_scope": "CsmsSessionBridgeTest, SourceConsumerTest, CommandReconciliationTest; both protocol simulations. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "CsmsSessionBridgeTest, SourceConsumerTest, CommandReconciliationTest; both protocol simulations. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Production CSMS registration/JWT/rider IdToken authority, certificate lifecycle, richer monitoring/incidents/diagnostics/firmware; physical acceptance external",
       "atoms": [
         {
@@ -550,7 +550,7 @@
       "prd": "2.8",
       "requirement": "Checkout, wallet, invoices, disputes",
       "implemented_code_scope": "Canonical checkout/gateway intents, immutable payments/refunds/credits/disputes, durable lost-ack recovery; scoped web finance and native invoice/recovery/dunning/mandate history; PR12 hosted consent/test off-session collection",
-      "automated_evidence_scope": "PaymentGatewayTest, PaymentRecoveryTest, SubscriptionRecurringTest; finance browser/native recovery. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "PaymentGatewayTest, PaymentRecoveryTest, SubscriptionRecurringTest; finance browser/native recovery. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Full native checkout/plan/refund/dispute parity, provider dispute submission/reconciliation, legal invoice documents; wallet remains separately blocked by legal approval",
       "atoms": [
         {
@@ -629,7 +629,7 @@
       "prd": "2.9",
       "requirement": "Loyalty/rewards/promotions/referrals",
       "implemented_code_scope": "PR18 noncash Silver/Gold/Platinum tiers, immutable points ledger with refund clawback/debt/expiry, stock-limited redemption and manual fulfillment; customer/admin web/API. Production mutations disabled by default.",
-      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "Verified PR18 exact-source platform and PostgreSQL financial/concurrency checks; LoyaltyEconomicsTest and browser loyalty workflows. No live economics or native parity acceptance.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Coupons, referrals, promotions, vendor participation, broader reward fulfillment, native parity and real operational acceptance.",
       "atoms": [
         {
@@ -687,7 +687,7 @@
       "prd": "2.10",
       "requirement": "Localization/accessibility/formatting",
       "implemented_code_scope": "Persistent EN/AR/RTL and Light/Dark/System, responsive layouts, explicit resources and interpolation/overflow tests",
-      "automated_evidence_scope": "Flutter preferences/widget suites; localization/frontend browser. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "Flutter preferences/widget suites; localization/frontend browser. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Full workflow coverage, accessibility/screenshot/device audit, regional money/time presentation and future language rollout",
       "atoms": [
         {
@@ -752,7 +752,7 @@
       "prd": "3.1",
       "requirement": "Vendor onboarding/KYC/staff",
       "implemented_code_scope": "Company/evidence/staff/hierarchy workflows, encrypted integrity-checked KYC downloads and readiness, verified-owner approval, versioned staff consent and scoped grants; Admin KYC queue/history and renewal evidence.",
-      "automated_evidence_scope": "VendorOpsTest, VendorOpsCreationTest; vendor browser, native vendor onboarding; iOS pending. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "VendorOpsTest, VendorOpsCreationTest; vendor browser, native vendor onboarding; iOS pending. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Agreements, complete external verification-service/legal workflows and live verification-service acceptance.",
       "atoms": [
         {
@@ -817,7 +817,7 @@
       "prd": "3.2",
       "requirement": "Vendor inventory/provisioning",
       "implemented_code_scope": "Canonical inventory topology/source mapping, sites/chargers/connectors/maintenance and secure admission web/native controls. Merged PR14 adds native creation and authorized station linking with idempotent replay receipts",
-      "automated_evidence_scope": "VendorOpsTest, ConnectorTopologyTest, ChargerAdmissionTest; native inventory/topology. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "VendorOpsTest, ConnectorTopologyTest, ChargerAdmissionTest; native inventory/topology. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Upstream production charger registration/certificate lifecycle and complete health/firmware/hardware-model management",
       "atoms": [
         {
@@ -882,7 +882,7 @@
       "prd": "3.3",
       "requirement": "Vendor live operations and controls",
       "implemented_code_scope": "Scoped sessions/meters/stop web/native; web command history and audited local simulator dispatch",
-      "automated_evidence_scope": "ChargingOperationsTest, ChargerCommandTest; operations browser/native. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "ChargingOperationsTest, ChargerCommandTest; operations browser/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Complete fleet of live connector states, operational command recovery and customer-role staff session permissions",
       "atoms": [
         {
@@ -933,7 +933,7 @@
       "prd": "3.4",
       "requirement": "Vendor calendar/blocks/tariffs",
       "implemented_code_scope": "Reservation views; company connector maintenance with linked booking/start/dispatch-claim gates; exact web/native simulated price/tax publication and admin commission retention; PR58 opt-in station-local weekly/overnight/holiday operating calendar, immutable booking-policy snapshots, both-protocol start/authorization/claim gates and web/native editor/customer parity",
-      "automated_evidence_scope": "ManagedChargingGateTest, ReservationLifecycleTest, FinanceTest; tariff/maintenance clients. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; current hosted verification and merge pending, coded-only credit for two named calendar atoms.",
+      "automated_evidence_scope": "ManagedChargingGateTest, ReservationLifecycleTest, FinanceTest; tariff/maintenance clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; current hosted verification and merge pending, coded-only credit for two named calendar atoms.",
       "remaining_scope": "Remaining availability-block/notice parity, dynamic pricing and commercial tariff acceptance; no live availability is inferred from a vendor calendar",
       "atoms": [
         {
@@ -998,7 +998,7 @@
       "prd": "3.5",
       "requirement": "Vendor finance/settlements",
       "implemented_code_scope": "Immutable canonical gateway/payment/refund/credit/dispute accounting, settlement approvals/simulated payout and scoped web finance; native invoice/recovery/mandate consumption",
-      "automated_evidence_scope": "SettlementTest, PaymentRecoveryTest, SubscriptionCreditTest; finance browser. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "SettlementTest, PaymentRecoveryTest, SubscriptionCreditTest; finance browser. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Full native financial actions, bank payout-provider/reconciliation software, provider dispute evidence/deadlines, complete earnings/settlement analytics and legal acceptance",
       "atoms": [
         {
@@ -1070,7 +1070,7 @@
       "prd": "3.6",
       "requirement": "Vendor analytics/exports",
       "implemented_code_scope": "Merged PR43 canonical source-backed vendor utilization metrics (observed EVSE busy time, possible capacity and unknown periods) and private operational CSV/EN-AR PDF exports via Laravel/web/Flutter; PR47 moderated-feedback analytics across vendor/Admin surfaces. Simulator provenance is explicit; invoices are not cash and missing telemetry is not physical uptime.",
-      "automated_evidence_scope": "PR43: 12 exact-head passing GitHub Actions checks, and merged source-backed web/Flutter/CSV/PDF tests. PR47: 12 exact-head passing checks plus backend, native and approved-feedback export regressions; both merge commits confirmed ancestors of integration. Production hardware/payment/partner acceptance unverified.; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "PR43: 12 exact-head passing GitHub Actions checks, and merged source-backed web/Flutter/CSV/PDF tests. PR47: 12 exact-head passing checks plus backend, native and approved-feedback export regressions; both merge commits confirmed ancestors of integration. Production hardware/payment/partner acceptance unverified.; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Verified physical charger uptime/downtime, full realized revenue and settlement dashboards, simultaneous site demand analysis, production operator-data acceptance and broader live network analytics. Three original atoms remain uncredited.",
       "atoms": [
         {
@@ -1121,7 +1121,7 @@
       "prd": "3.7",
       "requirement": "Vendor plans/marketing/ads",
       "implemented_code_scope": "Canonical configurable plans/subscriptions, renewal invoices, cancellation, credits, dunning and hosted saved-mandate/test recurring collection; web workflow and partial native consumption",
-      "automated_evidence_scope": "SubscriptionTest, SubscriptionGatewayTest, SubscriptionRecurringTest; finance/mandate clients. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "SubscriptionTest, SubscriptionGatewayTest, SubscriptionRecurringTest; finance/mandate clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Full native plan/entitlement actions, marketing/advertising/loyalty economics and approved billing/participation policies",
       "atoms": [
         {
@@ -1179,7 +1179,7 @@
       "prd": "3.8",
       "requirement": "Vendor support/notifications/maintenance",
       "implemented_code_scope": "Scoped tickets/replies/in-app notifications web/native; maintenance metadata web",
-      "automated_evidence_scope": "SupportTest, VendorOpsTest; native support/maintenance smoke. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "SupportTest, VendorOpsTest; native support/maintenance smoke. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Operational incident lifecycle, provider delivery/preferences/escalation; native maintenance now consumes the scoped API",
       "atoms": [
         {
@@ -1230,7 +1230,7 @@
       "prd": "4.1",
       "requirement": "Admin accounts/KYC/moderation/roles",
       "implemented_code_scope": "Audited account/status/security controls and scoped KYC/moderation, independent Admin review histories, role epoch/bearer revocation and web Admin TOTP enforcement/recovery.",
-      "automated_evidence_scope": "VendorOpsTest, AccountTest, SupportTest; vendor/Admin browser. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "VendorOpsTest, AccountTest, SupportTest; vendor/Admin browser. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Complete permission/account administration, impersonation governance, authorized privacy erasure/export and all remaining moderation scope.",
       "atoms": [
         {
@@ -1288,7 +1288,7 @@
       "prd": "4.2",
       "requirement": "Admin map/integration operations",
       "implemented_code_scope": "Web command history, scoped OCPI records, manual confirmed negotiation/sync/authorization; configuration-only connections",
-      "automated_evidence_scope": "OcpiProvisioningTest, ChargerAdmissionTest, ChargingOperationsTest; operational browser. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "OcpiProvisioningTest, ChargerAdmissionTest, ChargingOperationsTest; operational browser. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Global map, secure credential provisioning/rotation (Admin server-alias association is implemented), charger provisioning/health/incidents and complete operations UI",
       "atoms": [
         {
@@ -1346,7 +1346,7 @@
       "prd": "4.3",
       "requirement": "Admin finance/plans/commissions/tax",
       "implemented_code_scope": "Canonical plans/subscriptions, exact commission/invoice/journal/payment/refund/credit/dispute/settlement/reporting workflows; hosted mandate and test recurring collections with recovery",
-      "automated_evidence_scope": "CommercialFinanceTest, SettlementTest, SubscriptionRecurringTest; finance browser/PostgreSQL. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "CommercialFinanceTest, SettlementTest, SubscriptionRecurringTest; finance browser/PostgreSQL. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Legal tax/invoice documents, expanded commercial governance, bank payout-provider integration, provider dispute/reconciliation operations and external finance/legal acceptance",
       "atoms": [
         {
@@ -1418,7 +1418,7 @@
       "prd": "4.4",
       "requirement": "Admin enterprise/campaigns/partners",
       "implemented_code_scope": "Basic fleet accounts/membership/cost centers/vehicle assignment",
-      "automated_evidence_scope": "EnterpriseTest; fleet web/native. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "EnterpriseTest; fleet web/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "B2B agreements/billing/admin governance, loyalty/campaigns/ads/retail partner workflows",
       "atoms": [
         {
@@ -1469,7 +1469,7 @@
       "prd": "4.5",
       "requirement": "Admin observability/compliance",
       "implemented_code_scope": "Audits, basic counts, CI and isolated source-consumer evidence",
-      "automated_evidence_scope": "ChargingOperationsTest, PlatformTest; source/operations browser. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "ChargingOperationsTest, PlatformTest; source/operations browser. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Operational analytics/alerts/uptime, suspicious-activity controls, compliance/privacy/security workflows",
       "atoms": [
         {
@@ -1527,7 +1527,7 @@
       "prd": "4.6",
       "requirement": "Country/localization/feature gates",
       "implemented_code_scope": "Configurable country currency/minor units/timezone/tax, EN/AR and truthful capability guards",
-      "automated_evidence_scope": "AccountTest, VendorOpsTest; country/localization browser. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "AccountTest, VendorOpsTest; country/localization browser. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Complete regional rollout/feature administration and country-specific legal/provider validation",
       "atoms": [
         {
@@ -1578,7 +1578,7 @@
       "prd": "5.1",
       "requirement": "Separate compatible CSMS",
       "implemented_code_scope": "Pinned isolated CitrineOS and separate PostGIS/RabbitMQ/Hasura; business datastore boundaries preserved; both protocol simulations",
-      "automated_evidence_scope": "Both OCPP protocol simulations and charging-business source integration. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "Both OCPP protocol simulations and charging-business source integration. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Production operations and model/firmware compatibility matrix/physical acceptance",
       "atoms": [
         {
@@ -1629,7 +1629,7 @@
       "prd": "5.2",
       "requirement": "Complete charger protocol operations",
       "implemented_code_scope": "Both OCPP protocols retain authenticated simulator registration/commands, canonical source/connector correlation, rider/session token checks, certificate/diagnostic/private-log/signed-firmware/reset software with explicit source evidence.",
-      "automated_evidence_scope": "ChargerAdmissionTest, ChargerCommandTest; protocol/ingress/browser/native. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "ChargerAdmissionTest, ChargerCommandTest; protocol/ingress/browser/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Complete production registration, RFID/IdToken/CA lifecycle, approved charger model coverage and complete production diagnostic/firmware/reset transport; simulator validation is not hardware acceptance.",
       "atoms": [
         {
@@ -1715,7 +1715,7 @@
       "prd": "5.3",
       "requirement": "Reliable events/state/reconciliation",
       "implemented_code_scope": "Replay-safe signed inbox, durable source cursor, continuous observation, final-meter reconciliation, no-source-evidence operational cases, applied-source command recovery; process/restart tests",
-      "automated_evidence_scope": "SourceConsumerTest, CommandReconciliationTest; source/restart/process recovery tests. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "SourceConsumerTest, CommandReconciliationTest; source/restart/process recovery tests. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Production transport operational hardening, richer alerting/incident terminal workflows, broader outage/load coverage and real-source billing acceptance",
       "atoms": [
         {
@@ -1780,7 +1780,7 @@
       "prd": "5.4",
       "requirement": "Simulator/hardware compatibility QA",
       "implemented_code_scope": "Both protocol loops and CI; duplicate upstream meter behavior documented distinctly",
-      "automated_evidence_scope": "Protocol simulations; source/pinned-integration smoke only. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "Protocol simulations; source/pinned-integration smoke only. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Broader fault/load/model/firmware tests; approved hardware pilot remains external",
       "atoms": [
         {
@@ -1824,7 +1824,7 @@
       "prd": "6.1",
       "requirement": "Normalized catalog/freshness",
       "implemented_code_scope": "Scoped OCPI normalized encrypted records; web/native reported locations/EVSE/connectors and timestamps",
-      "automated_evidence_scope": "OcpiIntegrationTest, OcpiProvisioningTest; roaming web/native. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "OcpiIntegrationTest, OcpiProvisioningTest; roaming web/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Unified direct/partner catalog, freshness policy and complete provider/connector capability mapping",
       "atoms": [
         {
@@ -1875,7 +1875,7 @@
       "prd": "6.2",
       "requirement": "Licensed discovery providers",
       "implemented_code_scope": "No Open Charge Map provider access or coverage claimed",
-      "automated_evidence_scope": "No complete feature acceptance suite; not implemented. No completed merged product module; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "No complete feature acceptance suite; not implemented. No completed merged product module; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Implement approved provider adapter with API/license/attribution/rate policies and UI integration",
       "atoms": [
         {
@@ -1912,7 +1912,7 @@
       "prd": "6.3",
       "requirement": "Complete CPO/eMSP OCPI",
       "implemented_code_scope": "OCPI versioned credentials, bounded role-specific record ingestion/pulls, tokens/commands/sessions/CDRs, owner-scoped source reconciliation and canonical test-invoice/credit lineage, with synthetic authorized partner tests.",
-      "automated_evidence_scope": "OcpiIntegrationTest; OCPI provisioning/browser contract tests. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "OcpiIntegrationTest; OCPI provisioning/browser contract tests. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Complete CPO/eMSP role/push/rotation coverage, authorized roaming reservations/remote commands and full interoperability/conformance across real approved partners.",
       "atoms": [
         {
@@ -1977,7 +1977,7 @@
       "prd": "6.4",
       "requirement": "Partner access/capability/error handling",
       "implemented_code_scope": "Secure server-only connection config, origin/redirect/token guards, version capabilities, bounded pages and provenance",
-      "automated_evidence_scope": "OcpiProvisioningTest, OcpiIntegrationTest; provider browser. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "OcpiProvisioningTest, OcpiIntegrationTest; provider browser. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Full credential/token lifecycle beyond verified Admin server-alias association, network-specific adapters and contractual acceptance",
       "atoms": [
         {
@@ -2042,7 +2042,7 @@
       "prd": "6.5",
       "requirement": "Truthful partner availability/controls",
       "implemented_code_scope": "Read-only unverified discovery; availability unknown, no booking/remote/payment authority; capability guards and revocation tests",
-      "automated_evidence_scope": "OcpiIntegrationTest; read-only roaming browser/native capability guards. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "OcpiIntegrationTest; read-only roaming browser/native capability guards. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Preserve these guards when implementing authorized real roaming; no agreement or network coverage claimed",
       "atoms": [
         {
@@ -2072,7 +2072,7 @@
       "prd": "7.1",
       "requirement": "Subscriptions/commissions/contracts/ads",
       "implemented_code_scope": "Canonical commission snapshots, admin plan packages/subscriptions, renewal/credits/dunning, consented test recurring collection and simulated settlement workflows",
-      "automated_evidence_scope": "SubscriptionTest, SubscriptionRecurringTest, SettlementTest; finance browser/native mandate subset. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "SubscriptionTest, SubscriptionRecurringTest, SettlementTest; finance browser/native mandate subset. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Proration/eligibility policies and enforcement parity, corporate contracts/consolidated billing, advertising/promotions/loyalty economics and complete native commercial UI",
       "atoms": [
         {
@@ -2151,7 +2151,7 @@
       "prd": "7.2",
       "requirement": "PSP/tokenization/webhooks/legal invoices",
       "implemented_code_scope": "Shared canonical gateway adapter, Stripe test HTTP contracts, provider-bound intents/checkout/webhooks/refunds, hosted saved consent/mandates, recovery and recurring collection; no raw cards",
-      "automated_evidence_scope": "StripeSandboxTest, PaymentGatewayTest, PaymentRecoveryTest; HTTP contract fakes, not live PSP. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "StripeSandboxTest, PaymentGatewayTest, PaymentRecoveryTest; HTTP contract fakes, not live PSP. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Provider-specific completion, merchant sandbox/callback/SCA acceptance, tax/legal invoice artifacts and reviews; full native actions",
       "atoms": [
         {
@@ -2209,7 +2209,7 @@
       "prd": "7.3",
       "requirement": "End-to-end ledgers/reconciliation",
       "implemented_code_scope": "Immutable journals across invoice/payment/refund/credits/disputes/settlements, provider-bound uncertainty recovery and PostgreSQL independent-process races; grouped reports/CSV",
-      "automated_evidence_scope": "FinanceTest, PaymentRecoveryTest, SubscriptionCreditTest, SettlementTest; PostgreSQL finance/process races. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "FinanceTest, PaymentRecoveryTest, SubscriptionCreditTest, SettlementTest; PostgreSQL finance/process races. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Partner-CDR/PSP/bank reconciliation operations, external dispute evidence/deadlines and full cross-provider commercial reporting",
       "atoms": [
         {
@@ -2281,7 +2281,7 @@
       "prd": "7.4",
       "requirement": "Wallet/stored value",
       "implemented_code_scope": "No unapproved stored-value or raw card implementation",
-      "automated_evidence_scope": "No complete feature acceptance suite; not implemented. No completed merged product module; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "No complete feature acceptance suite; not implemented. No completed merged product module; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Legal/regulatory suitability and approved design required before wallet software; complete independent finance scope meanwhile",
       "atoms": [
         {
@@ -2304,7 +2304,7 @@
       "prd": "8.1",
       "requirement": "Enterprise organizations/billing",
       "implemented_code_scope": "Scoped organizations/invitations/consent/members/cost centers/vehicle assignments web/native",
-      "automated_evidence_scope": "EnterpriseTest; fleet browser/native. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "EnterpriseTest; fleet browser/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Eligibility/policies, corporate administrative roles/agreements/consolidated billing and reports",
       "atoms": [
         {
@@ -2369,7 +2369,7 @@
       "prd": "9.1",
       "requirement": "RBAC/privacy/security/operations",
       "implemented_code_scope": "Tenant checks, encrypted private records/secrets, CSRF/HMAC/replay/idempotency, unchanged production rate limits and audit controls; web Admin TOTP, role-change revocation and private request workflow; data-excluded staging runtime and atomic evidence packaging.",
-      "automated_evidence_scope": "Auth/tenant/replay/privacy/upload tests across named suites; deployment acceptance pending. Integrated subset through63886428; later candidates explicitly noted; sourcecbed320/merge6a9b404: two actual image audits and PostgreSQL17 migration/HTTP/private-volume smokes; not a deployment/restore acceptance; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "Auth/tenant/replay/privacy/upload tests across named suites; deployment acceptance pending. Integrated subset through63886428; later candidates explicitly noted; sourcecbed320/merge6a9b404: two actual image audits and PostgreSQL17 migration/HTTP/private-volume smokes; not a deployment/restore acceptance; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Customer2FA, complete global/cross-tab revocation UX, authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review.",
       "atoms": [
         {
@@ -2469,7 +2469,7 @@
       "prd": "9.2",
       "requirement": "Accessible responsive release surfaces",
       "implemented_code_scope": "Canonical Flutter Android debug/iOS simulator CI; synthetic iPhone TLS/Keychain/UI; EN/AR/themes/error/offline layouts",
-      "automated_evidence_scope": "Flutter/widget/native TLS/Keychain; browser responsive EN/AR; current iOS UI pending. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "Flutter/widget/native TLS/Keychain; browser responsive EN/AR; current iOS UI pending. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Full accessibility/visual/device acceptance, signing/AAB/IPA/store deliverables and full workflow parity",
       "atoms": [
         {
@@ -2548,7 +2548,7 @@
       "prd": "9.3",
       "requirement": "Maintainable architecture/tests/licensing",
       "implemented_code_scope": "Modular Laravel/CSMS/Flutter boundaries, migrations/API docs, pinned lockfiles and CI; preservation-safe Git/PR checkpoints",
-      "automated_evidence_scope": "Composer/Pint, pinned CI, migration rollback tests; native artifact/hash/license checks. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "Composer/Pint, pinned CI, migration rollback tests; native artifact/hash/license checks. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Broader performance/security/restore/deployment tests and complete dependency/license/release inventory review",
       "atoms": [
         {
@@ -2613,7 +2613,7 @@
       "prd": "9.4",
       "requirement": "International readiness",
       "implemented_code_scope": "Configurable currencies/precision/time zones/tax, EN/AR and country-local company-license validity",
-      "automated_evidence_scope": "AccountTest, VendorOpsTest, finance minor-unit tests; EN/AR clients. Integrated subset through63886428; later candidates explicitly noted; 11 Nov consolidated source/regression provenance: PR84 hosted checkpoint, with separately identified PR60 privacy/security candidate. No additional broad atom credit is inferred.",
+      "automated_evidence_scope": "AccountTest, VendorOpsTest, finance minor-unit tests; EN/AR clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
       "remaining_scope": "Remaining country-specific legal/PSP/telecom/operator checks and full international UX/workflows",
       "atoms": [
         {

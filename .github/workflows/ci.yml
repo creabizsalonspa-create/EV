@@ -59,7 +59,7 @@ jobs:
       - run: ./scripts/php artisan test --compact
       - run: npm ci
       - name: Verify Agent 9 offline security regression guards
-        run: node --test tests/agent9-*.test.cjs
+        run: node --test tests/agent9-*.test.cjs tests/client-demo-failure.test.cjs
       - name: Install Playwright Chromium and required OS dependencies
         timeout-minutes: 10
         run: npx playwright install --with-deps chromium
@@ -121,7 +121,9 @@ jobs:
         if: always()
         with:
           name: operational-browser-evidence
-          path: artifacts/operational-browser/*.txt
+          path: |
+            artifacts/operational-browser/*.txt
+            artifacts/operational-browser/client-demo-failure-*.json
           if-no-files-found: warn
       - name: Retain customer-favorites browser evidence
         uses: actions/upload-artifact@v4
