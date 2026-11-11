@@ -66,6 +66,13 @@ assert.match(en, /Accessibility: Step-free access/);
 assert.match(en, /availability remains unknown/);
 
 document.documentElement.lang = 'ar';
+assert.match(output({information: {...info, enforce_operating_hours: true}}), /يُطبق جدول العمل/);
+document.documentElement.lang = "en";
+const enforced = output({information: {...info, enforce_operating_hours: true}});
+assert.match(enforced, /Operating calendar enforced for new bookings and starts/);
+assert.match(enforced, /Active charging can finish/);
+assert.doesNotMatch(enforced, /These hours are informational/);
+document.documentElement.lang = "ar";
 const ar = output({information: info});
 assert.match(ar, /الجمعة: مغلق/);
 assert.match(ar, /البوابة ب/);

@@ -220,3 +220,40 @@ One encrypted case service owns intake and append-only Admin review: `account_pr
 Only the owner may withdraw a pending, reviewing or externally blocked case; repeating withdrawal records one audit. Completed review cannot be withdrawn. An independent active web Admin reviews through existing versioned `/api/admin/privacy-requests/{id}/review` and private `/reviews` history; withdrawn/final cases cannot be reopened by stale decisions. No automated export, legal determination, account erasure or ledger mutation is performed.
 
 Migration `2026_11_21_000001` adds receipt identities and withdrawal timestamps without dropping retained data. If a privately staged legacy `privacy_requests` table exists, bounded encrypted import preserves its archive, identity, resolution and review notes. Orphaned retained rows stay in that archive. Unknown states, unreadable ciphertext and identity collisions fail closed for protected operator review; populated identity rollback is refused outside disposable test databases.
+
+
+## Opt-in station operating calendar — 12 November 2026 continuation
+
+The existing owner-only `PUT /api/stations/{station}/information` (also `/api/v1`)
+accepts optional boolean `enforce_operating_hours`. New records default to false;
+omitting it preserves the stored flag, including true, for older editors. Existing
+optimistic `revision` and station-owner row locks remain mandatory. Existing weekly
+`open`/`close` pairs and up to50 `closed_dates` are the one calendar source. No second
+booking calendar, financial rule or physical availability feed is introduced. Public
+information/catalog replies include the boolean and existing unverified provenance.
+
+When opted in, `POST /api/reservations` checks the entire half-open30-minute UTC
+interval against the station's IANA timezone. Closed dates override the entire local
+day, including overnight spill. A previous closed day cannot spill into the next day.
+Equal opening/closing times mean that local calendar day is open24hours; null pairs
+mean closed. UTC minute traversal respects repeated/skipped DST wall times and
+fractional timezone offsets. Invalid opted-in policy fails closed with409.
+
+Accepted reservations include server-generated nullable `operating_calendar_snapshot`
+(revision, timezone, weekly hours, closure dates, vendor-policy label and
+`physical_availability_verified:false`). Clients cannot supply this evidence. SQLite
+and PostgreSQL prevent later snapshot changes. An exact accepted booking replay
+returns its historical receipt even if policy changes; a new start checks current
+policy again. Cancellation and active source finalization remain available.
+
+Application simulator start, canonical CSMS start, pending RFID receipt authorization,
+remote credential publication, online remote pending-start authorization and the
+pre-dispatch claim all recheck current hours. A blocked pending command remains
+provably unsent with `pre_dispatch_operating_calendar`, not a fake source stop or
+financial finalization. Charging/stopping online callbacks and stop paths retain
+their existing authority checks. Both OCPP protocol contracts are covered.
+
+Known409 calendar errors have English/Arabic web/native messages. Partner discovery
+does not gain booking or command authority from calendar metadata. Apply the additive
+calendar migration before deploying this code; rollback refuses to erase retained
+booking policy or active enforcement outside explicit disposable test databases.

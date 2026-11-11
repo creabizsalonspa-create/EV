@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const { runPacedSuites } = require("./helpers/auth-batches.cjs");
 const groups = [
+  ["auth-bootstrap"], // isolated real guest-cookie/startup/login ordering; three logins
   ["invoice-history", "money-input", "tariffs", "managed-gate"], // 3+0+4+2 = 9 logins
   [
     "canonical-topology",
@@ -19,6 +20,7 @@ const groups = [
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
   ["client-demo-lifecycle"], // eight private fixture/browser logins; dedicated window
   ["vehicle-battery"], // existing stopped fixture; private alerts -> compatible nearby discovery
+  ["operating-calendar"], // explicit operator calendar; six synthetic authentication requests, no charging
   ["vehicle-reservation"], // real garage/selected vehicle/future booking; scoped three-role reads, no charging
   ["privacy-e2e", "privacy-admin-e2e"], // canonical rights UI; three synthetic logins; no erasure or money
   ["charging-reviews"], // own unchanged authentication window

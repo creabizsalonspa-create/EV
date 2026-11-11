@@ -24,6 +24,10 @@
     ],
     "60": [
       84
+    ],
+    "58": [
+      84,
+      60
     ]
   },
   "notes": {
@@ -33,6 +37,7 @@
     "67": "Superseded PR-event provenance child of Agent 4 PR #57; never merge out of order.",
     "69": "Credit refund review stacks on credit CDR provenance PR #63 (transitively #61 and #59).",
     "70": "Private customer charging-history and booking recovery require both source-status UI PR #52 and separately staged Express/Mongo source-history API PR #50.",
-    "60": "Canonical privacy request port preserves original PR60 history but requires the reviewed PR84 consolidated source; do not merge before PR84 passes and is integrated."
+    "60": "Canonical privacy request port preserves original PR60 history but requires the reviewed PR84 consolidated source; do not merge before PR84 passes and is integrated.",
+    "58": "Existing station-information PR58 is safely continued from the consolidated source and canonical privacy port; integrate only after verified PR84 and PR60, preserving both histories."
   }
 }

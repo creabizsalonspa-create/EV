@@ -1,4 +1,4 @@
-/* Public vendor-reported station facts; never a charger/price/availability authority. */
+/* Vendor facts and explicit booking/start calendar policy; never physical availability evidence. */
 (function () {
     "use strict";
     const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -83,7 +83,9 @@
             const items = Array.isArray(info[field]) ? info[field].filter(k => Object.hasOwn(table, k)) : [];
             if (items.length) appendText(details, en + items.map(k => table[k][0]).join(", "), ar + items.map(k => table[k][1]).join("، "));
         }
-        appendText(details, "These hours are informational, not a booking eligibility or charger status guarantee.", "ساعات العمل للعلم فقط ولا تضمن إمكانية الحجز أو حالة الشاحن.");
+        if (info.enforce_operating_hours === true)
+            appendText(details, "Operating calendar enforced for new bookings and starts. Active charging can finish; live availability is not guaranteed.", "يُطبق جدول العمل على الحجوزات وبدء الشحن الجديدة. يمكن إكمال الشحن الجاري؛ التوفر الفعلي غير مضمون.");
+        else appendText(details, "These hours are informational, not a booking eligibility or charger status guarantee.", "ساعات العمل للعلم فقط ولا تضمن إمكانية الحجز أو حالة الشاحن.");
         card.append(details);
     }
     function createVendorWorkspace({root, api, actor, epoch = () => 0}) {
@@ -102,6 +104,7 @@
                    (data.revision > 0 && data.source_label === "VENDOR_REPORTED_UNVERIFIED"))
                 : (data.revision === expectedRevision + 1 &&
                    data.source_label === "VENDOR_REPORTED_UNVERIFIED")) &&
+            (data.enforce_operating_hours === undefined || typeof data.enforce_operating_hours === "boolean") &&
             data.weekly_hours && typeof data.weekly_hours === "object" &&
             days.every(day => data.weekly_hours[day] &&
                 (data.weekly_hours[day].open === null ||
@@ -177,7 +180,7 @@
             const form = document.createElement("form");
             form.className = "station-information-form";
             form.append(label("Edit information for " + selected.name, "تعديل معلومات " + selected.name, "h3"));
-            appendText(form, "Vendor-reported only. Does not change live status, fees or charger control.", "معلومات من المشغل فقط ولا تغير حالة الشحن أو الرسوم أو التحكم.");
+            appendText(form, "Operator details and optional booking calendar. Does not change live status or fees.", "تفاصيل المشغل وجدول حجز اختياري. لا يغير الحالة الفعلية أو الرسوم.");
             field(form, "description_en", "Description (English)", "الوصف (بالإنجليزية)", info.description_en);
             field(form, "description_ar", "Description (Arabic)", "الوصف (بالعربية)", info.description_ar);
             field(form, "access_en", "Access instructions (English)", "تعليمات الدخول (بالإنجليزية)", info.access_en);
@@ -218,6 +221,13 @@
                 week.append(row);
                 inputs[day] = {closed, open, close};
             }
+            const enforce = document.createElement("input");
+            enforce.name = "enforce_operating_hours"; enforce.type = "checkbox";
+            enforce.checked = info.enforce_operating_hours === true;
+            const enforcement = document.createElement("label");
+            enforcement.append(enforce, label("Enforce hours for new bookings and starts", "تطبيق الساعات على الحجوزات وبدء الشحن الجديدة"));
+            form.append(enforcement);
+            appendText(form, "Uses the station timezone, including overnight hours and holiday closures. Active charging can finish. Turn off to publish advisory hours only.", "يستخدم توقيت المحطة، بما فيه الساعات الليلية وإغلاق العطلات. يمكن إكمال الشحن الجاري. أوقفه لنشر ساعات استرشادية فقط.");
             form.append(week);
             const dates = field(form, "closed_dates", "Holiday closure dates (YYYY-MM-DD, one per line)", "تواريخ إغلاق العطلات (تاريخ في كل سطر)", (info.closed_dates || []).join("\n"), true);
             const sets = {};
@@ -270,6 +280,7 @@
                     description_ar: form.elements.description_ar.value.trim() || null,
                     access_en: form.elements.access_en.value.trim() || null,
                     access_ar: form.elements.access_ar.value.trim() || null,
+                    enforce_operating_hours: enforce.checked,
                     weekly_hours: weekly,
                     closed_dates: uniqueDates,
                     amenities: Object.keys(sets.amenities).filter(k => sets.amenities[k].checked),
@@ -281,7 +292,7 @@
                 try {
                     const saved = await api("stations/" + stationId + "/information", "PUT", body);
                     if (ticket !== generation || actor() !== owner) return;
-                    if (!validInformation(saved, stationId, info.revision))
+                    if (!validInformation(saved, stationId, info.revision) || saved.enforce_operating_hours !== body.enforce_operating_hours)
                         throw Error("Unexpected station information save response; refresh before editing.");
                     information = saved;
                     renderForm();

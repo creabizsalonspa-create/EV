@@ -81,6 +81,7 @@ test("post-finance operational windows preserve all suites and do not consume th
   assert.deepEqual(
     starts.map((x) => x.suite),
     [
+      "auth-bootstrap",
       "invoice-history",
       "money-input",
       "tariffs",
@@ -103,6 +104,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "station-favorites",
       "client-demo-lifecycle",
       "vehicle-battery",
+      "operating-calendar",
       "vehicle-reservation",
       "privacy-e2e",
       "privacy-admin-e2e",
@@ -118,7 +120,7 @@ test("post-finance operational windows preserve all suites and do not consume th
     ],
   );
   assert.equal(starts[0].time, 61000);
-  assert.equal(starts[4].time - ends[3], 61000);
+  assert.equal(starts[5].time - ends[4], 61000);
   let offset = 0;
   for (const group of groups) {
     assert.equal(starts[offset].time - (offset ? ends[offset - 1] : 0), 61000);

@@ -29,7 +29,7 @@ class StationInformationTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->assertGuest();
         $expected = ['station_id', 'revision', 'description_en', 'description_ar', 'access_en', 'access_ar',
-            'notice_en', 'notice_ar', 'notice_until', 'notice_active', 'weekly_hours', 'closed_dates',
+            'notice_en', 'notice_ar', 'notice_until', 'notice_active', 'weekly_hours', 'closed_dates', 'enforce_operating_hours',
             'amenities', 'accessibility', 'source_label', 'updated_at'];
         sort($expected);
         foreach (['/api', '/api/v1'] as $prefix) {

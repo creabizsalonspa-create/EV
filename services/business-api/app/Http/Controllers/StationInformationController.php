@@ -32,6 +32,7 @@ final class StationInformationController extends Controller
             'notice_ar' => 'sometimes|nullable|string|max:300',
             'notice_until' => 'sometimes|nullable|date_format:Y-m-d',
             'weekly_hours' => 'required|array:mon,tue,wed,thu,fri,sat,sun|size:7',
+            'enforce_operating_hours' => 'sometimes|boolean',
             'closed_dates' => 'present|array|max:50',
             'closed_dates.*' => 'required|date_format:Y-m-d|distinct',
             'amenities' => 'present|array|max:8',
@@ -104,6 +105,7 @@ final class StationInformationController extends Controller
                 'closed_dates' => json_encode(array_values($v['closed_dates']), JSON_THROW_ON_ERROR),
                 'amenities' => json_encode(array_values($v['amenities']), JSON_THROW_ON_ERROR),
                 'accessibility' => json_encode(array_values($v['accessibility']), JSON_THROW_ON_ERROR),
+                'enforce_operating_hours' => $v['enforce_operating_hours'] ?? ($current->enforce_operating_hours ?? false),
                 'revision' => ($current->revision ?? 0) + 1,
                 'updated_at' => now(),
             ];

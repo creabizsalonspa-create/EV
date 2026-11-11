@@ -1,4 +1,6 @@
 window.EV_MESSAGES = {
+    "The selected time is outside the station operating calendar.": {en: "The selected time is outside the station operating calendar.", ar: "الوقت المحدد خارج جدول عمل المحطة."},
+    "The operating calendar is unavailable. Refresh before booking or starting.": {en: "The operating calendar is unavailable. Refresh before booking or starting.", ar: "جدول العمل غير متاح. حدّث قبل الحجز أو بدء الشحن."},
     "Verify your email before viewing company staff invitations.": {en: "Verify your email before viewing company staff invitations.", ar: "تحقق من بريدك الإلكتروني قبل عرض دعوات موظفي الشركة."},
     "Checking trade-license evidence…": {en: "Checking trade-license evidence…", ar: "جارٍ التحقق من مستند الرخصة التجارية…"},
     "Charger certificates": { en: "Charger certificates", ar: "شهادات الشاحن" },

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'strings.dart';
 
 const stationInfoDays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const stationInfoDaysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -193,8 +194,12 @@ class StationInformationPanel extends StatelessWidget {
             Text(
               stationInfoT(
                 context,
-                'Published hours do not guarantee reservation or charger availability.',
-                'الساعات المنشورة لا تضمن الحجز أو توفر الشاحن.',
+                info['enforce_operating_hours'] == true
+                    ? 'Operating calendar enforced for new bookings and starts. Active charging can finish; live availability is not guaranteed.'
+                    : 'Published hours do not guarantee reservation or charger availability.',
+                info['enforce_operating_hours'] == true
+                    ? 'يُطبق جدول العمل على الحجوزات وبدء الشحن الجديدة. يمكن إكمال الشحن الجاري؛ التوفر الفعلي غير مضمون.'
+                    : 'الساعات المنشورة لا تضمن الحجز أو توفر الشاحن.',
               ),
             ),
           ],
@@ -246,6 +251,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
   int generation = 0, page = 1, lastPage = 1;
   late bool Function() accountFence;
   bool busy = false, saving = false, background = false;
+  bool enforceOperatingHours = false;
   String? error, success;
   String t(String en, String ar) => stationInfoT(context, en, ar);
   @override
@@ -275,7 +281,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
     owned = [];
     chosen = info = null;
     page = lastPage = 1;
-    busy = saving = false;
+    busy = saving = enforceOperatingHours = false;
     error = success = null;
     for (final c in [
       ...infoText.values,
@@ -345,7 +351,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
                 'Information changed. Refresh before trying again.',
                 'تغيرت المعلومات. حدّث قبل المحاولة مجدداً.',
               )
-            : e.toString(),
+            : EvStrings.of(context).t(errorKey(e)),
       );
   }
 
@@ -378,6 +384,22 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
     }
   }
 
+  bool validInformation(Map data, int stationId, {int? previousRevision}) {
+    final revision = data['revision'];
+    return data['station_id'] == stationId &&
+        revision is int &&
+        revision >= 0 &&
+        (previousRevision == null
+            ? data['source_label'] ==
+                  (revision == 0
+                      ? 'NOT_PROVIDED'
+                      : 'VENDOR_REPORTED_UNVERIFIED')
+            : revision == previousRevision + 1 &&
+                  data['source_label'] == 'VENDOR_REPORTED_UNVERIFIED') &&
+        (!data.containsKey('enforce_operating_hours') ||
+            data['enforce_operating_hours'] is bool);
+  }
+
   Future<void> choose(Map<String, dynamic> station) async {
     if (rejectStaleAccount()) return;
     final ticket = ++generation, fence = widget.api.sessionFence();
@@ -393,6 +415,12 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
       );
       if (!mounted || ticket != generation || !fence()) return;
       final data = Map<String, dynamic>.from(response as Map);
+      if (!validInformation(data, station['id'] as int)) {
+        throw const ApiException(
+          502,
+          'Unreadable operating calendar policy. Refresh before editing.',
+        );
+      }
       setState(() {
         info = data;
         for (final key in infoText.keys) {
@@ -400,6 +428,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
         }
         holidays.text = (data['closed_dates'] as List? ?? []).join('\n');
         noticeUntil.text = (data['notice_until'] as String?) ?? '';
+        enforceOperatingHours = data['enforce_operating_hours'] == true;
         closed.clear();
         final week = data['weekly_hours'] is Map
             ? data['weekly_hours'] as Map
@@ -493,6 +522,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
             ? null
             : infoText[key]!.text.trim(),
       'notice_until': expiry.isEmpty ? null : expiry,
+      'enforce_operating_hours': enforceOperatingHours,
       'weekly_hours': week,
       'closed_dates': dates,
       'amenities': amenities.toList()..sort(),
@@ -512,8 +542,21 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
         body: body,
       );
       if (!mounted || ticket != generation || !fence()) return;
+      if (result is! Map ||
+          !validInformation(
+            result,
+            stationId as int,
+            previousRevision: body['revision'] as int,
+          ) ||
+          result['enforce_operating_hours'] !=
+              body['enforce_operating_hours']) {
+        throw const ApiException(
+          502,
+          'Operating calendar publication is unconfirmed. Refresh before editing.',
+        );
+      }
       setState(() {
-        info = Map<String, dynamic>.from(result as Map);
+        info = Map<String, dynamic>.from(result);
         success = t('Saved', 'تم الحفظ');
       });
     } catch (e) {
@@ -551,8 +594,8 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
               children: [
                 Text(
                   t(
-                    'Vendor-reported details do not change prices, status or charger control.',
-                    'تفاصيل المشغل لا تغير الأسعار أو الحالة أو التحكم بالشاحن.',
+                    'Operator details and optional booking calendar do not change prices or live status.',
+                    'تفاصيل المشغل وجدول الحجز الاختياري لا يغيران الأسعار أو الحالة الفعلية.',
                   ),
                 ),
                 if (busy) const LinearProgressIndicator(),
@@ -662,6 +705,27 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
                             ),
                           ),
                           keyboardType: TextInputType.datetime,
+                        ),
+                        SwitchListTile(
+                          key: const Key('station-info-enforce-hours'),
+                          title: Text(
+                            t(
+                              'Enforce hours for new bookings and starts',
+                              'تطبيق الساعات على الحجوزات وبدء الشحن الجديدة',
+                            ),
+                          ),
+                          subtitle: Text(
+                            t(
+                              'Uses station local time and holiday closures. Active charging can finish. Off means advisory hours only.',
+                              'يستخدم توقيت المحطة وإغلاق العطلات. يمكن إكمال الشحن الجاري. إيقافه يعني ساعات استرشادية فقط.',
+                            ),
+                          ),
+                          value: enforceOperatingHours,
+                          onChanged: saving || busy
+                              ? null
+                              : (value) => setState(
+                                  () => enforceOperatingHours = value,
+                                ),
                         ),
                         Text(
                           t(

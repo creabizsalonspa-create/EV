@@ -103,3 +103,20 @@ See [COMMAND_RECOVERY.md](COMMAND_RECOVERY.md): source-observed state, immutable
 ## Secure charger admission and no-source case operations
 
 See [CHARGER_ADMISSION.md](CHARGER_ADMISSION.md) for new scoped APIs, owner/Admin web and vendor Flutter controls, TLS/mTLS simulation evidence, credential/version/replay safeguards, source inspection and remaining production boundaries. Financial truth remains Agent1-owned.
+
+
+## Explicit operator operating calendar — pending integration
+
+`OperatingCalendar` gates only new booking/admission, using the existing published
+station information and explicit `enforce_operating_hours` opt-in. It is independent
+of source observations, OCPP command acceptance, financial snapshots and physical
+availability. Existing advisory hours remain nonblocking until enabled by the owner.
+
+Station publication, booking and start/claim checks share the station lock. Accepted
+bookings keep database-immutable calendar snapshots. PostgreSQL independent-worker
+tests force both closure-first and booking-first serialization orders. Hours are
+rechecked before dispatch/publication and source pending-start admission; closing
+a calendar never pretends an admitted/unknown command ended. Pending RFID replays
+cannot bypass current hours; ongoing authorization and finalization remain possible.
+Controlled OCPP1.6/2.0.1 GraphQL/OAuth contracts verify these boundaries, without
+claiming physical hardware acceptance. See API.md and calendar evidence.

@@ -10,6 +10,7 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\RiderServiceAuth;
 use App\Services\Charging\StationGate;
@@ -37,6 +38,9 @@ class RemoteSessionAuthorizationController extends Controller
                         $station = Station::whereKey($binding->station_id)->lockForUpdate()->firstOrFail();
                         app(StationGate::class)->requireReady($station, $link->connector_mapping_id);
                         $session = ChargingSession::findOrFail($link->charging_session_id);
+                        if ($session->status === 'pending_start') {
+                            app(OperatingCalendar::class)->requireStart($station);
+                        }
                         $reservation = Reservation::whereKey($session->reservation_id)->lockForUpdate()->firstOrFail();
                         $current = SessionLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
                         $command = ChargerCommand::whereKey($current->start_command_id)->lockForUpdate()->firstOrFail();

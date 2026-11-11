@@ -53,6 +53,9 @@ class SessionBridge
                 $link = SessionLink::where('charging_session_id', $old->id)->first();
                 abort_unless($link, 409, 'This reservation already uses the independent application simulator.');
                 if ($rider) {
+                    if ($old->status === 'pending_start') {
+                        app(OperatingCalendar::class)->requireStart(Station::findOrFail($r->station_id));
+                    }
                     abort_unless($link->rider_token_id === $rider->id && $link->rider_grant_id === $grantId && $link->closed_without_dispatch_at === null && $link->ended_at === null, 409, 'Reservation uses a different or terminal charging authorization.');
                 }
 
@@ -63,6 +66,7 @@ class SessionBridge
             $station = Station::findOrFail($r->station_id);
             abort_unless($station->source === 'simulator' && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/', $binding->identifier), 409, 'Only provisioned simulated chargers are enabled.');
             app(StationGate::class)->requireReady($station, $r->connector_mapping_id);
+            app(OperatingCalendar::class)->requireStart($station);
             abort_if(SessionLink::where('binding_id', $binding->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->when($r->connector_mapping_id, fn ($q) => $q->where(function ($q) use ($r) {
                 $q->whereNull('connector_mapping_id')->orWhereIn('connector_mapping_id', ConnectorMapping::where('evse_id', $r->charging_evse_id)->select('id'));
             }))->exists(), 409, 'An unresolved charging session already owns this simulator.');

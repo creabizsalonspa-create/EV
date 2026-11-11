@@ -81,3 +81,14 @@ See [CHARGER_ADMISSION.md](CHARGER_ADMISSION.md) for new scoped APIs, owner/Admi
 ## Native company operations continuation — 28 October 2026
 
 See [NATIVE_VENDOR_OPERATIONS.md](NATIVE_VENDOR_OPERATIONS.md): current web/Flutter creation POSTs use optional stable UUID idempotency; company GET adds private submission-readiness hints; staff acceptance now requires the displayed `expected_version`. Migration/client rollout is coordinated and old unversioned acceptance fails safely. Native company/KYC/staff/inventory workflows use the existing APIs and permissions, with bounded private multipart/binary transport and in-app previews. This is internal/synthetic acceptance only.
+
+
+## Owner-controlled operating calendar — pending PR58
+
+Owners can opt existing station weekly hours/holiday dates into booking/start
+enforcement through the web and shared native editor. The toggle explains local
+time, overnight/holiday rules and continued active charging. It is not a live-status
+control. Legacy editors omitting the flag preserve its stored state; owners can
+explicitly disable enforcement to return to advisory hours. Optimistic revisions
+and tenant checks remain unchanged. Existing fees, maintenance, permissions,
+source identity and immutable financial records retain their canonical services.

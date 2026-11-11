@@ -90,14 +90,18 @@ const count=(method,ending)=>apiCalls.filter(call=>call.method===method &&
   assert.equal(count('GET','stations/11/information'),1);
   // A station switch during an unresolved save MUST not leave the next
   // station locked, or allow the old save to replace the current UI.
+  assert.equal(oldForm.elements.enforce_operating_hours.checked,false);
+  oldForm.elements.enforce_operating_hours.checked=true;
   holdOldWrite=true;
   const oldSave=oldForm.onsubmit({preventDefault(){}});
   assert.equal(count('PUT','stations/11/information'),1);
+  assert.equal(apiCalls.find(c=>c.method==='PUT').body.enforce_operating_hours,true);
   assert.equal(typeof releaseOldWrite,'function');
   oldPicker.value='13';
   await oldPicker.onchange();
   const nextForm=find(root,n=>n.tag==='form');
   assert.ok(nextForm);
+  assert.equal(nextForm.elements.enforce_operating_hours.checked,false, 'Previous-station opt-in cannot leak into the next station');
   nextForm.elements.description_en.value='Updated backup station';
   await nextForm.onsubmit({preventDefault(){}});
   assert.equal(count('PUT','stations/13/information'),1,

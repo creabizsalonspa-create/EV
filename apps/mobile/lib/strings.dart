@@ -16,14 +16,21 @@ class EvStrings {
   }
 
   static const en = <String, String>{
-    'notificationCategoryCounts': 'Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}',
+    'calendarClosed':
+        'The selected time is outside the station operating calendar.',
+    'calendarUnavailable':
+        'The operating calendar is unavailable. Refresh before booking or starting.',
+    'notificationCategoryCounts':
+        'Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}',
     'notificationPreferencesTitle': 'Notification preferences',
     'notificationDefaultCategory': 'Default inbox category',
     'notificationDefaultUnread': 'Start with unread only',
-    'notificationRepeatSimulatorReminders': 'Repeat unresolved simulator fault reminders',
+    'notificationRepeatSimulatorReminders':
+        'Repeat unresolved simulator fault reminders',
     'notificationReminderDelayTitle': 'Simulated fault reminder delay',
     'notificationReminderDelayChoice': 'After {minutes} minutes',
-    'notificationDeliveryUnavailable': 'Critical in-app notifications remain visible. External email, SMS and push delivery are not active.',
+    'notificationDeliveryUnavailable':
+        'Critical in-app notifications remain visible. External email, SMS and push delivery are not active.',
     'notificationCategoryAll': 'All',
     'notificationCategorySupport': 'Support',
     'notificationCategoryVehicle': 'Vehicle',
@@ -38,29 +45,47 @@ class EvStrings {
     'reviewOperationalCase': 'Review charging recovery case',
     'recoveryFocusedCommand': 'Recovery notification · command #{id}',
     'recoveryFocusedState': 'Recorded case state: {state}',
-    'chargingOperationalCaseOpened': 'Charging command requires operator recovery · station #{station}',
-    'chargingOperationalSourceObserved': 'Charging command source evidence recorded · station #{station}',
-    'chargingOperationalReviewClosed': 'Source-based operator review closed · station #{station}',
+    'chargingOperationalCaseOpened':
+        'Charging command requires operator recovery · station #{station}',
+    'chargingOperationalSourceObserved':
+        'Charging command source evidence recorded · station #{station}',
+    'chargingOperationalReviewClosed':
+        'Source-based operator review closed · station #{station}',
     'fleetInvitationAlert': 'Fleet invitation · fleet #{fleet}',
     'fleetAcceptedAlert': 'Fleet invitation accepted · fleet #{fleet}',
     'fleetRevokedAlert': 'Fleet access revoked · fleet #{fleet}',
-    'fleetInvitationWithdrawnAlert': 'Fleet invitation withdrawn · fleet #{fleet}',
+    'fleetInvitationWithdrawnAlert':
+        'Fleet invitation withdrawn · fleet #{fleet}',
     'fleetVehicleAssignedAlert': 'Vehicle assigned to fleet #{fleet}',
-    'fleetCostCenterChangedAlert': 'Fleet vehicle cost center changed · fleet #{fleet}',
+    'fleetCostCenterChangedAlert':
+        'Fleet vehicle cost center changed · fleet #{fleet}',
     'simulatedBatteryAlert': 'Simulated low battery · #{vehicle} · {percent}%',
-    'simulatedFaultAlert': 'Observed simulated charger fault · station #{station}',
-    'simulatedRecoveryAlert': 'Simulator source reported recovery · station #{station}',
-    'simulatedFaultReminder': 'Unacknowledged simulated charger fault reminder · station #{station}',
-    'simulatedFaultAdminEscalation': 'Unresolved simulated charger fault escalated to on-call Admin · station #{station}',
-    'simulatedFaultAdminSourceResolved': 'Simulator source fault escalation resolved · station #{station}',
-    'simulatedFaultAdminAcknowledged': 'Operator acknowledged simulator fault escalation · station #{station}',
-    'simulatedRepairOpened': 'Simulated charger repair opened · station #{station}',
-    'simulatedRepairStarted': 'Simulated charger repair work started · station #{station}',
-    'simulatedRepairReopened': 'Simulated charger repair reopened · station #{station}',
-    'simulatedRepairReviewRequested': 'Simulated charger repair review requested · station #{station}',
-    'simulatedRepairReviewClosed': 'Simulator source repair review closed · station #{station}',
-    'simulatedMonitorReview': 'Simulator charger monitor requires review · station #{station}',
-    'simulatedMonitorCaughtUp': 'Simulator charger monitor caught up · station #{station}',
+    'simulatedFaultAlert':
+        'Observed simulated charger fault · station #{station}',
+    'simulatedRecoveryAlert':
+        'Simulator source reported recovery · station #{station}',
+    'simulatedFaultReminder':
+        'Unacknowledged simulated charger fault reminder · station #{station}',
+    'simulatedFaultAdminEscalation':
+        'Unresolved simulated charger fault escalated to on-call Admin · station #{station}',
+    'simulatedFaultAdminSourceResolved':
+        'Simulator source fault escalation resolved · station #{station}',
+    'simulatedFaultAdminAcknowledged':
+        'Operator acknowledged simulator fault escalation · station #{station}',
+    'simulatedRepairOpened':
+        'Simulated charger repair opened · station #{station}',
+    'simulatedRepairStarted':
+        'Simulated charger repair work started · station #{station}',
+    'simulatedRepairReopened':
+        'Simulated charger repair reopened · station #{station}',
+    'simulatedRepairReviewRequested':
+        'Simulated charger repair review requested · station #{station}',
+    'simulatedRepairReviewClosed':
+        'Simulator source repair review closed · station #{station}',
+    'simulatedMonitorReview':
+        'Simulator charger monitor requires review · station #{station}',
+    'simulatedMonitorCaughtUp':
+        'Simulator charger monitor caught up · station #{station}',
     'unreadOnly': 'Unread only',
     'unreadNotificationCount': '{count} unread notifications',
     'markCurrentNotificationsRead': 'Mark all current notifications as read',
@@ -386,14 +411,19 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
-    'notificationCategoryCounts': 'دعم {support} · مركبة {vehicle} · شحن {charging} · أسطول {fleet} · أخرى {other}',
+    'calendarClosed': 'الوقت المحدد خارج جدول عمل المحطة.',
+    'calendarUnavailable': 'جدول العمل غير متاح. حدّث قبل الحجز أو بدء الشحن.',
+    'notificationCategoryCounts':
+        'دعم {support} · مركبة {vehicle} · شحن {charging} · أسطول {fleet} · أخرى {other}',
     'notificationPreferencesTitle': 'تفضيلات الإشعارات',
     'notificationDefaultCategory': 'الفئة الافتراضية لصندوق الوارد',
     'notificationDefaultUnread': 'عرض غير المقروءة أولاً',
-    'notificationRepeatSimulatorReminders': 'تكرار تذكيرات أعطال المحاكاة غير المحلولة',
+    'notificationRepeatSimulatorReminders':
+        'تكرار تذكيرات أعطال المحاكاة غير المحلولة',
     'notificationReminderDelayTitle': 'مهلة تذكير عطل الشاحن التجريبي',
     'notificationReminderDelayChoice': 'بعد {minutes} دقيقة',
-    'notificationDeliveryUnavailable': 'تبقى الإشعارات الحرجة داخل التطبيق ظاهرة. البريد الإلكتروني والرسائل النصية والإشعارات الفورية الخارجية غير مفعلة.',
+    'notificationDeliveryUnavailable':
+        'تبقى الإشعارات الحرجة داخل التطبيق ظاهرة. البريد الإلكتروني والرسائل النصية والإشعارات الفورية الخارجية غير مفعلة.',
     'notificationCategoryAll': 'الكل',
     'notificationCategorySupport': 'الدعم',
     'notificationCategoryVehicle': 'المركبة',
@@ -408,29 +438,45 @@ class EvStrings {
     'reviewOperationalCase': 'مراجعة حالة استرداد الشحن',
     'recoveryFocusedCommand': 'إشعار استرداد · الأمر #{id}',
     'recoveryFocusedState': 'حالة الاسترداد المسجلة: {state}',
-    'chargingOperationalCaseOpened': 'يتطلب أمر الشحن استرداداً تشغيلياً · المحطة #{station}',
-    'chargingOperationalSourceObserved': 'تم تسجيل دليل مصدر أمر الشحن · المحطة #{station}',
-    'chargingOperationalReviewClosed': 'أُغلقت مراجعة المشغل المستندة إلى المصدر · المحطة #{station}',
+    'chargingOperationalCaseOpened':
+        'يتطلب أمر الشحن استرداداً تشغيلياً · المحطة #{station}',
+    'chargingOperationalSourceObserved':
+        'تم تسجيل دليل مصدر أمر الشحن · المحطة #{station}',
+    'chargingOperationalReviewClosed':
+        'أُغلقت مراجعة المشغل المستندة إلى المصدر · المحطة #{station}',
     'fleetInvitationAlert': 'دعوة للأسطول · الأسطول #{fleet}',
     'fleetAcceptedAlert': 'تم قبول دعوة الأسطول · الأسطول #{fleet}',
     'fleetRevokedAlert': 'تم إلغاء الوصول إلى الأسطول · الأسطول #{fleet}',
     'fleetInvitationWithdrawnAlert': 'تم سحب دعوة الأسطول · الأسطول #{fleet}',
     'fleetVehicleAssignedAlert': 'تم تعيين مركبة للأسطول #{fleet}',
-    'fleetCostCenterChangedAlert': 'تم تغيير مركز تكلفة مركبة الأسطول · الأسطول #{fleet}',
+    'fleetCostCenterChangedAlert':
+        'تم تغيير مركز تكلفة مركبة الأسطول · الأسطول #{fleet}',
     'simulatedBatteryAlert': 'محاكاة بطارية منخفضة · #{vehicle} · {percent}%',
     'simulatedFaultAlert': 'رُصد عطل شاحن تجريبي · المحطة #{station}',
-    'simulatedRecoveryAlert': 'أبلغ مصدر المحاكاة عن التعافي · المحطة #{station}',
-    'simulatedFaultReminder': 'تذكير بعطل شاحن تجريبي لم يتم الإقرار به · المحطة #{station}',
-    'simulatedFaultAdminEscalation': 'تم تصعيد عطل الشاحن التجريبي غير المحلول إلى المشرف المناوب · المحطة #{station}',
-    'simulatedFaultAdminSourceResolved': 'تم حل تصعيد العطل وفق مصدر المحاكاة · المحطة #{station}',
-    'simulatedFaultAdminAcknowledged': 'أقرّ المشغل بمراجعة تصعيد العطل التجريبي · المحطة #{station}',
-    'simulatedRepairOpened': 'فُتح طلب إصلاح الشاحن التجريبي · المحطة #{station}',
-    'simulatedRepairStarted': 'بدأت أعمال إصلاح الشاحن التجريبي · المحطة #{station}',
-    'simulatedRepairReopened': 'أُعيد فتح مراجعة إصلاح الشاحن التجريبي · المحطة #{station}',
-    'simulatedRepairReviewRequested': 'مطلوب مراجعة إصلاح الشاحن التجريبي · المحطة #{station}',
-    'simulatedRepairReviewClosed': 'أُغلقت مراجعة الإصلاح وفق مصدر المحاكاة · المحطة #{station}',
-    'simulatedMonitorReview': 'مراقبة شاحن المحاكاة تتطلب مراجعة · المحطة #{station}',
-    'simulatedMonitorCaughtUp': 'اكتملت متابعة مراقبة شاحن المحاكاة · المحطة #{station}',
+    'simulatedRecoveryAlert':
+        'أبلغ مصدر المحاكاة عن التعافي · المحطة #{station}',
+    'simulatedFaultReminder':
+        'تذكير بعطل شاحن تجريبي لم يتم الإقرار به · المحطة #{station}',
+    'simulatedFaultAdminEscalation':
+        'تم تصعيد عطل الشاحن التجريبي غير المحلول إلى المشرف المناوب · المحطة #{station}',
+    'simulatedFaultAdminSourceResolved':
+        'تم حل تصعيد العطل وفق مصدر المحاكاة · المحطة #{station}',
+    'simulatedFaultAdminAcknowledged':
+        'أقرّ المشغل بمراجعة تصعيد العطل التجريبي · المحطة #{station}',
+    'simulatedRepairOpened':
+        'فُتح طلب إصلاح الشاحن التجريبي · المحطة #{station}',
+    'simulatedRepairStarted':
+        'بدأت أعمال إصلاح الشاحن التجريبي · المحطة #{station}',
+    'simulatedRepairReopened':
+        'أُعيد فتح مراجعة إصلاح الشاحن التجريبي · المحطة #{station}',
+    'simulatedRepairReviewRequested':
+        'مطلوب مراجعة إصلاح الشاحن التجريبي · المحطة #{station}',
+    'simulatedRepairReviewClosed':
+        'أُغلقت مراجعة الإصلاح وفق مصدر المحاكاة · المحطة #{station}',
+    'simulatedMonitorReview':
+        'مراقبة شاحن المحاكاة تتطلب مراجعة · المحطة #{station}',
+    'simulatedMonitorCaughtUp':
+        'اكتملت متابعة مراقبة شاحن المحاكاة · المحطة #{station}',
     'unreadOnly': 'غير المقروءة فقط',
     'unreadNotificationCount': '{count} إشعار غير مقروء',
     'markCurrentNotificationsRead': 'تحديد الإشعارات الحالية كمقروءة',
@@ -756,6 +802,14 @@ String errorKey(Object error) {
   // UI translates status classes; raw server diagnostics remain in the API layer.
   if (error is SessionStorageException) return 'secureStorageError';
   if (error is! ApiException) return 'genericError';
+  if (error.status == 409) {
+    if (error.message ==
+        'The selected time is outside the station operating calendar.')
+      return 'calendarClosed';
+    if (error.message ==
+        'The operating calendar is unavailable. Refresh before booking or starting.')
+      return 'calendarUnavailable';
+  }
   return switch (error.status) {
     0 => 'offline',
     401 => 'expired',

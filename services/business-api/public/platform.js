@@ -38,11 +38,14 @@ window.dispatchEvent(
     }),
 );
 let identityBusy = false;
+// Session cookies from an anonymous startup reply must settle before login can regenerate them.
+let identityInitializing = true;
 function setIdentityBusy(value) {
     identityBusy = value;
+    el("account").setAttribute("aria-busy", String(value || identityInitializing));
     el("account")
         .querySelectorAll("input,button")
-        .forEach((n) => (n.disabled = value));
+        .forEach((n) => (n.disabled = value || identityInitializing));
     el("logout").disabled = el("logout-retry").disabled = value;
 }
 function pendingLogout(value) {
@@ -212,6 +215,10 @@ function ui(tag, key, values = {}) {
     return element;
 }
 function errorMessage(error) {
+    if (error.status === 409 && [
+        "The selected time is outside the station operating calendar.",
+        "The operating calendar is unavailable. Refresh before booking or starting.",
+    ].includes(error.message)) return error.message;
     return (
         {
             401: "Your session has ended. Please sign in again.",
@@ -246,6 +253,12 @@ async function identity() {
         if (user && (current.id !== user.id || current.role !== user.role))
             epoch = clearIdentity();
         user = current;
+        // A validated existing account must retain immediate logout while its
+        // private panels load. Only anonymous bootstrap can race a new login.
+        if (identityInitializing) {
+            identityInitializing = false;
+            setIdentityBusy(false);
+        }
     } catch (error) {
         if (
             epoch !== client.sessionEpoch ||
@@ -1125,7 +1138,7 @@ el("region-config").onsubmit = async (e) => {
 };
 el("account").onsubmit = async (e) => {
     e.preventDefault();
-    if (identityBusy) return;
+    if (identityBusy || identityInitializing) return;
     const mode = e.submitter.value,
         values = Object.fromEntries(new FormData(e.target));
     const epoch = clearIdentity();
@@ -1276,6 +1289,7 @@ const tariffWorkspace = createTariffWorkspace({
     ui,
     actor: () => user,
 });
+setIdentityBusy(false);
 (async () => {
     // Resolve the initial account once before rendering its public/private catalog.
     // A second late startup load otherwise replaces a page the visitor selected.
@@ -1285,7 +1299,10 @@ const tariffWorkspace = createTariffWorkspace({
     } else await identity();
     await stations();
     await regions();
-})().catch((e) => notice(e));
+})().catch((e) => notice(e)).finally(() => {
+    identityInitializing = false;
+    setIdentityBusy(identityBusy);
+});
 
 el("forgot-password").onsubmit = async (e) => {
     e.preventDefault();

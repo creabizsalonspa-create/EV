@@ -31,6 +31,7 @@ const { spawnSync } = require("node:child_process");
     ["native-ocpi-unpaid-credit"], // no collection; own unchanged authentication window
     ["native-sandbox-roaming"], // own auth window; sandbox only, no limiter bypass
     ["native-privacy"], // three ordinary bearer logins; canonical private rights requests, no erasure
+    ["native-operating-calendar"], // six fixture/browser + three native logins; same production limit
     ["native-financial-analytics"], // 3 logins, separate unchanged authentication window
   ];
   let started;
