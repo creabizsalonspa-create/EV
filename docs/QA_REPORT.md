@@ -27,6 +27,27 @@ CI-evidence tests passed. Includes interrupted-write/no-final-file, symlink,
 no-overwrite and bounded atomic evidence publication regressions. This is
 source-only evidence; no staging deployment or production acceptance.
 Updated exact-head hosted checks remain required before integration.
+# Vehicle model catalog integration repairs — 11 November 2026
+
+Final hosted security inventory exposed two additional unbounded model-binding
+routes. They now use the same18-digit policy; malformed/overflow tests cover
+model update and both vehicle association endpoints on both API aliases.
+Final backend11 tests/152 assertions and all48 Node security regressions pass.
+No new audit exemption or production limiter change was introduced.
+
+PR77 safely incorporates PR64/main PR90, retaining Admin curation and customer
+web/Flutter model linking. Its existing hosted failure was PHP class-attribute
+spacing; Pint corrected it. The integrated typed-controller audit then found
+an unbounded model ID: the update route now limits IDs to18 decimal digits.
+New tests assert malformed/overflowing paths return404 across both API aliases
+without catalog mutation. Backend11 tests/128 assertions pass;7 native catalog
+widgets pass; the web model contract suite passes. Actual localhost browser
+checks pass both honest empty-catalog/customer logout and Admin publish ->
+customer association -> persisted model -> Admin archive -> customer unlink.
+Browser launchers respect EV_CHROMIUM_PATH; no test is removed. Test credentials
+remain private local fixtures. Merge PR64 first and require new exact-head
+hosted checks. Manufacturer compatibility, full garage parity and production
+acceptance remain unverified; no coverage atom is newly credited here.
 
 # Single-owner integration QA — 11 November 2026
 

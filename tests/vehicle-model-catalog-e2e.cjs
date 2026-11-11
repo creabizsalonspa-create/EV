@@ -17,7 +17,7 @@ if (!adminEmail.endsWith('@example.invalid') || adminPassword.length < 16)
   throw Error('Provide disposable local Admin credentials in EV_TEST_ADMIN_*.');
 
 (async () => {
-  const browser = await chromium.launch({headless:true});
+  const browser = await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined});
   const context = await browser.newContext({viewport:{width:1366,height:900}});
   const page = await context.newPage();
   const errors=[];

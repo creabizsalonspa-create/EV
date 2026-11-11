@@ -12,6 +12,19 @@ class VehicleModelCatalogTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_catalog_integer_routes_reject_malformed_and_overflowing_ids_before_dispatch(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        foreach (['/api', '/api/v1'] as $prefix) {
+            foreach (['not-an-id', '-1', '1.5', '1e3', '9223372036854775808', str_repeat('9', 128)] as $id) {
+                $this->putJson($prefix.'/vehicle-models/'.$id, $this->input())->assertNotFound();
+                $this->getJson($prefix.'/vehicles/'.$id.'/model')->assertNotFound();
+                $this->putJson($prefix.'/vehicles/'.$id.'/model', ['model_id' => null, 'expected_model_id' => null])->assertNotFound();
+            }
+        }
+        $this->assertDatabaseCount('vehicle_model_catalog', 0);
+    }
+
     private function input(): array
     {
         return [
@@ -174,6 +187,43 @@ class VehicleModelCatalogTest extends TestCase
             ->assertJsonCount(25, 'data');
         $this->actingAs($driver)->getJson('/api/vehicle-models?connector_type=Type2&page=2')
             ->assertOk()->assertJsonCount(5, 'data');
+    }
+
+    public function test_catalog_search_treats_percent_underscore_and_backslash_as_literals(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $driver = User::factory()->create(['role' => 'customer']);
+
+        foreach (['G_100%', 'Gx1000', 'Gx100%', 'G_1000', 'Back\\slash', 'Backslash'] as $make) {
+            $input = $this->input();
+            $input['make'] = $make;
+            $this->actingAs($admin)->postJson('/api/vehicle-models', $input)->assertCreated();
+        }
+
+        foreach (['G_100%', 'Back\\slash'] as $term) {
+            $this->actingAs($driver)->getJson('/api/vehicle-models?q='.rawurlencode($term))
+                ->assertOk()
+                ->assertJsonPath('total', 1)
+                ->assertJsonPath('data.0.make', $term);
+        }
+    }
+
+    public function test_zero_search_is_not_treated_as_empty_query(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $driver = User::factory()->create(['role' => 'customer']);
+        foreach (['Series 0', 'Series Alpha'] as $modelName) {
+            $input = $this->input();
+            $input['model'] = $modelName;
+            $this->actingAs($admin)->postJson('/api/vehicle-models', $input)->assertCreated();
+        }
+
+        $this->actingAs($driver)->getJson('/api/vehicle-models?q=0')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.model', 'Series 0');
+        $this->actingAs($driver, 'sanctum')->getJson('/api/v1/vehicle-models?q=0')
+            ->assertOk()->assertJsonPath('total', 1);
     }
 
     public function test_sanctum_mobile_get_and_update_share_model_validation(): void

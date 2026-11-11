@@ -69,6 +69,7 @@ jobs:
       - run: npm run test:discovery-routing
       - run: npm run test:localization
       - run: npm run test:web-session
+      - run: npm run test:vehicle-models
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
       - run: ./scripts/signed-firmware-validator-test

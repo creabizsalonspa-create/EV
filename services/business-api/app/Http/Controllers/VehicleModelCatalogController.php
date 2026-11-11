@@ -87,12 +87,15 @@ final class VehicleModelCatalogController extends Controller
         if (isset($v['connector_type'])) {
             $q->where('connector_type', $v['connector_type']);
         }
-        if (! empty($v['q'])) {
+        if (isset($v['q']) && trim($v['q']) !== '') {
             $term = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($v['q']));
-            $q->where(function ($query) use ($term) {
-                $query->where('make', 'like', '%'.$term.'%')
-                    ->orWhere('model', 'like', '%'.$term.'%')
-                    ->orWhere('variant', 'like', '%'.$term.'%');
+            $pattern = '%'.$term.'%';
+            $q->where(function ($query) use ($pattern) {
+                // Both SQLite and PostgreSQL require an explicit ESCAPE
+                // clause to treat escaped %, _ and backslash literally.
+                $query->whereRaw("make LIKE ? ESCAPE '\\'", [$pattern])
+                    ->orWhereRaw("model LIKE ? ESCAPE '\\'", [$pattern])
+                    ->orWhereRaw("variant LIKE ? ESCAPE '\\'", [$pattern]);
             });
         }
 

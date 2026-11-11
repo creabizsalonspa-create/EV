@@ -2,6 +2,7 @@ import 'vehicle_model_catalog.dart';
 import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
 import 'reservation_intent.dart';
+import 'vehicle_model_catalog.dart';
 import 'vehicle_battery.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -599,14 +600,6 @@ class _WorkspaceState extends State<Workspace> {
                 }),
               ),
             if (tab == 3 && account?.role == 'customer')
-              VehicleBatteryView(
-                key: ValueKey('battery-$id-${account!.id}'),
-                api: api!,
-                vehicleId: id as int,
-                onExpired: expiredSession,
-                onDiscover: discoverCompatible,
-              ),
-            if (tab == 3 && account?.role == 'customer')
               TextButton.icon(
                 key: Key('vehicle-model-$id'),
                 icon: const Icon(Icons.directions_car),
@@ -636,6 +629,14 @@ class _WorkspaceState extends State<Workspace> {
                     ),
                   ),
                 ),
+              ),
+            if (tab == 3 && account?.role == 'customer')
+              VehicleBatteryView(
+                key: ValueKey('battery-$id-${account!.id}'),
+                api: api!,
+                vehicleId: id as int,
+                onExpired: expiredSession,
+                onDiscover: discoverCompatible,
               ),
             if (tab == 3)
               Text(
