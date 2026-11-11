@@ -2,7 +2,7 @@
   "schema_version": 1,
   "candidate_pr": 84,
   "original_candidate_sha": "7f83492864409ce6f025e37a0ebfe0e8b44a1669",
-  "base_integration_sha": "2e87ff997168c1ae58800050202f04417e2b16a6",
+  "base_integration_sha": "b4224ddc11a0921c2e522277657888fd3025ace4",
   "members": [
     {
       "pr": 1,

@@ -1,3 +1,18 @@
+# Shared discovery budget correction — 11 November 2026
+
+Hosted d8163cd passed924 Laravel tests, then discovery-routing's capability
+GET received429 after preceding anonymous map suites exhausted the shared
+60/min catalog budget. Production limit remains60. The CI driver now runs
+all six original discovery files once in separate catalog windows, using the
+existing bounded61-second pacing helper. Two scheduling/fail-fast tests pass;
+no assertion retry, cache reset or request identity spoofing is introduced.
+The previous native/certificate/recovery suites remain required.
+
+Additional combined local PostgreSQL finance:348 tests/8865 assertions with
+one explicit SQLite-only skip;83 actual concurrency tests/1212 assertions
+passed. Both run-owned PostgreSQL drills cleaned up their own containers and
+networks; live source services and existing databases were preserved.
+
 # Combined candidate and verified PR89 — 11 November 2026
 
 PR89 source806a1bb94e9c966fb4b48c356dbeab2318de9e3c merged at

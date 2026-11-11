@@ -38,7 +38,8 @@
     "test:station-information": "node tests/station-information.cjs && node tests/station-information-vendor-session.cjs",
     "test:e2e:station-information": "node tests/station-information-e2e.cjs",
     "test:driver-preferences": "node tests/vehicle-driver-preferences.cjs",
-    "test:e2e:driver-preferences": "node tests/driver-preferences-e2e.cjs"
+    "test:e2e:driver-preferences": "node tests/driver-preferences-e2e.cjs",
+    "test:discovery-connected": "node tests/discovery-connected.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",
