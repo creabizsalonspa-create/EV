@@ -1,4 +1,5 @@
 window.EV_MESSAGES = {
+    "Checking trade-license evidence…": {en: "Checking trade-license evidence…", ar: "جارٍ التحقق من مستند الرخصة التجارية…"},
     "Charger certificates": { en: "Charger certificates", ar: "شهادات الشاحن" },
     "admission.event.certificate_enroll": {
         en: "Public client certificate enrolled; handshake credentials invalidated",
