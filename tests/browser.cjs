@@ -2,6 +2,25 @@ const { chromium } = require("playwright");
 const { execFileSync } = require("node:child_process");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
+
+// Shell role changes are privileged test mutations. Never print raw SQL or email.
+function provisionTestRole(email, role) {
+  try {
+    execFileSync("./scripts/php", ["artisan", "platform:role", email, role], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const output = String(error.stdout || "") + String(error.stderr || "");
+    const sqlstate = output.match(/SQLSTATE\[([A-Z0-9]{5})\]/);
+    throw new Error(
+      "Synthetic role provisioning failed: " +
+        (sqlstate ? "SQLSTATE " + sqlstate[1] : "SQLSTATE unavailable") +
+        "; inspect private CI evidence for cause.",
+      { cause: { exitCode: error.status } },
+    );
+  }
+}
 (async () => {
   const browser = await chromium.launch({
     headless: true,
@@ -127,12 +146,27 @@ const { randomUUID } = require("node:crypto");
       /Email verified/,
     );
     assert.equal(await vendor.page.locator("#verify-email").isVisible(), false);
-    execFileSync(
-      "./scripts/php",
-      ["artisan", "platform:role", vendor.email, "vendor"],
-      { stdio: "pipe" },
+    provisionTestRole(vendor.email, "vendor");
+    // The audited role promotion revokes the old browser authorization
+    // epoch. Verify that boundary, then sign in again as the vendor.
+    const staleVendorIdentity = vendor.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/me") &&
+        response.request().method() === "GET",
     );
     await vendor.page.reload();
+    assert.equal((await staleVendorIdentity).status(), 401);
+    await vendor.page.locator("#account").waitFor({ state: "visible" });
+    await vendor.page.locator("#account [name=email]").fill(vendor.email);
+    await vendor.page.locator("#account [name=password]").fill(password);
+    const freshVendorLogin = vendor.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/login") &&
+        response.request().method() === "POST",
+    );
+    await vendor.page.locator("#account button[value=login]").click();
+    assert.equal((await freshVendorLogin).status(), 200);
+    await vendor.page.locator("#signed").waitFor({ state: "visible" });
     await vendor.page.locator("#vendor").waitFor({ state: "visible" });
     const f = vendor.page.locator("#station-form");
     for (const [key, value] of Object.entries({
@@ -246,20 +280,97 @@ const { randomUUID } = require("node:crypto");
     await customer.page
       .locator("#support-create [name=body]")
       .fill("Test support message");
+    const createRequest = customer.page.waitForRequest((request) =>
+      request.url().endsWith("/api/support") &&
+      request.method() === "POST",
+    );
     await customer.page.locator("#support-create button").click();
+    const createPayload = (await createRequest).postDataJSON();
+    assert.match(createPayload.idempotency_key, /^[a-f0-9]{32}$/);
     await customer.page
       .locator("#ticket-detail h3")
       .filter({ hasText: "Browser support " + run })
       .waitFor();
+    const savedTicketsBeforeReplay = await customer.page.evaluate(() =>
+      api("support"),
+    );
+    const createdTicket = savedTicketsBeforeReplay.data.find(
+      (row) => row.subject === "Browser support " + run,
+    );
+    assert(createdTicket && Number.isSafeInteger(createdTicket.id));
+    assert.equal(
+      await customer.page.locator("#support-create [name=subject]").inputValue(),
+      "",
+    );
+    assert.equal(
+      await customer.page.locator("#support-create [name=body]").inputValue(),
+      "",
+    );
+    const replayCreatedTicket = await customer.page.evaluate(
+      (payload) => api("support", "POST", payload), createPayload,
+    );
+    assert.equal(replayCreatedTicket.id, createdTicket.id);
+    assert.equal(replayCreatedTicket.idempotency_key, undefined);
+    const savedTicketsAfterReplay = await customer.page.evaluate(() =>
+      api("support"),
+    );
+    assert.equal(
+      savedTicketsAfterReplay.data.filter(
+        (row) => row.subject === "Browser support " + run,
+      ).length, 1,
+    );
     // Distinct role principals avoid spending one actor's entire protected-read
     // budget on repeated full-workspace reloads. Production limits stay enabled.
     const admin = await account("Admin");
-    execFileSync(
+    // The operator CLI refuses Admin elevation without mailbox ownership.
+    // Confirm only this synthetic test mailbox through the normal signed
+    // development notification path; never bypass the production check.
+    const adminVerificationSent = admin.page.waitForResponse((response) =>
+      response.url().endsWith("/api/email/verification-notification"),
+    );
+    await admin.page.locator("#verify-email").click();
+    assert.equal((await adminVerificationSent).status(), 202);
+    const adminVerificationUrl = execFileSync(
       "./scripts/php",
-      ["artisan", "platform:role", admin.email, "admin"],
-      { stdio: "pipe" },
+      [
+        "-r",
+        `
+      require "vendor/autoload.php";
+      $app = require "bootstrap/app.php";
+      $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap();
+      Illuminate\\Support\\Facades\\URL::forceRootUrl($argv[2]);
+      $user = App\\Models\\User::where("email", $argv[1])->firstOrFail();
+      echo (new Illuminate\\Auth\\Notifications\\VerifyEmail)->toMail($user)->actionUrl;
+    `,
+        "--",
+        admin.email,
+        base,
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    ).trim();
+    await admin.page.goto(adminVerificationUrl);
+    await admin.page.getByRole("heading", { name: /Email verified/ }).waitFor();
+    await admin.page.getByRole("link", { name: /Return to your account/ }).click();
+    await admin.page.locator("#signed").waitFor({ state: "visible" });
+    provisionTestRole(admin.email, "admin");
+    const staleAdminIdentity = admin.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/me") &&
+        response.request().method() === "GET",
     );
     await admin.page.reload();
+    assert.equal((await staleAdminIdentity).status(), 401);
+    await admin.page.locator("#account").waitFor({ state: "visible" });
+    await admin.page.locator("#account [name=email]").fill(admin.email);
+    await admin.page.locator("#account [name=password]").fill(password);
+    const freshAdminLogin = admin.page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/login") &&
+        response.request().method() === "POST",
+    );
+    await admin.page.locator("#account button[value=login]").click();
+    assert.equal((await freshAdminLogin).status(), 200);
+    await admin.page.locator("#signed").waitFor({ state: "visible" });
     await admin.page.locator("#admin").waitFor({ state: "visible" });
     await admin.page.waitForFunction(() =>
       document.querySelector("#overview").textContent.includes("Audit history"),
@@ -306,6 +417,209 @@ const { randomUUID } = require("node:crypto");
       !(await customer.page.locator("#ticket-detail").textContent()).includes(
         "Internal secret QA note",
       ),
+    );
+    // A replay after an uncertain HTTP acknowledgement must not create
+    // duplicate public replies or duplicate vendor/customer inbox alerts.
+    const browserSupportTickets = await admin.page.evaluate(
+      () => api("support"),
+    );
+    const targetSupport = browserSupportTickets.data.find(
+      (row) => row.subject === "Browser support " + run,
+    );
+    assert(targetSupport && Number.isSafeInteger(targetSupport.id));
+    const replayKey = randomUUID().replace(/-/g, "");
+    const replayBody = "Replay-safe browser support update " + run;
+    const unreadBeforeReplay = await customer.page.evaluate(
+      () => api("notifications/summary"),
+    );
+    const initialReply = await admin.page.evaluate(
+      ({ ticketId, body, key }) => api(
+        "support/" + ticketId + "/messages", "POST",
+        { body, internal: false, idempotency_key: key },
+      ),
+      { ticketId: targetSupport.id, body: replayBody, key: replayKey },
+    );
+    const replayedReply = await admin.page.evaluate(
+      ({ ticketId, body, key }) => api(
+        "support/" + ticketId + "/messages", "POST",
+        { body, internal: false, idempotency_key: key },
+      ),
+      { ticketId: targetSupport.id, body: replayBody, key: replayKey },
+    );
+    assert.equal(replayedReply.id, initialReply.id);
+    assert.equal(replayedReply.idempotency_key, undefined);
+    const unreadAfterReplay = await customer.page.evaluate(
+      () => api("notifications/summary"),
+    );
+    assert.equal(unreadAfterReplay.unread_count,
+      unreadBeforeReplay.unread_count + 1);
+    const savedThread = await admin.page.evaluate(
+      (id) => api("support/" + id), targetSupport.id,
+    );
+    assert.equal(
+      savedThread.messages.data.filter((m) => m.body === replayBody).length,
+      1,
+    );
+
+    // New browser + Laravel notification-cutoff acceptance. The second reply is
+    // created AFTER the customer's first visible high-water mark, and must stay
+    // unread when the customer marks only the previously observed messages.
+    const publicReply = async (text) => {
+      await admin.page.locator("#ticket-detail textarea").fill(text);
+      await admin.page.locator("#ticket-detail input[name=internal]").uncheck();
+      await admin.page.locator("#ticket-detail button")
+        .filter({ hasText: "Reply" }).click();
+      await admin.page.waitForFunction(
+        (value) => document.querySelector("#ticket-detail").textContent.includes(value),
+        text,
+      );
+    };
+    const beforePublic = await customer.page.evaluate(() => api("notifications/summary"));
+    await publicReply("Synthetic public update 1 " + run);
+    // No page reload: the user can refresh only the account inbox, without
+    // refetching an unrelated ticket list or acknowledging the new event.
+    await customer.page.locator("#notification-refresh").click();
+    await customer.page.locator("#notification-read-through").waitFor();
+    const observed = await customer.page.evaluate(() => api("notifications/summary"));
+    assert.equal(observed.unread_count, beforePublic.unread_count + 1);
+    assert(observed.latest_id > beforePublic.latest_id);
+    await publicReply("Synthetic public update 2 " + run);
+    const bulkResponse = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/read-through") &&
+          response.request().method() === "POST",
+    );
+    const postBulkSummary = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/summary") &&
+          response.request().method() === "GET",
+    );
+    await customer.page.locator("#notification-read-through").click();
+    assert.equal((await bulkResponse).status(), 200);
+    assert.equal((await postBulkSummary).status(), 200);
+    const afterBulk = await customer.page.evaluate(async () => ({
+      summary: await api("notifications/summary"),
+      page: await api("notifications"),
+    }));
+    assert(afterBulk.summary.latest_id > observed.latest_id);
+    assert.equal(afterBulk.summary.unread_count, 1);
+    const oldRow = afterBulk.page.data.find((row) => row.id === observed.latest_id);
+    assert(oldRow && oldRow.read_at !== null);
+    const newest = afterBulk.page.data.find((row) => row.id === afterBulk.summary.latest_id);
+    assert(newest && newest.read_at === null);
+    assert.equal(afterBulk.summary.unread_by_category.support, 1);
+    assert.equal(afterBulk.summary.unread_by_category.charging, 0);
+    // Older messages retain their own read receipt. Explicitly reopening one
+    // cannot create an event or change the newer message's state.
+    const oldNotification = customer.page.locator(
+      '[data-notification-id="' + observed.latest_id + '"]',
+    );
+    const unreadResponse = customer.page.waitForResponse(
+      (response) => response.url().endsWith(
+        '/api/notifications/' + observed.latest_id + '/unread',
+      ) && response.request().method() === 'POST',
+    );
+    await oldNotification.getByRole('button', { name: await customer.page.evaluate(() => EvLocale.text('Mark unread')), exact: true }).click();
+    assert.equal((await unreadResponse).status(), 200);
+    const reopened = await customer.page.evaluate(async () => ({
+      summary: await api('notifications/summary'),
+      notices: await api('notifications'),
+    }));
+    assert.equal(reopened.summary.unread_count, 2);
+    assert.equal(reopened.summary.unread_by_category.support, 2);
+    assert.equal(reopened.notices.total, afterBulk.page.total);
+    const openedNote = reopened.notices.data.find((row) => row.id === observed.latest_id);
+    assert(openedNote && openedNote.read_at === null);
+    const rereadResponse = customer.page.waitForResponse(
+      (response) => response.url().endsWith(
+        '/api/notifications/' + observed.latest_id + '/read',
+      ) && response.request().method() === 'POST',
+    );
+    await customer.page.locator(
+      '[data-notification-id="' + observed.latest_id + '"]',
+    ).getByRole('button', { name: await customer.page.evaluate(() => EvLocale.text('Mark read')), exact: true }).click();
+    assert.equal((await rereadResponse).status(), 200);
+    assert.equal(
+      (await customer.page.evaluate(() => api('notifications/summary'))).unread_count,
+      1,
+    );
+    const filtered = await customer.page.evaluate(
+      () => api("notifications?unread_only=1"),
+    );
+    const classified = await customer.page.evaluate(
+      () => api("notifications?category=support&unread_only=1"),
+    );
+    assert.equal(classified.total, 1);
+    assert.equal(classified.data[0].kind, "support.reply");
+    assert.equal(filtered.total, 1);
+    assert.equal(filtered.data[0].id, afterBulk.summary.latest_id);
+    // Rapid filter changes must settle on the latest requested category,
+    // regardless of earlier network response completion order.
+    const lastFilter = customer.page.locator("#notification-category");
+    await lastFilter.selectOption("other");
+    await customer.page.waitForFunction(
+      () => document.querySelector("#notification-category")?.value === "other",
+    );
+    const otherPage = await customer.page.evaluate(
+      () => api("notifications?category=other"),
+    );
+    assert(otherPage.total >= otherPage.data.length);
+    assert(otherPage.data.every((item) =>
+      !["support.", "vehicle.", "charging.", "fleet."].some(
+        (prefix) => typeof item.kind === "string" && item.kind.startsWith(prefix),
+      ),
+    ));
+    await lastFilter.selectOption("fleet");
+    await customer.page.waitForFunction(
+      () => document.querySelector("#notification-category")?.value === "fleet",
+    );
+    await lastFilter.selectOption("support");
+    await customer.page.waitForFunction(
+      () => document.querySelector("#notification-category")?.value === "support",
+    );
+    assert.equal(await lastFilter.inputValue(), "support");
+    await customer.page.locator("#notification-unread-filter").click();
+    await customer.page.waitForFunction(
+      () => document.querySelector("#notification-unread-filter")?.textContent.includes(
+        document.documentElement.lang === "ar" ? "جميع" : "all",
+      ),
+    );
+    // Saved notification defaults round-trip via the actual authenticated
+    // API, are applied after a fresh browser session and cannot mute critical
+    // in-app events or falsely claim an external delivery provider.
+    await customer.page.locator("#notification-default-category").selectOption("charging");
+    await customer.page.locator("#notification-default-unread").check();
+    await customer.page.locator("#notification-repeat-reminders").uncheck();
+    await customer.page.locator("#notification-fault-delay").selectOption("60");
+    const savedPreferences = customer.page.waitForResponse(
+      (response) => response.url().endsWith("/api/notifications/preferences") &&
+        response.request().method() === "PUT",
+    );
+    await customer.page.locator("#notification-preference-save").click();
+    assert.equal((await savedPreferences).status(), 200);
+    const configured = await customer.page.evaluate(
+      () => api("notifications/preferences"),
+    );
+    assert.equal(configured.default_category, "charging");
+    assert.equal(configured.default_unread_only, true);
+    assert.equal(configured.remind_unresolved_simulator_faults, false);
+    assert.equal(configured.fault_reminder_delay_minutes, 60);
+    assert.equal(configured.external_delivery_available, false);
+    const stillRecorded = await customer.page.evaluate(
+      () => api("notifications/summary"),
+    );
+    assert(stillRecorded.unread_by_category.support >= 0);
+    await customer.page.reload();
+    await customer.page.locator("#notification-preferences").waitFor();
+    assert.equal(
+      await customer.page.locator("#notification-category").inputValue(), "charging",
+    );
+    assert.equal(
+      await customer.page.locator("#notification-default-unread").isChecked(), true,
+    );
+    assert.equal(
+      await customer.page.locator("#notification-repeat-reminders").isChecked(), false,
+    );
+    assert.equal(
+      await customer.page.locator("#notification-fault-delay").inputValue(), "60",
     );
     await vendor.page.setViewportSize({ width: 390, height: 844 });
     assert(

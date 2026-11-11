@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'charger_certificates.dart';
 
 String admissionText(BuildContext context, String key) =>
     (Localizations.localeOf(context).languageCode == 'ar'
@@ -24,6 +25,9 @@ const admissionEn = {
   'event.rotated': 'Credential issued or rotated',
   'event.revoked': 'Credential revoked',
   'event.expired': 'Expired credential disabled by system',
+  'event.certificate_enroll':
+      'Public client certificate enrolled; credentials invalidated',
+  'event.certificate_revoke': 'Client certificate revoked locally',
 
   'title': 'Secure charger admission',
   'notice':
@@ -61,6 +65,8 @@ const admissionAr = {
   'event.rotated': 'أُصدرت بيانات الدخول أو دُوّرت',
   'event.revoked': 'أُبطلت بيانات الدخول',
   'event.expired': 'عطّل النظام بيانات الدخول المنتهية',
+  'event.certificate_enroll': 'سُجلت شهادة عميل عامة وأُبطلت بيانات الاتصال',
+  'event.certificate_revoke': 'أُبطلت شهادة العميل محلياً',
 
   'title': 'قبول الشاحن الآمن',
   'notice':
@@ -257,6 +263,29 @@ class _ChargerAdmissionState extends State<ChargerAdmissionView> {
                     },
               child: Text(t('history')),
             ),
+            if (data!['certificate_management_available'] == true)
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ChargerCertificatesPage(
+                              api: widget.api,
+                              endpoint: '$base/certificates',
+                              profileId: p['id'],
+                              onExpired: widget.onExpired,
+                            ),
+                          ),
+                        );
+                        if (mounted) load();
+                      },
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'ar'
+                      ? 'شهادات الشاحن'
+                      : 'Charger certificates',
+                ),
+              ),
             if (p['expires_at'] != null)
               Text('${t('expires')}: ${p['expires_at']}'),
             if (data!['can_manage'] == true) ...[

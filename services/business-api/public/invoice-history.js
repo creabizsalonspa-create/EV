@@ -1,4 +1,4 @@
-/* Read-only finance history; no payment instruments, captures or payouts. */
+/* Private invoice history; explicit noncash corrections retain canonical finance authority. */
 window.createInvoiceHistory = ({ root, api, ui, actor }) => {
     let generation = 0,
         detailVersion = 0,
@@ -171,12 +171,104 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                 raw("h4", invoice.number),
                 ui("p", "Invoice simulation disclaimer"),
             );
+            const evidence = document.createElement("div");
+            evidence.dataset.chargingSourceEvidence = "";
+            button(target, "Charging source evidence", async () => {
+                evidence.replaceChildren(ui("p", "Loading…"));
+                try {
+                    const p = await api(
+                        `finance/invoices/${id}/source-evidence`,
+                        "GET",
+                        undefined,
+                        request.signal,
+                    );
+                    if (epoch !== generation || version !== detailVersion)
+                        return;
+                    if (
+                        p.schema_version !== 1 ||
+                        p.invoice_id !== id ||
+                        p.evidence !== "SIMULATED_ONLY" ||
+                        p.physical_charging_verified !== false ||
+                        p.financial_records_changed !== false ||
+                        p.payment_authority !== false ||
+                        p.charging_command_authority !== false ||
+                        !Number.isSafeInteger(p.energy_wh) ||
+                        p.energy_wh < 0 ||
+                        ![
+                            "APP_SIMULATION",
+                            "OCPP_SIMULATOR",
+                            "OCPI_SANDBOX",
+                        ].includes(p.kind) ||
+                        typeof p.source_verified !== "boolean" ||
+                        ![
+                            "verified_simulated",
+                            "not_source_verified",
+                            "requires_review",
+                        ].includes(p.status) ||
+                        p.source_verified !==
+                            (p.status === "verified_simulated") ||
+                        !p.proofs ||
+                        Array.isArray(p.proofs) ||
+                        typeof p.proofs !== "object"
+                    )
+                        throw new Error("Unsupported evidence");
+                    const keys =
+                        p.kind === "OCPI_SANDBOX"
+                            ? ["session_sha256", "cdr_sha256"]
+                            : ["start_sha256", "end_sha256"];
+                    if (
+                        p.source_verified
+                            ? p.kind === "APP_SIMULATION" ||
+                              (p.kind === "OCPI_SANDBOX"
+                                  ? p.protocol !== "OCPI 2.2.1"
+                                  : !["OCPP 1.6", "OCPP 2.0.1"].includes(
+                                        p.protocol,
+                                    )) ||
+                              Object.keys(p.proofs).length !== 2 ||
+                              !keys.every(
+                                  (k) =>
+                                      typeof p.proofs[k] === "string" &&
+                                      /^[a-f0-9]{64}$/.test(p.proofs[k]),
+                              )
+                            : Object.keys(p.proofs).length !== 0
+                    )
+                        throw new Error("Unsupported evidence");
+                    evidence.replaceChildren(
+                        ui(
+                            "p",
+                            p.source_verified
+                                ? "Source receipts match this simulated invoice"
+                                : p.status === "requires_review"
+                                  ? "Source evidence requires review"
+                                  : "Application simulation without source verification",
+                        ),
+                        ui("p", "Source evidence disclaimer"),
+                        raw("p", `${p.energy_wh} Wh`),
+                    );
+                    if (p.source_verified) {
+                        evidence.append(raw("p", p.protocol));
+                        for (const hash of Object.values(p.proofs))
+                            evidence.append(raw("p", hash));
+                    }
+                } catch {
+                    if (epoch === generation && version === detailVersion)
+                        evidence.replaceChildren(
+                            ui("p", "Charging evidence unavailable"),
+                        );
+                }
+            });
+            target.append(evidence);
+            window.EV_MESSAGES["Noncash invoice credits"] ||= {
+                en: "Noncash invoice credits",
+                ar: "تسويات الفواتير غير النقدية",
+            };
             for (const [label, value] of [
                 ["Subtotal", invoice.subtotal_minor],
                 ["Tax", invoice.tax_minor],
                 ["Total", invoice.total_minor],
                 ["Simulated collected", summary.paid_minor],
                 ["Simulated refunded", summary.refunded_minor],
+                ["Noncash invoice credits", summary.unpaid_credited_minor ?? 0],
                 ["Amount due", summary.amount_due_minor],
             ])
                 amount(target, label, value, invoice.currency);
@@ -203,6 +295,31 @@ window.createInvoiceHistory = ({ root, api, ui, actor }) => {
                     invoice.currency,
                 );
             }
+            for (const note of summary.unpaid_credit_notes || []) {
+                target.append(raw("p", note.credit_note_number));
+                const documents = document.createElement("section");
+                target.append(documents);
+                window.mountFinancialDocuments?.({
+                    container: documents,
+                    api,
+                    ui,
+                    actor,
+                    sourceKind: "charging_unpaid_credit",
+                    sourceId: note.id,
+                });
+            }
+            const unpaid = document.createElement("section");
+            target.append(unpaid);
+            window.mountUnpaidCredit?.({
+                root: unpaid,
+                summary,
+                actor: actor(),
+                api,
+                ui,
+                signal: request.signal,
+                valid: () => epoch === generation && version === detailVersion,
+                refresh: () => show(id, target, epoch),
+            });
             for (const [key, label] of [
                 ["payments", "Simulated collections"],
                 ["refunds", "Simulated refunds"],

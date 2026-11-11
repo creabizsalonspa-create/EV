@@ -1,0 +1,36 @@
+{
+  "status": "NATIVE_VERIFIED_CANDIDATE_NOT_MERGED",
+  "owner": "Agent 2",
+  "branch": "development/agent2-mobile-source-history",
+  "parent_commit": "bf8c1d203820b27209599d26e512a045a61c74ed",
+  "backend_commit": "f3ff9747385ab336a1af429ee2148c4c46d607d2",
+  "scope": "Year-qualified booking/slot/reschedule dates, customer-safe denial/unknown creation recovery and real native booking acceptance",
+  "results": {
+    "flutter_passed": 39,
+    "default_opt_in_skip": 2,
+    "actual_flutter_api_passed": 2,
+    "backend_plus_native": 134,
+    "changed_file_analysis": "No issues found"
+  },
+  "source_blobs": {
+    "apps/hasone-customer/lib/core/utils/reservation_date.dart": "2e2b224a3b045d7263bf10ed48b504ed500308ea",
+    "apps/hasone-customer/lib/feature/Booking/UI/controller/booking_controller.dart": "368969d9b3035b2575661724afcc063b833333ec",
+    "apps/hasone-customer/lib/feature/Booking/UI/screen/rebooking_screen.dart": "d3ebd7c548b502d80b486f586848b0a2a7d81539",
+    "apps/hasone-customer/lib/feature/viewdetails/UI/screen/view_details_screen.dart": "f8d9fe22319fa33ab9a74b91efa35bcc56e9df28",
+    "apps/hasone-customer/test/reservation_date_test.dart": "ecfa9b3dda11d0c082b800fd2b3c9e3514e00544",
+    "apps/hasone-customer/test/source_history_api_test.dart": "c9a579e8be39105a0c696f2324586b6c011fd0dd",
+    "tools/agent2/run_mobile_history_api.py": "056a33d728969f5051e7449af4ed80d4b449bdf7"
+  },
+  "restricted_log_sha256": {
+    "calendar-full-v1.log": "9d96c03815fd8da5fb6bf3d947c866635be6c56eac7232a21e2d34b393367842",
+    "calendar-flutter-tests-v2.log": "ecfce2ea193f8f433879fca9b9e41552bfcfe21330eca81cb9b07ffcd893527a",
+    "calendar-flutter-analysis-v2.log": "5f42da5ffb54648d35594dc7e6fd7d4397a33da79762dca32396606990148cd6",
+    "calendar-native-api-v1.log": "d397753106357a22d46e973bfa65f9969ef3e1b26c7aecbf12e817b354b4a6b1"
+  },
+  "remaining": [
+    "Paired backend/native release after explicit ambiguous legacy-date review",
+    "Required hosted Android/iOS builds and Agent4 integration",
+    "Transactional independent resource capacity, concurrent calendar edit safety, calendar-time-zone expiry and paid reschedule/refund workflows",
+    "Hardware/PSP/partner/production acceptance"
+  ]
+}

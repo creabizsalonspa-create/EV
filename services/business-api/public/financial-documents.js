@@ -1,5 +1,12 @@
 /* Posted documents are private immutable snapshots; downloads recheck the session. */
-window.mountFinancialDocuments = ({ container, api, ui, actor }) => {
+window.mountFinancialDocuments = ({
+    container,
+    api,
+    ui,
+    actor,
+    sourceKind = null,
+    sourceId = null,
+}) => {
     const owner = actor()?.id;
     let busy = false,
         generation = 0;
@@ -115,6 +122,10 @@ window.mountFinancialDocuments = ({ container, api, ui, actor }) => {
         row.className = "finance-row";
         const sources = {
             charging_invoice: ["Charging invoice", "فاتورة شحن"],
+            charging_unpaid_credit: [
+                "Unpaid charging credit (no cash)",
+                "تسوية شحن غير مدفوعة دون حركة نقدية",
+            ],
             charging_credit: ["Charging credit note", "إشعار دائن للشحن"],
             subscription_invoice: ["Subscription invoice", "فاتورة اشتراك"],
             subscription_credit: [
@@ -208,9 +219,13 @@ window.mountFinancialDocuments = ({ container, api, ui, actor }) => {
                     "source_kind",
                     "Document source",
                     "مصدر المستند",
-                    "charging_invoice",
+                    sourceKind || "charging_invoice",
                     [
                         ["charging_invoice", "Charging invoice / فاتورة شحن"],
+                        [
+                            "charging_unpaid_credit",
+                            "Unpaid charging credit (no cash) / تسوية شحن غير مدفوعة دون حركة نقدية",
+                        ],
                         [
                             "charging_credit",
                             "Charging credit / إشعار دائن للشحن",
@@ -233,7 +248,12 @@ window.mountFinancialDocuments = ({ container, api, ui, actor }) => {
                         ],
                     ],
                 ],
-                ["source_id", "Source record ID", "رقم السجل الأصلي", ""],
+                [
+                    "source_id",
+                    "Source record ID",
+                    "رقم السجل الأصلي",
+                    sourceId || "",
+                ],
                 [
                     "locale",
                     "Document language",

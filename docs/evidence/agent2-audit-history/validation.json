@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-07",
+  "parent_commit": "89a0dadb9cc5c348fa810729ffec903372c8a158",
+  "scope": "Read-only paginated interrupted-start history including disabled station chargers",
+  "source_sha256": {
+    "integrations/hasone-express/ocppStartAudit.mjs": "8327b23ad3cbe0dfd79b01b2093dabe6650211bb07e6c81e06d2bb957bb8c3cb",
+    "integrations/hasone-express/adminMultiCharger.js": "47ffb75cf948658854e29d70683f9fd93b1ba4ef809e27b8fd359c7b1364dca4",
+    "integrations/hasone-express/tests/ocppStartAudit.test.mjs": "87d9136a421fd74f24f0b4478be3163adecf47f7f108e667661dbf2155f7f5a5",
+    "integrations/hasone-next-admin/OcppBookingWorkflow.tsx": "5c5fa7c185a8e95aeeb095ddc80a51bbb510a7af580555a53a5d651918500f06",
+    "tools/agent2/run_isolated_backend_demo.mjs": "c10fc01d4590e400197cd0904321b8271e38d9e5b7fd6262127da78da6dba7ef",
+    "tools/agent2/test_next_admin_multicharger_browser.mjs": "c0b10cd26f179b6da06550c4051b0c9f1887ac0ba10a08dce43a12fb5129c5cd"
+  },
+  "results": {
+    "pure_guard_tests": 87,
+    "payment_callback_http": 13,
+    "isolated_backend_ocpp_checks": 101,
+    "mocked_api_chrome_checks": 11,
+    "next_typescript": "passed",
+    "next_webpack_production_build": "passed",
+    "loopback_test_port_released": true
+  },
+  "coverage": [
+    "Equal-timestamp page boundaries",
+    "New insertions between pages",
+    "Continuation through matched-only pages",
+    "Malformed cursor/limit and unsupported query rejection",
+    "Disabled-charger incident visibility",
+    "Foreign station exclusion",
+    "No token/hash exposure",
+    "Failed page preserves loaded data and retries once",
+    "Browser appends counts and incidents and reaches end"
+  ],
+  "runs": [
+    {
+      "path": "/home/hasio/agent2-work/audit-pagination-validation-v2.log",
+      "sha256": "127ba476f89d6945cfbfb082c8c1a9b406dac257e9f9dffcabb6271b024f50ad",
+      "status": "87 guard, 13 callback and 101 backend checks passed; Admin TypeScript/build passed. Browser run then failed an over-escaped test expression for displayed counts."
+    },
+    {
+      "path": "/home/hasio/agent2-work/audit-pagination-browser-final.log",
+      "status": "Corrected only the browser assertion; independently rebuilt same Admin source and all 11 mocked-API Chrome checks passed; process exited 0.",
+      "sha256": "885fd86fa168b82371879b0142140d154ebaba122c23f18e75e4e42345bac6e3"
+    }
+  ],
+  "limitations": [
+    "Cursor is an immutable record ID, not a timestamp or transactional snapshot; refresh includes new activity.",
+    "Browser API is explicitly mocked; real backend contracts tested separately in disposable local Mongo.",
+    "No production deployment, DB migration, credential mutation, PSP settlement or physical charger command.",
+    "Hosted CI remains separately required."
+  ],
+  "production_changed": false
+}

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ChargerAdmissionController;
+use App\Http\Controllers\ChargerCertificateController;
 use App\Http\Controllers\ChargerConfigurationController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerDiagnosticsController;
@@ -26,6 +27,7 @@ Route::post('/companies/{company}/staff', [V::class, 'invite']);
 Route::get('/staff-invitations', [V::class, 'invitations']);
 Route::post('/staff-invitations/{membership}/accept', [V::class, 'accept']);
 Route::delete('/companies/{company}/staff/{membership}', [V::class, 'revoke']);
+Route::patch('/companies/{company}/staff/{membership}/permissions', [V::class, 'updateStaffPermissions']);
 Route::get('/companies/{company}/catalog-stations', [V::class, 'catalogStations']);
 Route::get('/companies/{company}/sites', [V::class, 'sites']);
 Route::post('/companies/{company}/sites', [V::class, 'createSite']);
@@ -86,3 +88,7 @@ Route::delete('/companies/{company}/chargers/{charger}/diagnostic-logs/{operatio
 Route::get('/companies/{company}/operational-analytics', [OperationalAnalyticsController::class, 'show']);
 Route::get('/companies/{company}/operational-analytics/export', [OperationalAnalyticsController::class, 'export']);
 Route::get('/companies/{company}/operational-analytics/pdf', [OperationalAnalyticsController::class, 'pdf']);
+
+Route::get('/companies/{company}/chargers/{charger}/admission/certificates', [ChargerCertificateController::class, 'index']);
+Route::post('/companies/{company}/chargers/{charger}/admission/certificates/resolve', [ChargerCertificateController::class, 'resolve']);
+Route::post('/companies/{company}/chargers/{charger}/admission/certificates/{action}', [ChargerCertificateController::class, 'apply'])->whereIn('action', ['enroll', 'revoke']);

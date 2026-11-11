@@ -41,10 +41,10 @@ class FinancialAnalytics
         $queries = [];
         $charge = fn () => $this->scope(DB::table('finance_invoices as i'), $actor, 'i.user_id', 'i.vendor_id');
         $queries[] = $this->aggregate($this->bounded($charge(), 'i.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, 'charging_invoiced', 'i.currency', 'i.minor_units', 'i.total_minor', "'issued'", 'i.evidence');
-        foreach (['finance_payments' => 'charging_collected', 'finance_refunds' => 'charging_refunded'] as $table => $category) {
+        foreach (['finance_payments' => 'charging_collected', 'finance_refunds' => 'charging_refunded', 'finance_unpaid_credits' => 'charging_unpaid_credited'] as $table => $category) {
             $q = $this->scope(DB::table($table.' as p')->join('finance_invoices as i', 'i.id', '=', 'p.invoice_id'), $actor, 'i.user_id', 'i.vendor_id');
             $queries[] = $this->aggregate($this->bounded($q, 'p.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, $category, 'i.currency', 'i.minor_units', 'p.amount_minor', "'posted'", 'p.evidence');
-            if (in_array($actor->role, ['vendor', 'admin'], true) && $table === 'finance_refunds') {
+            if (in_array($actor->role, ['vendor', 'admin'], true) && in_array($table, ['finance_refunds', 'finance_unpaid_credits'], true)) {
                 foreach (['commission_minor' => 'commission_reversed', 'vendor_minor' => 'vendor_allocation_reversed'] as $field => $allocation) {
                     $queries[] = $this->aggregate($this->bounded(clone $q, 'p.created_at', $from, $until, $currency, 'i.currency', $asOf), $period, $allocation, 'i.currency', 'i.minor_units', 'p.'.$field, "'allocated'", 'p.evidence');
                 }

@@ -230,11 +230,16 @@ class FinanceTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($base)->assertOk()->assertJsonCount(1, 'data');
         $f[0]->role = 'customer';
         $f[0]->save();
-        $this->actingAs($f[0])->getJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs')->assertNotFound();
+        // A role transition invalidates the earlier browser grant. The old
+        // session is denied before any pricing or station-scope lookup.
+        $this->actingAs($f[0])->getJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs')->assertUnauthorized();
+        $this->actingAs($f[0]->fresh())->withSession(['account_auth_epoch' => $f[0]->auth_epoch])
+            ->getJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs')->assertNotFound();
         $f[0]->role = 'vendor';
         $f[0]->save();
         $f[2]->update(['currency' => 'USD']);
-        $this->actingAs($f[0])->getJson($base)->assertOk()->assertJsonPath('data.0.minor_units', null);
+        $this->actingAs($f[0]->fresh())->withSession(['account_auth_epoch' => $f[0]->auth_epoch])
+            ->getJson($base)->assertOk()->assertJsonPath('data.0.minor_units', null);
         $this->postJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs', ['rate_minor_per_kwh' => 250, 'tax_bps' => 500, 'commission_bps' => 0])->assertConflict();
     }
 
@@ -277,5 +282,15 @@ class FinanceTest extends TestCase
         $this->app->detectEnvironment(fn () => 'production');
         $this->expectException(HttpException::class);
         app(FinanceService::class)->pay($invoice, $f[1]->id, 1, 'production');
+    }
+
+    public function test_application_only_invoice_does_not_invent_source_evidence_or_change_financial_records(): void
+    {
+        $f = $this->fixture();
+        $invoice = $this->invoice($f);
+        $response = $this->actingAs(User::findOrFail($invoice->user_id))->getJson('/api/finance/invoices/'.$invoice->id.'/source-evidence')->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('kind', 'APP_SIMULATION')->assertJsonPath('source_verified', false)->assertJsonPath('status', 'not_source_verified')->assertJsonPath('financial_records_changed', false)->assertJsonPath('physical_charging_verified', false)->assertJsonCount(0, 'proofs');
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertIsObject(json_decode($response->getContent())->proofs);
+        $this->assertDatabaseCount('finance_payments', 0);
     }
 }

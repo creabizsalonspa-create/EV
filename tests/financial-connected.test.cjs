@@ -81,6 +81,7 @@ test("post-finance operational windows preserve all suites and do not consume th
   assert.deepEqual(
     starts.map((x) => x.suite),
     [
+      "auth-bootstrap",
       "invoice-history",
       "money-input",
       "tariffs",
@@ -96,6 +97,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "ocpi-credentials",
       "ocpi-incoming",
       "ocpi-receiver",
+      "charger-certificates",
       "rider-access",
       "charger-resets",
       "charging-business",
@@ -105,6 +107,9 @@ test("post-finance operational windows preserve all suites and do not consume th
       "vehicle-reservation",
       "charging-reviews",
       "ocpi-test-invoice",
+      "ocpi-credit-picker",
+      "partner-billing",
+      "ocpi-unpaid-credit",
       "sandbox-roaming",
       "partner-favorites",
       "charger-configuration",
@@ -112,7 +117,7 @@ test("post-finance operational windows preserve all suites and do not consume th
     ],
   );
   assert.equal(starts[0].time, 61000);
-  assert.equal(starts[4].time - ends[3], 61000);
+  assert.equal(starts[5].time - ends[4], 61000);
   let offset = 0;
   for (const group of groups) {
     assert.equal(starts[offset].time - (offset ? ends[offset - 1] : 0), 61000);
@@ -154,4 +159,71 @@ test("operational adapter setup remains intact after adding the battery discover
     { script: "./scripts/configuration-read-setup", args: [] },
     { script: "./scripts/diagnostic-logs-setup", args: [] },
   ]);
+});
+
+test("a protected financial phase waits one real window in bounded pieces", async () => {
+  const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+  let clock = 0;
+  const waits = [];
+  await waitForFreshWindow({
+    now: () => clock,
+    log: () => {},
+    wait: async (ms) => {
+      assert(ms > 0 && ms <= 30000);
+      waits.push(ms);
+      clock += ms;
+    },
+  });
+  assert.equal(clock, 61000);
+  assert.deepEqual(waits, [30000, 30000, 1000]);
+});
+test("phase readiness respects elapsed time without clearing or probing server state", async () => {
+  const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+  let clock = 20000;
+  const waits = [];
+  await waitForFreshWindow({
+    completed: 0,
+    now: () => clock,
+    log: () => {},
+    wait: async (ms) => {
+      waits.push(ms);
+      clock += ms;
+    },
+  });
+  assert.deepEqual(waits, [30000, 11000]);
+  assert.equal(clock, 61000);
+});
+test("a failed rate-window wait aborts before the financial phase can run", async () => {
+  const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+  const failure = new Error("timer unavailable");
+  let writes = 0;
+  await assert.rejects(
+    async () => {
+      await waitForFreshWindow({
+        now: () => 0,
+        log: () => {},
+        wait: async () => {
+          throw failure;
+        },
+      });
+      writes++;
+    },
+    (error) => error === failure,
+  );
+  assert.equal(writes, 0);
+});
+
+test("fractional deadline crossings never schedule a zero or negative timer", async () => {
+  const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+  const readings = [0, 60999.9, 61000.5];
+  const waits = [];
+  await waitForFreshWindow({
+    now: () => readings.shift() ?? 61001,
+    log: () => {},
+    wait: async (ms) => {
+      assert(ms > 0 && ms <= 30000);
+      waits.push(ms);
+    },
+  });
+  assert.deepEqual(waits, [1]);
 });

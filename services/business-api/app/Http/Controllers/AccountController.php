@@ -60,15 +60,35 @@ class AccountController extends Controller
     {
         $v = $r->validate(['email' => 'required|email', 'token' => 'required|string', 'password' => 'required|string|min:12|max:128|confirmed']);
         $status = Password::reset($v, function (User $user, string $password) use ($r) {
-            $user->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
-            DB::table('sessions')->where('user_id', $user->id)->delete();
-            $user->tokens()->delete();
-            if ($r->user()?->id === $user->id) {
-                Auth::logout();
+            DB::transaction(function () use ($user, $password) {
+                // Password change is an authorization-epoch boundary. Deleting
+                // SQL sessions alone does not invalidate file/Redis sessions.
+                // Lock the current identity so concurrent changes cannot
+                // overwrite a newer role/moderation version.
+                $account = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $account->forceFill([
+                    'password' => Hash::make($password),
+                    'remember_token' => Str::random(60),
+                    'auth_epoch' => (int) $account->auth_epoch + 1,
+                ])->save();
+                DB::table('sessions')->where('user_id', $account->id)->delete();
+                $account->tokens()->delete();
+                // Record only the fact that a valid reset token was consumed.
+                // Never log the token, new password, browser session ID or
+                // private email address in the audit ledger.
+                DB::table('audit_events')->insert([
+                    'actor_id' => $account->id,
+                    'action' => 'account.password_reset_completed',
+                    'subject' => (string) $account->id,
+                    'created_at' => now(),
+                ]);
+            });
+            if (Auth::guard('web')->id() === $user->id) {
+                Auth::guard('web')->logout();
                 $r->session()->invalidate();
                 $r->session()->regenerateToken();
             }
-            event(new PasswordReset($user));
+            event(new PasswordReset($user->fresh()));
         });
         if ($status !== Password::PASSWORD_RESET) {
             throw ValidationException::withMessages(['token' => 'Invalid or expired reset link.']);

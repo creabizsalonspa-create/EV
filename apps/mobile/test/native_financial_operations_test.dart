@@ -77,9 +77,37 @@ class FinancialApi extends FixtureApi {
         'amount_minor': body['amount_minor'],
         'reason': body['reason'],
         'request_key': body['idempotency_key'],
+        'ocpi_credit_record_id': body['ocpi_credit_record_id'],
         'status': 'pending',
       };
     }
+    if (path == 'finance/invoices/3/source-credits')
+      return {
+        'schema_version': 1,
+        'invoice_id': 3,
+        'financial_authority': false,
+        'automatic_refund': false,
+        'data': [
+          {
+            'id': 7,
+            'external_id': 'PARTNER-CREDIT',
+            'available_for_review': true,
+            'evidence': {
+              'schema_version': 1,
+              'invoice_id': 3,
+              'credit_record_id': 7,
+              'status': 'source_reference_matched',
+              'financial_authority': false,
+              'automatic_refund': false,
+              'currency': 'AED',
+              'reported_cost': {'excl_vat': '0.25'},
+            },
+          },
+        ],
+        'current_page': 1,
+        'last_page': 1,
+        'total': 1,
+      };
     return {
       'data': path == 'financial/documents'
           ? [document]
@@ -89,6 +117,17 @@ class FinancialApi extends FixtureApi {
                 'invoice_id': 3,
                 'amount_minor': 125,
                 'reason': 'Literal <script> reason',
+                'ocpi_credit_record_id': 7,
+                'source_credit_evidence': {
+                  'schema_version': 1,
+                  'invoice_id': 3,
+                  'credit_record_id': 7,
+                  'financial_authority': false,
+                  'automatic_refund': false,
+                  'status': 'source_reference_matched',
+                  'currency': 'AED',
+                  'reported_cost': {'excl_vat': '0.25'},
+                },
                 'status': 'pending',
               },
             ],
@@ -413,8 +452,15 @@ void main() {
         find.byType(TextField).at(1),
         'Synthetic refund reason',
       );
+      await t.ensureVisible(find.text('Choose optional partner credit'));
+      await t.tap(find.text('Choose optional partner credit'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Select credit reference'));
+      await t.pumpAndSettle();
+      expect(t.widget<TextField>(find.byType(TextField).at(2)).readOnly, true);
       await confirm(t, 'Submit request');
       expect(api.posts, 1);
+      expect(api.bodies.single['ocpi_credit_record_id'], 7);
       expect(api.bodies.single['amount_minor'], 125);
       expect(store.values.length, 1);
       await t.pumpWidget(const MaterialApp(home: Text('closed')));
@@ -448,7 +494,7 @@ void main() {
       );
       await t.pumpAndSettle();
       await t.enterText(find.byType(TextField).first, '1.25');
-      await t.enterText(find.byType(TextField).last, 'Synthetic reason');
+      await t.enterText(find.byType(TextField).at(1), 'Synthetic reason');
       await confirm(t, 'Submit request');
       expect(api.posts, 0);
       expect(find.textContaining('secret-provider-field'), findsNothing);
@@ -521,4 +567,21 @@ void main() {
     await t.pumpAndSettle();
     expect(expired, 0);
   });
+  testWidgets(
+    'refund review shows source amounts as evidence without payment authority',
+    (t) async {
+      final api = FinancialApi();
+      await t.pumpWidget(
+        wrap(RefundRequestsView(api: api, onExpired: () {}, role: 'customer')),
+      );
+      await t.pumpAndSettle();
+      expect(
+        find.text('Source reference matched; this does not approve a refund.'),
+        findsOneWidget,
+      );
+      expect(find.text('Reported amount (net): 0.25 AED'), findsOneWidget);
+      expect(api.posts, 0);
+      expect(find.textContaining('secret-provider-field'), findsNothing);
+    },
+  );
 }

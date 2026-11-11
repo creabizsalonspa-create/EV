@@ -1,3 +1,9 @@
+let inboxUnreadOnly = false;
+let inboxCategory = "all";
+let inboxPreferences = null;
+let inboxPreferencesFor = null;
+let inboxPage = 1;
+let inboxGeneration = 0;
 let unconfirmedFavorite = null;
 let favoriteMode = false,
     previousCatalogQuery = "";
@@ -32,11 +38,14 @@ window.dispatchEvent(
     }),
 );
 let identityBusy = false;
+// Session cookies from an anonymous startup reply must settle before login can regenerate them.
+let identityInitializing = true;
 function setIdentityBusy(value) {
     identityBusy = value;
+    el("account").setAttribute("aria-busy", String(value || identityInitializing));
     el("account")
         .querySelectorAll("input,button")
-        .forEach((n) => (n.disabled = value));
+        .forEach((n) => (n.disabled = value || identityInitializing));
     el("logout").disabled = el("logout-retry").disabled = value;
 }
 function pendingLogout(value) {
@@ -75,13 +84,25 @@ function clearIdentity() {
     return epoch;
 }
 function clearPrivateViews() {
+    inboxUnreadOnly = false;
+    inboxCategory = "all";
+    inboxPreferences = null;
+    inboxPreferencesFor = null;
+    inboxPage = 1;
+    inboxGeneration++;
     riderWorkspace.clear();
     vendorWorkspace.clear();
+    vehicleModelCatalog.clear();
+    vehicleManualSoc.clear();
+    driverPreferences.clear();
+    stationInfo.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
     invoiceHistory.clear();
     commercialWorkspace.clear();
+    window.EvAdminOperatorRoleHistory?.clear();
     tariffWorkspace.clear();
+    window.EvAdminSessions?.clear();
     commandRequest?.abort();
     el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
@@ -166,6 +187,13 @@ function renderIdentity() {
                   : "Driver workspace"
             : "Your charging companion",
     );
+    window.EvAdminAccounts?.setActor(user, api);
+    window.EvAdminKycQueue?.setActor(user, api);
+    window.EvAdminStaffPermissions?.setActor(user, api);
+    window.EvAdminAuditTrail?.setActor(user, api);
+    window.EvPrivacyRequests?.setSelfActor(user, api);
+    window.EvPrivacyRequests?.setAdminActor(user, api);
+    window.EvAdminSessions?.setActor(user, api);
 }
 
 function node(tag, text) {
@@ -221,6 +249,12 @@ async function identity() {
         if (user && (current.id !== user.id || current.role !== user.role))
             epoch = clearIdentity();
         user = current;
+        // A validated existing account must retain immediate logout while its
+        // private panels load. Only anonymous bootstrap can race a new login.
+        if (identityInitializing) {
+            identityInitializing = false;
+            setIdentityBusy(false);
+        }
     } catch (error) {
         if (
             epoch !== client.sessionEpoch ||
@@ -231,6 +265,8 @@ async function identity() {
         if (error.status !== 401) notice(error);
     }
     renderIdentity();
+    await vehicleModelCatalog.setActor(user);
+    vehicleManualSoc.setActor(user);
     if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
     if (user) {
@@ -241,12 +277,14 @@ async function identity() {
         await support();
     }
     await vendorWorkspace.setActor(user);
+    await stationInfo.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
     await chargingReviews.setActor(user);
     await invoiceHistory.setActor(user);
     await tariffWorkspace.setActor(user);
     await commercialWorkspace.setActor(user);
+    window.EvAdminOperatorRoleHistory?.setActor(user, api);
     if (user?.role === "admin") await adminOverview();
     if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
@@ -560,6 +598,7 @@ async function stations(query = "") {
             ),
         );
         a.append(details);
+        StationInformation.attachCard(a, s);
         const feedback = document.createElement("button");
         feedback.type = "button";
         feedback.dataset.en = "Charging feedback";
@@ -1095,14 +1134,18 @@ el("region-config").onsubmit = async (e) => {
 };
 el("account").onsubmit = async (e) => {
     e.preventDefault();
-    if (identityBusy) return;
+    if (identityBusy || identityInitializing) return;
     const mode = e.submitter.value,
         values = Object.fromEntries(new FormData(e.target));
     const epoch = clearIdentity();
     setIdentityBusy(true);
     try {
         csrf = (await api("csrf")).token;
-        await api(mode, "POST", values);
+        const signedIn = await api(mode, "POST", values);
+        if (signedIn?.admin_second_factor_required === true) {
+            window.location.assign("/admin/second-factor");
+            return;
+        }
         pendingLogout(false);
         el("logout-retry").hidden = true;
         e.target.reset();
@@ -1168,11 +1211,33 @@ el("station-form").onsubmit = async (e) => {
             Object.fromEntries(new FormData(e.target)),
         );
         await stations();
+        await stationInfo.reload();
         notice("Station registered.");
     } catch (e) {
         notice(e);
     }
 };
+const vehicleModelCatalog = VehicleModelCatalog.create({
+    adminRoot: el("vehicle-model-admin"),
+    customerRoot: el("vehicle-model-customer"),
+    api,
+    actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
+const stationInfo = StationInformation.createVendorWorkspace({
+    root: el("station-information-vendor"),
+    api,
+    actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
+const vehicleManualSoc=VehicleManualSoc.create({
+    root:el("vehicle-manual-soc"),
+    api,actor:()=>user,epoch:()=>client.sessionEpoch,
+});
+const driverPreferences = VehicleDriverPreferences.create({
+    root: el("driver-preferences-editor"), api, actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),
     api,
@@ -1220,6 +1285,7 @@ const tariffWorkspace = createTariffWorkspace({
     ui,
     actor: () => user,
 });
+setIdentityBusy(false);
 (async () => {
     // Resolve the initial account once before rendering its public/private catalog.
     // A second late startup load otherwise replaces a page the visitor selected.
@@ -1229,7 +1295,10 @@ const tariffWorkspace = createTariffWorkspace({
     } else await identity();
     await stations();
     await regions();
-})().catch((e) => notice(e));
+})().catch((e) => notice(e)).finally(() => {
+    identityInitializing = false;
+    setIdentityBusy(identityBusy);
+});
 
 el("forgot-password").onsubmit = async (e) => {
     e.preventDefault();
@@ -1340,8 +1409,20 @@ async function garage() {
             preferences.onclick = () => batteryEditor(v.id, row).catch(notice);
             row.append(preferences);
         }
+        if (user?.role === "customer") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.dataset.en = "Driver charging preferences";
+            button.dataset.ar = "تفضيلات الشحن";
+            button.textContent = document.documentElement.lang === "ar"
+                ? button.dataset.ar : button.dataset.en;
+            button.onclick = () => driverPreferences.open(v);
+            row.append(button);
+        }
         el("vehicle-list").append(row);
     }
+    vehicleModelCatalog.renderGarage(j.data);
+    vehicleManualSoc.renderGarage(j.data);
     el("profile-form").elements.name.value = user.name;
     el("profile-form").elements.locale.value = user.locale;
 }
@@ -1374,7 +1455,10 @@ el("profile-form").onsubmit = async (e) => {
     }
 };
 async function support() {
+    const session = client.sessionEpoch, account = user?.id;
+    if (!account) return;
     const j = await api("support");
+    if (session !== client.sessionEpoch || account !== user?.id) return;
     el("ticket-list").replaceChildren();
     for (const t of j.data) {
         const b = ui("button", "#{id} · {subject} · {status}", {
@@ -1385,33 +1469,554 @@ async function support() {
         b.onclick = () => ticketDetail(t.id).catch((e) => notice(e));
         el("ticket-list").append(b);
     }
-    const n = await api("notifications");
-    el("notifications").replaceChildren();
+    if (inboxPreferencesFor !== account) {
+        try {
+            const prefs = await api("notifications/preferences");
+            if (session !== client.sessionEpoch || account !== user?.id) return;
+            if (prefs && ["all", "support", "vehicle", "charging", "fleet", "other"].includes(
+                prefs.default_category
+            ) && typeof prefs.default_unread_only === "boolean" &&
+                typeof prefs.remind_unresolved_simulator_faults === "boolean" &&
+                prefs.in_app_only === true &&
+                prefs.external_delivery_available === false) {
+                inboxPreferences = prefs;
+                inboxPreferencesFor = account;
+                inboxCategory = prefs.default_category;
+                inboxUnreadOnly = prefs.default_unread_only;
+                inboxPage = 1;
+            }
+        } catch (error) {
+            if (session !== client.sessionEpoch || account !== user?.id) return;
+            notice(error);
+            // Inbox remains usable even if preferences fail to load.
+        }
+    }
+    await refreshInbox();
+}
+
+async function refreshInbox() {
+    const session = client.sessionEpoch, account = user?.id;
+    const requestGeneration = ++inboxGeneration;
+    if (!account) return;
+    const notificationFilters = [
+        "page=" + inboxPage,
+        inboxUnreadOnly ? "unread_only=1" : null,
+        inboxCategory !== "all" ? "category=" + encodeURIComponent(inboxCategory) : null,
+    ].filter(Boolean).join("&");
+    const [n, inbox] = await Promise.all([
+        api("notifications" + (notificationFilters ? "?" + notificationFilters : "")),
+        api("notifications/summary"),
+    ]);
+    if (session !== client.sessionEpoch || account !== user?.id ||
+        requestGeneration !== inboxGeneration) return;
+    const view = el("notifications");
+    view.replaceChildren();
+    const refreshButton = ui("button", "Refresh notifications");
+    refreshButton.id = "notification-refresh";
+    refreshButton.type = "button";
+    refreshButton.onclick = async () => {
+        if (session !== client.sessionEpoch || account !== user?.id) return;
+        refreshButton.disabled = true;
+        try {
+            await refreshInbox();
+        } catch (error) {
+            if (session === client.sessionEpoch && account === user?.id) notice(error);
+        } finally {
+            refreshButton.disabled = false;
+        }
+    };
+    view.append(refreshButton);
+    const filterButton = ui("button", inboxUnreadOnly ? "Show all notifications" : "Show unread only");
+    filterButton.type = "button";
+    filterButton.id = "notification-unread-filter";
+    filterButton.onclick = async () => {
+        if (session !== client.sessionEpoch || account !== user?.id) return;
+        inboxUnreadOnly = !inboxUnreadOnly;
+        inboxPage = 1;
+        filterButton.disabled = true;
+        try {
+            await refreshInbox();
+        } catch (error) {
+            if (session === client.sessionEpoch && account === user?.id) notice(error);
+        } finally {
+            filterButton.disabled = false;
+        }
+    };
+    view.append(filterButton);
+    const categorySelect = document.createElement("select");
+    categorySelect.id = "notification-category";
+    EvLocale.attribute(categorySelect, "aria-label", "Notification category");
+    for (const [value, label] of [
+        ["all", "All notification categories"],
+        ["support", "Support notifications"],
+        ["vehicle", "Vehicle notifications"],
+        ["charging", "Charging notifications"],
+        ["fleet", "Fleet notifications"],
+        ["other", "Other notifications"],
+    ]) {
+        const option = ui("option", label);
+        option.value = value;
+        categorySelect.append(option);
+    }
+    categorySelect.value = inboxCategory;
+    categorySelect.onchange = async () => {
+        if (session !== client.sessionEpoch || account !== user?.id) return;
+        inboxCategory = categorySelect.value;
+        inboxPage = 1;
+        categorySelect.disabled = true;
+        try {
+            await refreshInbox();
+        } catch (error) {
+            if (session === client.sessionEpoch && account === user?.id) notice(error);
+        } finally {
+            categorySelect.disabled = false;
+        }
+    };
+    view.append(categorySelect);
+    if (inboxPreferencesFor === account && inboxPreferences) {
+        const prefs = inboxPreferences;
+        const settings = document.createElement("form");
+        settings.id = "notification-preferences";
+        settings.append(ui("h3", "Notification preferences"));
+        const defaultLabel = document.createElement("label");
+        defaultLabel.append(ui("span", "Default inbox category"));
+        const defaultCategory = document.createElement("select");
+        defaultCategory.id = "notification-default-category";
+        for (const [value, label] of [
+            ["all", "All notification categories"],
+            ["support", "Support notifications"],
+            ["vehicle", "Vehicle notifications"],
+            ["charging", "Charging notifications"],
+            ["fleet", "Fleet notifications"],
+        ]) {
+            const option = ui("option", label);
+            option.value = value;
+            defaultCategory.append(option);
+        }
+        defaultCategory.value = prefs.default_category;
+        defaultLabel.append(defaultCategory);
+        settings.append(defaultLabel);
+        const checkLabel = (id, title, enabled) => {
+            const label = document.createElement("label");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.id = id;
+            checkbox.checked = enabled;
+            label.append(checkbox, ui("span", title));
+            settings.append(label);
+            return checkbox;
+        };
+        const unreadDefault = checkLabel(
+            "notification-default-unread", "Start with unread only",
+            prefs.default_unread_only,
+        );
+        const reminders = checkLabel(
+            "notification-repeat-reminders",
+            "Repeat unresolved simulator fault reminders",
+            prefs.remind_unresolved_simulator_faults,
+        );
+        const delayLabel = document.createElement("label");
+        delayLabel.append(ui("span", "Simulated fault reminder delay"));
+        const delaySelect = document.createElement("select");
+        delaySelect.id = "notification-fault-delay";
+        for (const minutes of [15, 30, 60]) {
+            const option = ui("option", "After {minutes} minutes", { minutes });
+            option.value = String(minutes);
+            delaySelect.append(option);
+        }
+        const currentDelay = prefs.fault_reminder_delay_minutes ?? 15;
+        if (![15, 30, 60].includes(currentDelay)) {
+            throw new Error("Invalid simulator fault reminder delay");
+        }
+        delaySelect.value = String(currentDelay);
+        delayLabel.append(delaySelect);
+        settings.append(delayLabel);
+        settings.append(ui("p", "Critical in-app notifications always remain visible. External notification delivery is not active."));
+        const save = ui("button", "Save notification preferences");
+        save.id = "notification-preference-save";
+        save.type = "submit";
+        settings.append(save);
+        settings.onsubmit = async (event) => {
+            event.preventDefault();
+            if (session !== client.sessionEpoch || account !== user?.id) return;
+            save.disabled = true;
+            const desired = {
+                default_category: defaultCategory.value,
+                default_unread_only: unreadDefault.checked,
+                remind_unresolved_simulator_faults: reminders.checked,
+                fault_reminder_delay_minutes: Number(delaySelect.value),
+            };
+            try {
+                const accepted = await api("notifications/preferences", "PUT", desired);
+                if (session !== client.sessionEpoch || account !== user?.id) return;
+                if (!accepted || accepted.default_category !== desired.default_category ||
+                    accepted.default_unread_only !== desired.default_unread_only ||
+                    accepted.remind_unresolved_simulator_faults !== desired.remind_unresolved_simulator_faults ||
+                    accepted.fault_reminder_delay_minutes !== desired.fault_reminder_delay_minutes) {
+                    throw new Error("Notification preference update could not be confirmed.");
+                }
+                inboxPreferences = accepted;
+                inboxCategory = accepted.default_category;
+                inboxUnreadOnly = accepted.default_unread_only;
+                inboxPage = 1;
+                await refreshInbox();
+            } catch (error) {
+                if (session === client.sessionEpoch && account === user?.id) notice(error);
+            } finally {
+                save.disabled = false;
+            }
+        };
+        view.append(settings);
+    }
+    if (Number.isSafeInteger(inbox.unread_count) && Number.isSafeInteger(inbox.latest_id)) {
+        view.append(ui("p", "{count} unread notifications", { count: inbox.unread_count }));
+        const byCategory = inbox.unread_by_category;
+        if (byCategory && ["support", "vehicle", "charging", "fleet", "other"].every(
+            (key) => Number.isSafeInteger(byCategory[key]) && byCategory[key] >= 0
+        )) {
+            view.append(ui("p", "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}", byCategory));
+        }
+        if (inbox.unread_count > 0 && inbox.latest_id > 0) {
+            const throughId = inbox.latest_id;
+            const button = ui("button", "Mark all current notifications as read");
+            button.type = "button";
+            button.id = "notification-read-through";
+            button.onclick = async () => {
+                button.disabled = true;
+                try {
+                    await api("notifications/read-through", "POST", { through_id: throughId });
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    inboxPage = 1;
+                    await refreshInbox();
+                } catch (error) {
+                    if (session === client.sessionEpoch && account === user?.id) notice(error);
+                } finally {
+                    button.disabled = false;
+                }
+            };
+            view.append(button);
+        }
+    }
     for (const m of n.data) {
         const row = m.kind === "vehicle.battery.simulated"
             ? batteryNotification(m)
-            : ui("p", "{kind} · ticket #{id}", {
-            kind: { translate: m.kind },
-            id: m.support_ticket_id,
-        });
+            : m.kind === "charging.fault.simulated"
+                ? ui("p", "Observed simulated charger fault · station #{id}", {
+                    id: m.metadata?.station_id ?? "?",
+                })
+                : m.kind === "charging.fault.recovered.simulated"
+                    ? ui("p", "Simulator source reported recovery · station #{id}", {
+                        id: m.metadata?.station_id ?? "?",
+                    })
+                    : m.kind === "charging.fault.reminder.simulated"
+                        ? ui("p", "Unacknowledged simulated charger fault reminder · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.fault.escalated.simulated"
+                        ? ui("p", "Unresolved simulated charger fault escalated to on-call Admin · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.fault.escalation_closed.simulated"
+                        ? ui("p", m.metadata?.resolution_source === "source_recovered"
+                            ? "Simulator source fault escalation resolved · station #{id}"
+                            : "Operator acknowledged simulator fault escalation · station #{id}", {
+                                id: m.metadata?.station_id ?? "?",
+                            })
+                    : m.kind === "charging.repair.opened.simulated"
+                        ? ui("p", "Simulated charger repair opened · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.repair.work_started.simulated"
+                        ? ui("p", "Simulated charger repair work started · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.repair.reopened.simulated"
+                        ? ui("p", "Simulated charger repair reopened · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.repair.review_requested.simulated"
+                        ? ui("p", "Simulated charger repair review requested · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.repair.review_closed.simulated"
+                        ? ui("p", "Simulator source repair review closed · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                    : m.kind === "charging.operational_case.opened"
+                        ? ui("p", "Charging command requires operator recovery · station #{id}", {
+                            id: m.metadata?.station_id ?? "?",
+                        })
+                        : m.kind === "charging.operational_case.source_observed"
+                            ? ui("p", "Charging command source evidence recorded · station #{id}", {
+                                id: m.metadata?.station_id ?? "?",
+                            })
+                            : m.kind === "charging.operational_case.review_resolved"
+                                ? ui("p", "Source-based operator review closed · station #{id}", {
+                                    id: m.metadata?.station_id ?? "?",
+                                })
+                            : m.kind === "charging.monitor.requires_review.simulated"
+                                ? ui("p", "Simulator charger monitor requires review · station #{id}", {
+                                    id: m.metadata?.station_id ?? "?",
+                                })
+                        : m.kind === "charging.monitor.resumed.simulated"
+                            ? ui("p", "Simulator charger monitor caught up · station #{id}", {
+                                id: m.metadata?.station_id ?? "?",
+                            })
+                    : m.kind === "fleet.invitation"
+                        ? ui("p", "Fleet invitation · fleet #{id}", {
+                            id: m.metadata?.fleet_id ?? "?",
+                        })
+                        : m.kind === "fleet.invitation.accepted"
+                            ? ui("p", "Fleet invitation accepted · fleet #{id}", {
+                                id: m.metadata?.fleet_id ?? "?",
+                            })
+                            : m.kind === "fleet.membership.revoked"
+                                ? ui("p", "Fleet access revoked · fleet #{id}", {
+                                    id: m.metadata?.fleet_id ?? "?",
+                                })
+                                : m.kind === "fleet.invitation.withdrawn"
+                                    ? ui("p", "Fleet invitation withdrawn · fleet #{id}", {
+                                        id: m.metadata?.fleet_id ?? "?",
+                                    })
+                                : m.kind === "fleet.vehicle.assigned"
+                                    ? ui("p", "Vehicle assigned to fleet #{id}", {
+                                        id: m.metadata?.fleet_id ?? "?",
+                                    })
+                                    : m.kind === "fleet.vehicle.cost_center_changed"
+                                        ? ui("p", "Fleet vehicle cost center changed · fleet #{id}", {
+                                            id: m.metadata?.fleet_id ?? "?",
+                                        })
+                                        : (typeof m.kind === "string" &&
+                                            m.kind.startsWith("support."))
+                                            ? ui("p", "{kind} · ticket #{id}", {
+                                                kind: { translate: m.kind },
+                                                id: m.support_ticket_id,
+                                            })
+                                            : ui("p", "Other operational notification");
         if (m.kind === "vehicle.battery.simulated") {
             const discover = batteryNode("button", "Find compatible chargers", "البحث عن شواحن متوافقة");
-            discover.onclick = () => discoverBatteryVehicle(m.metadata.vehicle_id).catch(notice);
+            discover.onclick = () => {
+                if (session !== client.sessionEpoch || account !== user?.id) return;
+                discoverBatteryVehicle(m.metadata.vehicle_id).catch(notice);
+            };
             row.append(discover);
         }
-        if (!m.read_at) {
-            const b = ui("button", "Mark read");
-            b.onclick = async () => {
+
+        if (Number.isSafeInteger(m.id) && m.id > 0) {
+            row.dataset.notificationId = String(m.id);
+        }
+        if (["charging.fault.simulated", "charging.fault.recovered.simulated",
+             "charging.fault.reminder.simulated",
+             "charging.fault.escalated.simulated",
+             "charging.fault.escalation_closed.simulated"].includes(m.kind)) {
+            const meta = m.metadata;
+            if (meta?.source === "simulator" && meta?.physical_verification === false &&
+                ["company_id", "charger_id", "alert_id"].every(
+                    (key) => Number.isSafeInteger(meta[key]) && meta[key] > 0,
+                ) && ["vendor", "admin"].includes(user?.role)) {
+                const review = ui("button", "Review simulated charger fault");
+                review.type = "button";
+                review.onclick = async () => {
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    review.disabled = true;
+                    try {
+                        await vendorWorkspace.openFaultNotice(
+                            meta.company_id, meta.charger_id, meta.alert_id,
+                        );
+                        if (session !== client.sessionEpoch || account !== user?.id) return;
+                        el("vendor-operations").scrollIntoView({
+                            behavior: "smooth", block: "center",
+                        });
+                    } catch (error) {
+                        if (session === client.sessionEpoch && account === user?.id)
+                            notice(error);
+                    } finally {
+                        review.disabled = false;
+                    }
+                };
+                row.append(review);
+            }
+        }
+        if (["charging.repair.opened.simulated",
+             "charging.repair.work_started.simulated",
+             "charging.repair.reopened.simulated",
+             "charging.repair.review_requested.simulated",
+             "charging.repair.review_closed.simulated"].includes(m.kind)) {
+            const meta = m.metadata;
+            if (meta?.source === "simulator" && meta?.physical_verification === false &&
+                meta?.review_only === true &&
+                ["company_id", "charger_id", "repair_order_id", "alert_id"].every(
+                    (key) => Number.isSafeInteger(meta[key]) && meta[key] > 0,
+                ) && ["vendor", "admin"].includes(user?.role)) {
+                const review = ui("button", "Review simulated repair work orders");
+                review.type = "button";
+                review.onclick = async () => {
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    review.disabled = true;
+                    try {
+                        await vendorWorkspace.openRepairNotice(
+                            meta.company_id, meta.charger_id, meta.repair_order_id,
+                        );
+                        if (session !== client.sessionEpoch || account !== user?.id) return;
+                        el("vendor-operations").scrollIntoView({
+                            behavior: "smooth", block: "center",
+                        });
+                    } catch (error) {
+                        if (session === client.sessionEpoch && account === user?.id)
+                            notice(error);
+                    } finally {
+                        review.disabled = false;
+                    }
+                };
+                row.append(review);
+            }
+        }
+        if (["charging.monitor.requires_review.simulated",
+             "charging.monitor.resumed.simulated"].includes(m.kind)) {
+            const meta = m.metadata;
+            if (meta?.source === "simulator" && meta?.physical_verification === false &&
+                ["company_id", "charger_id"].every(
+                    (key) => Number.isSafeInteger(meta[key]) && meta[key] > 0,
+                ) && ["vendor", "admin"].includes(user?.role)) {
+                const review = ui("button", "Review simulator source monitor");
+                review.type = "button";
+                review.onclick = async () => {
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    review.disabled = true;
+                    try {
+                        await vendorWorkspace.openMonitorNotice(meta.company_id, meta.charger_id);
+                        if (session !== client.sessionEpoch || account !== user?.id) return;
+                        el("vendor-operations").scrollIntoView({
+                            behavior: "smooth", block: "center",
+                        });
+                    } catch (error) {
+                        if (session === client.sessionEpoch && account === user?.id)
+                            notice(error);
+                    } finally {
+                        review.disabled = false;
+                    }
+                };
+                row.append(review);
+            }
+        }
+        if (["charging.operational_case.opened",
+             "charging.operational_case.source_observed",
+             "charging.operational_case.review_resolved"].includes(m.kind)) {
+            const meta = m.metadata;
+            if (meta?.physical_verification === false &&
+                Number.isSafeInteger(meta.command_id) && meta.command_id > 0 &&
+                Number.isSafeInteger(meta.case_id) && meta.case_id > 0 &&
+                ["vendor", "admin"].includes(user?.role)) {
+                const review = ui("button", "Review charging recovery case");
+                review.type = "button";
+                review.onclick = async () => {
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    review.disabled = true;
+                    try {
+                        const actor = user;
+                        commandRequest?.abort();
+                        const request = new AbortController();
+                        commandRequest = request;
+                        const list = el("command-list");
+                        list.replaceChildren();
+                        const card = document.createElement("article");
+                        list.append(card);
+                        card.append(ui("h3", "Command #{id}", { id: meta.command_id }));
+                        // Reads the existing owner-authorized case endpoint.
+                        // Any subsequent review or source-inspect action needs
+                        // a separate explicit operator form/button interaction.
+                        await openOperationalCase(
+                            { id: meta.command_id }, card, actor, request.signal,
+                        );
+                        if (session !== client.sessionEpoch ||
+                            account !== user?.id || request.signal.aborted) return;
+                        el("command-history").scrollIntoView({
+                            behavior: "smooth", block: "center",
+                        });
+                    } catch (error) {
+                        if (session === client.sessionEpoch && account === user?.id)
+                            notice(error);
+                    } finally {
+                        review.disabled = false;
+                    }
+                };
+                row.append(review);
+            }
+        }
+        if (m.kind === "fleet.invitation") {
+            const review = ui("button", "Review fleet invitation");
+            review.type = "button";
+            review.onclick = async () => {
+                review.disabled = true;
                 try {
-                    await api("notifications/" + m.id + "/read", "POST");
-                    await support();
-                } catch (e) {
-                    notice(e);
+                    await fleets();
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    el("fleet-invitations").scrollIntoView({ behavior: "smooth", block: "center" });
+                } catch (error) {
+                    if (session === client.sessionEpoch && account === user?.id) notice(error);
+                } finally {
+                    review.disabled = false;
+                }
+            };
+            row.append(review);
+        }
+        if (Number.isSafeInteger(m.id) && m.id > 0) {
+            const markRead = !m.read_at;
+            const b = ui("button", markRead ? "Mark read" : "Mark unread");
+            b.type = "button";
+            b.onclick = async () => {
+                if (session !== client.sessionEpoch || account !== user?.id) return;
+                b.disabled = true;
+                try {
+                    await api("notifications/" + m.id + (markRead ? "/read" : "/unread"), "POST");
+                    if (session !== client.sessionEpoch || account !== user?.id) return;
+                    await refreshInbox();
+                } catch (error) {
+                    if (session === client.sessionEpoch && account === user?.id) notice(error);
+                } finally {
+                    b.disabled = false;
                 }
             };
             row.append(b);
         }
-        el("notifications").append(row);
+        view.append(row);
+    }
+    const pageNumber = Number(n.current_page);
+    const lastPage = Number(n.last_page);
+    if (Number.isSafeInteger(pageNumber) && pageNumber > 0 &&
+        Number.isSafeInteger(lastPage) && lastPage > 0) {
+        const pages = document.createElement("nav");
+        pages.id = "notification-pagination";
+        EvLocale.attribute(pages, "aria-label", "Notification pages");
+        const move = async (target, button) => {
+            if (session !== client.sessionEpoch || account !== user?.id) return;
+            inboxPage = target;
+            button.disabled = true;
+            try {
+                await refreshInbox();
+            } catch (error) {
+                if (session === client.sessionEpoch && account === user?.id) notice(error);
+            } finally {
+                button.disabled = false;
+            }
+        };
+        if (pageNumber > 1) {
+            const previous = ui("button", "Previous notifications");
+            previous.type = "button";
+            previous.onclick = () => move(pageNumber - 1, previous);
+            pages.append(previous);
+        }
+        pages.append(ui("span", "Notifications page {page} of {last}", {
+            page: pageNumber,
+            last: lastPage,
+        }));
+        if (pageNumber < lastPage) {
+            const next = ui("button", "Next notifications");
+            next.type = "button";
+            next.onclick = () => move(pageNumber + 1, next);
+            pages.append(next);
+        }
+        view.append(pages);
     }
 }
 async function ticketDetail(id) {
@@ -1440,13 +2045,31 @@ async function ticketDetail(id) {
             label.append(check);
             f.append(label);
         }
+        // Retain the same key across a lost acknowledgement, but generate a
+        // fresh key when the user changes the reply body or internal flag.
+        let pendingReply = null;
         f.onsubmit = async (e) => {
             e.preventDefault();
+            const payload = {
+                body: body.value,
+                internal: !!f.elements.internal?.checked,
+            };
+            const signature = JSON.stringify(payload);
+            if (!pendingReply || pendingReply.signature !== signature) {
+                pendingReply = {
+                    signature,
+                    key: crypto.randomUUID().replace(/-/g, ""),
+                };
+            }
             try {
                 await api("support/" + id + "/messages", "POST", {
-                    body: body.value,
-                    internal: !!f.elements.internal?.checked,
+                    ...payload,
+                    idempotency_key: pendingReply.key,
                 });
+                pendingReply = null;
+                // The API accepted the message. If the subsequent refresh
+                // fails, do not leave the just-sent body ready to submit again.
+                body.value = "";
                 await support();
                 await ticketDetail(id);
             } catch (e) {
@@ -1474,13 +2097,24 @@ async function ticketDetail(id) {
         );
         EvLocale.attribute(reason, "aria-label", "Reason for status change");
         f.append(select, reason, ui("button", "Update ticket status"));
+        let pendingStatus = null;
         f.onsubmit = async (e) => {
             e.preventDefault();
+            const payload = { status: select.value, reason: reason.value };
+            const signature = JSON.stringify(payload);
+            if (!pendingStatus || pendingStatus.signature !== signature) {
+                pendingStatus = {
+                    signature,
+                    key: crypto.randomUUID().replace(/-/g, ""),
+                };
+            }
             try {
                 await api("support/" + id + "/status", "PATCH", {
-                    status: select.value,
-                    reason: reason.value,
+                    ...payload,
+                    idempotency_key: pendingStatus.key,
                 });
+                pendingStatus = null;
+                reason.value = "";
                 await support();
                 await ticketDetail(id);
             } catch (e) {
@@ -1490,14 +2124,27 @@ async function ticketDetail(id) {
         d.append(f);
     }
 }
+let pendingTicketCreate = null;
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target));
+    const signature = JSON.stringify(payload);
+    if (!pendingTicketCreate || pendingTicketCreate.signature !== signature) {
+        pendingTicketCreate = {
+            signature,
+            key: crypto.randomUUID().replace(/-/g, ""),
+        };
+    }
     try {
-        const t = await api(
-            "support",
-            "POST",
-            Object.fromEntries(new FormData(e.target)),
-        );
+        const t = await api("support", "POST", {
+            ...payload,
+            idempotency_key: pendingTicketCreate.key,
+        });
+        if (!Number.isSafeInteger(t?.id) || t.id <= 0) {
+            throw new Error("Ticket creation was not confirmed");
+        }
+        pendingTicketCreate = null;
+        e.target.reset();
         await support();
         await ticketDetail(t.id);
     } catch (e) {
@@ -1634,7 +2281,12 @@ async function adminOverview() {
     scroll.setAttribute("role", "region");
     EvLocale.attribute(scroll, "aria-label", "Audit history");
     scroll.append(table);
-    container.append(metrics, tools, scroll);
+    const backupCodes = document.createElement("a");
+    backupCodes.href = "/admin/second-factor?manage=1";
+    backupCodes.textContent = "Manage authenticator backup codes / إدارة رموز الاسترداد";
+    const security = document.createElement("p");
+    security.append(backupCodes);
+    container.append(metrics, security, tools, scroll);
 }
 
 async function openOperationalCase(command, parent, actor, signal) {
@@ -1803,6 +2455,21 @@ async function commandHistory(page = 1) {
             "حالات الاسترداد غير المعالجة",
             dashboard.unresolved_case_count,
         );
+        line(
+            "Recorded simulator monitor review flags",
+            "سجلات مراقبة المحاكاة التي تتطلب مراجعة",
+            dashboard.recorded_monitor_review_count ?? 0,
+        );
+        line(
+            "Unacknowledged recorded charger fault alerts",
+            "تنبيهات أعطال الشواحن المسجلة وغير المقَرّة",
+            dashboard.unacknowledged_fault_alert_count ?? 0,
+        );
+        line(
+            "Recorded source-recovered faults still awaiting acknowledgment",
+            "أعطال سُجل تعافي مصدرها وما زالت تنتظر الإقرار",
+            dashboard.source_recovered_unacknowledged_fault_count ?? 0,
+        );
         const details = document.createElement("details");
         const summary = document.createElement("summary");
         summary.dataset.en = "Recorded command states";
@@ -1919,3 +2586,24 @@ el("sessions-refresh").onclick = async function () {
         this.disabled = false;
     }
 };
+
+
+// One bounded inbox refresh loop, registered once for the page lifetime.
+// Never acknowledge messages and never poll a hidden tab or signed-out user.
+const NOTIFICATION_REFRESH_INTERVAL_MS = 60000;
+function eligibleForInboxRefresh() {
+    return !!user && !identityBusy && !pendingLogout() &&
+        document.visibilityState === "visible" &&
+        !el("support").hidden;
+}
+function refreshVisibleInbox() {
+    if (!eligibleForInboxRefresh()) return;
+    refreshInbox().catch((error) => {
+        // Existing EvApi prevents late requests from crossing account sessions.
+        // Poll failures should not overwrite errors from an explicit action.
+        if (user && error?.name !== "SessionChangedError" &&
+            error?.status === 401) clearIdentity();
+    });
+}
+setInterval(refreshVisibleInbox, NOTIFICATION_REFRESH_INTERVAL_MS);
+document.addEventListener("visibilitychange", refreshVisibleInbox);

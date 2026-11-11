@@ -1,6 +1,95 @@
+# Agent1 continuation — 9 November 2026: partner billing workbench
+
+Current branch `development/agent1-partner-reconciliation` is stacked on PR69 exact33bbb79d21036e5dae14ab49bbd32385e4421a2f, whose14 exact-head hosted checks passed. Agent4 alone integrates. No merge, deployment or physical/payment operation performed. Fixed312 inventory unchanged.
+
+Implemented: provider-scoped paginated source-to-canonical-billing report with currency/country/party/charge-credit filters; original credit CDR linkage, authenticated source fingerprints, current invoice ownership, exact ledger collections/refunds/noncash credits/due amounts, separate refund reviews and private documents. Vendor/Admin EN/AR web and Flutter workbenches reuse canonical invoice/document workflows. No partner settlement or billing authority is granted. Uninvoiced source remains uninvoiced; provider reassignment and damaged source do not reveal previous owner invoice details. No currency totals are mixed. Private background/account fences, explicit foreground refresh, frozen pagination filters and visible uncertain native operation warnings preserve existing safeguards.
+
+Focused evidence: SQLite11/165 and PostgreSQL11/165; eight affected Flutter widgets passed before final filter snapshot refinement, followed by three final workbench widget cases; clean analysis of four changed native files. Actual isolated Laravel/synthetic CPO browser source→invoice→noncash correction→vendor report/Arabic phone/logout passed, including controlled browser visibility clearing/explicit recovery. Actual Dart HTTP report/replay/customer-denial passed. Four orchestration cases passed; PHP style and JS formatting/syntax passed. These are separate, overlapping checks, not full-suite totals or production acceptance. New browser suite uses its own unchanged login window; existing native unpaid-credit suite covers the new report without another login window.
+
+PR83 currentfa699aa fixes the hosted diagnostic-startup race by preparing local adapter flags before the existing initial61-second login wait. No assertion replay or limits bypass. It passed both PostgreSQL and image jobs; platform/native checks were still in progress at last read. This branch preserves the identical preparation fix so its connected CI does not repeat the known startup race. Require all exact-head platform/browser/PostgreSQL/Android/iOS gates and combined-source regression before integration; update Agent4 with the pushed SHA.
+
+Next: resolve genuine hosted failures, then continue remaining source-backed charging/authorized OCPI and partner billing/settlement requirements with one canonical authority. Actual partner settlement execution, production charger/certificate authority, external merchant/partner/hardware/legal/store acceptance remain incomplete; this read-only workbench does not complete those broader atoms.
+
+---
+
+
+# Agent 4 PR85 source reconciliation
+
+These source notes describe review-only workbench integration, not live partner settlement or production acceptance.
+
+
+# Agent 4 — PR85 reconciled with latest OCPI source-credit parent
+
+Private source-to-ledger reporting remains advisory only. Parent and feature histories are preserved without granting payment or partner settlement authority.
+
+# Agent 1 checkpoint — 8 November 2026: connected unpaid OCPI TEST credits
+
+Active source: local `development/agent1-credit-completion`, pushed to existing PR69 `development/ocpi-credit-refund-link`. Continue this head; do not recreate modules or reset databases. Agent4 owns integration and coverage. Parent order remains #59 → #61 → #63 → #69; settlement trigger repair #82 is an integration prerequisite; source/rider operations #83 is independent. Fixed312 inventory unchanged.
+
+Implemented: explicit vendor/Admin full noncash correction of untouched unpaid canonical OCPI TEST invoices, authenticated raw source/full-value matching, immutable balanced reversal using the original ledger, actor/invoice/price-bound request replay and cancellation tombstones, private documents and reporting, EN/AR web and Flutter selection/recovery. Original invoices and source receipts remain unchanged. Any payment, checkout, refund review, claim, statement, settlement or reward history blocks this operation. No cash payment/refund is created; later collection and corporate claims are blocked. Partial credits, previously attempted invoices and live/provider billing remain outside this capability. Oversized payment webhooks are rejected before signature work, retaining strict signature/time checks.
+
+Local evidence: selected affected SQLite group89/1254; unpaid feature8/200 before final extra delete assertions, followed by changed immutable update/delete case1/56 on both SQLite and PostgreSQL; affected PostgreSQL35/732 plus four actual concurrent races120 assertions. Flutter24 affected widgets, then five invoice/unpaid widgets, focused analysis clean. Actual isolated Laravel browser unpaid lost-response/reload resolution and actual native HTTP consent/replay/private history passed; existing paid credit/refund browser regression also passed. Arabic private PDF/CSV lineage passed. PHP style17 changed files and new JS formatting passed. These are overlapping focused runs, not a combined test count or physical/merchant acceptance.
+
+Mandatory exact-head hosted platform, financial PostgreSQL, connector PostgreSQL, browser, Android and iOS gates remain required before integration; last prior head had all14 checks queued. No merge/deploy was performed. Live Hasone/physical charger configuration untouched. Agent4 alone integrates validated heads. Agent9 firmware token route correction is in PR83; webhook size fix is in this PR69 chain.
+
+Next: hand this exact pushed source to Agent4, resolve genuine hosted failures, then continue independently implementable core charging/authorized OCPI backend requirements in coordination with other agents. No repeated full inventory audit, no competing charging or money authority. Live hardware, partner, merchant, legal and signed store acceptance remain external.
+
+---
+
+
+# Agent 4 PR69 parent integration reconciliation
+
+Earlier handoffs remain historical; the new source and payment requirements must pass exact-head CI before deployment.
+
+
+# Agent 4 — PR69 refreshed source-credit dependency
+
+Noncash TEST invoice corrections and credit links are source-scoped, not merchant refund authorization. Current parent notes are retained.
+
+SOURCE_PROVENANCE_BATCH: development/charging-invoice-provenance is stacked on PR59 d801cae. Adds private read-only canonical invoice source-evidence across Laravel, web and Flutter: OCPP1.6/2.0.1 applied start/final meter receipts versus stopped session/invoice, and OCPI encrypted consent/source-session/CDR hashes. Application-only invoices never become source verified; missing/damaged receipts require review. All current proof remains simulated, grants no command/payment/physical authority and returns no raw secrets. Owner/customer/vendor/Admin privacy, unknown contracts, background/late-response guards preserved. No schema/data/live-server changes in this batch.
+SOURCE_PROVENANCE_EVIDENCE: /tmp/ev-charge-provenance-php.log34/531 focused SQLite; /tmp/ev-charge-provenance-pg.log34/526 focused PostgreSQL; final empty-proof-object contract4/173;5 affected widgets and clean analysis. Actual synthetic CPO -> canonical invoice -> explicit web source-evidence -> Arabic/no-overflow/logout privacy passed in ev-charge-provenance-browser.log. Pint/syntax checks pass. Android/iOS exact-head mandatory CI pending; Agent4 owns final integration/release validation. No full project/physical/production acceptance claim. PR59 remains standalone source invoice workflow, do not recreate it.
+NEXT_EXACT_ACTION: Commit/push provenance batch and deliver stacked PR to Agent4; preserve PR53/56/59 and other agent branches. Required hosted gates before integration. Continue remaining Agent1 core source-authorized OCPI/charging/billing requirements, keeping approved production partner/payment/hardware acceptance separate. Latest local APK remains3b4a4a8 vehicle batch at /workspace/EV/artifacts/delivery/vehicle-reservation-current and does not include this new OCPI/provenance branch.
+
+
+# Agent 4 PR61 integration handoff — source evidence merged with updated parent
+
+Historic notes retained; source-backed mock invoices remain subject to final acceptance.
+
+
+# Agent 4 — PR61 reconciled with latest integration
+
+Historical source notes retained. This is simulated charging evidence; no physical charging, merchant acceptance or deployment implied.
+
+# Agent 4 — PR52 updated integration handoff
+
+The source-qualified HAS.ONE status branch remains subject to exact-head platform/native verification and backend PR50 acceptance. No deployment is inferred.
+
+# Agent 4 conflict reconciliation — PR52 (10 November 2026)
+
+The following PR52 handoff is preserved as historical source context. It does not establish backend PR50 deployment or production charging acceptance; exact-head HAS.ONE validation remains required.
+
+PR52_RECONCILED: Merged current integration d256803 (PR47 vendor feedback and PR51 source/mock-payment/loyalty tool) into this candidate. The only conflict was continuation text; both source/checkpoint histories are retained below. Hasone native source stays identical to tested8606c42. PR51 and47 are merged; PR52 updated merge commit needs current mandatory validation before merge. PR53 battery discovery and its stacked vehicle-booking follow-up remain pending. No live deployment or environment publication. Historical pending notes below are superseded by this paragraph.
+
+NEXT_SOURCE_BATCH_HASONE_STATUS: Current branchdevelopment/hasone-source-status starts at merged primary7e1b225 (does not inherit pending PR51). Reused customer charging screen now rejects legacy estimated telemetry, requires Agent2 staged source/protocol/consistent Wh-kWh proof, renders unknown battery/ETA, fences late/background polling, disables all controls regardless server flags, blocks extension writes and removes failed-stop fake-success navigation. Network boundary rejects stale per-request Authorization including case variants. Focused10 transport/source/widget tests passed; analysis has0errors/0warnings and18 inherited style infos. Evidence in/tmp/hasone-source-tests.log and/tmp/hasone-source-analysis.log. Push as a coherent candidate and require Android/iOS/mandatory CI before merge. UI unknown-status row overflow caught by the first widget run and fixed with Flexible. Tests retain initial99% fixture to verify it is never shown, as well as late paused response and unsupported meter facts. New delivery candidate requires its own Android/iOS CI and actual authenticated backend validation; no live code/deployment touched. PR51 sourceac60df3 is pushed/draft, mandatory platform CI queued; obsolete platform runs foracb23a2/05ba232 cancelled, unchanged native/financial05ba232 runs retained. PR47 failed lifecycle retry queued; do not merge until green. Owner's next resumes this exact work, then completes primary review/vendor-feedback and other connected scenarios. Primary bundle9839c1f remains the current verified packaged source/native tree; no false full-completion claim.
+# Agent1 checkpoint — 10 November 2026: managed charger certificates
+
+Current source: `development/agent1-charger-certificate-lifecycle`, stacked on PR83 fa699aaba8a9ee6d30382209a540ed275c36f81e (all10 advertised hosted checks passed). PR85 resource defect fixed at9b0a9d74d1a4a6913ffc72df5a25881373f39599; all10 exact-head checks passed. PR69 remains33bbb79 with14 successful checks, #82 remainsbb5e63b. Agent4 alone integrates; fixed312 inventory unchanged. No merge/deploy/environment publishing.
+
+Implemented: server-pinned direct-issuer public TLS client certificate enrollment/renewal/local revocation, strict immutable charger identity, strong key/signature/current X.509 client-purpose/issuer constraints, bounded PEM input with no private-key intake, immutable encrypted certificate/action history and serial/fingerprint uniqueness. Company/actor/profile locks, exact request replay and cancelled-intent tombstones protect unknown outcomes. Enrollment changes the certificate pin, disables/invalidates handshake credentials and requires a separate explicit credential rotation; credential expiry is capped by certificate expiry. Expired/revoked/untrusted managed certificates fail admission and cannot be re-enabled through credential rotation or legacy pin preparation. Existing un-managed admission behavior and all command/billing guards are preserved. Management defaults disabled. Gateway policy rechecks may disconnect transport; no installation, charging-stop or other OCPP command is sent, and local revocation does not publish CRL/OCSP.
+
+Connected owner/Admin web + Flutter controls include EN/AR, public metadata/history, explicit consent, frozen retry, reload/resolve/cancel, private background/account fencing and encrypted durable native intent. Browser storage contains only request identity/action. Read-only inventory staff cannot enroll/revoke. Existing one-time secret flow remains separate. Manufacturer CA/intermediate-chain/issuance, production deployment and physical acceptance are not claimed.
+
+Local evidence: SQLite27/432 focused certificate/admission cases plus final staff/Admin1/11; PostgreSQL27/432 and five actual independent process races81 assertions; nine affected widgets then final four certificate widget cases; four-file native analysis clean. Actual isolated browser enrollment→committed lost reply→reload resolution→EN/AR phone/logout and actual local TLS/mTLS gateway + signed Laravel admission on both protocol routes passed; revocation closes the synthetic transport at recheck. Actual Dart HTTP both-protocol lifecycle/replay/resolution/customer denial passed. All connected proofs assert zero charger commands and zero invoices. Dedicated owned databases/PKI are cleaned up; normal databases/.env and live Hasone untouched. PHP style, JS formatting, localization resources and four scheduler checks passed. These are separate overlapping focused runs, not aggregate/full acceptance counts.
+
+CI: new browser and native HTTP proofs are registered in dedicated unchanged authentication windows; connector PostgreSQL includes new feature/race classes; native path filters include the new fixture sources. Require all new exact-head hosted and combined-source checks before integration. Parent #83 first; preserve PR85 locale/navigation and all other agents' additions on shared source reconciliation. Next: fix genuine hosted failures, then continue remaining authoritative charger registration/CA/model operations and authorized OCPI/billing requirements. Live manufacturer CA, hardware, partner/merchant/legal/store acceptance remain incomplete and separate from local software proof.
+
+---
+
 # Agent1 hosted continuation — 9 November 2026
 
 PR69 exact33bbb79 passed all14 hosted checks, including Android/iOS, both PostgreSQL jobs, financial browser, staging image and business platform. Agent4 integration remains required; no merge/deploy. PR83 b59caf4 passed native/PostgreSQL/image gates but both platform jobs failed at diagnostic-files initial fetch; raw job128714494008 shows `.env`-triggered Laravel development-server restart. Current fix prepares configuration-read and diagnostic-upload local flags before the already-required initial61-second authentication window, so per-suite idempotent setup no longer starts a server restart just before login. No assertions/transport writes are retried and no limits/guards are weakened. Four orchestration/preparation cases passed; full diagnostic/Citrine browser and exact-new-head hosted CI remain required. Continue actual OCPI partner review/reconciliation implementation while CI runs.
+
+# Integration-preserved source checkpoints
 
 # Agent 1 checkpoint — 8 November 2026
 
@@ -55,6 +144,15 @@ OCPI_RESUMED: development/ocpi-test-invoice-lineage now reconciles integrated ma
 LOCAL_EVIDENCE_RESUMED: /tmp/ev-ocpi-resumed-focused.log24/476 SQLite invoice/sandbox/topology; /tmp/ev-ocpi-lineage-pg-focused.log final15/336 PostgreSQL +3/88 real races;7 affected Flutter widgets and clean analysis; actual authenticated synthetic CPO/web consent/lost response/Arabic/privacy and actual Flutter HTTP canonical ledger/history pass. Logs ev-ocpi-resumed-browser.log and ev-ocpi-resumed-native-http.log. Disposable review DB/worktree independent from main demo; no live server/physical hardware/payment operations. Unchanged312 inventory remains Agent4 responsibility, no completion claim.
 HANDOFF_OTHER_PRS: PR51 merged d256803; PR47 merged. PR52c98d171/PR53.6887516 pending hosted checks. PR56 source3b4a4a8 (stacked53) owned vehicle booking workflow pushed; new local APK signature/ZIP verified, exact source archive and manifest at /workspace/EV/artifacts/delivery/vehicle-reservation-current. That APK includes merged main47/51 plus53/56, excludes new unmerged OCPI invoice branch and reference52. iOS exact-head update pending hosted macOS. Agent4 to integrate validated parents then retarget56; no force push.
 NEXT_EXACT_ACTION: Final local focused PG migration/race/Pint/syntax checks passed; commit/push OCPI source workflow and create coherent PR to Agent4. Hosted mandatory platform/native/finance/connector/image gates required before integration. Then continue remaining assigned core partner/source/billing requirements, preserving test-only/live acceptance boundaries and existing journals61/62 requiring operator review. Do not replay old financial/source demo or recalculate full requirements.
+
+---
+
+# Historical Hasone source checkpoint
+
+PR52_RECONCILED: Merged current integration d256803 (PR47 vendor feedback and PR51 source/mock-payment/loyalty tool) into this candidate. The only conflict was continuation text; both source/checkpoint histories are retained below. Hasone native source stays identical to tested8606c42. PR51 and47 are merged; PR52 updated merge commit needs current mandatory validation before merge. PR53 battery discovery and its stacked vehicle-booking follow-up remain pending. No live deployment or environment publication. Historical pending notes below are superseded by this paragraph.
+
+NEXT_SOURCE_BATCH_HASONE_STATUS: Current branchdevelopment/hasone-source-status starts at merged primary7e1b225 (does not inherit pending PR51). Reused customer charging screen now rejects legacy estimated telemetry, requires Agent2 staged source/protocol/consistent Wh-kWh proof, renders unknown battery/ETA, fences late/background polling, disables all controls regardless server flags, blocks extension writes and removes failed-stop fake-success navigation. Network boundary rejects stale per-request Authorization including case variants. Focused10 transport/source/widget tests passed; analysis has0errors/0warnings and18 inherited style infos. Evidence in/tmp/hasone-source-tests.log and/tmp/hasone-source-analysis.log. Push as a coherent candidate and require Android/iOS/mandatory CI before merge. UI unknown-status row overflow caught by the first widget run and fixed with Flexible. Tests retain initial99% fixture to verify it is never shown, as well as late paused response and unsupported meter facts. New delivery candidate requires its own Android/iOS CI and actual authenticated backend validation; no live code/deployment touched. PR51 sourceac60df3 is pushed/draft, mandatory platform CI queued; obsolete platform runs foracb23a2/05ba232 cancelled, unchanged native/financial05ba232 runs retained. PR47 failed lifecycle retry queued; do not merge until green. Owner's next resumes this exact work, then completes primary review/vendor-feedback and other connected scenarios. Primary bundle9839c1f remains the current verified packaged source/native tree; no false full-completion claim.
+
 
 LATEST_7NOV_DUBAI_CONTINUATION: PR46 merged7e1b225e5add58da8a87e64d52292b76c5e99af5 after all checks green; PR48/49 remain merged. Connected business PR51 (development/connected-demo-delivery) source05ba232 includes merged46; guard follow-up requires commit/push. Actual existing completed sessions165/166 passed newly merged review creation/moderation/anonymous publication/withdrawal without source/payment replay. Owned4664ae40 simulators stopped, journals retained. Resume command explicitly verified invoice157 returned same canonical payment/award successfully. PR47 retargeted integration using REST after gh pr edit hit deprecated projectCards API; one failed original run42328390773 reached POST review session149 HTTP500 after otherwise completed RFID source operations. Retained /tmp/ev-pr47-business.log and/operational.zip. Same source's duplicate run passed; local reuse proof passed. Failed job retried only, run now queued/running; no safety/assertion weakened, no claimed root-cause fix. Do not merge until green. PR50 Agent2 branchdevelopment/agent2-live-demo-readiness at3b55b3a5 is isolated Hasone Express/Admin integration work, draft/CI queued, live not deployed; preserve its work and authoritative Laravel ledger boundary. Do not overwrite or import/deploy it blindly. PR51 newer native/platform/finance runs queued (runner availability), do independent work rather than broad retries. No environment configuration reapplication/publishing and no live server changes. Full five-scenario delivery remains unfinished; primary packaged9839c1f native/source does not include newly merged46 yet.
 

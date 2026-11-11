@@ -1,3 +1,84 @@
+# 12 November 2026, 01:25 Dubai — preserve immediate logout; corrected current-source revalidation required
+
+Hosted jobs130791415972/130791656495 on88e37ad/1fb724f exposed a regression
+in the initial cookie-race fix: the existing held-private-response test could not log out.
+Logout remains immediate; a validated existing identity now releases the anonymous-only
+startup account gate before private panels finish. The full original web-session client
+and browser assertions pass unchanged, including account replacement, role downgrade,
+late401/unreadable identity, failed logout/reload/retry and Arabic errors. Both actual
+delayed anonymous-cookie and initial-outage login/logout cases also pass on isolated
+HTTP8010. No timeout, session epoch, privacy assertion, production limit or auth gate
+was removed. Previous failed sources are not eligible to merge; rerun every exact-source
+gate before PR84 then PR60 integration. See the appended auth-bootstrap JSON evidence.
+
+# 12 November 2026, 01:10 Dubai — startup cookie race repaired; integration still gated
+
+The broader local operational run passed canonical charging, continuous consumers/restart,
+both OCPP protocols, ingress/certificate revocation, OCPI reception and remote/RFID source
+meter/stop/invoice proofs. Its second vendor-report browser found an intermittent startup
+failure. A controlled actual anonymous-response delay reproduced HTTP200 login followed
+by HTTP401 identity: a late guest Set-Cookie overwrote the regenerated session cookie.
+Account submission is now disabled and guarded until initial bootstrap settles, including
+failure cleanup; retained epoch checks, roles and production limits are unchanged. The new
+`tests/auth-bootstrap.cjs` passes delayed-response and initial-outage cases with real login,
+identity and logout, no successful-login mock or charging replay. Scheduler nine tests pass.
+Evidence: `docs/evidence/payout-integration-repair/auth-bootstrap.json`.
+
+The original full operational command stopped at that failure; it is not reported as a full
+pass. Its remaining phases must run, and the repaired full lifecycle must be reverified.
+PR84 must still pass every current-source hosted gate before normal merge, then PR60.
+GitHub currently allocates no jobs to either candidate; permission inspection returns403.
+Do not infer quota/billing, skip gates, force merge, or claim production acceptance.
+Original42/312 inventory and weighted stage credits remain unchanged.
+
+# Payout integration repair — 12 November 2026 (Dubai)
+
+Both current PR84 source0953524 and PR60 source79a8472 failed at the commercial payout locator; PR60's scheduler inventory correction passed. Reproduced against the exact PR84 application in a fresh disposable SQLite/Docker loopback instance without altering retained local ledgers. Approval can commit successfully while the unchanged60/min protected-read budget makes the subsequent workspace reload return429; the original test then waits for a missing payout button. Retained history also exposed an ambiguous global payout selector.
+
+The repaired browser scenario verifies the actual protected limiter, waits a fresh61s bounded window before settlement writes, and scopes approval/payout to its actual created receipt. It now asserts pending→approved→simulated_paid, owning vendor/receipt identity, one audit for each transition, balanced reconciliation, simulation-only evidence and unchanged visible historical settlement states. Existing checkout/refund/subscription/dispute/CSV/RTL/privacy assertions remain; no financial rule, timeout, production limiter or authorization was weakened. Fractional timer crossings are covered without negative delays.
+
+Verified: complete commercial browser passes against both retained and disposable databases;130 affected backend tests/6303 assertions;9 scheduler tests. Evidence: docs/evidence/payout-integration-repair/local-checkpoint.json. New exact-source full CI remains the merge gate. Next: publish the coherent repair on existing PR84, safely merge its ancestry into PR60 (preserving privacy suites), obtain all mandatory checks, then normal PR84→PR60 integration and ancestry-based backlog closure. Original42/312 coverage remains unchanged until verified integration. No live funds, chargers, partner acceptance or production deployment was performed.
+
+# Single-agent execution checkpoint — 11 November 2026
+
+Verified remote integration remains `b4224ddc11a0921c2e522277657888fd3025ace4` (PR89); PR90 and PR64 are integrated, and historical PR2/3 were closed only after complete ancestry proof. No new feature branch or force push was used. PR84 preserves all reviewed branch histories and canonical `apps/mobile`; its final source contains the security-compatible fixture repairs, verified-identity invitation UI guard, atomic audited-role retry and protected remote-credential rollback repair. It remains unmerged until every exact-source hosted check succeeds. PR60 preserves its history and implements canonical web/native encrypted privacy requests, safe receipts/withdrawal, independent review history and protected legacy import; it explicitly depends on PR84.
+
+Local consolidated candidate:928 Laravel/19099 assertions. Privacy/security branch:936 Laravel/19185,394 Flutter passes/30 explicit fixture-dependent skips, clean analysis, PostgreSQL182/2199 plus25 actual races/351, seven privacy widgets and actual-Laravel native privacy integration; actual customer/Admin privacy and complete customer/vendor/Admin/browser/KYC/staff/inventory flows passed. Four new invitation-state tests and the unchanged real favorites browser pass; frontend/localization suites pass. All original production throttles, token/mailbox checks and security assertions remain.
+
+Earlier exact PR84 source `6e91950` passed Android, iOS simulator UI, both Hasone builds, finance browser/PostgreSQL, connector PostgreSQL, image and CSMS recovery; its late operational job failed because the customer workspace fetched staff invitations before verified email and polluted the global notice. The final source fixes that real UI regression. The separately exposed SQLite operator conflict is repaired with bounded retries only after confirmed transaction rollback, tested after actual audit insertion; exhausted retries preserve credentials/role. Empty credential rollback drops unique indexes before columns and still refuses retained history. Earlier failed/superseded checks are retained; prior-source green builds are not current-source merge acceptance.
+
+The entire original42-category/312-atom tracker is refreshed without changing denominators. Weighted coded55.76%, tested53.70%, merged53.70%, production accepted0.00%. Six garage/station/Admin-TOTP atoms and the privacy-request atom receive coded credit at explicit candidate source snapshots; pending hosted candidates receive no tested/merged credit. Automated deletion/export, customer2FA, production OCPP/OCPI completion, remaining commercial/native/Admin/international parity and signed/device/store acceptance remain unfinished.
+
+Exact next executable work: finish current-source PR84 and PR60 validation; fix any further integration failures without weakening tests; merge PR84 normally only after all required PR-event checks pass, then integrate/retest/merge PR60; close or retarget fully incorporated stacked backlog PRs with ancestry proof. Refresh tested/merged tracker evidence only after actual verified merges. Continue the original uncredited software afterward. Local customer demo is loopback8000 with real Laravel and synthetic charging; no public staging target/credentials or physical/live PSP/partner/store acceptance is available.
+
+Historical records below retain their original context and are superseded by this checkpoint.
+
+# Single-owner verified integration — 11 November 2026, 17:46 UTC
+
+Main is `b4224ddc11a0921c2e522277657888fd3025ace4`: PR89 merged after
+seven exact-source PR-event gates passed; its tree matches source806a1bb.
+GitHub also marked PR64 merged through that verified integration, retaining
+the earlier failed vehicle-browser run as history. PR90 was merged earlier.
+Historical PR2/3 were closed only after proving complete source ancestry.
+Twenty PRs remain open. No branch was force-pushed or deleted.
+
+Existing PR84 now preserves its unique changes plus all20 reviewed source
+heads (manifest: docs/integration/pr84-consolidation.json), except duplicated
+PR60 privacy intake. The latter remains intact and must be adapted to one
+canonical AccountPrivacy workflow; its separate Admin API collides with the
+existing one. Candidate is UNMERGED pending exact-head hosted verification.
+Combined local evidence:924 Laravel/19069 assertions,387 Flutter passes with
+29 explicit live-fixture skips, clean analysis, three-role browser journey,
+frontend contracts,389 offline staging tests/21 evidence tests,101 recovery
+negative/policy tests,162 PostgreSQL connector tests/1994 assertions and22
+actual concurrency tests/316 assertions. No physical/live/payment acceptance.
+
+Verified staging packaging atom9.1.12 now cites PR89's real source/merge gates;
+fixed42/312 coverage is regenerated. Full original scope remains incomplete.
+Next: run the consolidated candidate's hosted matrices, fix any real failure,
+merge only that verified source, then close incorporated PRs by ancestry and
+complete canonical privacy/native delivery and remaining original atoms.
+
 # Single-owner integration execution — 11 November 2026
 
 The latest uploaded owner directive restores **one completion agent for the

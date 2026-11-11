@@ -4,6 +4,8 @@ const { execFileSync } = require("node:child_process");
 const { randomBytes } = require("node:crypto");
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+const { waitForFreshWindow } = require("./helpers/auth-batches.cjs");
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 (async () => {
   const base = process.env.EV_TEST_URL || "http://127.0.0.1:8000";
   assert(["127.0.0.1", "localhost"].includes(new URL(base).hostname));
@@ -25,16 +27,14 @@ const assert = require("node:assert/strict");
       const context = await browser.newContext();
       const p = await context.newPage();
       p.on("pageerror", (e) => errors.push(e.message));
-      p.on("response", async (response) => {
-        if (
-          response.url().includes("/commercial/") &&
-          response.request().method() !== "GET" &&
-          response.status() >= 400
-        )
+      p.on("response", (response) => {
+        const pathname = new URL(response.url()).pathname;
+        if (pathname.startsWith("/api/commercial/") && response.status() >= 400)
           console.error(
+            "Commercial QA response",
+            response.request().method(),
+            pathname,
             response.status(),
-            response.url(),
-            await response.text(),
           );
       });
       p.setDefaultTimeout(15000);
@@ -215,6 +215,54 @@ const assert = require("node:assert/strict");
         () => !document.querySelector("#commercial-finance").inert,
       );
     }
+    // Deliberately prove the real protected-read limiter before crossing into
+    // the settlement phase. No financial write is sent during exhaustion.
+    await admin.waitForFunction(
+      () => !document.querySelector("#commercial-finance").inert,
+    );
+    let limited = false;
+    for (let attempt = 0; attempt < 61; attempt++) {
+      const response = await admin.request.get(
+        base + "/api/commercial/settlements",
+        {
+          headers: { Accept: "application/json" },
+        },
+      );
+      if (response.status() === 429) {
+        const retry = Number(response.headers()["retry-after"]);
+        assert(Number.isFinite(retry) && retry >= 0 && retry <= 60);
+        limited = true;
+        break;
+      }
+      assert.equal(
+        response.status(),
+        200,
+        "Only successful authorized reads may prepare the budget boundary",
+      );
+    }
+    assert(
+      limited,
+      "The production protected-read budget must remain enforced",
+    );
+    console.log(
+      "PASS enforced protected-read 429 boundary; no financial write was retried or limiter cleared.",
+    );
+    await waitForFreshWindow({ wait });
+    const fresh = await admin.request.get(
+      base + "/api/commercial/settlements",
+      {
+        headers: { Accept: "application/json" },
+      },
+    );
+    assert.equal(
+      fresh.status(),
+      200,
+      "A fresh window must restore normal reads without clearing the limiter",
+    );
+    const prior = (await fresh.json()).data.map(({ id, state }) => ({
+      id,
+      state,
+    }));
     await statement();
     const schedule = rootAdmin.locator("form").filter({
       has: admin.getByRole("button", {
@@ -226,26 +274,95 @@ const assert = require("node:assert/strict");
       .getByRole("button", { name: "Save settlement schedule", exact: true })
       .click();
     await statement();
+    const createdResponse = admin.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname ===
+          `/api/commercial/vendors/${vendorId}/settlements` &&
+        r.request().method() === "POST",
+    );
     await rootAdmin
       .getByRole("button", { name: "Request test settlement", exact: true })
       .click();
-    await rootAdmin
+    const created = await createdResponse;
+    assert.equal(created.status(), 201);
+    const settlement = await created.json();
+    assert.equal(settlement.vendor_id, vendorId);
+    assert.equal(settlement.state, "pending");
+    const row = () =>
+      rootAdmin.locator(".finance-row").filter({
+        has: admin.getByRole("heading", {
+          name: settlement.number,
+          exact: true,
+        }),
+      });
+    const approvalResponse = admin.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname ===
+          `/api/commercial/settlements/${settlement.id}/approve` &&
+        r.request().method() === "POST",
+    );
+    await row()
       .getByRole("button", { name: "Approve settlement", exact: true })
       .click();
-    await rootAdmin
+    const approved = await approvalResponse;
+    assert.equal(approved.status(), 200);
+    assert.equal((await approved.json()).state, "approved");
+    const payoutResponse = admin.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname ===
+          `/api/commercial/settlements/${settlement.id}/simulate-payout` &&
+        r.request().method() === "POST",
+    );
+    await row()
       .getByRole("button", { name: "Record test payout", exact: true })
       .click();
-    await rootAdmin
-      .getByText(/SIM-SET-/)
-      .last()
+    const paid = await payoutResponse;
+    assert.equal(paid.status(), 200);
+    const paidReceipt = await paid.json();
+    assert.equal(paidReceipt.id, settlement.id);
+    assert.equal(paidReceipt.state, "simulated_paid");
+    await row()
+      .getByText(/simulated_paid/)
       .waitFor();
+    const detail = await admin.request.get(
+      base + `/api/commercial/settlements/${settlement.id}`,
+      {
+        headers: { Accept: "application/json" },
+      },
+    );
+    assert.equal(detail.status(), 200);
+    const reconciled = await detail.json();
+    assert.equal(reconciled.reconciled, true);
+    assert.equal(reconciled.real_payout_enabled, false);
+    for (const action of ["drafted", "approve", "simulate-payout"])
+      assert.equal(
+        reconciled.events.filter((e) => e.action === action).length,
+        1,
+        "Each scoped financial transition must record one audit event",
+      );
+    const after = await admin.request.get(
+      base + "/api/commercial/settlements",
+      {
+        headers: { Accept: "application/json" },
+      },
+    );
+    assert.equal(after.status(), 200);
+    const afterRows = (await after.json()).data;
+    for (const original of prior) {
+      const current = afterRows.find((s) => s.id === original.id);
+      if (current)
+        assert.equal(
+          current.state,
+          original.state,
+          "This test must not mutate another settlement",
+        );
+    }
     await admin.waitForFunction(
       () => !document.querySelector("#commercial-finance").inert,
     );
     // Settlement/review refreshes consume this Admin's unchanged60/min budget.
     // Start the subscription-credit phase in a fresh window; never replay a refund.
-    for (const delay of [30000, 31000])
-      await new Promise((resolve) => setTimeout(resolve, delay));
+    await waitForFreshWindow({ wait });
     const subAdmin = rootAdmin.locator(
       `[data-subscription-id="${subscriptionId}"]`,
     );

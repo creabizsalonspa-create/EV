@@ -6,7 +6,7 @@ import 'strings.dart';
 class ChargerRepairsView extends StatefulWidget {
   final EvApi api;
   final int companyId, chargerId;
-  final int? initialAlertId;
+  final int? initialAlertId, initialOrderId;
   final VoidCallback onExpired;
   const ChargerRepairsView({
     super.key,
@@ -15,6 +15,7 @@ class ChargerRepairsView extends StatefulWidget {
     required this.chargerId,
     required this.onExpired,
     this.initialAlertId,
+    this.initialOrderId,
   });
   @override
   State<ChargerRepairsView> createState() => _RepairsState();
@@ -25,6 +26,7 @@ class _RepairsState extends State<ChargerRepairsView> {
   Object? error;
   bool busy = false;
   int generation = 0, page = 1;
+  bool initialFocusPending = true;
   final alert = TextEditingController();
   String get path =>
       'vendor-ops/companies/${widget.companyId}/chargers/${widget.chargerId}/repair-orders';
@@ -49,12 +51,15 @@ class _RepairsState extends State<ChargerRepairsView> {
     super.didUpdateWidget(old);
     if (old.api != widget.api ||
         old.companyId != widget.companyId ||
-        old.chargerId != widget.chargerId) {
+        old.chargerId != widget.chargerId ||
+        old.initialOrderId != widget.initialOrderId ||
+        old.initialAlertId != widget.initialAlertId) {
       generation++;
       data = null;
       pending = null;
-      alert.clear();
+      alert.text = widget.initialAlertId?.toString() ?? '';
       page = 1;
+      initialFocusPending = true;
       load();
     }
   }
@@ -84,8 +89,20 @@ class _RepairsState extends State<ChargerRepairsView> {
       error = null;
     });
     try {
-      final result = await widget.api.request(path, query: {'page': '$page'});
+      final focusId = initialFocusPending ? widget.initialOrderId : null;
+      final result = await widget.api.request(path, query: {
+        'page': '$page',
+        if (focusId != null) 'focus_order_id': '$focusId',
+      });
       if (!mounted || epoch != generation) return;
+      if (focusId != null) {
+        final focused = result['focus_page'];
+        if (focused is! int || focused < 1 || result['current_page'] != focused) {
+          throw const FormatException('Repair order focus not confirmed');
+        }
+        page = focused;
+      }
+      initialFocusPending = false;
       if (result['commands_sent'] != false ||
           result['capacity_changed'] != false ||
           result['physical_repair_verified'] != false ||

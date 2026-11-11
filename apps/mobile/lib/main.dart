@@ -1,5 +1,8 @@
+import 'vehicle_model_catalog.dart';
+import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
 import 'reservation_intent.dart';
+import 'vehicle_driver_preferences.dart';
 import 'vehicle_battery.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -597,6 +600,49 @@ class _WorkspaceState extends State<Workspace> {
                 }),
               ),
             if (tab == 3 && account?.role == 'customer')
+              TextButton.icon(
+                key: Key('vehicle-model-$id'),
+                icon: const Icon(Icons.directions_car),
+                label: Text(modelText(context, 'Vehicle model catalog', 'كتالوج طراز المركبة')),
+                onPressed: busy ? null : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => VehicleModelAssociationView(
+                      api: api!, vehicleId: id as int,
+                      vehicleConnector: row['connector_type'] as String,
+                      onExpired: expiredSession,
+                    ),
+                  ),
+                ),
+              ),
+            if (tab == 3 && account?.role == 'customer')
+              TextButton.icon(
+                key: Key('manual-soc-$id'),
+                icon: const Icon(Icons.battery_std),
+                label: Text(Localizations.localeOf(context).languageCode == 'ar'
+                  ? 'تقرير البطارية اليدوي'
+                  : 'Manual battery report'),
+                onPressed: busy ? null : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => VehicleManualSocView(
+                      api: api!, vehicleId: id as int,
+                      onExpired: expiredSession,
+                    ),
+                  ),
+                ),
+              ),
+            if (tab == 3 && account?.role == 'customer')
+              TextButton.icon(
+                key: Key('driver-preferences-$id'),
+                icon: const Icon(Icons.tune),
+                label: Text(Localizations.localeOf(context).languageCode == 'ar'
+                    ? 'تفضيلات الشحن' : 'Driver charging preferences'),
+                onPressed: busy ? null : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => VehicleDriverPreferencesView(
+                    api: api!, vehicleId: id as int, onExpired: expiredSession,
+                  )),
+                ),
+              ),
+            if (tab == 3 && account?.role == 'customer')
               VehicleBatteryView(
                 key: ValueKey('battery-$id-${account!.id}'),
                 api: api!,
@@ -1010,6 +1056,7 @@ class _WorkspaceState extends State<Workspace> {
                   ? SupportView(
                       key: supportKey,
                       api: api!,
+                      accountId: account!.id,
                       onSessionExpired: expiredSession,
                       onBatteryDiscovery: discoverBatteryVehicle,
                     )
@@ -1068,11 +1115,18 @@ class _WorkspaceState extends State<Workspace> {
                       ),
                     ),
                   );
+                } else if (value == 'vehicleModelCatalog') {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => AdminVehicleModelCatalogView(
+                      api: api!, onExpired: expiredSession,
+                    ),
+                  ));
                 } else if (value == 'inventory') {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => VendorInventoryView(
                         api: api!,
+                        metadataEditor: account?.role == 'vendor',
                         onExpired: expiredSession,
                       ),
                     ),
@@ -1257,6 +1311,12 @@ class _WorkspaceState extends State<Workspace> {
                 }
               },
               itemBuilder: (_) => [
+                if (account!.role == 'admin')
+                  PopupMenuItem(
+                    value: 'vehicleModelCatalog',
+                    enabled: !busy,
+                    child: Text(modelText(context, 'Curated vehicle catalog', 'كتالوج المركبات المنسق')),
+                  ),
                 PopupMenuItem(
                   value: 'inventory',
                   enabled: !busy,

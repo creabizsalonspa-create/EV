@@ -12,7 +12,7 @@ class FaultMonitor
         return hash('sha256', json_encode([$binding->id, $binding->station_id, $binding->vendor_charger_id, $binding->identifier, $binding->protocol], JSON_THROW_ON_ERROR));
     }
 
-    public function ingest(object $binding, array $snapshot): int
+    public function ingest(object $binding, array $snapshot, ?callable $onAlertCreated = null, ?callable $onAlertRecovered = null): int
     {
         $generation = self::generation($binding);
         abort_unless(hash_equals($generation, $snapshot['source_generation'] ?? ''), 409, 'Source mapping changed; inspect again.');
@@ -30,7 +30,10 @@ class FaultMonitor
             }
             $id = DB::table('charging_status_observations')->insertGetId($values + ['fingerprint' => $fingerprint, 'created_at' => now()]);
             if ($values['status'] === 'Faulted' || ! in_array($values['error_code'], [null, 'NoError'], true)) {
-                DB::table('charging_fault_alerts')->insert(['observation_id' => $id, 'created_at' => now(), 'updated_at' => now()]);
+                $alertId = DB::table('charging_fault_alerts')->insertGetId(['observation_id' => $id, 'created_at' => now(), 'updated_at' => now()]);
+                if ($onAlertCreated !== null) {
+                    $onAlertCreated($alertId);
+                }
                 $created++;
             }
         }
@@ -42,7 +45,15 @@ class FaultMonitor
         foreach ($alerts as $alert) {
             $recovery = DB::table('charging_status_observations')->where('source_generation', $generation)->where('evse_number', $alert->evse_number)->where('connector_number', $alert->connector_number)->where('source_event_id', '>', $alert->source_event_id)->where('occurred_at', '>', $alert->occurred_at)->where('status', 'Available')->where(fn ($q) => $q->whereNull('error_code')->orWhere('error_code', 'NoError'))->orderBy('source_event_id')->first();
             if ($recovery) {
-                DB::table('charging_fault_alerts')->where('id', $alert->alert_id)->update(['recovery_observation_id' => $recovery->id, 'updated_at' => now()]);
+                // Compare-and-set ensures a replay or concurrent observer does
+                // not announce recovery twice. The lock belongs to the caller.
+                $linked = DB::table('charging_fault_alerts')
+                    ->where('id', $alert->alert_id)
+                    ->whereNull('recovery_observation_id')
+                    ->update(['recovery_observation_id' => $recovery->id, 'updated_at' => now()]);
+                if ($linked === 1 && $onAlertRecovered !== null) {
+                    $onAlertRecovered((int) $alert->alert_id);
+                }
             }
         }
 

@@ -29,7 +29,17 @@
     "test:commercial-campaigns": "node tests/commercial-campaigns.cjs",
     "test:hosted-checkout": "node tests/hosted-checkout.cjs",
     "test:corporate-hosted": "node tests/corporate-hosted.cjs",
-    "test:partner-nearby": "node tests/partner-nearby.cjs"
+    "test:partner-nearby": "node tests/partner-nearby.cjs",
+    "test:vehicle-models": "node tests/vehicle-model-catalog.cjs",
+    "test:e2e:vehicle-model-catalog": "node tests/vehicle-model-catalog-e2e.cjs",
+    "test:e2e:vehicle-model-customer-empty": "node tests/vehicle-model-customer-empty-e2e.cjs",
+    "test:manual-soc": "node tests/vehicle-manual-soc.cjs",
+    "test:e2e:manual-soc": "node tests/manual-soc-e2e.cjs",
+    "test:station-information": "node tests/station-information.cjs && node tests/station-information-vendor-session.cjs",
+    "test:e2e:station-information": "node tests/station-information-e2e.cjs",
+    "test:driver-preferences": "node tests/vehicle-driver-preferences.cjs",
+    "test:e2e:driver-preferences": "node tests/driver-preferences-e2e.cjs",
+    "test:discovery-connected": "node tests/discovery-connected.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",

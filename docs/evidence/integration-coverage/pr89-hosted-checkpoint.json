@@ -1,0 +1,55 @@
+{
+  "source_sha": "806a1bb94e9c966fb4b48c356dbeab2318de9e3c",
+  "required_checks": [
+    {
+      "name": "financial-browser",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43063939228/job/130696011612"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43063939247/job/130673700538"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43063939247/job/130673700470"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43063939247/job/130673700180"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43063939226/job/130673699849"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43063939247/job/130673699819"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43063939226/job/130673699679"
+    }
+  ],
+  "integrated_sha": "b4224ddc11a0921c2e522277657888fd3025ace4",
+  "pr": 89,
+  "verified_at_utc": "2026-11-11",
+  "source_tree_matches_merge": true,
+  "physical_charging_verified": false,
+  "real_payment_processed": false,
+  "production_accepted": false,
+  "infrastructure_retry": "Financial-browser attempt1 stalled before tests in Ubuntu apt installation; cancelled and retained. Same-source fresh attempt2 passed all required application checks."
+}

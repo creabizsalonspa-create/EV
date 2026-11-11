@@ -2,6 +2,7 @@
 
 namespace App\Services\Charging;
 
+use App\Models\InboxNotification;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -59,18 +60,87 @@ class ContinuousFaultObserver
                 $events = $data['StatusNotifications'] ?? null;
                 $newest = $data['newest'] ?? null;
                 abort_unless(is_array($events) && count($events) <= 101 && is_array($newest) && count($newest) <= 1 && ($after === 0 || (is_int($newest[0]['id'] ?? null) && $newest[0]['id'] >= $after)), 503);
+                // An empty page cannot mean caught_up when this same
+                // source reports events newer than the previous cursor.
+                // Leave the cursor unchanged and raise a review incident.
+                if (! $events && $newest) {
+                    abort_unless(
+                        is_int($newest[0]['id'] ?? null) &&
+                        $newest[0]['id'] <= $after,
+                        503,
+                        'Source reported newer events but returned an empty page.'
+                    );
+                }
                 $previous = $after;
                 foreach ($events as $event) {
                     abort_unless(is_array($event) && is_int($event['id'] ?? null) && $event['id'] > $previous && $event['id'] <= 2147483647 && is_string($event['connectorStatus'] ?? null) && strlen($event['connectorStatus']) <= 40 && is_string($event['timestamp'] ?? null) && strlen($event['timestamp']) <= 50 && (! isset($event['errorCode']) || (is_string($event['errorCode']) && strlen($event['errorCode']) <= 80)), 503);
-                    abort_unless(CarbonImmutable::parse($event['timestamp'])->lessThanOrEqualTo(now()), 503);
+                    try {
+                        $observedAt = CarbonImmutable::parse($event['timestamp']);
+                    } catch (Throwable) {
+                        abort(503, 'Source event timestamp is invalid.');
+                    }
+                    abort_unless($observedAt->lessThanOrEqualTo(now()), 503);
                     $previous = $event['id'];
+                }
+                // The highest event in a source page cannot exceed the
+                // source's newest observed event. The initial cursor (0)
+                // must be validated too, otherwise a contradictory snapshot
+                // can be committed as if it were healthy.
+                if ($events) {
+                    abort_unless(
+                        is_int($newest[0]['id'] ?? null) &&
+                        $newest[0]['id'] >= $previous,
+                        503,
+                        'Source event page exceeds reported newest event.'
+                    );
                 }
             }
             $state = $sourceId === null ? 'not_observed' : (count($events) > 100 ? 'catching_up' : 'caught_up');
             $events = array_slice($events, 0, 100);
 
-            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after) {
-                $created = app(FaultMonitor::class)->ingest($current, ['source_generation' => $generation, 'events' => $events]);
+            return $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $sourceId, $events, $state, $after, $ownerId, $companyId) {
+                // The source observation, fault alert and vendor-only in-app
+                // notification commit atomically under the verified ownership lock.
+                // Historical replay never emits a second notification.
+                $notify = function (int $alertId, string $kind) use ($current, $ownerId, $companyId): void {
+                    InboxNotification::create([
+                        'user_id' => $ownerId,
+                        'kind' => $kind,
+                        'metadata' => [
+                            'source' => 'simulator',
+                            'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                            'station_id' => $current->station_id,
+                            'company_id' => $companyId,
+                            'charger_id' => $current->vendor_charger_id,
+                            'alert_id' => $alertId,
+                            'physical_verification' => false,
+                        ],
+                    ]);
+                };
+                $created = app(FaultMonitor::class)->ingest(
+                    $current,
+                    ['source_generation' => $generation, 'events' => $events],
+                    fn (int $alertId) => $notify($alertId, 'charging.fault.simulated'),
+                    fn (int $alertId) => $notify($alertId, 'charging.fault.recovered.simulated'),
+                );
+                // A previous monitor review state has cleared only when an
+                // authenticated source page catches up, never on a mere poll.
+                $previous = DB::table('charging_fault_cursors')
+                    ->where('source_generation', $generation)->lockForUpdate()->first();
+                if ($previous && $previous->state === 'requires_review' && $state === 'caught_up') {
+                    InboxNotification::create([
+                        'user_id' => $ownerId,
+                        'kind' => 'charging.monitor.resumed.simulated',
+                        'metadata' => [
+                            'source' => 'simulator',
+                            'evidence' => 'SIMULATED_SOURCE_OBSERVED',
+                            'station_id' => $current->station_id,
+                            'company_id' => $companyId,
+                            'charger_id' => $current->vendor_charger_id,
+                            'physical_verification' => false,
+                        ],
+                    ]);
+                }
                 $last = $events ? end($events)['id'] : $after;
                 DB::table('charging_fault_cursors')->updateOrInsert(['source_generation' => $generation], ['binding_id' => $current->id, 'source_station_id' => $sourceId, 'last_event_id' => $last, 'state' => $state, 'checked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
@@ -78,8 +148,37 @@ class ContinuousFaultObserver
             });
         } catch (Throwable $e) {
             // Current ownership and unchanged cursor are required even to record a failure.
-            $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $after, $cursor) {
-                DB::table('charging_fault_cursors')->updateOrInsert(['source_generation' => $generation], ['binding_id' => $current->id, 'source_station_id' => $cursor->source_station_id ?? null, 'last_event_id' => $after, 'state' => 'requires_review', 'checked_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+            $this->commit($b, $companyId, $ownerId, $after, function ($current) use ($generation, $after, $cursor, $ownerId, $companyId) {
+                $previous = DB::table('charging_fault_cursors')
+                    ->where('source_generation', $generation)->lockForUpdate()->first();
+                if (! $previous || $previous->state !== 'requires_review') {
+                    InboxNotification::create([
+                        'user_id' => $ownerId,
+                        'kind' => 'charging.monitor.requires_review.simulated',
+                        'metadata' => [
+                            'source' => 'simulator',
+                            // The page failed validation or was unavailable:
+                            // no event-source observation is established here.
+                            'evidence' => 'SIMULATED_SOURCE_UNVERIFIED',
+                            'station_id' => $current->station_id,
+                            'company_id' => $companyId,
+                            'charger_id' => $current->vendor_charger_id,
+                            'physical_verification' => false,
+                        ],
+                    ]);
+                }
+                DB::table('charging_fault_cursors')->updateOrInsert(
+                    ['source_generation' => $generation],
+                    [
+                        'binding_id' => $current->id,
+                        'source_station_id' => $cursor->source_station_id ?? null,
+                        'last_event_id' => $after,
+                        'state' => 'requires_review',
+                        'checked_at' => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]
+                );
 
                 return [];
             });

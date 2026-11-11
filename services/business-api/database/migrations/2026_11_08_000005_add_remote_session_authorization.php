@@ -20,6 +20,13 @@ return new class extends Migration
     {
         if (DB::table('csms_session_links')->whereNotNull('remote_token_digest')->exists()) {
             throw new RuntimeException('Preserve remote authorization history before rollback.');
-        }Schema::table('csms_session_links', fn (Blueprint $t) => $t->dropColumn(['remote_token_digest', 'remote_registration_nonce', 'remote_authorization_id']));
+        }
+        Schema::table('csms_session_links', function (Blueprint $table) {
+            // SQLite refuses to remove a column while its unique index still
+            // references it. Retained credentials remain protected above.
+            $table->dropUnique(['remote_token_digest']);
+            $table->dropUnique(['remote_registration_nonce']);
+            $table->dropColumn(['remote_token_digest', 'remote_registration_nonce', 'remote_authorization_id']);
+        });
     }
 };

@@ -798,3 +798,47 @@ form label {
     margin-inline: 0;
     accent-color: var(--accent);
 }
+
+/* Catalog curation and per-vehicle association; never charger-source evidence. */
+#vehicle-model-admin,#vehicle-model-customer{max-width:66rem;margin-block:1.5rem;padding-block:1rem;border-block-start:1px solid var(--border,#888);overflow-wrap:anywhere;}
+.vehicle-model-admin-form {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:.8rem;margin-block:1rem;}
+.vehicle-model-admin-form input,.vehicle-model-admin-form select{width:100%;}
+.vehicle-model-admin-form label:has(input[type=checkbox]){display:flex;gap:.6rem;align-items:center;}
+.vehicle-model-admin-form input[type=checkbox]{width:auto;}
+#vehicle-model-admin li,#vehicle-model-customer li{padding-block:.5rem;overflow-wrap:anywhere;}
+#vehicle-model-admin button,#vehicle-model-customer button{margin-inline:.4rem;white-space:normal;}
+#vehicle-model-customer [data-vehicle-model-picker]{padding:1rem;border:1px solid var(--border,#888);border-radius:.7rem;max-width:38rem;}
+/* Explicit, customer-supplied battery reports: no device telemetry. */
+#vehicle-manual-soc {max-width:55rem;padding-block:1rem;margin-block:1rem;border-block-start:1px solid var(--border,#888);overflow-wrap:anywhere;}
+#vehicle-manual-soc>button {margin:.3rem;}
+#vehicle-manual-soc [data-manual-soc-panel]{padding:1rem;border:1px solid var(--border,#888);border-radius:.7rem;}
+.vehicle-manual-soc-form{display:flex;flex-wrap:wrap;gap:.7rem;align-items:end;}
+.vehicle-manual-soc-form>label{min-width:12rem;max-width:22rem;}
+.vehicle-manual-soc-form input{max-width:12rem;}
+/* Operator-supplied station information, separated from charger source truth. */
+.station-information { margin-block: .75rem; overflow-wrap:anywhere; }
+#station-information-vendor { margin-block: 1.5rem; padding-block: 1rem; border-block-start:1px solid var(--border, #888); }
+#station-information-vendor > select { display:block; width:100%; max-width:36rem; margin-block:.75rem; }
+#station-information-vendor > button { margin-inline-end:.5rem; }
+.station-information-form { display:grid; grid-template-columns:minmax(0,1fr); gap:.75rem; max-width:62rem; }
+.station-information-form > * { min-width:0; }
+.station-information-form textarea { width:100%; resize:vertical; }
+.station-information-form fieldset { display:grid; grid-template-columns:minmax(0,1fr); gap:.5rem; padding:1rem; max-width:100%; }
+.station-information-form fieldset label:has(input[type=checkbox]) { display:flex; flex-direction:row; align-items:center; gap:.65rem; }
+.station-information-form input[type=checkbox] { width:auto; min-width:1.2rem; }
+.station-hours-row { display:grid; grid-template-columns: minmax(0,2fr) repeat(2,minmax(0,1fr)); gap:.75rem; align-items:end; }
+.station-hours-row label { min-width:0; }
+.station-hours-row input[type=time] { min-width:0; width:100%; }
+@media(max-width:640px) {.station-hours-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.station-hours-row label:first-child{grid-column:1/-1}}
+[data-charging-source-evidence] {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+/* Per-vehicle preferences are separate from charging-source authority. */
+#driver-preferences-editor {margin-block: 1rem; border-block-start:1px solid var(--border,#888); padding-block:1rem;max-width:54rem;}
+.vehicle-driver-preferences-form {display:grid;grid-template-columns:minmax(0,1fr);gap:1rem;max-width:35rem;}
+.vehicle-driver-preferences-form>label {min-width:0;}
+.vehicle-driver-preferences-form label:has(input[type=checkbox]) {display:flex;flex-direction:row;align-items:center;gap:.7rem;}
+.vehicle-driver-preferences-form input[type=checkbox] {width:auto;min-width:1.3rem;}
+.vehicle-driver-preferences-form button {white-space:normal;overflow-wrap:anywhere;}

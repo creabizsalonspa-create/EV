@@ -14,12 +14,15 @@ use App\Models\VendorOps\VendorKycDocument;
 use App\Models\VendorOps\VendorSite;
 use App\Services\VendorOps\VendorAccess;
 use App\Services\VendorOps\VendorCreation;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use League\Flysystem\UnableToReadFile;
+use RuntimeException;
 
 class VendorOpsController extends Controller
 {
@@ -27,7 +30,38 @@ class VendorOpsController extends Controller
 
     public function companies(Request $r)
     {
-        return VendorCompany::when($r->user()->role !== 'admin', fn ($q) => $q->where('owner_id', $r->user()->id)->orWhereIn('id', VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'active')->select('company_id')))->orderByDesc('id')->paginate(25)->through(fn ($company) => $company->toArray() + ['capabilities' => $this->access->capabilities($r->user(), $company)]);
+        $actor = $r->user();
+        $query = VendorCompany::query();
+        if ($actor->role !== 'admin') {
+            $query->where(function ($q) use ($actor) {
+                $q->where('owner_id', $actor->id);
+                if ($actor->hasVerifiedEmail()) {
+                    $q->orWhereIn('id', VendorCompanyStaff::where('user_id', $actor->id)
+                        ->where('status', 'active')->whereNull('admin_revoked_at')
+                        ->select('company_id'));
+                }
+            });
+        }
+
+        // Inventory-only staff need a company picker, but membership alone
+        // does not grant company.read. Keep private company/KYC data out.
+        $page = $query->orderByDesc('id')->paginate(25)->through(function (VendorCompany $company) use ($actor) {
+            $capabilities = $this->access->capabilities($actor, $company);
+            if (! $capabilities['company_read']) {
+                return [
+                    'id' => $company->id,
+                    'legal_name' => $company->legal_name,
+                    'country' => $company->country,
+                    'status' => $company->status,
+                    'capabilities' => $capabilities,
+                    'restricted_directory_entry' => true,
+                ];
+            }
+
+            return $company->toArray() + ['capabilities' => $capabilities];
+        });
+
+        return response()->json($page)->header('Cache-Control', 'no-store, private');
     }
 
     public function createCompany(Request $r)
@@ -54,7 +88,33 @@ class VendorOpsController extends Controller
     {
         $this->access->require($r->user(), $company);
 
-        return response()->json($company->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $company), 'submission_readiness' => ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') ? ['editable' => in_array($company->status, ['draft', 'changes_requested', 'rejected']), 'license_valid' => $this->access->licenseValid($company), 'trade_license_present' => VendorKycDocument::where('company_id', $company->id)->where('kind', 'trade_license')->exists()] : null]);
+        $readiness = null;
+        if ($company->owner_id === $r->user()->id || $r->user()->role === 'admin') {
+            $editable = in_array($company->status, ['draft', 'changes_requested', 'rejected'], true);
+            $licenseValid = $this->access->licenseValid($company);
+            $licenseEvidence = VendorKycDocument::where('company_id', $company->id)
+                ->where('kind', 'trade_license')->orderByDesc('id')->first();
+
+            // Presence alone is not evidence of a usable encrypted file.
+            // Show owners a reliable readiness hint without disclosing
+            // plaintext, hashes or private storage paths in the response.
+            $evidenceValid = $licenseEvidence !== null
+                && $this->verifiedEvidenceContents($licenseEvidence) !== null;
+            $readiness = [
+                'editable' => $editable,
+                'license_valid' => $licenseValid,
+                'trade_license_present' => $licenseEvidence !== null,
+                'trade_license_integrity_valid' => $evidenceValid,
+                'can_submit' => $editable && $licenseValid && $evidenceValid,
+            ];
+        }
+
+        return response()->json($company->toArray() + [
+            'kyc_workflow_only' => true,
+            'physical_control_enabled' => false,
+            'capabilities' => $this->access->capabilities($r->user(), $company),
+            'submission_readiness' => $readiness,
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function updateCompany(Request $r, VendorCompany $company)
@@ -76,7 +136,14 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
 
-        return VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25);
+        $history = VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25);
+        if ($r->user()->role === 'admin') {
+            // Reviewer notes are private. Audit the company-scoped metadata
+            // access without persisting those notes or customer details.
+            $this->access->audit($r->user(), 'review.history_viewed', $company->id);
+        }
+
+        return response()->json($history)->header('Cache-Control', 'no-store, private');
     }
 
     private function operationalWrite(Request $r, VendorCompany $company): VendorCompany
@@ -92,7 +159,14 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
 
-        return VendorKycDocument::where('company_id', $company->id)->paginate(25);
+        $metadata = VendorKycDocument::where('company_id', $company->id)->paginate(25);
+        if ($r->user()->role === 'admin') {
+            // Reading private document metadata is a privileged access,
+            // separate from the already audited byte-download endpoint.
+            $this->access->audit($r->user(), 'document.metadata_viewed', $company->id);
+        }
+
+        return response()->json($metadata)->header('Cache-Control', 'no-store, private');
     }
 
     public function upload(Request $r, VendorCompany $company)
@@ -111,7 +185,7 @@ class VendorOpsController extends Controller
         $file = $r->file('document');
         $path = 'vendor-kyc/'.Str::uuid().'.enc';
         if (! Storage::disk('local')->put($path, Crypt::encryptString($file->getContent()))) {
-            throw new \RuntimeException('Unable to store KYC evidence.');
+            throw new RuntimeException('Unable to store KYC evidence.');
         }
         try {
             return DB::transaction(function () use ($r, $company, $v, $file, $path) {
@@ -135,46 +209,178 @@ class VendorOpsController extends Controller
             'image/png' => 'png','image/jpeg' => 'jpg',default => 'pdf'
         };
 
-        return response(Crypt::decryptString(Storage::disk('local')->get($document->getRawOriginal('storage_path'))), 200, ['Content-Type' => $document->mime_type, 'Content-Disposition' => 'attachment; filename="kyc-document-'.$document->id.'.'.$extension.'"', 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'no-store, private']);
+        $contents = $this->verifiedEvidenceContents($document);
+        if ($contents === null) {
+            $this->rejectCorruptEvidence($r, $document);
+        }
+        // Log only a successful authorized access, without storage paths,
+        // plaintext document contents, trade-license IDs or download URLs.
+        // Fail closed if the compliance audit cannot be recorded.
+        $this->access->audit($r->user(), 'document.downloaded', $document->id);
+
+        return response($contents, 200, [
+            'Content-Type' => $document->mime_type,
+            'Content-Disposition' => 'attachment; filename="kyc-document-'.$document->id.'.'.$extension.'"',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'no-store, private',
+        ]);
+    }
+
+    private function rejectCorruptEvidence(Request $request, VendorKycDocument $document): never
+    {
+        // Audit the access attempt without exposing file paths, user-provided
+        // document contents, stored digests or cross-tenant evidence.
+        $this->access->audit($request->user(), 'document.integrity_failed', $document->id);
+        abort(409, 'KYC document is unavailable or has failed integrity verification.');
+    }
+
+    /**
+     * Authentication of ciphertext alone does not bind it to a KYC record.
+     * Verify the original upload digest and length before releasing evidence
+     * or accepting it as a basis for an Admin KYC approval.
+     */
+    private function verifiedEvidenceContents(VendorKycDocument $document): ?string
+    {
+        try {
+            $encrypted = Storage::disk('local')->get($document->getRawOriginal('storage_path'));
+            if (! is_string($encrypted) || $encrypted === '') {
+                return null;
+            }
+            $contents = Crypt::decryptString($encrypted);
+        } catch (DecryptException|UnableToReadFile) {
+            return null;
+        }
+
+        if (! hash_equals((string) $document->sha256, hash('sha256', $contents))
+            || (int) $document->size_bytes !== strlen($contents)) {
+            return null;
+        }
+
+        return $contents;
     }
 
     public function submit(Request $r, VendorCompany $company)
     {
         $this->access->owner($r->user(), $company);
 
-        return DB::transaction(function () use ($r, $company) {
+        $result = DB::transaction(function () use ($r, $company) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
-            if ($c->status === 'submitted') {
+            $alreadySubmitted = $c->status === 'submitted';
+            abort_unless($alreadySubmitted || in_array($c->status, ['draft', 'changes_requested', 'rejected'], true), 409);
+            if (! $alreadySubmitted) {
+                abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
+            }
+            $licenseEvidence = VendorKycDocument::where('company_id', $c->id)
+                ->where('kind', 'trade_license')->orderByDesc('id')->lockForUpdate()->first();
+            abort_unless($licenseEvidence, 422, 'Upload a trade-license document before submitting.');
+
+            if ($this->verifiedEvidenceContents($licenseEvidence) === null) {
+                // Do not claim a submission exists without recoverable
+                // evidence. Persist the denial audit outside the transaction.
+                return ['integrity_failure' => $licenseEvidence->id];
+            }
+
+            if ($alreadySubmitted) {
+                // A retry must not bypass the evidence-integrity gate, nor
+                // fabricate a second submission event for an intact record.
                 return response()->json($c);
-            }abort_unless(in_array($c->status, ['draft', 'changes_requested', 'rejected']), 409);
-            abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
-            abort_unless(VendorKycDocument::where('company_id', $c->id)->where('kind', 'trade_license')->exists(), 422, 'Upload a trade-license document before submitting.');
+            }
+
             $c->update(['status' => 'submitted', 'review_reason' => null]);
             $this->access->audit($r->user(), 'company.submitted', $c->id);
 
             return response()->json($c);
         });
+
+        if (is_array($result) && isset($result['integrity_failure'])) {
+            // Audit by the locked document identifier without an unnecessary
+            // post-transaction lookup that could race with document cleanup.
+            $this->access->audit($r->user(), 'document.integrity_failed', (int) $result['integrity_failure']);
+            abort(409, 'KYC document is unavailable or has failed integrity verification.');
+        }
+
+        return $result;
     }
 
     public function review(Request $r, VendorCompany $company)
     {
         abort_unless($r->user()->role === 'admin', 403);
-        $v = $r->validate(['status' => 'required|in:approved,rejected,changes_requested,suspended', 'reason' => 'required|string|max:2000']);
+        // Validate the persisted explanation even without global input trimming.
+        // The Admin UI requires an explanatory note; enforce the same
+        // minimum on direct API calls before any transition or audit writes.
+        // Check the minimum against the persisted explanation, not a
+        // whitespace-padded pre-normalization value. The endpoint must
+        // remain safe if framework TrimStrings middleware is disabled.
+        if (is_string($r->input('reason'))) {
+            $r->merge(['reason' => trim($r->input('reason'))]);
+        }
+        $v = $r->validate([
+            'status' => 'required|in:approved,rejected,changes_requested,suspended',
+            'reason' => 'required|string|min:10|max:2000',
+        ]);
 
-        return DB::transaction(function () use ($r, $company, $v) {
+        $result = DB::transaction(function () use ($r, $company, $v) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            // An Admin must not review a company they also own.
+            // A role change can make a former vendor into an administrator.
+            // Manual KYC decisions must remain independent of the applicant,
+            // including rejection, suspension and subsequent reapproval.
+            abort_if($c->owner_id === $r->user()->id, 403,
+                'A separate administrator must review their own company.');
             $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended', 'changes_requested'], 'suspended' => ['approved', 'changes_requested']];
             abort_unless(in_array($v['status'], $allowed[$c->status]), 409, 'Invalid review transition.');
+            $owner = null;
             if ($v['status'] === 'approved') {
+                // Review UI checks are advisory. Enforce these invariants
+                // again under locks for direct API requests and stale queues.
+                $owner = User::whereKey($c->owner_id)->lockForUpdate()->firstOrFail();
+                abort_unless($owner->account_status === 'active', 409, 'Owner account is suspended.');
+                // Approval may promote a customer to vendor. Require the
+                // applicant to prove mailbox ownership before that grant.
+                abort_unless($owner->hasVerifiedEmail(), 409,
+                    'Owner email must be verified before company approval.');
                 abort_unless($this->access->licenseValid($c), 422, 'Trade license has expired.');
-            }VendorCompanyReview::create(['company_id' => $c->id, 'reviewer_id' => $r->user()->id, 'from_status' => $c->status, 'to_status' => $v['status'], 'reason' => $v['reason'], 'created_at' => now()]);
-            $c->update(['status' => $v['status'], 'review_reason' => $v['reason'], 'reviewed_by' => $r->user()->id, 'reviewed_at' => now()]);
-            if ($v['status'] === 'approved') {
-                User::whereKey($c->owner_id)->where('role', 'customer')->update(['role' => 'vendor']);
-            }$this->access->audit($r->user(), 'company.'.$v['status'], $c->id);
+                $licenseEvidence = VendorKycDocument::where('company_id', $c->id)
+                    ->where('kind', 'trade_license')->orderByDesc('id')->lockForUpdate()->first();
+                abort_unless($licenseEvidence, 422, 'Trade-license evidence is required for approval.');
+
+                if ($this->verifiedEvidenceContents($licenseEvidence) === null) {
+                    // Return a failure marker before any review/status write.
+                    // Audit after the transaction so denial remains recorded.
+                    return ['integrity_failure' => $licenseEvidence->id];
+                }
+            }
+            VendorCompanyReview::create([
+                'company_id' => $c->id,
+                'reviewer_id' => $r->user()->id,
+                'from_status' => $c->status,
+                'to_status' => $v['status'],
+                'reason' => $v['reason'],
+                'created_at' => now(),
+            ]);
+            $c->update([
+                'status' => $v['status'],
+                'review_reason' => $v['reason'],
+                'reviewed_by' => $r->user()->id,
+                'reviewed_at' => now(),
+            ]);
+            if ($owner && $owner->role === 'customer') {
+                // Eloquent fires the role-change security epoch hook; a raw
+                // UPDATE would let a prior customer session gain vendor rights.
+                $owner->role = 'vendor';
+                $owner->save();
+            }
+            $this->access->audit($r->user(), 'company.'.$v['status'], $c->id);
 
             return response()->json($c->toArray() + ['kyc_workflow_only' => true, 'physical_control_enabled' => false, 'capabilities' => $this->access->capabilities($r->user(), $c)]);
         });
+
+        if (is_array($result) && isset($result['integrity_failure'])) {
+            $this->access->audit($r->user(), 'document.integrity_failed', (int) $result['integrity_failure']);
+            abort(409, 'KYC document is unavailable or has failed integrity verification.');
+        }
+
+        return $result;
     }
 
     public function staff(Request $r, VendorCompany $company)
@@ -187,26 +393,97 @@ class VendorOpsController extends Controller
     public function invite(Request $r, VendorCompany $company)
     {
         $this->access->owner($r->user(), $company);
-        $v = $r->validate(['email' => 'required|email', 'permissions' => 'required|array|min:1', 'permissions.*' => ['required', Rule::in(VendorAccess::PERMISSIONS)]]);
+        // An invitation can contain at most the three supported unique
+        // scopes. Reject oversized/duplicate input before any grant or audit
+        // write, consistent with the staff-permission editing endpoint.
+        $v = $r->validate([
+            'email' => 'required|email',
+            'permissions' => 'required|array|min:1|max:3',
+            'permissions.*' => ['required', 'distinct', Rule::in(VendorAccess::PERMISSIONS)],
+        ]);
         $u = User::where('email', $v['email'])->first();
         if ($u && $u->id !== $company->owner_id) {
             DB::transaction(function () use ($r, $company, $u, $v) {
                 VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
                 $existing = VendorCompanyStaff::where('company_id', $company->id)->where('user_id', $u->id)->lockForUpdate()->first();
+                abort_if($existing?->admin_revoked_at !== null, 409,
+                    'Staff access is under an administrator security hold.');
                 if (! $existing) {
                     VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $u->id, 'permissions' => array_values(array_unique($v['permissions']))]);
+                    $this->access->audit($r->user(), 'staff.invited', $company->id);
                 } elseif ($existing->status === 'revoked') {
                     $existing->update(['status' => 'invited', 'permissions' => array_values(array_unique($v['permissions'])), 'invitation_version' => $existing->invitation_version + 1, 'accepted_at' => null]);
-                }$this->access->audit($r->user(), 'staff.invited', $company->id);
+                    $this->access->audit($r->user(), 'staff.invited', $company->id);
+                }
+                // Repeating an existing pending or active invitation must not
+                // fabricate a second security/audit event.
             });
         }
 
         return response()->json(['message' => 'Invitation recorded if the account is eligible.'], 202);
     }
 
+    /**
+     * A scope update never silently grants a new capability. Revoking the
+     * active grant into 'invited' denies all staff access until the staff
+     * member consents to the new version of the permission set.
+     */
+    public function updateStaffPermissions(Request $r, VendorCompany $company, VendorCompanyStaff $membership)
+    {
+        $this->access->owner($r->user(), $company);
+        abort_unless($membership->company_id === $company->id, 404);
+        $v = $r->validate([
+            'expected_version' => 'required|integer|min:1',
+            'permissions' => 'required|array|min:1|max:3',
+            'permissions.*' => ['required', 'distinct', Rule::in(VendorAccess::PERMISSIONS)],
+        ]);
+        $desired = array_values($v['permissions']);
+
+        return DB::transaction(function () use ($r, $company, $membership, $v, $desired) {
+            VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $grant = VendorCompanyStaff::whereKey($membership->id)
+                ->where('company_id', $company->id)
+                ->lockForUpdate()->firstOrFail();
+            abort_if($grant->admin_revoked_at !== null, 409,
+                'Staff access is under an administrator security hold.');
+            abort_unless(in_array($grant->status, ['active', 'invited'], true), 409,
+                'A revoked membership must be re-invited.');
+            abort_unless($grant->invitation_version === (int) $v['expected_version'], 409,
+                'Staff permissions changed. Refresh before editing.');
+
+            $oldScopes = array_values($grant->permissions ?? []);
+            sort($oldScopes);
+            $newScopes = $desired;
+            sort($newScopes);
+            abort_if($oldScopes === $newScopes, 422,
+                'Choose a different permission set.');
+
+            // A former active grant is immediately denied by VendorAccess;
+            // a new invitation_version prevents stale acceptance replay.
+            $grant->update([
+                'permissions' => $desired,
+                'status' => 'invited',
+                'accepted_at' => null,
+                'invitation_version' => $grant->invitation_version + 1,
+            ]);
+            $this->access->audit($r->user(), 'staff.permissions_changed', $grant->id);
+
+            return response()->json([
+                'id' => $grant->id,
+                'status' => 'invited',
+                'permissions' => $grant->permissions,
+                'invitation_version' => $grant->invitation_version,
+                'requires_acceptance' => true,
+            ])->header('Cache-Control', 'no-store, private');
+        });
+    }
+
     public function invitations(Request $r)
     {
-        $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->paginate(25);
+        // Invitations disclose company names; prove mailbox ownership first.
+        abort_unless($r->user()->hasVerifiedEmail(), 403,
+            'Verify your email before viewing company staff invitations.');
+        $page = VendorCompanyStaff::where('user_id', $r->user()->id)->where('status', 'invited')->whereNull('admin_revoked_at')->paginate(25);
         $companies = VendorCompany::whereIn('id', $page->getCollection()->pluck('company_id'))->get(['id', 'legal_name', 'country'])->keyBy('id');
 
         return $page->through(fn ($membership) => $membership->toArray() + ['company' => $companies->get($membership->company_id)]);
@@ -218,8 +495,15 @@ class VendorOpsController extends Controller
         $v = $r->validate(['expected_version' => 'required|integer|min:1']);
 
         return DB::transaction(function () use ($r, $membership, $v) {
+            // A staff invitation is an email-identity grant. Check the
+            // currently persisted mailbox proof under an account lock so an
+            // unverified registration cannot claim another person's invite.
+            $account = User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
+            abort_unless($account->hasVerifiedEmail(), 409,
+                'Verify your email before accepting company staff permissions.');
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             abort_unless(in_array($m->status, ['invited', 'active']), 409);
+            abort_if($m->admin_revoked_at !== null, 409, 'Staff access is under an administrator security hold.');
             abort_unless($m->invitation_version === (int) $v['expected_version'], 409, 'Invitation scopes changed; refresh and consent again.');
             if ($m->status === 'active') {
                 return $m;
@@ -240,8 +524,10 @@ class VendorOpsController extends Controller
             $m = VendorCompanyStaff::whereKey($membership->id)->lockForUpdate()->firstOrFail();
             if ($m->status !== 'revoked') {
                 $m->update(['status' => 'revoked', 'invitation_version' => $m->invitation_version + 1]);
+                $this->access->audit($r->user(), 'staff.revoked', $m->id);
             }
-            $this->access->audit($r->user(), 'staff.revoked', $m->id);
+            // A repeated revoke is idempotent and must not create a false
+            // second permission-change event.
 
             return response()->noContent();
         });

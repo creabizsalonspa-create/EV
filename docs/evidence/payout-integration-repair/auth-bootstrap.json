@@ -1,0 +1,38 @@
+{
+  "observed_at_utc": "2026-11-11T21:09:00Z",
+  "scope": "Follow-up operational regression exposed after payout repair; local-only synthetic browser sessions",
+  "reproduction": {
+    "initial_delayed_anonymous_me_status": 401,
+    "login_post_status": 200,
+    "me_after_delayed_cookie_status": 401,
+    "vendor_workspace_visible": false,
+    "charging_had_completed": true,
+    "replayed_charging": false
+  },
+  "repair": "Disable and fence account submission until the initial identity/catalog/region bootstrap settles; retain session epochs; unlock after success or failure. No authorization or rate-limit change.",
+  "verification": {
+    "actual_delayed_guest_and_outage_browser_cases": "passed",
+    "normal_login_logout_and_retained_identity": "passed",
+    "one_login_per_case_no_mutation_retry": true,
+    "scheduler_guards": "nine passed after additive suite inventory adjustment"
+  },
+  "hosted_verification": "pending; current workflows unallocated, no bypass",
+  "refinement": {
+    "failed_hosted_sources": [
+      "88e37ad674a460c01f39df328ff6d8c8d830b082",
+      "1fb724f22fb87315d5600c7bf631e11ba387bd6d"
+    ],
+    "failed_jobs": [
+      130791415972,
+      130791656495
+    ],
+    "failure": "Existing delayed-private-response test correctly requires immediate logout while authenticated bootstrap panels are held. Initial guard also disabled logout.",
+    "repair": "Keep logout available and release the anonymous-only account gate as soon as a valid existing account identity is confirmed. Preserve held-response epoch rejection and explicit failed logout recovery.",
+    "verified": [
+      "complete original web-session client and controlled browser suites unchanged",
+      "actual anonymous delayed-cookie and initial-outage login/logout on disposable loopback HTTP service",
+      "nine orchestration tests"
+    ],
+    "isolated_runtime_note": "Laravel artisan serve requires --no-reload to preserve explicit disposable DB environment. Read-only application mount prevented writes to the normal DB during the initial setup error."
+  }
+}

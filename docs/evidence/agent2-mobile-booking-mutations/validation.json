@@ -1,0 +1,39 @@
+{
+  "status": "VERIFIED_CANDIDATE_NOT_MERGED",
+  "owner": "Agent 2",
+  "branch": "development/agent2-mobile-source-history",
+  "parent_source": "94222911c24acadc86befa5f932287b265273a5f",
+  "backend_source": "834bb41dabc07666b2371fb2e8027c038ee0cc7b",
+  "requirement_subset": "2.6.3 customer booking mutation recovery and explanations; no new full-atom credit",
+  "checks": {
+    "flutter_passed": 31,
+    "default_opt_in_skips": 1,
+    "actual_api_passed": 1,
+    "combined_backend_native_passed": 118,
+    "changed_file_analysis": "No issues found",
+    "source_blobs": {
+      "apps/hasone-customer/lib/feature/Booking/UI/controller/all_booking_controller.dart": "adfa827e82a7e3a415da3bcce9f43f2d56b43e8c",
+      "apps/hasone-customer/lib/feature/Booking/UI/screen/booking_screen.dart": "556fe26c4cbc5bdcdaa24af4a6ce778d7f620bed",
+      "apps/hasone-customer/lib/feature/Booking/UI/screen/rebooking_screen.dart": "0a9657029b94fea76ebf7aa37621d561023d7bb9",
+      "apps/hasone-customer/test/booking_mutation_test.dart": "70be3108487a2e40b0e1ca56b4191b338a267f34"
+    },
+    "restricted_log_sha256": {
+      "mobile-booking-mutations-tests-final.log": "83761ce2c12ff22ec796160ed586bcce83f8f3880286953146e8b5322e49c667",
+      "mobile-booking-mutations-analysis-final.log": "5be24165d7119d12868d0e25c514698d7ab1d0b1c60b33ca1930f9b758263926",
+      "mobile-booking-mutations-api-final.log": "5e4f04eee45e1c3e3ba95bc6d01bd51a3e81300817e21b67b798f6841d69ec24"
+    }
+  },
+  "behavior": [
+    "Display customer-safe backend denials and unconfirmed-outcome messages",
+    "Refresh authoritative bookings after acknowledged, rejected or uncertain writes",
+    "No automatic mutation retries or optimistic booking state changes",
+    "HTTP success without application success does not confirm a mutation",
+    "Reschedule progress resets and disposed screens do not navigate/show stale receipts"
+  ],
+  "remaining": [
+    "Exact-source hosted Android/iOS and Agent4 integration",
+    "Connector-specific Express reservation/expiry/reschedule compatibility",
+    "Complete source incident/live-cost experience and canonical authority agreement",
+    "Real hardware/PSP/partner/production acceptance"
+  ]
+}

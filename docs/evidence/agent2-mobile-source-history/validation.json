@@ -1,0 +1,67 @@
+{
+  "status": "INTEGRATION_CANDIDATE_NOT_MERGED",
+  "owner": "Agent 2",
+  "branch": "development/agent2-mobile-source-history",
+  "parent_pr": 52,
+  "parent_source": "e17c0d7c62657e8132fe894dca1d00eb09dd2455",
+  "api_dependency": {
+    "pr": 50,
+    "source": "0c5c7711ad2974fa7e31f5c150ffb9df138685ae"
+  },
+  "requirements": [
+    {
+      "id": "2.7.9",
+      "scope": "Purchased customer mobile read-only source charging history subset",
+      "complete_atom_credit": false
+    }
+  ],
+  "validation": {
+    "flutter_version": "3.35.7",
+    "customer_suite": {
+      "passed": 27,
+      "skipped": 1,
+      "skip_reason": "Opt-in actual API test is executed separately by the disposable harness"
+    },
+    "new_files_analysis": "No issues found",
+    "booking_navigation_analysis": "No issues found",
+    "actual_flutter_api": {
+      "passed": 1,
+      "scope": "Actual localhost Express/Mongo with synthetic OCPP 1.6/2.0.1 and JWT identities; no mocked HTTP responses",
+      "assertions": [
+        "7 kWh and 735 fils calculated unpaid source record",
+        "cursor history decoding",
+        "foreign customer separation",
+        "unauthenticated GET rejected"
+      ]
+    },
+    "isolated_backend_ocpp_checks": 110,
+    "python_wrapper_compile": "passed",
+    "source_blobs": {
+      "apps/hasone-customer/lib/feature/Booking/history/source_history.dart": "8e4c9c4de63d8d00f21aa6f1482e8bac7ce69a18",
+      "apps/hasone-customer/lib/feature/Booking/history/source_history_screen.dart": "0aefe264ad923dbf642230c5e40df543fb9c4416",
+      "apps/hasone-customer/lib/feature/Booking/UI/screen/booking_screen.dart": "2b4214aeabcef0c820646e08ded09563b5ae9edf",
+      "apps/hasone-customer/test/source_history_test.dart": "6c134e0ee1e69cfb9c0548cad67e4773bef126cd",
+      "apps/hasone-customer/test/source_history_api_test.dart": "fe532c4a5dfad1ab9161ca418326c0bff4ee9522",
+      "tools/agent2/run_mobile_history_api.py": "70479c19d10f9d7244bc7670a0f457fe87b909ac"
+    },
+    "restricted_log_sha256": {
+      "mobile-history-20261107-v2-test.log": "17d03de2d3e2193fbe009676c1e2b630ebf0e98b029388d9f42a80ef40d8a4f0",
+      "mobile-history-20261107-v2-real-api.log": "0104a4ad36b781d31f80928d1a1ce2f3df8a0e6f8618dfa55b9957f073ef3e31",
+      "mobile-history-20261107-v2-analyze-final.log": "01ba6ef8091010273ceb03a006b95e413a5df3be9df6d6006a0e100465208dea",
+      "mobile-history-20261107-v2-booking-analyze.log": "460fd901dfbf3b52274477130c91e9a6cc81870648f692bd87d8a4f9ece17e82",
+      "mobile-history-20261107-v2-real-api-final.log": "0104a4ad36b781d31f80928d1a1ce2f3df8a0e6f8618dfa55b9957f073ef3e31"
+    }
+  },
+  "limitations": [
+    "Android and iOS builds on this source remain required",
+    "PR52, PR50 and this candidate require Agent4 integration and required hosted checks",
+    "No live PSP, hardware, production acceptance or whole-product percentage credit"
+  ],
+  "reproduce": {
+    "unit": "cd apps/hasone-customer && flutter test --no-pub",
+    "analyze": "flutter analyze --no-pub lib/feature/Booking/history test/source_history_test.dart test/source_history_api_test.dart",
+    "actual_api": "python3 tools/agent2/run_mobile_history_api.py PR50_RUNNER STAGED_EXPRESS EXPRESS_DEPENDENCIES STAGED_OCPP_HANDLER FLUTTER_EXECUTABLE apps/hasone-customer"
+  },
+  "source_commit": "94222911c24acadc86befa5f932287b265273a5f",
+  "superseded_mobile_suite": "Current native mutation evidence is in ../agent2-mobile-booking-mutations/validation.json"
+}

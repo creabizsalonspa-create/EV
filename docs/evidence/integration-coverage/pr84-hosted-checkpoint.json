@@ -1,0 +1,15 @@
+{
+  "source_sha": "4fd8f2749f340618c0d39ea7109a2668aa98a094",
+  "integrated_sha": null,
+  "required_checks": [],
+  "scope": "Coded feature snapshot; final candidate includes follow-up security fixes. Hosted current-candidate validation must finish before tested/merged credit.",
+  "previous_source_failure": {
+    "source_sha": "6e91950955a257eb1c017cea37bac80cc33f3654",
+    "job": "https://github.com/creabizsalonspa-create/EV/actions/runs/43079696005/job/130728699332",
+    "error": "station-favorites expected empty global notice; unverified company invitation read emitted403 notice",
+    "repair": "Guard protected invitation reads on verified identity and display localized local prompt; four unit tests and unchanged actual favorites browser passed."
+  },
+  "previous_native_source": "6e91950955a257eb1c017cea37bac80cc33f3654",
+  "previous_native_jobs": "Android/iOS and both Hasone jobs passed that earlier exact source; not reused as full current-head merge acceptance.",
+  "production_accepted": false
+}

@@ -82,6 +82,42 @@ const assert = require("node:assert/strict");
     await form(page, "Apply as a company").waitFor();
     return { page, context, email };
   }
+  async function verifyAccount(account) {
+    // Obtain and consume the normal signed email URL before audited Admin promotion.
+    const verify = await account.page.request.post(
+      base + "/api/email/verification-notification",
+      {
+        headers: {
+          "X-CSRF-TOKEN": (
+            await (await account.page.request.get(base + "/api/csrf")).json()
+          ).token,
+        },
+      },
+    );
+    assert.equal(verify.status(), 202);
+    const verificationUrl = execFileSync(
+      "./scripts/php",
+      [
+        "-r",
+        `
+      require "vendor/autoload.php";
+      $app = require "bootstrap/app.php";
+      $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap();
+      Illuminate\\Support\\Facades\\URL::forceRootUrl($argv[2]);
+      $user = App\\Models\\User::where("email", $argv[1])->firstOrFail();
+      echo (new Illuminate\\Auth\\Notifications\\VerifyEmail)->toMail($user)->actionUrl;
+    `,
+        "--",
+        account.email,
+        base,
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    ).trim();
+    assert.equal(new URL(verificationUrl).origin, new URL(base).origin);
+    await account.page.goto(verificationUrl);
+    await account.page.goto(base);
+    await form(account.page, "Apply as a company").waitFor();
+  }
   async function open(page, name) {
     const card = section(page)
       .locator("article")
@@ -108,13 +144,21 @@ const assert = require("node:assert/strict");
       staff = await account("staff"),
       outsider = await account("outsider"),
       admin = await account("reviewer");
-    execFileSync("./scripts/php", [
-      "artisan",
-      "platform:role",
-      admin.email,
-      "admin",
-    ]);
-    await admin.page.reload();
+    await verifyAccount(applicant);
+    await verifyAccount(staff);
+    await verifyAccount(admin);
+    execFileSync(
+      "./scripts/php",
+      ["artisan", "platform:role", admin.email, "admin"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    await admin.page.goto(base);
+    await admin.page.locator("#account").waitFor({ state: "visible" });
+    await admin.page.locator("#account [name=email]").fill(admin.email);
+    await admin.page.locator("#account [name=password]").fill(password);
+    await action(admin.page, "/api/login", "POST", () =>
+      admin.page.locator("button[value=login]").click(),
+    );
     await section(admin.page)
       .getByRole("heading", { name: "Your companies", exact: true })
       .waitFor();
@@ -142,19 +186,28 @@ const assert = require("node:assert/strict");
       path = "/api/vendor-ops/companies/" + company;
     await form(applicant.page, "Upload private evidence").waitFor();
     assert.equal(await section(applicant.page).locator("img").count(), 0);
-    await action(
-      applicant.page,
-      path + "/submit",
-      "POST",
-      () =>
-        section(applicant.page)
-          .getByRole("button", {
-            name: "Submit for internal review",
-            exact: true,
-          })
-          .click(),
-      422,
+    const submitWithoutEvidence = section(applicant.page).getByRole("button", {
+      name: "Submit for internal review",
+      exact: true,
+    });
+    await section(applicant.page)
+      .getByText("Upload trade-license evidence before submitting.", {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(await submitWithoutEvidence.isDisabled(), true);
+    // The UI correctly prevents this invalid action; retain the independent
+    // backend rejection assertion through the authenticated HTTP boundary.
+    const applicantCsrf = (
+      await (await applicant.page.request.get(base + "/api/csrf")).json()
+    ).token;
+    const missingEvidence = await applicant.page.request.post(
+      base + path + "/submit",
+      {
+        headers: { "X-CSRF-TOKEN": applicantCsrf, Accept: "application/json" },
+      },
     );
+    assert.equal(missingEvidence.status(), 422);
     stage("missing evidence rejected");
     const content = Buffer.from(
       "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n",
@@ -221,6 +274,15 @@ const assert = require("node:assert/strict");
       .getByText("Company status: Internally approved", { exact: true })
       .waitFor();
     stage("internally approved");
+    // Internal approval promotes the owner and revokes the customer session.
+    await applicant.page.reload();
+    await applicant.page.locator("#account").waitFor({ state: "visible" });
+    await applicant.page.locator("#account [name=email]").fill(applicant.email);
+    await applicant.page.locator("#account [name=password]").fill(password);
+    await action(applicant.page, "/api/login", "POST", () =>
+      applicant.page.locator("button[value=login]").click(),
+    );
+    await open(applicant.page, name);
     await action(applicant.page, path, "GET", () =>
       section(applicant.page)
         .getByRole("button", { name: "Refresh company", exact: true })

@@ -399,17 +399,78 @@ window.createVendorWorkspace = ({
                 ],
                 (v, f, e) => upload(company, v, f, e, current),
             );
-            button(host, "Submit for internal review", async () => {
-                const c = await api(
-                    base + "companies/" + company.id + "/submit",
-                    "POST",
-                );
-                if (current())
-                    await detail({
-                        ...c,
-                        capabilities: c.capabilities || caps,
-                    });
-            });
+            // Listing metadata cannot establish whether the private trade
+            // license can still be read and verified. Check fresh server
+            // readiness before enabling a submit action in this view.
+            const readinessNotice = ui("p", "Checking trade-license evidence…");
+            host.append(readinessNotice);
+            const submitButton = button(
+                host,
+                "Submit for internal review",
+                async () => {
+                    const c = await api(
+                        base + "companies/" + company.id + "/submit",
+                        "POST",
+                    );
+                    if (current())
+                        await detail({
+                            ...c,
+                            capabilities: c.capabilities || caps,
+                        });
+                },
+            );
+            submitButton.disabled = true;
+            void (async () => {
+                try {
+                    const latest = await api(
+                        base + "companies/" + company.id,
+                        "GET",
+                        undefined,
+                        controller?.signal,
+                    );
+                    if (!current()) return;
+                    const ready = latest?.submission_readiness;
+                    if (!ready || ready.editable !== true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Company details changed. Refresh to continue.",
+                        );
+                    } else if (ready.trade_license_present !== true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Upload trade-license evidence before submitting.",
+                        );
+                    } else if (ready.license_valid !== true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Update the expired trade-license details before submitting.",
+                        );
+                    } else if (ready.trade_license_integrity_valid !== true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Trade-license evidence is unavailable or failed integrity verification. Upload a replacement.",
+                        );
+                    } else if (ready.can_submit === true) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Trade-license evidence is ready for manual review.",
+                        );
+                        submitButton.disabled = false;
+                    } else {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Company is not ready for submission. Refresh to check again.",
+                        );
+                    }
+                } catch (error) {
+                    if (current()) {
+                        EvLocale.bind(
+                            readinessNotice,
+                            "Unable to verify submission readiness. Refresh company to retry.",
+                        );
+                    }
+                }
+            })();
         }
         if (admin) {
             const targets = {
@@ -554,6 +615,66 @@ window.createVendorWorkspace = ({
                         }),
                         permissions(m.permissions),
                     );
+                    if (
+                        (m.status === "active" || m.status === "invited") &&
+                        !m.admin_revoked_at
+                    ) {
+                        const scopeEditor = form(
+                            row,
+                            "Change company staff permissions",
+                            [
+                                {
+                                    name: "permissions",
+                                    label: "New staff permissions",
+                                    checks: {
+                                        "company.read": "Read company",
+                                        "inventory.read": "Read inventory",
+                                        "inventory.write": "Manage inventory",
+                                    },
+                                },
+                            ],
+                            async (v, f, eventEpoch) => {
+                                if (!v.permissions.length)
+                                    throw new Error(
+                                        "Choose at least one staff permission.",
+                                    );
+                                if (
+                                    !confirm(
+                                        EvLocale.text(
+                                            "Replace the existing grant? The staff member loses access until accepting the new permissions.",
+                                        ),
+                                    )
+                                )
+                                    return;
+                                await api(
+                                    base +
+                                        "companies/" +
+                                        company.id +
+                                        "/staff/" +
+                                        m.id +
+                                        "/permissions",
+                                    "PATCH",
+                                    {
+                                        expected_version: m.invitation_version,
+                                        permissions: v.permissions,
+                                    },
+                                );
+                                if (valid(eventEpoch) && current()) {
+                                    notice(
+                                        "Permissions updated. Staff access is suspended until the new invitation is accepted.",
+                                    );
+                                    await detail(company);
+                                }
+                            },
+                        );
+                        for (const checkbox of scopeEditor.querySelectorAll(
+                            'input[name="permissions"]',
+                        )) {
+                            checkbox.checked = m.permissions.includes(
+                                checkbox.value,
+                            );
+                        }
+                    }
                     if (m.status !== "revoked")
                         button(row, "Revoke access", async () => {
                             if (
@@ -2256,6 +2377,7 @@ window.createVendorWorkspace = ({
             };
             for (const row of data.data) {
                 const card = document.createElement("article");
+                card.dataset.repairOrderId = String(row.id);
                 card.append(
                     raw("h4", `#${row.id} · ${row.alert_id}`),
                     ui("p", states[row.state] || "Repair state unavailable"),
@@ -2612,6 +2734,23 @@ window.createVendorWorkspace = ({
             pane.append(raw("p", profile.expires_at + " UTC"));
         const stateKey = "admission.state." + result.credential_state;
         if (result.credential_state) pane.append(ui("p", stateKey));
+        if (result.certificate_management_available === true)
+            button(pane, "Charger certificates", () => {
+                pane.querySelector("[data-charger-certificates]")?.remove();
+                const certificates = document.createElement("section");
+                certificates.dataset.chargerCertificates = "";
+                pane.append(certificates);
+                window.mountChargerCertificates({
+                    root: certificates,
+                    endpoint: path + "/certificates",
+                    profileId: profile.id,
+                    actor,
+                    api,
+                    valid: live,
+                    signal: controller.signal,
+                    refreshAdmission: refresh,
+                });
+            });
         const history = document.createElement("div");
         pane.append(history);
         async function events(page = 1) {
@@ -3256,6 +3395,88 @@ window.createVendorWorkspace = ({
             epoch,
         );
     }
+    // Read-only path to the existing authorized vendor fault alert UI.
+    // Never acknowledge the alert, release capacity or send charger commands.
+    // Read-only source-monitor review; never automatically inspect source,
+    // acknowledge a fault or run any physical device control operation.
+    async function openMonitorNotice(companyId, chargerId) {
+        if (![companyId, chargerId].every(
+            (id) => Number.isSafeInteger(id) && id > 0,
+        )) throw new Error("Invalid simulator monitor navigation target.");
+        const epoch = generation;
+        if (!valid(epoch)) return;
+        const company = await api(base + "companies/" + companyId);
+        if (!valid(epoch)) return;
+        await detail(company);
+        if (!valid(epoch)) return;
+        const host = root.querySelector("[data-company-detail]");
+        if (!host || !host.isConnected) return;
+        const pane = document.createElement("section");
+        pane.dataset.notificationMonitorReview = String(chargerId);
+        host.append(pane);
+        await diagnostics(company, { id: chargerId }, pane, epoch);
+        if (!valid(epoch) || !pane.isConnected) return;
+        pane.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+
+    async function openRepairNotice(companyId, chargerId, orderId) {
+        if (![companyId, chargerId, orderId].every(
+            (id) => Number.isSafeInteger(id) && id > 0,
+        )) throw new Error("Invalid simulator repair navigation target.");
+        const epoch = generation;
+        if (!valid(epoch)) return;
+        const company = await api(base + "companies/" + companyId);
+        if (!valid(epoch)) return;
+        await detail(company);
+        if (!valid(epoch)) return;
+        const host = root.querySelector("[data-company-detail]");
+        if (!host || !host.isConnected) return;
+        const pane = document.createElement("section");
+        pane.dataset.notificationRepairReview = String(orderId);
+        host.append(pane);
+        const target = await api(
+            base + "companies/" + companyId + "/chargers/" + chargerId +
+            "/repair-orders?focus_order_id=" + orderId,
+        );
+        if (!valid(epoch) || !pane.isConnected) return;
+        if (!Number.isSafeInteger(target?.focus_page) || target.focus_page < 1 ||
+            target.physical_repair_verified !== false ||
+            target.commands_sent !== false) {
+            throw new Error("Unable to verify the scoped repair work order.");
+        }
+        await repairOrders(company, { id: chargerId }, pane, epoch, target.focus_page);
+        if (!valid(epoch) || !pane.isConnected) return;
+        const found = Array.from(pane.querySelectorAll("[data-repair-order-id]")).find(
+            (node) => Number(node.dataset.repairOrderId) === orderId,
+        );
+        if (found) found.scrollIntoView({ block: "center", behavior: "smooth" });
+        else pane.append(ui("p", "Repair work order not on this page. Use Next to review older orders."));
+    }
+
+    async function openFaultNotice(companyId, chargerId, alertId) {
+        if (![companyId, chargerId, alertId].every(
+            (id) => Number.isSafeInteger(id) && id > 0,
+        )) throw new Error("Invalid simulator fault navigation target.");
+        const epoch = generation;
+        if (!valid(epoch)) return;
+        const company = await api(base + "companies/" + companyId);
+        if (!valid(epoch)) return;
+        await detail(company);
+        if (!valid(epoch)) return;
+        const host = root.querySelector("[data-company-detail]");
+        if (!host || !host.isConnected) return;
+        const pane = document.createElement("section");
+        pane.dataset.notificationFaultReview = String(alertId);
+        host.append(pane);
+        await faultAlerts(company, { id: chargerId }, pane, epoch);
+        if (!valid(epoch) || !pane.isConnected) return;
+        const found = Array.from(pane.querySelectorAll("[data-fault-alert]")).find(
+            (node) => Number(node.dataset.faultAlert) === alertId,
+        );
+        if (found) found.scrollIntoView({ block: "center", behavior: "smooth" });
+        else pane.append(ui("p", "Fault alert not on this page. Use Next to review older alerts."));
+    }
+
     async function setActor(user) {
         clear();
         if (!user) return;
@@ -3350,6 +3571,10 @@ window.createVendorWorkspace = ({
                 epoch,
             );
             if (!valid(epoch)) return;
+            if (!actor()?.email_verified_at) {
+                invites.append(ui("p", "Verify your email before viewing company staff invitations."));
+                return;
+            }
             await paged(
                 invites,
                 "staff-invitations",
@@ -3401,5 +3626,5 @@ window.createVendorWorkspace = ({
             }
         }
     }
-    return { clear, setActor };
+    return { clear, setActor, openFaultNotice, openMonitorNotice, openRepairNotice };
 };

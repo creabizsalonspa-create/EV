@@ -1,0 +1,61 @@
+{
+  "status": "STAGED_VERIFIED_NOT_MERGED",
+  "owner": "Agent 2",
+  "requirements": [
+    {
+      "id": "2.7.9",
+      "scope": "Verified calculated unpaid active cost and accepted-meter receipt freshness subset",
+      "full_atom_credit": false
+    },
+    {
+      "id": "2.7.5",
+      "scope": "Fail-closed malformed meter and source invoice reconciliation",
+      "full_atom_credit": false
+    }
+  ],
+  "results": {
+    "node_guards": 125,
+    "callback_http": 13,
+    "backend_ocpp": 135,
+    "mocked_chrome": 13,
+    "actual_api_chrome": 11,
+    "backend_plus_browser": 136,
+    "backend_plus_native": 136,
+    "actual_flutter_api_tests": 4,
+    "flutter_passed": 43,
+    "flutter_default_opt_in_skips": 3,
+    "next_typescript": "passed",
+    "next_webpack_build": "passed",
+    "native_changed_file_analysis": "No issues found"
+  },
+  "backend_source_blobs": {
+    "integrations/hasone-express/ocppSourceEvidence.mjs": "5c3899effa666aab32bc2fd3f1e6381cc54bc0ed",
+    "integrations/hasone-express/tests/ocppSourceEvidence.test.mjs": "879465aa5055e7b8dae7ccf6c459e632c6b6e7ac",
+    "tools/agent2/run_all_isolated_validation.sh": "6a1c9db5c8b004196e597ca73bba1a830349074d",
+    "tools/agent2/run_isolated_backend_demo.mjs": "efe20444a05ca7b5e9447c51a921690ac7c52587",
+    "tools/agent2/stage_ocpp_customer_status.py": "f339264d6e2f9a87af4cedfc35ed456a1f63519b",
+    "tools/agent2/stage_ocpp_meter_receipts.py": "eccc433df5f2528c9e880ee22fcd72b333acc135"
+  },
+  "native_source_blobs": {
+    "apps/hasone-customer/lib/feature/Booking/model/charging_starting_model.dart": "941c880ec95d6971e3b1b2b536ad3d3550e3fd3e",
+    "apps/hasone-customer/lib/feature/Booking/UI/screen/charging_screen.dart": "560ab36342dd15b056203befc3552cc7bbdff408",
+    "apps/hasone-customer/test/source_history_api_test.dart": "aa90170ddbc2121f4207f46c34399853469e7561",
+    "apps/hasone-customer/test/source_progress_test.dart": "581bc1e998c813fed840379eed8983e7867085f7"
+  },
+  "restricted_log_sha256": {
+    "progress-full-v1.log": "c61cac4940f28e5debe4237d0d9461078f79b0ed6e074e3a887ff132834cc598",
+    "progress-flutter-tests-v2.log": "c6a1623380e31cb40ca7f792afb7cc96abc298b58f00a953b5fa6f2c41d07d34",
+    "progress-flutter-analysis-v2.log": "265eb2327ea58bd6027a746482b213f59bd4f1d79dfda2621b81c2a5f1949d26",
+    "progress-native-api-v1.log": "dd42a1a7c1e6c6e6f9fff59c227d7b30f3ca77a341cd2ddff7eb74b9f86d056d",
+    "progress-native-api-v2.log": "ac02005add542abfab5568ac6385a4285ac7b7a68fd40b3e4b7b789ada561191"
+  },
+  "boundaries": [
+    "Calculation only: no charge, collected payment, final bill or battery/ETA inferred from active meter",
+    "No production files/data/indexes, physical chargers or payment provider altered",
+    "Receipt is server accepted-meter receive time, not charger clock or updatedAt; missing old receipts stay unknown",
+    "Meter freshness is age at API check; no continuous-live claim",
+    "Full incidents, independent capacity/expiry/reschedule, canonical authority agreement and required hosted/native/Agent4 integration remain unfinished"
+  ],
+  "branch": "development/agent2-mobile-source-history",
+  "parent_commit": "79a05258e9bd9acda622aa31be936a66d2fb1fc7"
+}

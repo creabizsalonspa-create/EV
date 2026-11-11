@@ -1,4 +1,19 @@
 window.EV_MESSAGES = {
+    "Verify your email before viewing company staff invitations.": {en: "Verify your email before viewing company staff invitations.", ar: "تحقق من بريدك الإلكتروني قبل عرض دعوات موظفي الشركة."},
+    "Checking trade-license evidence…": {en: "Checking trade-license evidence…", ar: "جارٍ التحقق من مستند الرخصة التجارية…"},
+    "Charger certificates": { en: "Charger certificates", ar: "شهادات الشاحن" },
+    "admission.event.certificate_enroll": {
+        en: "Public client certificate enrolled; handshake credentials invalidated",
+        ar: "سُجلت شهادة عميل عامة وأُبطلت بيانات الاتصال",
+    },
+    "admission.event.certificate_revoke": {
+        en: "Client certificate revoked locally",
+        ar: "أُبطلت شهادة العميل محلياً",
+    },
+    "Partner billing reconciliation": {
+        en: "Partner billing reconciliation",
+        ar: "مطابقة فوترة الشريك",
+    },
     "Rider activity source.authorization.allowed": {
         en: "Source authorization allowed; transaction not implied",
         ar: "سُمح بتفويض المصدر؛ لا يعني ذلك بدء معاملة",
@@ -90,6 +105,180 @@ window.EV_MESSAGES = {
         ar: "يتطلب دليل المصدر المراجعة",
     },
 
+    "Simulator source fault escalation resolved · station #{id}": {
+        en: "Simulator source fault escalation resolved · station #{id}",
+        ar: "تم حل تصعيد العطل وفق مصدر المحاكاة · المحطة #{id}",
+    },
+    "Operator acknowledged simulator fault escalation · station #{id}": {
+        en: "Operator acknowledged simulator fault escalation · station #{id}",
+        ar: "أقرّ المشغل بمراجعة تصعيد العطل التجريبي · المحطة #{id}",
+    },
+    "Unresolved simulated charger fault escalated to on-call Admin · station #{id}": {
+        en: "Unresolved simulated charger fault escalated to on-call Admin · station #{id}",
+        ar: "تم تصعيد عطل الشاحن التجريبي غير المحلول للمشرف المناوب · المحطة #{id}",
+    },
+    "Unacknowledged simulated charger fault reminder · station #{id}": {
+        en: "Unacknowledged simulated charger fault reminder · station #{id}",
+        ar: "تذكير بعطل شاحن تجريبي لم يتم الإقرار به · المحطة #{id}",
+    },
+
+    "Notification preferences": { en: "Notification preferences", ar: "تفضيلات الإشعارات" },
+    "Default inbox category": { en: "Default inbox category", ar: "الفئة الافتراضية لصندوق الوارد" },
+    "Start with unread only": { en: "Start with unread only", ar: "عرض غير المقروءة أولاً" },
+    "Repeat unresolved simulator fault reminders": {
+        en: "Repeat unresolved simulator fault reminders",
+        ar: "تكرار تذكيرات أعطال المحاكاة غير المحلولة",
+    },
+    "Simulated fault reminder delay": {
+        en: "Simulated fault reminder delay",
+        ar: "مهلة تذكير عطل الشاحن التجريبي",
+    },
+    "After {minutes} minutes": {
+        en: "After {minutes} minutes",
+        ar: "بعد {minutes} دقيقة",
+    },
+    "Critical in-app notifications always remain visible. External notification delivery is not active.": {
+        en: "Critical in-app notifications always remain visible. External notification delivery is not active.",
+        ar: "تبقى الإشعارات الداخلية الحرجة ظاهرة دائماً. إرسال الإشعارات خارج التطبيق غير مفعل.",
+    },
+    "Save notification preferences": { en: "Save notification preferences", ar: "حفظ تفضيلات الإشعارات" },
+
+    "Source-based operator review closed · station #{id}": {
+        en: "Source-based operator review closed · station #{id}",
+        ar: "أُغلقت مراجعة المشغل المستندة إلى المصدر · المحطة #{id}",
+    },
+
+    "Charging command requires operator recovery · station #{id}": {
+        en: "Charging command requires operator recovery · station #{id}",
+        ar: "يتطلب أمر الشحن استرداداً تشغيلياً · المحطة #{id}",
+    },
+    "Charging command source evidence recorded · station #{id}": {
+        en: "Charging command source evidence recorded · station #{id}",
+        ar: "تم تسجيل دليل مصدر أمر الشحن · المحطة #{id}",
+    },
+    "Review charging recovery case": {
+        en: "Review charging recovery case",
+        ar: "مراجعة حالة استرداد الشحن",
+    },
+
+    "Review simulator source monitor": {
+        en: "Review simulator source monitor",
+        ar: "مراجعة مراقبة مصدر المحاكاة",
+    },
+
+    "Simulator charger monitor requires review · station #{id}": {
+        en: "Simulator charger monitor requires review · station #{id}",
+        ar: "مراقبة شاحن المحاكاة تتطلب مراجعة · المحطة #{id}",
+    },
+    "Simulator charger monitor caught up · station #{id}": {
+        en: "Simulator charger monitor caught up · station #{id}",
+        ar: "اكتملت متابعة مراقبة شاحن المحاكاة · المحطة #{id}",
+    },
+
+    "Review simulated charger fault": {
+        en: "Review simulated charger fault",
+        ar: "مراجعة عطل شاحن تجريبي",
+    },
+    "Fault alert not on this page. Use Next to review older alerts.": {
+        en: "Fault alert not on this page. Use Next to review older alerts.",
+        ar: "التنبيه غير موجود في هذه الصفحة. استخدم التالي لمراجعة التنبيهات السابقة.",
+    },
+
+    "Fleet invitation withdrawn · fleet #{id}": {
+        en: "Fleet invitation withdrawn · fleet #{id}",
+        ar: "تم سحب دعوة الأسطول · الأسطول #{id}",
+    },
+
+    "Vehicle assigned to fleet #{id}": {
+        en: "Vehicle assigned to fleet #{id}", ar: "تم تعيين مركبة للأسطول #{id}",
+    },
+    "Fleet vehicle cost center changed · fleet #{id}": {
+        en: "Fleet vehicle cost center changed · fleet #{id}",
+        ar: "تم تغيير مركز تكلفة مركبة الأسطول · الأسطول #{id}",
+    },
+
+    "Refresh notifications": { en: "Refresh notifications", ar: "تحديث الإشعارات" },
+
+    "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}": {
+        en: "Unread: Support {support} · Vehicle {vehicle} · Charging {charging} · Fleet {fleet} · Other {other}",
+        ar: "غير مقروءة: دعم {support} · مركبة {vehicle} · شحن {charging} · أسطول {fleet} · أخرى {other}",
+    },
+    "Mark unread": { en: "Mark unread", ar: "تحديد كغير مقروء" },
+
+    "Review fleet invitation": { en: "Review fleet invitation", ar: "مراجعة دعوة الأسطول" },
+
+    "Notification pages": { en: "Notification pages", ar: "صفحات الإشعارات" },
+    "Previous notifications": { en: "Previous notifications", ar: "الإشعارات السابقة" },
+    "Next notifications": { en: "Next notifications", ar: "الإشعارات التالية" },
+    "Notifications page {page} of {last}": {
+        en: "Notifications page {page} of {last}",
+        ar: "صفحة الإشعارات {page} من {last}",
+    },
+    "Fleet notifications": { en: "Fleet notifications", ar: "إشعارات الأسطول" },
+    "Other notifications": { en: "Other notifications", ar: "إشعارات أخرى" },
+    "Other operational notification": {
+        en: "Other operational notification", ar: "إشعار تشغيلي آخر",
+    },
+    "Fleet invitation · fleet #{id}": {
+        en: "Fleet invitation · fleet #{id}", ar: "دعوة للأسطول · الأسطول #{id}",
+    },
+    "Fleet invitation accepted · fleet #{id}": {
+        en: "Fleet invitation accepted · fleet #{id}", ar: "تم قبول دعوة الأسطول · الأسطول #{id}",
+    },
+    "Fleet access revoked · fleet #{id}": {
+        en: "Fleet access revoked · fleet #{id}", ar: "تم إلغاء الوصول إلى الأسطول · الأسطول #{id}",
+    },
+    "Simulator source reported recovery · station #{id}": {
+        en: "Simulator source reported recovery · station #{id}",
+        ar: "أبلغ مصدر المحاكاة عن التعافي · المحطة #{id}",
+    },
+    "Notification category": { en: "Notification category", ar: "فئة الإشعارات" },
+    "All notification categories": { en: "All notification categories", ar: "جميع فئات الإشعارات" },
+    "Support notifications": { en: "Support notifications", ar: "إشعارات الدعم" },
+    "Vehicle notifications": { en: "Vehicle notifications", ar: "إشعارات المركبة" },
+    "Charging notifications": { en: "Charging notifications", ar: "إشعارات الشحن" },
+    "Repair work order not on this page. Use Next to review older orders.": {
+        en: "Repair work order not on this page. Use Next to review older orders.",
+        ar: "أمر الإصلاح ليس في هذه الصفحة. استخدم التالي لعرض الأوامر الأقدم.",
+    },
+    "Review simulated repair work orders": {
+        en: "Review simulated repair work orders",
+        ar: "مراجعة أوامر إصلاح الشاحن التجريبي",
+    },
+    "Simulated charger repair opened · station #{id}": {
+        en: "Simulated charger repair opened · station #{id}",
+        ar: "فُتح طلب إصلاح الشاحن التجريبي · المحطة #{id}",
+    },
+    "Simulated charger repair work started · station #{id}": {
+        en: "Simulated charger repair work started · station #{id}",
+        ar: "بدأت أعمال إصلاح الشاحن التجريبي · المحطة #{id}",
+    },
+    "Simulated charger repair reopened · station #{id}": {
+        en: "Simulated charger repair reopened · station #{id}",
+        ar: "أُعيد فتح مراجعة إصلاح الشاحن التجريبي · المحطة #{id}",
+    },
+    "Simulated charger repair review requested · station #{id}": {
+        en: "Simulated charger repair review requested · station #{id}",
+        ar: "مطلوب مراجعة إصلاح الشاحن التجريبي · المحطة #{id}",
+    },
+    "Simulator source repair review closed · station #{id}": {
+        en: "Simulator source repair review closed · station #{id}",
+        ar: "أُغلقت مراجعة الإصلاح وفق مصدر المحاكاة · المحطة #{id}",
+    },
+    "Observed simulated charger fault · station #{id}": {
+        en: "Observed simulated charger fault · station #{id}",
+        ar: "رُصد عطل شاحن تجريبي · المحطة #{id}",
+    },
+    "Show unread only": { en: "Show unread only", ar: "عرض غير المقروءة فقط" },
+    "Show all notifications": { en: "Show all notifications", ar: "عرض جميع الإشعارات" },
+    "{count} unread notifications": {
+        en: "{count} unread notifications",
+        ar: "{count} إشعار غير مقروء",
+    },
+    "Mark all current notifications as read": {
+        en: "Mark all current notifications as read",
+        ar: "تحديد الإشعارات الحالية كمقروءة",
+    },
     "Roaming credential state superseded": {
         en: "Enrollment replaced",
         ar: "تم استبدال التسجيل",
@@ -2983,6 +3172,48 @@ window.EV_MESSAGES = {
         en: "No approved feedback in report window",
         ar: "لا توجد ملاحظات معتمدة ضمن فترة التقرير",
     },
-    "View simulated roaming invoice": {en: "View simulated roaming invoice", ar: "عرض فاتورة التجوال التجريبية"},
-    "Review simulated roaming invoice": {en: "Review simulated roaming invoice", ar: "مراجعة فاتورة التجوال التجريبية"},
+    "View simulated roaming invoice": {
+        en: "View simulated roaming invoice",
+        ar: "عرض فاتورة التجوال التجريبية",
+    },
+    "Review simulated roaming invoice": {
+        en: "Review simulated roaming invoice",
+        ar: "مراجعة فاتورة التجوال التجريبية",
+    },
+    "Charging source evidence": {
+        en: "Charging source evidence",
+        ar: "أدلة مصدر الشحن",
+    },
+    "Source receipts match this simulated invoice": {
+        en: "Source receipts match this simulated invoice",
+        ar: "تطابق إيصالات المصدر هذه الفاتورة التجريبية",
+    },
+    "Source evidence requires review": {
+        en: "Source evidence requires review",
+        ar: "تتطلب أدلة المصدر المراجعة",
+    },
+    "Application simulation without source verification": {
+        en: "Application simulation without source verification",
+        ar: "محاكاة التطبيق دون تحقق من المصدر",
+    },
+    "Source evidence disclaimer": {
+        en: "Recorded simulation evidence only. This does not verify physical charging, payment or command authority.",
+        ar: "أدلة محاكاة مسجلة فقط. لا تثبت الشحن الفعلي أو الدفع أو صلاحية الأوامر.",
+    },
+    "Charging evidence unavailable": {
+        en: "Charging evidence could not be verified. Retry safely.",
+        ar: "تعذر التحقق من أدلة الشحن. أعد المحاولة بأمان.",
+    },
+    "Credit CDR original reference matched": {
+        en: "Credit CDR original reference matched",
+        ar: "تطابق مرجع سجل الشحن الأصلي للإشعار الدائن",
+    },
+    "Credit CDR original reference requires review": {
+        en: "Credit CDR original reference requires review",
+        ar: "يتطلب مرجع سجل الشحن الأصلي للإشعار الدائن المراجعة",
+    },
+    "Credit reference does not authorize a refund": {
+        en: "A source reference does not approve a refund or change the original invoice.",
+        ar: "لا يعني مرجع المصدر الموافقة على استرداد أو تغيير الفاتورة الأصلية.",
+    },
 };

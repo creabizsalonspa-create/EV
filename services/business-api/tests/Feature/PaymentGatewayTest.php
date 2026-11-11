@@ -17,6 +17,18 @@ class PaymentGatewayTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_oversized_unsigned_or_forged_webhooks_are_rejected_before_signature_processing(): void
+    {
+        $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'];
+        $this->call('POST', '/gateway-webhook-test', [], [], [], $headers, str_repeat('x', 16385))->assertStatus(413);
+        $headers += ['HTTP_X_PAYMENT_TIMESTAMP' => (string) time(), 'HTTP_X_PAYMENT_SIGNATURE' => str_repeat('0', 64)];
+        $this->call('POST', '/gateway-webhook-test', [], [], [], $headers, str_repeat('x', 16385))->assertStatus(413);
+        $this->call('POST', '/gateway-webhook-test', [], [], [], $headers, str_repeat('x', 16384))->assertUnauthorized();
+        $this->assertDatabaseCount('gateway_webhook_events', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     protected function setUp(): void
     {
         parent::setUp();

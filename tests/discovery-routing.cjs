@@ -59,9 +59,13 @@ const fs = require("node:fs");
       remote_control: false,
       reservable: false,
     }));
+    // Unrelated distant results must not make a short selected journey
+    // disappear at world zoom. This is a controlled catalog fixture.
+    stations.push({...stations[0], id: 5, name: "Distant catalog fixture",
+      latitude: 52.37, longitude: 4.9});
     await page.route("**/api/stations*", (r) =>
       r.fulfill({
-        json: { data: stations, total: 4, current_page: 1, last_page: 1 },
+        json: { data: stations, total: stations.length, current_page: 1, last_page: 1 },
       }),
     );
     await page.route("**/api/discovery/capabilities", (r) =>
@@ -214,6 +218,9 @@ const fs = require("node:fs");
       .getByRole("button", { name: "Enable interactive map", exact: true })
       .click();
     await page.locator(".leaflet-overlay-pane path").first().waitFor();
+    const routeBounds = await page.locator(".leaflet-overlay-pane path").first().boundingBox();
+    assert(routeBounds && routeBounds.width >= 2 && routeBounds.height >= 2,
+      "The selected journey must remain visible despite distant catalog results");
     assert.equal(await page.locator("#stations form").count(), 0);
     await page.locator("#language").click();
     await page.setViewportSize({ width: 390, height: 844 });
