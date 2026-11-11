@@ -277,15 +277,45 @@ function reservationForm(s, mapping = null) {
     i.required = true;
     l.append(i);
     f.append(l);
+    const actorEpoch = client.sessionEpoch;
+    const vehicleLabel = document.createElement("label");
+    const vehicle = document.createElement("select");
+    vehicle.name = "vehicle_id";
+    const empty = new Option("", "");
+    empty.dataset.en = "No vehicle association"; empty.dataset.ar = "دون ربط مركبة";
+    vehicle.append(empty);
+    vehicleLabel.append(batteryNode("span", "Vehicle (optional)", "المركبة (اختياري)"), vehicle);
+    const loadVehicle = batteryNode("button", "Load compatible vehicles", "تحميل المركبات المتوافقة");
+    loadVehicle.type = "button";
+    let vehiclePage = 0, vehicleLast = 1;
+    loadVehicle.onclick = async () => {
+        loadVehicle.disabled = true;
+        if (vehiclePage >= vehicleLast) {
+            vehiclePage = 0; vehicleLast = 1;
+            while (vehicle.options.length > 1) vehicle.remove(1);
+        }
+        try {
+            const result = await api("vehicles?connector_type=" + encodeURIComponent(mapping?.connector_type || s.connector_type) + "&page=" + (vehiclePage + 1));
+            if (!f.isConnected || actorEpoch !== client.sessionEpoch) return;
+            for (const row of result.data) vehicle.append(new Option(row.name, row.id));
+            vehiclePage = result.current_page; vehicleLast = result.last_page;
+            batteryText(loadVehicle, vehiclePage < vehicleLast ? "More compatible vehicles" : "Refresh compatible vehicles",
+                vehiclePage < vehicleLast ? "المزيد من المركبات المتوافقة" : "تحديث المركبات المتوافقة");
+        } catch (error) { notice(error); }
+        finally {loadVehicle.disabled = false;}
+    };
+    f.append(vehicleLabel, loadVehicle);
     let b = ui("button", "Reserve simulator slot");
     f.append(b);
     let bookingKey = crypto.randomUUID();
     f.onsubmit = async (e) => {
         e.preventDefault();
+        if (!f.isConnected || actorEpoch !== client.sessionEpoch) return;
         b.disabled = true;
         try {
             await api("reservations", "POST", {
                 station_id: s.id,
+                ...(vehicle.value ? { vehicle_id: Number(vehicle.value) } : {}),
                 ...(mapping ? { connector_mapping_id: mapping.id } : {}),
                 starts_at:
                     i.value.length === 16 ? i.value + ":00Z" : i.value + "Z",
@@ -623,6 +653,9 @@ async function bookings() {
                 status: { translate: r.status },
             },
         );
+        if (r.vehicle_connector_type) a.append(r.vehicle_label
+            ? node("p", r.vehicle_label + " · " + r.vehicle_connector_type)
+            : batteryNode("p", "Vehicle connector · " + r.vehicle_connector_type, "موصل المركبة · " + r.vehicle_connector_type));
         if (r.checked_in_at)
             a.append(
                 ui("p", "Self-reported arrival · {time}", {
@@ -1207,6 +1240,7 @@ const roamingWorkspace = createRoamingWorkspace({
     ui,
     actor: () => user,
     notice,
+    openInvoice: (id) => invoiceHistory.open(id),
 });
 const invoiceHistory = createInvoiceHistory({
     root: el("invoice-history"),
@@ -1253,25 +1287,97 @@ el("forgot-password").onsubmit = async (e) => {
     }
 };
 
+function batteryText(element, en, ar) {
+    element.dataset.en = en;
+    element.dataset.ar = ar;
+    element.textContent = EvLocale.language === "ar" ? ar : en;
+    return element;
+}
+function batteryNode(tag, en, ar) { return batteryText(node(tag, ""), en, ar); }
+function batteryNotification(message) {
+    const row = node("p", "");
+    const suffix = message.metadata.vehicle_id + " · " + message.metadata.battery_percent + "%";
+    row.append(batteryNode("span", "Simulated low battery · Vehicle " + suffix, "محاكاة بطارية منخفضة · المركبة " + suffix));
+    return row;
+}
+
+
+async function discoverBatteryVehicle(id) {
+    const preference = await api(`vehicles/${id}/battery-preferences`);
+    if (!["CCS2", "Type2", "CHAdeMO"].includes(preference.connector_type)) return;
+    el("filters").reset();
+    el("filters").elements.namedItem("connector_type").value = preference.connector_type;
+    favoriteMode = false;
+    renderCatalogMode();
+    await stations("?connector_type=" + encodeURIComponent(preference.connector_type));
+    location.hash = "#discover";
+}
+async function batteryEditor(id, row) {
+    const epoch = client.sessionEpoch;
+    const data = await api(`vehicles/${id}/battery-preferences`);
+    if (!row.isConnected || epoch !== client.sessionEpoch) return;
+    row.querySelector("[data-battery-editor]")?.remove();
+    const box = node("section", ""); box.dataset.batteryEditor = "";
+    box.append(batteryNode("p", "Simulator-only alerts. Choose location explicitly in discovery for nearby results.", "تنبيهات محاكاة فقط. اختر الموقع صراحةً في الدليل للنتائج القريبة."));
+    let version = data.version, pending = null;
+    const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = data.alerts_enabled;
+    const threshold = document.createElement("input"); threshold.type = "number"; threshold.required = true; threshold.min = "1"; threshold.max = "50"; threshold.value = data.threshold_percent;
+    const label = (en, ar, input) => {const l = node("label", ""); l.append(batteryNode("span", en, ar), input); box.append(l);};
+    label("Enable low-battery notifications", "تفعيل تنبيهات البطارية المنخفضة", enabled);
+    label("Threshold % (1–50)", "عتبة التنبيه ٪ (1–50)", threshold);
+    const save = batteryNode("button", "Save battery preferences", "حفظ تفضيلات البطارية");
+    save.onclick = async () => {
+        if (!threshold.reportValidity()) return;
+        save.disabled = true;
+        try {
+            const value = await api(`vehicles/${id}/battery-preferences`, "PUT", {
+                alerts_enabled: enabled.checked, threshold_percent: Number(threshold.value), expected_version: version,
+            });
+            if (epoch === client.sessionEpoch) version = value.version;
+        } catch (e) { notice(e); }
+        finally { save.disabled = pending !== null; }
+    };
+    box.append(save);
+    if (data.can_simulate) {
+        const percent = document.createElement("input"); percent.type = "number"; percent.required = true; percent.min = "0"; percent.max = "100"; percent.value = "15";
+        label("Simulated battery % (0–100)", "بطارية محاكاة ٪ (0–100)", percent);
+        const simulate = batteryNode("button", "Record simulator observation", "تسجيل قراءة محاكاة");
+        const result = node("p", "");
+        simulate.onclick = async () => {
+            if (pending === null && !percent.reportValidity()) return;
+            pending ??= {operation_key: crypto.randomUUID(), battery_percent: Number(percent.value)};
+            simulate.disabled = true; save.disabled = enabled.disabled = threshold.disabled = percent.disabled = true;
+            try {
+                const value = await api(`vehicles/${id}/battery-simulation`, "POST", pending);
+                if (epoch !== client.sessionEpoch) return;
+                if (value.alerted) batteryText(result, "Simulated alert saved in Notifications.", "تم حفظ تنبيه المحاكاة في الإشعارات.");
+                else batteryText(result, "Simulator observation saved; preferences did not trigger an alert.", "تم حفظ قراءة المحاكاة؛ لم تؤد التفضيلات إلى تنبيه.");
+                pending = null;
+            } catch (e) { notice(e); }
+            finally {
+                simulate.disabled = false;
+                save.disabled = enabled.disabled = threshold.disabled = percent.disabled = pending !== null;
+                if (pending) batteryText(simulate, "Retry same simulator observation", "إعادة محاولة قراءة المحاكاة نفسها");
+                else batteryText(simulate, "Record simulator observation", "تسجيل قراءة محاكاة");
+            }
+        };
+        box.append(simulate, result);
+    }
+    const discover = batteryNode("button", "Find compatible chargers", "البحث عن شواحن متوافقة");
+    discover.onclick = () => discoverBatteryVehicle(id).catch(notice);
+    box.append(discover);
+    row.append(box);
+}
+
 async function garage() {
     const j = await api("vehicles");
     el("vehicle-list").replaceChildren();
     for (const v of j.data) {
         const row = node("div", "#" + v.id + " · " + v.name + " · " + v.connector_type);
-        if (v.can_simulate_battery === true) {
-            const action = node("button", user.locale === "ar" ? "محاكاة تنبيه بطارية منخفضة 15٪" : "Simulate low battery alert: 15%");
-            // Keep the same identity for retry after an unknown response.
-            const operationKey = crypto.randomUUID();
-            action.onclick = async () => {
-                action.disabled = true;
-                try {
-                    await api("vehicles/" + v.id + "/battery-simulation", "POST", {
-                        operation_key: operationKey, battery_percent: 15,
-                    });
-                    notice(user.locale === "ar" ? "تم حفظ تنبيه المحاكاة في الإشعارات" : "Simulated alert saved in Notifications");
-                } catch (e) { notice(e); action.disabled = false; }
-            };
-            row.append(action);
+        if (user.role === "customer") {
+            const preferences = batteryNode("button", "Battery preferences", "تفضيلات البطارية");
+            preferences.onclick = () => batteryEditor(v.id, row).catch(notice);
+            row.append(preferences);
         }
         el("vehicle-list").append(row);
     }
@@ -1324,11 +1430,16 @@ async function support() {
     el("notifications").replaceChildren();
     for (const m of n.data) {
         const row = m.kind === "vehicle.battery.simulated"
-            ? node("p", (user.locale === "ar" ? "محاكاة بطارية منخفضة · المركبة " : "Simulated low battery · Vehicle ") + m.metadata.vehicle_id + " · " + m.metadata.battery_percent + "%")
+            ? batteryNotification(m)
             : ui("p", "{kind} · ticket #{id}", {
             kind: { translate: m.kind },
             id: m.support_ticket_id,
         });
+        if (m.kind === "vehicle.battery.simulated") {
+            const discover = batteryNode("button", "Find compatible chargers", "البحث عن شواحن متوافقة");
+            discover.onclick = () => discoverBatteryVehicle(m.metadata.vehicle_id).catch(notice);
+            row.append(discover);
+        }
         if (!m.read_at) {
             const b = ui("button", "Mark read");
             b.onclick = async () => {

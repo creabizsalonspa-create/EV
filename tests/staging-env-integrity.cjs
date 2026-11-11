@@ -33,6 +33,25 @@ test('atomic replacement with byte-identical content fails inode identity',()=>s
  fs.renameSync(replacement,file);
  assert.throws(()=>gate.assertUnchanged(file,snap),/changed since preflight/);
 }));
+test('reparenting the exact same private env inode into a new real directory fails preflight',()=>sandbox(({dir,file})=>{
+ const parent=path.join(dir,'private-parent');fs.mkdirSync(parent,{mode:0o700});
+ const nested=path.join(parent,'.env');
+ fs.renameSync(file,nested);
+ const baseline=gate.capture(nested);
+ const previous=path.join(dir,'old-parent');
+ fs.renameSync(parent,previous);
+ fs.mkdirSync(parent,{mode:0o700});
+ fs.renameSync(path.join(previous,'.env'),nested);
+ assert.equal(fs.statSync(nested).ino,baseline.ino);
+ assert.match(baseline.ancestorDigest,/^[a-f0-9]{64}$/);
+ assert.equal(JSON.stringify(baseline).includes(dir),false);
+ assert.throws(()=>gate.assertUnchanged(nested,baseline),/changed since preflight/);
+}));
+test('staging env snapshot without baseline directory identity fails closed',()=>sandbox(({file})=>{
+ const {ancestorDigest,...unbound}=gate.capture(file);
+ assert.ok(ancestorDigest);
+ assert.throws(()=>gate.assertUnchanged(file,unbound),/Missing reviewed/);
+}));
 test('private input cannot be a symbolic link',()=>sandbox(({dir,file})=>{
  const link=path.join(dir,'alias');fs.symlinkSync(file,link);
  assert.throws(()=>gate.capture(link),/cannot be securely opened/);

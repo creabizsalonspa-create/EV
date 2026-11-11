@@ -46,6 +46,8 @@ Route::prefix('v1')->group(function () {
         Route::patch('/profile', [A::class, 'profile']);
         Route::get('/vehicles', [P::class, 'vehicles']);
         Route::post('/vehicles', [P::class, 'createVehicle']);
+        Route::get('/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'show']);
+        Route::put('/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'update']);
         Route::post('/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
         Route::post('/stations', [P::class, 'createStation']);
         Route::get('/vendor/stations', function (Request $r) {
@@ -137,11 +139,11 @@ Route::get('v1/ocpi/providers/{provider}/sandbox-orders', [RoamingOrderControlle
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
 Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->where('operation', '[0-9]{1,18}')->middleware('throttle:30,1');
 
-Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
+Route::get('/v1/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::prefix('/v1/charging-reviews')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
 Route::prefix('v1')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/vehicle_model_catalog.php');
 Route::prefix('v1')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(__DIR__.'/vehicle_manual_soc.php');
 
 // Operator-supplied station access information is not charger-source availability.
-Route::get('/v1/stations/{station}/information', [StationInformationController::class, 'show'])->whereNumber('station')->middleware('throttle:catalog');
-Route::put('/v1/stations/{station}/information', [StationInformationController::class, 'save'])->whereNumber('station')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+Route::get('/v1/stations/{station}/information', [StationInformationController::class, 'show'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
+Route::put('/v1/stations/{station}/information', [StationInformationController::class, 'save'])->where('station', '[0-9]{1,18}')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);

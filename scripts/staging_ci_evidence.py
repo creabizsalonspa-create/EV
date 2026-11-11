@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import sys
 
@@ -30,12 +31,40 @@ def no_duplicate_keys(pairs):
 def unsafe_constant(_):
     raise EvidenceError('Nonstandard JSON numeric constant')
 
+def snapshot_directory_chain(parent):
+    """Record real ancestor directories without resolving symlinked path components."""
+    directory = Path(os.path.abspath(str(parent)))
+    chain = []
+    while True:
+        try:
+            info = os.lstat(directory)
+        except OSError as exc:
+            raise EvidenceError('Metadata ancestor directory inaccessible') from exc
+        if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            raise EvidenceError('Metadata path contains a symlinked ancestor')
+        chain.append((directory, info.st_dev, info.st_ino))
+        if directory == directory.parent:
+            break
+        directory = directory.parent
+    return tuple(chain)
+
+
+def assert_directory_chain_unchanged(chain):
+    if not chain or snapshot_directory_chain(chain[0][0]) != chain:
+        raise EvidenceError('Metadata ancestor directory changed during read')
+
+
+def stat_identity(info):
+    return (info.st_dev, info.st_ino, info.st_size,
+            info.st_mtime_ns, info.st_ctime_ns)
+
 def private_json(file):
     file = Path(file)
     if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
         raise EvidenceError('No safe local file access')
     parent = file.parent
-    if parent.is_symlink() or not parent.is_dir() or parent.stat().st_mode & 0o077:
+    parent_chain = snapshot_directory_chain(parent)
+    if os.lstat(parent).st_mode & 0o077:
         raise EvidenceError('Metadata parent must be private')
     try:
         fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -43,11 +72,20 @@ def private_json(file):
         raise EvidenceError('Cannot safely open metadata') from exc
     try:
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or not 2 <= st.st_size <= MAX_JSON:
-            raise EvidenceError('Metadata must be bounded, regular and private')
+        if (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or
+                st.st_mode & 0o077 or not 2 <= st.st_size <= MAX_JSON):
+            raise EvidenceError('Metadata must be bounded, single-link, regular and private')
         raw = os.read(fd, MAX_JSON + 1)
-        if len(raw) != st.st_size:
-            raise EvidenceError('Metadata size changed during read')
+        after = os.fstat(fd)
+        try:
+            visible = os.lstat(file)
+        except OSError as exc:
+            raise EvidenceError('Metadata path disappeared during read') from exc
+        if (len(raw) != st.st_size or stat_identity(after) != stat_identity(st) or
+                not stat.S_ISREG(visible.st_mode) or visible.st_nlink != 1 or
+                visible.st_mode & 0o077 or stat_identity(visible) != stat_identity(st)):
+            raise EvidenceError('Metadata file changed during read')
+        assert_directory_chain_unchanged(parent_chain)
     finally:
         os.close(fd)
     try:
@@ -66,7 +104,9 @@ def verify(run, listing, source):
     rid, attempt = run.get('id'), run.get('run_attempt')
     if type(rid) is not int or rid <= 0 or type(attempt) is not int or attempt <= 0:
         raise EvidenceError('Run ID or attempt invalid')
-    if run.get('workflow_id') != WORKFLOW['id'] or run.get('name') != WORKFLOW['name'] or run.get('path') != WORKFLOW['path']:
+    if (type(run.get('workflow_id')) is not int or
+            run['workflow_id'] != WORKFLOW['id'] or
+            run.get('name') != WORKFLOW['name'] or run.get('path') != WORKFLOW['path']):
         raise EvidenceError('Wrong platform workflow')
     if run.get('head_sha') != source or run.get('status') != 'completed' or run.get('conclusion') != 'success':
         raise EvidenceError('Source-mismatched or unverified workflow run')
@@ -74,7 +114,10 @@ def verify(run, listing, source):
         raise EvidenceError('Unreviewed workflow trigger')
     repository = run.get('repository')
     head_repo = run.get('head_repository')
-    if not isinstance(repository, dict) or not isinstance(head_repo, dict) or repository.get('full_name') != REPO or head_repo.get('full_name') != REPO or type(repository.get('id')) is not int or repository['id'] <= 0 or head_repo.get('id') != repository['id']:
+    if (not isinstance(repository, dict) or not isinstance(head_repo, dict) or
+            repository.get('full_name') != REPO or head_repo.get('full_name') != REPO or
+            type(repository.get('id')) is not int or repository['id'] <= 0 or
+            type(head_repo.get('id')) is not int or head_repo['id'] != repository['id']):
         raise EvidenceError('Workflow originates from another repository')
     jobs = listing.get('jobs')
     if type(listing.get('total_count')) is not int or listing['total_count'] != len(EXPECTED) or not isinstance(jobs, list) or len(jobs) != len(EXPECTED):
@@ -87,7 +130,11 @@ def verify(run, listing, source):
         name, jid = job.get('name'), job.get('id')
         if name not in EXPECTED or name in names or type(jid) is not int or jid <= 0 or jid in job_ids:
             raise EvidenceError('Unknown, repeated or invalid job')
-        if job.get('run_id') != rid or job.get('run_attempt') != attempt or job.get('workflow_name') != WORKFLOW['name'] or job.get('head_sha') != source or job.get('status') != 'completed' or job.get('conclusion') != 'success':
+        if (type(job.get('run_id')) is not int or job['run_id'] != rid or
+                type(job.get('run_attempt')) is not int or job['run_attempt'] != attempt or
+                job.get('workflow_name') != WORKFLOW['name'] or
+                job.get('head_sha') != source or job.get('status') != 'completed' or
+                job.get('conclusion') != 'success'):
             raise EvidenceError('Incomplete, skipped, mismatched or failed job')
         names.add(name)
         job_ids.add(jid)
@@ -101,6 +148,67 @@ def verify(run, listing, source):
             'github_live_status_independently_confirmed': False,
             'staging_deployed': False, 'production_accepted': False}
 
+def write_private_report(target, result):
+    """Publish only a complete, fsynced, exclusive private CI review report.
+
+    A crash during JSON serialization cannot expose a partial final report.
+    Directory-relative link operations pin the destination to a reviewed
+    private directory inode, rather than a replaceable parent path.
+    """
+    target = Path(target)
+    if (not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_DIRECTORY') or
+            not hasattr(os, 'O_EXCL') or target.name in ('', '.', '..')):
+        raise EvidenceError('Secure private report output unavailable')
+    chain = snapshot_directory_chain(target.parent)
+    parent_fd = os.open(target.parent,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        parent = os.fstat(parent_fd)
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_mode & 0o077 or
+                (parent.st_dev, parent.st_ino) != chain[0][1:]):
+            raise EvidenceError('Result parent must be a stable private directory')
+        temp_name = '.ev-ci-report-' + secrets.token_hex(16) + '.tmp'
+        temp_identity = None
+        linked = False
+        try:
+            temporary_fd = os.open(temp_name,
+                                   os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                                   os.O_NOFOLLOW, 0o600, dir_fd=parent_fd)
+            with os.fdopen(temporary_fd, 'w', encoding='utf-8') as output:
+                temp = os.fstat(output.fileno())
+                temp_identity = (temp.st_dev, temp.st_ino)
+                if (not stat.S_ISREG(temp.st_mode) or temp.st_nlink != 1 or
+                        temp.st_mode & 0o077):
+                    raise EvidenceError('Private report temporary file is unsafe')
+                json.dump(result, output, sort_keys=True, indent=2)
+                output.write('\n')
+                output.flush()
+                os.fsync(output.fileno())
+            assert_directory_chain_unchanged(chain)
+            os.link(temp_name, target.name,
+                    src_dir_fd=parent_fd, dst_dir_fd=parent_fd,
+                    follow_symlinks=False)
+            linked = True
+            os.unlink(temp_name, dir_fd=parent_fd)
+            os.fsync(parent_fd)
+            assert_directory_chain_unchanged(chain)
+        except BaseException:
+            # Only remove the inode we created; never delete another's file.
+            for name in ((target.name,) if linked else ()) + (temp_name,):
+                if temp_identity is None:
+                    continue
+                try:
+                    current = os.stat(name, dir_fd=parent_fd,
+                                      follow_symlinks=False)
+                    if (current.st_dev, current.st_ino) == temp_identity:
+                        os.unlink(name, dir_fd=parent_fd)
+                except FileNotFoundError:
+                    pass
+            raise
+    finally:
+        os.close(parent_fd)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Offline GitHub CI consistency; never verifies GitHub authenticity or deployment')
     for name in ('--run-json', '--jobs-json', '--source-sha', '--output'):
@@ -112,15 +220,7 @@ def main(argv=None):
         result = verify(run, listing, args.source_sha)
         result['run_snapshot_sha256'] = run_sha
         result['jobs_snapshot_sha256'] = jobs_sha
-        target = Path(args.output)
-        if target.parent.is_symlink() or not target.parent.is_dir() or target.parent.stat().st_mode & 0o077:
-            raise EvidenceError('Result parent must be private')
-        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, 'w', encoding='utf-8') as output:
-            json.dump(result, output, sort_keys=True, indent=2)
-            output.write('\n')
-            output.flush()
-            os.fsync(output.fileno())
+        write_private_report(args.output, result)
     except (EvidenceError, OSError, ValueError, TypeError):
         print('FAIL: platform CI snapshot not safe or complete; never infer deploy approval.', file=sys.stderr)
         return 1

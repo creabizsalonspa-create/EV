@@ -39,12 +39,14 @@ class AuthController extends GetxController {
       // best-effort; the caller must still receive a failed login result.
     }
   }
+
   // Shared across controller instances: whichever sign-in or OTP verification
   // starts most recently is the only attempt permitted to publish credentials.
   static int _credentialAttempt = 0;
   // Credential authority is global, but each controller owns its loading UI.
   // Superseding an attempt in another controller must not strand this spinner.
   int _localCredentialAttempt = 0;
+  int _resendAttempt = 0;
 
   Rxn<UserModel> user = Rxn<UserModel>();
   RxBool loading = false.obs;
@@ -58,37 +60,59 @@ class AuthController extends GetxController {
   /// body: { fullName, phone, email, password }
   /// response: { status: "Success", message: "OTP has been sent to your email!" }
   Future<bool> register(
-      String name, String email, String phone, String password) async {
+    String name,
+    String email,
+    String phone,
+    String password,
+  ) => _runNonCredentialForm(
+    path: '/api/v1/Register',
+    body: {
+      'fullName': name,
+      'phone': phone,
+      'email': email,
+      'password': password,
+    },
+    successTitle: 'OTP Sent',
+    successMessage: 'OTP has been sent to your email!',
+    failureTitle: 'Registration Failed',
+    failureMessage: 'Something went wrong',
+    pendingEmailOnSuccess: email,
+  );
+
+  // Non-credential forms share the same local loading indicator as login/OTP.
+  // Do not let an older response overwrite pendingEmail, show stale feedback,
+  // or dismiss the spinner for a newer attempt. No bearer is saved here.
+  Future<bool> _runNonCredentialForm({
+    required String path,
+    required Map<String, dynamic> body,
+    required String successTitle,
+    required String successMessage,
+    required String failureTitle,
+    required String failureMessage,
+    String? pendingEmailOnSuccess,
+  }) async {
+    final attempt = ++_localCredentialAttempt;
     loading.value = true;
-
-    final res = await _net.postRequest(
-      '/api/v1/Register',
-      body: {
-        'fullName': name,
-        'phone': phone,
-        'email': email,
-        'password': password,
-      },
-    );
-
-    loading.value = false;
-
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      pendingEmail = email;
-      Get.snackbar(
-        'OTP Sent',
-        res.responseData?['message']?.toString() ??
-            'OTP has been sent to your email!',
-        snackPosition: SnackPosition.TOP,
-      );
-      return true;
-    } else {
-      Get.snackbar(
-        'Registration Failed',
-        res.errorMessage ?? 'Something went wrong',
-        snackPosition: SnackPosition.TOP,
-      );
+    try {
+      final res = await _net.postRequest(path, body: body);
+      if (attempt != _localCredentialAttempt) return false;
+      if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
+        if (pendingEmailOnSuccess != null) pendingEmail = pendingEmailOnSuccess;
+        _notifyAuthFailure(
+          successTitle,
+          res.responseData?['message']?.toString() ?? successMessage,
+        );
+        return true;
+      }
+      _notifyAuthFailure(failureTitle, res.errorMessage ?? failureMessage);
       return false;
+    } catch (_) {
+      if (attempt == _localCredentialAttempt) {
+        _notifyAuthFailure(failureTitle, failureMessage);
+      }
+      return false;
+    } finally {
+      if (attempt == _localCredentialAttempt) loading.value = false;
     }
   }
 
@@ -140,7 +164,8 @@ class AuthController extends GetxController {
         committedToken = token;
         _notifyAuthFeedback(
           'Success',
-          res.responseData?['message']?.toString() ?? 'OTP verified successfully',
+          res.responseData?['message']?.toString() ??
+              'OTP verified successfully',
         );
         return true;
       }
@@ -284,22 +309,29 @@ class AuthController extends GetxController {
   /// body: { email }
   /// response: { status: "Success", message: "New OTP has been sent to your email!" }
   Future<void> resendOtp(String email) async {
+    final attempt = ++_resendAttempt;
     resendLoading.value = true;
-    final res = await _net.postRequest(
-      '/api/v1/ResendOTP',
-      body: {'email': email},
-    );
-    resendLoading.value = false;
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      Get.snackbar(
-        'OTP Resent',
-        res.responseData?['message']?.toString() ??
-            'New OTP has been sent to your email!',
-        snackPosition: SnackPosition.TOP,
+    try {
+      final res = await _net.postRequest(
+        '/api/v1/ResendOTP',
+        body: {'email': email},
       );
-    } else {
-      Get.snackbar('Error', res.errorMessage ?? 'Failed to resend OTP',
-          snackPosition: SnackPosition.TOP);
+      if (attempt != _resendAttempt) return;
+      if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
+        _notifyAuthFailure(
+          'OTP Resent',
+          res.responseData?['message']?.toString() ??
+              'New OTP has been sent to your email!',
+        );
+      } else {
+        _notifyAuthFailure('Error', res.errorMessage ?? 'Failed to resend OTP');
+      }
+    } catch (_) {
+      if (attempt == _resendAttempt) {
+        _notifyAuthFailure('Error', 'Failed to resend OTP');
+      }
+    } finally {
+      if (attempt == _resendAttempt) resendLoading.value = false;
     }
   }
 
@@ -307,94 +339,46 @@ class AuthController extends GetxController {
   /// POST /api/v1/ForgotPassword
   /// body: { email }
   /// response: { status: "Success", message: "OTP has been sent to your email!" }
-  Future<bool> forgotPassword(String email) async {
-    loading.value = true;
-    final res = await _net.postRequest(
-      '/api/v1/ForgotPassword',
-      body: {'email': email},
-    );
-    loading.value = false;
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      pendingEmail = email;
-      Get.snackbar(
-        'OTP Sent',
-        res.responseData?['message']?.toString() ??
-            'OTP has been sent to your email!',
-        snackPosition: SnackPosition.TOP,
-      );
-      return true;
-    } else {
-      Get.snackbar(
-        'Error',
-        res.errorMessage ?? 'Failed to send OTP',
-        snackPosition: SnackPosition.TOP,
-      );
-      return false;
-    }
-  }
+  Future<bool> forgotPassword(String email) => _runNonCredentialForm(
+    path: '/api/v1/ForgotPassword',
+    body: {'email': email},
+    successTitle: 'OTP Sent',
+    successMessage: 'OTP has been sent to your email!',
+    failureTitle: 'Error',
+    failureMessage: 'Failed to send OTP',
+    pendingEmailOnSuccess: email,
+  );
 
   // ── VERIFY FORGOT OTP ────────────────────────────────────────────────────────
   /// POST /api/v1/VerifyForgotOTP
-  /// body: { email, otp }
-  /// response: { status: "Success", message: "OTP verified. You can now reset your password." }
-  Future<bool> verifyForgotOtp(String email, String otp) async {
-    loading.value = true;
-    final res = await _net.postRequest(
-      '/api/v1/VerifyForgotOTP',
-      body: {'email': email, 'otp': otp},
-    );
-    loading.value = false;
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      Get.snackbar(
-        'Verified',
-        res.responseData?['message']?.toString() ??
-            'OTP verified. You can now reset your password.',
-        snackPosition: SnackPosition.TOP,
+  Future<bool> verifyForgotOtp(String email, String otp) =>
+      _runNonCredentialForm(
+        path: '/api/v1/VerifyForgotOTP',
+        body: {'email': email, 'otp': otp},
+        successTitle: 'Verified',
+        successMessage: 'OTP verified. You can now reset your password.',
+        failureTitle: 'Invalid OTP',
+        failureMessage: 'The OTP you entered is incorrect',
       );
-      return true;
-    } else {
-      Get.snackbar(
-        'Invalid OTP',
-        res.errorMessage ?? 'The OTP you entered is incorrect',
-        snackPosition: SnackPosition.TOP,
-      );
-      return false;
-    }
-  }
 
   // ── RESET PASSWORD ───────────────────────────────────────────────────────────
   /// POST /api/v1/ResetPassword
-  /// body: { email, newPassword, confirmPassword }
-  /// response: { status: "Success", message: "Password reset successfully. Please login." }
   Future<bool> resetPassword(
-      String email, String newPassword, String confirmPassword) async {
-    loading.value = true;
-    final res = await _net.postRequest(
-      '/api/v1/ResetPassword',
-      body: {
-        'email': email,
-        'newPassword': newPassword,
-        'confirmPassword': confirmPassword,
-      },
-    );
-    loading.value = false;
-    if (res.isSuccess && (res.statusCode == 200 || res.statusCode == 201)) {
-      Get.snackbar(
-        'Success',
-        res.responseData?['message']?.toString() ??
-            'Password reset successfully. Please login.',
-        snackPosition: SnackPosition.TOP,
-      );
-      return true;
-    } else {
-      Get.snackbar(
-        'Error',
-        res.errorMessage ?? 'Failed to reset password',
-        snackPosition: SnackPosition.TOP,
-      );
-      return false;
-    }
-  }
+    String email,
+    String newPassword,
+    String confirmPassword,
+  ) => _runNonCredentialForm(
+    path: '/api/v1/ResetPassword',
+    body: {
+      'email': email,
+      'newPassword': newPassword,
+      'confirmPassword': confirmPassword,
+    },
+    successTitle: 'Success',
+    successMessage: 'Password reset successfully. Please login.',
+    failureTitle: 'Error',
+    failureMessage: 'Failed to reset password',
+  );
 
   // ── INIT SESSION (auto-login if token exists) ─────────────────────────────
   /// Called from SplashScreen — if token exists, skip auth and go to main screen
@@ -402,5 +386,4 @@ class AuthController extends GetxController {
     final token = await _prefs.getToken();
     return token != null && token.isNotEmpty;
   }
-
 }

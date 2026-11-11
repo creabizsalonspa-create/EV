@@ -21,6 +21,7 @@ FILES = {'android-debug': ('android-development.apk', '.apk'),
 SHA = re.compile(r'^[0-9a-f]{40}$')
 DIGEST = re.compile(r'^[0-9a-f]{64}$')
 MAX_ENTRIES = 100_000
+MAX_SYMLINK_TARGET_BYTES = 4096
 MAX_EXPANDED = 8 * 1024**3
 
 
@@ -66,12 +67,30 @@ def archive_check(path, platform):
                 if name in names:
                     raise BundleError('Duplicate archive member')
                 names.add(name)
+                # Encrypted members and unknown compression formats cannot be
+                # fully CRC-audited without special credentials or codecs.
+                if entry.flag_bits & 0x1:
+                    raise BundleError('Encrypted delivery archive member is not auditable')
+                if entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED,
+                                               zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA):
+                    raise BundleError('Unsupported delivery archive compression')
                 expanded += entry.file_size
                 if expanded > MAX_EXPANDED:
                     raise BundleError('Expanded archive exceeds safe limit')
                 member_mode = (entry.external_attr >> 16) & 0o170000
+                # A symbolic link (or empty directory) named like a platform
+                # identity file cannot establish that the APK/app is present.
+                identity_file = (name == 'AndroidManifest.xml' if platform == 'android-debug'
+                                 else bool(re.search(r'(^|/)[^/]+\.app/Info\.plist$', name)))
+                if identity_file and (entry.is_dir() or
+                                      member_mode not in (0, stat.S_IFREG) or
+                                      entry.file_size == 0):
+                    raise BundleError('Platform identity must be a nonempty regular ZIP member')
                 if member_mode == stat.S_IFLNK:
-                    # Frameworks in simulator builds can have internal relative symlinks.
+                    # Frameworks in simulator builds can contain relative
+                    # symlinks. Bound the uncompressed read before extraction.
+                    if entry.file_size < 1 or entry.file_size > MAX_SYMLINK_TARGET_BYTES:
+                        raise BundleError('Archive symlink target exceeds safe length')
                     link = archive.read(entry).decode('utf-8', errors='strict')
                     if not link or link.startswith('/') or '\\' in link or '\x00' in link:
                         raise BundleError('Unsafe archive symlink')
@@ -95,8 +114,70 @@ def archive_check(path, platform):
                 raise BundleError('Simulator archive missing an app Info.plist')
             if archive.testzip() is not None:
                 raise BundleError('Archive CRC verification failed')
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, UnicodeDecodeError, EOFError) as exc:
-        raise BundleError('Corrupt or unsupported ZIP/APK archive') from exc
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, UnicodeDecodeError, EOFError,
+            RuntimeError, NotImplementedError) as exc:
+        raise BundleError('Corrupt, encrypted or unsupported ZIP/APK archive') from exc
+
+
+def secure_artifact_audit(path, platform):
+    """Hash and fully validate a private ZIP from one non-following descriptor.
+
+    Re-opening by path between checksum and CRC could inspect two different
+    artifacts. Reject replaced paths or changed inode metadata afterwards.
+    """
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+        raise BundleError('Secure artifact inspection unavailable')
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise BundleError('Cannot securely open delivery artifact') from exc
+    with os.fdopen(descriptor, 'rb') as input_file:
+        before = os.fstat(input_file.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
+                before.st_size < 1 or before.st_size > MAX_EXPANDED or
+                (os.name != 'nt' and before.st_mode & 0o077)):
+            raise BundleError('Delivery artifact permissions, size or type invalid')
+        digest = hashlib.sha256()
+        length = 0
+        while block := input_file.read(1024 * 1024):
+            digest.update(block)
+            length += len(block)
+            if length > MAX_EXPANDED:
+                raise BundleError('Delivery artifact exceeds audit size limit')
+        if length != before.st_size:
+            raise BundleError('Delivery artifact size changed during hash')
+        input_file.seek(0)
+        archive_check(input_file, platform)
+        after = os.fstat(input_file.fileno())
+        try:
+            current = os.lstat(path)
+        except OSError as exc:
+            raise BundleError('Delivery artifact path disappeared') from exc
+        fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+        if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or
+                (os.name != 'nt' and current.st_mode & 0o077) or
+                any(getattr(before, field) != getattr(after, field) or
+                    getattr(before, field) != getattr(current, field)
+                    for field in fields)):
+            raise BundleError('Delivery artifact changed during hash or CRC inspection')
+        return digest.hexdigest(), length, tuple(getattr(before, field) for field in fields)
+
+
+def assert_artifact_identity_stable(path, identity):
+    """Recheck one previously audited artifact at the end of bundle review.
+
+    Every platform must still refer to the same inode verified with SHA and
+    CRC, even if another platform was checked afterward.
+    """
+    try:
+        current = os.lstat(path)
+    except OSError as exc:
+        raise BundleError('Previously checked delivery artifact is missing') from exc
+    fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+    if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or
+            (os.name != 'nt' and current.st_mode & 0o077) or
+            tuple(getattr(current, field) for field in fields) != identity):
+        raise BundleError('Previously checked delivery artifact changed during bundle review')
 
 
 def verify_workflow_reference(workflow, source_sha):
@@ -151,6 +232,71 @@ def validate_created_at_utc(value):
         raise BundleError('Bundle claims to be created in the future')
 
 
+def _strict_json_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise BundleError('Duplicate delivery manifest JSON member')
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value):
+    raise BundleError('Nonstandard numeric constant in delivery manifest')
+
+
+def secure_manifest_snapshot(folder):
+    """Read one owner-only manifest descriptor, without following symlinks.
+
+    Returns parsed JSON and a byte/file-identity snapshot. Repeating this after
+    all artifact checks detects replacements during verification.
+    """
+    root = Path(folder)
+    name = root / 'manifest.json'
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+        raise BundleError('Secure manifest inspection unavailable')
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise BundleError('Delivery manifest cannot be safely opened') from exc
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
+                not 2 <= before.st_size <= 64 * 1024 or
+                (os.name != 'nt' and before.st_mode & 0o077)):
+            raise BundleError('Delivery manifest permissions, type or size invalid')
+        data = bytearray()
+        while len(data) < before.st_size + 1:
+            part = os.read(fd, min(16 * 1024, before.st_size + 1 - len(data)))
+            if not part:
+                break
+            data.extend(part)
+        after = os.fstat(fd)
+        if len(data) != before.st_size or any(
+                getattr(before, field) != getattr(after, field) for field in (
+                    'st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')):
+            raise BundleError('Delivery manifest changed during inspection')
+        try:
+            actual = os.lstat(name)
+        except OSError as exc:
+            raise BundleError('Delivery manifest path disappeared') from exc
+        if not stat.S_ISREG(actual.st_mode) or actual.st_nlink != 1 or any(
+                getattr(actual, field) != getattr(before, field) for field in (
+                    'st_dev', 'st_ino', 'st_size')):
+            raise BundleError('Delivery manifest path changed after opening')
+        digest = hashlib.sha256(data).hexdigest()
+        try:
+            manifest = json.loads(data.decode('utf-8'),
+                                  object_pairs_hook=_strict_json_pairs,
+                                  parse_constant=_reject_json_constant)
+        except (ValueError, UnicodeError) as exc:
+            raise BundleError('Invalid delivery manifest JSON') from exc
+        return manifest, (digest, before.st_dev, before.st_ino, before.st_size,
+                          before.st_mtime_ns, before.st_ctime_ns)
+    finally:
+        os.close(fd)
+
+
 def verify(folder, expected_source=None):
     root = Path(folder)
     if root.is_symlink() or not root.is_dir():
@@ -159,15 +305,7 @@ def verify(folder, expected_source=None):
     # Every exported bundle is created owner-only and should remain so.
     if os.name != 'nt' and root.stat().st_mode & 0o077:
         raise BundleError('Delivery bundle directory must be owner-only')
-    manifest_path = regular_private_file(root / 'manifest.json')
-    if os.name != 'nt' and manifest_path.stat().st_mode & 0o077:
-        raise BundleError('Delivery manifest must be owner-only')
-    if manifest_path.stat().st_size > 64 * 1024:
-        raise BundleError('Manifest is unexpectedly large')
-    try:
-        manifest = json.loads(manifest_path.read_text('utf-8'))
-    except (ValueError, UnicodeError) as exc:
-        raise BundleError('Invalid manifest JSON') from exc
+    manifest, baseline = secure_manifest_snapshot(root)
     core = {'schema', 'source_sha', 'created_at_utc', 'acceptance', 'artifacts'}
     if not isinstance(manifest, dict) or set(manifest) not in (core, core | {'workflow_evidence'}):
         raise BundleError('Manifest fields do not match approved schema')
@@ -183,6 +321,7 @@ def verify(folder, expected_source=None):
     if not isinstance(manifest['artifacts'], list) or len(manifest['artifacts']) != 2:
         raise BundleError('Bundle requires one Android and one iOS simulator artifact')
     seen = set()
+    audited_identities = {}
     for item in manifest['artifacts']:
         if not isinstance(item, dict) or set(item) != {'platform', 'path', 'sha256', 'size_bytes'}:
             raise BundleError('Unexpected artifact metadata')
@@ -194,17 +333,59 @@ def verify(folder, expected_source=None):
         if item['path'] != name or not isinstance(item['sha256'], str) or not DIGEST.fullmatch(item['sha256']) or \
                 type(item['size_bytes']) is not int or item['size_bytes'] < 1:
             raise BundleError('Invalid artifact path, size, or digest metadata')
-        artifact = regular_private_file(root / name)
-        if os.name != 'nt' and artifact.stat().st_mode & 0o077:
-            raise BundleError('Development delivery artifacts must be owner-only')
-        actual_digest, actual_size = checksum(artifact)
+        actual_digest, actual_size, identity = secure_artifact_audit(root / name, platform)
         if actual_digest != item['sha256'] or actual_size != item['size_bytes']:
             raise BundleError('Artifact bytes differ from manifest')
-        archive_check(artifact, platform)
+        audited_identities[name] = identity
     if {p.name for p in root.iterdir()} != {'manifest.json', 'android-development.apk', 'ios-simulator.zip'}:
         raise BundleError('Unexpected files in delivery bundle')
+    manifest_after, final_identity = secure_manifest_snapshot(root)
+    if final_identity != baseline or manifest_after != manifest:
+        raise BundleError('Delivery manifest changed while verifying bundle')
+    for name, identity in audited_identities.items():
+        assert_artifact_identity_stable(root / name, identity)
     return manifest
 
+
+def secure_copy_developer_source(source, target, platform):
+    """Validate and copy the same source inode; never follow a replaced symlink.
+
+    This does not authenticate the source's GitHub provenance. It prevents a
+    local path switch between preflight and the private output write.
+    """
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+        raise BundleError('Secure developer source copying unavailable')
+    try:
+        source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise BundleError('Developer source file cannot be opened securely') from exc
+    with os.fdopen(source_fd, 'rb') as input_file:
+        before = os.fstat(input_file.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
+                not 1 <= before.st_size <= MAX_EXPANDED):
+            raise BundleError('Developer source must be a bounded regular single-link file')
+        # The CRC and copied bytes must originate from this same immutable fd.
+        archive_check(input_file, platform)
+        input_file.seek(0)
+        # Create mode 0600 on the initial syscall, rather than exposing a
+        # default-mode output until a later chmod (even inside a 0700 folder).
+        output_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                            os.O_NOFOLLOW, 0o600)
+        with os.fdopen(output_fd, 'wb') as output_file:
+            shutil.copyfileobj(input_file, output_file, length=1024 * 1024)
+            output_file.flush()
+            os.fsync(output_file.fileno())
+        after = os.fstat(input_file.fileno())
+        try:
+            current = os.lstat(source)
+        except OSError as exc:
+            raise BundleError('Developer source path removed during copy') from exc
+        fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+        if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or
+                any(getattr(before, field) != getattr(after, field) or
+                    getattr(before, field) != getattr(current, field)
+                    for field in fields)):
+            raise BundleError('Developer source file changed during copy')
 
 def create(output, source_sha, android, ios, workflow_evidence=None):
     if not SHA.fullmatch(source_sha):
@@ -225,9 +406,7 @@ def create(output, source_sha, android, ios, workflow_evidence=None):
         for platform, original in source.items():
             name = FILES[platform][0]
             dest = target / name
-            with open(original, 'rb') as input_file, open(dest, 'xb') as output_file:
-                shutil.copyfileobj(input_file, output_file, length=1024*1024)
-            os.chmod(dest, 0o600)
+            secure_copy_developer_source(original, dest, platform)
             digest, size = checksum(dest)
             artifacts.append({'platform': platform, 'path': name, 'sha256': digest, 'size_bytes': size})
         manifest = {'schema': SCHEMA, 'source_sha': source_sha,
@@ -237,10 +416,16 @@ def create(output, source_sha, android, ios, workflow_evidence=None):
         if workflow_evidence is not None:
             verify_workflow_reference(workflow_evidence, source_sha)
             manifest['workflow_evidence'] = workflow_evidence
-        with open(target / 'manifest.json', 'x', encoding='utf-8') as out:
+        # Manifest must also be owner-only from the first write, not chmodded
+        # after potentially exposing an incomplete security/provenance record.
+        manifest_fd = os.open(target / 'manifest.json',
+                              os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                              os.O_NOFOLLOW, 0o600)
+        with os.fdopen(manifest_fd, 'w', encoding='utf-8') as out:
             json.dump(manifest, out, indent=2, sort_keys=True)
             out.write('\n')
-        os.chmod(target / 'manifest.json', 0o600)
+            out.flush()
+            os.fsync(out.fileno())
         verify(target, source_sha)
     except BaseException:
         shutil.rmtree(target)

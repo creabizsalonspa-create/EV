@@ -285,6 +285,17 @@ const reply = {
         assert.equal(await page.locator(".ocm-map-pin").count(), 1);
         assert.equal(await page.locator(".ocm-map-pin").getAttribute("title"),
           "Open Charge Map — unverified discovery");
+        // First-party pins intentionally have higher z-index than overlapping
+        // crowd reports. Reveal the OCM pin using the real map-layer control
+        // rather than forcing a click through the platform station marker.
+        const platformLayer = page.locator("#show-platform-map-pins");
+        assert.equal(await platformLayer.isChecked(), true);
+        await platformLayer.uncheck();
+        assert.equal(
+          await page.locator(".station-map-pin:not(.partner-map-pin):not(.ocm-map-pin)").count(),
+          0,
+          "Hiding platform pins must expose crowd reports without changing OCM results",
+        );
         await page.locator(".ocm-map-pin").click();
         const popup = page.locator(".leaflet-popup-content");
         await popup.getByText(

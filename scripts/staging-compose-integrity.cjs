@@ -5,7 +5,7 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const {createHash}=require('node:crypto');
-const {ancestorSnapshot,assertAncestorsUnchanged}=require('./staging-path-integrity.cjs');
+const {ancestorSnapshot,assertAncestorsUnchanged,ancestorFingerprint}=require('./staging-path-integrity.cjs');
 const MAX_BYTES=1024*1024;
 const MIN_BYTES=40;
 
@@ -47,18 +47,21 @@ function capture(file) {
       }
       assertAncestorsUnchanged(ancestors);
       return Object.freeze({size:count,dev:before.dev,ino:before.ino,
-        digest:createHash('sha256').update(content.subarray(0,count)).digest('hex')});
+        digest:createHash('sha256').update(content.subarray(0,count)).digest('hex'),
+        ancestorDigest:ancestorFingerprint(ancestors)});
     }finally{content.fill(0);}
   }finally{fs.closeSync(fd);}
 }
 function assertUnchanged(file,baseline){
   if(!baseline || typeof baseline!=='object' ||
-      typeof baseline.digest!=='string' || !/^[a-f0-9]{64}$/.test(baseline.digest)){
+      typeof baseline.digest!=='string' || !/^[a-f0-9]{64}$/.test(baseline.digest) ||
+      !/^[a-f0-9]{64}$/.test(baseline.ancestorDigest||'')){
     throw Error('Missing reviewed staging Compose identity');
   }
   const now=capture(file);
   if(now.size!==baseline.size || now.dev!==baseline.dev ||
-     now.ino!==baseline.ino || now.digest!==baseline.digest){
+     now.ino!==baseline.ino || now.digest!==baseline.digest ||
+     now.ancestorDigest!==baseline.ancestorDigest){
     throw Error('Staging Compose definition changed after review');
   }
   return true;

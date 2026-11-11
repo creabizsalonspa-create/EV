@@ -94,6 +94,16 @@ const assert = require("node:assert/strict");
       });
     });
     await page.goto(process.env.EV_TEST_URL || "http://127.0.0.1:8000");
+    // Capture the active tile layer for a deterministic delayed failure.
+    // CI may deliver tileerror after the polar GPS callback.
+    await page.evaluate(() => {
+      const originalTileLayer = window.L.tileLayer;
+      window.L.tileLayer = function (...args) {
+        const layer = originalTileLayer.apply(this, args);
+        window.__testMapTileLayer = layer;
+        return layer;
+      };
+    });
     await page.locator("#stations h3").first().waitFor();
     await page.locator("#roaming-discovery article").first().waitFor();
     assert.equal(tiles, 0);
@@ -276,6 +286,9 @@ const assert = require("node:assert/strict");
     await page.getByRole("button", { name: "استخدام موقعي مرة واحدة" }).click();
     await page.waitForFunction(() =>
       document.querySelector("#filters [name=latitude]").value === "89.990000");
+    await page.getByText("خط العرض المحدد خارج نطاق عرض الخريطة. يبقى البحث القريب في القائمة متاحاً.", { exact: true }).waitFor();
+    // An unrelated slow tile failure must not erase the polar-map limit.
+    await page.evaluate(() => window.__testMapTileLayer.fire("tileerror"));
     await page.getByText("خط العرض المحدد خارج نطاق عرض الخريطة. يبقى البحث القريب في القائمة متاحاً.", { exact: true }).waitFor();
     assert.equal(partnerQueries.length, queriesBeforePolarGps, "Polar GPS must not auto-disclose coordinates to partner API");
     await page.setViewportSize({ width: 390, height: 844 });

@@ -12,6 +12,9 @@ const {
   HEARTBEAT_SECONDS,
   METER_SECONDS,
 } = require("../tests/helpers/operating-settings.cjs");
+const {
+  meterSample,
+} = require("../tests/helpers/client-demo-meter-sample.cjs");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function store(file, value) {
   const tmp = file + "." + process.pid + ".tmp";
@@ -94,26 +97,7 @@ async function main() {
     );
   }
   function sample(context) {
-    return [
-      {
-        timestamp: new Date().toISOString(),
-        sampledValue: [
-          version === "1.6"
-            ? {
-                value: String(journal.meter_wh),
-                measurand: "Energy.Active.Import.Register",
-                unit: "Wh",
-                context,
-              }
-            : {
-                value: journal.meter_wh,
-                measurand: "Energy.Active.Import.Register",
-                unitOfMeasure: { unit: "Wh" },
-                context,
-              },
-        ],
-      },
-    ];
+    return meterSample(version, journal.meter_wh, context);
   }
   async function begin(tag, type, remoteId = null) {
     assert(!active && journal.phase === "idle");
@@ -161,15 +145,16 @@ async function main() {
         chargingState: "Charging",
         ...(remoteId === null ? {} : { remoteStartId: remoteId }),
       };
+      const reading = sample("Transaction.Begin");
       const reply = await charger.call("TransactionEvent", {
         eventType: "Started",
-        timestamp: new Date().toISOString(),
+        timestamp: reading.timestamp,
         triggerReason: remoteId === null ? "Authorized" : "RemoteStart",
         seqNo: 0,
         transactionInfo: info,
         evse: { id: 1, connectorId: 1 },
         idToken: { idToken: tag, type },
-        meterValue: sample("Transaction.Begin"),
+        meterValue: reading.meterValue,
       });
       assert(reply.idTokenInfo?.status === "Accepted");
     }
@@ -187,25 +172,26 @@ async function main() {
     }
     // Persist before every transaction write. A crash/timeout must never replay it.
     mark(final ? "stopping" : "charging");
+    const reading = sample(final ? "Transaction.End" : "Sample.Periodic");
     if (final && version === "1.6")
       await charger.call("StopTransaction", {
         transactionId: Number(active.transactionId),
         idTag: active.tag,
         meterStop: journal.meter_wh,
-        timestamp: new Date().toISOString(),
+        timestamp: reading.timestamp,
         reason: "Remote",
-        transactionData: sample("Transaction.End"),
+        transactionData: reading.meterValue,
       });
     else if (version === "1.6")
       await charger.call("MeterValues", {
         connectorId: 1,
         transactionId: Number(active.transactionId),
-        meterValue: sample("Sample.Periodic"),
+        meterValue: reading.meterValue,
       });
     else
       await charger.call("TransactionEvent", {
         eventType: final ? "Ended" : "Updated",
-        timestamp: new Date().toISOString(),
+        timestamp: reading.timestamp,
         triggerReason: final ? "RemoteStop" : "MeterValuePeriodic",
         seqNo: ++active.seq,
         transactionInfo: {
@@ -214,7 +200,7 @@ async function main() {
           ...(final ? { stoppedReason: "Remote" } : {}),
         },
         evse: { id: 1, connectorId: 1 },
-        meterValue: sample(final ? "Transaction.End" : "Sample.Periodic"),
+        meterValue: reading.meterValue,
       });
     if (final) {
       active = null;

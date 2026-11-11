@@ -13,7 +13,8 @@ concurrency:
 
 jobs:
   business-platform:
-    runs-on: ubuntu-latest
+    # Pin the browser dependency baseline; ubuntu-latest may advance past Playwright support.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +92,7 @@ jobs:
           node tests/recurring-payments.cjs
           ./scripts/payout-test-setup
           ./scripts/loyalty-test-setup
+          ./scripts/battery-test-setup
           docker restart ev-business-api
           ./scripts/start > /tmp/finance-v3-start.txt
           node --test tests/financial-connected.test.cjs

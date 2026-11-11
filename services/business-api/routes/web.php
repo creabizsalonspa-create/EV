@@ -57,6 +57,8 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/stations', [P::class, 'createStation']);
     Route::get('/api/vehicles', [P::class, 'vehicles']);
     Route::post('/api/vehicles', [P::class, 'createVehicle']);
+    Route::get('/api/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'show']);
+    Route::put('/api/vehicles/{vehicle}/battery-preferences', [VehicleBatteryController::class, 'update']);
     Route::post('/api/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
     Route::get('/api/reservations', [P::class, 'reservations']);
     Route::post('/api/reservations', [P::class, 'reserve']);
@@ -166,7 +168,7 @@ Route::get('/payments/hosted-simulation/{checkout}', function (string $checkout)
     abort_unless(app()->environment('local', 'testing') && config('payments.provider') === 'mock', 404);
 
     return response()->view('payments.hosted-return', ['simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
-})->whereNumber('checkout')->middleware('auth');
+})->where('checkout', '[0-9]{1,18}')->middleware('auth');
 
 // Server-selected corporate family; query parameters never choose an API or prove payment.
 Route::get('/payments/corporate-hosted-return', fn () => response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate'])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"));
@@ -174,9 +176,9 @@ Route::get('/payments/corporate-hosted-simulation/{checkout}', function (string 
     abort_unless(app()->environment('local', 'testing') && config('payments.provider') === 'mock', 404);
 
     return response()->view('payments.hosted-return', ['checkoutFamily' => 'corporate', 'simulationCheckout' => $checkout])->header('Cache-Control', 'no-store, private')->header('Referrer-Policy', 'no-referrer')->header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
-})->whereNumber('checkout')->middleware('auth');
+})->where('checkout', '[0-9]{1,18}')->middleware('auth');
 
-Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->whereNumber('station')->middleware('throttle:catalog');
+Route::get('/api/stations/{station}/reviews', [ChargingReviewController::class, 'catalog'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/charging_reviews.php');
 
 Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/vehicle_model_catalog.php');
