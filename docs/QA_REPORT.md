@@ -1,5 +1,11 @@
 # Vehicle model catalog integration repairs — 11 November 2026
 
+Final hosted security inventory exposed two additional unbounded model-binding
+routes. They now use the same18-digit policy; malformed/overflow tests cover
+model update and both vehicle association endpoints on both API aliases.
+Final backend11 tests/152 assertions and all48 Node security regressions pass.
+No new audit exemption or production limiter change was introduced.
+
 PR77 safely incorporates PR64/main PR90, retaining Admin curation and customer
 web/Flutter model linking. Its existing hosted failure was PHP class-attribute
 spacing; Pint corrected it. The integrated typed-controller audit then found

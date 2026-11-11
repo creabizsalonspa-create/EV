@@ -18,6 +18,8 @@ class VehicleModelCatalogTest extends TestCase
         foreach (['/api', '/api/v1'] as $prefix) {
             foreach (['not-an-id', '-1', '1.5', '1e3', '9223372036854775808', str_repeat('9', 128)] as $id) {
                 $this->putJson($prefix.'/vehicle-models/'.$id, $this->input())->assertNotFound();
+                $this->getJson($prefix.'/vehicles/'.$id.'/model')->assertNotFound();
+                $this->putJson($prefix.'/vehicles/'.$id.'/model', ['model_id' => null, 'expected_model_id' => null])->assertNotFound();
             }
         }
         $this->assertDatabaseCount('vehicle_model_catalog', 0);
