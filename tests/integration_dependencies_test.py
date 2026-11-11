@@ -20,7 +20,7 @@ TARGET_SHA = "c" * 40
 def pr(n=70, head=SHA, base=gate.TARGET, state="open", merged_at=None,
        merge_commit_sha=None):
     return {
-        "number": n, "title": "Synthetic cross-PR workflow",
+        "number": n, "title": "Synthetic cross-PR workflow", "changed_files": 1,
         "head": {"ref": f"development/test-{n}", "sha": head},
         "base": {"ref": base}, "state": state, "draft": False,
         "mergeable": True, "merged_at": merged_at,
@@ -32,6 +32,7 @@ def evidence(n=70):
     return [{
         "name": name, "status": "completed", "conclusion": "success",
         "head_sha": SHA, "pull_requests": [{"number": n}],
+             "app": {"id": 15368, "slug": "github-actions"},
         "details_url": "https://github.com/creabizsalonspa-create/EV/"
                        "actions/runs/54321/job/98765",
     } for name in sorted(gate.CORE)]
@@ -47,6 +48,7 @@ class DependenciesTest(unittest.TestCase):
         self.assertEqual((53,), graph[56])
         self.assertEqual((57,), graph[67])
         self.assertEqual((84,), graph[60])
+        self.assertEqual((84, 60), graph[58])
 
     def test_reject_malformed_missing_wrong_target_or_cycle(self):
         initial = {"schema_version": 1, "target_branch": gate.TARGET,
@@ -189,7 +191,7 @@ class DependenciesTest(unittest.TestCase):
         self.assertEqual([50, 52], report["prs"][0]["prerequisites"])
         self.assertIn("unintegrated_pr_dependencies:50,52",
                       report["prs"][0]["blockers"])
-        self.assertEqual(9, report["declared_dependency_edges"])
+        self.assertEqual(11, report["declared_dependency_edges"])
 
 
     def test_non_draft_target_audit_avoids_fetching_thirty_plus_drafts(self):

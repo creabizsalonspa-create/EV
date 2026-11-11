@@ -1,3 +1,152 @@
+Final successor local verification:962 Laravel tests/19386 assertions;644 PHP files
+pass Pint;377 Python guards;52 offline security/diagnostic tests;11 scheduler/diagnostic
+tests. Actual unchanged-read and anonymous-bootstrap cookie browsers, existing controlled
+web-session contract, and real-Laravel web/Flutter calendar parity pass. A dedicated
+fresh-window lifecycle passes OCPP1.6/2.0.1 remote and RFID, source meter/stop/invoice,
+reports/reviews, Arabic phone/CSV/PDF/logout and idle restart. Two earlier local invocation
+failures (missing Chromium setting; shared authentication budget) and a parallel Laravel
+worker-lock collision were diagnosed; their logs remain historical. No assertion was
+removed, rate limit reset or source command replayed. New hosted source must still pass.
+
+# 12 November 2026 — single-agent verified integration and continued source delivery
+
+**Verified integration main: `a9e291e6e541f4f4da7c39fa823ede7941b572a0`.**
+PR84 source `fcef152c9b7578b9551486d8404da29eca6f1e89` passed all12 exact-source
+mandatory official Actions checks and merged normally at `961c234998d261ca74ddb0767b1e6f2a1e556a3b`.
+PR60 source `4bad250d22de9478f89240c0c71b34af17b4e251` independently passed all12
+and merged normally at the current main SHA. Source and merge trees match. The payout
+repair preserves authorization, ledger, test-only status and all existing assertions;
+its actual protected-read429 and ambiguous historical-row causes were reproduced.
+The anonymous startup cookie ordering correction is included in both verified sources.
+
+All17 historical PR heads are preserved in main. Eleven became merged through PR84:
+88,80,79,77,76,72,61,55,54,52,50. Six differently based PRs were closed as incorporated
+with fresh head/ancestry proof and comments:86,85,70,69,63,1; these are not individually
+verified merges and their old failed checks remain historical. Only PR58 remains open.
+Evidence: `docs/evidence/integration-coverage/{pr84-hosted-checkpoint,pr60-hosted-checkpoint,backlog-incorporation-checkpoint}.json`.
+
+PR58 includes the complete explicit operating-calendar vertical slice (Laravel/web/
+canonical shared customer/vendor Flutter, immutable booking snapshots, both OCPP start
+admission paths and deterministic PostgreSQL closure/booking races). Current hosted
+source `ccec1ad6c18017ec299e1a159ae4a1f945d0f506` passed both Android/iOS canonical
+native jobs, both Hasone jobs, financial-browser, both PostgreSQL jobs, staging-image,
+CSMS recovery and integration guards. Business-platform failed when the second remote
+OCPP2.0.1 simulated session produced no meter convergence; recovery-acceptance was skipped.
+The old retained logs establish no root cause. This source is **not merge eligible**.
+A successor retains only whitelist-redacted owned command/device diagnostic state on
+failure; it never uploads private device journals, tokens, payloads or source credentials,
+never replays commands and keeps all original charging/invoice assertions and timeouts.
+See `docs/evidence/operating-calendar/hosted-blocker.json`; do not call this hardware acceptance.
+
+A separate actual browser defect was reproduced: a private GET from actorA, held across
+logout and actorB login, returned actorA's old session cookie and invalidated actorB.
+The successor suppresses only an unchanged existing GET/HEAD session cookie, after
+framework decryption and before session middleware response unwinding. Bootstrap and
+rotated sessions, all writes and other cookies retain framework behavior. Delayed-read
+browser regression now passes with actorB still authenticated; guest startup and existing
+controlled browser account/role/logout regression also pass. Unchanged reads no longer
+extend browser cookie expiry; server inactivity lifetime is unchanged and bootstrap/
+rotation/writes retain cookie refresh. Unit/actual HTTP coverage guards those boundaries.
+
+The fixed original42-category/312-atom inventory now records **180 coded,178 tested,
+178 merged;56.40% coded,55.76% tested,55.76% merged,0.00% production accepted**.
+The two calendar atoms remain coded-only until fresh mandatory hosted checks and merge;
+no extra atom credit is taken for regression repairs. Full software remains **INCOMPLETE**.
+Local36-suite operational evidence is retained separately from the latest hosted failure.
+No production deployment, physical charger, live PSP/bank, live authorized OCPI partner,
+signed device/store release or production acceptance occurred. Staging image validation
+is not a deployed/accepted staging environment.
+
+Continue the existing PR58 source, obtain all mandatory current-source green checks,
+inspect retained command/device failure state if OCPP2.0.1 stalls, then merge normally
+only against the verified main. Do not create another feature branch/PR to evade this
+backlog. Resume uncredited original atoms after verified integration. Sole-agent full
+project ownership supersedes historical two-agent instructions; retain old records.
+
+
+# 12 November 2026, 02:04 Dubai — full local operations passed; native CI dependency repaired
+
+All36 operational suites/20 paced batches passed (exit0), including both protocols,
+managed remote/RFID demo/report/review lifecycle, certificates, privacy, calendar,
+vehicle/favorites, OCPI consent/credits/roaming and source configuration/diagnostic files.
+Evidence includes fresh per-suite log digests; previous failed run remains historical.
+PR84 and PR60 current hosted full financial browser phases and both native platform
+matrices have passed. Their operational/recovery gates remain pending; no early merge.
+
+PR58 sourcebb02c79 reached the new native calendar wrapper after every preceding connected
+suite passed, then failed with `Cannot find module playwright`. Native Ubuntu now installs
+the locked root Node dependencies and Playwright Chromium/OS dependencies, on supported
+Ubuntu24.04 while retaining required context names. Every test and timeout remains intact.
+Local locked install/module resolution and8 trigger/order guards pass. Corrected hosted
+checks must rerun; neither oldfailed source nor pending iOS runtime is reported green.
+The downloaded bb02c79 simulator artifact digest and real shared-app EN/AR foreground-only
+privacy metadata are verified, explicitly as a historical unsigned simulator artifact.
+
+The read-only source audit now also requires both unconditional recovery jobs, derives
+conditional gates from actual workflow PR path filters, rejects non-GitHub-Actions check
+impersonation, verifies complete declared source-file inventories and rechecks moving
+base/source/review metadata. Real PR60 has513 changed files: all are now read within the
+explicit3000-file API bound instead of a five-page truncation/error.47 provenance/ancestry/
+workflow/pagination tests pass, including forged-app and moving-integration cases. The
+actual current-source audit correctly remains blocked; no merge or bypass was executed.
+
+See `docs/evidence/operating-calendar/{ci-repair,operational-checkpoint}.json` and latest
+PR bodies. The original42/312 stages remain56.40 coded/53.70 tested/53.70 merged/0 production.
+Continue current exact-source gates, merge84 then60 then58, close only proven incorporated
+historical heads, and record merge-bound42-row coverage before the next original atom.
+Single-agent/full-platform ownership and external hardware/live money/partner/store limits
+remain unchanged. No background execution is claimed.
+
+# 12 November 2026, 01:36 Dubai — verified local operating-calendar vertical slice; existing PR58 continuation
+
+Single completion agent; original42 categories/312 atoms and financial/source invariants
+are preserved. Main remains `b4224ddc11a0921c2e522277657888fd3025ace4` pending verified
+integration. PR84 current source `fcef152c9b7578b9551486d8404da29eca6f1e89`; PR60
+`4bad250d22de9478f89240c0c71b34af17b4e251`. Both include actual payout request-budget
+repair and corrected anonymous-bootstrap cookie race, including immediate authenticated
+logout. Hosted gates are running; prior failed sources are not reported green.
+
+Existing PR58 (`development/agent5-feature-completion`) is safely continued from the
+combined source, preserving its original head and both integration histories. Calendar
+code checkpoint `f2b56cb3191ee71d6edcbbdbda87c87f9a421cc7`; explicit dependency58->[84,60].
+No replacement branch/PR, force push, duplicate calendar or financial ledger was created.
+
+Implemented: owner opt-in calendar enforcement using existing station weekly/overnight/
+24-hour/holiday metadata, IANA zone and DST-aware whole booking windows; default advisory
+compatibility and preserved omitted flags; server-only database-immutable booking snapshots;
+new start, pending RFID replay, remote publication/online callback and pre-dispatch gates.
+Calendar closure does not fake source evidence, end active charging, discard bookings or
+change pricing. Pending commands remain unsent/cancellable. Web and canonical Flutter
+provide EN/AR control/explanations, safe acknowledgements and native station/revision/account
+validation, background privacy and localized errors. API/FRONTEND/CHARGING/VENDOR_OPS docs
+contain the precise semantics and rollback limits.
+
+Local passed: Laravel952/19341; PostgreSQL207/2431 plus27 races/383, including both
+closure/booking lock orders and both OCPP protocol callback/RFID boundaries; Flutter401
+passes/31 explicit fixture-only skips, clean analysis;19 focused widget/error tests;
+actual isolated Laravel operator/customer phone UI and native bearer booking, calendar
+closure, immutable replay, tenant denial and cancellation; scheduler9, dependency11,
+coverage14, source DOM/privacy checks and affected PHP style. Final connected calendar
+proof uses separate real actor sessions and nine ordinary authentication requests. The
+31 generic-run skips are not credited as passes; the new connected fixture test actually ran.
+Evidence: `docs/evidence/operating-calendar/local-checkpoint.json`.
+
+The broader operational rerun has passed the formerly intermittent dual-protocol remote
+and RFID demo/report lifecycle; remaining scheduled phases are still running. Earlier
+failed run remains recorded. Simulator/current-slot QA fixtures are not normal customer
+booking or physical acceptance. Normal future bookings are independently exercised.
+
+Coverage: coded56.40%, tested/merged53.70%, production0.00%;180 coded/171 tested/171 merged
+of312. Only named calendar atoms2.6.7 and3.4.5 gain coded credit. Hosted checks/verified
+merges are still required for tested/merged promotion. No broad platform/native completion.
+
+Next: finish current hosted gates and safely merge84 then60, prove/close incorporated
+historical PR heads; verify/merge58 after its dependencies and its own Android/iOS/platform
+gates. Record full operational result, update exact-source coverage, then the original
+unfinished no-show/occupancy, OCPP/OCPI, discovery, commercial, Admin/native/security atoms.
+External live hardware/PSP/roaming, configured private staging, signing/store and production
+acceptance remain unverified. No autonomous background execution is claimed.
+
 # 12 November 2026, 01:25 Dubai — preserve immediate logout; corrected current-source revalidation required
 
 Hosted jobs130791415972/130791656495 on88e37ad/1fb724f exposed a regression

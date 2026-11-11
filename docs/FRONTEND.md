@@ -1,3 +1,17 @@
+## Browser session response ordering — 12 November 2026
+
+The web middleware suppresses only the session cookie on GET/HEAD when the decrypted
+incoming session ID and final session ID are identical. This prevents a delayed private
+read from restoring actorA's old cookie after logout and actorB's login. Fresh anonymous
+bootstrap and rotated sessions still emit cookies; POST/PUT/PATCH/DELETE retain normal
+framework refresh. XSRF and unrelated cookie attributes remain unchanged. Native bearer
+authentication is unaffected. Unchanged reads no longer extend browser cookie expiry;
+server inactivity storage lifetime is unchanged, and bootstrap/rotation/writes retain
+normal cookie refresh. Clients must still fence stale response bodies and wait for
+initial anonymous bootstrap before login. Read regression uses two real synthetic actors,
+normal login/logout and an actually delayed successful protected GET; no charging/money
+mutation, assertion retry, production rate change or browser-cookie spoof is used.
+
 # Private case evidence candidate — local validation
 
 Continued immediately after verified PR22 integration70ac899. Canonical customer disputes now support native invoice-context creation/scoped history plus encrypted private evidence on backend/web/Flutter and Admin review. Consent,4MiB/file/20-file bounds, exact upload identity/fingerprint replay, immutable metadata, closed-case controls, integrity-checked private downloads and native original-file reselection are implemented. Files are snapshotted before async work; no provider submission, refund or financial journal is created by evidence upload. See PRIVATE_CASE_EVIDENCE.md and docs/evidence/private-case-evidence/local-checkpoint.json.
@@ -350,3 +364,38 @@ See [NATIVE_VENDOR_OPERATIONS.md](NATIVE_VENDOR_OPERATIONS.md): current web/Flut
 PR60 now consumes the existing account-privacy service instead of mounting a second intake or Admin workspace. Customer/vendor Flutter exposes **Privacy and data requests** from the account menu, with English/Arabic request kinds, explicit notice/confirmation, private paginated history and owner withdrawal. It uses the canonical cookie/CSRF account routes, matching the maintained `EvApi`. Request identities remain frozen through an uncertain POST or readback failure; changing details requires an explicit new request. Backgrounding clears reasons, receipts and pending form state; resume requires explicit history refresh. Session/generation fences prevent old reads, submissions or withdrawal errors from leaking private content or expiring another account.
 
 Web retains its canonical personal/Admin panels, adds safe same-key retry, explicit withdrawal and history pagination, and prevents detached prior-account forms from dispatching under a new identity. Independent review remains web Admin only, with encrypted append-only private notes. No automated erasure or export is claimed. Private local fixture tests use ordinary authenticated HTTP; fixture creation does not prove mail delivery, legal fulfillment or device acceptance.
+
+
+## Operating calendar vertical slice — pending PR58 continuation, 12 November 2026
+
+The existing station-information editors now expose explicit EN/AR calendar
+enforcement, initially off. Customer details distinguish advisory hours from enforced
+booking/start policy and retain unverified live-availability wording. Weekly/overnight
+hours, station timezone,24-hour days and holiday exceptions reuse the existing editors.
+The server evaluates the full requested window; the client never derives live status.
+
+Web and canonical Flutter editors preserve revision/account/generation fences and
+require a matching policy acknowledgement. Flutter now validates station identity,
+provenance and revision on load/save; malformed/wrong-station/stale replies cannot
+announce success or enable editing. Background/account changes clear the new switch
+with the existing private fields. API failures use localized safe messages.
+
+`tests/operating-calendar.cjs` exercises real operator publication/reload and customer
+phone/Arabic booking rejection plus changed-policy replay/cancellation.
+`tests/native-operating-calendar.cjs` additionally runs the actual Laravel Flutter
+API contract using three separate scoped bearer clients. Credentials stay in0700/0600
+local fixture storage and are removed after use. The native/operational schedulers
+retain every earlier suite and use a dedicated unchanged authentication window.
+
+PR58 safely continues its original branch, requiring PR84 and PR60 first. Hosted
+Android/iOS verification and integration remain separate from the completed local
+checks. Physical charging, partner, payment, signed-release and store acceptance
+remain unverified. Original42/312 weights are unchanged.
+
+
+The new connected native calendar test includes the actual web editor/customer flow.
+The Linux native job therefore installs the same locked Playwright tooling as the
+business job, using Ubuntu24.04 while preserving required check names. A missing-module
+failure onbb02c79 is recorded and must be replaced by passing corrected-source CI;
+existing tests, timeouts and production rate limits are retained. The shared canonical
+client produces one role-based debug APK/simulator app, not separately signed store apps.

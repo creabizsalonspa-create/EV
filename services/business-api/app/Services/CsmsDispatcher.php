@@ -10,6 +10,7 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Services\Charging\CommandReconciler;
+use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\StationGate;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -54,6 +55,16 @@ class CsmsDispatcher
                                 throw $e;
                             }
                             $blocked = 'pre_dispatch_company_gate';
+                        }
+                    }
+                    if (! $blocked) {
+                        try {
+                            app(OperatingCalendar::class)->requireStart(Station::findOrFail($c->station_id));
+                        } catch (HttpException $e) {
+                            if ($e->getStatusCode() !== 409) {
+                                throw $e;
+                            }
+                            $blocked = 'pre_dispatch_operating_calendar';
                         }
                     }
                     if ($blocked) {

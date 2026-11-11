@@ -1,0 +1,158 @@
+{
+  "source_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+  "integrated_sha": null,
+  "observed_at_utc": "2026-11-11T22:50:12.494182+00:00",
+  "candidate_pr": 58,
+  "result": "blocked",
+  "checks": [
+    {
+      "name": "recovery-acceptance",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "skipped",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688213/job/130835526374",
+      "check_run_id": 130835526374
+    },
+    {
+      "name": "native (macos-15)",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688321/job/130818964036",
+      "check_run_id": 130818964036
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688321/job/130818963657",
+      "check_run_id": 130818963657
+    },
+    {
+      "name": "staging-image",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688213/job/130818663118",
+      "check_run_id": 130818663118
+    },
+    {
+      "name": "connector-postgres",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688213/job/130818662940",
+      "check_run_id": 130818662940
+    },
+    {
+      "name": "csms-recovery",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688213/job/130818662811",
+      "check_run_id": 130818662811
+    },
+    {
+      "name": "hasone-native (macos-15)",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688257/job/130818662779",
+      "check_run_id": 130818662779
+    },
+    {
+      "name": "hasone-native (ubuntu-latest)",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688257/job/130818662753",
+      "check_run_id": 130818662753
+    },
+    {
+      "name": "finance-postgres",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688213/job/130818662741",
+      "check_run_id": 130818662741
+    },
+    {
+      "name": "financial-browser",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688284/job/130818662570",
+      "check_run_id": 130818662570
+    },
+    {
+      "name": "business-platform",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "failure",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688213/job/130818662299",
+      "check_run_id": 130818662299
+    },
+    {
+      "name": "integration-guards",
+      "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506",
+      "status": "completed",
+      "conclusion": "success",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43108688242/job/130818662100",
+      "check_run_id": 130818662100
+    }
+  ],
+  "failure": {
+    "run_id": 43108688213,
+    "job_id": 130818662299,
+    "suite": "client-demo-lifecycle",
+    "observed": "OCPP1.6 managed remote meter/stop/invoice completed; second OCPP2.0.1 meter did not converge; no corresponding second authorization/source callback in retained API tail.",
+    "root_cause": "not established; source command/device state absent from old hosted artifact",
+    "correction_status": "New whitelist-only owned command/device diagnostics and artifact retention; no dispatch replay, source fabrication, assertion weakening or timeout increase. A new exact-source successful hosted run remains required."
+  },
+  "native_result": "Android and iOS canonical client jobs both passed; Hasone matrix also passed. This does not make failed platform source merge eligible.",
+  "native_artifacts": [
+    {
+      "id": 13897455384,
+      "name": "creabiz-android-debug",
+      "size_in_bytes": 95321109,
+      "digest": "sha256:72e984019189befee5e7f10c239eb659cdaa719d896f807a1ee1783e7ac321e4",
+      "expired": false,
+      "workflow_run": {
+        "id": 43108688321,
+        "repository_id": 1435146528,
+        "head_repository_id": 1435146528,
+        "head_branch": "development/agent5-feature-completion",
+        "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506"
+      }
+    },
+    {
+      "id": 13895926859,
+      "name": "creabiz-ios-ui-diagnostics",
+      "size_in_bytes": 540114,
+      "digest": "sha256:dc4eb82c49d786e880496155bf74096f38091d1131d8474b93028da596df6396",
+      "expired": false,
+      "workflow_run": {
+        "id": 43108688321,
+        "repository_id": 1435146528,
+        "head_repository_id": 1435146528,
+        "head_branch": "development/agent5-feature-completion",
+        "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506"
+      }
+    },
+    {
+      "id": 13894614549,
+      "name": "creabiz-ios-simulator",
+      "size_in_bytes": 67057091,
+      "digest": "sha256:8aa4f71427bc1a34aabe2b31f5c10077717dd7aa92ca6e1c1afd027e058eafea",
+      "expired": false,
+      "workflow_run": {
+        "id": 43108688321,
+        "repository_id": 1435146528,
+        "head_repository_id": 1435146528,
+        "head_branch": "development/agent5-feature-completion",
+        "head_sha": "ccec1ad6c18017ec299e1a159ae4a1f945d0f506"
+      }
+    }
+  ]
+}

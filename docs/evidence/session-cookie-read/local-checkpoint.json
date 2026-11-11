@@ -1,0 +1,79 @@
+{
+  "old_read_http": 200,
+  "old_session_cookies": 0,
+  "new_actor_before": true,
+  "new_actor_after": true,
+  "after_http": 200,
+  "charging_or_financial_mutations": false,
+  "scope": "Server unchanged read-session cookie suppression; actual delayed private GET held over normal logout and second actor login",
+  "source_status": "local successor to ccec1ad; hosted checks must rerun on committed source",
+  "tests": {
+    "laravel_cookie_unit": 7,
+    "laravel_cookie_http": 3,
+    "focused_authentication": "28 passed / 230 assertions",
+    "full_laravel_prior_sequential": "962 passed / 19386 assertions",
+    "latest_parallel_attempt": "Historical 960 passed / 2 shared worker-lock contention failures; original assertions retained; final sequential run after owned workers stopped passed962/19386.",
+    "actual_browser": "passed",
+    "guest_bootstrap": "passed",
+    "controlled_web_session": "passed",
+    "cookie_tradeoff": "Unchanged GET/HEAD no longer extend browser session cookie expiration; bootstrap, rotation and mutating requests retain cookie refresh. Server session inactivity lifetime unchanged.",
+    "full_laravel_final_sequential": {
+      "passed": 962,
+      "assertions": 19386
+    },
+    "php_style": {
+      "files": 644,
+      "result": "passed"
+    },
+    "python_guards": {
+      "passed": 377
+    },
+    "offline_security_and_diagnostics": {
+      "passed": 52
+    },
+    "scheduler_and_diagnostics": {
+      "passed": 11
+    },
+    "native_calendar_after_cookie_fix": "Actual vendor/customer/other-tenant Laravel bearer contract and phone web EN/AR passed; no charging or financial mutation.",
+    "paced_dual_protocol_lifecycle": "OCPP1.6 and2.0.1 both remote and RFID passed; source meter/stop/invoice, reports/reviews, EN/AR phone layout, CSV/PDF/logout, idle restart; workers stopped normally."
+  },
+  "security": "Only unchanged existing GET/HEAD session cookie removed; new sessions, rotated IDs, XSRF/other cookies and all writes retain framework behavior. No rate/CSRF/authorization changes.",
+  "log_digests": {
+    "ev-final-laravel-sequential.txt": {
+      "sha256": "ad39b8df4432a2d49363cc5a3f0c2132d94a381653f9dfa821bb13a41eada825",
+      "bytes": 1065
+    },
+    "ev-final-demo-paced.txt": {
+      "sha256": "ec2c68c3983f6e64dddfd3061ebe39f2b272bd707bc2a76ac7b5f30b06e8f7f5",
+      "bytes": 4296
+    },
+    "ev-final-auth-bootstrap.txt": {
+      "sha256": "eb1312c851fe808ffeaeebff17731726598922ce1c48b14e976ded87ff306319",
+      "bytes": 137
+    },
+    "ev-final-session-cookie.txt": {
+      "sha256": "28ebe6056a1645ac694680a40fa71ba1f65631208c3b2e4e566bcdc66ec49db6",
+      "bytes": 144
+    },
+    "ev-final-web-session.txt": {
+      "sha256": "3a651e73bfeba4b4d37c78cf21989cefbbae8860e2b5589dcc68658399e92222",
+      "bytes": 368
+    },
+    "ev-final-native-calendar-cookie.txt": {
+      "sha256": "766486199e2f248763668b0696f79aaa178f436ecd5a8177414fd9887447447b",
+      "bytes": 353
+    },
+    "ev-final-python-all.txt": {
+      "sha256": "dd5c4e5450c12ec7fe5a3a4f4d3735bf86c7ad256057a6014be412fe0641f4ed",
+      "bytes": 6080
+    },
+    "ev-final-offline-security.txt": {
+      "sha256": "a040da2799cc5bc27f87fe0c2a82ba3af330af3ce98ae3cef12273c242eda3a0",
+      "bytes": 5044
+    },
+    "ev-final-pint-all.txt": {
+      "sha256": "7766c88f66565f8219821c5df84ea155d2740fffcde6a5305b374d6d4ed8bbeb",
+      "bytes": 972
+    }
+  }
+}

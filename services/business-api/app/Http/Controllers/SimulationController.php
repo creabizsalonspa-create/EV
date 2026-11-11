@@ -8,6 +8,7 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Services\Charging\ConnectorTopology;
+use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\StationGate;
 use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
@@ -51,7 +52,7 @@ class SimulationController extends Controller
                 'authorization_method' => $link?->rider_token_id ? 'rider_token' : ($link ? 'remote_start' : 'application_simulator'),
                 'awaiting_rider_transaction' => $link?->rider_token_id !== null && $link->started_at === null && $link->ended_at === null && $link->closed_without_dispatch_at === null,
                 'start_command_status' => $start?->status,
-                'start_admission_blocked' => in_array($start?->failure_code, ['pre_dispatch_company_gate', 'pre_dispatch_window_unavailable'], true),
+                'start_admission_blocked' => in_array($start?->failure_code, ['pre_dispatch_company_gate', 'pre_dispatch_window_unavailable', 'pre_dispatch_operating_calendar'], true),
                 'can_cancel_before_dispatch' => $link && $session->status === 'pending_start' && $start?->status === 'pending' && $link->transaction_id === null && $link->started_at === null && $link->closed_without_dispatch_at === null,
                 'stop_command_status' => $link ? $commands->get($link->stop_command_id)?->status : null];
         });
@@ -74,6 +75,7 @@ class SimulationController extends Controller
             $station = Station::findOrFail($b->station_id);
             abort_unless($station->source === 'simulator', 409);
             app(StationGate::class)->requireReady($station, $b->connector_mapping_id);
+            app(OperatingCalendar::class)->requireStart($station);
             if ($b->connector_mapping_id) {
                 abort_if(app(ConnectorTopology::class)->binding($b) !== null, 409, 'Use the mapped CSMS start.');
             }

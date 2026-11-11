@@ -72,6 +72,7 @@ class RemoteSessionAuthorization
             $reservation = Reservation::findOrFail($session->reservation_id);
             $station = Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             app(StationGate::class)->requireReady($station, $reservation->connector_mapping_id);
+            app(OperatingCalendar::class)->requireStart($station);
             $current = ChargerCommand::whereKey($command->id)->lockForUpdate()->firstOrFail();
             $binding = DB::table('csms_bindings')->where('id', $link->binding_id)->first();
             abort_unless($binding && $binding->station_id === $station->id && $binding->identifier === $link->identifier && $binding->protocol === $link->protocol && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $link->identifier) && $current->actor_id === $reservation->user_id && User::whereKey($reservation->user_id)->where('role', 'customer')->exists() && $current->status === 'pending' && $current->failure_code === null && $reservation->status === 'confirmed' && $session->status === 'pending_start' && $link->started_at === null && $link->closed_without_dispatch_at === null && $reservation->connector_mapping_id, 409, 'Canonical remote start is unavailable.');

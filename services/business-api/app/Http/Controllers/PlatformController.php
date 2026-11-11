@@ -11,6 +11,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Charging\ConnectorTopology;
+use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\ReservationLifecycle;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\StationGate;
@@ -222,6 +223,7 @@ class PlatformController extends Controller
                 }
                 $bookingStart = CarbonImmutable::parse($v['starts_at'], 'UTC');
                 app(StationGate::class)->requireReady($station, isset($v['connector_mapping_id']) ? (int) $v['connector_mapping_id'] : null, $bookingStart, $bookingStart->addMinutes(30));
+                $v['operating_calendar_snapshot'] = app(OperatingCalendar::class)->requireWindow($station, $bookingStart, $bookingStart->addMinutes(30));
                 $connectorType = $station->connector_type;
                 if (! empty($v['connector_mapping_id'])) {
                     $target = app(ConnectorTopology::class)->target($station, (int) $v['connector_mapping_id']);

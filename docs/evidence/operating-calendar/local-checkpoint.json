@@ -1,0 +1,53 @@
+{
+  "source_sha": "f2b56cb3191ee71d6edcbbdbda87c87f9a421cc7",
+  "integrated_sha": null,
+  "observed_at_utc": "2026-11-11T21:35:00Z",
+  "candidate_pr": 58,
+  "dependencies": [
+    84,
+    60
+  ],
+  "scope": "Explicit operator weekly/overnight/holiday calendar; server booking snapshots and start/source admission; web and canonical Flutter editors/customer explanations",
+  "local_validation": {
+    "laravel": {
+      "passed": 952,
+      "assertions": 19341
+    },
+    "postgres_contracts": {
+      "passed": 207,
+      "assertions": 2431
+    },
+    "postgres_concurrency": {
+      "passed": 27,
+      "assertions": 383,
+      "calendar_orders": [
+        "closure first rejects booking",
+        "booking first retains revision1 snapshot"
+      ]
+    },
+    "flutter_analysis": "clean",
+    "flutter_full": {
+      "passed": 401,
+      "skipped": 31,
+      "skip_scope": "Explicit fixture-only suites absent from the generic unit run; required connected harness executes the new calendar test with real Laravel"
+    },
+    "focused_widgets_and_error_tests": 19,
+    "real_laravel_web_and_native": "passed on loopback8000 and isolated8010; final phone customer EN/AR booking rejection and native owner/replay/tenant/cancel contract passed on8010",
+    "scheduler_guards": 9,
+    "dependency_guards": 11,
+    "coverage_guards": 14,
+    "source_dom_contracts": "passed; advisory/enforced provenance and stale picker/account policy isolation",
+    "php_style": "16 affected files passed after formatting"
+  },
+  "safety": {
+    "no_rate_limit_change": true,
+    "no_financial_business_logic_change": true,
+    "no_physical_command": true,
+    "live_availability_inferred": false,
+    "live_money_or_roaming": false,
+    "production_acceptance": false
+  },
+  "hosted_verification": "pending; exact-source Android/iOS/platform gates required before normal merge",
+  "full_operational_rerun": "in progress; original earlier stopped run is retained as failed, not reported as a pass",
+  "remaining_scope": "Complete no-show/physical occupancy, full release/provider acceptance and all other incomplete original atoms remain separate"
+}

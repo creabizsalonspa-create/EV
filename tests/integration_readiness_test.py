@@ -16,7 +16,7 @@ def pr(number=57, base=gate.TARGET, draft=False, mergeable=True):
     return {"number": number, "title": "Synthetic integration candidate",
             "head": {"sha": "a" * 40, "ref": "integration/demo"},
             "base": {"ref": base}, "draft": draft,
-            "mergeable": mergeable, "state": "open"}
+            "mergeable": mergeable, "state": "open", "changed_files": 1}
 
 
 def checks(names=None):
@@ -24,6 +24,7 @@ def checks(names=None):
     return [{"name": n, "head_sha": "a" * 40,
              "status": "completed", "conclusion": "success",
              "pull_requests": [{"number": 57}],
+             "app": {"id": 15368, "slug": "github-actions"},
              "details_url": ("https://github.com/creabizsalonspa-create/EV/"
                              "actions/runs/54321/job/98765")}
             for n in names]
@@ -87,7 +88,7 @@ class IntegrationReadinessTest(unittest.TestCase):
                     ("scripts/csms-recovery-smoke", "csms-recovery")]
         for path, expected in examples:
             with self.subTest(path=path):
-                result = evaluate(pr(), checks(), [path])
+                result = evaluate(pr(), checks(gate.CORE - {expected}), [path])
                 self.assertIn(expected, result["missing_required"])
 
     def test_wrong_commit_or_missing_file_inventory_blocks(self):
@@ -286,6 +287,214 @@ class IntegrationReadinessTest(unittest.TestCase):
                          }))
 
 
+
+
+class SourceWorkflowPolicyTest(unittest.TestCase):
+    def test_missing_unconditional_recovery_jobs_cannot_look_complete(self):
+        original_four = {'business-platform', 'finance-postgres',
+                         'connector-postgres', 'staging-image'}
+        result = evaluate(pr(), checks(original_four), ['README.md'])
+        self.assertEqual('blocked', result['status'])
+        self.assertEqual(['csms-recovery', 'recovery-acceptance'],
+                         result['missing_required'])
+
+    def test_source_trigger_matrix_requires_each_of_all_twelve_checks(self):
+        paths = ['apps/mobile/lib/api.dart',
+                 'apps/hasone-customer/lib/main.dart',
+                 'services/business-api/app/Services/Commercial/Example.php',
+                 'integrations/hasone-next-admin/src/app/page.js']
+        required = gate.required_checks(paths)
+        self.assertEqual(12, len(required))
+        self.assertIn('financial-browser', required)
+        self.assertIn('integration-guards', required)
+        self.assertEqual('candidate_for_manual_review',
+                         evaluate(pr(), checks(required), paths)['status'])
+        for missing in required:
+            with self.subTest(missing=missing):
+                result = evaluate(pr(), checks(required - {missing}), paths)
+                self.assertEqual('blocked', result['status'])
+                self.assertIn(missing, result['missing_required'])
+
+    def test_backend_native_trigger_paths_also_require_android_and_ios(self):
+        paths = ['services/business-api/app/Services/Charging/SessionBridge.php']
+        required = gate.required_checks(paths)
+        self.assertTrue(gate.NATIVE.issubset(required))
+        result = evaluate(pr(), checks(gate.CORE), paths)
+        self.assertTrue(gate.NATIVE.issubset(result['missing_required']))
+
+    def test_missing_or_foreign_app_cannot_impersonate_source_actions(self):
+        for app in [None, {}, {'id': 1, 'slug': 'github-actions'},
+                    {'id': 15368, 'slug': 'other-app'},
+                    {'id': 15368.0, 'slug': 'github-actions'}]:
+            with self.subTest(app=app):
+                runs = checks()
+                for run in runs:
+                    run['app'] = app
+                result = evaluate(pr(), runs, ['README.md'])
+                self.assertEqual('blocked', result['status'])
+                self.assertEqual(0, result['check_count'])
+                self.assertEqual(len(runs), result['ignored_non_actions_checks'])
+                self.assertFalse(result['merge_executed'])
+
+    def test_extra_foreign_check_is_visible_but_never_source_evidence(self):
+        runs = checks()
+        foreign = dict(runs[0], app={'id': 1, 'slug': 'other-app'},
+                       conclusion='failure')
+        result = evaluate(pr(), runs + [foreign], ['README.md'])
+        self.assertEqual('candidate_for_manual_review', result['status'])
+        self.assertEqual(len(runs), result['check_count'])
+        self.assertEqual(1, result['ignored_non_actions_checks'])
+
+    def test_github_globs_keep_directory_boundaries_and_recursive_segments(self):
+        for path, pattern, expected in [
+            ('a/b.php', 'a/*.php', True),
+            ('a/x/b.php', 'a/*.php', False),
+            ('a/b.php', 'a/**/b.php', True),
+            ('a/x/y/b.php', 'a/**/b.php', True),
+            ('a/x/y/b.php', 'a/**', True),
+            ('a/x.php', 'a/?.php', True),
+            ('a/xy.php', 'a/?.php', False),
+            ('other/a.php', 'a/*.php', False),
+        ]:
+            with self.subTest(path=path, pattern=pattern):
+                self.assertEqual(expected, gate.github_path_matches(path, pattern))
+
+    def test_source_path_reader_supports_actual_safe_workflow_shapes(self):
+        from tempfile import TemporaryDirectory
+        shapes = [
+            ('  pull_request:\n', None),
+            ('  pull_request:\n    paths: ["a/**", "b/*.php"]\n', ('a/**', 'b/*.php')),
+            ('  pull_request:\n    paths:\n      [\n        "a/**",\n        "b/*.php",\n      ]\n', ('a/**', 'b/*.php')),
+            ('  pull_request:\n    paths:\n      - "a/**"\n      - \'b/*.php\'\n', ('a/**', 'b/*.php')),
+        ]
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / 'workflow.yml'
+            for trigger, expected in shapes:
+                path.write_text('on:\n' + trigger + 'permissions:\n  contents: read\n')
+                self.assertEqual(expected, gate.workflow_pr_paths(path))
+
+    def test_unsupported_or_executable_workflow_syntax_fails_closed(self):
+        from tempfile import TemporaryDirectory
+        shapes = [
+            '  pull_request_target:\n',
+            '  pull_request:\n    branches: [main]\n',
+            '  pull_request:\n    paths-ignore: ["docs/**"]\n',
+            '  pull_request:\n    paths: ["!secret/**"]\n',
+            '  pull_request:\n    paths: []\n',
+            '  pull_request:\n    paths: [123]\n',
+            '  pull_request:\n    paths:\n      - __import__("os").getcwd()\n',
+            '  pull_request:\n    paths: ["a/**"]\n    branches: [main]\n',
+        ]
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / 'workflow.yml'
+            for trigger in shapes:
+                with self.subTest(trigger=trigger):
+                    path.write_text('on:\n' + trigger + 'permissions:\n  contents: read\n')
+                    with self.assertRaises(ValueError):
+                        gate.workflow_pr_paths(path)
+
+    def test_missing_source_policy_is_a_structured_block_not_approval(self):
+        import contextlib
+        import io
+        output = io.StringIO()
+        with patch.object(gate, 'inspect_live', side_effect=OSError('Missing source workflow')):
+            with contextlib.redirect_stderr(output):
+                self.assertEqual(2, gate.main(['--pr', '84']))
+        self.assertIn('"status": "blocked"', output.getvalue())
+        self.assertIn('"merge_executed": false', output.getvalue())
+
+
+
+class CompleteFileInventoryTest(unittest.TestCase):
+    def test_changed_files_continue_past_five_pages_without_truncation(self):
+        class Pages(gate.GitHub):
+            def get(self, suffix):
+                from urllib.parse import parse_qs, urlparse
+                page = int(parse_qs(urlparse(suffix).query)['page'][0])
+                return [{'filename': f'file-{i}.php'} for i in
+                        range((page-1)*100, min(page*100, 513))]
+        files = Pages(gate.REPOSITORY).pages('/pulls/60/files')
+        self.assertEqual(513, len(files))
+        self.assertEqual('file-512.php', files[-1]['filename'])
+
+    def test_other_collections_and_ambiguous_github_file_cap_stay_bounded(self):
+        class FullPages(gate.GitHub):
+            def __init__(self, repo):
+                super().__init__(repo)
+                self.calls = 0
+            def get(self, suffix):
+                self.calls += 1
+                return [{'filename': f'file-{self.calls}-{i}'} for i in range(100)]
+        for suffix, bound in [('/pulls?state=open',5),('/pulls/60/files',30)]:
+            client=FullPages(gate.REPOSITORY)
+            with self.assertRaisesRegex(ValueError,'Pagination exceeded safe review limit'):
+                client.pages(suffix)
+            self.assertEqual(bound,client.calls)
+
+    def test_truncated_duplicate_or_missing_file_count_never_validates_green_checks(self):
+        for declared, files, expected in [
+            (1,[{'filename':'README.md'}],'candidate_for_manual_review'),
+            (2,[{'filename':'README.md'}],'blocked'),
+            (None,[{'filename':'README.md'}],'blocked'),
+            (True,[{'filename':'README.md'}],'blocked'),
+            (2,[{'filename':'README.md'},{'filename':'README.md'}],'blocked'),
+        ]:
+            detail = pr()
+            detail['changed_files']=declared
+            class FakeGitHub:
+                def __init__(self,*args,**kwargs):pass
+                def get(self,suffix):
+                    if suffix=='/pulls/57': return detail
+                    raise AssertionError(suffix)
+                def pages(self,suffix,key=None):
+                    if suffix=='/pulls?state=open':return [detail]
+                    if suffix=='/pulls/57/files':return files
+                    if suffix.startswith('/commits/'):return checks()
+                    if suffix.startswith('/actions/runs?'):return [{'id':54321,'event':'pull_request','head_sha':'a'*40,'pull_requests':[{'number':57}]}]
+                    raise AssertionError(suffix)
+            with self.subTest(declared=declared,files=files):
+                with patch.object(gate,'GitHub',FakeGitHub):
+                    result=gate.inspect_live(only_pr=57)['prs'][0]
+                self.assertEqual(expected,result['status'])
+                if expected=='blocked':self.assertIn('incomplete_changed_file_inventory',result['blockers'])
+
+
+
+class MovingIntegrationTargetTest(unittest.TestCase):
+    def test_base_commit_inventory_or_review_state_cannot_move_under_green_evidence(self):
+        import copy
+        for field, value, reason in [
+            ('base_sha', 'c' * 40, 'head_or_base_changed_during_inspection'),
+            ('changed_files', 2, 'file_inventory_changed_during_inspection'),
+            ('state', 'closed', 'pr_readiness_changed_during_inspection'),
+            ('draft', True, 'pr_readiness_changed_during_inspection'),
+            ('mergeable', False, 'pr_readiness_changed_during_inspection'),
+        ]:
+            detail = pr()
+            detail['base']['sha'] = 'b' * 40
+            class FakeGitHub:
+                def __init__(self, *args, **kwargs): self.reads = 0
+                def get(self, suffix):
+                    if suffix != '/pulls/57': raise AssertionError(suffix)
+                    self.reads += 1
+                    reply = copy.deepcopy(detail)
+                    # Target lookup, inspection snapshot, then final recheck.
+                    if self.reads > 2:
+                        if field == 'base_sha': reply['base']['sha'] = value
+                        else: reply[field] = value
+                    return reply
+                def pages(self, suffix, key=None):
+                    if suffix == '/pulls?state=open': return [detail]
+                    if suffix == '/pulls/57/files': return [{'filename':'README.md'}]
+                    if suffix.startswith('/commits/'): return checks()
+                    if suffix.startswith('/actions/runs?'): return [{'id':54321,'event':'pull_request','head_sha':'a'*40,'pull_requests':[{'number':57}]}]
+                    raise AssertionError(suffix)
+            with self.subTest(field=field):
+                with patch.object(gate, 'GitHub', FakeGitHub):
+                    result = gate.inspect_live(only_pr=57)['prs'][0]
+                self.assertEqual('blocked', result['status'])
+                self.assertIn(reason, result['blockers'])
+                self.assertFalse(result['merge_executed'])
 
 if __name__ == "__main__":
     unittest.main()

@@ -80,28 +80,34 @@
       "evidence": "docs/evidence/integration-coverage/pr89-hosted-checkpoint.json"
     },
     "pr84": {
-      "source_sha": "4fd8f2749f340618c0d39ea7109a2668aa98a094",
-      "merge_sha": null,
-      "test_result": "pending",
+      "source_sha": "fcef152c9b7578b9551486d8404da29eca6f1e89",
+      "merge_sha": "961c234998d261ca74ddb0767b1e6f2a1e556a3b",
+      "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr84-hosted-checkpoint.json"
     },
     "pr60": {
-      "source_sha": "c55ca95021e4057fed7209706fc5efe7009cf10f",
+      "source_sha": "4bad250d22de9478f89240c0c71b34af17b4e251",
+      "merge_sha": "a9e291e6e541f4f4da7c39fa823ede7941b572a0",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr60-hosted-checkpoint.json"
+    },
+    "operating_calendar": {
+      "source_sha": "f2b56cb3191ee71d6edcbbdbda87c87f9a421cc7",
       "merge_sha": null,
       "test_result": "pending",
-      "evidence": "docs/evidence/integration-coverage/pr60-hosted-checkpoint.json"
+      "evidence": "docs/evidence/operating-calendar/local-checkpoint.json"
     }
   },
   "weighted_percent": {
-    "coded": "55.76",
-    "tested": "53.70",
-    "merged": "53.70",
+    "coded": "56.40",
+    "tested": "55.76",
+    "merged": "55.76",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "2109973/3783780",
-    "tested": "580543/1081080",
-    "merged": "580543/1081080",
+    "coded": "8536417/15135120",
+    "tested": "2109973/3783780",
+    "merged": "2109973/3783780",
     "production_accepted": "0"
   },
   "categories": [
@@ -111,8 +117,8 @@
       "atoms": 9,
       "counts": {
         "coded": 6,
-        "tested": 5,
-        "merged": 5,
+        "tested": 6,
+        "merged": 6,
         "production_accepted": 0
       },
       "details": [
@@ -228,8 +234,8 @@
           "note": "Canonical encrypted privacy request intake/review/withdrawal only. Automated erasure/export remains uncredited.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         }
@@ -241,8 +247,8 @@
       "atoms": 7,
       "counts": {
         "coded": 6,
-        "tested": 3,
-        "merged": 3,
+        "tested": 6,
+        "merged": 6,
         "production_accepted": 0
       },
       "details": [
@@ -293,8 +299,8 @@
           "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -306,8 +312,8 @@
           "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -319,8 +325,8 @@
           "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -475,8 +481,8 @@
       "atoms": 8,
       "counts": {
         "coded": 6,
-        "tested": 4,
-        "merged": 4,
+        "tested": 6,
+        "merged": 6,
         "production_accepted": 0
       },
       "details": [
@@ -540,8 +546,8 @@
           "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -553,8 +559,8 @@
           "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -682,7 +688,7 @@
       "requirement": "Reservations and occupancy policy",
       "atoms": 7,
       "counts": {
-        "coded": 5,
+        "coded": 6,
         "tested": 5,
         "merged": 5,
         "production_accepted": 0
@@ -769,11 +775,11 @@
         {
           "id": "2.6.7",
           "software_atom": "Operating calendar and reservation blocks",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "operating_calendar",
+          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -1605,7 +1611,7 @@
       "requirement": "Vendor calendar/blocks/tariffs",
       "atoms": 8,
       "counts": {
-        "coded": 4,
+        "coded": 5,
         "tested": 4,
         "merged": 4,
         "production_accepted": 0
@@ -1666,11 +1672,11 @@
         {
           "id": "3.4.5",
           "software_atom": "Operating calendars/schedules",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "operating_calendar",
+          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability.",
           "stages": {
-            "coded": false,
+            "coded": true,
             "tested": false,
             "merged": false,
             "production_accepted": false
@@ -4180,8 +4186,8 @@
       "atoms": 13,
       "counts": {
         "coded": 8,
-        "tested": 7,
-        "merged": 7,
+        "tested": 8,
+        "merged": 8,
         "production_accepted": 0
       },
       "details": [
@@ -4271,8 +4277,8 @@
           "note": "Reviewed original-scope software across its required surfaces; exact-source validation and integration are recorded separately.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

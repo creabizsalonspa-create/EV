@@ -40,6 +40,7 @@ final class StationInformation
                 'notice_en' => null, 'notice_ar' => null, 'notice_until' => null,
                 'notice_active' => false,
                 'weekly_hours' => array_fill_keys(self::DAYS, ['open' => null, 'close' => null]),
+                'enforce_operating_hours' => false,
                 'closed_dates' => [], 'amenities' => [], 'accessibility' => [],
                 'source_label' => 'NOT_PROVIDED',
                 'updated_at' => null,
@@ -48,6 +49,7 @@ final class StationInformation
 
         return [
             'revision' => (int) $row->revision,
+            'enforce_operating_hours' => (bool) ($row->enforce_operating_hours ?? false),
             'description_en' => $row->description_en,
             'description_ar' => $row->description_ar,
             'access_en' => $row->access_en,

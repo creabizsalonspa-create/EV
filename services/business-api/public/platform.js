@@ -215,6 +215,10 @@ function ui(tag, key, values = {}) {
     return element;
 }
 function errorMessage(error) {
+    if (error.status === 409 && [
+        "The selected time is outside the station operating calendar.",
+        "The operating calendar is unavailable. Refresh before booking or starting.",
+    ].includes(error.message)) return error.message;
     return (
         {
             401: "Your session has ended. Please sign in again.",

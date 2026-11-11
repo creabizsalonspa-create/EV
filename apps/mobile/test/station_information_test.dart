@@ -13,12 +13,17 @@ class _OwnedStationApi extends EvApi {
     this.description,
     this.holdInfo,
     this.rejectHeldInfo = false,
+    this.calendarPolicy,
+    this.wrongStation = false,
+    this.corruptSave = false,
   }) : super(Uri.parse('https://example.invalid'));
   final int stationId;
   final String stationName;
   final String? description;
   final Completer<void>? holdInfo;
   final bool rejectHeldInfo;
+  final Object? calendarPolicy;
+  final bool wrongStation, corruptSave;
   final writes = <Map<String, dynamic>>[];
 
   @override
@@ -44,7 +49,10 @@ class _OwnedStationApi extends EvApi {
         throw const ApiException(401, 'Previous vendor token expired');
       }
       return {
+        'station_id': wrongStation ? stationId + 999 : stationId,
+        'source_label': 'VENDOR_REPORTED_UNVERIFIED',
         'revision': 1,
+        if (calendarPolicy != null) 'enforce_operating_hours': calendarPolicy,
         'description_en': description,
         'description_ar': null,
         'access_en': null,
@@ -64,7 +72,12 @@ class _OwnedStationApi extends EvApi {
     if (path == 'stations/$stationId/information' && method == 'PUT') {
       final input = Map<String, dynamic>.from(body!);
       writes.add(input);
-      return {...input, 'revision': 2};
+      return {
+        ...input,
+        'station_id': stationId,
+        'source_label': 'VENDOR_REPORTED_UNVERIFIED',
+        'revision': corruptSave ? 1 : 2,
+      };
     }
     throw ApiException(404, 'Unexpected station test route: $method $path');
   }
@@ -284,6 +297,179 @@ void main() {
         expect((week['mon'] as Map)['open'], '08:00');
         expect(api.writes.single.containsKey('charging_status'), isFalse);
         expect(api.writes.single.containsKey('tariff'), isFalse);
+      } finally {
+        api.close();
+      }
+    },
+  );
+
+  testWidgets(
+    'operating calendar is explicit opt-in and saved with the original revision',
+    (tester) async {
+      final api = _OwnedStationApi();
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VendorStationInformationView(api: api, onExpired: () {}),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final toggle = find.byKey(const Key('station-info-enforce-hours'));
+        expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+        await revealStationEditorControl(tester, toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+        final save = find.byKey(const Key('station-info-save'));
+        await revealStationEditorControl(tester, save);
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+        expect(api.writes.single['enforce_operating_hours'], isTrue);
+        expect(api.writes.single['revision'], 1);
+        expect(api.writes.single['weekly_hours']['mon']['open'], '08:00');
+        expect(
+          api.writes.single.containsKey('operating_calendar_snapshot'),
+          isFalse,
+        );
+      } finally {
+        api.close();
+      }
+    },
+  );
+
+  testWidgets('malformed policy cannot be silently published as disabled', (
+    tester,
+  ) async {
+    final api = _OwnedStationApi(calendarPolicy: 'true');
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VendorStationInformationView(api: api, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('station-info-save')), findsNothing);
+      expect(find.byKey(const Key('station-info-error')), findsOneWidget);
+      expect(api.writes, isEmpty);
+    } finally {
+      api.close();
+    }
+  });
+
+  testWidgets(
+    'vendor switch clears the previous enforced policy while loading',
+    (tester) async {
+      final a = _OwnedStationApi(calendarPolicy: true);
+      final held = Completer<void>();
+      final b = _OwnedStationApi(stationId: 8, holdInfo: held);
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VendorStationInformationView(api: a, onExpired: () {}),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final toggle = find.byKey(const Key('station-info-enforce-hours'));
+        expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VendorStationInformationView(api: b, onExpired: () {}),
+          ),
+        );
+        await tester.pump();
+        expect(toggle, findsNothing);
+        held.complete();
+        await tester.pumpAndSettle();
+        expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+        expect(a.writes, isEmpty);
+        expect(b.writes, isEmpty);
+      } finally {
+        if (!held.isCompleted) held.complete();
+        a.close();
+        b.close();
+      }
+    },
+  );
+
+  testWidgets(
+    'enforced calendar explanation is truthful Arabic RTL at phone width',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final info = Map<String, dynamic>.from(station()['information'] as Map)
+        ..['enforce_operating_hours'] = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('ar'), Locale('en')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: Scaffold(
+            body: ListView(
+              children: [
+                StationInformationPanel(
+                  information: info,
+                  timezone: 'Asia/Dubai',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('ساعات العمل والدخول والمرافق'));
+      await tester.pumpAndSettle();
+      final explanation = find.textContaining('يُطبق جدول العمل');
+      expect(explanation, findsOneWidget);
+      expect(Directionality.of(tester.element(explanation)), TextDirection.rtl);
+      expect(find.textContaining('يمكن إكمال الشحن الجاري'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('wrong-station metadata never enables calendar editing', (
+    tester,
+  ) async {
+    final api = _OwnedStationApi(wrongStation: true);
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VendorStationInformationView(api: api, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('station-info-save')), findsNothing);
+      expect(find.byKey(const Key('station-info-error')), findsOneWidget);
+      expect(api.writes, isEmpty);
+    } finally {
+      api.close();
+    }
+  });
+
+  testWidgets(
+    'an unconfirmed calendar revision never displays publication success',
+    (tester) async {
+      final api = _OwnedStationApi(corruptSave: true);
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VendorStationInformationView(api: api, onExpired: () {}),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final toggle = find.byKey(const Key('station-info-enforce-hours'));
+        await revealStationEditorControl(tester, toggle);
+        await tester.tap(toggle);
+        final save = find.byKey(const Key('station-info-save'));
+        await revealStationEditorControl(tester, save);
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+        expect(api.writes, hasLength(1));
+        await tester.drag(find.byType(ListView).first, const Offset(0, 10000));
+        await tester.pumpAndSettle();
+        expect(find.text('Saved'), findsNothing);
+        expect(find.byKey(const Key('station-info-error')), findsOneWidget);
+        expect(api.writes.single['revision'], 1);
       } finally {
         api.close();
       }
