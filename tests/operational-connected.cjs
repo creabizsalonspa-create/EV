@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const { runPacedSuites } = require("./helpers/auth-batches.cjs");
 const groups = [
+  ["auth-bootstrap"], // isolated real guest-cookie/startup/login ordering; three logins
   ["invoice-history", "money-input", "tariffs", "managed-gate"], // 3+0+4+2 = 9 logins
   [
     "canonical-topology",
