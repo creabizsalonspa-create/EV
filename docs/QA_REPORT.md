@@ -1,5 +1,12 @@
 # Station-information native CI repair — 11 November 2026
 
+Authentication inventory review: both new information GET aliases intentionally
+publish the same bounded vendor-reported catalog metadata. Their explicit
+public-read inventories now include them; no private write route changed.
+An anonymous regression asserts the exact public field set, no owner email,
+source qualification,401 on both guest PUT aliases and unchanged revision.
+Final focused authorization/metadata suite17 tests/920 assertions passes.
+
 Final local full Flutter:317 passed/26 deliberate live-fixture skips. The
 integrated offline route inventory also caught the feature's new unbounded
 station/vehicle model-binding routes; all now use18-digit bounds rather than
