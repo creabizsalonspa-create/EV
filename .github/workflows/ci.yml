@@ -13,7 +13,8 @@ concurrency:
 
 jobs:
   business-platform:
-    runs-on: ubuntu-latest
+    # Pin the browser dependency baseline; ubuntu-latest may advance past Playwright support.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
