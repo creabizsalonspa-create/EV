@@ -1,3 +1,16 @@
+# 12 November 2026, 01:25 Dubai — preserve immediate logout; corrected current-source revalidation required
+
+Hosted jobs130791415972/130791656495 on88e37ad/1fb724f exposed a regression
+in the initial cookie-race fix: the existing held-private-response test could not log out.
+Logout remains immediate; a validated existing identity now releases the anonymous-only
+startup account gate before private panels finish. The full original web-session client
+and browser assertions pass unchanged, including account replacement, role downgrade,
+late401/unreadable identity, failed logout/reload/retry and Arabic errors. Both actual
+delayed anonymous-cookie and initial-outage login/logout cases also pass on isolated
+HTTP8010. No timeout, session epoch, privacy assertion, production limit or auth gate
+was removed. Previous failed sources are not eligible to merge; rerun every exact-source
+gate before PR84 then PR60 integration. See the appended auth-bootstrap JSON evidence.
+
 # 12 November 2026, 01:10 Dubai — startup cookie race repaired; integration still gated
 
 The broader local operational run passed canonical charging, continuous consumers/restart,
