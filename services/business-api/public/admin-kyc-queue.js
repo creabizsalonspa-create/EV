@@ -105,6 +105,9 @@ window.EvAdminKycQueue = (() => {
         card.append(documentButton, documentHost);
 
         // Owners may inspect their cases, but cannot review them.
+        // A current Admin may also be the company owner after a role
+        // transition. Keep the record inspectable, but never render the
+        // independent-review controls for the applicant themselves.
         const selfReview = currentAdminId !== null &&
             Number(company.owner?.id) === currentAdminId;
         const decisions = allowDecisions(company);

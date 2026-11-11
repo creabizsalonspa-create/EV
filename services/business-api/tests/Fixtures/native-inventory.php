@@ -24,6 +24,8 @@ $staff = User::create(['name' => 'Synthetic native reader', 'email' => 'inventor
 // The delegated inventory reader must verify the invited mailbox.
 // This local-only example.test fixture proves the permission boundary;
 // production invitations never gain capabilities without verification.
+// This is a synthetic local test identity; a delegated grant is only usable
+// after the account's mailbox identity has been confirmed.
 $staff->forceFill(['email_verified_at' => now()])->save();
 $company = VendorCompany::create(['owner_id' => $owner->id, 'legal_name' => 'Native inventory fixture '.$run, 'country' => 'AE', 'trade_license_number' => 'SYNTHETIC-'.$run, 'license_expires_on' => now()->addYear()->toDateString(), 'status' => 'approved']);
 VendorCompanyStaff::create(['company_id' => $company->id, 'user_id' => $staff->id, 'status' => 'active', 'permissions' => ['company.read', 'inventory.read']]);

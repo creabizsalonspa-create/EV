@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use League\Flysystem\UnableToReadFile;
+use RuntimeException;
 
 class VendorOpsController extends Controller
 {
@@ -137,6 +138,8 @@ class VendorOpsController extends Controller
 
         $history = VendorCompanyReview::where('company_id', $company->id)->orderBy('id')->paginate(25);
         if ($r->user()->role === 'admin') {
+            // Reviewer notes are private. Audit the company-scoped metadata
+            // access without persisting those notes or customer details.
             $this->access->audit($r->user(), 'review.history_viewed', $company->id);
         }
 
@@ -158,6 +161,8 @@ class VendorOpsController extends Controller
 
         $metadata = VendorKycDocument::where('company_id', $company->id)->paginate(25);
         if ($r->user()->role === 'admin') {
+            // Reading private document metadata is a privileged access,
+            // separate from the already audited byte-download endpoint.
             $this->access->audit($r->user(), 'document.metadata_viewed', $company->id);
         }
 
@@ -180,7 +185,7 @@ class VendorOpsController extends Controller
         $file = $r->file('document');
         $path = 'vendor-kyc/'.Str::uuid().'.enc';
         if (! Storage::disk('local')->put($path, Crypt::encryptString($file->getContent()))) {
-            throw new \RuntimeException('Unable to store KYC evidence.');
+            throw new RuntimeException('Unable to store KYC evidence.');
         }
         try {
             return DB::transaction(function () use ($r, $company, $v, $file, $path) {
@@ -301,6 +306,11 @@ class VendorOpsController extends Controller
     {
         abort_unless($r->user()->role === 'admin', 403);
         // Validate the persisted explanation even without global input trimming.
+        // The Admin UI requires an explanatory note; enforce the same
+        // minimum on direct API calls before any transition or audit writes.
+        // Check the minimum against the persisted explanation, not a
+        // whitespace-padded pre-normalization value. The endpoint must
+        // remain safe if framework TrimStrings middleware is disabled.
         if (is_string($r->input('reason'))) {
             $r->merge(['reason' => trim($r->input('reason'))]);
         }
@@ -312,6 +322,9 @@ class VendorOpsController extends Controller
         $result = DB::transaction(function () use ($r, $company, $v) {
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             // An Admin must not review a company they also own.
+            // A role change can make a former vendor into an administrator.
+            // Manual KYC decisions must remain independent of the applicant,
+            // including rejection, suspension and subsequent reapproval.
             abort_if($c->owner_id === $r->user()->id, 403,
                 'A separate administrator must review their own company.');
             $allowed = ['draft' => [], 'submitted' => ['approved', 'rejected', 'changes_requested'], 'changes_requested' => [], 'rejected' => [], 'approved' => ['suspended', 'changes_requested'], 'suspended' => ['approved', 'changes_requested']];
@@ -380,6 +393,9 @@ class VendorOpsController extends Controller
     public function invite(Request $r, VendorCompany $company)
     {
         $this->access->owner($r->user(), $company);
+        // An invitation can contain at most the three supported unique
+        // scopes. Reject oversized/duplicate input before any grant or audit
+        // write, consistent with the staff-permission editing endpoint.
         $v = $r->validate([
             'email' => 'required|email',
             'permissions' => 'required|array|min:1|max:3',

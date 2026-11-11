@@ -230,6 +230,8 @@ class FinanceTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($base)->assertOk()->assertJsonCount(1, 'data');
         $f[0]->role = 'customer';
         $f[0]->save();
+        // A role transition invalidates the earlier browser grant. The old
+        // session is denied before any pricing or station-scope lookup.
         $this->actingAs($f[0])->getJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs')->assertUnauthorized();
         $this->actingAs($f[0]->fresh())->withSession(['account_auth_epoch' => $f[0]->auth_epoch])
             ->getJson('/finance-test-api/stations/'.$f[2]->id.'/tariffs')->assertNotFound();

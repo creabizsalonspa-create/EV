@@ -109,4 +109,46 @@ class VendorStaffAuditIdempotencyTest extends TestCase
         $this->assertSame(['inventory.read'], $member->fresh()->permissions);
         $this->assertSame(0, $this->countAction('staff.invited'));
     }
+
+    public function test_staff_invite_rejects_duplicate_or_oversized_permission_arrays_without_grant_or_audit(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $staff = User::factory()->create(['role' => 'customer']);
+        $company = VendorCompany::create([
+            'owner_id' => $owner->id,
+            'legal_name' => 'Synthetic scope validation operator',
+            'country' => 'AE',
+            'trade_license_number' => 'TEST-PRIVATE',
+            'license_expires_on' => now()->addYear()->toDateString(),
+            'status' => 'approved',
+        ]);
+        $path = '/api/vendor-ops/companies/'.$company->id.'/staff';
+
+        $this->actingAs($owner, 'web')->postJson($path, [
+            'email' => $staff->email,
+            'permissions' => ['inventory.read', 'inventory.read'],
+        ])->assertUnprocessable()->assertJsonValidationErrors('permissions.0');
+
+        $this->postJson($path, [
+            'email' => $staff->email,
+            'permissions' => [
+                'company.read', 'inventory.read', 'inventory.write', 'company.read',
+            ],
+        ])->assertUnprocessable()->assertJsonValidationErrors('permissions');
+
+        $this->assertDatabaseCount('vendor_company_staff', 0);
+        $this->assertSame(0, $this->countAction('staff.invited'));
+
+        $this->postJson($path, [
+            'email' => $staff->email,
+            'permissions' => ['company.read', 'inventory.read', 'inventory.write'],
+        ])->assertAccepted();
+        $membership = VendorCompanyStaff::where('company_id', $company->id)
+            ->where('user_id', $staff->id)->firstOrFail();
+        $this->assertSame(
+            ['company.read', 'inventory.read', 'inventory.write'],
+            $membership->permissions
+        );
+        $this->assertSame(1, $this->countAction('staff.invited'));
+    }
 }
