@@ -457,6 +457,25 @@ class AdminSecondFactorTest extends TestCase
             ->assertJsonPath('role', 'customer');
     }
 
+    public function test_legacy_admin_bearer_can_revoke_itself_without_bypassing_mandatory_mfa(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $token = $admin->createToken('legacy-mobile', ['platform'], now()->addDay())->plainTextToken;
+
+        // A legacy bearer cannot read account data or gain browser Admin authority.
+        $this->withToken($token)->getJson('/api/v1/me')->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true);
+
+        // Logout is the single allowed native action: Sanctum authenticates,
+        // then the logout handler destroys the exact access token.
+        $this->withToken($token)->postJson('/api/v1/logout')->assertNoContent();
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)->getJson('/api/v1/me')->assertUnauthorized();
+        $this->withToken($token)->postJson('/api/v1/logout')->assertUnauthorized();
+    }
+
     public function test_customer_and_vendor_web_login_are_not_interrupted_by_admin_challenge(): void
     {
         foreach (['customer', 'vendor'] as $role) {

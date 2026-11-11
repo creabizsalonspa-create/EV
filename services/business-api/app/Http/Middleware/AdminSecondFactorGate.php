@@ -91,6 +91,14 @@ class AdminSecondFactorGate
         }
 
         if ($request->is('api/v1/*')) {
+            // Allow a still-valid legacy Admin bearer to revoke itself, never
+            // to access an Admin resource. Sanctum authentication and the
+            // native token's delete-only logout handler still run downstream.
+            // Browser sessions cannot masquerade as personal access tokens.
+            if ($request->isMethod('POST') && $request->is('api/v1/logout')) {
+                return $next($request);
+            }
+
             // The API middleware runs before each route's auth:sanctum.
             // Resolve the actual Sanctum actor now so a session-backed Admin
             // cannot slip around the browser-only MFA middleware.

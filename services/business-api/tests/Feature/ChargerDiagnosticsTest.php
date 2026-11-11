@@ -135,6 +135,17 @@ class ChargerDiagnosticsTest extends TestCase
         Http::fakeSequence()->push(['data' => ['ChargingStations' => []]]);
         $this->actingAs($admin, 'web')->getJson($url)->assertOk()->assertJsonPath('source_registered', false);
         $this->app->instance('env', 'production');
+
+        // Mandatory Admin MFA is checked before the source adapter. A native
+        // Admin bearer must not reveal whether source diagnostics are enabled.
+        $this->getJson($native)->assertForbidden()
+            ->assertJsonPath('admin_second_factor_required', true)
+            ->assertJsonMissingPath('source_online');
+
+        // Independently prove production still refuses source reads for an
+        // otherwise authorized vendor, instead of weakening the MFA gate.
+        Sanctum::actingAs($owner);
+        $this->getJson($native)->assertServiceUnavailable()->assertJsonMissingPath('source_online');
         $this->actingAs($owner, 'web')->getJson($url)->assertServiceUnavailable()->assertJsonMissingPath('source_online');
         Http::assertSentCount(1);
     }
