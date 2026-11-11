@@ -1432,18 +1432,31 @@ void main() {
         'DEVICE: versioned saved mandate revocation verified; no external PSP',
       );
 
+      // The account menu may leave another tab selected. Explicitly restore
+      // discovery before paginating, then place the button clear of the
+      // bottom navigation bar on compact iOS simulators.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.byIcon(Icons.ev_station_outlined),
+        ),
+      );
+      await settle();
       final catalogNext = find.byKey(const Key('catalog-next'));
-      final catalogScroll = find.byType(Scrollable).first;
+      // ListView builds this button lazily. Materialize it before asking the
+      // Scrollable to place its hit box above the compact iOS bottom bar.
       await tester.scrollUntilVisible(
         catalogNext,
-        300,
-        scrollable: catalogScroll,
+        180,
+        scrollable: find.byType(Scrollable).first,
       );
-      // The bottom navigation can cover the last visible row on a compact
-      // iOS simulator. Lift the pagination control inside the same scrollable
-      // before tapping; never suppress missed-hit warnings or skip page two.
-      await tester.drag(catalogScroll, const Offset(0, -180));
       await settle();
+      await Scrollable.ensureVisible(
+        tester.element(catalogNext),
+        alignment: 0.35,
+      );
+      await settle();
+      expect(catalogNext.hitTestable(), findsOneWidget);
       await tester.tap(catalogNext);
       await settle();
       expect(find.text('Device fixture station 2'), findsOneWidget);

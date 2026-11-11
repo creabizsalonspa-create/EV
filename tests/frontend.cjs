@@ -3,6 +3,7 @@ const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 require("./vehicle-model-catalog.cjs");
 require("./vehicle-manual-soc.cjs");
+require("./vehicle-driver-preferences.cjs");
 require("./station-information.cjs");
 (async () => {
   const browser = await chromium.launch({

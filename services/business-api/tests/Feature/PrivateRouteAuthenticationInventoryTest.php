@@ -14,6 +14,7 @@ class PrivateRouteAuthenticationInventoryTest extends TestCase
         'api/v1/regions',
         'api/v1/stations',
         'api/v1/stations/{station}/connectors',
+        'api/v1/stations/{station}/information',
         'api/v1/stations/{station}/reviews',
         'api/v1/stations/{station}/information',
         'api/v1/discovery/addresses',

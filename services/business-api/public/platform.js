@@ -79,6 +79,7 @@ function clearPrivateViews() {
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
     vehicleManualSoc.clear();
+    driverPreferences.clear();
     stationInfo.clear();
     roamingWorkspace.clear();
     chargingReviews.clear();
@@ -1212,6 +1213,10 @@ const vehicleManualSoc=VehicleManualSoc.create({
     root:el("vehicle-manual-soc"),
     api,actor:()=>user,epoch:()=>client.sessionEpoch,
 });
+const driverPreferences = VehicleDriverPreferences.create({
+    root: el("driver-preferences-editor"), api, actor: () => user,
+    epoch: () => client.sessionEpoch,
+});
 const vendorWorkspace = createVendorWorkspace({
     root: el("vendor-operations"),
     api,
@@ -1378,6 +1383,16 @@ async function garage() {
             const preferences = batteryNode("button", "Battery preferences", "تفضيلات البطارية");
             preferences.onclick = () => batteryEditor(v.id, row).catch(notice);
             row.append(preferences);
+        }
+        if (user?.role === "customer") {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.dataset.en = "Driver charging preferences";
+            button.dataset.ar = "تفضيلات الشحن";
+            button.textContent = document.documentElement.lang === "ar"
+                ? button.dataset.ar : button.dataset.en;
+            button.onclick = () => driverPreferences.open(v);
+            row.append(button);
         }
         el("vehicle-list").append(row);
     }

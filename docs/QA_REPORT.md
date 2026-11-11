@@ -48,6 +48,36 @@ Browser launchers respect EV_CHROMIUM_PATH; no test is removed. Test credentials
 remain private local fixtures. Merge PR64 first and require new exact-head
 hosted checks. Manufacturer compatibility, full garage parity and production
 acceptance remain unverified; no coverage atom is newly credited here.
+# Station-information native CI repair — 11 November 2026
+
+Authentication inventory review: both new information GET aliases intentionally
+publish the same bounded vendor-reported catalog metadata. Their explicit
+public-read inventories now include them; no private write route changed.
+An anonymous regression asserts the exact public field set, no owner email,
+source qualification,401 on both guest PUT aliases and unchanged revision.
+Final focused authorization/metadata suite17 tests/920 assertions passes.
+
+Final local full Flutter:317 passed/26 deliberate live-fixture skips. The
+integrated offline route inventory also caught the feature's new unbounded
+station/vehicle model-binding routes; all now use18-digit bounds rather than
+adding exceptions. Both public station aliases have overflow-denial tests.
+Updated focused backend14 tests/101 assertions and all48 security regressions
+pass. Hosted checks must run on this final source, not its superseded head.
+
+PR58's stale-vendor-denial widget failure was reproduced locally: an ignored
+old-session response left a perpetual progress indicator. The editor now
+clears stale private state and loading flags without expiring the new account.
+It also scrubs station/form data on background, requires explicit foreground
+refresh and refuses old-editor saves under a changed account fence. Generation
+checks prevent late old responses from clearing the next account's data.
+Existing denial assertions remain intact; three additional privacy/write/lifecycle
+regressions pass. Focused native16 tests pass; full mobile analysis is clean.
+Backend13 tests/91 assertions pass, Pint543 files passes, and all three station,
+preference and session-isolation web contract suites pass. Actual localhost
+browsers pass vendor station creation/expiring notice persistence/switching/
+logout and customer garage preferences/persisted reload/logout. Full Flutter
+and updated exact-head Android/iOS hosted validation remain required. PR64 is
+the integrated source prerequisite; no physical or production claim is made.
 
 # Single-owner integration QA — 11 November 2026
 

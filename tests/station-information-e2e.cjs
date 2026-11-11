@@ -7,7 +7,7 @@ if(!['127.0.0.1','localhost','::1','[::1]'].includes(base.hostname))
 const email=process.env.EV_TEST_VENDOR_EMAIL||'',password=process.env.EV_TEST_VENDOR_PASSWORD||'';
 if(!email.endsWith('@example.invalid')||password.length<16)throw Error('Disposable vendor credentials required.');
 (async()=>{
- const browser=await chromium.launch({headless:true}),page=await browser.newPage({viewport:{width:1280,height:900}});
+ const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined}),page=await browser.newPage({viewport:{width:1280,height:900}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  try{
   await page.goto(base.origin,{waitUntil:'networkidle'});

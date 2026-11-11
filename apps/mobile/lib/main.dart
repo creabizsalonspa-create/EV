@@ -3,6 +3,7 @@ import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
 import 'reservation_intent.dart';
 import 'vehicle_model_catalog.dart';
+import 'vehicle_driver_preferences.dart';
 import 'vehicle_battery.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -628,6 +629,18 @@ class _WorkspaceState extends State<Workspace> {
                       onExpired: expiredSession,
                     ),
                   ),
+                ),
+              ),
+            if (tab == 3 && account?.role == 'customer')
+              TextButton.icon(
+                key: Key('driver-preferences-$id'),
+                icon: const Icon(Icons.tune),
+                label: Text(Localizations.localeOf(context).languageCode == 'ar'
+                    ? 'تفضيلات الشحن' : 'Driver charging preferences'),
+                onPressed: busy ? null : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => VehicleDriverPreferencesView(
+                    api: api!, vehicleId: id as int, onExpired: expiredSession,
+                  )),
                 ),
               ),
             if (tab == 3 && account?.role == 'customer')

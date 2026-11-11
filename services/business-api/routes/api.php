@@ -147,3 +147,5 @@ Route::prefix('v1')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken:
 // Operator-supplied station access information is not charger-source availability.
 Route::get('/v1/stations/{station}/information', [StationInformationController::class, 'show'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::put('/v1/stations/{station}/information', [StationInformationController::class, 'save'])->where('station', '[0-9]{1,18}')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+
+Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/vehicle_driver_preferences.php');

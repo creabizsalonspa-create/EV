@@ -12,6 +12,39 @@ class StationInformationTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_public_station_information_rejects_unbounded_route_ids(): void
+    {
+        foreach (['/api', '/api/v1'] as $prefix) {
+            foreach (['invalid', '-1', '1.5', '9223372036854775808', str_repeat('9', 128)] as $id) {
+                $this->getJson($prefix.'/stations/'.$id.'/information')->assertNotFound();
+            }
+        }
+    }
+
+    public function test_anonymous_information_is_public_metadata_only_and_writes_stay_authenticated(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $this->actingAs($vendor)->putJson('/api/stations/'.$station->id.'/information', $this->details())->assertOk();
+        $this->app['auth']->forgetGuards();
+        $this->assertGuest();
+        $expected = ['station_id', 'revision', 'description_en', 'description_ar', 'access_en', 'access_ar',
+            'notice_en', 'notice_ar', 'notice_until', 'notice_active', 'weekly_hours', 'closed_dates',
+            'amenities', 'accessibility', 'source_label', 'updated_at'];
+        sort($expected);
+        foreach (['/api', '/api/v1'] as $prefix) {
+            $route = $prefix.'/stations/'.$station->id.'/information';
+            $response = $this->getJson($route)->assertOk()
+                ->assertJsonPath('source_label', 'VENDOR_REPORTED_UNVERIFIED');
+            $keys = array_keys($response->json());
+            sort($keys);
+            $this->assertSame($expected, $keys, 'Public metadata must never expose owner, audit or charging credentials.');
+            $this->assertStringNotContainsString($vendor->email, $response->getContent());
+            $this->putJson($route, $this->details(1))->assertUnauthorized();
+        }
+        $this->assertSame(1, DB::table('station_information')->where('station_id', $station->id)->value('revision'));
+    }
+
     private function station(User $vendor): Station
     {
         return Station::create([

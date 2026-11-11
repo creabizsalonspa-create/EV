@@ -70,6 +70,8 @@ jobs:
       - run: npm run test:localization
       - run: npm run test:web-session
       - run: npm run test:vehicle-models
+      - run: npm run test:driver-preferences
+      - run: npm run test:station-information
       - run: ./scripts/csms-setup
       - run: ./scripts/csms-start
       - run: ./scripts/signed-firmware-validator-test

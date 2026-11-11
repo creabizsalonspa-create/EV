@@ -1,0 +1,272 @@
+import 'package:creabiz_ev/api.dart';
+import 'package:creabiz_ev/vehicle_driver_preferences.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// Widget contract fixture; API transport and authorization are tested separately.
+class _PreferencesApi extends EvApi {
+  _PreferencesApi() : super(Uri.parse('https://example.invalid'));
+  final writes = <Map<String, dynamic>>[];
+  final requests = <String>[];
+  Completer<void>? holdVehicle12;
+  int revision = 0;
+  bool denyNewAccount = false;
+  bool poisonNextGet = false, poisonNextSave = false;
+
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    requests.add('$method $path');
+    final id = path == 'vehicles/12/driver-preferences'
+        ? 12
+        : path == 'vehicles/13/driver-preferences'
+        ? 13
+        : null;
+    if (id == null) throw ApiException(404, 'Unexpected test endpoint: $path');
+    if (method == 'GET') {
+      if (denyNewAccount) throw const ApiException(404, 'Vehicle not owned');
+      if (id == 12 && holdVehicle12 != null) await holdVehicle12!.future;
+      final poisoned = poisonNextGet;
+      poisonNextGet = false;
+      return {
+        'vehicle_id': poisoned ? id + 100 : id,
+        'revision': id == 12 ? revision : 4,
+        'preferred_power_kw': id == 12 ? null : 80,
+        'charging_goal': id == 12 ? 'balanced' : 'fastest',
+        'accessible_site_required': false,
+        'avoid_paid_parking': false,
+        'scope': 'DRIVER_PREFERENCE_ONLY',
+        'applied_to_charging': false,
+      };
+    }
+    if (method == 'PUT') {
+      writes.add(Map<String, dynamic>.from(body!));
+      final expected = id == 12 ? revision : 4;
+      if (body['revision'] != expected) throw const ApiException(409, 'stale');
+      if (id == 12) revision++;
+      final poisoned = poisonNextSave;
+      poisonNextSave = false;
+      return {
+        ...body,
+        'revision': expected + 1,
+        'vehicle_id': id,
+        'scope': 'DRIVER_PREFERENCE_ONLY',
+        'applied_to_charging': poisoned ? true : false,
+      };
+    }
+    throw ApiException(405, 'Unexpected method: $method');
+  }
+}
+
+void main() {
+  testWidgets('customer saves driver preferences with versioned payload', (
+    tester,
+  ) async {
+    final api = _PreferencesApi();
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VehicleDriverPreferencesView(
+            api: api,
+            vehicleId: 12,
+            onExpired: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('driver-preferences-power')),
+        '150',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('driver-preferences-access')),
+      );
+      await tester.tap(find.byKey(const Key('driver-preferences-access')));
+      await tester.ensureVisible(
+        find.byKey(const Key('driver-preferences-save')),
+      );
+      await tester.tap(find.byKey(const Key('driver-preferences-save')));
+      await tester.pumpAndSettle();
+      expect(api.writes, hasLength(1));
+      expect(api.writes.single['revision'], 0);
+      expect(api.writes.single['preferred_power_kw'], 150);
+      expect(api.writes.single['accessible_site_required'], true);
+      expect(find.text('Driver preferences saved.'), findsOneWidget);
+    } finally {
+      api.close();
+    }
+  });
+  testWidgets(
+    'reused native editor reloads a new vehicle and ignores late old GET',
+    (tester) async {
+      final api = _PreferencesApi()..holdVehicle12 = Completer<void>();
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VehicleDriverPreferencesView(
+              api: api,
+              vehicleId: 12,
+              onExpired: () {},
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(api.requests, contains('GET vehicles/12/driver-preferences'));
+        // Same widget type and key; a parent can switch the vehicle ID in place.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VehicleDriverPreferencesView(
+              api: api,
+              vehicleId: 13,
+              onExpired: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(api.requests, contains('GET vehicles/13/driver-preferences'));
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const Key('driver-preferences-power')),
+              )
+              .controller!
+              .text,
+          '80',
+        );
+        api.holdVehicle12!.complete();
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const Key('driver-preferences-power')),
+              )
+              .controller!
+              .text,
+          '80',
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('driver-preferences-save')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('driver-preferences-save')));
+        await tester.pumpAndSettle();
+        expect(api.requests.last, 'PUT vehicles/13/driver-preferences');
+        expect(api.writes.last['revision'], 4);
+        expect(api.writes.last['preferred_power_kw'], 80);
+      } finally {
+        if (!(api.holdVehicle12?.isCompleted ?? true))
+          api.holdVehicle12!.complete();
+        api.close();
+      }
+    },
+  );
+
+  testWidgets(
+    'native driver preferences reject cross-vehicle GET and unsafe PUT response',
+    (tester) async {
+      final api = _PreferencesApi()..poisonNextGet = true;
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VehicleDriverPreferencesView(
+              api: api,
+              vehicleId: 12,
+              onExpired: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('driver-preferences-error')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('driver-preferences-save')),
+          findsNothing,
+          reason: 'Wrong vehicle GET must not expose editable preferences',
+        );
+        expect(
+          find.textContaining('Unexpected driver preference response'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Refresh'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('driver-preferences-save')),
+          findsOneWidget,
+        );
+        api.poisonNextSave = true;
+        await tester.ensureVisible(
+          find.byKey(const Key('driver-preferences-save')),
+        );
+        await tester.tap(find.byKey(const Key('driver-preferences-save')));
+        await tester.pumpAndSettle();
+        expect(find.text('Driver preferences saved.'), findsNothing);
+        expect(
+          find.textContaining('Unexpected driver preference save response'),
+          findsOneWidget,
+        );
+        expect(api.writes, hasLength(1));
+      } finally {
+        api.close();
+      }
+    },
+  );
+
+  testWidgets(
+    'same vehicle/API after account change hides previous driver preferences',
+    (tester) async {
+      final api = _PreferencesApi();
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VehicleDriverPreferencesView(
+              api: api,
+              vehicleId: 13,
+              onExpired: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const Key('driver-preferences-power')),
+              )
+              .controller!
+              .text,
+          '80',
+        );
+        // The EvApi instance can be reused after the authentication epoch
+        // changes. A new account must never see the old account's 80 kW choice.
+        api.denyNewAccount = true;
+        await api.forgetSession();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VehicleDriverPreferencesView(
+              api: api,
+              vehicleId: 13,
+              onExpired: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('driver-preferences-power')), findsNothing);
+        expect(find.byKey(const Key('driver-preferences-save')), findsNothing);
+        expect(
+          find.byKey(const Key('driver-preferences-error')),
+          findsOneWidget,
+        );
+        expect(api.writes, isEmpty);
+      } finally {
+        api.close();
+      }
+    },
+  );
+}

@@ -183,10 +183,12 @@ Route::prefix('/api/charging-reviews')->middleware(['auth', 'throttle:platform-a
 
 Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/vehicle_model_catalog.php');
 Route::prefix('api')->middleware(['auth', 'throttle:platform-api'])->group(__DIR__.'/vehicle_manual_soc.php');
-Route::get('/api/stations/{station}/information', [StationInformationController::class, 'show'])->whereNumber('station')->middleware('throttle:catalog');
-Route::put('/api/stations/{station}/information', [StationInformationController::class, 'save'])->whereNumber('station')->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/stations/{station}/information', [StationInformationController::class, 'show'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
+Route::put('/api/stations/{station}/information', [StationInformationController::class, 'save'])->where('station', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/vendor/stations', function (Request $r) {
     abort_unless($r->user()->role === 'vendor', 403);
 
     return Station::where('vendor_id', $r->user()->id)->orderByDesc('id')->paginate(25);
 })->middleware(['auth', 'throttle:platform-api']);
+
+Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/vehicle_driver_preferences.php');
