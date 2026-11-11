@@ -1,3 +1,20 @@
+# Station-information native CI repair — 11 November 2026
+
+PR58's stale-vendor-denial widget failure was reproduced locally: an ignored
+old-session response left a perpetual progress indicator. The editor now
+clears stale private state and loading flags without expiring the new account.
+It also scrubs station/form data on background, requires explicit foreground
+refresh and refuses old-editor saves under a changed account fence. Generation
+checks prevent late old responses from clearing the next account's data.
+Existing denial assertions remain intact; three additional privacy/write/lifecycle
+regressions pass. Focused native16 tests pass; full mobile analysis is clean.
+Backend13 tests/91 assertions pass, Pint543 files passes, and all three station,
+preference and session-isolation web contract suites pass. Actual localhost
+browsers pass vendor station creation/expiring notice persistence/switching/
+logout and customer garage preferences/persisted reload/logout. Full Flutter
+and updated exact-head Android/iOS hosted validation remain required. PR64 is
+the integrated source prerequisite; no physical or production claim is made.
+
 # Single-owner integration QA — 11 November 2026
 
 - PR90 source `67e03f69f07b1ddd604ad5b232d0db9f8873d8cd`: all six
