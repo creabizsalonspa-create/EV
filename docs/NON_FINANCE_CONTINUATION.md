@@ -1,3 +1,11 @@
+# Current single-owner continuation — 11 November 2026
+
+One agent now owns the entire platform, including finance, superseding the
+historical parallel assignments below. Do not delegate or recreate completed
+modules. Current integration evidence and exact next dependency chain are in
+[PROGRESS.md](PROGRESS.md) and [QA_REPORT.md](QA_REPORT.md). Preserve the
+original42 categories/312 atoms and all historical records.
+
 # Verified PR22 integration and private case evidence continuation
 
 PR22 is merged at **70ac899ab9e6f98d8a5c36a4d98885da0c0f307a**, exactly matching tested source **c0658cc33152f9c8094ca27f0bfa0d38e799202d**. All12 exact-source checks passed, including both Android debug builds/eleven actual-Laravel native suites, both iOS builds/actual synthetic simulator runtimes and full platform/PostgreSQL/staging matrices. Both iOS logs confirm explicit subscription enrollment and every earlier Keychain/private-PDF/GPS/maps/favorites/pricing assertion. Laravel347/8450; Flutter175 passes/12 explicit live-only skips. Evidence: docs/evidence/native-financial-parity/hosted-checkpoint.json.

@@ -38,17 +38,26 @@ module.exports = async function (fixture, clients) {
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
     });
-    await context.addCookies(
-      [...clients.vendor.cookies].map(([name, value]) => ({
-        name,
-        value,
-        url: clients.vendor.base,
-      })),
-    );
     const page = await context.newPage(),
       errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(clients.vendor.base);
+    // Logout must exercise a separate browser session, never revoke the CLI
+    // vendor session needed by the following source-review assertions.
+    await page
+      .locator("#account [name=email]")
+      .fill(fixture.accounts.vendor.email);
+    await page
+      .locator("#account [name=password]")
+      .fill(fixture.accounts.vendor.password);
+    const login = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === "/api/login" &&
+        r.request().method() === "POST",
+    );
+    await page.locator("button[value=login]").click();
+    assert.equal((await login).status(), 200);
+
     const ops = page.locator("#vendor-operations");
     await ops
       .locator("article")
@@ -112,6 +121,11 @@ module.exports = async function (fixture, clients) {
     await page.locator("#account [name=email]").waitFor();
     assert.equal(await ops.locator("[data-operational-analytics]").count(), 0);
     assert.deepEqual(errors, []);
+    assert.equal(
+      (await clients.vendor.request(reportPath)).evidence,
+      "SIMULATED_SOURCE",
+      "Browser logout must not invalidate the independent CLI vendor session",
+    );
   } finally {
     await browser.close();
   }

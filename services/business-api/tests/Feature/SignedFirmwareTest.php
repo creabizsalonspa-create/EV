@@ -110,6 +110,72 @@ class SignedFirmwareTest extends TestCase
         });
     }
 
+    public function test_revoking_approved_signed_release_encrypts_note_is_idempotent_and_never_contacts_hardware(): void
+    {
+        $f = $this->fixture();
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approved trusted synthetic firmware for revocation regression',
+        ])->assertCreated()->json('id');
+        $path = $f['releases'].'/'.$release;
+
+        $this->actingAs($f['owner'])->deleteJson($path, ['note' => 'Vendor must not revoke a signed release'])->assertForbidden();
+        $this->actingAs($f['admin'])->deleteJson($path, ['note' => 'short'])->assertUnprocessable();
+        $this->assertDatabaseHas('charger_firmware_releases', ['id' => $release, 'revoked_at' => null]);
+
+        $note = 'Admin revokes the approved synthetic firmware release';
+        $this->deleteJson($path, ['note' => $note])->assertOk()
+            ->assertJsonPath('revoked', true)
+            ->assertJsonPath('device_commands_sent', false)
+            ->assertJsonPath('existing_holds_released', false);
+
+        $row = DB::table('charger_firmware_releases')->find($release);
+        $this->assertNotNull($row->revoked_at);
+        $this->assertSame($f['admin']->id, (int) $row->revoked_by);
+        $this->assertNotSame($note, $row->revocation_note);
+        $this->assertSame($note, Crypt::decryptString($row->revocation_note));
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'firmware.release_revoked')->where('subject', (string) $release)->count());
+
+        $this->deleteJson($path, ['note' => 'Replay must retain the first audited reason'])->assertOk();
+        $this->assertSame($row->revocation_note, DB::table('charger_firmware_releases')->find($release)->revocation_note);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'firmware.release_revoked')->where('subject', (string) $release)->count());
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_revoked_signed_firmware_download_capability_fails_closed_without_device_action(): void
+    {
+        $f = $this->fixture();
+        $this->source($f);
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], [
+            'catalog_key' => 'synthetic-v1',
+            'note' => 'Approve private synthetic artifact for revoked-download regression',
+        ])->assertCreated()->json('id');
+
+        $id = $this->actingAs($f['owner'])->postJson($f['path'], [
+            'release_id' => $release,
+            'reason' => 'Submit simulated source request for capability revocation',
+            'idempotency_key' => 'revoked-download-regression',
+        ])->assertCreated()->assertJsonPath('status', 'transport_submitted')->json('id');
+
+        $op = DB::table('charger_firmware_operations')->find($id);
+        $token = Crypt::decryptString($op->download_token_ciphertext);
+        $url = '/api/internal/firmware/'.$token;
+        $this->get($url)->assertOk()->assertHeader('Content-Type', 'application/octet-stream');
+        // The guarded BinaryFileResponse serves the validated local artifact.
+        // Check accessibility without assuming an in-memory response body.
+
+        $before = Http::recorded()->count();
+        $this->actingAs($f['admin'])->deleteJson($f['releases'].'/'.$release, [
+            'note' => 'Revoke synthetic release and immediately invalidate download',
+        ])->assertOk()->assertJsonPath('device_commands_sent', false)
+            ->assertJsonPath('existing_holds_released', false);
+        $this->get($url)->assertNotFound();
+        $this->assertDatabaseHas('charger_firmware_releases', ['id' => $release, 'revoked_by' => $f['admin']->id]);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'firmware.release_revoked')->where('subject', (string) $release)->count());
+        $this->assertSame($before, Http::recorded()->count(), 'Revocation and denial cannot contact the upstream charger/source');
+    }
+
     public static function protocols(): array
     {
         return [['1.6'], ['2.0.1']];
