@@ -160,31 +160,13 @@ async function session(version, actors) {
   assert.equal(pending.session.status, "pending_start");
   assert.equal(pending.evidence, "SIMULATED_CSMS");
   const sessionId = pending.session.id;
-  let tag = "EV-SIM-" + sessionId;
+  let tag;
   const repeatedStart = await customer.request(
     "reservations/" + fixture.reservation_id + "/csms-start",
     "POST",
   );
   assert.equal(repeatedStart.session.id, sessionId);
   assert.equal(repeatedStart.start_command.id, pending.start_command.id);
-  const at = new Date().toISOString();
-  if (!autoDispatch)
-    await graph(
-      "mutation($object:Authorizations_insert_input!){insert_Authorizations_one(object:$object){id}}",
-      {
-        object: {
-          tenantId: 1,
-          idToken: tag,
-          idTokenType: "Central",
-          status: "Accepted",
-          concurrentTransaction: false,
-          isPrepaid: false,
-          cacheExpiryDateTime: new Date(Date.now() + 86400000).toISOString(),
-          createdAt: at,
-          updatedAt: at,
-        },
-      },
-    );
   const charger = new SimulatedCharger(version, name);
   let transactionId,
     worker = useDaemon ? startWorker(pending.link) : null,
@@ -197,15 +179,6 @@ async function session(version, actors) {
       canonicalTargets ? 7 : 1,
       canonicalTargets ? 5 : 1,
     );
-    if (!autoDispatch) {
-      const auth = await charger.call(
-        "Authorize",
-        version === "1.6"
-          ? { idTag: tag }
-          : { idToken: { idToken: tag, type: "Central" } },
-      );
-      assert.equal((auth.idTagInfo ?? auth.idTokenInfo).status, "Accepted");
-    }
     if (autoDispatch) dispatcher = startDispatcher(station.id);
     else
       await execFile("./scripts/csms-dispatch", [
@@ -222,8 +195,41 @@ async function session(version, actors) {
         ),
       "business remote start delivery",
     );
+    // Observe the delivered command credential. The same retained local
+    // environment may already have secure remote authorization enabled.
+    tag = remote.payload.idTag ?? remote.payload.idToken?.idToken;
+    assert(
+      typeof tag === "string" &&
+        (/^EV-[A-F0-9]{16}$/.test(tag) || tag === "EV-SIM-" + sessionId),
+    );
+    const at = new Date().toISOString();
+    if (tag === "EV-SIM-" + sessionId)
+      await graph(
+        "mutation($object:Authorizations_insert_input!){insert_Authorizations_one(object:$object){id}}",
+        {
+          object: {
+            tenantId: 1,
+            idToken: tag,
+            idTokenType: "Central",
+            status: "Accepted",
+            concurrentTransaction: false,
+            isPrepaid: false,
+            cacheExpiryDateTime: new Date(Date.now() + 86400000).toISOString(),
+            createdAt: at,
+            updatedAt: at,
+          },
+        },
+      );
+    if (!autoDispatch) {
+      const auth = await charger.call(
+        "Authorize",
+        version === "1.6"
+          ? { idTag: tag }
+          : { idToken: { idToken: tag, type: "Central" } },
+      );
+      assert.equal((auth.idTagInfo ?? auth.idTokenInfo).status, "Accepted");
+    }
     if (autoDispatch) {
-      tag = remote.payload.idTag ?? remote.payload.idToken?.idToken;
       assert.match(tag, /^EV-[A-F0-9]{16}$/);
       const other = new SimulatedCharger(
         version,
@@ -247,12 +253,7 @@ async function session(version, actors) {
       } finally {
         await other.close();
       }
-      await execFile("./scripts/php", [
-        "artisan",
-        "platform:role",
-        customer.user.email,
-        "vendor",
-      ]);
+      await customer.changeRole("vendor");
       try {
         const denied = await charger.call(
           "Authorize",
@@ -266,12 +267,7 @@ async function session(version, actors) {
           "Current customer authority must be rechecked online",
         );
       } finally {
-        await execFile("./scripts/php", [
-          "artisan",
-          "platform:role",
-          customer.user.email,
-          "customer",
-        ]);
+        await customer.changeRole("customer");
       }
 
       const online = await charger.call(
