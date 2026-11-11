@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const {chromium} = require('playwright');
 const {BusinessClient} = require('./helpers/business-client.cjs');
 (async () => {
-  const account = await new BusinessClient().register('customer');
+  const account = await new BusinessClient({base:process.env.EV_AUTH_TEST_URL || 'http://127.0.0.1:8000'}).register('customer');
   const browser = await chromium.launch({headless:true, executablePath:process.env.EV_CHROMIUM_PATH || undefined});
   try {
     for (const bootstrapFails of [false, true]) {

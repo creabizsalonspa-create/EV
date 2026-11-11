@@ -46,7 +46,7 @@ function setIdentityBusy(value) {
     el("account")
         .querySelectorAll("input,button")
         .forEach((n) => (n.disabled = value || identityInitializing));
-    el("logout").disabled = el("logout-retry").disabled = value || identityInitializing;
+    el("logout").disabled = el("logout-retry").disabled = value;
 }
 function pendingLogout(value) {
     try {
@@ -249,6 +249,12 @@ async function identity() {
         if (user && (current.id !== user.id || current.role !== user.role))
             epoch = clearIdentity();
         user = current;
+        // A validated existing account must retain immediate logout while its
+        // private panels load. Only anonymous bootstrap can race a new login.
+        if (identityInitializing) {
+            identityInitializing = false;
+            setIdentityBusy(false);
+        }
     } catch (error) {
         if (
             epoch !== client.sessionEpoch ||

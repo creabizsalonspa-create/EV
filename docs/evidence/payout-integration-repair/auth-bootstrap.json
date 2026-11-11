@@ -16,5 +16,23 @@
     "one_login_per_case_no_mutation_retry": true,
     "scheduler_guards": "nine passed after additive suite inventory adjustment"
   },
-  "hosted_verification": "pending; current workflows unallocated, no bypass"
+  "hosted_verification": "pending; current workflows unallocated, no bypass",
+  "refinement": {
+    "failed_hosted_sources": [
+      "88e37ad674a460c01f39df328ff6d8c8d830b082",
+      "1fb724f22fb87315d5600c7bf631e11ba387bd6d"
+    ],
+    "failed_jobs": [
+      130791415972,
+      130791656495
+    ],
+    "failure": "Existing delayed-private-response test correctly requires immediate logout while authenticated bootstrap panels are held. Initial guard also disabled logout.",
+    "repair": "Keep logout available and release the anonymous-only account gate as soon as a valid existing account identity is confirmed. Preserve held-response epoch rejection and explicit failed logout recovery.",
+    "verified": [
+      "complete original web-session client and controlled browser suites unchanged",
+      "actual anonymous delayed-cookie and initial-outage login/logout on disposable loopback HTTP service",
+      "nine orchestration tests"
+    ],
+    "isolated_runtime_note": "Laravel artisan serve requires --no-reload to preserve explicit disposable DB environment. Read-only application mount prevented writes to the normal DB during the initial setup error."
+  }
 }
