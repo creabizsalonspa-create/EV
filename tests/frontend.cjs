@@ -5,6 +5,7 @@ require("./vehicle-model-catalog.cjs");
 require("./vehicle-manual-soc.cjs");
 require("./vehicle-driver-preferences.cjs");
 require("./station-information.cjs");
+require("./business-client-role.test.cjs");
 (async () => {
   const browser = await chromium.launch({
     headless: true,

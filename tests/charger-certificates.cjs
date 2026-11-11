@@ -1,7 +1,6 @@
 const withFixture = require("./helpers/certificate-local.cjs");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { createIngress } = require("../services/charger-ingress/server.cjs");
-const { chromium } = require("playwright");
 const https = require("node:https"),
   http = require("node:http"),
   assert = require("node:assert/strict");
@@ -70,6 +69,8 @@ withFixture(async (f) => {
       identity: charger.identity,
     });
   }
+  // Native transport fixtures do not execute browser rendering.
+  const { chromium } = require("playwright");
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.EV_CHROMIUM_PATH || undefined,
