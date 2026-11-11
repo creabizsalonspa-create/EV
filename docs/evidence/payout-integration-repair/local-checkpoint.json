@@ -1,0 +1,43 @@
+{
+  "app_source_sha": "0953524b6f485f4edda6f78e2a809eac58d13d35",
+  "failed_jobs": [
+    "https://github.com/creabizsalonspa-create/EV/actions/runs/43085334468/job/130748104349",
+    "https://github.com/creabizsalonspa-create/EV/actions/runs/43087607776/job/130756015434"
+  ],
+  "reproduction": {
+    "environment": "Fresh private SQLite, loopback-only Docker PHP HTTP, read-only application mount; existing local ledgers preserved",
+    "baseline": "Unmodified commercial scenario passed with empty history; retained main history reproduced ambiguous unscoped payout controls",
+    "boundary": "Approved settlement persisted with one approval event; protected budget exhausted at approval and subsequent settlement-list/subscription-notice GETs returned429; original payout locator timed out",
+    "observed_sequence": [
+      {
+        "method": "POST",
+        "path": "commercial/settlements/{owned}/approve",
+        "status": 200,
+        "remaining": 0
+      },
+      {
+        "method": "GET",
+        "path": "commercial/settlements",
+        "status": 429,
+        "remaining": 0
+      }
+    ],
+    "financial_outcome": "approved, not paid; no payout mutation replayed"
+  },
+  "repair": [
+    "Preserve and assert actual60/min protected-read limit, then wait a fresh61s window in bounded pieces before settlement writes",
+    "Scope approval/payout to the created HTTP receipt, assert pending\u2192approved\u2192simulated_paid, exact owner and identity, one audit per transition and balanced reconciliation",
+    "Keep subscription phase pacing, all original scenarios and15s UI timeout; bound fractional timers without negative delays",
+    "Log sanitized method/path/status for read failures too, without raw financial payloads"
+  ],
+  "local_results": {
+    "retained_database_browser": "passed",
+    "disposable_database_browser": "passed",
+    "commercial_backend_tests": 130,
+    "commercial_backend_assertions": 6303,
+    "scheduler_tests": 9
+  },
+  "hosted_status": "pending new exact-source validation; earlier failed checks retained",
+  "real_payment_processed": false,
+  "production_accepted": false
+}

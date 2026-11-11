@@ -6,14 +6,26 @@ async function runPacedSuites(
 ) {
   let completed = now();
   for (const group of groups) {
-    while (now() - completed < 61000) {
-      log(
-        "Respecting the unchanged shared authentication window before the next integration batch.",
-      );
-      await wait(Math.min(30000, 61000 - (now() - completed)));
-    }
+    await waitForFreshWindow({ wait, now, log, completed });
     for (const suite of group) await run(suite);
     completed = now();
   }
 }
-module.exports = { runPacedSuites };
+// Authentication and protected-read budgets both use unchanged one-minute
+// windows. A phase boundary is scheduling, never a cache reset or write replay.
+async function waitForFreshWindow({
+  wait,
+  now = () => performance.now(),
+  log = console.log,
+  completed = now(),
+}) {
+  for (;;) {
+    const remaining = 61000 - (now() - completed);
+    if (remaining <= 0) break;
+    log(
+      "Respecting the unchanged shared rate-limit window before the next integration phase.",
+    );
+    await wait(Math.min(30000, Math.ceil(remaining)));
+  }
+}
+module.exports = { runPacedSuites, waitForFreshWindow };
