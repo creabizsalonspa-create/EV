@@ -54,7 +54,11 @@
     "services/business-api/tests/Feature/LegacyPrivacyIntakeImportTest.php": "d40c873bec1f153a80c6b06f9c4a0cf75935f2f4b81a5b7a6279623ecc2e1091",
     "services/business-api/tests/Postgres/PrivacyRequestConcurrencyTest.php": "7d413a64987ac49d8359208303b5bfa49bed693b35ce32b8e3374063e04bb756",
     "tests/helpers/privacy-local.cjs": "1105e1dded42f820e58106ba169149a90c7c092a79f8c1a82f99b15d53212319",
-    "tests/native-privacy.cjs": "46f7d83ac5520919bfa874d78a6df8d3218f6a34223d392bd2504e82c4cdc2b9"
+    "tests/native-privacy.cjs": "46f7d83ac5520919bfa874d78a6df8d3218f6a34223d392bd2504e82c4cdc2b9",
+    "services/business-api/routes/console.php": "70e11678a3c6d6153b196fc7583fc50d22344eec2347867a0a6ae87df99f5fc0",
+    "services/business-api/database/migrations/2026_11_08_000005_add_remote_session_authorization.php": "d279db06e820c906a5e974e5fecd8e3651e82f329cd774621c8c980d75838002",
+    "services/business-api/tests/Feature/OperatorRoleRetryTest.php": "e3a74f69882cc265dd78760c1f5cbf213bb1c55a7cc7fde32e613c920a2ec4d7",
+    "services/business-api/tests/Feature/RemoteSessionAuthorizationTest.php": "37d86f56567e1f2564b0aa43ba6cbcbe429308a56d90a5e1143fb72aebc5dc59"
   },
   "final_focused_laravel": {
     "passed": 18,
@@ -67,5 +71,14 @@
     "stale_withdrawal_dispatch_asserted": true
   },
   "final_analysis": "passed",
-  "regression_scope_note": "Full931 Laravel and179 PostgreSQL baseline passed before the final bounded-pagination regression was added; final18 focused Laravel tests passed afterward. Full393 Flutter passed before final Arabic regression; final7 widget tests passed afterward."
+  "regression_scope_note": "Full931 Laravel and179 PostgreSQL baseline passed before the final bounded-pagination regression was added; final18 focused Laravel tests passed afterward. Full393 Flutter passed before final Arabic regression; final7 widget tests passed afterward.",
+  "final_full_laravel_before_security_followup": {
+    "passed": 932,
+    "assertions": 19155
+  },
+  "security_followup": {
+    "focused_passed": 14,
+    "assertions": 96,
+    "scope": "Audited role transaction retries after confirmed rollback only; fault injection proves recovered/exhausted atomicity; empty remote-authorization index rollback and retained credential guard."
+  }
 }

@@ -1,3 +1,7 @@
+### Follow-up security integration repair, 11 Nov 2026
+
+The final privacy-source Laravel rerun passed932/19155. Hosted PR60 then exposed a genuine SQLite read-to-write contention failure in the audited operator role command. Its transaction now permits three database-confirmed rollback retries; it never replays an unknown request outcome. Fault injection after the actual audit INSERT verifies one role epoch/one audit after recovery and unchanged role, sessions/tokens and zero audits after exhausted retries. A separately exposed empty remote-authorization migration rollback now drops its two unique indexes before their columns; populated credential history still blocks rollback. Fourteen focused authorization/rollback/security tests pass96 assertions. Fresh exact-source hosted validation is required for this follow-up; failed and superseded runs remain recorded.
+
 ## Single-agent canonical privacy implementation — 11 Nov 2026 (candidate, not merged)
 
 Verified integration main remains `b4224ddc11a0921c2e522277657888fd3025ace4`; PR90 and PR89 are merged and PR64 is incorporated. PR84 source `6e91950955a257eb1c017cea37bac80cc33f3654` consolidates the reviewed backlog and is running exact-source hosted validation. Both protocol simulations with continuous consumer/restart/recovery, the complete vendor KYC/staff/inventory browser, eight secured-fixture/transport tests and immutable bounded429 retry passed locally. Required Android/iOS and complete business checks must pass before normal merge.
