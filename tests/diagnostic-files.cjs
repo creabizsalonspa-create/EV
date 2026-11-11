@@ -7,8 +7,12 @@ const fs = require("node:fs"),
   path = require("node:path");
 const { BusinessClient } = require("./helpers/business-client.cjs");
 const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
+const { waitForDiagnosticServerReady } = require("./helpers/local-service-readiness.cjs");
 (async () => {
   execFileSync("./scripts/diagnostic-logs-setup", { stdio: "pipe" });
+  // Local feature-flag setup edits Laravel .env; artisan serve may restart.
+  // Probe only public GET /up, and never replay an uncertain source mutation.
+  await waitForDiagnosticServerReady();
   for (const prefix of ["16", "20"]) {
     const run = prefix + randomBytes(3).toString("hex"),
       password = randomBytes(24).toString("hex") + "aA9!";
