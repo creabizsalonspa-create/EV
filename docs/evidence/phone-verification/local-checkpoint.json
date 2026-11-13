@@ -18,10 +18,14 @@
     "web_phone_contracts": 5,
     "web_account_admin_and_phone_contracts": 15,
     "all_php_style": "passed",
-    "web_and_native_route_registration": "8 routes verified"
+    "web_and_native_route_registration": "8 routes verified",
+    "phone_focused_with_production_credential_guard": {
+      "passed": 11,
+      "assertions": 102
+    }
   },
   "provider_contract": "HTTP-faked schema/identity/expiry/error checks; no SMS sent and no real provider acceptance claimed",
   "native": "Three widget contracts added; hosted verification pending; local bootstrap remains blocked by earlier automatic approval review",
-  "external_owner_action": "Select/approve SMS provider; provision Twilio Verify account/service credentials and enabled delivery/country/consent policies before enabling PHONE_VERIFICATION_ENABLED. Actual device/SMS delivery acceptance remains unverified.",
+  "external_owner_action": "Approve SMS provider and country/consent policies; provision Twilio Verify account/service plus restricted API key SID/secret for production. Root account-token fallback is local/test only. Actual device/SMS delivery acceptance is unverified.",
   "production_accepted": false
 }

@@ -6,19 +6,27 @@ use Illuminate\Support\Facades\Http;
 
 final class PhoneVerificationProvider
 {
+    private function apiKeyConfigured(): bool
+    {
+        return (bool) preg_match('/^SK[0-9a-fA-F]{32}$/D', (string) config('phone_verification.api_key_sid'))
+            && strlen((string) config('phone_verification.api_key_secret')) >= 16;
+    }
+
     public function enabled(): bool
     {
         return config('phone_verification.enabled') === true
             && preg_match('/^AC[0-9a-fA-F]{32}$/D', (string) config('phone_verification.account_sid'))
             && preg_match('/^VA[0-9a-fA-F]{32}$/D', (string) config('phone_verification.service_sid'))
-            && strlen((string) config('phone_verification.auth_token')) >= 16;
+            && ($this->apiKeyConfigured() || (! app()->environment('production') && strlen((string) config('phone_verification.auth_token')) >= 16));
     }
 
     private function send(string $resource, array $fields): array
     {
         abort_unless($this->enabled(), 503, 'Phone verification delivery is unavailable.');
         // Fixed TLS origin, bounded timeout, no redirect or automatic SMS retry.
-        $response = Http::asForm()->withBasicAuth(config('phone_verification.account_sid'), config('phone_verification.auth_token'))
+        $response = Http::asForm()->withBasicAuth(
+            $this->apiKeyConfigured() ? config('phone_verification.api_key_sid') : config('phone_verification.account_sid'),
+            $this->apiKeyConfigured() ? config('phone_verification.api_key_secret') : config('phone_verification.auth_token'))
             ->connectTimeout(3)->timeout(10)->withoutRedirecting()
             ->post('https://verify.twilio.com/v2/Services/'.config('phone_verification.service_sid').'/'.$resource, $fields);
         if (! $response->successful() || ! is_array($data = $response->json())) {

@@ -777,7 +777,7 @@
           "software_atom": "Operating calendar and reservation blocks",
           "coded": true,
           "checkpoint": "operating_calendar",
-          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability.",
+          "note": "Official exact-source PR58 Platform/Native checks passed; integrated at24087a8 with an identical tree. Opt-in calendar policy is not physical availability.",
           "stages": {
             "coded": true,
             "tested": true,
@@ -1674,7 +1674,7 @@
           "software_atom": "Operating calendars/schedules",
           "coded": true,
           "checkpoint": "operating_calendar",
-          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability.",
+          "note": "Official exact-source PR58 Platform/Native checks passed; integrated at24087a8 with an identical tree. Opt-in calendar policy is not physical availability.",
           "stages": {
             "coded": true,
             "tested": true,

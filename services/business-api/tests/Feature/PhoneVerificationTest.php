@@ -30,9 +30,9 @@ class PhoneVerificationTest extends TestCase
             'channel' => 'sms', 'status' => $status, 'to' => $this->phone], $overrides);
     }
 
-    private function start(?string $key = null, array $overrides = [])
+    private function start(?string $key = null, array $overrides = [], string $prefix = '/api')
     {
-        return $this->postJson('/api/account/phone/challenges', array_replace(['phone' => $this->phone,
+        return $this->postJson($prefix.'/account/phone/challenges', array_replace(['phone' => $this->phone,
             'password' => 'password', 'consent' => true, 'locale' => 'ar', 'idempotency_key' => $key ?? (string) Str::uuid()], $overrides));
     }
 
@@ -178,6 +178,22 @@ class PhoneVerificationTest extends TestCase
             $response->assertStatus($i === 3 ? 429 : 202);
         }
         Http::assertSentCount(3);
+    }
+
+    public function test_production_requires_explicit_verify_api_key_and_never_uses_root_token_fallback(): void
+    {
+        $this->app->instance('env', 'production');
+        $account = User::factory()->create();
+        $this->withToken($account->createToken('mobile', ['platform'], now()->addDay())->plainTextToken);
+        $this->getJson('/api/v1/account/phone')->assertJsonPath('available', false);
+        $this->start(null, [], '/api/v1')->assertStatus(503);
+        Http::assertNothingSent();
+        config(['phone_verification.api_key_sid' => 'SK'.str_repeat('d', 32),
+            'phone_verification.api_key_secret' => str_repeat('restricted-test-key-', 2)]);
+        Http::fake(['*' => Http::response($this->payload())]);
+        $this->start(null, [], '/api/v1')->assertAccepted();
+        Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Basic '.base64_encode(
+            config('phone_verification.api_key_sid').':'.config('phone_verification.api_key_secret'))));
     }
 
     public function test_private_phone_can_be_removed_only_by_its_owner_after_password_confirmation(): void
