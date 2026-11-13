@@ -518,6 +518,24 @@ class _WorkspaceState extends State<Workspace> {
     });
   }
 
+  Future<void> revokeSessions() async {
+    final currentApi = api;
+    final owner = account?.id;
+    if (currentApi == null || owner == null || busy) return;
+    final fence = currentApi.sessionFence();
+    final values = await entry(s.t('signOutEverywhere'), {'password': ''});
+    if (!mounted || values == null || !fence() || !identical(api, currentApi) || account?.id != owner) return;
+    await perform(() async {
+      await currentApi.request('account/sessions/revoke-all', method: 'POST', body: values);
+      if (!mounted || !fence() || !identical(api, currentApi) || account?.id != owner) return;
+      try {
+        await currentApi.forgetRevokedSession();
+      } finally {
+        if (mounted && identical(api, currentApi) && account?.id == owner) resetSession();
+      }
+    });
+  }
+
   Future<void> profile() async {
     final values = await entry(s.t('profile'), {'name': account!.name});
     if (values == null || !mounted) return;
@@ -1104,7 +1122,9 @@ class _WorkspaceState extends State<Workspace> {
             PopupMenuButton<String>(
               tooltip: s.t('account'),
               onSelected: (value) async {
-                if (value == 'profile') {
+                if (value == 'revokeSessions') {
+                  await revokeSessions();
+                } else if (value == 'profile') {
                   profile();
                 } else if (value == 'privacyRequests') {
                   await Navigator.of(context).push(MaterialPageRoute<void>(
@@ -1441,6 +1461,11 @@ class _WorkspaceState extends State<Workspace> {
                     child: Text(s.t('forgetSignIn')),
                   ),
                 PopupMenuItem(
+                  value: 'revokeSessions',
+                  enabled: !busy,
+                  child: Text(s.t('signOutEverywhere')),
+                ),
+                PopupMenuItem(
                   value: 'logout',
                   enabled: !busy,
                   child: Text(s.t('signOut')),
@@ -1590,6 +1615,10 @@ class _EntryDialogState extends State<EntryDialog> {
                             )
                           : TextFormField(
                               controller: e.value,
+                              obscureText: e.key == 'password',
+                              autocorrect: e.key != 'password',
+                              enableSuggestions: e.key != 'password',
+                              maxLength: e.key == 'password' ? 128 : null,
                               decoration: InputDecoration(
                                 labelText: s.t(e.key),
                               ),
@@ -1615,7 +1644,7 @@ class _EntryDialogState extends State<EntryDialog> {
             if (form.currentState!.validate())
               Navigator.pop(
                 context,
-                controls.map((k, v) => MapEntry(k, v.text.trim())),
+                controls.map((k, v) => MapEntry(k, k == 'password' ? v.text : v.text.trim())),
               );
           },
           child: Text(s.t('save')),

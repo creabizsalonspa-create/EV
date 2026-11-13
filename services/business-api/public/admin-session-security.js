@@ -64,6 +64,7 @@ window.EvAdminSessions = (() => {
                 // A server-side revocation invalidates this browser as well.
                 // Reload into a fresh anonymous context; never keep cached
                 // private Admin components or create a replacement session.
+                if (typeof signalSessionRevocation === "function") signalSessionRevocation();
                 window.location.assign("/?sessions=revoked");
             } catch {
                 if (epoch === generation) {

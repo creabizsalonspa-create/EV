@@ -155,6 +155,19 @@ class EvApi {
     }
   }
 
+  // Call after confirmed server-side revocation. Never clear a newer login's jar.
+  Future<void> forgetRevokedSession() async {
+    final revokedEpoch = _epoch + 1;
+    try {
+      await forgetSession();
+    } finally {
+      if (_epoch == revokedEpoch) {
+        _cookies.clear();
+        _csrf = null;
+      }
+    }
+  }
+
   Future<bool> rememberSession() async {
     if (!canRemember) return false;
     final epoch = _epoch;

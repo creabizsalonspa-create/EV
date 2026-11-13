@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController as A;
 use App\Http\Controllers\AccountPrivacyController;
+use App\Http\Controllers\AccountSessionController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerFirmwareController;
 use App\Http\Controllers\ChargerIngressController;
@@ -35,6 +36,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/login', [M::class, 'login']);
         Route::post('/register', [M::class, 'register']);
     });
+    Route::post('/account/sessions/revoke-all', [AccountSessionController::class, 'revokeAll'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication']);
     Route::get('/stations', [P::class, 'stations'])->middleware('throttle:catalog');
     Route::get('/regions', [E::class, 'regions'])->middleware('throttle:catalog');
     Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(function () {

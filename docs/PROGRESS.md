@@ -1,3 +1,20 @@
+# 13 November 2026 — customer/vendor session security batch
+
+Discovery is published in PR91; GitHub access is now available. Official first-source
+CI caught two native station-list visibility regressions; fix moves additional fields
+inside the existing collapsible filter section, retaining every original assertion.
+Current discovery head87be793b requires fresh source checks. No failed check is treated
+as passing. Platform/finance/connector/staging/CSMS evidence remains source-specific.
+
+Customer/vendor global session revocation and cross-tab private-state clearing are
+implemented with current-password, tenant, epoch, stale-completion and mobile-login
+race fences. Flutter source clears durable credentials/cookies after server success;
+password input is obscured, suggestions disabled and whitespace preserved. Local
+Laravel974/19544; PostgreSQL authentication13/100; ten web security contracts and
+PHP style pass. Native/source integration still pending; coverage remains180/312,
+56.40% developed/tested/merged and0% production. Next:publish this security batch,
+resolve actual hosted failures and integrate only after all required source checks.
+
 # 13 November 2026 — single-agent customer discovery continuation
 
 Baseline remains `24087a8a7c1d7b2554a0884270293c162be08b8c` on authoritative

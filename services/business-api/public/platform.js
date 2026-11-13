@@ -103,6 +103,7 @@ function clearPrivateViews() {
     window.EvAdminOperatorRoleHistory?.clear();
     tariffWorkspace.clear();
     window.EvAdminSessions?.clear();
+    window.EvAccountSessions?.clear();
     commandRequest?.abort();
     el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
@@ -194,6 +195,11 @@ function renderIdentity() {
     window.EvPrivacyRequests?.setSelfActor(user, api);
     window.EvPrivacyRequests?.setAdminActor(user, api);
     window.EvAdminSessions?.setActor(user, api);
+    window.EvAccountSessions?.setActor(user, api, () => {
+        clearIdentity();
+        signalSessionRevocation();
+        window.location.assign("/?sessions=revoked");
+    });
 }
 
 function node(tag, text) {
@@ -1178,6 +1184,7 @@ async function signOut() {
             if (error.status !== 401) throw error;
         }
         pendingLogout(false);
+        signalSessionRevocation();
         notice("Signed out.");
         stations().catch(notice);
     } catch (error) {
@@ -2620,3 +2627,18 @@ function refreshVisibleInbox() {
 }
 setInterval(refreshVisibleInbox, NOTIFICATION_REFRESH_INTERVAL_MS);
 document.addEventListener("visibilitychange", refreshVisibleInbox);
+
+// Same-origin tabs share the browser cookie. Broadcast only a disposable signal,
+// never account IDs, credentials or private data. Server epochs remain authoritative.
+function signalSessionRevocation() {
+    try {
+        localStorage.setItem('ev.session.revoked', crypto.randomUUID());
+        localStorage.removeItem('ev.session.revoked');
+    } catch { /* Storage can be unavailable; server revocation still applies. */ }
+}
+window.addEventListener('storage', event => {
+    if (event.key === 'ev.session.revoked' && event.newValue && user) {
+        clearIdentity();
+        window.location.assign('/?sessions=revoked');
+    }
+});
