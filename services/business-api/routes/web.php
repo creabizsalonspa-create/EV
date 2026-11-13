@@ -16,6 +16,7 @@ use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\NotificationCenterController;
+use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
@@ -209,3 +210,10 @@ Route::get('/api/vendor/stations', function (Request $r) {
 })->middleware(['auth', 'throttle:platform-api']);
 
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/vehicle_driver_preferences.php');
+
+Route::middleware(['auth', 'throttle:authentication'])->group(function () {
+    Route::get('/api/account/phone', [PhoneVerificationController::class, 'show']);
+    Route::post('/api/account/phone/challenges', [PhoneVerificationController::class, 'start']);
+    Route::post('/api/account/phone/challenges/{challenge}/confirm', [PhoneVerificationController::class, 'confirm'])->whereUuid('challenge');
+    Route::delete('/api/account/phone', [PhoneVerificationController::class, 'remove']);
+});

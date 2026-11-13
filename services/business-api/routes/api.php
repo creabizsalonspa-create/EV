@@ -16,6 +16,7 @@ use App\Http\Controllers\OcpiProtocolCredentialsController;
 use App\Http\Controllers\OcpiProtocolRecordsController;
 use App\Http\Controllers\OcpiRoamingProtocolController;
 use App\Http\Controllers\PaymentGatewayController;
+use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\RemoteSessionAuthorizationController;
@@ -37,6 +38,12 @@ Route::prefix('v1')->group(function () {
         Route::post('/register', [M::class, 'register']);
     });
     Route::post('/account/sessions/revoke-all', [AccountSessionController::class, 'revokeAll'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication']);
+    Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication'])->group(function () {
+        Route::get('/account/phone', [PhoneVerificationController::class, 'show']);
+        Route::post('/account/phone/challenges', [PhoneVerificationController::class, 'start']);
+        Route::post('/account/phone/challenges/{challenge}/confirm', [PhoneVerificationController::class, 'confirm'])->whereUuid('challenge');
+        Route::delete('/account/phone', [PhoneVerificationController::class, 'remove']);
+    });
     Route::get('/stations', [P::class, 'stations'])->middleware('throttle:catalog');
     Route::get('/regions', [E::class, 'regions'])->middleware('throttle:catalog');
     Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(function () {

@@ -1,0 +1,27 @@
+{
+  "observed_at_utc": "2026-11-13T04:41:24.490732+00:00",
+  "depends_on_pr": 92,
+  "scope": "Customer/vendor private contact-phone verification: documented Twilio Verify adapter, encrypted storage, current-password/SMS consent, immutable request identity, expiry/attempt/target limits, native/web actions and private removal",
+  "validation": {
+    "laravel_full_before_two_added_route_and_abuse_tests": {
+      "passed": 983,
+      "assertions": 19663
+    },
+    "phone_focused_final": {
+      "passed": 10,
+      "assertions": 97
+    },
+    "postgresql_phone_and_session": {
+      "passed": 16,
+      "assertions": 140
+    },
+    "web_phone_contracts": 5,
+    "web_account_admin_and_phone_contracts": 15,
+    "all_php_style": "passed",
+    "web_and_native_route_registration": "8 routes verified"
+  },
+  "provider_contract": "HTTP-faked schema/identity/expiry/error checks; no SMS sent and no real provider acceptance claimed",
+  "native": "Three widget contracts added; hosted verification pending; local bootstrap remains blocked by earlier automatic approval review",
+  "external_owner_action": "Select/approve SMS provider; provision Twilio Verify account/service credentials and enabled delivery/country/consent policies before enabling PHONE_VERIFICATION_ENABLED. Actual device/SMS delivery acceptance remains unverified.",
+  "production_accepted": false
+}

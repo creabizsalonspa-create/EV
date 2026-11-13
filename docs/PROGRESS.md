@@ -1,3 +1,18 @@
+# 13 November 2026 — private contact-phone verification continuation
+
+Implemented Laravel/web/Flutter contact verification with encrypted phone storage,
+password/SMS consent, bounded attempts/expiry, per-target and per-account limits,
+request replay protection, provider-response identity fencing, private removal and
+expired-payload cleanup. Delivery defaults off; no actual SMS or provider acceptance
+claimed. Full Laravel983/19663 before two additional phone tests; final phone10/97;
+PostgreSQL phone/session16/140;15 web security contracts; all PHP style pass. Native
+widget/source gates remain required. Evidence:`docs/evidence/phone-verification/local-checkpoint.json`.
+
+Discovery PR91 head287ee918 and dependent session PR92 head6405580f are undergoing
+required hosted checks. PR92 macOS native job passed. No new whole-atom or production
+credit is taken before source verification/integration. Continue integration in order,
+then provider-configured phone acceptance and remaining original requirements.
+
 # 13 November 2026 — customer/vendor session security batch
 
 Discovery is published in PR91; GitHub access is now available. Official first-source

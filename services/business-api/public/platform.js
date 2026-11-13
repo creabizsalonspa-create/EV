@@ -104,6 +104,7 @@ function clearPrivateViews() {
     tariffWorkspace.clear();
     window.EvAdminSessions?.clear();
     window.EvAccountSessions?.clear();
+    window.EvPhoneVerification?.clear();
     commandRequest?.abort();
     el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
@@ -286,6 +287,7 @@ async function identity() {
         await garage();
         await support();
     }
+    await window.EvPhoneVerification?.setActor(user, api);
     await vendorWorkspace.setActor(user);
     await stationInfo.setActor(user);
     await riderWorkspace.setActor(user);
