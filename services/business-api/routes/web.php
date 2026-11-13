@@ -211,8 +211,8 @@ Route::get('/api/vendor/stations', function (Request $r) {
 
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/vehicle_driver_preferences.php');
 
+Route::get('/api/account/phone', [PhoneVerificationController::class, 'show'])->middleware(['auth', 'throttle:account-security-read']);
 Route::middleware(['auth', 'throttle:authentication'])->group(function () {
-    Route::get('/api/account/phone', [PhoneVerificationController::class, 'show']);
     Route::post('/api/account/phone/challenges', [PhoneVerificationController::class, 'start']);
     Route::post('/api/account/phone/challenges/{challenge}/confirm', [PhoneVerificationController::class, 'confirm'])->whereUuid('challenge');
     Route::delete('/api/account/phone', [PhoneVerificationController::class, 'remove']);

@@ -38,8 +38,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/register', [M::class, 'register']);
     });
     Route::post('/account/sessions/revoke-all', [AccountSessionController::class, 'revokeAll'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication']);
+    Route::get('/account/phone', [PhoneVerificationController::class, 'show'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:account-security-read']);
     Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication'])->group(function () {
-        Route::get('/account/phone', [PhoneVerificationController::class, 'show']);
         Route::post('/account/phone/challenges', [PhoneVerificationController::class, 'start']);
         Route::post('/account/phone/challenges/{challenge}/confirm', [PhoneVerificationController::class, 'confirm'])->whereUuid('challenge');
         Route::delete('/account/phone', [PhoneVerificationController::class, 'remove']);
