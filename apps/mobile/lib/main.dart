@@ -528,11 +528,9 @@ class _WorkspaceState extends State<Workspace> {
     await perform(() async {
       await currentApi.request('account/sessions/revoke-all', method: 'POST', body: values);
       if (!mounted || !fence() || !identical(api, currentApi) || account?.id != owner) return;
-      try {
-        await currentApi.forgetRevokedSession();
-      } finally {
+      await currentApi.forgetRevokedSession(onCleared: () {
         if (mounted && identical(api, currentApi) && account?.id == owner) resetSession();
-      }
+      });
     });
   }
 

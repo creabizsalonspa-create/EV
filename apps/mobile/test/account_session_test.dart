@@ -12,9 +12,8 @@ void main() {
       }, child: const Text('Open'))))));
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
-    final field = tester.widget<TextFormField>(find.byType(TextFormField));
-    expect(field.maxLines, 1);
     final input = tester.widget<EditableText>(find.byType(EditableText));
+    expect(input.maxLines, 1);
     expect(input.obscureText, isTrue);
     expect(input.autocorrect, isFalse);
     expect(input.enableSuggestions, isFalse);
