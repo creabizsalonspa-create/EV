@@ -387,46 +387,9 @@ class CatalogViewState extends State<CatalogView> {
                             key: const PageStorageKey(
                               'catalog-nearby-expansion',
                             ),
-                            title: Text(s.arabic ? 'المزيد من خيارات البحث' : 'More search filters'),
+                            title: Text(s.t('nearbySearch')),
                             maintainState: true,
                             children: [
-                          for (final field in [
-                            ('addressSearch', address, 150),
-                            ('operatorName', operatorName, 100),
-                            ('accessSearch', access, 150),
-                          ])
-                            TextFormField(
-                              key: Key('catalog-${field.$1}'),
-                              controller: field.$2,
-                              maxLength: field.$3,
-                              decoration: InputDecoration(labelText: s.t(field.$1)),
-                            ),
-                          TextFormField(
-                            key: const Key('catalog-maximum-rate'),
-                            controller: maximumRate,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            maxLength: 10,
-                            decoration: InputDecoration(labelText: s.t('maximumSimulatedRate')),
-                            validator: (v) {
-                              final value = vendorDigits(v!.trim());
-                              if (value.isEmpty && priceCurrency.text.trim().isEmpty) return null;
-                              return RegExp(r'^[0-9]{1,6}(\.[0-9]{1,3})?$').hasMatch(value)
-                                  ? null : s.t('invalidPriceFilter');
-                            },
-                          ),
-                          TextFormField(
-                            key: const Key('catalog-price-currency'),
-                            controller: priceCurrency,
-                            maxLength: 3,
-                            textCapitalization: TextCapitalization.characters,
-                            decoration: InputDecoration(labelText: s.t('priceCurrency')),
-                            validator: (v) {
-                              if (v!.trim().isEmpty && maximumRate.text.trim().isEmpty) return null;
-                              return RegExp(r'^[A-Za-z]{3}$').hasMatch(v.trim())
-                                  ? null : s.t('invalidPriceFilter');
-                            },
-                          ),
-
                               Text(s.t('nearbyPrivacy')),
                               for (final entry in [
                                 ('nearbyLatitude', latitude, -90.0, 90.0),
@@ -463,6 +426,48 @@ class CatalogViewState extends State<CatalogView> {
                                         : null;
                                   },
                                 ),
+                              ExpansionTile(
+                                title: Text(s.arabic ? 'العنوان والمشغل والسعر' : 'Address, operator and price'),
+                                maintainState: true,
+                                children: [
+for (final field in [
+                            ('addressSearch', address, 150),
+                            ('operatorName', operatorName, 100),
+                            ('accessSearch', access, 150),
+                          ])
+                            TextFormField(
+                              key: Key('catalog-${field.$1}'),
+                              controller: field.$2,
+                              maxLength: field.$3,
+                              decoration: InputDecoration(labelText: s.t(field.$1)),
+                            ),
+                          TextFormField(
+                            key: const Key('catalog-maximum-rate'),
+                            controller: maximumRate,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            maxLength: 10,
+                            decoration: InputDecoration(labelText: s.t('maximumSimulatedRate')),
+                            validator: (v) {
+                              final value = vendorDigits(v!.trim());
+                              if (value.isEmpty && priceCurrency.text.trim().isEmpty) return null;
+                              return RegExp(r'^[0-9]{1,6}(\.[0-9]{1,3})?$').hasMatch(value)
+                                  ? null : s.t('invalidPriceFilter');
+                            },
+                          ),
+                          TextFormField(
+                            key: const Key('catalog-price-currency'),
+                            controller: priceCurrency,
+                            maxLength: 3,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: InputDecoration(labelText: s.t('priceCurrency')),
+                            validator: (v) {
+                              if (v!.trim().isEmpty && maximumRate.text.trim().isEmpty) return null;
+                              return RegExp(r'^[A-Za-z]{3}$').hasMatch(v.trim())
+                                  ? null : s.t('invalidPriceFilter');
+                            },
+                          ),
+                                ],
+                              ),
                             ],
                           ),
                           const SizedBox(height: 16),
