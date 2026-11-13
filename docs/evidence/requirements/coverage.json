@@ -92,22 +92,22 @@
       "evidence": "docs/evidence/integration-coverage/pr60-hosted-checkpoint.json"
     },
     "operating_calendar": {
-      "source_sha": "f2b56cb3191ee71d6edcbbdbda87c87f9a421cc7",
-      "merge_sha": null,
-      "test_result": "pending",
-      "evidence": "docs/evidence/operating-calendar/local-checkpoint.json"
+      "source_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "merge_sha": "24087a8a7c1d7b2554a0884270293c162be08b8c",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr58-hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
     "coded": "56.40",
-    "tested": "55.76",
-    "merged": "55.76",
+    "tested": "56.40",
+    "merged": "56.40",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
     "coded": "8536417/15135120",
-    "tested": "2109973/3783780",
-    "merged": "2109973/3783780",
+    "tested": "8536417/15135120",
+    "merged": "8536417/15135120",
     "production_accepted": "0"
   },
   "categories": [
@@ -689,8 +689,8 @@
       "atoms": 7,
       "counts": {
         "coded": 6,
-        "tested": 5,
-        "merged": 5,
+        "tested": 6,
+        "merged": 6,
         "production_accepted": 0
       },
       "details": [
@@ -780,8 +780,8 @@
           "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         }
@@ -1612,8 +1612,8 @@
       "atoms": 8,
       "counts": {
         "coded": 5,
-        "tested": 4,
-        "merged": 4,
+        "tested": 5,
+        "merged": 5,
         "production_accepted": 0
       },
       "details": [
@@ -1677,8 +1677,8 @@
           "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability.",
           "stages": {
             "coded": true,
-            "tested": false,
-            "merged": false,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

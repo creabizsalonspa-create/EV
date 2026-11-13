@@ -28,7 +28,7 @@ class StationInformationTest extends TestCase
         $this->actingAs($vendor)->putJson('/api/stations/'.$station->id.'/information', $this->details())->assertOk();
         $this->app['auth']->forgetGuards();
         $this->assertGuest();
-        $expected = ['station_id', 'revision', 'description_en', 'description_ar', 'access_en', 'access_ar',
+        $expected = ['station_id', 'revision', 'operator_name', 'address_en', 'address_ar', 'description_en', 'description_ar', 'access_en', 'access_ar',
             'notice_en', 'notice_ar', 'notice_until', 'notice_active', 'weekly_hours', 'closed_dates', 'enforce_operating_hours',
             'amenities', 'accessibility', 'source_label', 'updated_at'];
         sort($expected);
@@ -43,6 +43,23 @@ class StationInformationTest extends TestCase
             $this->putJson($route, $this->details(1))->assertUnauthorized();
         }
         $this->assertSame(1, DB::table('station_information')->where('station_id', $station->id)->value('revision'));
+    }
+
+    public function test_public_discovery_labels_require_owner_and_preserve_older_client_updates(): void
+    {
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = $this->station($vendor);
+        $labels = ['operator_name' => 'Published Operator', 'address_en' => 'Public plaza', 'address_ar' => 'الساحة'];
+        $this->actingAs($vendor)->putJson('/api/stations/'.$station->id.'/information', $this->details() + $labels)
+            ->assertOk()->assertJsonPath('operator_name', 'Published Operator')->assertJsonPath('address_ar', 'الساحة');
+        $this->putJson('/api/stations/'.$station->id.'/information', $this->details(1))
+            ->assertOk()->assertJsonPath('operator_name', 'Published Operator')->assertJsonPath('address_en', 'Public plaza');
+        $this->putJson('/api/stations/'.$station->id.'/information', $this->details(2) + ['operator_name' => str_repeat('a', 101)])
+            ->assertUnprocessable();
+        $this->actingAs(User::factory()->create(['role' => 'vendor']))
+            ->putJson('/api/stations/'.$station->id.'/information', $this->details(2) + $labels)->assertNotFound();
+        $this->actingAs($vendor)->putJson('/api/stations/'.$station->id.'/information', $this->details(2) + ['operator_name' => null, 'address_en' => null, 'address_ar' => null])
+            ->assertOk()->assertJsonPath('operator_name', null)->assertJsonPath('address_en', null);
     }
 
     private function station(User $vendor): Station

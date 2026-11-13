@@ -1,0 +1,25 @@
+{
+  "baseline_sha": "24087a8a7c1d7b2554a0884270293c162be08b8c",
+  "observed_at_utc": "2026-11-13T04:02:49.134453+00:00",
+  "scope": "Canonical published address/operator/access and effective simulated energy-rate search; Laravel, vendor/customer web and Flutter source wiring",
+  "validation": {
+    "laravel_sqlite": {
+      "passed": 969,
+      "assertions": 19496
+    },
+    "postgresql_17_focused": {
+      "passed": 20,
+      "assertions": 216
+    },
+    "web_metadata_dom_and_session_contracts": "passed",
+    "php_style": "passed",
+    "coverage_guards": 14
+  },
+  "unverified": {
+    "flutter": "Bootstrap rejected by automatic approval review after attempted cloud metadata access; no retry/bypass",
+    "browser": "Chromium launch blocked by forbidden local singleton socket",
+    "hosted_ci_and_integration": "Pending; git CLI has no credential and connected GitHub plugin repository tools are not exposed in runtime"
+  },
+  "coverage": "No new whole-atom credit; unified partner discovery and native/browser verification remain incomplete. Existing operating-calendar evidence separately verified from official PR58 checks.",
+  "production_accepted": false
+}

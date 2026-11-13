@@ -46,6 +46,9 @@
         appendText(details,
             zone ? "Opening hours: station local time (" + zone + ")." : "Opening hours: station local time; timezone not provided.",
             zone ? "ساعات العمل بالتوقيت المحلي للمحطة (" + zone + ")." : "ساعات العمل بالتوقيت المحلي للمحطة؛ المنطقة الزمنية غير متوفرة.");
+        if (info.operator_name) appendText(details, "Operator: " + info.operator_name, "المشغل: " + info.operator_name);
+        const address = fallback(info.address_en, info.address_ar);
+        if (address) appendText(details, "Address: " + fallback(info.address_en, address), "العنوان: " + fallback(info.address_ar, address));
         const description = fallback(info.description_en, info.description_ar);
         if (description) appendText(details, "About: " + fallback(info.description_en, description), "الوصف: " + fallback(info.description_ar, description));
         const access = fallback(info.access_en, info.access_ar);
@@ -181,6 +184,9 @@
             form.className = "station-information-form";
             form.append(label("Edit information for " + selected.name, "تعديل معلومات " + selected.name, "h3"));
             appendText(form, "Operator details and optional booking calendar. Does not change live status or fees.", "تفاصيل المشغل وجدول حجز اختياري. لا يغير الحالة الفعلية أو الرسوم.");
+            field(form, "operator_name", "Public operator name", "اسم المشغل المنشور", info.operator_name).maxLength = 100;
+            field(form, "address_en", "Public address (English)", "العنوان المنشور (بالإنجليزية)", info.address_en).maxLength = 300;
+            field(form, "address_ar", "Public address (Arabic)", "العنوان المنشور (بالعربية)", info.address_ar).maxLength = 300;
             field(form, "description_en", "Description (English)", "الوصف (بالإنجليزية)", info.description_en);
             field(form, "description_ar", "Description (Arabic)", "الوصف (بالعربية)", info.description_ar);
             field(form, "access_en", "Access instructions (English)", "تعليمات الدخول (بالإنجليزية)", info.access_en);
@@ -273,6 +279,9 @@
                 }
                 const body = {
                     revision: info.revision,
+                    operator_name: form.elements.operator_name.value.trim() || null,
+                    address_en: form.elements.address_en.value.trim() || null,
+                    address_ar: form.elements.address_ar.value.trim() || null,
                     notice_en: form.elements.notice_en.value.trim() || null,
                     notice_ar: form.elements.notice_ar.value.trim() || null,
                     notice_until: noticeUntil.value || null,

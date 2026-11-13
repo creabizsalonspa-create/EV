@@ -90,10 +90,10 @@
       "evidence": "docs/evidence/integration-coverage/pr60-hosted-checkpoint.json"
     },
     "operating_calendar": {
-      "source_sha": "f2b56cb3191ee71d6edcbbdbda87c87f9a421cc7",
-      "merge_sha": null,
-      "test_result": "pending",
-      "evidence": "docs/evidence/operating-calendar/local-checkpoint.json"
+      "source_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "merge_sha": "24087a8a7c1d7b2554a0884270293c162be08b8c",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr58-hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,

@@ -1,0 +1,86 @@
+{
+  "source_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+  "integrated_sha": "24087a8a7c1d7b2554a0884270293c162be08b8c",
+  "pr": 58,
+  "verified_at_utc": "2026-11-13T03:52:30.248101+00:00",
+  "source_tree": "0c91c663d23c5bcc9337e6eed5b736bc342d75d8",
+  "test_result": "passed",
+  "required_check_count": 8,
+  "required_checks": [
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641459/job/130863550621"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641459/job/130842788289"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641459/job/130842788063"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641459/job/130842788023"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641459/job/130842787958"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641459/job/130842787730"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641427/job/130842787360"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641427/job/130842787099"
+    }
+  ],
+  "workflow_runs": [
+    {
+      "id": 43115641459,
+      "name": "Platform validation",
+      "event": "pull_request",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641459"
+    },
+    {
+      "id": 43115641427,
+      "name": "Native client validation",
+      "event": "pull_request",
+      "head_sha": "2679617c5c7a92e92d3962b092c640bf63cbdd28",
+      "conclusion": "success",
+      "html_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43115641427"
+    }
+  ],
+  "verification": "Official exact-source Platform and Native PR workflows passed; source and merge trees are identical. Path-scoped unrelated workflows were not required by this PR. No production acceptance inferred."
+}

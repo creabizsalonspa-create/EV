@@ -35,6 +35,7 @@ final class StationInformation
         if (! $row) {
             return [
                 'revision' => 0,
+                'operator_name' => null, 'address_en' => null, 'address_ar' => null,
                 'description_en' => null, 'description_ar' => null,
                 'access_en' => null, 'access_ar' => null,
                 'notice_en' => null, 'notice_ar' => null, 'notice_until' => null,
@@ -49,6 +50,8 @@ final class StationInformation
 
         return [
             'revision' => (int) $row->revision,
+            'operator_name' => $row->operator_name,
+            'address_en' => $row->address_en, 'address_ar' => $row->address_ar,
             'enforce_operating_hours' => (bool) ($row->enforce_operating_hours ?? false),
             'description_en' => $row->description_en,
             'description_ar' => $row->description_ar,

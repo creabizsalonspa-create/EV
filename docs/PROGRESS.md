@@ -1,3 +1,21 @@
+# 13 November 2026 — single-agent customer discovery continuation
+
+Baseline remains `24087a8a7c1d7b2554a0884270293c162be08b8c` on authoritative
+`development/fullstack-continuation`; remote has no `main` branch. Verified official
+PR58 source `2679617c` has eight applicable successful exact-source PR checks and an
+identical merged tree. Corrected coverage:180/312 developed/tested/merged,56.40% each;
+production0%. No new discovery whole-atom credit.
+
+Canonical address/operator/access and effective simulated currency-specific price
+filters are implemented with public-label publication in Laravel/web/Flutter source.
+Laravel969/19496 and PostgreSQL focused20/216 pass; PHP style, metadata rendering and
+stale-session DOM contracts pass. Native/bootstrap and Chromium execution are blocked
+by this runtime; no native/browser acceptance claimed. Details and exact limitations:
+`docs/evidence/customer-discovery-completion/local-checkpoint.json`. Git CLI push
+is unauthenticated; connected GitHub repository tools are not exposed to this runtime.
+Next:customer/vendor global session revocation, then remaining2.3.5 unified partner
+filter parity and exact-source hosted/native/browser verification.
+
 Final successor local verification:962 Laravel tests/19386 assertions;644 PHP files
 pass Pint;377 Python guards;52 offline security/diagnostic tests;11 scheduler/diagnostic
 tests. Actual unchanged-read and anonymous-bootstrap cookie browsers, existing controlled

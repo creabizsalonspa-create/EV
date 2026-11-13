@@ -34,6 +34,7 @@ assert.doesNotMatch(missing, /08:00/);
 
 const info = {
   source_label: 'VENDOR_REPORTED_UNVERIFIED',
+  operator_name: '<b>Published Operator</b>', address_en: 'Harbour plaza', address_ar: 'ساحة الميناء',
   description_en: 'Basement plaza', description_ar: 'الساحة السفلية',
   access_en: 'Gate B', access_ar: 'البوابة ب',
   weekly_hours: Object.fromEntries(['mon','tue','wed','thu','fri','sat','sun']
@@ -47,6 +48,8 @@ const withTimezone = output({timezone: 'Asia/Dubai', information: info});
 assert.match(withTimezone, /Opening hours: station local time \(Asia\/Dubai\)/);
 assert.match(en, /timezone not provided/);
 assert.match(en, /Operator-reported details/);
+assert.match(en, /Operator: <b>Published Operator<\/b>/);
+assert.match(en, /Address: Harbour plaza/);
 assert.match(en, /Monday: 08:00–22:00/);
 assert.match(en, /Friday: Closed/);
 const overnight = output({information: {...info, weekly_hours: {...info.weekly_hours, mon: {open: '20:00', close: '02:00'}, tue: {open: '00:00', close: '00:00'}}}});

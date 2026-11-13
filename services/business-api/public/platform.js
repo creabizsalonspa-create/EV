@@ -1198,6 +1198,15 @@ for (const input of nearbyInputs) {
         for (const field of nearbyInputs) field.required = any;
     });
 }
+const priceInputs = ["max_rate_per_kwh", "price_currency"].map((name) =>
+    el("filters").elements.namedItem(name),
+);
+for (const input of priceInputs) {
+    input.addEventListener("input", () => {
+        const any = priceInputs.some((field) => field.value !== "");
+        for (const field of priceInputs) field.required = any;
+    });
+}
 el("filters").onsubmit = (e) => {
     e.preventDefault();
     favoriteMode = false;
