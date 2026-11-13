@@ -101,6 +101,11 @@ class CatalogViewState extends State<CatalogView> {
       controller.load(page: controller.data?.current ?? 1);
   late CatalogController controller;
   final search = TextEditingController();
+  final address = TextEditingController();
+  final operatorName = TextEditingController();
+  final access = TextEditingController();
+  final maximumRate = TextEditingController();
+  final priceCurrency = TextEditingController();
   final country = TextEditingController();
   final power = TextEditingController();
   final latitude = TextEditingController();
@@ -140,6 +145,11 @@ class CatalogViewState extends State<CatalogView> {
       connector = type;
       for (final field in [
         search,
+        address,
+        operatorName,
+        access,
+        maximumRate,
+        priceCurrency,
         country,
         power,
         latitude,
@@ -157,6 +167,11 @@ class CatalogViewState extends State<CatalogView> {
       controller.load(
         filter: CatalogFilter(
           search: search.text,
+          address: address.text,
+          operatorName: operatorName.text,
+          access: access.text,
+          maximumRate: vendorDigits(maximumRate.text.trim()),
+          priceCurrency: priceCurrency.text,
           country: country.text,
           connector: connector,
           minimumPower: int.tryParse(power.text),
@@ -250,6 +265,11 @@ class CatalogViewState extends State<CatalogView> {
                               : (lat, lng) {
                                   if (!mounted) return;
                                   search.text = controller.filter.search;
+                                  address.text = controller.filter.address;
+                                  operatorName.text = controller.filter.operatorName;
+                                  access.text = controller.filter.access;
+                                  maximumRate.text = controller.filter.maximumRate;
+                                  priceCurrency.text = controller.filter.priceCurrency;
                                   country.text = controller.filter.country;
                                   connector = controller.filter.connector;
                                   power.text =
@@ -262,6 +282,11 @@ class CatalogViewState extends State<CatalogView> {
                                   controller.load(
                                     filter: CatalogFilter(
                                       search: controller.filter.search,
+                                      address: controller.filter.address,
+                                      operatorName: controller.filter.operatorName,
+                                      access: controller.filter.access,
+                                      maximumRate: controller.filter.maximumRate,
+                                      priceCurrency: controller.filter.priceCurrency,
                                       country: controller.filter.country,
                                       connector: controller.filter.connector,
                                       minimumPower:
@@ -363,6 +388,7 @@ class CatalogViewState extends State<CatalogView> {
                               'catalog-nearby-expansion',
                             ),
                             title: Text(s.t('nearbySearch')),
+                            maintainState: true,
                             children: [
                               Text(s.t('nearbyPrivacy')),
                               for (final entry in [
@@ -400,6 +426,48 @@ class CatalogViewState extends State<CatalogView> {
                                         : null;
                                   },
                                 ),
+                              ExpansionTile(
+                                title: Text(s.arabic ? 'العنوان والمشغل والسعر' : 'Address, operator and price'),
+                                maintainState: true,
+                                children: [
+for (final field in [
+                            ('addressSearch', address, 150),
+                            ('operatorName', operatorName, 100),
+                            ('accessSearch', access, 150),
+                          ])
+                            TextFormField(
+                              key: Key('catalog-${field.$1}'),
+                              controller: field.$2,
+                              maxLength: field.$3,
+                              decoration: InputDecoration(labelText: s.t(field.$1)),
+                            ),
+                          TextFormField(
+                            key: const Key('catalog-maximum-rate'),
+                            controller: maximumRate,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            maxLength: 10,
+                            decoration: InputDecoration(labelText: s.t('maximumSimulatedRate')),
+                            validator: (v) {
+                              final value = vendorDigits(v!.trim());
+                              if (value.isEmpty && priceCurrency.text.trim().isEmpty) return null;
+                              return RegExp(r'^[0-9]{1,6}(\.[0-9]{1,3})?$').hasMatch(value)
+                                  ? null : s.t('invalidPriceFilter');
+                            },
+                          ),
+                          TextFormField(
+                            key: const Key('catalog-price-currency'),
+                            controller: priceCurrency,
+                            maxLength: 3,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: InputDecoration(labelText: s.t('priceCurrency')),
+                            validator: (v) {
+                              if (v!.trim().isEmpty && maximumRate.text.trim().isEmpty) return null;
+                              return RegExp(r'^[A-Za-z]{3}$').hasMatch(v.trim())
+                                  ? null : s.t('invalidPriceFilter');
+                            },
+                          ),
+                                ],
+                              ),
                             ],
                           ),
                           const SizedBox(height: 16),
@@ -634,6 +702,11 @@ class CatalogViewState extends State<CatalogView> {
   void dispose() {
     controller.dispose();
     search.dispose();
+    address.dispose();
+    operatorName.dispose();
+    access.dispose();
+    maximumRate.dispose();
+    priceCurrency.dispose();
     country.dispose();
     power.dispose();
     latitude.dispose();

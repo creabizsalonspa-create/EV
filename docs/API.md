@@ -271,3 +271,10 @@ Known409 calendar errors have English/Arabic web/native messages. Partner discov
 does not gain booking or command authority from calendar metadata. Apply the additive
 calendar migration before deploying this code; rollback refuses to erase retained
 booking policy or active enforcement outside explicit disposable test databases.
+
+### Canonical discovery filters
+`GET /api/stations` (also `/api/v1/stations`) accepts literal `operator`, `address`, and `access` text filters. Operator/address match only explicitly vendor-published station information, never private account/KYC/provisioning records. Arabic and English address/access text is searchable. Filters compose before pagination.
+
+`max_rate_per_kwh` is a decimal string paired with uppercase `price_currency`; currency precision comes from configured regions. It selects the latest effective simulated energy tariff, excluding tax. Unknown/future-only prices, other currencies and invalid precision do not match. This is neither a final-cost quote nor live payment acceptance.
+
+The owner-only station-information PUT accepts optional nullable `operator_name` (100 characters), `address_en`, `address_ar` (300 each). Existing revision checks apply. Omission preserves published values; explicit null clears them. Returned labels retain vendor-reported, unverified provenance.

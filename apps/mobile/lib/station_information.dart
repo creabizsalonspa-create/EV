@@ -90,6 +90,10 @@ class StationInformationPanel extends StatelessWidget {
                 'معلومات أفاد بها المشغل ولم يتم التحقق منها؛ توفر الشاحن غير معروف.',
               ),
             ),
+            if ((info['operator_name'] as String? ?? '').isNotEmpty)
+              Text(stationInfoT(context, 'Operator: ', 'المشغل: ') + (info['operator_name'] as String)),
+            if (stationInfoLocalized(info, ar, 'address').isNotEmpty)
+              Text(stationInfoT(context, 'Address: ', 'العنوان: ') + stationInfoLocalized(info, ar, 'address')),
             if (stationInfoLocalized(info, ar, 'description').isNotEmpty)
               Text(stationInfoLocalized(info, ar, 'description')),
             if (stationInfoLocalized(info, ar, 'access').isNotEmpty)
@@ -228,6 +232,9 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
   final form = GlobalKey<FormState>();
   final infoText = <String, TextEditingController>{
     for (final key in [
+      'operator_name',
+      'address_en',
+      'address_ar',
       'description_en',
       'description_ar',
       'access_en',
@@ -569,7 +576,7 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
   Widget multiline(String key, String en, String ar) => TextFormField(
     key: Key('station-info-' + key),
     controller: infoText[key],
-    maxLength: key.startsWith('notice_') ? 300 : 500,
+    maxLength: key == 'operator_name' ? 100 : (key.startsWith('notice_') || key.startsWith('address_') ? 300 : 500),
     minLines: 2,
     maxLines: 4,
     decoration: InputDecoration(labelText: t(en, ar)),
@@ -665,6 +672,9 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        multiline('operator_name', 'Public operator name', 'اسم المشغل المنشور'),
+                        multiline('address_en', 'Public address (English)', 'العنوان المنشور بالإنجليزية'),
+                        multiline('address_ar', 'Public address (Arabic)', 'العنوان المنشور بالعربية'),
                         multiline(
                           'description_en',
                           'Description (English)',

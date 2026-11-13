@@ -44,6 +44,11 @@ void main() {
       try {
         const filter = CatalogFilter(
           search: 'A&B محطة',
+          address: 'شارع %_!',
+          operatorName: '  Operator & مشغل  ',
+          access: '  Visitors %_!  ',
+          maximumRate: '1.50',
+          priceCurrency: 'aed',
           connector: 'Type2',
           country: 'ae',
           minimumPower: 22,
@@ -56,6 +61,11 @@ void main() {
         expect(requests.single.path, '/api/stations');
         expect(requests.single.queryParameters, {
           'q': 'A&B محطة',
+          'address': 'شارع %_!',
+          'operator': 'Operator & مشغل',
+          'access': 'Visitors %_!',
+          'max_rate_per_kwh': '1.50',
+          'price_currency': 'AED',
           'connector_type': 'Type2',
           'country': 'AE',
           'min_power_kw': '22',

@@ -55,6 +55,8 @@ const assert = require("node:assert/strict");
     );
     await page.locator("#filters [name=longitude]").fill("55.3");
     await page.locator("#filters [name=radius_km]").fill("10");
+    await page.locator("#filters [name=operator]").fill("Operator & مشغل");
+    await page.locator("#filters [name=access]").fill("Visitors %_!");
     const request = page.waitForRequest(
       (r) =>
         new URL(r.url()).pathname === "/api/stations" &&
@@ -65,12 +67,16 @@ const assert = require("node:assert/strict");
     assert.equal(uri.searchParams.get("latitude"), "25.2");
     assert.equal(uri.searchParams.get("longitude"), "55.3");
     assert.equal(uri.searchParams.get("radius_km"), "10");
+    assert.equal(uri.searchParams.get("operator"), "Operator & مشغل");
+    assert.equal(uri.searchParams.get("access"), "Visitors %_!");
     await page
       .getByText("1.11 km straight-line distance", { exact: true })
       .waitFor();
     await page.locator("#language").click();
     await page.getByText("1.11 كم بخط مستقيم", { exact: true }).waitFor();
     assert.equal(await page.locator("html").getAttribute("dir"), "rtl");
+    await page.getByText("اسم المشغل", {exact: true}).waitFor();
+    await page.getByText("تتضمن تعليمات الدخول", {exact: true}).waitFor();
     // Read-only feedback is allowed; discovery still grants no booking/control.
     const cards = page.locator("#stations");
     assert.equal(await cards.locator("button").count(), 1);

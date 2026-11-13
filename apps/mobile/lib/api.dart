@@ -750,12 +750,22 @@ class EvApi {
 
 class CatalogFilter {
   final String search;
+  final String address;
+  final String operatorName;
+  final String access;
+  final String maximumRate;
+  final String priceCurrency;
   final String connector;
   final String country;
   final int? minimumPower;
   final double? latitude, longitude, radiusKm;
   const CatalogFilter({
     this.search = '',
+    this.address = '',
+    this.operatorName = '',
+    this.access = '',
+    this.maximumRate = '',
+    this.priceCurrency = '',
     this.connector = '',
     this.country = '',
     this.minimumPower,
@@ -765,6 +775,11 @@ class CatalogFilter {
   });
   Map<String, String> get query => {
     if (search.trim().isNotEmpty) 'q': search.trim(),
+    if (address.trim().isNotEmpty) 'address': address.trim(),
+    if (operatorName.trim().isNotEmpty) 'operator': operatorName.trim(),
+    if (access.trim().isNotEmpty) 'access': access.trim(),
+    if (maximumRate.trim().isNotEmpty) 'max_rate_per_kwh': maximumRate.trim(),
+    if (priceCurrency.trim().isNotEmpty) 'price_currency': priceCurrency.trim().toUpperCase(),
     if (connector.isNotEmpty) 'connector_type': connector,
     if (country.trim().isNotEmpty) 'country': country.trim().toUpperCase(),
     if (minimumPower != null) 'min_power_kw': '$minimumPower',

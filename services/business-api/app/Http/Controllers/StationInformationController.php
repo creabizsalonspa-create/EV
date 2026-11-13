@@ -22,6 +22,9 @@ final class StationInformationController extends Controller
 
         $rules = [
             'revision' => 'required|integer|min:0|max:2147483646',
+            'operator_name' => 'sometimes|nullable|string|max:100',
+            'address_en' => 'sometimes|nullable|string|max:300',
+            'address_ar' => 'sometimes|nullable|string|max:300',
             'description_en' => 'present|nullable|string|max:500',
             'description_ar' => 'present|nullable|string|max:500',
             'access_en' => 'present|nullable|string|max:500',
@@ -109,6 +112,9 @@ final class StationInformationController extends Controller
                 'revision' => ($current->revision ?? 0) + 1,
                 'updated_at' => now(),
             ];
+            foreach (['operator_name', 'address_en', 'address_ar'] as $key) {
+                $fields[$key] = array_key_exists($key, $v) ? $v[$key] : ($current->$key ?? null);
+            }
             if ($noticeChanged) {
                 $fields['notice_en'] = $v['notice_en'];
                 $fields['notice_ar'] = $v['notice_ar'];
