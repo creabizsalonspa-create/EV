@@ -65,6 +65,15 @@ class AccountSessionRevocationTest extends TestCase
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
+    public function test_password_whitespace_is_preserved_during_confirmation(): void
+    {
+        $user = User::factory()->create(['password' => ' password with spaces ']);
+        $this->actingAs($user)->postJson('/api/account/sessions/revoke-all', ['password' => 'password with spaces'])
+            ->assertUnprocessable();
+        $this->postJson('/api/account/sessions/revoke-all', ['password' => ' password with spaces '])
+            ->assertNoContent();
+    }
+
     public function test_guests_admin_and_suspended_accounts_cannot_use_customer_revocation(): void
     {
         $this->postJson('/api/account/sessions/revoke-all', ['password' => 'password'])->assertUnauthorized();
