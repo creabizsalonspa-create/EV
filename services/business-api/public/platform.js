@@ -298,8 +298,17 @@ async function identity() {
     if (user?.role === "admin") await adminOverview();
     if (["vendor", "admin"].includes(user?.role)) await commandHistory();
 }
+// Catalog ownership: startup must not replace an explicit page/form already rendered for this account.
 let stationRequest = null,
-    stationQuery = "";
+    stationQuery = "",
+    requestedCatalogQuery = "",
+    renderedCatalogIdentity = null;
+function catalogIdentityKey() {
+    return client.sessionEpoch + ":" + (user ? user.id + ":" + user.role : "guest");
+}
+async function initialCatalog() {
+    if (renderedCatalogIdentity !== catalogIdentityKey()) await stations(requestedCatalogQuery);
+}
 function reservationForm(s, mapping = null) {
     let f = document.createElement("form"),
         l = ui("label", "UTC start (00 or 30 minutes)"),
@@ -455,6 +464,7 @@ function renderCatalogMode() {
 }
 
 async function stations(query = "") {
+    requestedCatalogQuery = query;
     const identity = client.sessionEpoch,
         savedMode = favoriteMode;
     stationRequest?.abort();
@@ -550,6 +560,7 @@ async function stations(query = "") {
     window.dispatchEvent(
         new CustomEvent("catalog-map-data", { detail: j.data }),
     );
+    renderedCatalogIdentity = catalogIdentityKey();
     el("stations").replaceChildren();
     if (!j.data.length)
         el("stations").append(
@@ -1313,7 +1324,7 @@ setIdentityBusy(false);
         await signOut();
         await roamingWorkspace.catalog();
     } else await identity();
-    await stations();
+    await initialCatalog();
     await regions();
 })().catch((e) => notice(e)).finally(() => {
     identityInitializing = false;
