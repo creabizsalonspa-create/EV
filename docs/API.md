@@ -385,3 +385,20 @@ English/Arabic unified web/native cards save/remove through the existing canonic
 Station and unified searches accept `recent_source_status` using the ten bounded connector-report states. Filtering runs before pagination against the exact mapped connector, current binding generation, OCPP protocol/component identity and canonical ownership/approval/local-license rules. Connector/power conditions apply to that same connector. Only accepted observations newer than five minutes and not in the future qualify. A newer/future report, same-instant conflict, unsupported state, future receipt or changed binding suppresses an older claim; reported errors normalize to Faulted. PostgreSQL uses its native SHA-256 over the same server-owned binding tuple as the canonical fault observer; SQLite calls that existing fingerprint function directly. Both are tested with OCPP1.6 and2.0.1 mappings and local license-day boundaries.
 
 The EN/AR filter is explicitly an as-of-search simulator-source report, excluding OCPI partner reports. `availability` stays unknown and every booking/start gate is unchanged. Search again to recheck; list membership never proves physical availability or grants charger control.
+
+### Observed site interval demand
+
+The existing authenticated company operational analytics read and CSV/PDF exports
+now include `maximum_observed_site_interval_average_w`,
+`demand_observed_seconds`, and `demand_ambiguous_evse_seconds`. The maximum
+is nullable when no usable accepted meter intervals exist; observed zero
+remains zero. The calculation sums floored integer average watts from accepted
+session meter intervals wholly inside the UTC report window. It uses the same
+canonical current binding/topology and tenant scope as the energy report.
+Concurrent intervals from different EVSEs contribute together; overlapping
+sessions on one EVSE are excluded during their ambiguous overlap. Missing
+EVSE telemetry is not inferred to be zero. Coverage is partial, not a whole-site
+instantaneous peak or grid-meter demand measurement. `physical_site_demand_verified`
+is always false and `billing_authority` remains false. EN/AR web, PDF and native
+views preserve these distinctions. No ledger writes or provider calls occur.
+Oversized exact-number sums return409 rather than rounding or overflowing.

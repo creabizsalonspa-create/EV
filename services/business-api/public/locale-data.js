@@ -3052,6 +3052,22 @@ window.EV_MESSAGES = {
         en: "Maximum observed session interval average (W)",
         ar: "أقصى متوسط فترة جلسة مرصودة (واط)",
     },
+    "Maximum sum of observed interval averages (W), not grid peak": {
+        en: "Maximum sum of observed interval averages (W), not grid peak",
+        ar: "أقصى مجموع لمتوسطات الفترات المرصودة (واط)، وليس ذروة الشبكة",
+    },
+    "Seconds with usable demand intervals": {
+        en: "Seconds with usable demand intervals",
+        ar: "ثوانٍ مع فترات طلب قابلة للاستخدام",
+    },
+    "Excluded overlapping EVSE seconds": {
+        en: "Excluded overlapping EVSE seconds",
+        ar: "ثواني تداخل EVSE المستبعدة",
+    },
+    "Demand interval scope": {
+        en: "Demand sums floored accepted meter interval averages wholly inside the window. Overlapping sessions on the same EVSE are excluded. Coverage is partial; this is not grid peak or instantaneous power.",
+        ar: "الطلب يجمع متوسطات فترات العدادات المقبولة داخل الفترة، بعد التقريب لأسفل. تُستبعد فترات تداخل الجلسات على EVSE نفسها. التغطية جزئية ولا تمثل ذروة الشبكة أو قياساً لحظياً.",
+    },
     "Sessions requiring review": {
         en: "Sessions requiring review",
         ar: "جلسات تحتاج مراجعة",

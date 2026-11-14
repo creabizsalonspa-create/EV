@@ -22,6 +22,18 @@ void main() {
           'vendor-ops/companies/${f['company_id']}/operational-analytics';
       final result = await api.request(path);
       expect(result['physical_uptime_verified'], false);
+      expect(result['physical_site_demand_verified'], false);
+      expect(
+        result['demand_scope'],
+        'sum_of_floored_accepted_session_interval_averages_within_window_excluding_same_evse_overlaps',
+      );
+      for (final row in result['sites'] as List) {
+        final demand = row['maximum_observed_site_interval_average_w'];
+        expect(row.containsKey('maximum_observed_site_interval_average_w'), true);
+        expect(demand == null || (demand is int && demand >= 0 && demand <= 9007199254740991), true);
+        expect(row['demand_observed_seconds'], inInclusiveRange(0, result['window_seconds']));
+        expect(row['demand_ambiguous_evse_seconds'], greaterThanOrEqualTo(0));
+      }
       expect(result['billing_authority'], false);
       expect(result['feedback_physical_charging_verified'], false);
       expect(
