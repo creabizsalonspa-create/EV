@@ -111,6 +111,19 @@ class ExternalDisputesTest extends TestCase
         $this->assertDatabaseCount('external_dispute_events', 1);
     }
 
+    public function test_native_receipt_reconciliation_capability_remains_scoped_and_admin_only(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $path = '/dispute-test/commercial/external-disputes/'.$id;
+        foreach ([$this->user, $this->vendor] as $actor) {
+            $this->actingAs($actor)->getJson($path)->assertOk()->assertJsonPath('can_reconcile', false);
+            $this->postJson($path.'/reconcile')->assertForbidden();
+        }
+        $this->actingAs(User::factory()->create())->getJson($path)->assertNotFound();
+        $this->actingAs($this->admin)->getJson($path)->assertOk()->assertJsonPath('can_reconcile', true);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
     public function test_provider_reconciliation_releases_only_won_hold_and_preserves_lost_hold(): void
     {
         $id = $this->providerEvent()->assertOk()->json('dispute_id');
