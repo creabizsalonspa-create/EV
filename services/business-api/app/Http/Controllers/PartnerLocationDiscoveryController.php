@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
+use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PartnerCatalogGeo;
 use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
@@ -100,34 +101,17 @@ final class PartnerLocationDiscoveryController extends Controller
         ]);
 
         // The final ID key also stabilizes ties in distance.
-        $now = now()->getTimestamp();
+        $checkedAt = now();
 
         $page = $query->orderByDesc('ocpi_records.id')->paginate(25)->appends($filters)
-            ->through(function (OcpiRecord $record) use ($nearby, $now) {
-                $sourceSeconds = $record->source_updated_at?->getTimestamp();
-                $age = $sourceSeconds === null || $sourceSeconds > $now
-                    ? null
-                    : intdiv($now - $sourceSeconds, 60);
-                $receivedSeconds = $record->received_at?->getTimestamp();
-                $receiptAge = $receivedSeconds === null || $receivedSeconds > $now
-                    ? null
-                    : intdiv($now - $receivedSeconds, 60);
-
+            ->through(function (OcpiRecord $record) use ($nearby, $checkedAt) {
                 return [
                     'id' => $record->id,
                     'provider_id' => $record->ocpi_provider_id,
                     'provider_label' => $record->provider_label,
                     'provider_label_evidence' => 'PROVIDER_CONFIGURED_UNVERIFIED',
                     'location' => PublicPartnerLocation::project($record->normalized ?? []),
-                    'received_at' => $record->received_at,
-                    'received_age_minutes' => $receiptAge,
-                    'received_timestamp_evidence' => 'LOCAL_INGESTION_TIME',
-                    'source_updated_at' => $record->source_updated_at,
-                    'reported_source_age_minutes' => $age,
-                    'source_timestamp_evidence' => 'PARTNER_REPORTED_ONLY',
-                    'source_clock_evidence' => $sourceSeconds === null
-                        ? 'SOURCE_TIMESTAMP_UNKNOWN'
-                        : ($sourceSeconds > $now ? 'PARTNER_CLOCK_AHEAD' : 'PARTNER_REPORTED_TIME'),
+                    ...PartnerCatalogAge::present($record, $checkedAt),
                     'evidence' => 'PARTNER_REPORTED_UNVERIFIED',
                     'availability' => 'unknown',
                     'remote_control' => false,

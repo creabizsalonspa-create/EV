@@ -38,6 +38,10 @@
      }else if(row.kind==='partner'&&Number.isSafeInteger(row.record_id)&&row.record_id>0&&row.key==='partner:'+row.record_id&&row.location&&row.reservable===false&&row.remote_control===false&&row.availability==='unknown'){
       card.dataset.partnerLocationId=String(row.record_id);const l=row.location;card.append(text('h4',String(l.name||l.id||''),String(l.name||l.id||'')),text('p',String(row.provider_label||''),String(row.provider_label||'')),text('p',[l.address,l.city,l.country].filter(Boolean).join(' · '),[l.address,l.city,l.country].filter(Boolean).join(' · ')),text('p','Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد'));
       card.append(text('p','Reported source time: '+String(row.source_updated_at||'unknown'),'وقت المصدر المبلغ عنه: '+String(row.source_updated_at||'غير معروف')));
+      const age=row.source_timestamp_evidence==='PARTNER_REPORTED_ONLY'&&row.source_clock_evidence==='PARTNER_REPORTED_TIME'&&Number.isSafeInteger(row.reported_source_age_minutes)&&row.reported_source_age_minutes>=0?row.reported_source_age_minutes:null;
+      card.append(text('p',age===null?'Reported catalog age unknown or partner clock ahead':`Reported catalog age at search: ${age} min${age>=1440?' · over 24 hours old':''}`,age===null?'عمر الكتالوج المبلغ عنه غير معروف أو ساعة الشريك متقدمة':`عمر الكتالوج المبلغ عنه عند البحث: ${age} دقيقة${age>=1440?' · أقدم من 24 ساعة':''}`));
+      card.append(text('p','Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'));
+
      }else continue;
      if(customer&&typeof favoriteWriter==='function'){
       const saved=row.is_favorite===true;

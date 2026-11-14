@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
+use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PublicPartnerLocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,13 +24,11 @@ class PartnerLocationFavoriteController extends Controller
         $page = OcpiRecord::join('partner_location_favorites as f', 'f.record_id', '=', 'ocpi_records.id')->where('f.user_id', $user)->where('module', 'locations')->select(['ocpi_records.*', 'f.created_at as favorite_since'])->orderByDesc('f.created_at')->orderByDesc('ocpi_records.id')->paginate(25);
         $authorized = OcpiProvider::whereIn('id', $page->getCollection()->pluck('ocpi_provider_id'))
             ->where('authorized', true)->pluck('name', 'id')->all();
-        $now = now()->getTimestamp();
+        $checkedAt = now();
 
-        $page->through(function ($record) use ($authorized, $now) {
+        $page->through(function ($record) use ($authorized, $checkedAt) {
             $providerId = (int) $record->ocpi_provider_id;
             $available = array_key_exists($providerId, $authorized) && ($record->normalized['publish'] ?? false) === true;
-            $source = $available ? $record->source_updated_at?->getTimestamp() : null;
-            $receipt = $available ? $record->received_at?->getTimestamp() : null;
 
             return [
                 'id' => $record->id,
@@ -38,13 +37,10 @@ class PartnerLocationFavoriteController extends Controller
                 'provider_label_evidence' => $available ? 'PROVIDER_CONFIGURED_UNVERIFIED' : null,
                 'location_available' => $available,
                 'location' => $available ? PublicPartnerLocation::project($record->normalized ?? []) : null,
-                'received_at' => $available ? $record->received_at : null,
-                'received_age_minutes' => $receipt !== null && $receipt <= $now ? intdiv($now - $receipt, 60) : null,
-                'received_timestamp_evidence' => $available ? 'LOCAL_INGESTION_TIME' : null,
-                'source_updated_at' => $available ? $record->source_updated_at : null,
-                'reported_source_age_minutes' => $source !== null && $source <= $now ? intdiv($now - $source, 60) : null,
-                'source_clock_evidence' => ! $available ? null : ($source === null ? 'SOURCE_TIMESTAMP_UNKNOWN' : ($source > $now ? 'PARTNER_CLOCK_AHEAD' : 'PARTNER_REPORTED_TIME')),
-                'source_timestamp_evidence' => $available ? 'PARTNER_REPORTED_ONLY' : null,
+                ...($available ? PartnerCatalogAge::present($record, $checkedAt) : array_fill_keys([
+                    'catalog_checked_at', 'received_at', 'received_age_minutes', 'received_timestamp_evidence',
+                    'source_updated_at', 'reported_source_age_minutes', 'source_clock_evidence', 'source_timestamp_evidence',
+                ], null)),
                 'favorite_since' => $record->favorite_since,
                 'is_favorite' => true,
                 'evidence' => 'PARTNER_REPORTED_UNVERIFIED',

@@ -7,6 +7,7 @@ use App\Models\OcpiRecord;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\Discovery\CatalogTextFilters;
+use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PublicPartnerLocation;
 use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
@@ -81,7 +82,8 @@ final class UnifiedDiscoveryController extends Controller
         $labels = OcpiProvider::whereIn('id', $partners->pluck('ocpi_provider_id'))->where('authorized', true)->pluck('name', 'id');
         $savedPartners = $customer === null ? collect() : DB::table('partner_location_favorites')->where('user_id', $customer)->whereIn('record_id', $partners->keys())->pluck('record_id')->flip();
         $this->currentActor($request);
-        $page->setCollection($rows->map(function ($row) use ($stations, $partners, $labels, $savedPartners) {
+        $checkedAt = now();
+        $page->setCollection($rows->map(function ($row) use ($stations, $partners, $labels, $savedPartners, $checkedAt) {
             if ($row->kind === 'catalog') {
                 $station = $stations->get($row->id);
 
@@ -95,7 +97,7 @@ final class UnifiedDiscoveryController extends Controller
             return ['key' => 'partner:'.$row->id, 'kind' => 'partner', 'record_id' => $row->id, 'is_favorite' => $savedPartners->has($row->id),
                 'provider_label' => $labels->get($record->ocpi_provider_id), 'provider_label_evidence' => 'PROVIDER_CONFIGURED_UNVERIFIED',
                 'location' => PublicPartnerLocation::project($record->normalized ?? []),
-                'source_updated_at' => $record->source_updated_at, 'received_at' => $record->received_at,
+                ...PartnerCatalogAge::present($record, $checkedAt),
                 'evidence' => 'PARTNER_REPORTED_UNVERIFIED', 'availability' => 'unknown', 'reservable' => false, 'remote_control' => false];
         })->filter()->values());
 

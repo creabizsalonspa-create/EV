@@ -7,8 +7,10 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Discovery\PartnerCatalogAge;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -28,6 +30,37 @@ class UnifiedDiscoveryTest extends TestCase
         $record = OcpiRecord::create(['ocpi_provider_id' => $provider->id, 'module' => 'locations', 'country_code' => 'AE', 'party_id' => 'TST', 'external_id' => 'same-local-id', 'payload' => ['private' => 'UNIFIED-PRIVATE-PAYLOAD'], 'content_hash' => str_repeat('a', 64), 'normalized' => ['name' => 'Shared partner', 'publish' => true, 'address' => '100%_hub', 'city' => 'Dubai', 'country' => 'ARE', 'connector_standards' => ['IEC_62196_T2_COMBO'], 'evses' => [], 'private_credential' => 'PRIVATE-NORMALIZED', 'remote_control' => true, 'reservable' => true], 'source_updated_at' => now()->subHour(), 'received_at' => now()]);
 
         return compact('station', 'provider', 'record');
+    }
+
+    public function test_catalog_age_is_consistent_without_fabricating_freshness_or_authority(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));
+        $f = $this->fixtures();
+        $this->putJson('/api/roaming/favorites/'.$f['record']->id)->assertOk();
+        foreach ([[-1500, 1500, 'PARTNER_REPORTED_TIME'], [0, 0, 'PARTNER_REPORTED_TIME'], [1, null, 'PARTNER_CLOCK_AHEAD']] as [$offset, $age, $evidence]) {
+            $f['record']->update(['source_updated_at' => now()->addMinutes($offset), 'received_at' => now()->addMinute()]);
+            foreach (['/api/discovery/search?scope=partner', '/api/v1/discovery/search?scope=partner', '/api/roaming/locations', '/api/roaming/favorites'] as $path) {
+                $this->getJson($path)->assertOk()->assertJsonPath('data.0.reported_source_age_minutes', $age)
+                    ->assertJsonPath('data.0.source_clock_evidence', $evidence)
+                    ->assertJsonPath('data.0.received_age_minutes', null)
+                    ->assertJsonPath('data.0.catalog_checked_at', '2026-11-15T12:00:00.000000Z')
+                    ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false)
+                    ->assertJsonPath('data.0.reservable', false)->assertDontSee('UNIFIED-PRIVATE-PAYLOAD');
+            }
+        }
+        $unknown = PartnerCatalogAge::present(new OcpiRecord, now());
+        $this->assertNull($unknown['reported_source_age_minutes']);
+        $this->assertSame('SOURCE_TIMESTAMP_UNKNOWN', $unknown['source_clock_evidence']);
+        $ahead = new OcpiRecord(['source_updated_at' => now()->addMicrosecond(), 'received_at' => now()->addMicrosecond()]);
+        $future = PartnerCatalogAge::present($ahead, now());
+        $this->assertNull($future['reported_source_age_minutes']);
+        $this->assertNull($future['received_age_minutes']);
+        $this->assertSame('PARTNER_CLOCK_AHEAD', $future['source_clock_evidence']);
+        $f['provider']->update(['authorized' => false]);
+        $this->getJson('/api/roaming/favorites')->assertJsonPath('data.0.catalog_checked_at', null)
+            ->assertJsonPath('data.0.source_clock_evidence', null)->assertJsonPath('data.0.reported_source_age_minutes', null);
+        $this->getJson('/api/discovery/search?scope=partner')->assertJsonPath('total', 0);
+        Http::assertNothingSent();
     }
 
     public function test_unified_routes_require_identity_without_expanding_the_public_surface(): void

@@ -4,6 +4,17 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 
 /// Published local records only. This view never grants remote charging rights.
+String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
+  final age = row['reported_source_age_minutes'];
+  final known = row['source_timestamp_evidence'] == 'PARTNER_REPORTED_ONLY' &&
+      row['source_clock_evidence'] == 'PARTNER_REPORTED_TIME' && age is int && age >= 0;
+  if (!known) return ar ? 'عمر الكتالوج المبلغ عنه غير معروف أو ساعة الشريك متقدمة' : 'Reported catalog age unknown or partner clock ahead';
+  final stale = age >= 1440;
+  return ar
+      ? 'عمر الكتالوج المبلغ عنه عند البحث: $age دقيقة${stale ? ' · أقدم من 24 ساعة' : ''}'
+      : 'Reported catalog age at search: $age min${stale ? ' · over 24 hours old' : ''}';
+}
+
 class UnifiedDiscoveryView extends StatefulWidget {
   final EvApi api;
   final ValueChanged<Station> onCatalog;
@@ -82,7 +93,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()?()=>widget.onCatalog(station):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
     }
     final location=Map<String,dynamic>.from(row['location'] as Map);
-    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${location['name']??location['id']??''}'),if(widget.customer)favoriteButton(row),Text('${row['provider_label']??''}'),Text([location['address'],location['city'],location['country']].where((v)=>v!=null).join(' · ')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}'))])));
+    return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${location['name']??location['id']??''}'),if(widget.customer)favoriteButton(row),Text('${row['provider_label']??''}'),Text([location['address'],location['city'],location['country']].where((v)=>v!=null).join(' · ')),Text(tr('Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد')),Text(tr('Reported source time: ${row['source_updated_at']??'unknown'}','وقت المصدر المبلغ عنه: ${row['source_updated_at']??'غير معروف'}')),Text(partnerCatalogAgeLabel(row,Localizations.localeOf(context).languageCode=='ar')),Text(tr('Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'))])));
   }
   Widget favoriteButton(Map<String,dynamic> row)=>TextButton(
     key:ValueKey('unified-favorite-${row['key']}'),
