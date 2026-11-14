@@ -53,7 +53,7 @@ Route::middleware(['auth', 'throttle:authentication'])->group(function () {
 Route::get('/api/csrf', fn () => response()->json(['token' => csrf_token()]));
 Route::middleware('throttle:authentication')->group(function () {
     Route::post('/api/register', [P::class, 'register']);
-    Route::post('/api/login', [P::class, 'login']);
+    Route::post('/api/login', [P::class, 'login'])->middleware('throttle:signin-account');
 });
 Route::get('/api/stations', [P::class, 'stations'])->middleware('throttle:catalog');
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {

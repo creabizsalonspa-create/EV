@@ -80,10 +80,12 @@ class AuthenticationThrottleSecurityTest extends TestCase
         $this->postJson('/api/v1/login', $credentials)
             ->assertStatus(429)->assertHeader('Cache-Control', 'no-store, private');
 
-        // Exhausting one source IP must not prevent another IP from
-        // attempting a legitimate login.
+        // A new IP cannot evade the independent account budget. It may
+        // still attempt another identity without inheriting the first IP's
+        // budget; both controls remain independent.
         $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.45']);
-        $this->postJson('/api/v1/login', $credentials)->assertUnprocessable();
+        $this->postJson('/api/v1/login', $credentials)->assertStatus(429);
+        $this->postJson('/api/v1/login', array_replace($credentials, ['email' => 'independent-qa@example.test']))->assertUnprocessable();
     }
 
     public function test_untrusted_forwarded_for_headers_cannot_reset_authentication_attempts(): void

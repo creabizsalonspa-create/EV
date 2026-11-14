@@ -36,7 +36,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::middleware('throttle:authentication')->group(function () {
-        Route::post('/login', [M::class, 'login']);
+        Route::post('/login', [M::class, 'login'])->middleware('throttle:signin-account');
         Route::post('/register', [M::class, 'register']);
     });
     Route::post('/account/sessions/revoke-all', [AccountSessionController::class, 'revokeAll'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication']);
