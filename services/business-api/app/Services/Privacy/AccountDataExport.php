@@ -94,7 +94,10 @@ final class AccountDataExport
 
     public function purge(): int
     {
-        return DB::table('account_privacy_exports')->where('expires_at', '<=', now())->whereNull('purged_at')
+        $ids = DB::table('account_privacy_exports')->where('expires_at', '<=', now())->whereNull('purged_at')
+            ->orderBy('id')->limit(1000)->pluck('id');
+
+        return DB::table('account_privacy_exports')->whereIn('id', $ids)->where('expires_at', '<=', now())->whereNull('purged_at')
             ->update(['payload_encrypted' => null, 'purged_at' => now()]);
     }
 }
