@@ -1635,6 +1635,10 @@ window.createVendorWorkspace = ({
             reported_fault_seconds: "Reported fault seconds",
             maximum_session_interval_average_w:
                 "Maximum observed session interval average (W)",
+            maximum_observed_site_interval_average_w:
+                "Maximum sum of observed interval averages (W), not grid peak",
+            demand_observed_seconds: "Seconds with usable demand intervals",
+            demand_ambiguous_evse_seconds: "Excluded overlapping EVSE seconds",
             excluded_sessions: "Sessions requiring review",
         };
         async function load() {
@@ -1660,6 +1664,7 @@ window.createVendorWorkspace = ({
                     data.company_id !== company.id ||
                     data.evidence !== "SIMULATED_SOURCE" ||
                     data.physical_uptime_verified !== false ||
+                    data.physical_site_demand_verified !== false ||
                     data.billing_authority !== false ||
                     typeof data.financial_visible !== "boolean"
                 )
@@ -1667,6 +1672,7 @@ window.createVendorWorkspace = ({
                 content.replaceChildren(
                     raw("p", data.from + " — " + data.to + " UTC"),
                     raw("p", data.as_of),
+                    ui("p", "Demand interval scope"),
                 );
                 const links = document.createElement("nav");
                 for (const [kind, title] of [
@@ -1721,12 +1727,15 @@ window.createVendorWorkspace = ({
                     const card = document.createElement("article");
                     card.append(raw("h4", row.name + " · #" + row.site_id));
                     for (const [key, title] of Object.entries(metrics)) {
-                        if (!Number.isSafeInteger(row[key]) || row[key] < 0)
+                        const unknown =
+                            key === "maximum_observed_site_interval_average_w" &&
+                            row[key] === null;
+                        if (!unknown && (!Number.isSafeInteger(row[key]) || row[key] < 0))
                             throw Error("Inexact source metric.");
                         card.append(
                             ui("p", "Operational metric: {label} — {value}", {
                                 label: { translate: title },
-                                value: row[key],
+                                value: unknown ? { translate: "Unknown" } : row[key],
                             }),
                         );
                     }

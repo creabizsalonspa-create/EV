@@ -7,6 +7,7 @@ use App\Http\Controllers\AccountSessionController;
 use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\AdminAuditTrailController;
 use App\Http\Controllers\AdminKycQueueController;
+use App\Http\Controllers\AdminOperationsMapController;
 use App\Http\Controllers\AdminOperatorRoleHistoryController;
 use App\Http\Controllers\AdminSecondFactorController;
 use App\Http\Controllers\AdminSessionController;
@@ -28,6 +29,7 @@ use App\Http\Controllers\StationInformationController;
 use App\Http\Controllers\SupportController;
 use App\Http\Controllers\UnifiedDiscoveryController;
 use App\Http\Controllers\VehicleBatteryController;
+use App\Http\Middleware\RejectAdminPersonalAccessToken;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
@@ -83,6 +85,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/simulations/{session}/stop', [SimulationController::class, 'stop']);
 });
 
+Route::get('/api/admin/operations/map', [AdminOperationsMapController::class, 'index'])->middleware(['auth', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/account/sessions/revoke-all', [AccountSessionController::class, 'revokeAll'])->middleware(['auth', 'throttle:authentication']);
 Route::post('/api/admin/sessions/revoke-all', [AdminSessionController::class, 'revokeAll'])->middleware(['auth', 'throttle:authentication']);
@@ -146,6 +149,8 @@ Route::middleware(['auth', 'throttle:support'])->group(function () {
     Route::post('/api/support/{ticket}/messages', [$c, 'reply']);
     Route::patch('/api/support/{ticket}/status', [$c, 'transition']);
 });
+
+Route::middleware('auth')->prefix('api/notifications')->group(__DIR__.'/notification_email.php');
 
 // The existing session-backed /api routes and bearer-token /api/v1 routes
 // must expose equivalent scoped inbox operations. Inbox reads never exhaust

@@ -7,6 +7,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\SourceStatusDurations;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
@@ -22,6 +23,7 @@ class ChargerDiagnosticsController extends Controller
 {
     private function binding(Request $r, VendorCompany $company, VendorCharger $charger): object
     {
+        app(MaintenanceActor::class)->check($r->user());
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
         abort_unless($charger->company_id === $company->id, 404);
         $site = VendorSite::findOrFail($charger->site_id);

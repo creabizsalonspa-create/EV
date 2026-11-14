@@ -197,6 +197,7 @@ function renderIdentity() {
             : "Your charging companion",
     );
     window.EvAdminAccounts?.setActor(user, api);
+    window.EvAdminOperationsMap?.setActor(user, api);
     window.EvAdminKycQueue?.setActor(user, api);
     window.EvAdminStaffPermissions?.setActor(user, api);
     window.EvAdminAuditTrail?.setActor(user, api);
@@ -1654,6 +1655,11 @@ async function refreshInbox() {
         }
     };
     view.append(categorySelect);
+    const emailSettings = ui("button", "Email activity notices");
+    emailSettings.type = "button";
+    emailSettings.onclick = () => window.EvNotificationEmail.open({host: view, api,
+        current: () => session === client.sessionEpoch && account === user?.id});
+    view.append(emailSettings);
     if (inboxPreferencesFor === account && inboxPreferences) {
         const prefs = inboxPreferences;
         const settings = document.createElement("form");
@@ -1712,7 +1718,7 @@ async function refreshInbox() {
         delaySelect.value = String(currentDelay);
         delayLabel.append(delaySelect);
         settings.append(delayLabel);
-        settings.append(ui("p", "Critical in-app notifications always remain visible. External notification delivery is not active."));
+        settings.append(ui("p", "Critical in-app notifications always remain visible. Email notices require separate consent and server configuration."));
         const save = ui("button", "Save notification preferences");
         save.id = "notification-preference-save";
         save.type = "submit";
