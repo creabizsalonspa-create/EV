@@ -134,8 +134,11 @@ class CredentialExchange
         return app(PartnerClient::class)->guardedUrl($p, $endpoints[0]['url']);
     }
 
-    public function exchange(OcpiProvider $p, int $actor, array $v): array
+    public function exchange(OcpiProvider $p, int $actor, array $v, ?User $requestActor = null): array
     {
+        $approval = clone ($requestActor ?? User::findOrFail($actor));
+        abort_unless($approval->id === $actor, 403);
+        app(AdminCredentialApproval::class)->current($approval);
         $hash = hash('sha256', json_encode([$v['action'], $v['reason']], JSON_THROW_ON_ERROR));
         $old = DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('idempotency_key', $v['idempotency_key'])->first();
         if ($old) {
@@ -168,10 +171,10 @@ class CredentialExchange
         $configuration = $this->configurationHash($p);
         $version = $v['action'] === 'unregister' && ($link->generation ?? 0) === 2147483647 ? 2147483647 : (int) ($link->generation ?? 0) + 1;
         abort_unless($version <= 2147483647, 409, 'Credential generation exhausted.');
-        $opId = DB::transaction(function () use ($p, $v, $hash, $actor, $endpoint, $payload, $configuration, $version, $link, $bootstrap, $localToken) {
+        $opId = DB::transaction(function () use ($p, $v, $hash, $actor, $endpoint, $payload, $configuration, $version, $link, $bootstrap, $localToken, $approval) {
+            app(AdminCredentialApproval::class)->current($approval, true);
             $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
             $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
-            abort_unless(User::whereKey($actor)->where('role', 'admin')->exists(), 403);
             $existing = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->lockForUpdate()->first();
             abort_unless(($existing->generation ?? null) === ($link->generation ?? null) && ($existing->state ?? null) === ($link->state ?? null), 409, 'Credential state changed before dispatch.');
             abort_if(DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('idempotency_key', $v['idempotency_key'])->exists(), 409);
@@ -182,10 +185,10 @@ class CredentialExchange
             return $id;
         }, 3);
         try {
-            DB::transaction(function () use ($p, $actor, $configuration, $opId, $version, $token, $endpoint, $payload, $v, $localToken) {
+            DB::transaction(function () use ($p, $configuration, $opId, $version, $token, $endpoint, $payload, $v, $localToken, $approval) {
+                app(AdminCredentialApproval::class)->current($approval, true);
                 $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
                 $this->unchanged($p, $current, $configuration, $v['action'] === 'unregister');
-                abort_unless(User::whereKey($actor)->where('role', 'admin')->exists(), 403);
                 $op = DB::table('ocpi_credential_operations')->where('id', $opId)->lockForUpdate()->firstOrFail();
                 $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->lockForUpdate()->firstOrFail();
                 abort_unless($op->state === 'dispatching' && $link->state === 'dispatching' && $link->generation === $version, 409);
