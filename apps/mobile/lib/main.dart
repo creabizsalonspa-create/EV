@@ -1,4 +1,7 @@
+import 'session_cost.dart';
 import 'precharge_pricing.dart';
+import 'vendor_campaigns.dart';
+import 'provider_disputes.dart';
 import 'privacy_requests.dart';
 import 'phone_verification.dart';
 import 'account_second_factor.dart';
@@ -627,12 +630,13 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               ),
             if (tab == 2)
               Text(
-                s.t('energy', {
+                s.t(row.containsKey('cost_projection') ? 'meterEnergyOnly' : 'energy', {
                   'energy': row['energy_wh'],
                   'total': row['total_minor'] ?? s.t('pending'),
                   'currency': row['currency'],
                 }),
               ),
+            if (tab == 2) SessionCostPanel(value:row['cost_projection']),
             if (tab == 3 && account?.role == 'customer')
               TextButton.icon(
                 key: Key('vehicle-model-$id'),
@@ -1239,6 +1243,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                           RiderAccessView(api: api!, onExpired: expiredSession),
                     ),
                   );
+                } else if (value == 'vendorCampaigns') {
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+                    VendorCampaignsView(api: api!, onExpired: expiredSession)));
+                } else if (value == 'providerDisputes') {
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+                    ProviderDisputesView(api: api!, onExpired: expiredSession)));
                 } else if (value == 'paymentCases') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1401,6 +1411,18 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   value: 'financialAnalytics',
                   enabled: !busy,
                   child: Text(analyticsText(context, 'title')),
+                ),
+                if (account!.role == 'vendor')
+                  PopupMenuItem(
+                    value: 'vendorCampaigns',
+                    enabled: !busy,
+                    child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'حملات المورّد' : 'Vendor campaigns'),
+                  ),
+                if (['customer', 'vendor'].contains(account!.role))
+                  PopupMenuItem(
+                  value: 'providerDisputes',
+                  enabled: !busy,
+                  child: Text(providerDisputeText(context, 'Provider disputes', 'نزاعات مزود الدفع')),
                 ),
                 PopupMenuItem(
                   value: 'paymentCases',

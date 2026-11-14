@@ -134,6 +134,124 @@ window.EvPrivacyRequests = (() => {
                                 row.created_at,
                         ),
                     );
+                    if (row.copy?.status === "available") {
+                        const password = el("input");
+                        password.type = "password";
+                        password.autocomplete = "current-password";
+                        const factor = el("input");
+                        factor.autocomplete = "one-time-code";
+                        factor.maxLength = 64;
+                        const preview = el("pre");
+                        preview.style.whiteSpace = "pre-wrap";
+                        preview.style.overflowWrap = "anywhere";
+                        card.append(
+                            el(
+                                "p",
+                                "Private account copy expires: " +
+                                    row.copy.expires_at +
+                                    " / تنتهي صلاحية النسخة الخاصة",
+                            ),
+                            field(
+                                "Current password / كلمة المرور الحالية",
+                                password,
+                            ),
+                            field(
+                                "Authenticator/recovery code if enabled / رمز المصادقة إن فُعّل",
+                                factor,
+                            ),
+                        );
+                        const view = button(
+                            "View private account copy / عرض نسخة الحساب الخاصة",
+                            async () => {
+                                if (!active(state, generation, controller))
+                                    return;
+                                const body = {
+                                    password: password.value,
+                                    second_factor_code: factor.value,
+                                };
+                                password.value = "";
+                                factor.value = "";
+                                preview.textContent = "";
+                                view.disabled = true;
+                                try {
+                                    const copy = await state.request(
+                                        `account/privacy-requests/${row.id}/access-copy`,
+                                        "POST",
+                                        body,
+                                        controller.signal,
+                                    );
+                                    if (!active(state, generation, controller))
+                                        return;
+                                    if (
+                                        copy.schema_version !== 1 ||
+                                        copy.owner_id !== user.id ||
+                                        copy.request_id !== row.id ||
+                                        copy.scope !==
+                                            "self_service_account_copy"
+                                    )
+                                        throw Error("Unverified copy");
+                                    preview.textContent = JSON.stringify(
+                                        copy,
+                                        null,
+                                        2,
+                                    );
+                                } catch {
+                                    if (active(state, generation, controller))
+                                        message.textContent =
+                                            "Copy unavailable. Check password/new authenticator code or refresh expiry. / النسخة غير متاحة؛ تحقق من المصادقة والصلاحية.";
+                                } finally {
+                                    view.disabled = false;
+                                }
+                            },
+                        );
+                        card.append(
+                            view,
+                            button(
+                                "Discard private copy / إتلاف النسخة الخاصة",
+                                async () => {
+                                    if (!active(state, generation, controller))
+                                        return;
+                                    preview.textContent = "";
+                                    password.value = "";
+                                    factor.value = "";
+                                    try {
+                                        await state.request(
+                                            `account/privacy-requests/${row.id}/access-copy/revoke`,
+                                            "POST",
+                                            {},
+                                        );
+                                        if (
+                                            active(
+                                                state,
+                                                generation,
+                                                controller,
+                                            )
+                                        )
+                                            await refresh();
+                                    } catch {
+                                        if (
+                                            active(
+                                                state,
+                                                generation,
+                                                controller,
+                                            )
+                                        )
+                                            message.textContent =
+                                                "Discard could not be confirmed. Refresh before retrying. / لم يتأكد الإتلاف؛ حدّث قبل المحاولة.";
+                                    }
+                                },
+                            ),
+                            preview,
+                        );
+                    } else if (row.copy)
+                        card.append(
+                            el(
+                                "p",
+                                "Private copy: " +
+                                    row.copy.status +
+                                    " / حالة النسخة الخاصة",
+                            ),
+                        );
                     if (typeof row.details === "string")
                         card.append(el("p", row.details));
                     if (
@@ -332,9 +450,56 @@ window.EvPrivacyRequests = (() => {
                         el("p", record.details),
                         el(
                             "p",
-                            "Manual review required; no automatic deletion or export occurs.",
+                            "Manual review required; no automatic deletion. A reviewed access request can receive a private account copy; erasure remains a separate review.",
                         ),
                     );
+                    if (
+                        record.kind === "access" &&
+                        record.status === "reviewing" &&
+                        !record.copy
+                    ) {
+                        const adminPassword = el("input");
+                        adminPassword.type = "password";
+                        adminPassword.autocomplete = "current-password";
+                        const requestKey = crypto.randomUUID();
+                        const prepare = button(
+                            "Prepare private account copy / إعداد نسخة الحساب الخاصة",
+                            async () => {
+                                if (!active(state, generation, controller))
+                                    return;
+                                const password = adminPassword.value;
+                                adminPassword.value = "";
+                                prepare.disabled = true;
+                                try {
+                                    await state.request(
+                                        `admin/privacy-requests/${caseId}/access-copy`,
+                                        "POST",
+                                        { password, request_key: requestKey },
+                                        controller.signal,
+                                    );
+                                    if (active(state, generation, controller))
+                                        await load(page);
+                                } catch {
+                                    if (active(state, generation, controller))
+                                        message.textContent =
+                                            "Copy preparation unconfirmed. Refresh or retry with the same action. Assisted review is needed for large accounts. / لم يتأكد إعداد النسخة؛ حدّث أو أعد المحاولة. تتطلب الحسابات الكبيرة مراجعة مساعدة.";
+                                } finally {
+                                    prepare.disabled = false;
+                                }
+                            },
+                        );
+                        card.append(
+                            el(
+                                "p",
+                                "Prepare a scoped personal account copy for 24 hours. Excluded records require assisted review; no account data is deleted. / إعداد نسخة شخصية محددة لمدة ٢٤ ساعة دون حذف البيانات.",
+                            ),
+                            field(
+                                "Administrator password / كلمة مرور المسؤول",
+                                adminPassword,
+                            ),
+                            prepare,
+                        );
+                    }
                     const historyHost = el("div");
                     const history = button(
                         "Private review history / سجل المراجعة",

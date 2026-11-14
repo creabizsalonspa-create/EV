@@ -20,12 +20,15 @@ withFixture(async (f) => {
         other: f.other,
         password: f.password,
         company_id: f.company_id,
-        chargers: f.chargers.map(({ id, protocol, identity, pem }) => ({
-          id,
-          protocol,
-          identity,
-          pem,
-        })),
+        chargers: f.chargers.map(
+          ({ id, protocol, identity, pem, issuer_chain }) => ({
+            id,
+            protocol,
+            identity,
+            pem,
+            issuer_chain,
+          }),
+        ),
       }),
       { mode: 0o600 },
     );
@@ -131,6 +134,12 @@ withFixture(async (f) => {
     await pane
       .getByLabel("Public PEM client certificate", { exact: true })
       .fill(first.pem);
+    if (first.issuer_chain)
+      await pane
+        .getByLabel("Intermediate issuer certificates (optional)", {
+          exact: true,
+        })
+        .fill(first.issuer_chain);
     await pane
       .getByLabel("Certificate operation reason", { exact: true })
       .fill("Explicit isolated browser certificate enrollment");
@@ -217,14 +226,23 @@ withFixture(async (f) => {
   });
   await new Promise((r) => gateway.listen(0, "127.0.0.1", r));
   const sockets = new Set();
-  const connect = (charger, secret, present = true) =>
+  const connect = (charger, secret, present = true, includeChain = true) =>
     new Promise((resolve, reject) => {
       const req = https.request({
         hostname: "127.0.0.1",
         port: gateway.address().port,
         path: "/" + charger.identity,
         ca: f.root,
-        ...(present ? { key: charger.key, cert: charger.pem } : {}),
+        ...(present
+          ? {
+              key: charger.key,
+              cert:
+                charger.pem +
+                (includeChain && charger.issuer_chain
+                  ? "\n" + charger.issuer_chain
+                  : ""),
+            }
+          : {}),
         headers: {
           Connection: "Upgrade",
           Upgrade: "websocket",
@@ -261,6 +279,9 @@ withFixture(async (f) => {
           reason: "Explicit isolated TLS certificate enrollment",
           consent: true,
           public_certificate: charger.pem,
+          ...(charger.issuer_chain
+            ? { issuer_chain: charger.issuer_chain }
+            : {}),
         });
       }
       result = await owner.request(charger.base);
@@ -272,6 +293,10 @@ withFixture(async (f) => {
       const connected = await connect(charger, rotation.secret);
       assert.equal(connected.status, 101);
       await assert.rejects(() => connect(charger, rotation.secret, false));
+      if (charger.issuer_chain)
+        await assert.rejects(() =>
+          connect(charger, rotation.secret, true, false),
+        );
       const revoke = await owner.request(
         charger.base + "/certificates/revoke",
         "POST",

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AccountPrivacyRequest;
 use App\Models\User;
+use App\Services\Privacy\AccountDataExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ class AccountPrivacyController extends Controller
                 'id' => $case->id, 'kind' => $case->kind, 'status' => $case->status,
                 'details' => Crypt::decryptString($case->request_details_encrypted),
                 'created_at' => $case->created_at, 'updated_at' => $case->updated_at,
+                'copy' => app(AccountDataExport::class)->metadata($case->id),
             ]);
 
         return response()->json($page)->header('Cache-Control', 'no-store, private');
@@ -159,6 +161,7 @@ class AccountPrivacyController extends Controller
                     'email' => $owner->email,
                     'account_status' => $owner->account_status,
                 ] : null,
+                'copy' => app(AccountDataExport::class)->metadata($case->id),
                 'reviewed_by' => $case->reviewed_by,
                 'reviewed_at' => $case->reviewed_at,
                 'created_at' => $case->created_at,

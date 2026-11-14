@@ -43,20 +43,28 @@ final class AccountSecondFactor
 
             return;
         }
-        if (preg_match('/^[0-9A-F]{6}(?:-[0-9A-F]{6}){3}$/D', $code)) {
-            $hashes = json_decode(Crypt::decryptString($factor->recovery_hashes), true, 512, JSON_THROW_ON_ERROR);
-            $digest = hash_hmac('sha256', $code, config('app.key'));
+        if (preg_match('/^(?:[0-9A-F]{6}(?:-[0-9A-F]{6}){3}|[0-9A-F]{8}(?:-[0-9A-F]{8}){3})$/D', $code)) {
+            $stored = $this->recoverySet($factor->recovery_hashes);
+            $hashes = $stored['hashes'];
+            $keys = array_values(array_unique(array_merge([(string) config('app.key')], array_filter((array) config('app.previous_keys', []), 'is_string'))));
+            $digests = $stored['version'] === 2
+                ? [hash('sha256', "creabiz-account-recovery-v2\n".$code)]
+                : array_map(fn ($key) => hash_hmac('sha256', $code, $key), $keys);
             $match = null;
             foreach ($hashes as $index => $hash) {
-                if (hash_equals($hash, $digest)) {
-                    $match = $index;
+                foreach ($digests as $digest) {
+                    if (hash_equals($hash, $digest)) {
+                        $match = $index;
+                    }
                 }
             }
             if ($match !== null) {
                 unset($hashes[$match]);
                 DB::table('account_second_factors')->where('user_id', $user->id)->update([
-                    'recovery_hashes' => Crypt::encryptString(json_encode(array_values($hashes), JSON_THROW_ON_ERROR)), 'updated_at' => now(),
+                    'recovery_hashes' => $this->sealRecovery($stored['version'], array_values($hashes)), 'updated_at' => now(),
                 ]);
+
+                DB::table('audit_events')->insert(['actor_id' => $user->id, 'action' => 'account.second_factor.recovery_used', 'subject' => (string) $user->id, 'created_at' => now()]);
 
                 return;
             }
@@ -78,15 +86,45 @@ final class AccountSecondFactor
     {
         $codes = [];
         for ($i = 0; $i < 8; $i++) {
-            $codes[] = implode('-', str_split(strtoupper(bin2hex(random_bytes(12))), 6));
+            $codes[] = implode('-', str_split(strtoupper(bin2hex(random_bytes(16))), 8));
         }
 
         return $codes;
     }
 
+    public function recoverySet(?string $encrypted): array
+    {
+        if ($encrypted === null) {
+            return ['version' => 2, 'hashes' => []];
+        }
+        $data = json_decode(Crypt::decryptString($encrypted), true, 512, JSON_THROW_ON_ERROR);
+        if (is_array($data) && array_is_list($data)) {
+            $version = 1;
+            $hashes = $data;
+        } else {
+            abort_unless(is_array($data) && ($data['version'] ?? null) === 2 && array_key_exists('hashes', $data) && count($data) === 2, 409, 'Authenticator recovery data requires review.');
+            $version = 2;
+            $hashes = $data['hashes'];
+        }
+        abort_unless(is_array($hashes) && array_is_list($hashes) && count($hashes) <= 8, 409, 'Authenticator recovery data requires review.');
+        foreach ($hashes as $hash) {
+            abort_unless(is_string($hash) && preg_match('/^[a-f0-9]{64}$/D', $hash), 409, 'Authenticator recovery data requires review.');
+        }
+        abort_unless(count(array_unique($hashes)) === count($hashes), 409, 'Authenticator recovery data requires review.');
+
+        return compact('version', 'hashes');
+    }
+
+    private function sealRecovery(int $version, array $hashes): string
+    {
+        return Crypt::encryptString(json_encode($version === 2 ? ['version' => 2, 'hashes' => $hashes] : $hashes, JSON_THROW_ON_ERROR));
+    }
+
     public function encryptedHashes(array $codes): string
     {
-        return Crypt::encryptString(json_encode(array_map(fn ($code) => hash_hmac('sha256', $code, config('app.key')), $codes), JSON_THROW_ON_ERROR));
+        // These independent 128-bit random codes do not need an application-key
+        // HMAC; encrypted, domain-separated hashes survive approved key rollover.
+        return $this->sealRecovery(2, array_map(fn ($code) => hash('sha256', "creabiz-account-recovery-v2\n".$code), $codes));
     }
 
     public function rotateAuthority(User $user): void

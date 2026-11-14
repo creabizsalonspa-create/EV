@@ -278,9 +278,14 @@ async function identity() {
     }
     renderIdentity();
     await vehicleModelCatalog.setActor(user);
+    if (epoch !== client.sessionEpoch) return;
     vehicleManualSoc.setActor(user);
     if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
+    // Company controls must not wait behind unrelated customer/support reads.
+    // This remains an authenticated read with the workspace's own actor fence.
+    await vendorWorkspace.setActor(user);
+    if (epoch !== client.sessionEpoch) return;
     if (user) {
         await bookings();
         await simulations();
@@ -290,7 +295,6 @@ async function identity() {
     }
     await window.EvPhoneVerification?.setActor(user, api);
     await window.EvAccountSecondFactor?.setActor(user, api);
-    await vendorWorkspace.setActor(user);
     await stationInfo.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
@@ -801,7 +805,7 @@ async function simulations() {
     for (let s of j.data) {
         let a = ui(
             "article",
-            "SIMULATED · #{id} · {status} · {energy} Wh · {cost} minor units {currency} · No payment processed",
+            s.cost_projection ? "SIMULATED · #{id} · {status} · {energy} Wh · No payment processed" : "SIMULATED · #{id} · {status} · {energy} Wh · {cost} minor units {currency} · No payment processed",
             {
                 id: s.id,
                 status: { translate: s.status },
@@ -810,6 +814,7 @@ async function simulations() {
                 currency: s.currency,
             },
         );
+        window.EvSessionCost.attach(a,s.cost_projection);
         if (s.csms_linked) a.append(ui("p", "Source controls disclaimer"));
         if (s.authorization_method === "rider_token")
             a.append(ui("p", "Card source authorization"));
@@ -866,7 +871,9 @@ async function simulations() {
                 a.append(reconcile);
             }
         }
-        if (s.start_admission_blocked)
+        if (s.start_authorization_revoked)
+            a.append(ui("p", "Start authorization revoked"));
+        else if (s.start_admission_blocked)
             a.append(ui("p", "Start admission blocked"));
         if (user.role === "customer" && s.can_cancel_before_dispatch) {
             const cancel = ui("button", "Cancel undispatched start");
@@ -1766,7 +1773,9 @@ async function refreshInbox() {
         }
     }
     for (const m of n.data) {
-        const row = m.kind === "vehicle.battery.simulated"
+        const row = m.kind === "payment.provider_dispute.test"
+            ? ui("p", "Test-provider dispute updated · invoice #{id}", {id: m.metadata?.invoice_id ?? "?"})
+            : m.kind === "vehicle.battery.simulated"
             ? batteryNotification(m)
             : m.kind === "charging.fault.simulated"
                 ? ui("p", "Observed simulated charger fault · station #{id}", {
@@ -1938,6 +1947,18 @@ async function refreshInbox() {
                 };
                 row.append(review);
             }
+        }
+        if (m.kind === "payment.provider_dispute.test" && m.metadata?.review_only === true &&
+            m.metadata?.evidence === "STRIPE_TEST_CONTRACT" && m.metadata?.real_money_moved === false &&
+            Number.isSafeInteger(m.metadata?.external_dispute_id) && m.metadata.external_dispute_id > 0) {
+            const review = ui("button", "Review provider dispute");
+            review.type = "button";
+            review.onclick = () => {
+                if (session !== client.sessionEpoch || account !== user?.id) return;
+                location.hash = "commercial-finance";
+                el("commercial-finance").scrollIntoView({behavior: "smooth", block: "center"});
+            };
+            row.append(review);
         }
         if (["charging.monitor.requires_review.simulated",
              "charging.monitor.resumed.simulated"].includes(m.kind)) {

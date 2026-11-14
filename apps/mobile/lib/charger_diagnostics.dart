@@ -1,3 +1,4 @@
+import 'source_status_durations.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -325,6 +326,7 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
           ],
           if (value != null) ...[
             Text('${value['protocol']}'),
+            if (value['status_durations'] != null) SourceStatusDurationsView(report: value['status_durations']),
             Text(
               tr(
                 'Automatic fault monitoring',

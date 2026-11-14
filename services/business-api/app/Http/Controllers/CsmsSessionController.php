@@ -15,7 +15,7 @@ class CsmsSessionController extends Controller
 {
     public function start(Request $r, Reservation $reservation, SessionBridge $bridge)
     {
-        return response()->json($bridge->start($reservation, $r->user()->id), 202);
+        return response()->json($bridge->start($reservation, $r->user()->id, consentingActor: $r->user()), 202);
     }
 
     public function stop(Request $r, ChargingSession $session, SessionBridge $bridge)
