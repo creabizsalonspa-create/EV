@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'vendor_finance.dart' show nativeFinancialAmount;
 
 String providerDisputeText(BuildContext context, String en, String ar) =>
     Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
@@ -113,6 +114,35 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         result = ApiPage.fromJson(raw, (row) => providerDispute(row));
       } else {
         receipt = providerDispute((raw as Map)['dispute'], expectedId: id);
+        final events = raw['events'];
+        final operations = raw['evidence_submissions'];
+        if (events is! List ||
+            operations is! List ||
+            events.length > 500 ||
+            operations.length > 500) {
+          throw const FormatException(
+            'Provider history requires assisted review.',
+          );
+        }
+        receipt['history'] = events.map((event) {
+          if (event is! Map ||
+              event['type'] is! String ||
+              event['status'] is! String ||
+              event['created_at'] is! String) {
+            throw const FormatException('Invalid provider history.');
+          }
+          return '${event['created_at']} UTC — ${event['type']}: ${event['status']}';
+        }).toList();
+        receipt['submissions'] = operations.map((operation) {
+          if (operation is! Map ||
+              operation['status'] is! String ||
+              !(operation['submit'] is bool ||
+                  operation['submit'] == 0 ||
+                  operation['submit'] == 1)) {
+            throw const FormatException('Invalid evidence receipt.');
+          }
+          return '${operation['status']} — ${operation['retry_until'] ?? ''}';
+        }).toList();
       }
       if (mounted && foreground && authorized() && request == generation) {
         setState(() {
@@ -148,6 +178,22 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         children: [
           Text('${t('Invoice', 'الفاتورة')} #${row['invoice_id']}'),
           Text('${t('Provider status', 'حالة المزود')}: ${row['status']}'),
+          if (row['amount_minor'] is int && row['minor_units'] is int)
+            Text(nativeFinancialAmount(context, row, 'amount_minor')),
+          if (expanded) ...[
+            Text(t('Provider event history (UTC)', 'سجل أحداث المزود (UTC)')),
+            for (final event in (row['history'] as List? ?? const []))
+              Text(event as String),
+            if ((row['submissions'] as List? ?? const []).isNotEmpty)
+              Text(
+                t(
+                  'Evidence operation receipts; uncertain outcomes require review',
+                  'إيصالات عمليات الأدلة؛ النتائج غير المؤكدة تتطلب المراجعة',
+                ),
+              ),
+            for (final operation in (row['submissions'] as List? ?? const []))
+              Text(operation as String),
+          ],
           if (row['evidence_due_at'] != null)
             Text(
               '${t('Evidence deadline (UTC)', 'الموعد النهائي للأدلة (UTC)')}: ${row['evidence_due_at']}',

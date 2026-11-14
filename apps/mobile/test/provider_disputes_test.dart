@@ -36,7 +36,26 @@ class DisputeApi extends FixtureApi {
     queries.add(query);
     if (pending != null) return pending!.future;
     if (path.contains('/7'))
-      return {'dispute': receipt(), 'can_reconcile': admin};
+      return {
+        'dispute': receipt(),
+        'can_reconcile': admin,
+        'events': [
+          {
+            'type': 'charge.dispute.created',
+            'status': 'needs_response',
+            'created_at': '2026-11-12 10:00:00',
+          },
+        ],
+        'evidence_submissions': admin
+            ? [
+                {
+                  'status': 'uncertain',
+                  'submit': 0,
+                  'retry_until': '2026-11-15 10:00:00',
+                },
+              ]
+            : [],
+      };
     return {
       'data': [receipt()],
       'current_page': 1,
@@ -120,6 +139,28 @@ void main() {
       await tester.pumpAndSettle();
       expect(api.calls.last, 'commercial/external-disputes/7/reconcile');
       expect(api.methods.last, 'POST');
+    },
+  );
+  testWidgets(
+    'background clears private receipts and requires manual refresh',
+    (tester) async {
+      final api = DisputeApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ProviderDisputesView(api: api, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Invoice #19'), findsOneWidget);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(find.text('Invoice #19'), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(find.text('Invoice #19'), findsNothing);
+      await tester.tap(find.text('Refresh list'));
+      await tester.pumpAndSettle();
+      expect(find.text('Invoice #19'), findsOneWidget);
     },
   );
 }
