@@ -197,6 +197,7 @@ function renderIdentity() {
             : "Your charging companion",
     );
     window.EvAdminAccounts?.setActor(user, api);
+    window.EvAdminOperationsMap?.setActor(user, api);
     window.EvAdminKycQueue?.setActor(user, api);
     window.EvAdminStaffPermissions?.setActor(user, api);
     window.EvAdminAuditTrail?.setActor(user, api);

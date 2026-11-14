@@ -112,6 +112,18 @@
       "merge_sha": "f71bdff6e32ab55d4f56432a4ea1d292dba14132",
       "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr94-hosted-checkpoint.json"
+    },
+    "pr109": {
+      "source_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "test_result": "passed",
+      "merge_sha": "8843de87c8761350a022bb30d7c97cc87e684549",
+      "evidence": "docs/evidence/integration-coverage/pr109-hosted-checkpoint.json"
+    },
+    "pr110": {
+      "source_sha": "a6d2386323ab4614dfa110b4cedb0a0994bea85d",
+      "test_result": "passed",
+      "merge_sha": "2c1de9517ea30bcc41e3a21f709d9c75992d161f",
+      "evidence": "docs/evidence/integration-coverage/pr110-hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -769,9 +781,9 @@
     {
       "prd": "3.1",
       "requirement": "Vendor onboarding/KYC/staff",
-      "implemented_code_scope": "Company/evidence/staff/hierarchy workflows, encrypted integrity-checked KYC downloads and readiness, verified-owner approval, versioned staff consent and scoped grants; Admin KYC queue/history and renewal evidence.",
-      "automated_evidence_scope": "VendorOpsTest, VendorOpsCreationTest; vendor browser, native vendor onboarding; iOS pending. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "Agreements, complete external verification-service/legal workflows and live verification-service acceptance.",
+      "implemented_code_scope": "Company/evidence/staff/hierarchy workflows, encrypted integrity-checked KYC downloads and readiness, verified-owner approval, versioned staff consent and scoped grants; Admin KYC queue/history and renewal evidence. Immutable bilingual vendor agreements, explicit owner consent and receipt recovery were integrated through PR109.",
+      "automated_evidence_scope": "VendorOpsTest, VendorOpsCreationTest; vendor browser, native vendor onboarding; iOS pending. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Agreement subset PR109 passed all nine applicable source-linked checks, including bilingual browser consent/recovery, PostgreSQL immutability/races and Flutter owner-consent fixtures; debug/unsigned simulator builds are not production releases.",
+      "remaining_scope": "Complete external verification-service/legal workflows and live verification-service/legal acceptance.",
       "atoms": [
         {
           "id": "3.1.1",
@@ -818,9 +830,9 @@
         {
           "id": "3.1.7",
           "software_atom": "Agreements",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr109",
+          "note": "Bilingual versioned publication, explicit owner consent and immutable recoverable receipts across backend/web/Flutter. Nine exact-source checks passed; source/merge trees match. External legal approval remains separate."
         },
         {
           "id": "3.1.8",
@@ -1841,9 +1853,9 @@
     {
       "prd": "6.1",
       "requirement": "Normalized catalog/freshness",
-      "implemented_code_scope": "Scoped OCPI normalized encrypted records; web/native reported locations/EVSE/connectors and timestamps",
-      "automated_evidence_scope": "OcpiIntegrationTest, OcpiProvisioningTest; roaming web/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "Unified direct/partner catalog, freshness policy and complete provider/connector capability mapping",
+      "implemented_code_scope": "Scoped OCPI normalized encrypted records; web/native reported locations/EVSE/connectors and timestamps. Unified direct/authorized published partner search was integrated through PR110 with matching source/merge trees and all nine applicable checks.",
+      "automated_evidence_scope": "OcpiIntegrationTest, OcpiProvisioningTest; roaming web/native. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. Unified direct/partner search subset PR110 passed all nine source-linked checks, including actual Laravel/browser discovery and required native/source/provenance/lifecycle tests; physical/provider operational acceptance remains separate.",
+      "remaining_scope": "Operational freshness policy, complete provider capability mapping and live provider/physical acceptance remain separately uncredited.",
       "atoms": [
         {
           "id": "6.1.1",
@@ -1869,9 +1881,9 @@
         {
           "id": "6.1.4",
           "software_atom": "Unified direct/partner search",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr110",
+          "note": "Database-paginated direct/authorized published partner search with typed identities and bounded source-safe hydration across backend/web/Flutter. Nine exact-source checks passed; source/merge trees match. No live provider or physical availability acceptance."
         },
         {
           "id": "6.1.5",
