@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\AdminOperationalHealthController;
 use App\Models\User;
 use App\Services\Operations\OperationalHealth;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\Looping;
@@ -25,7 +26,7 @@ class OperationalHealthTest extends TestCase
     {
         parent::setUp();
         config(['operational_health.enabled' => true, 'queue.default' => 'database', 'queue.connections.database.connection' => null, 'queue.connections.database.queue' => 'default']);
-        $this->freezeTime();
+        $this->travelTo(CarbonImmutable::parse('2026-11-14T12:00:00.900000Z'));
     }
 
     public function test_admin_only_snapshots_are_private_and_do_not_manufacture_heartbeats(): void
@@ -54,6 +55,8 @@ class OperationalHealthTest extends TestCase
         $this->assertSame(0, Artisan::call('platform:health-heartbeat'));
         $report = app(OperationalHealth::class)->report();
         $this->assertSame(['recent', 'recent'], array_column($report['components'], 'state'), json_encode($report['components']).$report['as_of']);
+        $this->assertSame($report['as_of'], $report['components'][0]['observed_at']);
+        $this->assertSame($report['as_of'], $report['components'][1]['observed_at']);
         $this->assertFalse($report['all_workers_verified']);
         $this->assertFalse($report['job_success_verified']);
         $this->assertFalse($report['charger_connectivity_verified']);

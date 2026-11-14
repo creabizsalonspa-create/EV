@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('operational_heartbeats', function (Blueprint $table) {
             $table->string('component', 32)->primary();
             $table->char('scope_hash', 64);
-            $table->timestampTz('observed_at');
+            $table->timestampTz('observed_at', 6);
         });
     }
 
