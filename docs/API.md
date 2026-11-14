@@ -385,3 +385,28 @@ English/Arabic unified web/native cards save/remove through the existing canonic
 Station and unified searches accept `recent_source_status` using the ten bounded connector-report states. Filtering runs before pagination against the exact mapped connector, current binding generation, OCPP protocol/component identity and canonical ownership/approval/local-license rules. Connector/power conditions apply to that same connector. Only accepted observations newer than five minutes and not in the future qualify. A newer/future report, same-instant conflict, unsupported state, future receipt or changed binding suppresses an older claim; reported errors normalize to Faulted. PostgreSQL uses its native SHA-256 over the same server-owned binding tuple as the canonical fault observer; SQLite calls that existing fingerprint function directly. Both are tested with OCPP1.6 and2.0.1 mappings and local license-day boundaries.
 
 The EN/AR filter is explicitly an as-of-search simulator-source report, excluding OCPI partner reports. `availability` stays unknown and every booking/start gate is unchanged. Search again to recheck; list membership never proves physical availability or grants charger control.
+
+### Private Admin platform operations map
+
+`GET /api/admin/operations/map` is web-session Admin only, behind the existing
+Admin second-factor gate. It rechecks active role and credential epoch/password
+under a user lock. It returns25 platform inventory points per page, selected
+before projection, with allowlisted company review labels and inventory counts.
+No KYC documents, user contacts, charger identifiers, provider secrets, session
+identities or controls are included. It grants no charging or payment authority.
+
+Filters: literal station-name `q` (80characters), two-uppercase-letter `country`,
+`company_id`, `page`, and `recent_source_status` using the existing exact-current
+five-minute accepted simulator-report policy. Status matching does not establish
+physical availability. Optional `south`, `north`, `west`, `east` must be supplied
+together; west greater than east explicitly crosses the date line. Invalid
+station coordinates are excluded. Company ownership mismatches have no company
+projection and cannot satisfy the company filter. Responses are private/no-store.
+
+The EN/AR Admin interface reads only on explicit search, keeps pagination tied
+to submitted filters and clears private results on account/background changes.
+Self-hosted Leaflet renders only the loaded page. OpenStreetMap tiles require
+explicit consent; moving the map makes no API request, and there is no GPS lookup.
+Polar coordinates outside Web Mercator stay in the text list. The map covers
+platform inventory across companies; it does not assert partner-network coverage,
+physical connectivity or live operating acceptance.
