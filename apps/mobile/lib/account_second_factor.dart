@@ -59,7 +59,7 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
         if (result is! Map || result['recovery_codes'] is! List) throw const ApiException(502, 'Invalid recovery response');
         nextRecovery = List<String>.from(result['recovery_codes'] as List);
       }
-      if (result is Map && result['reauthentication_required'] == true) {
+      if (result['reauthentication_required'] == true) {
         setState(() { status = {'enabled': result['enabled'] == true, 'pending': false}; seed = nextSeed; recovery = nextRecovery;
           message = t('Save your codes, then sign in again before another action.', 'احفظ رموزك ثم سجّل الدخول مجدداً قبل أي إجراء آخر.'); }); return;
       }
