@@ -13,6 +13,7 @@ use App\Models\Vehicle;
 use App\Services\Charging\ConnectorTopology;
 use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\ReservationLifecycle;
+use App\Services\Charging\ReservationPolicy;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\StationGate;
 use App\Services\Discovery\CatalogGeo;
@@ -213,7 +214,9 @@ class PlatformController extends Controller
     public function reserve(Request $r)
     {
         abort_unless($r->user()->role === 'customer', 403);
-        $v = $r->validate(['station_id' => 'required|integer|exists:stations,id', 'starts_at' => 'required|date_format:Y-m-d\TH:i:s\Z', 'idempotency_key' => 'required|string|max:100', 'connector_mapping_id' => 'nullable|integer|min:1', 'vehicle_id' => 'nullable|integer|min:1', 'vehicle_connector_type' => 'missing']);
+        $v = $r->validate(['station_id' => 'required|integer|exists:stations,id', 'starts_at' => 'required|date_format:Y-m-d\TH:i:s\Z', 'idempotency_key' => 'required|string|max:100', 'connector_mapping_id' => 'nullable|integer|min:1', 'vehicle_id' => 'nullable|integer|min:1', 'vehicle_connector_type' => 'missing', 'expected_reservation_terms_version' => 'nullable|integer|min:1|max:2147483647', 'reservation_terms_snapshot' => 'prohibited']);
+        $expectedTerms = isset($v['expected_reservation_terms_version']) ? (int) $v['expected_reservation_terms_version'] : null;
+        unset($v['expected_reservation_terms_version']);
         $v['station_id'] = (int) $v['station_id'];
         $start = CarbonImmutable::parse($v['starts_at'], 'UTC');
         abort_unless($start->second === 0 && in_array($start->minute, [0, 30]), 422, 'Use a UTC half-hour boundary.');
@@ -222,19 +225,24 @@ class PlatformController extends Controller
         if ($prior) {
             abort_unless($prior->station_id === $v['station_id'] && $prior->starts_at === $v['starts_at'] && (int) $prior->connector_mapping_id === (int) ($v['connector_mapping_id'] ?? 0) && (int) $prior->vehicle_id === (int) ($v['vehicle_id'] ?? 0), 409, 'Idempotency key payload mismatch.');
 
+            app(ReservationPolicy::class)->assertVersion($expectedTerms, $prior->reservation_terms_snapshot['version'] ?? null);
+
             return response()->json($prior);
         }
         abort_unless($start->isFuture() && $start->lessThan(now()->addDays(30)), 422, 'Choose a slot within the next 30 days.');
         abort_unless(Station::findOrFail($v['station_id'])->source === 'simulator', 409, 'Reservations are unavailable for discovery-only locations.');
         try {
-            return DB::transaction(function () use ($r, $v) {
+            return DB::transaction(function () use ($r, $v, $expectedTerms) {
                 $station = Station::whereKey($v['station_id'])->lockForUpdate()->firstOrFail();
                 $prior = Reservation::where('user_id', $r->user()->id)->where('idempotency_key', $v['idempotency_key'])->first();
                 if ($prior) {
                     abort_unless($prior->station_id === $v['station_id'] && $prior->starts_at === $v['starts_at'] && (int) $prior->connector_mapping_id === (int) ($v['connector_mapping_id'] ?? 0) && (int) $prior->vehicle_id === (int) ($v['vehicle_id'] ?? 0), 409, 'Idempotency key payload mismatch.');
 
+                    app(ReservationPolicy::class)->assertVersion($expectedTerms, $prior->reservation_terms_snapshot['version'] ?? null);
+
                     return response()->json($prior);
                 }
+                app(ReservationPolicy::class)->assertVersion($expectedTerms);
                 $bookingStart = CarbonImmutable::parse($v['starts_at'], 'UTC');
                 app(StationGate::class)->requireReady($station, isset($v['connector_mapping_id']) ? (int) $v['connector_mapping_id'] : null, $bookingStart, $bookingStart->addMinutes(30));
                 $v['operating_calendar_snapshot'] = app(OperatingCalendar::class)->requireWindow($station, $bookingStart, $bookingStart->addMinutes(30));
@@ -245,6 +253,7 @@ class PlatformController extends Controller
                     $connectorType = $target['connector']->connector_type;
                     abort_if(Reservation::where('station_id', $station->id)->where('starts_at', $v['starts_at'])->where('status', 'confirmed')->whereNull('connector_mapping_id')->exists(), 409, 'Legacy reservation owns this slot.');
                 }
+                $v['reservation_terms_snapshot'] = app(ReservationPolicy::class)->snapshot($station, $bookingStart, $expectedTerms !== null);
                 if (! empty($v['vehicle_id'])) {
                     $vehicle = Vehicle::where('user_id', $r->user()->id)->whereKey($v['vehicle_id'])->lockForUpdate()->firstOrFail();
                     abort_unless($vehicle->connector_type === $connectorType, 422, 'Selected vehicle connector does not match the reserved connector.');

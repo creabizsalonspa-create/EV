@@ -12,6 +12,6 @@ class Reservation extends Model
 
     protected function casts(): array
     {
-        return ['checked_in_at' => 'immutable_datetime', 'operating_calendar_snapshot' => 'array'];
+        return ['checked_in_at' => 'immutable_datetime', 'operating_calendar_snapshot' => 'array', 'reservation_terms_snapshot' => 'array'];
     }
 }
