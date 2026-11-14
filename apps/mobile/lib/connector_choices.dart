@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'connector_freshness.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
@@ -22,20 +24,28 @@ class _ConnectorChoicesViewState extends State<ConnectorChoicesView> {
   Object? error;
   bool busy = false;
   int generation = 0, target = 1;
+  final age = Stopwatch();
+  Timer? freshnessTimer;
   @override
   void initState() {
     super.initState();
+    freshnessTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && data != null) setState(() {});
+    });
     load();
   }
 
   @override
   void dispose() {
     generation++;
+    freshnessTimer?.cancel();
+    age.stop();
     super.dispose();
   }
 
   Future<void> load({int page = 1}) async {
     final epoch = ++generation;
+    age..reset()..start();
     target = page;
     setState(() {
       busy = true;
@@ -44,7 +54,9 @@ class _ConnectorChoicesViewState extends State<ConnectorChoicesView> {
     });
     try {
       final result = await widget.loader(page);
-      if (mounted && epoch == generation) setState(() => data = result);
+      if (mounted && epoch == generation) {
+        setState(() => data = result);
+      }
     } catch (e) {
       if (mounted && epoch == generation) setState(() => error = e);
     } finally {
@@ -88,6 +100,7 @@ class _ConnectorChoicesViewState extends State<ConnectorChoicesView> {
                     Text(
                       '${row['connector_type']} · ${row['max_power_kw']} kW',
                     ),
+                    Text(connectorFreshnessText(row['status_freshness'], age.elapsed, s.arabic)),
                     if (row['reservable'] == true)
                       FilledButton(
                         onPressed: busy
@@ -121,6 +134,10 @@ class _ConnectorChoicesViewState extends State<ConnectorChoicesView> {
             Wrap(
               spacing: 12,
               children: [
+                OutlinedButton(
+                  onPressed: busy ? null : () => load(page: p.current),
+                  child: Text(s.t('refresh')),
+                ),
                 OutlinedButton(
                   onPressed: busy || p.current <= 1
                       ? null

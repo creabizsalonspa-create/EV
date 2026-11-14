@@ -392,7 +392,7 @@ function reservationForm(s, mapping = null) {
     return f;
 }
 async function connectorChoices(station, root, page = 1) {
-    const identity = client.sessionEpoch;
+    const identity = client.sessionEpoch, requestStarted = performance.now();
     root.replaceChildren(ui("p", "Loading…"));
     try {
         const result = await api(
@@ -413,6 +413,7 @@ async function connectorChoices(station, root, page = 1) {
                     `${option.connector_type} · ${option.max_power_kw} kW`,
                 ),
             );
+            window.EvConnectorFreshness.attach(row, option.status_freshness, performance.now() - requestStarted);
             if (option.reservable && user?.role === "customer")
                 row.append(reservationForm(station, option));
             else
@@ -434,6 +435,7 @@ async function connectorChoices(station, root, page = 1) {
             }),
         );
         for (const [label, target, enabled] of [
+            ["Refresh", page, true],
             ["Previous", page - 1, page > 1],
             ["Next", page + 1, page < result.last_page],
         ]) {
