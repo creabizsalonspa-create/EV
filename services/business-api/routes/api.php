@@ -19,6 +19,7 @@ use App\Http\Controllers\OcpiRoamingProtocolController;
 use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
+use App\Http\Controllers\PrechargePricingController;
 use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\RemoteSessionAuthorizationController;
 use App\Http\Controllers\ReservationLifecycleController;
@@ -76,6 +77,8 @@ Route::prefix('v1')->group(function () {
         });
         Route::get('/reservations', [P::class, 'reservations']);
         Route::post('/reservations', [P::class, 'reserve']);
+        Route::post('/reservations/{reservation}/price-estimate', [PrechargePricingController::class, 'preview']);
+        Route::post('/reservations/{reservation}/price-consent', [PrechargePricingController::class, 'accept']);
         Route::delete('/reservations/{reservation}', [P::class, 'cancel']);
         Route::get('/simulations', [S::class, 'index']);
         Route::post('/reservations/{reservation}/simulate-start', [S::class, 'start']);

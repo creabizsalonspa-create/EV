@@ -12,6 +12,7 @@ use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\ReservationPolicy;
 use App\Services\Charging\StationGate;
 use App\Services\Finance\FinanceService;
+use App\Services\Finance\PrechargePricing;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -85,8 +86,9 @@ class SimulationController extends Controller
             abort_if($b->charging_evse_id && ChargingSession::where('charging_evse_id', $b->charging_evse_id)->whereIn('status', ['pending_start', 'charging', 'stopping'])->exists(), 409, 'This EVSE still has an unresolved session.');
             $finance = app(FinanceService::class);
             $tariff = $finance->activeTariff($station);
+            $priceConsentId = app(PrechargePricing::class)->consent($b, $station, $tariff);
             $s = ChargingSession::create(['reservation_id' => $b->id, 'charging_evse_id' => $b->charging_evse_id, 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
-            $finance->snapshotSession($s, $tariff);
+            $finance->snapshotSession($s, $tariff, $priceConsentId);
             $this->audit($r, 'simulation.started', $s->id);
 
             return response()->json($s, 201);

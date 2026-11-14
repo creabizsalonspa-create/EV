@@ -1,3 +1,4 @@
+import 'precharge_pricing.dart';
 import 'privacy_requests.dart';
 import 'phone_verification.dart';
 import 'account_second_factor.dart';
@@ -461,7 +462,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               : '${s.t('reserveConfirm')} · ${vehicle['name']}',
         ),
         content: SingleChildScrollView(child: Text(
-          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${terms == null ? s.t('reservationTerms') : reservationPolicyText(s.arabic)}',
+          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${terms == null ? s.t('reservationTerms') : reservationPolicyText(s.arabic,priceAcceptanceRequired:terms['price_acceptance_required']==true)}',
         )),
         actions: [
           TextButton(
@@ -706,10 +707,19 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                           }),
                     child: Text(s.t('cancelBooking')),
                   ),
+                  TextButton(
+                    onPressed:busy ? null : () => perform(() async { await reviewPrechargePricing(context,api!,id); }),
+                    child:Text(s.arabic ? 'مراجعة سعر الشحن' : 'Review charging price'),
+                  ),
                   FilledButton(
                     onPressed: busy
                         ? null
                         : () => perform(() async {
+                            final current = api!.sessionFence();
+                            final requiredPrice = row['reservation_terms_snapshot'] is Map && row['reservation_terms_snapshot']['price_acceptance_required'] == true;
+                            final accepted = !requiredPrice || await reviewPrechargePricing(context, api!, id);
+                            if (!mounted || !current()) return;
+                            if (!accepted) { await load(page:recordPage); return; }
                             await api!.request(
                               'reservations/$id/${row['csms_bound'] == true ? 'csms-start' : 'simulate-start'}',
                               method: 'POST',

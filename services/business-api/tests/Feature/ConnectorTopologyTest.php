@@ -22,10 +22,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Support\AcceptsPrechargePricing;
 use Tests\TestCase;
 
 class ConnectorTopologyTest extends TestCase
 {
+    use AcceptsPrechargePricing;
     use RefreshDatabase;
 
     private function topology(?string $protocol = null): array
@@ -105,7 +107,9 @@ class ConnectorTopologyTest extends TestCase
         $later['starts_at'] = $start->copy()->addMinutes(30)->format('Y-m-d\TH:i:s\Z');
         $three = $this->postJson('/api/reservations', $later)->assertCreated()->json();
         $this->travelTo($start->copy()->addMinutes(1));
+        $this->acceptPrechargePrice($one['id']);
         $this->postJson('/api/reservations/'.$one['id'].'/simulate-start')->assertCreated();
+        $this->acceptPrechargePrice($two['id']);
         $this->postJson('/api/reservations/'.$two['id'].'/simulate-start')->assertCreated();
         $this->travelTo($start->copy()->addMinutes(31));
         $this->postJson('/api/reservations/'.$three['id'].'/simulate-start')->assertConflict();
@@ -170,6 +174,7 @@ class ConnectorTopologyTest extends TestCase
         Http::fake(['*/dev/token' => Http::response(['accessToken' => 'synthetic']), '*/ocpp/*' => Http::response([['success' => true]])]);
         foreach ($bookings as $index => $booking) {
             $this->postJson('/api/reservations/'.$booking['id'].'/simulate-start')->assertConflict();
+            $this->acceptPrechargePrice($booking['id']);
             $queued = $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertAccepted()->json();
             $this->assertSame('submitted', app(CsmsDispatcher::class)->dispatch($queued['start_command']['id'])->status);
             $expected = $protocol === '1.6' ? ($index === 0 ? 7 : 9) : ($index === 0 ? 5 : 6);
@@ -186,6 +191,7 @@ class ConnectorTopologyTest extends TestCase
         $start = now()->startOfHour()->addHour();
         $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'source'))->assertCreated()->json();
         $this->travelTo($start->addMinute());
+        $this->acceptPrechargePrice($booking['id']);
         $queued = $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertAccepted()->json();
         $event = ['event_id' => 'target-proof', 'session_id' => $queued['session']['id'], 'identifier' => 'ev-test-canonical', 'protocol' => '1.6', 'transaction_id' => '333', 'type' => 'started', 'sequence' => 0, 'meter_wh' => 1000, 'occurred_at' => now()->toISOString(), 'source_evse_number' => 0, 'source_connector_number' => 9];
         try {
@@ -231,6 +237,7 @@ class ConnectorTopologyTest extends TestCase
         $body['connector_mapping_id'] = $map['id'];
         $booking = $this->actingAs($f['customer'])->postJson('/api/reservations', $body)->assertCreated()->json();
         $this->travelTo(CarbonImmutable::parse($body['starts_at'])->addMinute());
+        $this->acceptPrechargePrice($booking['id']);
         $queued = $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertAccepted()->json();
         Http::fake(['*/dev/token' => Http::response(['accessToken' => 'synthetic']), '*/ocpp/*' => Http::response([['success' => true]])]);
         $this->assertSame('submitted', app(CsmsDispatcher::class)->dispatch($queued['start_command']['id'])->status);

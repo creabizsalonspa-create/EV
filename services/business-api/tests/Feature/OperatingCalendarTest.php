@@ -26,10 +26,12 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Tests\Support\AcceptsPrechargePricing;
 use Tests\TestCase;
 
 class OperatingCalendarTest extends TestCase
 {
+    use AcceptsPrechargePricing;
     use RefreshDatabase;
 
     private User $vendor;
@@ -163,6 +165,8 @@ class OperatingCalendarTest extends TestCase
         $this->actingAs($this->customer)->postJson('/api/reservations/'.$id.'/simulate-start')->assertConflict();
         $this->assertSame(0, ChargingSession::count());
         $this->publish($this->details(2));
+        $this->actingAs($this->customer);
+        $this->acceptPrechargePrice($id);
         $sid = $this->actingAs($this->customer)->postJson('/api/reservations/'.$id.'/simulate-start')->assertCreated()->json('id');
         $d['revision'] = 3;
         $this->publish($d);
@@ -185,6 +189,8 @@ class OperatingCalendarTest extends TestCase
             DB::table('csms_bindings')->insert(['station_id' => $this->station->id, 'identifier' => 'ev-test-calendar-'.str_replace('.', '', $protocol), 'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
             $id = $this->book('2026-11-16T04:00:00Z', 'command-'.$protocol)->assertCreated()->json('id');
             $this->travelTo(CarbonImmutable::parse('2026-11-16 04:00:00 UTC'));
+            $this->actingAs($this->customer);
+            $this->acceptPrechargePrice($id);
             $reply = $this->actingAs($this->customer)->postJson('/api/reservations/'.$id.'/csms-start')->assertAccepted();
             $command = ChargerCommand::findOrFail($reply->json('start_command.id'));
             $d = $this->details(1);
@@ -229,6 +235,8 @@ class OperatingCalendarTest extends TestCase
     public function test_online_remote_callback_rechecks_pending_calendar_but_keeps_ongoing_authorization(string $protocol): void
     {
         $booking = $this->mappedSource($protocol);
+        $this->actingAs($this->customer);
+        $this->acceptPrechargePrice($booking->id);
         $queued = $this->actingAs($this->customer)->postJson('/api/reservations/'.$booking->id.'/csms-start')->assertAccepted();
         $command = ChargerCommand::findOrFail($queued->json('start_command.id'));
         $command->update(['status' => 'submitted']);
@@ -270,6 +278,8 @@ class OperatingCalendarTest extends TestCase
         $token = RiderAccessToken::create(['user_id' => $this->customer->id, 'label' => 'Synthetic source card', 'suffix' => 'TEST', 'token_type' => 'ISO14443', 'token_digest' => hash('sha256', 'CALENDARTEST'), 'token_ciphertext' => encrypt('CALENDARTEST'), 'expires_at' => now()->addDay(), 'idempotency_key' => 'calendar-card', 'payload_hash' => str_repeat('a', 64), 'source_registration_nonce' => (string) Str::uuid(), 'provisioning_state' => 'active', 'provisioned_at' => now(), 'source_authorization_id' => 7]);
         $grant = DB::table('rider_charging_grants')->insertGetId(['token_id' => $token->id, 'company_id' => VendorCompany::firstOrFail()->id, 'station_id' => $this->station->id, 'state' => 'approved', 'expires_at' => now()->addHour(), 'created_at' => now(), 'updated_at' => now()]);
         $bridge = app(SessionBridge::class);
+        $this->actingAs($this->customer);
+        $this->acceptPrechargePrice($booking->id);
         $receipt = $bridge->start($booking, $this->customer->id, $token, $grant);
         $d = $this->details(1);
         $d['closed_dates'] = ['2026-11-16'];

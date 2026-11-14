@@ -45,6 +45,13 @@ const { chromium } = require("playwright"),
       context.setDefaultTimeout(15000);
       const p = await context.newPage();
       p.on("pageerror", (e) => errors.push(e.message));
+      p.on("dialog", async (dialog) => {
+        if (dialog.type() === 'prompt' && dialog.message().startsWith('Estimated energy in Wh')) await dialog.accept('10000');
+        else if (dialog.type() === 'confirm' && dialog.message().startsWith('Simulated charging estimate:')) {
+          assert.match(dialog.message(), /No real payment occurs/);
+          await dialog.accept();
+        } else await dialog.dismiss();
+      });
       await p.goto(base);
       await p
         .locator("#account [name=email]")

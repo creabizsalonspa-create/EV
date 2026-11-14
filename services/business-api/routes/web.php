@@ -19,6 +19,7 @@ use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
+use App\Http\Controllers\PrechargePricingController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\StationAvailabilityBlockController;
@@ -67,6 +68,8 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::post('/api/vehicles/{vehicle}/battery-simulation', [VehicleBatteryController::class, 'simulate']);
     Route::get('/api/reservations', [P::class, 'reservations']);
     Route::post('/api/reservations', [P::class, 'reserve']);
+    Route::post('/api/reservations/{reservation}/price-estimate', [PrechargePricingController::class, 'preview']);
+    Route::post('/api/reservations/{reservation}/price-consent', [PrechargePricingController::class, 'accept']);
     Route::delete('/api/reservations/{reservation}', [P::class, 'cancel']);
 });
 

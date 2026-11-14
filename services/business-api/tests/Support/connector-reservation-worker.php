@@ -4,7 +4,9 @@ use App\Http\Controllers\AccountPrivacyController;
 use App\Http\Controllers\ChargerAdmissionController;
 use App\Http\Controllers\ChargingOperationsController;
 use App\Http\Controllers\PlatformController;
+use App\Http\Controllers\PrechargePricingController;
 use App\Http\Controllers\ReservationLifecycleController;
+use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\VendorOpsController;
 use App\Models\AccountPrivacyRequest;
 use App\Models\ChargerCommand;
@@ -17,6 +19,7 @@ use App\Models\VendorOps\VendorCompanyStaff;
 use App\Services\Charging\AdmissionLifecycle;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\ReservationLifecycle;
+use App\Services\Finance\PrechargePricing;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -43,7 +46,11 @@ try {
     $request = Request::create('/api/reservations', 'POST', $body);
     $request->setUserResolver(fn () => $actor);
     $operation = $argv[5] ?? 'reserve';
-    if ($operation === 'privacy_submit') {
+    if ($operation === 'price_accept') {
+        echo app(PrechargePricingController::class)->accept($request, Reservation::findOrFail($body['reservation_id']), app(PrechargePricing::class))->getStatusCode();
+    } elseif ($operation === 'price_start') {
+        echo app(SimulationController::class)->start($request, Reservation::findOrFail($body['reservation_id']))->getStatusCode();
+    } elseif ($operation === 'privacy_submit') {
         echo app(AccountPrivacyController::class)->submit($request)->getStatusCode();
     } elseif ($operation === 'privacy_withdraw') {
         echo app(AccountPrivacyController::class)->withdraw($request, AccountPrivacyRequest::findOrFail($body['case_id']))->getStatusCode();

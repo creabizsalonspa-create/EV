@@ -1,0 +1,42 @@
+{
+  "scope": "Server-owned simulator pre-charge estimate, explicit short-lived owner consent, immutable receipt, canonical quote lineage, application/OCPP/rider admission and web/Flutter review",
+  "laravel": {
+    "tests": 1018,
+    "assertions": 20532,
+    "result": "passed",
+    "scope": "Full suite before additive public pricing disclosure; final focused policy checks passed separately"
+  },
+  "postgresql": {
+    "tests": 91,
+    "assertions": 1056,
+    "result": "passed",
+    "version": 17
+  },
+  "postgresql_concurrency": {
+    "tests": 1,
+    "assertions": 23,
+    "result": "passed",
+    "scope": "Two separate processes accept the same token then concurrently start; one receipt/session/canonical quote; no payment, journal or charger command"
+  },
+  "browser_components": {
+    "tests": 5,
+    "result": "passed"
+  },
+  "hosted_pending": [
+    "actual Laravel/browser price review and consent",
+    "Flutter helper/widget and real HTTP lifecycle",
+    "Android debug and unsigned iOS simulator builds"
+  ],
+  "original_atom_credit_added": false,
+  "production_accepted": false,
+  "route_and_finance_guards": {
+    "tests": 27,
+    "assertions": 1240,
+    "result": "passed"
+  },
+  "latest_policy_checks": {
+    "tests": 11,
+    "assertions": 162,
+    "result": "passed"
+  }
+}

@@ -10,10 +10,12 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Tests\Support\AcceptsPrechargePricing;
 use Tests\TestCase;
 
 class StationAvailabilityBlockTest extends TestCase
 {
+    use AcceptsPrechargePricing;
     use RefreshDatabase;
 
     private function station(User $vendor): Station
@@ -100,6 +102,7 @@ class StationAvailabilityBlockTest extends TestCase
         $station = $this->station($vendor);
         $id = $this->actingAs($customer)->postJson('/api/reservations', ['station_id' => $station->id, 'starts_at' => '2026-11-17T08:30:00Z', 'idempotency_key' => 'active-before-block'])->assertCreated()->json('id');
         $this->travelTo(CarbonImmutable::parse('2026-11-17T08:30:00Z'));
+        $this->acceptPrechargePrice($id);
         $session = $this->postJson('/api/reservations/'.$id.'/simulate-start')->assertCreated()->json('id');
         $body = $this->details();
         $body['starts_at'] = '2026-11-17T08:30:00Z';
