@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
@@ -24,6 +25,7 @@ class ChargerResetController extends Controller
 {
     public function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
     {
+        app(MaintenanceActor::class)->check($r->user());
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
         if ($write) {
             abort_unless($r->user()->role === 'admin' || $company->owner_id === $r->user()->id, 404);
