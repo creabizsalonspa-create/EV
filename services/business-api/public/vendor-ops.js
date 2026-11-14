@@ -181,12 +181,24 @@ window.createVendorWorkspace = ({
     async function paged(parent, path, render, page = 1, epoch = generation) {
         parent.setAttribute("aria-busy", "true");
         try {
-            const result = await api(
-                base + path + "?page=" + page,
-                "GET",
-                undefined,
-                controller?.signal,
-            );
+            let result;
+            try {
+                result = await api(
+                    base + path + "?page=" + page,
+                    "GET",
+                    undefined,
+                    controller?.signal,
+                );
+            } catch (error) {
+                if (!valid(epoch) || !parent.isConnected || error.name === "AbortError") return;
+                if ([401, 419].includes(error.status)) { expired(); return; }
+                // A failed read has no authority over independent sections.
+                // Render a visible error and offer an explicit read-only retry.
+                parent.replaceChildren(ui("p", "Section data unavailable. Refresh to retry."));
+                button(parent, "Refresh section", () => paged(parent, path, render, page, epoch));
+                notice(error);
+                return;
+            }
             if (!valid(epoch) || !parent.isConnected) return;
             parent.replaceChildren();
             for (const row of result.data) await render(row, parent);
