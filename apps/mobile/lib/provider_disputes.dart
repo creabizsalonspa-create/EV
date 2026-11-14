@@ -42,7 +42,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
     with WidgetsBindingObserver {
   ApiPage<Map<String, dynamic>>? page;
   Map<String, dynamic>? detail;
-  bool busy = false, attention = false, foreground = true, canReconcile = false;
+  bool busy = false, attention = false, foreground = true;
   int generation = 0, target = 1;
   String? error;
   late bool Function() authorized;
@@ -91,7 +91,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
     super.dispose();
   }
 
-  Future<void> load({int number = 1, int? id, bool reconcile = false}) async {
+  Future<void> load({int number = 1, int? id}) async {
     if (!foreground || !authorized()) return;
     final request = ++generation;
     setState(() {
@@ -104,8 +104,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
       final raw = await widget.api.request(
         id == null
             ? 'commercial/external-disputes'
-            : 'commercial/external-disputes/$id${reconcile ? '/reconcile' : ''}',
-        method: reconcile ? 'POST' : 'GET',
+            : 'commercial/external-disputes/$id',
         query: id == null
             ? {'page': '$number', 'attention': attention ? '1' : '0'}
             : const {},
@@ -150,7 +149,6 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
         setState(() {
           page = result;
           detail = receipt;
-          canReconcile = id != null && (raw as Map)['can_reconcile'] == true;
           target = number;
         });
       }
@@ -253,47 +251,6 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
           if (busy) const LinearProgressIndicator(),
           if (visible && error != null) Text(error!),
           if (currentDetail != null) receipt(currentDetail, expanded: true),
-          if (currentDetail != null && canReconcile)
-            OutlinedButton(
-              onPressed: busy
-                  ? null
-                  : () async {
-                      final confirmed = await showDialog<bool>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: Text(
-                            t(
-                              'Reconcile provider status?',
-                              'مطابقة حالة المزود؟',
-                            ),
-                          ),
-                          content: Text(
-                            t(
-                              'Read the test provider and update its canonical dispute receipt. This does not submit evidence, move funds or post a chargeback entry.',
-                              'قراءة مزود الاختبار وتحديث إيصال النزاع المعتمد. لا تُرسل أدلة ولا تُحرك أموال ولا يُسجل قيد استرداد مصرفي.',
-                            ),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              child: Text(t('Cancel', 'إلغاء')),
-                            ),
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, true),
-                              child: Text(t('Reconcile', 'مطابقة')),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (confirmed == true &&
-                          mounted &&
-                          authorized() &&
-                          foreground) {
-                        load(id: currentDetail['id'] as int, reconcile: true);
-                      }
-                    },
-              child: Text(t('Reconcile provider status', 'مطابقة حالة المزود')),
-            ),
           if (currentPage != null) ...[
             if (currentPage.items.isEmpty)
               Text(t('No provider disputes.', 'لا توجد نزاعات لدى المزود.')),

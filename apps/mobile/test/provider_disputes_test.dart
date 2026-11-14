@@ -121,7 +121,7 @@ void main() {
     expect(find.text('Invoice #19'), findsNothing);
   });
   testWidgets(
-    'only explicit Admin confirmation invokes status reconciliation',
+    'native provider receipts remain read-only despite unexpected mutation hints',
     (tester) async {
       final api = DisputeApi()..admin = true;
       await tester.pumpWidget(
@@ -132,14 +132,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Inspect receipt'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Reconcile provider status'));
-      await tester.tap(find.text('Reconcile provider status'));
-      await tester.pumpAndSettle();
+      expect(find.text('Reconcile provider status'), findsNothing);
       expect(api.methods.every((method) => method == 'GET'), isTrue);
-      await tester.tap(find.text('Reconcile'));
-      await tester.pumpAndSettle();
-      expect(api.calls.last, 'commercial/external-disputes/7/reconcile');
-      expect(api.methods.last, 'POST');
     },
   );
   testWidgets(
