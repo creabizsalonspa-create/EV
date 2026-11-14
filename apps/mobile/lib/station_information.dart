@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'strings.dart';
+import 'station_availability_blocks.dart';
 
 const stationInfoDays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const stationInfoDaysEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -74,6 +75,11 @@ class StationInformationPanel extends StatelessWidget {
         childrenPadding: const EdgeInsets.all(16),
         expandedCrossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (info['availability_blocks'] is List)
+            for (final block in (info['availability_blocks'] as List).whereType<Map>()) ...[
+              Text('${block['starts_at']} → ${block['ends_at']} (UTC)', textDirection: TextDirection.ltr),
+              Text(stationInfoT(context, 'Operator block: ${block['reason_en']}', 'حجب من المشغل: ${block['reason_ar']}')),
+            ],
           if (!published)
             Text(
               stationInfoT(
@@ -666,6 +672,10 @@ class _VendorStationInfoState extends State<VendorStationInformationView>
                         },
                   child: Text(t('Refresh from server', 'تحديث من الخادم')),
                 ),
+                if (info != null && chosen != null)
+                  OutlinedButton(onPressed: busy || saving ? null : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => StationAvailabilityBlocksView(api: widget.api, stationId: chosen!['id'] as int))),
+                    child: Text(t('Manage station availability blocks', 'إدارة فترات حجب المحطة'))),
                 if (info != null)
                   Form(
                     key: form,
