@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'invoice.dart';
 import 'money_input.dart';
+import 'vendor_company.dart' show VendorDocumentPreview;
 
 /// Read-only partner lineage; financial actions stay in the existing invoice workflow.
 class PartnerBillingPage extends StatefulWidget {
@@ -137,6 +138,57 @@ class _PartnerBillingState extends State<PartnerBillingPage>
           }
         });
       }
+    }
+  }
+
+  Future<void> pdf() async {
+    if (busy || report == null || !current()) return;
+    final epoch = generation;
+    final query = {
+      ...appliedFilters,
+      'locale': Localizations.localeOf(context).languageCode == 'ar'
+          ? 'ar'
+          : 'en',
+    };
+    setState(() {
+      busy = true;
+      message = '';
+    });
+    try {
+      final document = await widget.api.downloadPartnerBilling(
+        widget.providerId,
+        query,
+      );
+      if (!mounted || !current() || epoch != generation) return;
+      if (document.mime != 'application/pdf' ||
+          document.bytes.length < 5 ||
+          String.fromCharCodes(document.bytes.take(5)) != '%PDF-') {
+        throw const FormatException('Invalid partner report');
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => VendorDocumentPreview(
+            document: document,
+            title: t('Partner billing reconciliation', 'مطابقة فوترة الشريك'),
+            notice: t(
+              'Read-only TEST report. Credits reference original invoices; do not sum rows as revenue. Not a partner settlement or proof of bank payment.',
+              'تقرير اختبار للعرض فقط. تشير الإشعارات الدائنة للفواتير الأصلية؛ لا تجمع السجلات كإيراد. ليس تسوية للشريك أو إثبات دفع مصرفي.',
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted || !current() || epoch != generation) return;
+      setState(
+        () => message = t(
+          'Export unavailable. Narrow filters to at most 250 records and refresh.',
+          'التصدير غير متاح. حدد المرشحات إلى ٢٥٠ سجلًا كحد أقصى ثم حدّث.',
+        ),
+      );
+      if (error is ApiException && [401, 419].contains(error.status))
+        widget.onExpired();
+    } finally {
+      if (mounted && epoch == generation) setState(() => busy = false);
     }
   }
 
@@ -308,6 +360,18 @@ class _PartnerBillingState extends State<PartnerBillingPage>
               if (busy) const LinearProgressIndicator(),
               if (message.isNotEmpty) Text(message),
               if (report != null) ...[
+                TextButton(
+                  onPressed: busy ? null : pdf,
+                  child: Text(
+                    t('View filtered private PDF', 'عرض PDF الخاص المرشح'),
+                  ),
+                ),
+                Text(
+                  t(
+                    'PDF uses applied filters across all pages (maximum 250 records).',
+                    'يستخدم PDF المرشحات المطبقة لكل الصفحات (٢٥٠ سجلًا كحد أقصى).',
+                  ),
+                ),
                 for (final row in report!['data'] as List)
                   Card(
                     child: Padding(

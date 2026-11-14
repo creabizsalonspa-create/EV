@@ -438,6 +438,19 @@ class EvApi {
   Future<PrivateDocument> downloadDocument(String path) async =>
       await _request(path, binary: true) as PrivateDocument;
 
+  Future<PrivateDocument> downloadPartnerBilling(
+    int providerId,
+    Map<String, String> query,
+  ) async {
+    if (providerId < 1) throw ArgumentError('Invalid provider');
+    return await _request(
+          'ocpi/providers/$providerId/billing-reconciliation/pdf',
+          query: query,
+          binary: true,
+        )
+        as PrivateDocument;
+  }
+
   Future<dynamic> _request(
     String path, {
     String method = 'GET',

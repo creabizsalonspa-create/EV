@@ -62,6 +62,12 @@ void main() {
       expect(report['data'][0]['billing']['paid_minor'], 0);
       expect(report['data'][0]['billing']['refunded_minor'], 0);
       expect(report['data'][0]['billing']['due_minor'], 0);
+      final pdf = await owner.downloadPartnerBilling(f['provider_id'], {
+        'kind': 'credits',
+        'locale': 'ar',
+      });
+      expect(pdf.mime, 'application/pdf');
+      expect(String.fromCharCodes(pdf.bytes.take(5)), '%PDF-');
       final replay = await owner.request(
         '$root/unpaid-credit',
         method: 'POST',
@@ -81,6 +87,11 @@ void main() {
       expect(resolved['state'], 'issued');
       expect(resolved['credit_note']['id'], credit['credit_note']['id']);
       await driver.signIn(f['driver'], f['password']);
+      await expectLater(
+        driver.downloadPartnerBilling(f['provider_id'], {'kind': 'credits'}),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 404)),
+      );
+
       await expectLater(
         driver.request(reportPath),
         throwsA(
