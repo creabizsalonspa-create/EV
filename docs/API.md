@@ -372,6 +372,7 @@ Retired tariff hashes also fence sandbox offers and first-time IdToken grants, i
 `vendor-ops/companies/{company}/agreement` is a private, owner/Admin-only current-country review and paginated history. Protected web Admin `POST /publish` requires the current password, bilingual text, publication reference, explicit publication approval and `expected_revision`. An identical lost-response retry recovers the version; competing revisions conflict. `POST /withdraw` requires the current password, version ID, expected revision and confirmation; it stops new acceptance country-wide while preserving published text and receipts. No document is seeded or approved automatically. Admin bearer tokens remain forbidden.
 
 Owner web/native `POST /accept` binds explicit acceptance to the current version UUID and SHA-256. Country, ownership, account epoch and password-snapshot changes are fenced under locks. A repeated exact acceptance returns its existing receipt. `GET /receipts/{uuid}` reads that company's historical immutable document/receipt, including after a newer publication or withdrawal. Company evidence is encrypted at rest; no browser/native persistence is added. This records software evidence, not verified legal acceptance, KYC approval, financial or charger authority; existing onboarding/charging/payment gates remain independent.
+
 Authenticated `GET /api/discovery/search` and `/api/v1/discovery/search` search published local platform inventory and already-authorized OCPI location reports together. Optional `q` (80 characters, literal name/address/operator text), `scope=all|catalog|partner`, and normalized `connector=CCS2|Type2|CHAdeMO` apply before a single 25-result SQL-union pagination. Stable `catalog:{id}` and `partner:{id}` keys preserve supplier identity even when IDs collide; ordering is descending local ID then source kind, without asserting chronology or deduplicating physical sites. Hydration is bounded to the selected page. Partner authorization/publication is checked again before projecting the allowlisted public location and source timestamps. Unknown availability and false booking/control remain explicit; no provider lookup, credential, private payload, price comparison, physical availability or actionable roaming is inferred. External discovery-provider queries retain their separate consent workflow.
 
 Web and Flutter provide explicit EN/AR unified search and pagination. Platform results open existing station details/connector/booking controls through the additive exact `station_id` catalog selector; partner cards are read-only. Native foreground/account fences discard late results and clear them on background. Responses are private/no-store, searches stay in memory, and no financial or charging writer is called.
@@ -410,3 +411,20 @@ explicit consent; moving the map makes no API request, and there is no GPS looku
 Polar coordinates outside Web Mercator stay in the text list. The map covers
 platform inventory across companies; it does not assert partner-network coverage,
 physical connectivity or live operating acceptance.
+### Observed site interval demand
+
+The existing authenticated company operational analytics read and CSV/PDF exports
+now include `maximum_observed_site_interval_average_w`,
+`demand_observed_seconds`, and `demand_ambiguous_evse_seconds`. The maximum
+is nullable when no usable accepted meter intervals exist; observed zero
+remains zero. The calculation sums floored integer average watts from accepted
+session meter intervals wholly inside the UTC report window. It uses the same
+canonical current binding/topology and tenant scope as the energy report.
+Concurrent intervals from different EVSEs contribute together; overlapping
+sessions on one EVSE are excluded during their ambiguous overlap. Missing
+EVSE telemetry is not inferred to be zero. Coverage is partial, not a whole-site
+instantaneous peak or grid-meter demand measurement. `physical_site_demand_verified`
+is always false and `billing_authority` remains false. EN/AR web, PDF and native
+views preserve these distinctions. No ledger writes or provider calls occur.
+Oversized exact-number sums return409 rather than rounding or overflowing.
+Managed OCPI credential register/rotate/unregister and incoming preparation retain the original authenticated Admin snapshot. Current role, active status, security epoch and password hash are checked before discovery/claim and again under the Admin→provider lock order immediately before one-shot transport. Revocation during discovery denies the stale request without creating credentials. Revocation after claim conservatively quarantines the operation under the existing unknown-outcome policy; a newly authenticated operator can recover the receipt without resending. Completed partner approvals and historical source reconciliation are not retroactively rewritten.

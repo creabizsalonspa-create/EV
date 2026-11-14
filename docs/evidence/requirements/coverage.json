@@ -114,18 +114,30 @@
       "merge_sha": "f71bdff6e32ab55d4f56432a4ea1d292dba14132",
       "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr94-hosted-checkpoint.json"
+    },
+    "pr109": {
+      "source_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "test_result": "passed",
+      "merge_sha": "8843de87c8761350a022bb30d7c97cc87e684549",
+      "evidence": "docs/evidence/integration-coverage/pr109-hosted-checkpoint.json"
+    },
+    "pr110": {
+      "source_sha": "a6d2386323ab4614dfa110b4cedb0a0994bea85d",
+      "test_result": "passed",
+      "merge_sha": "2c1de9517ea30bcc41e3a21f709d9c75992d161f",
+      "evidence": "docs/evidence/integration-coverage/pr110-hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
-    "coded": "57.11",
-    "tested": "57.11",
-    "merged": "57.11",
+    "coded": "57.81",
+    "tested": "57.81",
+    "merged": "57.81",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "8644217/15135120",
-    "tested": "8644217/15135120",
-    "merged": "8644217/15135120",
+    "coded": "4374661/7567560",
+    "tested": "4374661/7567560",
+    "merged": "4374661/7567560",
     "production_accepted": "0"
   },
   "categories": [
@@ -1304,9 +1316,9 @@
       "requirement": "Vendor onboarding/KYC/staff",
       "atoms": 8,
       "counts": {
-        "coded": 6,
-        "tested": 6,
-        "merged": 6,
+        "coded": 7,
+        "tested": 7,
+        "merged": 7,
         "production_accepted": 0
       },
       "details": [
@@ -1391,13 +1403,13 @@
         {
           "id": "3.1.7",
           "software_atom": "Agreements",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr109",
+          "note": "Bilingual versioned publication, explicit owner consent and immutable recoverable receipts across backend/web/Flutter. Nine exact-source checks passed; source/merge trees match. External legal approval remains separate.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -3228,9 +3240,9 @@
       "requirement": "Normalized catalog/freshness",
       "atoms": 6,
       "counts": {
-        "coded": 3,
-        "tested": 3,
-        "merged": 3,
+        "coded": 4,
+        "tested": 4,
+        "merged": 4,
         "production_accepted": 0
       },
       "details": [
@@ -3276,13 +3288,13 @@
         {
           "id": "6.1.4",
           "software_atom": "Unified direct/partner search",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr110",
+          "note": "Database-paginated direct/authorized published partner search with typed identities and bounded source-safe hydration across backend/web/Flutter. Nine exact-source checks passed; source/merge trees match. No live provider or physical availability acceptance.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

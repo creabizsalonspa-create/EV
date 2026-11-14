@@ -21,13 +21,26 @@ class LoyaltyService
         return intdiv($value * $numerator, $denominator);
     }
 
-    public function publish(string $table, int $actor, array $values, string $key): object
+    private function lockedAdmin(User|int $snapshot): int
+    {
+        $current = User::whereKey($snapshot instanceof User ? $snapshot->id : $snapshot)->lockForUpdate()->firstOrFail();
+        abort_unless($current->role === 'admin' && $current->account_status === 'active', 403, 'Active Admin authorization is required.');
+        if ($snapshot instanceof User) {
+            abort_unless($snapshot->role === $current->role
+                && (int) $snapshot->auth_epoch === (int) $current->auth_epoch
+                && hash_equals((string) $snapshot->password, (string) $current->password), 409, 'Account credentials changed; authenticate again.');
+        }
+
+        return $current->id;
+    }
+
+    public function publish(string $table, User|int $actor, array $values, string $key): object
     {
         $this->enabled();
         abort_unless(in_array($table, ['loyalty_policies', 'loyalty_rewards'], true), 422);
 
         return DB::transaction(function () use ($table, $actor, $values, $key) {
-            User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            $actor = $this->lockedAdmin($actor);
             $request = hash('sha256', $actor.':'.$key);
             $fingerprint = hash('sha256', json_encode($values, JSON_THROW_ON_ERROR));
             if ($old = DB::table($table)->where('request_key', $request)->first()) {
@@ -224,11 +237,12 @@ class LoyaltyService
         }, 3);
     }
 
-    public function transition(int $id, int $actor, string $action, string $reason): object
+    public function transition(int $id, User|int $actor, string $action, string $reason): object
     {
         $this->enabled();
 
         return DB::transaction(function () use ($id, $actor, $action, $reason) {
+            $actor = $this->lockedAdmin($actor);
             $hint = DB::table('loyalty_redemptions')->find($id);
             abort_unless($hint, 404);
             User::whereKey($hint->user_id)->lockForUpdate()->firstOrFail();

@@ -1,0 +1,86 @@
+{
+  "source_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+  "integrated_sha": "8843de87c8761350a022bb30d7c97cc87e684549",
+  "source_tree": "c82eef19b7f8ec3b719e93ebbafba38286b43e7a",
+  "integrated_tree": "c82eef19b7f8ec3b719e93ebbafba38286b43e7a",
+  "pr": 109,
+  "verified_at_utc": "2026-11-14T19:09:11.239Z",
+  "test_result": "passed",
+  "required_check_count": 9,
+  "required_checks": [
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689877/job/132452599606"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689877/job/132452599690"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689877/job/132452599752"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689877/job/132452599754"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689877/job/132452599801"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689877/job/132465243411"
+    },
+    {
+      "name": "financial-browser",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689885/job/132452599426"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689867/job/132452844829"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "377382967b588cdb586a6d864bfa0000205949a4",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43596689867/job/132452845097"
+    }
+  ],
+  "credited_atoms": [
+    "3.1.7"
+  ],
+  "review_scope": "Versioned bilingual Admin agreement publication/withdrawal, explicit company-owner review, immutable recoverable acceptance receipts and encrypted company snapshots across Laravel/PostgreSQL, web and Flutter. Publication is not legal approval or charger/payment authority.",
+  "scope_review": "Original titles, order, category denominators and weights unchanged. Only the named implemented software atom is credited; broader related atoms remain uncredited.",
+  "production_accepted": false,
+  "limitations": [
+    "Synthetic software validation; no physical charger/live PSP/partner acceptance.",
+    "Android debug and unsigned iOS simulator artifacts are not signed production releases.",
+    "No real staging deployment, production sign-off or legal acceptance is inferred."
+  ]
+}
