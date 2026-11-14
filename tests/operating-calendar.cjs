@@ -26,7 +26,7 @@ const {execFileSync} = require('node:child_process');
     await page.locator('#account [name=password]').fill(vendor.testCredentials.password);
     await page.locator('button[value=login]').click();
     const root = page.locator('#station-information-vendor');
-    const form = root.locator('form');
+    const form = root.locator('form.station-information-form');
     await form.waitFor();
     assert.equal(await form.locator('[name=enforce_operating_hours]').isChecked(),false);
     for (const row of await form.locator('.station-hours-row').all()) {
