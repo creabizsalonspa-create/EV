@@ -1,3 +1,4 @@
+import 'vendor_campaigns.dart';
 import 'provider_disputes.dart';
 import 'privacy_requests.dart';
 import 'phone_verification.dart';
@@ -1230,6 +1231,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                           RiderAccessView(api: api!, onExpired: expiredSession),
                     ),
                   );
+                } else if (value == 'vendorCampaigns') {
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+                    VendorCampaignsView(api: api!, onExpired: expiredSession)));
                 } else if (value == 'providerDisputes') {
                   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
                     ProviderDisputesView(api: api!, onExpired: expiredSession)));
@@ -1396,6 +1400,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   enabled: !busy,
                   child: Text(analyticsText(context, 'title')),
                 ),
+                if (account!.role == 'vendor')
+                  PopupMenuItem(
+                    value: 'vendorCampaigns',
+                    enabled: !busy,
+                    child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'حملات المورّد' : 'Vendor campaigns'),
+                  ),
                 PopupMenuItem(
                   value: 'providerDisputes',
                   enabled: !busy,
