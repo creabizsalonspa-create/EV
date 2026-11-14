@@ -141,6 +141,7 @@ test("operational flags are prepared before login windows and preparation failur
   assert.deepEqual(calls, [
     "./scripts/configuration-read-setup",
     "./scripts/diagnostic-logs-setup",
+    "./scripts/reset-operations-setup",
   ]);
   const rejected = [];
   assert.throws(
@@ -164,6 +165,7 @@ test("operational adapter setup remains intact after adding the battery discover
   assert.deepEqual(invoked, [
     { script: "./scripts/configuration-read-setup", args: [] },
     { script: "./scripts/diagnostic-logs-setup", args: [] },
+    { script: "./scripts/reset-operations-setup", args: [] },
   ]);
 });
 
