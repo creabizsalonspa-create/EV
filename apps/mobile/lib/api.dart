@@ -54,12 +54,14 @@ class Station {
   final bool favorite;
   final String timezone;
   final Map<String, dynamic>? information;
+  final Map<String, dynamic>? reservationTerms;
   Station.fromJson(Map<String, dynamic> json)
     : latitude = double.tryParse('${json['latitude']}'),
       longitude = double.tryParse('${json['longitude']}'),
       id = json['id'] as int,
       name = json['name'] as String,
       timezone = json['timezone'] as String? ?? 'UTC',
+      reservationTerms = json['reservation_terms'] is Map ? Map<String,dynamic>.from(json['reservation_terms'] as Map) : null,
       information = json['information'] is Map ? Map<String, dynamic>.from(json['information'] as Map) : null,
       connector = json['connector_type'] as String,
       source = json['evidence'] as String,
@@ -73,6 +75,7 @@ class Station {
       connectorNumber = null;
   Station.forConnector(Station parent, Map<String, dynamic> option)
     : timezone = parent.timezone,
+      reservationTerms = option['reservation_terms'] is Map ? Map<String,dynamic>.from(option['reservation_terms'] as Map) : parent.reservationTerms,
       information = parent.information,
       latitude = parent.latitude,
       longitude = parent.longitude,
@@ -90,6 +93,7 @@ class Station {
       connectorNumber = option['connector_number'] as int;
   Station.withFavorite(Station parent, this.favorite)
     : timezone = parent.timezone,
+      reservationTerms = parent.reservationTerms,
       information = parent.information,
       latitude = parent.latitude,
       longitude = parent.longitude,

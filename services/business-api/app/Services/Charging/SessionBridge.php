@@ -72,6 +72,7 @@ class SessionBridge
             abort_unless($station->source === 'simulator' && preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/', $binding->identifier), 409, 'Only provisioned simulated chargers are enabled.');
             app(StationGate::class)->requireReady($station, $r->connector_mapping_id);
             app(OperatingCalendar::class)->requireStart($station);
+            app(ReservationPolicy::class)->requireUnoccupied($station, $r->charging_evse_id);
             abort_if(SessionLink::where('binding_id', $binding->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->when($r->connector_mapping_id, fn ($q) => $q->where(function ($q) use ($r) {
                 $q->whereNull('connector_mapping_id')->orWhereIn('connector_mapping_id', ConnectorMapping::where('evse_id', $r->charging_evse_id)->select('id'));
             }))->exists(), 409, 'An unresolved charging session already owns this simulator.');

@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\ConnectorTopology;
 use App\Services\Charging\OperatingCalendar;
+use App\Services\Charging\ReservationPolicy;
 use App\Services\Charging\StationGate;
 use App\Services\Finance\FinanceService;
 use Carbon\CarbonImmutable;
@@ -80,6 +81,7 @@ class SimulationController extends Controller
             abort_unless($station->source === 'simulator', 409);
             app(StationGate::class)->requireReady($station, $b->connector_mapping_id);
             app(OperatingCalendar::class)->requireStart($station);
+            app(ReservationPolicy::class)->requireUnoccupied($station, $b->charging_evse_id);
             if ($b->connector_mapping_id) {
                 abort_if(app(ConnectorTopology::class)->binding($b) !== null, 409, 'Use the mapped CSMS start.');
             }

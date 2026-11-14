@@ -322,6 +322,13 @@ function reservationForm(s, mapping = null) {
     i.required = true;
     l.append(i);
     f.append(l);
+    const policy = s.reservation_terms;
+    if (policy != null && !window.EvReservationPolicy?.valid(policy)) {
+        f.replaceChildren(batteryNode('p', 'Reservation terms are unavailable. Refresh before booking.', 'شروط الحجز غير متاحة. حدّث قبل الحجز.'));
+        return f;
+    }
+    const termsVersion = policy?.version;
+    window.EvReservationPolicy?.attach(f, policy);
     const actorEpoch = client.sessionEpoch;
     const vehicleLabel = document.createElement("label");
     const vehicle = document.createElement("select");
@@ -360,6 +367,7 @@ function reservationForm(s, mapping = null) {
         try {
             await api("reservations", "POST", {
                 station_id: s.id,
+                ...(termsVersion ? {expected_reservation_terms_version:termsVersion} : {}),
                 ...(vehicle.value ? { vehicle_id: Number(vehicle.value) } : {}),
                 ...(mapping ? { connector_mapping_id: mapping.id } : {}),
                 starts_at:
@@ -700,6 +708,7 @@ async function bookings() {
                 status: { translate: r.status },
             },
         );
+        window.EvReservationPolicy?.attach(a, r.reservation_terms_snapshot);
         if (r.vehicle_connector_type) a.append(r.vehicle_label
             ? node("p", r.vehicle_label + " · " + r.vehicle_connector_type)
             : batteryNode("p", "Vehicle connector · " + r.vehicle_connector_type, "موصل المركبة · " + r.vehicle_connector_type));

@@ -263,6 +263,7 @@ class EvStrings {
     'utcTime': 'UTC start — minute 00 or 30',
     'halfHour': 'Choose a UTC half-hour boundary.',
     'reserveConfirm': 'Reserve simulator slot?',
+    'reservationPolicyUnavailable': 'Reservation terms are unavailable. Refresh before booking.',
     'reservationTerms': '30-minute UTC slot. No physical charging or payment.',
     'reserve': 'Reserve',
     'reservation': 'Reservation #{id} · {status}',
@@ -663,6 +664,7 @@ class EvStrings {
     'utcTime': 'وقت البدء بالتوقيت العالمي — الدقيقة 00 أو 30',
     'halfHour': 'اختر بداية نصف ساعة بالتوقيت العالمي.',
     'reserveConfirm': 'حجز موعد تجريبي؟',
+    'reservationPolicyUnavailable': 'شروط الحجز غير متاحة. حدّث قبل الحجز.',
     'reservationTerms':
         'موعد لمدة 30 دقيقة بالتوقيت العالمي. لا شحن فعلي ولا مدفوعات.',
     'reserve': 'حجز',
