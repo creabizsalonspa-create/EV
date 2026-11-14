@@ -1406,7 +1406,8 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     enabled: !busy,
                     child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'حملات المورّد' : 'Vendor campaigns'),
                   ),
-                PopupMenuItem(
+                if (['customer', 'vendor'].contains(account!.role))
+                  PopupMenuItem(
                   value: 'providerDisputes',
                   enabled: !busy,
                   child: Text(providerDisputeText(context, 'Provider disputes', 'نزاعات مزود الدفع')),

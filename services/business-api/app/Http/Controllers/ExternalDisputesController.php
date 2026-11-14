@@ -52,7 +52,7 @@ class ExternalDisputesController extends Controller
         $events = DB::table('external_dispute_events')->where('dispute_id', $dispute)->orderBy('id')->get(['id', 'type', 'status', 'created_at']);
         $operations = $r->user()->role === 'admin' ? DB::table('external_dispute_evidence')->where('dispute_id', $dispute)->orderBy('id')->get(['id', 'actor_id', 'submit', 'status', 'retry_until', 'created_at', 'updated_at']) : [];
 
-        return response()->json(['dispute' => $this->sanitized($row), 'events' => $events, 'evidence_submissions' => $operations, 'can_reconcile' => $r->user()->role === 'admin']);
+        return response()->json(['dispute' => $this->sanitized($row), 'events' => $events, 'evidence_submissions' => $operations]);
     }
 
     public function reconcile(Request $r, int $dispute, ExternalDisputes $service)
