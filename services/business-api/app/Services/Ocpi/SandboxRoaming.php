@@ -46,6 +46,7 @@ class SandboxRoaming
         $connectors = array_values(array_filter($evses[0]['connectors'] ?? [], fn ($x) => is_array($x) && ($x['id'] ?? null) === $connectorId));
         abort_unless(count($connectors) === 1 && in_array($tariffId, $connectors[0]['tariff_ids'] ?? [], true), 409, 'An advertised connector tariff is required.');
         $tariff = OcpiRecord::where('ocpi_provider_id', $p->id)->where('module', 'tariffs')->where('country_code', $c['party_country'])->where('party_id', $c['party_id'])->where('external_id', $tariffId)->firstOrFail();
+        abort_if(DB::table('ocpi_catalog_retirements')->where('record_id', $tariff->id)->where('content_hash', $tariff->content_hash)->exists(), 409, 'The reported tariff was withdrawn; review a fresh offer.');
         abort_unless($tariff->source_updated_at->betweenIncluded(now()->subMinutes(5), now()), 409, 'Refresh the reported tariff before consent.');
         $rawTariff = $tariff->payload;
         abort_unless(count($rawTariff['elements'] ?? []) === 1 && empty($rawTariff['elements'][0]['restrictions']) && ! isset($rawTariff['min_price']) && ! isset($rawTariff['max_price']), 409, 'Unsupported tariff restrictions require review before sandbox consent.');
@@ -129,6 +130,10 @@ class SandboxRoaming
             abort_unless($driver?->role === 'customer' && app(ChargingActorConsent::class)->matches($driver, $order->consent_auth_epoch === null ? null : (int) $order->consent_auth_epoch), 409, 'Charging consent was revoked or the customer account is unavailable.');
             abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');
             abort_unless($p->authorization_revision === $order->provider_revision && $link->generation === $order->credential_generation, 409, 'Review current credentials and terms before starting.');
+            if ($order->authorized_at === null) {
+                $target = json_decode(Crypt::decryptString($order->target_ciphertext), true, flags: JSON_THROW_ON_ERROR);
+                abort_if(DB::table('ocpi_catalog_retirements')->where('record_id', $order->tariff_record_id)->where('content_hash', $target['tariff_hash'] ?? '')->exists(), 409, 'The consented tariff was withdrawn; a new charging request requires fresh review.');
+            }
         }
         if ($start) {
             abort_unless($order->token_revoked_at === null && CarbonImmutable::parse($order->expires_at)->isFuture(), 409, 'Sandbox start consent expired or was revoked.');
