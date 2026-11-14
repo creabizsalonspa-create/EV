@@ -1,0 +1,33 @@
+{
+  "status": "local_verified_hosted_pending",
+  "reviewed_parent": "73ede9606387f31fc9f12aca5c568fc973a8c546",
+  "fix": "Arabic PDF previously rendered blank/off-page through zero-width RTL MultiCell geometry. Use positive width and left-based cell geometry with explicit Arabic text direction; translate title/context/field labels. Plain-text partner values remain non-HTML.",
+  "sqlite": {
+    "tests": 7,
+    "assertions": 447,
+    "result": "passed"
+  },
+  "postgresql": {
+    "tests": 7,
+    "assertions": 447,
+    "result": "passed"
+  },
+  "style": "passed",
+  "reports": {
+    "ar": {
+      "sha256": "76b8b1eb1a400f2a53dfbb8bc3e5fb2c592b4547b40fe9116b4a4dbde21e77b2",
+      "pages": 1,
+      "painted_text_runs": 23,
+      "render_visually_checked": true,
+      "fixture": "SYNTHETIC-CDR-251 / SIM-TEST-ORIGINAL-251 / KWD / 3 minor digits / 251 noncash credit / zero paid/refunded/due"
+    },
+    "en": {
+      "sha256": "1ed4035dee5f31b39dd6461ddbce7c7f05f59b0314f004226d3f5af1188966f5",
+      "pages": 1,
+      "painted_text_runs": 22,
+      "render_visually_checked": true,
+      "fixture": "SYNTHETIC-CDR-251 / SIM-TEST-ORIGINAL-251 / KWD / 3 minor digits / 251 noncash credit / zero paid/refunded/due"
+    }
+  },
+  "production_accepted": false
+}
