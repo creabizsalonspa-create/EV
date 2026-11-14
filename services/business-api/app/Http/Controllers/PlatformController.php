@@ -19,6 +19,7 @@ use App\Services\Discovery\CatalogGeo;
 use App\Services\Discovery\CatalogPriceFilter;
 use App\Services\Discovery\CatalogTextFilters;
 use App\Services\Discovery\StationCatalog;
+use App\Services\Identity\AccountSecondFactor;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -49,12 +50,12 @@ class PlatformController extends Controller
 
     public function login(Request $r)
     {
-        $v = $r->validate(['email' => 'required|email', 'password' => 'required|string']);
+        $v = $r->validate(['email' => 'required|email', 'password' => 'required|string|max:128', 'second_factor_code' => 'nullable|string|max:128']);
         // Browser sign-in must always target the session guard, even after
         // an earlier Sanctum request changed the default guard in a
         // long-running worker or multi-request test process.
         $web = Auth::guard('web');
-        if (! $web->attempt($v)) {
+        if (! $web->attempt(['email' => $v['email'], 'password' => $v['password']])) {
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
         }
         if ($web->user()->account_status !== 'active') {
@@ -64,6 +65,18 @@ class PlatformController extends Controller
             $r->session()->invalidate();
             $r->session()->regenerateToken();
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
+        }
+        if (in_array($web->user()->role, ['customer', 'vendor'], true)) {
+            try {
+                $account = app(AccountSecondFactor::class)->authenticate($web->user(), $v['second_factor_code'] ?? '');
+                $web->setUser($account);
+            } catch (\Throwable $error) {
+                // A password-only session must never survive failed MFA.
+                $web->logout();
+                $r->session()->invalidate();
+                $r->session()->regenerateToken();
+                throw $error;
+            }
         }
         $r->session()->regenerate();
         $r->session()->put('account_auth_epoch', (int) $web->user()->auth_epoch);

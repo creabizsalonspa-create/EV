@@ -599,7 +599,13 @@ class EvApi {
     _csrf = data['token'] as String;
   }
 
-  Future<Account> signIn(String email, String password, {String? name}) async {
+  Future<Account> signIn(String email, String password, {String? name}) =>
+      _signIn(email, password, name: name);
+
+  Future<Account> signInWithFactor(String email, String password, String code) =>
+      _signIn(email, password, secondFactorCode: code);
+
+  Future<Account> _signIn(String email, String password, {String? name, String? secondFactorCode}) async {
     // The next account begins a new epoch before any secure-storage await.
     final signInEpoch = _epoch + 1;
     _authTransitionEpoch = signInEpoch;
@@ -620,6 +626,7 @@ class EvApi {
           'email': email,
           'password': password,
           if (name != null) 'name': name,
+          if (secondFactorCode != null) 'second_factor_code': secondFactorCode,
         },
         internalAuthHandshake: true,
       );

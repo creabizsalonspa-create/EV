@@ -86,7 +86,10 @@ const fs = require("node:fs"),
       await page.locator("#account input[name=name]").inputValue(),
       "Unchanged draft",
     );
-    assert.equal(await page.locator("#account input").count(), 3);
+    assert.equal(await page.locator("#account input").count(), 4);
+    assert.equal(await page.locator('#account input[name="second_factor_code"]').getAttribute('type'), 'password');
+    assert.equal(await page.locator('#account input[name="second_factor_code"]').getAttribute('autocomplete'), 'one-time-code');
+    assert.match(await page.locator('[data-second-factor-login] summary').textContent(), /رمز تطبيق التحقق/);
     assert.equal(
       await page.locator("#stations h3").textContent(),
       "Create fleet",
