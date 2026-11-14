@@ -547,7 +547,7 @@ window.mountCommercialCampaigns = ({ container, api, ui, actor }) => {
                     await request(
                         `commercial/campaigns/${id}/${action}`,
                         "POST",
-                        v,
+                        {...v, expected_control_revision: data.campaign.control_revision},
                     );
                     if (alive()) await detail(id);
                 },

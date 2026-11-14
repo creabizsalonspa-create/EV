@@ -47,6 +47,40 @@ class CampaignService
         return [(int) $row->reserved, (int) $row->slots];
     }
 
+    private function currentActor(User $snapshot, int $status = 403): User
+    {
+        $current = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+        abort_unless($current->account_status === 'active' && $current->role === $snapshot->role
+            && (int) $current->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $current->password, (string) $snapshot->password), $status, 'Authenticate again before managing campaigns.');
+
+        return $current;
+    }
+
+    public function controlRevision(int $id): int
+    {
+        return (int) DB::table('commercial_campaign_events')->where('campaign_id', $id)->max('id');
+    }
+
+    /** Serialize negative receipts with creation on the same owning user lock. */
+    public function cancelIntent(User $actor, string $requestKey): array
+    {
+        return DB::transaction(function () use ($actor, $requestKey) {
+            $actor = $this->currentActor($actor);
+            abort_unless($actor->role === 'vendor', 403);
+            $key = hash('sha256', $actor->id.':'.$requestKey);
+            $campaign = DB::table('commercial_campaigns')->where('request_key', $key)->first();
+            if ($campaign) {
+                return ['cancelled' => false, 'campaign' => $campaign];
+            }
+            if (DB::table('commercial_campaign_cancelled_intents')->insertOrIgnore(['request_key' => $key, 'vendor_id' => $actor->id, 'created_at' => now()]) === 1) {
+                DB::table('audit_events')->insert(['actor_id' => $actor->id, 'action' => 'commercial_campaign.intent_cancelled', 'subject' => $key, 'created_at' => now()]);
+            }
+
+            return ['cancelled' => true, 'campaign' => null];
+        }, 3);
+    }
+
     public function create(User $vendor, array $v): object
     {
         $this->enabled();
@@ -54,9 +88,10 @@ class CampaignService
         abort_unless(isset($v['budget_units']) && is_int($v['budget_units']) && $v['budget_units'] >= 1 && $v['budget_units'] <= 1000000, 422, 'Campaign delivery budget must be a bounded positive integer.');
 
         return DB::transaction(function () use ($vendor, $v) {
-            $vendor = User::whereKey($vendor->id)->lockForUpdate()->firstOrFail();
+            $vendor = $this->currentActor($vendor);
             abort_unless($vendor->role === 'vendor', 403);
             $key = hash('sha256', $vendor->id.':'.$v['idempotency_key']);
+            abort_if(DB::table('commercial_campaign_cancelled_intents')->where('request_key', $key)->exists(), 409, 'This saved creation intent was cancelled.');
             unset($v['idempotency_key']);
             ksort($v);
             $fingerprint = hash('sha256', json_encode($v, JSON_THROW_ON_ERROR));
@@ -78,17 +113,18 @@ class CampaignService
         }, 3);
     }
 
-    public function action(int $id, User $actor, string $action, string $reason): object
+    public function action(int $id, User $actor, string $action, string $reason, ?int $expectedRevision = null): object
     {
         $this->enabled();
 
-        return DB::transaction(function () use ($id, $actor, $action, $reason) {
-            $actor = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($id, $actor, $action, $reason, $expectedRevision) {
+            $actor = $this->currentActor($actor, 404);
             $hint = DB::table('commercial_campaigns')->find($id) ?? abort(404);
             User::whereKey($hint->vendor_id)->lockForUpdate()->firstOrFail();
             $row = DB::table('commercial_campaigns')->where('id', $id)->lockForUpdate()->first();
             $admin = $actor->role === 'admin';
             abort_unless($admin || ($actor->role === 'vendor' && (int) $row->vendor_id === $actor->id), 404);
+            abort_if($expectedRevision !== null && $expectedRevision !== $this->controlRevision($id), 409, 'Refresh the changed campaign before another decision.');
             $targets = ['submit' => ['draft', 'submitted'], 'approve' => ['submitted', 'approved'], 'reject' => ['submitted', 'rejected'], 'pause' => ['approved', 'paused'], 'resume' => ['paused', 'approved'], 'suspend' => ['approved', 'suspended'], 'reinstate' => ['suspended', 'approved']];
             if ($action === 'cancel') {
                 abort_unless(in_array($row->status, ['draft', 'submitted', 'approved', 'paused', 'suspended', 'cancelled'], true), 409);

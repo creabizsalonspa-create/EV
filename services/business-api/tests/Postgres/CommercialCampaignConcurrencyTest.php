@@ -133,4 +133,34 @@ class CommercialCampaignConcurrencyTest extends TestCase
         $this->assertSame([false, true], $duplicates);
         $this->assertDatabaseCount('commercial_campaign_deliveries', 1);
     }
+
+    public function test_creation_and_terminal_intent_cancellation_serialize_on_the_same_vendor(): void
+    {
+        $f = (require base_path('tests/Fixtures/commercial-campaigns.php'))();
+        $cash = DB::table('commercial_subscription_ledger')->count();
+        $input = ['vendor' => $f['vendor']->id, 'values' => $f['values']];
+        try {
+            [$creation, $cancellation] = $this->race('create-or-cancel', [array_merge($input, ['operation' => 'create']), array_merge($input, ['operation' => 'cancel'])]);
+            $this->assertSame(200, $cancellation['status']);
+            if ($creation['status'] === 201) {
+                $this->assertFalse($cancellation['cancelled']);
+                $this->assertSame($creation['id'], $cancellation['id']);
+                $this->assertDatabaseCount('commercial_campaigns', 1);
+                $this->assertDatabaseCount('commercial_campaign_cancelled_intents', 0);
+            } else {
+                $this->assertSame(409, $creation['status']);
+                $this->assertTrue($cancellation['cancelled']);
+                $this->assertDatabaseCount('commercial_campaigns', 0);
+                $this->assertDatabaseCount('commercial_campaign_cancelled_intents', 1);
+            }
+            $this->assertDatabaseCount('commercial_subscription_ledger', $cash);
+            $this->assertDatabaseCount('finance_payments', 0);
+        } finally {
+            // This class owns a disposable database. Remove only its test
+            // cancellation receipts so guarded migration rollback can clean up.
+            $this->assertSame('testing', app()->environment());
+            $this->assertMatchesRegularExpression('/_(review|test|testing)$/', DB::connection()->getDatabaseName());
+            DB::statement('TRUNCATE commercial_campaign_cancelled_intents');
+        }
+    }
 }

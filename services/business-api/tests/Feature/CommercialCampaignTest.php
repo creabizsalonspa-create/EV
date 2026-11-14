@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Services\Commercial\Campaigns\CampaignService;
 use App\Services\Commercial\SubscriptionCreditService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class CommercialCampaignTest extends TestCase
@@ -226,5 +228,92 @@ class CommercialCampaignTest extends TestCase
         $this->actingAs($f['vendor'])->postJson('/campaign-test/commercial/campaigns', $v)->assertForbidden();
         $this->assertDatabaseCount('commercial_campaigns', 1);
         $this->assertDatabaseHas('commercial_campaigns', ['id' => $c['id'], 'status' => 'submitted']);
+    }
+
+    public function test_cancelled_creation_intent_is_terminal_and_does_not_consume_package_or_cash(): void
+    {
+        $f = $this->fixture();
+        $cash = DB::table('commercial_subscription_ledger')->count();
+        $path = '/campaign-test/commercial/campaign-intents/cancel';
+        $body = ['idempotency_key' => $f['values']['idempotency_key']];
+        $this->actingAs($f['vendor'])->postJson($path, $body)->assertOk()->assertJsonPath('cancelled', true)->assertJsonPath('campaign', null);
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('cancelled', true);
+        $this->assertDatabaseCount('commercial_campaign_cancelled_intents', 1);
+        $this->assertSame(1, DB::table('audit_events')->where('action', 'commercial_campaign.intent_cancelled')->count());
+        $this->postJson('/campaign-test/commercial/campaigns', $f['values'])->assertConflict();
+        $this->assertDatabaseCount('commercial_campaigns', 0);
+        $f['values']['idempotency_key'] = 'new-explicit-creation';
+        $this->create($f);
+        $this->assertDatabaseCount('commercial_campaigns', 1);
+        $this->assertDatabaseCount('commercial_subscription_ledger', $cash);
+        $this->assertDatabaseCount('finance_payments', 0);
+        try {
+            DB::transaction(fn () => DB::table('commercial_campaign_cancelled_intents')->delete());
+            $this->fail('A cancelled creation intent was unsealed.');
+        } catch (QueryException) {
+            $this->assertDatabaseCount('commercial_campaign_cancelled_intents', 1);
+        }
+    }
+
+    public function test_resolving_an_accepted_intent_recovers_its_receipt_without_cancelling_the_campaign(): void
+    {
+        $f = $this->fixture();
+        $campaign = $this->create($f);
+        $path = '/campaign-test/commercial/campaign-intents/cancel';
+        $body = ['idempotency_key' => $f['values']['idempotency_key']];
+        $this->postJson($path, $body)->assertOk()->assertJsonPath('cancelled', false)->assertJsonPath('campaign.id', $campaign['id'])->assertJsonPath('campaign.status', 'draft');
+        $this->actingAs($f['other'])->postJson($path, $body)->assertOk()->assertJsonPath('cancelled', true)->assertJsonPath('campaign', null);
+        $this->actingAs($f['customer'])->postJson($path, $body)->assertForbidden();
+        $this->actingAs($f['admin'])->postJson($path, $body)->assertForbidden();
+        $this->create($f);
+        $this->assertDatabaseCount('commercial_campaigns', 1);
+        $this->assertDatabaseHas('commercial_campaigns', ['id' => $campaign['id'], 'status' => 'draft']);
+    }
+
+    public function test_campaign_control_revision_rejects_stale_aba_decisions(): void
+    {
+        $f = $this->fixture();
+        $campaign = $this->create($f);
+        $path = '/campaign-test/commercial/campaigns/'.$campaign['id'];
+        $submitted = $this->postJson($path.'/submit', ['reason' => 'Review this explicit creative', 'expected_control_revision' => $campaign['control_revision']])->assertOk()->json('campaign');
+        $approved = $this->actingAs($f['admin'])->postJson($path.'/approve', ['reason' => 'Reviewed creative approved', 'expected_control_revision' => $submitted['control_revision']])->assertOk()->json('campaign');
+        $paused = $this->actingAs($f['vendor'])->postJson($path.'/pause', ['reason' => 'Vendor pauses delivery', 'expected_control_revision' => $approved['control_revision']])->assertOk()->json('campaign');
+        $this->postJson($path.'/resume', ['reason' => 'Vendor resumes delivery', 'expected_control_revision' => $paused['control_revision']])->assertOk()->assertJsonPath('campaign.status', 'approved');
+        $this->postJson($path.'/pause', ['reason' => 'Vendor pauses delivery', 'expected_control_revision' => $approved['control_revision']])->assertConflict();
+        $this->assertDatabaseHas('commercial_campaigns', ['id' => $campaign['id'], 'status' => 'approved']);
+        $this->assertSame(5, DB::table('commercial_campaign_events')->where('campaign_id', $campaign['id'])->count());
+    }
+
+    public function test_old_authenticated_actor_cannot_cancel_or_create_after_global_revocation(): void
+    {
+        $f = $this->fixture();
+        DB::table('users')->where('id', $f['vendor']->id)->increment('auth_epoch');
+        foreach (['create', 'cancel'] as $operation) {
+            try {
+                $service = app(CampaignService::class);
+                if ($operation === 'create') {
+                    $service->create($f['vendor'], $f['values']);
+                } else {
+                    $service->cancelIntent($f['vendor'], $f['values']['idempotency_key']);
+                }
+                $this->fail('Revoked authority was accepted.');
+            } catch (HttpException $error) {
+                $this->assertSame(403, $error->getStatusCode());
+            }
+        }
+        $this->assertDatabaseCount('commercial_campaigns', 0);
+        $this->assertDatabaseCount('commercial_campaign_cancelled_intents', 0);
+    }
+
+    public function test_native_vendor_contract_works_without_relaxing_admin_bearer_restrictions(): void
+    {
+        $f = $this->fixture();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($f['vendor']->createToken('native-campaign')->plainTextToken)
+            ->postJson('/api/v1/commercial/campaigns', $f['values'])->assertCreated()->assertJsonPath('campaign.vendor_id', $f['vendor']->id);
+        $this->getJson('/api/v1/commercial/campaigns')->assertOk()->assertJsonPath('adapter_enabled', true)->assertJsonPath('total', 1);
+        $this->postJson('/api/v1/commercial/campaign-intents/cancel', ['idempotency_key' => $f['values']['idempotency_key']])->assertOk()->assertJsonPath('cancelled', false);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($f['admin']->createToken('forbidden-admin-native')->plainTextToken)->getJson('/api/v1/commercial/campaigns')->assertForbidden();
     }
 }
