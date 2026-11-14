@@ -130,4 +130,37 @@ class PrivacyAccessExportTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
         $this->assertDatabaseCount('finance_refunds', 0);
     }
+
+    public function test_expiry_purge_is_bounded_and_rollback_cannot_delete_delivery_receipts(): void
+    {
+        [$owner, $admin, , $case] = $this->scenario();
+        $this->actingAs($admin)->postJson('/api/admin/privacy-requests/'.$case->id.'/access-copy', ['password' => 'password', 'request_key' => 'bounded-expiry-proof'])->assertCreated();
+        $original = DB::table('account_privacy_exports')->first();
+        $cases = [];
+        $rows = [];
+        for ($i = 0; $i < 1000; $i++) {
+            $id = $case->id + $i + 1;
+            $cases[] = ['id' => $id, 'user_id' => $owner->id, 'kind' => 'access', 'status' => 'closed_review', 'request_details_encrypted' => Crypt::encryptString('Synthetic bounded expiry proof'), 'created_at' => now(), 'updated_at' => now()];
+            $row = (array) $original;
+            unset($row['id']);
+            $row['privacy_request_id'] = $id;
+            $rows[] = $row;
+        }
+        foreach (array_chunk($cases, 100) as $batch) {
+            DB::table('account_privacy_requests')->insert($batch);
+        }
+        foreach (array_chunk($rows, 100) as $batch) {
+            DB::table('account_privacy_exports')->insert($batch);
+        }
+        $this->travel(25)->hours();
+        $exports = app(AccountDataExport::class);
+        $this->assertSame(1000, $exports->purge());
+        $this->assertSame(1, DB::table('account_privacy_exports')->whereNotNull('payload_encrypted')->count());
+        $this->assertSame(1, $exports->purge());
+        $this->assertSame(0, $exports->purge());
+        $this->assertDatabaseCount('account_privacy_exports', 1001);
+        $this->expectException(\RuntimeException::class);
+        $migration = require database_path('migrations/2026_11_26_000001_create_privacy_access_exports.php');
+        $migration->down();
+    }
 }
