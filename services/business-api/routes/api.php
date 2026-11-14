@@ -25,6 +25,7 @@ use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RiderSourceController;
 use App\Http\Controllers\RoamingOrderController;
 use App\Http\Controllers\SimulationController as S;
+use App\Http\Controllers\StationAvailabilityBlockController;
 use App\Http\Controllers\StationInformationController;
 use App\Http\Controllers\SupportController as T;
 use App\Http\Controllers\VehicleBatteryController;
@@ -178,3 +179,7 @@ Route::get('/v1/stations/{station}/information', [StationInformationController::
 Route::put('/v1/stations/{station}/information', [StationInformationController::class, 'save'])->where('station', '[0-9]{1,18}')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
 
 Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1')->group(__DIR__.'/vehicle_driver_preferences.php');
+
+Route::get('/v1/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'index'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
+Route::post('/v1/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'store'])->where('station', '[0-9]{1,18}')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+Route::post('/v1/stations/{station}/availability-blocks/{block}/cancel', [StationAvailabilityBlockController::class, 'cancel'])->where('station', '[0-9]{1,18}')->whereUuid('block')->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);

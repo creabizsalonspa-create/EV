@@ -27,6 +27,8 @@ class CompleteApiAuthenticationInventoryTest extends TestCase
         'GET|HEAD api/roaming-protocol/versions',
         'GET|HEAD api/roaming/locations',
         'GET|HEAD api/stations',
+        // Reviewed public UTC policy/reason projection only; owner/request identities stay private.
+        'GET|HEAD api/stations/{station}/availability-blocks',
         'GET|HEAD api/stations/{station}/connectors',
         'GET|HEAD api/stations/{station}/information',
         'GET|HEAD api/stations/{station}/reviews',
@@ -34,6 +36,7 @@ class CompleteApiAuthenticationInventoryTest extends TestCase
         'GET|HEAD api/v1/discovery/open-charge-map/capabilities',
         'GET|HEAD api/v1/regions',
         'GET|HEAD api/v1/stations',
+        'GET|HEAD api/v1/stations/{station}/availability-blocks',
         'GET|HEAD api/v1/stations/{station}/connectors',
         'GET|HEAD api/v1/stations/{station}/information',
         'GET|HEAD api/v1/stations/{station}/reviews',

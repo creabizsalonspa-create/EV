@@ -13,6 +13,8 @@ class PrivateRouteAuthenticationInventoryTest extends TestCase
         'api/v1/register',
         'api/v1/regions',
         'api/v1/stations',
+        // Same allowlisted public block projection as station information; mutations remain authenticated.
+        'api/v1/stations/{station}/availability-blocks',
         'api/v1/stations/{station}/connectors',
         'api/v1/stations/{station}/information',
         'api/v1/stations/{station}/reviews',

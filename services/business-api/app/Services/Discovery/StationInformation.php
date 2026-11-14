@@ -2,6 +2,7 @@
 
 namespace App\Services\Discovery;
 
+use App\Services\Charging\StationAvailabilityBlocks;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,7 @@ final class StationInformation
         // Bind the standalone GET/PUT reply to its requested station. The
         // vendor editor must not interpret a wrong-station or stale response
         // as authoritative metadata for its current selection.
-        return ['station_id' => $stationId] + $this->represent(
+        return ['station_id' => $stationId, 'availability_blocks' => app(StationAvailabilityBlocks::class)->publicForStations(collect([$stationId]))->get($stationId, [])] + $this->represent(
             DB::table('station_information')->where('station_id', $stationId)->first()
         );
     }
@@ -26,8 +27,10 @@ final class StationInformation
             return collect();
         }
 
-        return DB::table('station_information')->whereIn('station_id', $stationIds)->get()
-            ->mapWithKeys(fn ($row) => [$row->station_id => $this->represent($row)]);
+        $rows = DB::table('station_information')->whereIn('station_id', $stationIds)->get()->keyBy('station_id');
+        $blocks = app(StationAvailabilityBlocks::class)->publicForStations($stationIds);
+
+        return $stationIds->mapWithKeys(fn ($id) => [$id => ['availability_blocks' => $blocks->get($id, [])] + $this->represent($rows->get($id))]);
     }
 
     public function represent(?object $row): array
