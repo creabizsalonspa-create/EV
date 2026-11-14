@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 57.11% |
-| tested | 57.11% |
-| merged | 57.11% |
+| coded | 57.81% |
+| tested | 57.81% |
+| merged | 57.81% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -27,7 +27,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 2.8 | Checkout, wallet, invoices, disputes | 10 | 6/10 | 6/10 | 6/10 | 0/10 |
 | 2.9 | Loyalty/rewards/promotions/referrals | 7 | 3/7 | 3/7 | 3/7 | 0/7 |
 | 2.10 | Localization/accessibility/formatting | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
-| 3.1 | Vendor onboarding/KYC/staff | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
+| 3.1 | Vendor onboarding/KYC/staff | 8 | 7/8 | 7/8 | 7/8 | 0/8 |
 | 3.2 | Vendor inventory/provisioning | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 3.3 | Vendor live operations and controls | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
 | 3.4 | Vendor calendar/blocks/tariffs | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
@@ -45,7 +45,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 5.2 | Complete charger protocol operations | 11 | 5/11 | 5/11 | 5/11 | 0/11 |
 | 5.3 | Reliable events/state/reconciliation | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
 | 5.4 | Simulator/hardware compatibility QA | 5 | 3/5 | 3/5 | 3/5 | 0/5 |
-| 6.1 | Normalized catalog/freshness | 6 | 3/6 | 3/6 | 3/6 | 0/6 |
+| 6.1 | Normalized catalog/freshness | 6 | 4/6 | 4/6 | 4/6 | 0/6 |
 | 6.2 | Licensed discovery providers | 4 | 0/4 | 0/4 | 0/4 | 0/4 |
 | 6.3 | Complete CPO/eMSP OCPI | 8 | 3/8 | 3/8 | 3/8 | 0/8 |
 | 6.4 | Partner access/capability/error handling | 8 | 5/8 | 5/8 | 5/8 | 0/8 |
@@ -182,7 +182,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `3.1.4` [CTM] Native company onboarding/edit/history (evidence: pr14).
 - `3.1.5` [CTM] Native bounded KYC upload and PDF/image preview (evidence: pr14).
 - `3.1.6` [CTM] Native versioned staff invitation consent (evidence: pr14).
-- `3.1.7` [—] Agreements (evidence: none).
+- `3.1.7` [CTM] Agreements (evidence: pr109).
 - `3.1.8` [—] External verification-service software and legal workflows (evidence: none).
 
 ### 3.2 Vendor inventory/provisioning
@@ -363,7 +363,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `6.1.1` [CTM] Normalized partner location/EVSE/connector records (evidence: main638).
 - `6.1.2` [CTM] Encrypted raw/provenance storage (evidence: main638).
 - `6.1.3` [CTM] Reported timestamp presentation web/native (evidence: main638).
-- `6.1.4` [—] Unified direct/partner search (evidence: none).
+- `6.1.4` [CTM] Unified direct/partner search (evidence: pr110).
 - `6.1.5` [—] Operational freshness policy (evidence: none).
 - `6.1.6` [—] Complete provider capability mapping (evidence: none).
 

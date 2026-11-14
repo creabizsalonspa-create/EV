@@ -452,3 +452,26 @@ A failed read waits for its next configured interval; the error receipt contains
 A configured firmware entry may now include `compatibility: {protocols: ["1.6","2.0.1"], from_versions: ["vendor-version"]}` and `compatibility_signature` (base64 SHA-256/OpenSSL signature by the same independently pinned, current certificate that signs the firmware bytes). The manifest message is `creabiz-firmware-compatibility-v1\n` followed by compact UTF-8 JSON in this exact key order: `catalog_key,manufacturer,model,version,sha256,protocols,from_versions`. Unicode/slashes are unescaped; both lists are sorted with bytewise string order, unique and bounded (two protocols,20 exact source versions). No ranges, wildcards or inferred version ordering are accepted. Firmware source versions use1–80 ASCII letters/digits/dot/underscore/plus/colon/dash, beginning with a letter or digit. Changing any bound identity/policy invalidates the signature; a changed approved policy requires a new catalog identity.
 
 Approval verifies both signatures and stores the manifest fingerprint with the immutable release. Vendor/Admin web and Flutter expose the approved protocol/source-version policy; releases without this optional policy retain the existing model-only path and are labelled accordingly; no compatibility attestation is backfilled. At claim and again immediately before transport, the backend verifies the stored policy and matches current canonical source manufacturer/model, protocol and firmware version. Missing/mismatched source data denies new claims. If the live process catches a preflight failure before entering the firmware HTTP call, it durably records `not_dispatched`, revokes the unused download capability and keeps the local maintenance hold until an authorized owner/Admin explicitly cancels with a note. This positive application proof permits cancellation without fabricating device evidence. A crash, an entered firmware HTTP call, or any uncertain transport still retains the existing unknown/held state and cannot use this cancellation path. Exact retries return the original outcome without sending again. Operations expose the manifest fingerprint for lineage. Existing pinned-certificate, signed-byte, company, idle/session/reservation, one-shot dispatch and correlated review safeguards remain. This software remains within the existing disabled-by-default local simulator adapter; no physical upgrade, manufacturer approval or production enablement is asserted.
+
+### Private process and queue observations
+
+`GET /api/admin/operational-health` is a current-credential Admin web-session
+read behind the existing second-factor gate. It reports only process observation
+timestamps and aggregate counts for the configured default queue. Payloads,
+exceptions, connection strings, queue names and user/job identities are never
+returned. Viewing the report emits no heartbeat or retry.
+
+A real Laravel worker loop records `queue_worker` only when it consumes the
+configured default connection/queue; writes coalesce per process for30seconds.
+The scheduler runs `platform:health-heartbeat` every minute. Observations expire
+at150seconds. Changed worker scope, future/missing observations and unavailable
+storage remain unknown. A recent loop is not proof of successful jobs, every
+worker, charger connectivity or production readiness. All four verification
+flags are false. Database queues expose ready/reserved/delayed/failed counts
+and oldest-ready age; other transports remain unsupported/unknown instead of
+reporting zero. Missing monitoring storage never stops the worker or logs SQL
+secrets. `OPERATIONAL_HEALTH_ENABLED=false` disables observations.
+
+The EN/AR Admin view refreshes explicitly, labels the snapshot time and clears
+private results on account/background changes. It offers no retry, delete,
+charger, payment or external-probe actions. Public health contracts are unchanged.
