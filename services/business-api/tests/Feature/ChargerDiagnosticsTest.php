@@ -21,6 +21,23 @@ class ChargerDiagnosticsTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_diagnostic_source_response_is_not_disclosed_after_account_revocation_during_network_read(): void
+    {
+        [$owner, , , $url] = $this->fixture();
+        Http::fake(function ($request) use ($owner) {
+            if (str_contains($request['query'], 'ChargingStations')) {
+                DB::table('users')->where('id', $owner->id)->increment('auth_epoch');
+
+                return Http::response(['data' => ['ChargingStations' => [['id' => 42, 'protocol' => '1.6', 'isOnline' => true, 'firmwareVersion' => 'PRIVATE OLD LOGIN SOURCE']]]]);
+            }
+
+            return Http::response(['data' => ['StatusNotifications' => []]]);
+        });
+        $this->actingAs($owner)->getJson($url)->assertConflict()->assertDontSee('PRIVATE OLD LOGIN SOURCE');
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public static function invalidStatusTimes(): array
     {
         return [['tomorrow'], ['now'], ['2026-02-30T00:00:00Z'], ['2026-01-01T00:00:00'], ['2026-01-01T00:00:00+04:99'], ['2999-01-01T00:00:00Z']];

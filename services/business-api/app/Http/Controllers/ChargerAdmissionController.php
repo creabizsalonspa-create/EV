@@ -8,6 +8,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\AdmissionIdentity;
 use App\Services\Charging\AdmissionLifecycle;
 use App\Services\Charging\ChargerCertificates;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -18,6 +19,7 @@ class ChargerAdmissionController extends Controller
 {
     private function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): void
     {
+        app(MaintenanceActor::class)->check($r->user());
         app(VendorAccess::class)->require($r->user(), $company, $write ? 'inventory.write' : 'inventory.read');
         abort_unless($charger->company_id === $company->id, 404);
         // Credential disclosure is more sensitive than ordinary inventory editing.

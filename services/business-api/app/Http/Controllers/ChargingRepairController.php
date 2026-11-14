@@ -17,9 +17,6 @@ class ChargingRepairController extends Controller
 {
     private function scope(Request $r, VendorCompany $company, VendorCharger $charger, bool $write = false): object
     {
-        $actor = User::findOrFail($r->user()->id);
-        $r->setUserResolver(fn () => $actor);
-
         return app(ChargerResetController::class)->scope($r, $company->fresh(), $charger->fresh(), $write);
     }
 
