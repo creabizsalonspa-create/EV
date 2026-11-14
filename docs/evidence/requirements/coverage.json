@@ -102,18 +102,30 @@
       "merge_sha": "433bffb312291c34f5be535e4d16b1247b4367f1",
       "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr92-hosted-checkpoint.json"
+    },
+    "pr93": {
+      "source_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "merge_sha": "2a91931f0d576a9d0fe450e212227eea7d1d4f48",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr93-hosted-checkpoint.json"
+    },
+    "pr94": {
+      "source_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "merge_sha": "f71bdff6e32ab55d4f56432a4ea1d292dba14132",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr94-hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
-    "coded": "56.58",
-    "tested": "56.58",
-    "merged": "56.58",
+    "coded": "57.11",
+    "tested": "57.11",
+    "merged": "57.11",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "8564137/15135120",
-    "tested": "8564137/15135120",
-    "merged": "8564137/15135120",
+    "coded": "8644217/15135120",
+    "tested": "8644217/15135120",
+    "merged": "8644217/15135120",
     "production_accepted": "0"
   },
   "categories": [
@@ -122,9 +134,9 @@
       "requirement": "Identity, verification, 2FA, privacy",
       "atoms": 9,
       "counts": {
-        "coded": 6,
-        "tested": 6,
-        "merged": 6,
+        "coded": 8,
+        "tested": 8,
+        "merged": 8,
         "production_accepted": 0
       },
       "details": [
@@ -196,13 +208,13 @@
         {
           "id": "2.1.6",
           "software_atom": "Phone verification",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr93",
+          "note": "Private contact-phone software across Laravel, web and Flutter passed all nine source gates and was integrated with matching trees. No actual SMS/provider/production acceptance is inferred from simulated delivery contracts.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },
@@ -222,13 +234,13 @@
         {
           "id": "2.1.8",
           "software_atom": "Customer/admin 2FA",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr94",
+          "note": "Customer/vendor authenticator enrollment, single-use factor/recovery login and management across Laravel/web/Flutter are verified and integrated. Independent Admin MFA is already verified through PR84. No device/security-review or production acceptance is inferred.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

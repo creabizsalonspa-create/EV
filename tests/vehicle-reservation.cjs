@@ -55,6 +55,8 @@ const {BusinessClient} = require('./helpers/business-client.cjs');
   assert(visibleMapping && visibleMapping.reservable === true,
    'The browser must receive the same available canonical mapping');
   const form=card.locator(`[data-mapping-id="${target.connector_mapping_id}"] form`);
+  assert.equal(station.reservation_terms.version,1);
+  assert.match(await form.locator('summary').innerText(),/no cancellation\/no-show fee/);
   try {
    await form.getByRole('button',{name:'Load compatible vehicles',exact:true}).click();
   } catch (error) {
@@ -74,11 +76,17 @@ const {BusinessClient} = require('./helpers/business-client.cjs');
   const reserved=p.waitForResponse(r=>new URL(r.url()).pathname==='/api/reservations'&&r.request().method()==='POST');
   await form.getByRole('button',{name:'Reserve simulator slot',exact:true}).click();
   const response=await reserved;assert.equal(response.status(),201);booking=await response.json();
+  assert.equal(response.request().postDataJSON().expected_reservation_terms_version,1);
+  assert.equal(booking.reservation_terms_snapshot.version,1);
+  assert.equal(booking.reservation_terms_snapshot.client_version_confirmed,true);
+  assert.equal(booking.reservation_terms_snapshot.no_show_fee_minor,0);
+  assert.equal(booking.reservation_terms_snapshot.physical_occupancy_verified,false);
   assert.equal(booking.vehicle_id,vehicle.id);assert.equal(booking.vehicle_connector_type,connector);
   fs.writeFileSync(path.join(path.dirname(file),'vehicle-booking-proof.json'),JSON.stringify({booking_id:booking.id,vehicle_id:vehicle.id,station_id:station.id,future_slot:booking.starts_at,browser_created_vehicle:true,browser_created_booking:true,charging_started:false,payment_processed:false},null,2)+'\n',{mode:0o600});
   for(const role of ['customer','vendor','admin']) {
    const data=await clients[role].request('reservations');const row=data.data.find(r=>r.id===booking.id);
    assert(row);assert.equal(row.vehicle_connector_type,connector);
+   assert.deepEqual(row.reservation_terms_snapshot,booking.reservation_terms_snapshot);
    if(role==='customer')assert.equal(row.vehicle_label,name);else assert(!('vehicle_label' in row));
    if(role==='vendor')assert(!('vehicle_id' in row));
   }

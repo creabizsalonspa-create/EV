@@ -54,7 +54,7 @@ class ConnectorTopology
             $ready = false;
         }
 
-        return ['id' => $map->id, 'station_id' => $station->id, 'charger_id' => $evse->charger_id, 'evse_id' => $evse->id, 'evse_number' => $evse->number,
+        return ['reservation_terms' => app(ReservationPolicy::class)->publicTerms(), 'id' => $map->id, 'station_id' => $station->id, 'charger_id' => $evse->charger_id, 'evse_id' => $evse->id, 'evse_number' => $evse->number,
             'connector_number' => $connector->connector_number, 'connector_type' => $connector->connector_type, 'max_power_kw' => $connector->max_power_kw,
             'reservable' => $ready, 'csms_bound' => $evse->mode === 'csms', 'availability' => 'unknown', 'evidence' => 'SIMULATED'];
     }

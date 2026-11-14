@@ -8,16 +8,16 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 56.58% |
-| tested | 56.58% |
-| merged | 56.58% |
+| coded | 57.11% |
+| tested | 57.11% |
+| merged | 57.11% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
 
 | PRD | Requirement | Atoms | Coded | Tested | Merged | Production accepted |
 |---|---|---:|---:|---:|---:|---:|
-| 2.1 | Identity, verification, 2FA, privacy | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
+| 2.1 | Identity, verification, 2FA, privacy | 9 | 8/9 | 8/9 | 8/9 | 0/9 |
 | 2.2 | EV garage and driver preferences | 7 | 6/7 | 6/7 | 6/7 | 0/7 |
 | 2.3 | Search, maps, routes, favorites, reviews | 9 | 5/9 | 5/9 | 5/9 | 0/9 |
 | 2.4 | Location/connector details and pricing terms | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
@@ -71,9 +71,9 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `2.1.3` [CTM] Password recovery backend/web (evidence: main638).
 - `2.1.4` [CTM] Profile settings web/native (evidence: main638).
 - `2.1.5` [CTM] Opt-in encrypted native session persistence (evidence: main638).
-- `2.1.6` [—] Phone verification (evidence: none).
+- `2.1.6` [CTM] Phone verification (evidence: pr93).
 - `2.1.7` [—] Approved social login (evidence: none).
-- `2.1.8` [—] Customer/admin 2FA (evidence: none).
+- `2.1.8` [CTM] Customer/admin 2FA (evidence: pr94).
 - `2.1.9` [CTM] Privacy/deletion requests (evidence: pr60).
 
 ### 2.2 EV garage and driver preferences

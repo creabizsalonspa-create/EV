@@ -5,6 +5,7 @@ import 'vendor_forms.dart';
 import 'vehicle_model_catalog.dart';
 import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
+import 'reservation_policy.dart';
 import 'reservation_intent.dart';
 import 'vehicle_driver_preferences.dart';
 import 'vehicle_battery.dart';
@@ -402,6 +403,11 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     final bookingApi = api;
     if (owner == null || bookingApi == null || account?.role != 'customer')
       return;
+    final terms = station.reservationTerms == null ? null : Map<String,dynamic>.from(station.reservationTerms!);
+    if (terms != null && !supportedReservationTerms(terms)) {
+      setState(() => error = 'reservationPolicyUnavailable'); return;
+    }
+    final termsVersion = terms?['version'];
     final bookingFence = bookingApi.sessionFence();
     bool current() =>
         mounted &&
@@ -454,9 +460,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               ? s.t('reserveConfirm')
               : '${s.t('reserveConfirm')} · ${vehicle['name']}',
         ),
-        content: Text(
-          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${s.t('reservationTerms')}',
-        ),
+        content: SingleChildScrollView(child: Text(
+          '${station.name}${station.mappingId != null ? ' · EVSE ${station.evseNumber} · ${station.connectorNumber}' : ''}\n${slot.toIso8601String()}\n${terms == null ? s.t('reservationTerms') : reservationPolicyText(s.arabic)}',
+        )),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -478,10 +484,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       mappingId: station.mappingId,
       vehicleId: vehicle['id'] as int?,
       startsAtUtc: startsAt,
+      termsVersion: termsVersion as int?,
       sessionFence: bookingFence,
     );
     final payload = <String, dynamic>{
       'station_id': station.id,
+      if (termsVersion != null) 'expected_reservation_terms_version': termsVersion,
       if (vehicle['id'] != null) 'vehicle_id': vehicle['id'],
       if (station.mappingId != null)
         'connector_mapping_id': station.mappingId,
@@ -600,6 +608,8 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               Text(
                 '${row['vehicle_label'] ?? (s.arabic ? 'موصل المركبة' : 'Vehicle connector')} · ${row['vehicle_connector_type']}',
               ),
+            if (tab == 1 && row['reservation_terms_snapshot'] is Map)
+              ReservationPolicyPanel(terms: Map<String,dynamic>.from(row['reservation_terms_snapshot'] as Map)),
             if (tab == 1 && row['checked_in_at'] != null)
               Text(
                 '${arrivalText(context, 'reported')} · ${row['checked_in_at']}',
