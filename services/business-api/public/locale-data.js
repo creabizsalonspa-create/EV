@@ -405,6 +405,8 @@ window.EV_MESSAGES = {
         ar: "النتيجة غير مؤكدة. لن تتكرر العملية تلقائيًا؛ حدّث سجل العملية قبل أي إجراء آخر.",
     },
 
+    "Test-provider dispute updated · invoice #{id}": {en: "Test-provider dispute updated · invoice #{id}", ar: "تحديث نزاع مزود الاختبار · الفاتورة #{id}"},
+    "Review provider dispute": {en: "Review provider dispute", ar: "مراجعة نزاع المزود"},
     "Automatic fault monitoring": {
         en: "Automatic fault monitoring",
         ar: "المراقبة التلقائية لأعطال الشاحن",

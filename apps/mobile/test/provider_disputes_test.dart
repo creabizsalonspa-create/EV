@@ -1,3 +1,4 @@
+import 'package:creabiz_ev/support.dart' show providerDisputeNotificationTarget;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -163,4 +164,55 @@ void main() {
       expect(find.text('Invoice #19'), findsOneWidget);
     },
   );
+  test(
+    'provider notice routing requires typed test evidence and owned IDs',
+    () {
+      final metadata = {
+        'invoice_id': 19,
+        'external_dispute_id': 7,
+        'evidence': 'STRIPE_TEST_CONTRACT',
+        'real_money_moved': false,
+        'physical_verification': false,
+        'review_only': true,
+      };
+      expect(
+        providerDisputeNotificationTarget({
+          'kind': 'payment.provider_dispute.test',
+          'metadata': metadata,
+        }),
+        7,
+      );
+      expect(
+        providerDisputeNotificationTarget({
+          'kind': 'payment.provider_dispute.test',
+          'metadata': {...metadata, 'real_money_moved': 'false'},
+        }),
+        isNull,
+      );
+      expect(
+        providerDisputeNotificationTarget({
+          'kind': 'support.reply',
+          'metadata': metadata,
+        }),
+        isNull,
+      );
+    },
+  );
+  testWidgets('notice opens its exact canonical dispute receipt', (
+    tester,
+  ) async {
+    final api = DisputeApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProviderDisputesView(
+          api: api,
+          onExpired: () {},
+          initialDisputeId: 7,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(api.calls.single, 'commercial/external-disputes/7');
+    expect(find.text('Invoice #19'), findsOneWidget);
+  });
 }
