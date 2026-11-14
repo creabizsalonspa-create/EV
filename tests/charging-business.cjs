@@ -107,7 +107,7 @@ async function sourceTransaction(station, tx) {
   );
   return d.Transactions.find((t) => t.stationId === d.ChargingStations[0]?.id);
 }
-async function session(version, actors) {
+async function session(version, actors, revokedTag = null) {
   const { customer, vendor, admin } = actors;
   const name =
     "ev-test-business-" +
@@ -229,6 +229,7 @@ async function session(version, actors) {
       );
       assert.equal((auth.idTagInfo ?? auth.idTokenInfo).status, "Accepted");
     }
+    if (revokedTag) assert.notEqual(tag, revokedTag, "Fresh consent requires a new credential");
     if (autoDispatch) {
       assert.match(tag, /^EV-[A-F0-9]{16}$/);
       const other = new SimulatedCharger(
@@ -253,6 +254,7 @@ async function session(version, actors) {
       } finally {
         await other.close();
       }
+      if (!revokedTag) {
       await customer.changeRole("vendor");
       try {
         const denied = await charger.call(
@@ -268,6 +270,24 @@ async function session(version, actors) {
         );
       } finally {
         await customer.changeRole("customer");
+      }
+
+      const revoked = await charger.call("Authorize", version === "1.6"
+        ? { idTag: tag } : { idToken: { idToken: tag, type: "Central" } });
+      assert.notEqual((revoked.idTagInfo ?? revoked.idTokenInfo).status, "Accepted",
+        "Restoring a role must never restore the old charging credential");
+      await stopWorker(worker);
+      worker = null;
+      await stopWorker(dispatcher);
+      dispatcher = null;
+      // changeRole performed normal current-role login. A separate owned
+      // reservation obtains fresh consent; the old remote intent is not replayed.
+      await session(version, actors, tag);
+      const replay = await charger.call("Authorize", version === "1.6"
+        ? { idTag: tag } : { idToken: { idToken: tag, type: "Central" } });
+      assert.notEqual((replay.idTagInfo ?? replay.idTokenInfo).status, "Accepted",
+        "A fresh successful session must not revive revoked authorization");
+      return;
       }
 
       const online = await charger.call(
