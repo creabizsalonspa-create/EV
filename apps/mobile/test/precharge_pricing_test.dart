@@ -54,10 +54,10 @@ void main() {
   testWidgets('backgrounding clears pending and visible confirmations', (tester) async {
     final api=PricingApi()..pending=Completer<dynamic>();addTearDown(api.close);
     await tester.pumpWidget(app(api));await tester.tap(find.text('Review'));await tester.pumpAndSettle();await tester.enterText(find.byType(TextField),'1500');await tester.tap(find.text('Get estimate'));await tester.pump();
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);await tester.pump();
+    for (final state in [AppLifecycleState.inactive,AppLifecycleState.hidden,AppLifecycleState.paused]) { tester.binding.handleAppLifecycleStateChanged(state); }await tester.pump();
     api.pending!.complete({'estimate':price,'quote_token':'synthetic-private-token'});await tester.pumpAndSettle();
     expect(find.textContaining('KWD 0.396'),findsNothing);expect(api.writes,isEmpty);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);await tester.pump();
+    for (final state in [AppLifecycleState.hidden,AppLifecycleState.inactive,AppLifecycleState.resumed]) { tester.binding.handleAppLifecycleStateChanged(state); }await tester.pump();
   });
   testWidgets('retained dialog cannot approve a prior account price', (tester) async {
     final api=PricingApi();addTearDown(api.close);await tester.pumpWidget(app(api));await tester.tap(find.text('Review'));await tester.pumpAndSettle();
