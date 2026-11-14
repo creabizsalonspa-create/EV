@@ -16,12 +16,16 @@ final class SourceStatusDurations
 
     public function report(object $binding): array
     {
-        $end = CarbonImmutable::now('UTC')->startOfSecond();
+        $asOf = CarbonImmutable::now('UTC');
+        $end = $asOf->startOfSecond();
         $start = $end->subSeconds(self::WINDOW_SECONDS);
         $rows = DB::table('charging_status_observations')
             ->where('source_generation', FaultMonitor::generation($binding))
             ->where('occurred_at', '>=', $start->subSeconds(self::MAX_HOLD_SECONDS))
-            ->where('occurred_at', '<=', $end)
+            // Preserve subsecond read precision: a real observation in the
+            // current second exists, although it contributes no whole elapsed
+            // second yet. DateTime bindings otherwise truncate microseconds.
+            ->where('occurred_at', '<=', $asOf->format('Y-m-d H:i:s.u'))
             ->orderBy('occurred_at')->orderBy('id')->limit(self::MAX_EVENTS + 1)->get();
         $base = ['window_started_at' => $start->toISOString(), 'window_ended_at' => $end->toISOString(),
             'window_seconds' => self::WINDOW_SECONDS, 'max_observation_hold_seconds' => self::MAX_HOLD_SECONDS,
