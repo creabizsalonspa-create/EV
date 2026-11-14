@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -26,6 +27,9 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::table('account_privacy_exports')->exists()) {
+            throw new RuntimeException('Preserve privacy fulfillment receipts before rollback; use the bounded expiry purge for payloads.');
+        }
         Schema::dropIfExists('account_privacy_exports');
     }
 };
