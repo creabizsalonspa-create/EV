@@ -12,6 +12,7 @@ use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
+use App\Services\Operations\OperationalHealth;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
@@ -231,3 +232,11 @@ Schedule::command('accounts:expire-second-factor-setup')->everyTenMinutes()->wit
 
 // Remove expired encrypted account copies; retain only their review/audit receipt.
 Schedule::call(fn () => app(AccountDataExport::class)->purge())->name('privacy-access-copies-expire')->everyFifteenMinutes()->withoutOverlapping();
+
+Artisan::command('platform:health-heartbeat', function () {
+    $recorded = app(OperationalHealth::class)->record('scheduler');
+    $this->info($recorded ? 'Scheduler observation recorded.' : 'Scheduler observation not recorded.');
+
+    return 0;
+})->purpose('Record a scheduler process observation, not successful task execution');
+Schedule::command('platform:health-heartbeat')->everyMinute()->withoutOverlapping();

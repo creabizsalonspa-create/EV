@@ -428,3 +428,26 @@ is always false and `billing_authority` remains false. EN/AR web, PDF and native
 views preserve these distinctions. No ledger writes or provider calls occur.
 Oversized exact-number sums return409 rather than rounding or overflowing.
 Managed OCPI credential register/rotate/unregister and incoming preparation retain the original authenticated Admin snapshot. Current role, active status, security epoch and password hash are checked before discovery/claim and again under the Admin→provider lock order immediately before one-shot transport. Revocation during discovery denies the stale request without creating credentials. Revocation after claim conservatively quarantines the operation under the existing unknown-outcome policy; a newly authenticated operator can recover the receipt without resending. Completed partner approvals and historical source reconciliation are not retroactively rewritten.
+
+### Private process and queue observations
+
+`GET /api/admin/operational-health` is a current-credential Admin web-session
+read behind the existing second-factor gate. It reports only process observation
+timestamps and aggregate counts for the configured default queue. Payloads,
+exceptions, connection strings, queue names and user/job identities are never
+returned. Viewing the report emits no heartbeat or retry.
+
+A real Laravel worker loop records `queue_worker` only when it consumes the
+configured default connection/queue; writes coalesce per process for30seconds.
+The scheduler runs `platform:health-heartbeat` every minute. Observations expire
+at150seconds. Changed worker scope, future/missing observations and unavailable
+storage remain unknown. A recent loop is not proof of successful jobs, every
+worker, charger connectivity or production readiness. All four verification
+flags are false. Database queues expose ready/reserved/delayed/failed counts
+and oldest-ready age; other transports remain unsupported/unknown instead of
+reporting zero. Missing monitoring storage never stops the worker or logs SQL
+secrets. `OPERATIONAL_HEALTH_ENABLED=false` disables observations.
+
+The EN/AR Admin view refreshes explicitly, labels the snapshot time and clears
+private results on account/background changes. It offers no retry, delete,
+charger, payment or external-probe actions. Public health contracts are unchanged.
