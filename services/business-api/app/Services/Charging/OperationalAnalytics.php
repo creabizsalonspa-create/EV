@@ -115,7 +115,14 @@ class OperationalAnalytics
             foreach ($source as $e) {
                 $time = $this->seconds($e->occurred_at);
                 if ($previous && $previous[0] >= $a && $time <= $z && $time > $previous[0] && $e->meter_wh >= $previous[1]) {
-                    $watts = intdiv(((int) $e->meter_wh - $previous[1]) * 3600, $time - $previous[0]);
+                    $delta = (int) $e->meter_wh - $previous[1];
+                    $duration = $time - $previous[0];
+                    // Divide before scaling: a valid cumulative meter delta can
+                    // overflow PHP's integer range when multiplied by 3600.
+                    $whole = intdiv($delta, $duration);
+                    $fraction = intdiv(($delta % $duration) * 3600, $duration);
+                    abort_unless($whole <= intdiv(self::MAX - $fraction, 3600), 409, 'Report exceeds exact numeric bounds.');
+                    $watts = $whole * 3600 + $fraction;
                     $rows[$site]['maximum_session_interval_average_w'] = max($rows[$site]['maximum_session_interval_average_w'], $watts);
                 }
                 $previous = [$time, (int) $e->meter_wh];
