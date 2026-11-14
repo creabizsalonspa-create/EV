@@ -50,7 +50,7 @@ const { chromium } = require("playwright"),
         else if (dialog.type() === 'confirm' && dialog.message().startsWith('Simulated charging estimate:')) {
           assert.match(dialog.message(), /No real payment occurs/);
           await dialog.accept();
-        } else await dialog.dismiss();
+        } // Other dialogs keep their operation-specific confirmation handlers.
       });
       await p.goto(base);
       await p
