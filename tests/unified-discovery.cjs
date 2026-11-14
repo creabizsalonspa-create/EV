@@ -56,3 +56,7 @@ for(const lang of ['en','ar'])test('partner catalog age stays explicit and unkno
   assert.match(f.list.textContent,lang==='ar'?/لا تؤكد التوفر الفعلي/:/do not verify physical availability/);assert.equal(f.calls.length,1);assert.equal(f.list.children[0].children.some(n=>n.tag==='button'),false);
  }
 });
+
+test('explicit partner age filter persists on pagination and clears with the account',async()=>{
+ const f=fixture();const age=f.form.children.flatMap(n=>n.children).find(n=>n.name==='max_source_age_hours');age.value='24';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('max_source_age_hours'),'24');f.nav.children.find(n=>n.tag==='button').onclick();await tick();assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('max_source_age_hours'),'24');f.control.clear();assert.equal(age.value,'');f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).has('max_source_age_hours'),false);
+});

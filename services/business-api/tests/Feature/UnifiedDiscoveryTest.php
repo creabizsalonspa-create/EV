@@ -63,6 +63,30 @@ class UnifiedDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_partner_report_age_filter_is_bounded_before_pagination_and_leaves_catalog_unchanged(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));
+        $f = $this->fixtures();
+        $f['record']->update(['source_updated_at' => now()->subHours(24), 'received_at' => now()]);
+        for ($n = 0; $n < 26; $n++) {
+            $copy = $f['record']->replicate();
+            $copy->external_id = 'stale-'.$n;
+            $copy->source_updated_at = now()->subHours(25);
+            $copy->save();
+        }
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $path) {
+            $this->getJson($path.'?max_source_age_hours=24')->assertOk()->assertJsonPath('total', 2)
+                ->assertJsonPath('last_page', 1)->assertJsonCount(2, 'data');
+            $this->getJson($path.'?scope=partner&max_source_age_hours=1')->assertJsonPath('total', 0);
+            foreach (['0', '169', '1.5', 'unknown'] as $invalid) {
+                $this->getJson($path.'?max_source_age_hours='.$invalid)->assertUnprocessable();
+            }
+        }
+        $f['record']->update(['source_updated_at' => now()->addMinute()]);
+        $this->getJson('/api/discovery/search?max_source_age_hours=24')->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
+        Http::assertNothingSent();
+    }
+
     public function test_unified_routes_require_identity_without_expanding_the_public_surface(): void
     {
         $this->getJson('/api/discovery/search')->assertUnauthorized();

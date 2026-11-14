@@ -26,7 +26,7 @@ class UnifiedDiscoveryView extends StatefulWidget {
 class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with WidgetsBindingObserver {
   final query=TextEditingController();
   late bool Function() ownSession;
-  String sourceStatus='',submittedSourceStatus='';
+  String sourceStatus='',submittedSourceStatus='',sourceAge='',submittedSourceAge='';
   String scope='all',connector='',submitted='',submittedScope='all',submittedConnector='';
   int generation=0,page=1,last=1,total=0;
   bool busy=false,foreground=true,savedOnly=false,submittedSaved=false,writing=false,uncertain=false;
@@ -49,7 +49,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     bool active()=>mounted&&foreground&&turn==generation&&ownSession()&&fence();
     setState((){busy=true;uncertain=false;error=null;rows=[];});
     try{
-      final data=await api.request('discovery/search',query:{'q':submitted,'scope':submittedScope,'connector':submittedConnector,'page':'$target','saved_only':submittedSaved?'1':'0',if(submittedSourceStatus.isNotEmpty)'recent_source_status':submittedSourceStatus});
+      final data=await api.request('discovery/search',query:{'q':submitted,'scope':submittedScope,'connector':submittedConnector,'page':'$target','saved_only':submittedSaved?'1':'0',if(submittedSourceStatus.isNotEmpty)'recent_source_status':submittedSourceStatus,if(submittedSourceAge.isNotEmpty)'max_source_age_hours':submittedSourceAge});
       if(!active())return;
       if(data is! Map||data['data'] is! List||data['current_page'] is! int||data['last_page'] is! int||data['total'] is! int)throw const FormatException('Invalid search page');
       final parsed=(data['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)).toList();
@@ -72,9 +72,10 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       DropdownButtonFormField<String>(initialValue:scope,decoration:InputDecoration(labelText:tr('Source','المصدر')),items:[for(final choice in [('all','All published sources','كل المصادر المنشورة'),('catalog','Platform catalog','كتالوج المنصة'),('partner','Authorized partner reports','تقارير الشركاء المصرح لهم')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy?null:(value)=>setState(()=>scope=value!)),
       DropdownButtonFormField<String>(initialValue:connector,decoration:InputDecoration(labelText:tr('Connector','الموصل')),items:[for(final value in ['','CCS2','Type2','CHAdeMO'])DropdownMenuItem(value:value,child:Text(value.isEmpty?tr('All connectors','كل الموصلات'):value))],onChanged:busy?null:(value)=>setState(()=>connector=value!)),
       DropdownButtonFormField<String>(key:const Key('unified-source-status'),initialValue:sourceStatus,decoration:InputDecoration(labelText:tr('Simulated source state at search','حالة مصدر المحاكاة عند البحث')),items:[DropdownMenuItem(value:'',child:Text(tr('All states','كل الحالات'))),for(final status in reportedConnectorStatuses)DropdownMenuItem(value:status,child:Text(connectorStatusLabel(status,Localizations.localeOf(context).languageCode=='ar')))],onChanged:busy||writing?null:(value)=>setState(()=>sourceStatus=value!)),
+      DropdownButtonFormField<String>(key:const Key('unified-source-age'),initialValue:sourceAge,decoration:InputDecoration(labelText:tr('Partner source updates within (platform results unchanged)','تحديثات مصدر الشريك خلال (نتائج المنصة دون تغيير)')),items:[for(final choice in [('','All report ages','كل أعمار التقارير'),('1','Last hour','آخر ساعة'),('24','Last 24 hours','آخر 24 ساعة'),('168','Last 7 days','آخر 7 أيام')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy||writing?null:(value)=>setState(()=>sourceAge=value!)),
       Text(tr('This filter matches canonical connector reports within five minutes at search. Partner reports cannot satisfy it. Physical availability is unverified; search again to recheck.','يطابق هذا المرشح تقارير موصلات المنصة خلال خمس دقائق عند البحث. لا تنطبق تقارير الشركاء عليه. التوفر الفعلي غير مؤكد؛ أعد البحث للتحقق.')),
       if(widget.customer)CheckboxListTile(value:savedOnly,onChanged:busy||writing?null:(value)=>setState(()=>savedOnly=value==true),title:Text(tr('Saved places only','الأماكن المحفوظة فقط'))),
-      FilledButton(onPressed:busy||writing?null:(){submitted=query.text.trim();submittedScope=scope;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      FilledButton(onPressed:busy||writing?null:(){submitted=query.text.trim();submittedScope=scope;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
       if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!),
       Text(tr('$total published results','$total نتيجة منشورة')),
       if (mapPoints().isNotEmpty) OutlinedButton(key:const Key('unified-map-open'),onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>PartnerReportMap(points:mapPoints()))),child:Text(tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'))),

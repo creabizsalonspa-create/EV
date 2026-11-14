@@ -19,13 +19,18 @@ final class UnifiedDiscoveryController extends Controller
 {
     public function index(Request $request)
     {
-        $v = $request->validate(['q' => 'nullable|string|max:80', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'max_source_age_hours' => 'nullable|integer|between:1,168', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
         $actor = $this->currentActor($request);
         $customer = $actor->role === 'customer' ? $actor->id : null;
         abort_if($request->boolean('saved_only') && $customer === null, 403);
         $catalog = Station::query();
         $partner = OcpiRecord::query()->where('module', 'locations')->where('normalized->publish', true)
             ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'));
+        if (isset($v['max_source_age_hours'])) {
+            // Partner source timestamps only: never a receipt-age or availability claim.
+            $checkedAt = now();
+            $partner->whereBetween('source_updated_at', [$checkedAt->copy()->subHours((int) $v['max_source_age_hours']), $checkedAt]);
+        }
         if ($request->boolean('saved_only')) {
             $catalog->whereIn('id', DB::table('station_favorites')->where('user_id', $customer)->select('station_id'));
             $partner->whereIn('id', DB::table('partner_location_favorites')->where('user_id', $customer)->select('record_id'));
