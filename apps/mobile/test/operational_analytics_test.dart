@@ -5,7 +5,7 @@ import 'package:creabiz_ev/operational_analytics.dart';
 import 'test_support.dart';
 
 class OpsApi extends FixtureApi {
-  bool unsafe = false, fail = false, unsafeFeedback = false;
+  bool unsafe = false, fail = false, unsafeFeedback = false, unknownDemand = false;
   final applied = <Map<String, String>>[];
   @override
   Future<dynamic> request(
@@ -20,6 +20,7 @@ class OpsApi extends FixtureApi {
       'company_id': 2,
       'evidence': 'SIMULATED_SOURCE',
       'physical_uptime_verified': unsafe,
+      'physical_site_demand_verified': false,
       'billing_authority': false,
       'financial_visible': false,
       'from': '2026-11-01',
@@ -41,7 +42,9 @@ class OpsApi extends FixtureApi {
           'name': 'Synthetic site',
           'site_id': 1,
           for (final key in operationalLabels.keys)
-            key: key == 'completed_energy_wh' ? 1250 : 0,
+            key: key == 'maximum_observed_site_interval_average_w' && unknownDemand
+                ? null
+                : key == 'completed_energy_wh' ? 1250 : 0,
         },
       ],
     };
@@ -52,6 +55,18 @@ Widget app(OpsApi api, VoidCallback expired) => MaterialApp(
   home: OperationalAnalyticsView(api: api, companyId: 2, onExpired: expired),
 );
 void main() {
+  testWidgets('missing demand remains unknown without hiding the report', (tester) async {
+    final api = OpsApi()..unknownDemand = true;
+    await tester.pumpWidget(app(api, () {}));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Maximum sum of observed interval averages (W), not grid peak: Unknown'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Maximum sum of observed interval averages (W), not grid peak: Unknown'), findsOneWidget);
+    expect(find.textContaining('Inexact source metric'), findsNothing);
+  });
   testWidgets(
     'source metrics render without authority promotion and stale accounts clear report',
     (tester) async {
@@ -59,8 +74,18 @@ void main() {
       var expired = 0;
       await tester.pumpWidget(app(api, () => expired++));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Completed energy (Wh): 1250'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Completed energy (Wh): 1250'), findsOneWidget);
       api.fail = true;
+      await tester.scrollUntilVisible(
+        find.text('Apply and refresh'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Apply and refresh'));
       await tester.pumpAndSettle();
       expect(expired, 1);
@@ -77,8 +102,18 @@ void main() {
       expect(find.textContaining('1250'), findsNothing);
       expect(find.text('View private report PDF'), findsNothing);
       api.unsafe = false;
+      await tester.scrollUntilVisible(
+        find.text('Apply and refresh'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Apply and refresh'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Completed energy (Wh): 1250'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Completed energy (Wh): 1250'), findsOneWidget);
       final calls = api.applied.length;
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
@@ -109,6 +144,11 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Apply and refresh'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Apply and refresh'));
       await tester.pumpAndSettle();
       expect(find.text('Observed simulator feedback'), findsNothing);

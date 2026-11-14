@@ -44,5 +44,26 @@
   "physical_availability_verified": false,
   "production_accepted": false,
   "original_atom_credit_added": false,
-  "combined_integration": "Includes latest charging actor-epoch admission, source subsecond-duration correction, isolated browser fixture cleanup, unified maps and private favorites"
+  "combined_integration": "Includes latest charging actor-epoch admission, source subsecond-duration correction, isolated browser fixture cleanup, unified maps and private favorites",
+  "combined_current_integration": {
+    "base_sha": "8843de87c8761350a022bb30d7c97cc87e684549",
+    "laravel": {
+      "tests": 1103,
+      "assertions": 21613,
+      "skipped": 1,
+      "result": "passed"
+    },
+    "postgresql": {
+      "tests": 130,
+      "assertions": 1691,
+      "result": "passed",
+      "version": 17,
+      "encoding": "UTF8"
+    },
+    "web_runtime_components": {
+      "tests": 26,
+      "result": "passed"
+    },
+    "preserved": "Immutable vendor agreements, native diagnostics fences, scoped OCPI catalog push/retirement and owned simulator kernel-birth identity"
+  }
 }

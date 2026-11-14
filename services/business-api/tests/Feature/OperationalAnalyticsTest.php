@@ -75,11 +75,33 @@ class OperationalAnalyticsTest extends TestCase
             ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:00:00Z'],
             ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:02:00Z']]]);
         $before = DB::table('finance_journals')->count();
-        $reply = $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.completed_energy_wh', 2000)->assertJsonPath('sites.0.observed_busy_seconds', 5400)->assertJsonPath('sites.0.source_completed', 2)->assertJsonPath('sites.0.maximum_session_interval_average_w', 1000)->assertJsonPath('sites.0.status_known_seconds', 420)->assertJsonPath('sites.0.reported_fault_seconds', 120)->assertJsonPath('sites.0.status_unknown_seconds', 42780)->assertJsonPath('invoice_facts.0.invoiced_minor', 200)->assertJsonPath('physical_uptime_verified', false);
+        $reply = $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000)->assertJsonPath('sites.0.demand_ambiguous_evse_seconds', 1800)->assertJsonPath('sites.0.demand_observed_seconds', 3600)->assertJsonPath('sites.0.completed_energy_wh', 2000)->assertJsonPath('sites.0.observed_busy_seconds', 5400)->assertJsonPath('sites.0.source_completed', 2)->assertJsonPath('sites.0.maximum_session_interval_average_w', 1000)->assertJsonPath('sites.0.status_known_seconds', 420)->assertJsonPath('sites.0.reported_fault_seconds', 120)->assertJsonPath('sites.0.status_unknown_seconds', 42780)->assertJsonPath('invoice_facts.0.invoiced_minor', 200)->assertJsonPath('physical_uptime_verified', false);
         $this->assertSame($before, DB::table('finance_journals')->count());
         $this->assertStringContainsString('no-store', $reply->headers->get('Cache-Control'));
         $this->assertStringNotContainsString('user_id', $reply->getContent());
         Http::assertNothingSent();
+    }
+
+    public function test_large_valid_meter_delta_does_not_overflow_during_power_scaling(): void
+    {
+        [$owner, $company, , $b, $map, $evse, $url] = $this->setupReport();
+        $session = $this->sourceSession($b, $map, $evse, '2026-11-06 10:00:00', '2026-11-06 11:00:00');
+        $meter = 9007199254740991;
+        $delta = $meter - 100;
+        DB::table('charging_sessions')->where('id', $session->id)->update(['energy_wh' => $delta]);
+        $link = DB::table('csms_session_links')->where('charging_session_id', $session->id)->first();
+        DB::table('csms_session_links')->where('id', $link->id)->update(['last_meter_wh' => $meter]);
+        DB::table('csms_inbox_events')->where('link_id', $link->id)->where('type', 'ended')->update(['meter_wh' => $meter]);
+        $before = DB::table('finance_journals')->count();
+        $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()
+            ->assertJsonPath('sites.0.maximum_session_interval_average_w', $delta);
+        $this->assertSame($before, DB::table('finance_journals')->count());
+
+        // A one-second interval really exceeds the public exact-number bound.
+        DB::table('csms_session_links')->where('id', $link->id)->update(['ended_at' => '2026-11-06 10:00:01']);
+        DB::table('csms_inbox_events')->where('link_id', $link->id)->where('type', 'ended')->update(['occurred_at' => '2026-11-06 10:00:01']);
+        $this->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertStatus(409);
+        $this->assertSame($before, DB::table('finance_journals')->count());
     }
 
     public function test_inventory_staff_can_read_operations_but_not_owner_financial_facts_and_cross_scope_fails(): void
@@ -120,9 +142,29 @@ class OperationalAnalyticsTest extends TestCase
         $this->actingAs($owner);
         $csv = $this->get($url.'/export')->assertOk();
         $this->assertStringContainsString("'=UNTRUSTED()", $csv->getContent());
+        $this->assertStringContainsString('PARTIAL_INTERVAL_AVERAGES_NOT_GRID_PEAK', $csv->getContent());
+        $this->getJson($url)->assertOk()->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', null)
+            ->assertJsonPath('sites.0.demand_observed_seconds', 0)->assertJsonPath('physical_site_demand_verified', false);
         foreach (['en', 'ar'] as $locale) {
             $pdf = $this->get($url.'/pdf?locale='.$locale)->assertOk()->assertHeader('Content-Type', 'application/pdf');
             $this->assertStringStartsWith('%PDF-', $pdf->getContent());
+            preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdf->getContent(), $streams);
+            $positions = [];
+            foreach ($streams[1] as $stream) {
+                $decoded = @gzuncompress($stream);
+                $content = is_string($decoded) ? $decoded : $stream;
+                preg_match_all('/BT [^\r\n]*? (-?[0-9]+\.[0-9]+) (-?[0-9]+\.[0-9]+) Td [\s\S]*? Tj ET/', $content, $matches, PREG_SET_ORDER);
+                foreach ($matches as $match) {
+                    $positions[] = [(float) $match[1], (float) $match[2]];
+                }
+            }
+            $this->assertGreaterThanOrEqual(20, count($positions), $locale.': expected report labels and values, not just a valid PDF header');
+            foreach ($positions as [$x, $y]) {
+                $this->assertGreaterThanOrEqual(0, $x, $locale.': text starts left of page');
+                $this->assertLessThan(595.3, $x, $locale.': text starts beyond right edge');
+                $this->assertGreaterThanOrEqual(0, $y, $locale.': text starts below page');
+                $this->assertLessThan(841.9, $y, $locale.': text starts above page');
+            }
         }
         $this->getJson($url.'?from=2026-11-06&to=2026-11-05')->assertUnprocessable();
     }

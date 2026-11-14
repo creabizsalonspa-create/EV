@@ -36,6 +36,18 @@ const operationalLabels = {
     'Reported fault seconds',
     'ثواني الأعطال المبلغ عنها',
   ],
+  'maximum_observed_site_interval_average_w': [
+    'Maximum sum of observed interval averages (W), not grid peak',
+    'أقصى مجموع لمتوسطات الفترات المرصودة (واط)، وليس ذروة الشبكة',
+  ],
+  'demand_observed_seconds': [
+    'Seconds with usable demand intervals',
+    'ثوانٍ مع فترات طلب قابلة للاستخدام',
+  ],
+  'demand_ambiguous_evse_seconds': [
+    'Excluded overlapping EVSE seconds',
+    'ثواني تداخل EVSE المستبعدة',
+  ],
   'maximum_session_interval_average_w': [
     'Maximum observed session interval average (W)',
     'أقصى متوسط فترة جلسة مرصودة (واط)',
@@ -135,6 +147,7 @@ class _OperationalState extends State<OperationalAnalyticsView>
         result['company_id'] != widget.companyId ||
         result['evidence'] != 'SIMULATED_SOURCE' ||
         result['physical_uptime_verified'] != false ||
+        result['physical_site_demand_verified'] != false ||
         result['billing_authority'] != false ||
         result['financial_visible'] is! bool ||
         result['sites'] is! List ||
@@ -145,6 +158,11 @@ class _OperationalState extends State<OperationalAnalyticsView>
       if (row is! Map || row['name'] is! String || !exact(row['site_id']))
         throw const FormatException('Invalid site');
       for (final key in operationalLabels.keys) {
+        if (key == 'maximum_observed_site_interval_average_w' &&
+            row.containsKey(key) &&
+            row[key] == null) {
+          continue;
+        }
         if (!exact(row[key]))
           throw const FormatException('Inexact source metric');
       }
@@ -288,6 +306,10 @@ class _OperationalState extends State<OperationalAnalyticsView>
         if (report != null) ...[
           Text('${report!['from']} — ${report!['to']} UTC'),
           Text('${report!['as_of']}'),
+          Text(tr(
+            'Demand sums floored accepted meter interval averages wholly inside the window. Overlapping sessions on the same EVSE are excluded. Coverage is partial; this is not grid peak or instantaneous power.',
+            'الطلب يجمع متوسطات فترات العدادات المقبولة داخل الفترة، بعد التقريب لأسفل. تُستبعد فترات تداخل الجلسات على EVSE نفسها. التغطية جزئية ولا تمثل ذروة الشبكة أو قياساً لحظياً.',
+          )),
           TextButton(
             onPressed: busy ? null : pdf,
             child: Text(tr('View private report PDF', 'عرض التقرير الخاص PDF')),
@@ -301,7 +323,9 @@ class _OperationalState extends State<OperationalAnalyticsView>
                   children: [
                     Text('${row['name']} · #${row['site_id']}'),
                     for (final label in operationalLabels.entries)
-                      Text('${label.value[ar ? 1 : 0]}: ${row[label.key]}'),
+                      Text(
+                        '${label.value[ar ? 1 : 0]}: ${row[label.key] ?? tr('Unknown', 'غير معروف')}',
+                      ),
                   ],
                 ),
               ),

@@ -9,6 +9,15 @@ module.exports = async function (fixture, clients) {
   const report = await clients.vendor.request(reportPath);
   assert.equal(report.evidence, "SIMULATED_SOURCE");
   assert.equal(report.physical_uptime_verified, false);
+  assert.equal(report.physical_site_demand_verified, false);
+  for (const site of report.sites) {
+    assert(
+      site.maximum_observed_site_interval_average_w === null ||
+        Number.isSafeInteger(site.maximum_observed_site_interval_average_w),
+    );
+    assert(Number.isSafeInteger(site.demand_observed_seconds));
+    assert(Number.isSafeInteger(site.demand_ambiguous_evse_seconds));
+  }
   assert.equal(report.billing_authority, false);
   assert.equal(report.sites.length, 2);
   assert(

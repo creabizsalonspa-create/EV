@@ -54,7 +54,7 @@ class LoyaltyController extends Controller
         $v['enabled'] = (bool) $v['enabled'];
         $v['effective_from'] = Carbon::parse($v['effective_from'])->utc()->format('Y-m-d H:i:s');
 
-        return response()->json(['policy' => $this->safe($service->publish('loyalty_policies', $r->user()->id, $v, $key))], 201);
+        return response()->json(['policy' => $this->safe($service->publish('loyalty_policies', $r->user(), $v, $key))], 201);
     }
 
     public function rewards(Request $r)
@@ -80,7 +80,7 @@ class LoyaltyController extends Controller
             $v[$field] = Carbon::parse($v[$field])->utc()->format('Y-m-d H:i:s');
         }
 
-        return response()->json(['reward' => $this->safe($service->publish('loyalty_rewards', $r->user()->id, $v, $key))], 201);
+        return response()->json(['reward' => $this->safe($service->publish('loyalty_rewards', $r->user(), $v, $key))], 201);
     }
 
     public function earn(Request $r, int $invoice, LoyaltyService $service)
@@ -123,6 +123,6 @@ class LoyaltyController extends Controller
         $this->admin($r);
         $v = $r->validate(['reason' => 'required|string|min:5|max:255']);
 
-        return response()->json(['redemption' => $this->safe($service->transition($redemption, $r->user()->id, $action, $v['reason']))]);
+        return response()->json(['redemption' => $this->safe($service->transition($redemption, $r->user(), $action, $v['reason']))]);
     }
 }

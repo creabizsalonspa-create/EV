@@ -6,6 +6,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
+use App\Services\Charging\MaintenanceActor;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\SignedFirmwareCatalog;
 use App\Services\VendorOps\VendorAccess;
@@ -29,6 +30,7 @@ class ChargerFirmwareController extends Controller
 
     public function releases(Request $r, VendorCompany $company, SignedFirmwareCatalog $catalog)
     {
+        app(MaintenanceActor::class)->check($r->user());
         app(VendorAccess::class)->require($r->user(), $company, 'inventory.read');
         $filters = $r->validate(['manufacturer' => 'sometimes|string|max:100', 'model' => 'sometimes|string|max:100', 'active' => 'sometimes|in:true,false']);
         $page = DB::table('charger_firmware_releases')->where('company_id', $company->id)->when(isset($filters['manufacturer']), fn ($q) => $q->where('manufacturer', $filters['manufacturer']))->when(isset($filters['model']), fn ($q) => $q->where('model', $filters['model']))->when(($filters['active'] ?? null) === 'true', fn ($q) => $q->whereNull('revoked_at'))->select('id', 'catalog_key', 'version', 'manufacturer', 'model', 'sha256', 'size', 'signer_fingerprint', 'revoked_at', 'created_at')->orderByDesc('id')->paginate(25)->toArray();
@@ -47,12 +49,14 @@ class ChargerFirmwareController extends Controller
     public function approve(Request $r, VendorCompany $company, SignedFirmwareCatalog $catalog)
     {
         $this->enabled();
+        app(MaintenanceActor::class)->check($r->user());
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['catalog_key' => ['required', 'string', 'max:80', 'regex:/^[a-zA-Z0-9_-]+$/D'], 'note' => 'required|string|min:10|max:2000']);
         $release = $catalog->verify($v['catalog_key']);
 
         return DB::transaction(function () use ($r, $company, $release, $v) {
             VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(MaintenanceActor::class)->check($r->user());
             $old = DB::table('charger_firmware_releases')->where('company_id', $company->id)->where('catalog_key', $v['catalog_key'])->first();
             if ($old) {
                 abort_unless($old->sha256 === $release['sha256'] && $old->signer_fingerprint === $release['signer_fingerprint'] && $old->version === $release['version'] && $old->manufacturer === $release['manufacturer'] && $old->model === $release['model'] && $old->revoked_at === null, 409, 'Configured release identity changed or was revoked.');
@@ -69,11 +73,13 @@ class ChargerFirmwareController extends Controller
     public function revoke(Request $r, VendorCompany $company, int $release)
     {
         $this->enabled();
+        app(MaintenanceActor::class)->check($r->user());
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['note' => 'required|string|min:10|max:2000']);
 
         return DB::transaction(function () use ($r, $company, $release, $v) {
             VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+            app(MaintenanceActor::class)->check($r->user());
             $row = DB::table('charger_firmware_releases')->where('company_id', $company->id)->where('id', $release)->lockForUpdate()->first();
             abort_unless($row, 404);
             if (! $row->revoked_at) {

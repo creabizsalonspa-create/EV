@@ -388,3 +388,51 @@ Station and unified searches accept `recent_source_status` using the ten bounded
 The EN/AR filter is explicitly an as-of-search simulator-source report, excluding OCPI partner reports. `availability` stays unknown and every booking/start gate is unchanged. Search again to recheck; list membership never proves physical availability or grants charger control.
 
 Managed OCPI credential register/rotate/unregister and incoming preparation retain the original authenticated Admin snapshot. Current role, active status, security epoch and password hash are checked before discovery/claim and again under the Admin→provider lock order immediately before one-shot transport. Revocation during discovery denies the stale request without creating credentials. Revocation after claim conservatively quarantines the operation under the existing unknown-outcome policy; a newly authenticated operator can recover the receipt without resending. Completed partner approvals and historical source reconciliation are not retroactively rewritten.
+
+### Observed site interval demand
+
+The existing authenticated company operational analytics read and CSV/PDF exports
+now include `maximum_observed_site_interval_average_w`,
+`demand_observed_seconds`, and `demand_ambiguous_evse_seconds`. The maximum
+is nullable when no usable accepted meter intervals exist; observed zero
+remains zero. The calculation sums floored integer average watts from accepted
+session meter intervals wholly inside the UTC report window. It uses the same
+canonical current binding/topology and tenant scope as the energy report.
+Concurrent intervals from different EVSEs contribute together; overlapping
+sessions on one EVSE are excluded during their ambiguous overlap. Missing
+EVSE telemetry is not inferred to be zero. Coverage is partial, not a whole-site
+instantaneous peak or grid-meter demand measurement. `physical_site_demand_verified`
+is always false and `billing_authority` remains false. EN/AR web, PDF and native
+views preserve these distinctions. No ledger writes or provider calls occur.
+Oversized exact-number sums return409 rather than rounding or overflowing.
+
+### Private Admin platform operations map
+
+`GET /api/admin/operations/map` is web-session Admin only, behind the existing
+Admin second-factor gate. It rechecks active role and credential epoch/password
+under a user lock. It returns25 platform inventory points per page, selected
+before projection, with allowlisted company review labels and inventory counts.
+No KYC documents, user contacts, charger identifiers, provider secrets, session
+identities or controls are included. It grants no charging or payment authority.
+
+Filters: literal station-name `q` (80characters), two-uppercase-letter `country`,
+`company_id`, `page`, and `recent_source_status` using the existing exact-current
+five-minute accepted simulator-report policy. Status matching does not establish
+physical availability. Optional `south`, `north`, `west`, `east` must be supplied
+together; west greater than east explicitly crosses the date line. Invalid
+station coordinates are excluded. Company ownership mismatches have no company
+projection and cannot satisfy the company filter. Responses are private/no-store.
+
+The EN/AR Admin interface reads only on explicit search, keeps pagination tied
+to submitted filters and clears private results on account/background changes.
+Self-hosted Leaflet renders only the loaded page. OpenStreetMap tiles require
+explicit consent; moving the map makes no API request, and there is no GPS lookup.
+Polar coordinates outside Web Mercator stay in the text list. The map covers
+platform inventory across companies; it does not assert partner-network coverage,
+physical connectivity or live operating acceptance.
+
+### Optional generic notification email
+
+Authenticated web `/api/notifications/email` and native `/api/v1/notifications/email` support GET settings and PUT `{enabled, confirmed, expected_revision}`. The revision is a decimal **string**; enabling requires explicit consent, a verified account email and configured server transport. No recipient override is accepted. Disabling cancels queued digests. GET `email/history?page=1` returns only the current account's paginated generic handoff receipts; transport acceptance never confirms delivery. Existing in-app preferences remain a separate contract.
+
+`NOTIFICATION_EMAIL_ENABLED=false` is the default. Approved production configuration requires a public HTTPS root `APP_URL`, SMTP/TLS and a valid sender. No SMTP credentials enter client responses. The scheduler runs bounded `php artisan notifications:handoff-email --max=100`; use the existing scheduler, not a second sender. Local/testing accepts only the in-memory array transport. Users consent to new unread activity only, up to one generic digest per 15 minutes, excluding activity older than 24 hours. Email contains no notification details or authentication tokens. Changed account epoch/role/email/transport invalidates consent. A durable claim is committed before handoff; claimed or unknown outcomes are never automatically retried. Inspect receipts for interrupted operations; do not replay them. Actual email receipt and production activation require separate operator acceptance.

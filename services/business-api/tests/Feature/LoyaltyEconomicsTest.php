@@ -47,6 +47,41 @@ class LoyaltyEconomicsTest extends TestCase
         return app(LoyaltyService::class)->publish('loyalty_rewards', $f['maker']->id, array_replace(['currency' => 'AED', 'name' => 'Reusable bottle TEST', 'name_ar' => 'زجاجة قابلة لإعادة الاستخدام', 'description' => 'Manual test reward; no verified partner delivery.', 'description_ar' => 'مكافأة اختبار يدوية', 'points_cost' => 80, 'stock' => 2, 'per_user_limit' => 1, 'starts_at' => now()->subHour()->format('Y-m-d H:i:s'), 'ends_at' => now()->addDays(10)->format('Y-m-d H:i:s')], $extra), 'reward-'.bin2hex(random_bytes(5)));
     }
 
+    public function test_revoked_admin_authority_cannot_publish_or_decide_redemptions_from_a_stale_snapshot(): void
+    {
+        foreach (['role', 'account_status', 'auth_epoch', 'password'] as $field) {
+            $f = $this->fixture();
+            $this->policy($f);
+            $reward = $this->reward($f);
+            $service = app(LoyaltyService::class);
+            $service->earn($f['invoice']->id, $f['customer']->id);
+            $redemption = $service->redeem($f['customer']->id, $reward->id, $f['customer']->id, 'before-'.$field);
+            $snapshot = $f['maker']->fresh();
+            $values = ['currency' => 'AED', 'name' => 'Synthetic test reward', 'name_ar' => 'مكافأة اختبار', 'description' => 'Manual noncash test benefit', 'description_ar' => 'مكافأة اختبار غير نقدية', 'points_cost' => 1, 'stock' => 1, 'per_user_limit' => 1, 'starts_at' => now()->subHour(), 'ends_at' => now()->addDay()];
+            $changed = match ($field) {
+                'role' => 'customer', 'account_status' => 'suspended',
+                'auth_epoch' => (int) $snapshot->auth_epoch + 1,
+                'password' => bcrypt('ChangedSyntheticPassword9!'),
+            };
+            DB::table('users')->where('id', $snapshot->id)->update([$field => $changed]);
+            $counts = [DB::table('loyalty_rewards')->count(), DB::table('loyalty_ledger')->count(), DB::table('loyalty_redemption_events')->count(), DB::table('audit_events')->count()];
+            foreach (['publish', 'transition'] as $operation) {
+                try {
+                    if ($operation === 'publish') {
+                        $service->publish('loyalty_rewards', $snapshot, $values, 'stale-'.$field);
+                    } else {
+                        $service->transition($redemption->id, $snapshot, 'reject', 'Stale Admin must not decide');
+                    }
+                    $this->fail('Revoked Admin action was accepted.');
+                } catch (HttpException $e) {
+                    $this->assertSame(in_array($field, ['role', 'account_status'], true) ? 403 : 409, $e->getStatusCode());
+                }
+            }
+            $this->assertSame($counts, [DB::table('loyalty_rewards')->count(), DB::table('loyalty_ledger')->count(), DB::table('loyalty_redemption_events')->count(), DB::table('audit_events')->count()]);
+            $this->assertSame('pending', DB::table('loyalty_redemptions')->where('id', $redemption->id)->value('status'));
+        }
+    }
+
     public function test_qualifying_invoice_earns_exact_points_once_and_keeps_cash_ledger_unchanged(): void
     {
         $f = $this->fixture();

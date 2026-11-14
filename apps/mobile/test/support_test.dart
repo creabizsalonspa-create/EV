@@ -1069,9 +1069,14 @@ void main() {
     await tester.tap(find.byKey(const Key('support-notifications')));
     await tester.pumpAndSettle();
     final review = find.byKey(const Key('review-simulator-monitor'));
+    await tester.scrollUntilVisible(
+      review,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(review, findsOneWidget);
-    // The notification card can be below the viewport even though its
-    // lazily laid-out button exists; bring it fully on-screen before tap.
+    // The email settings entry can push the lazy notification card below the
+    // viewport. Scroll to build it, then retain the exact navigation assertions.
     await tester.ensureVisible(review);
     await tester.pumpAndSettle();
     await tester.tap(review);

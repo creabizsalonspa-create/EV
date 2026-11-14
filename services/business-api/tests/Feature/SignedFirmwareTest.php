@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ChargerFirmwareController;
+use App\Http\Controllers\ChargerResetController;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
@@ -10,6 +12,7 @@ use App\Models\VendorOps\VendorSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -17,6 +20,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class SignedFirmwareTest extends TestCase
@@ -24,6 +28,31 @@ class SignedFirmwareTest extends TestCase
     use RefreshDatabase;
 
     private ?string $catalogRoot = null;
+
+    public function test_captured_admin_request_cannot_revoke_firmware_or_scope_resets_after_login_revocation(): void
+    {
+        $f = $this->fixture();
+        $release = $this->actingAs($f['admin'])->postJson($f['releases'], ['catalog_key' => 'synthetic-v1', 'note' => 'Approved pinned synthetic bytes'])->assertCreated()->json('id');
+        DB::table('users')->where('id', $f['admin']->id)->increment('auth_epoch');
+        $request = Request::create('/private-maintenance', 'POST', ['note' => 'A stale captured approval note']);
+        $request->setUserResolver(fn () => $f['admin']);
+        foreach (['firmware', 'reset'] as $operation) {
+            try {
+                if ($operation === 'firmware') {
+                    app(ChargerFirmwareController::class)->revoke($request, $f['company'], $release);
+                } else {
+                    app(ChargerResetController::class)->scope($request, $f['company'], $f['charger'], true);
+                }
+                $this->fail('Revoked captured login retained maintenance authority.');
+            } catch (HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+        }
+        $this->assertNull(DB::table('charger_firmware_releases')->where('id', $release)->value('revoked_at'));
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        $this->assertDatabaseCount('charger_reset_operations', 0);
+        Http::assertNothingSent();
+    }
 
     public function test_download_route_rejects_malformed_capabilities_before_entering_the_disabled_adapter(): void
     {

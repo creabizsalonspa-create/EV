@@ -7,6 +7,10 @@ import 'test_support.dart';
 class FirmwareApi extends FixtureApi {
   bool manager = true, fail = true, revoked = false;
   final attempts = <Map<String, dynamic>>[];
+  bool active = true;
+  @override
+  bool Function() sessionFence() =>
+      () => active;
   @override
   Future<dynamic> request(
     String path, {
