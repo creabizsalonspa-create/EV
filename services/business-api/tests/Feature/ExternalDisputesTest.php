@@ -346,6 +346,7 @@ class ExternalDisputesTest extends TestCase
         $this->assertSame($before, DB::table('external_disputes')->find($id)->provider_observed_at);
         $this->assertDatabaseHas('gateway_cases', ['status' => 'open']);
     }
+
     public function test_native_provider_receipts_reject_admin_personal_access_tokens(): void
     {
         $this->providerEvent()->assertOk();
@@ -354,5 +355,4 @@ class ExternalDisputesTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->withToken($this->admin->createToken('forbidden-admin-dispute-native')->plainTextToken)->getJson('/api/v1/commercial/external-disputes')->assertForbidden();
     }
-
 }
