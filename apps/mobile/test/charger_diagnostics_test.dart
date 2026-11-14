@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -42,6 +43,10 @@ class DiagnosticsApi extends FixtureApi {
 class FaultDiagnosticsApi extends DiagnosticsApi {
   int acknowledgments = 0;
   bool acknowledged = false;
+  bool active = true;
+  @override
+  bool Function() sessionFence() =>
+      () => active;
   @override
   Future<dynamic> request(
     String path, {
@@ -89,7 +94,130 @@ class FaultDiagnosticsApi extends DiagnosticsApi {
   }
 }
 
+class DeferredDiagnosticsApi extends DiagnosticsApi {
+  final response = Completer<dynamic>();
+  bool active = true;
+  @override
+  bool Function() sessionFence() =>
+      () => active;
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) => response.future;
+}
+
 void main() {
+  testWidgets(
+    'background hides private observations and drops late source reads',
+    (tester) async {
+      final api = DeferredDiagnosticsApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChargerDiagnosticsView(
+            api: api,
+            companyId: 1,
+            chargerId: 2,
+            onExpired: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      api.response.complete({
+        'firmware_version': 'PRIVATE-LATE-FIRMWARE',
+        'events': [],
+      });
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('PRIVATE-LATE-FIRMWARE'), findsNothing);
+      expect(find.text('Refresh'), findsOneWidget);
+    },
+  );
+  testWidgets(
+    'old account cannot submit a retained fault acknowledgment dialog',
+    (tester) async {
+      final api = FaultDiagnosticsApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChargerDiagnosticsView(
+            api: api,
+            companyId: 1,
+            chargerId: 2,
+            onExpired: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fault alerts'));
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        tester.element(find.text('Acknowledge fault')),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Acknowledge fault'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField),
+        'Reviewing source fault safely',
+      );
+      await tester.pump();
+      api.active = false;
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(api.acknowledgments, 0);
+    },
+  );
+
+  testWidgets(
+    'background clears operator notes and invalidates the retained confirmation',
+    (tester) async {
+      final api = FaultDiagnosticsApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChargerDiagnosticsView(
+            api: api,
+            companyId: 1,
+            chargerId: 2,
+            onExpired: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fault alerts'));
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        tester.element(find.text('Acknowledge fault')),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Acknowledge fault'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'PRIVATE OPERATOR NOTE');
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(find.text('PRIVATE OPERATOR NOTE'), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField),
+        'New note cannot revive old confirmation',
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+            .onPressed,
+        isNull,
+      );
+      expect(api.acknowledgments, 0);
+    },
+  );
   testWidgets(
     'fault acknowledgment has no blind retry after a lost response; read recovers state',
     (tester) async {
