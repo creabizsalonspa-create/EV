@@ -1755,7 +1755,9 @@ async function refreshInbox() {
         }
     }
     for (const m of n.data) {
-        const row = m.kind === "vehicle.battery.simulated"
+        const row = m.kind === "payment.provider_dispute.test"
+            ? ui("p", "Test-provider dispute updated · invoice #{id}", {id: m.metadata?.invoice_id ?? "?"})
+            : m.kind === "vehicle.battery.simulated"
             ? batteryNotification(m)
             : m.kind === "charging.fault.simulated"
                 ? ui("p", "Observed simulated charger fault · station #{id}", {
@@ -1927,6 +1929,18 @@ async function refreshInbox() {
                 };
                 row.append(review);
             }
+        }
+        if (m.kind === "payment.provider_dispute.test" && m.metadata?.review_only === true &&
+            m.metadata?.evidence === "STRIPE_TEST_CONTRACT" && m.metadata?.real_money_moved === false &&
+            Number.isSafeInteger(m.metadata?.external_dispute_id) && m.metadata.external_dispute_id > 0) {
+            const review = ui("button", "Review provider dispute");
+            review.type = "button";
+            review.onclick = () => {
+                if (session !== client.sessionEpoch || account !== user?.id) return;
+                location.hash = "commercial-finance";
+                el("commercial-finance").scrollIntoView({behavior: "smooth", block: "center"});
+            };
+            row.append(review);
         }
         if (["charging.monitor.requires_review.simulated",
              "charging.monitor.resumed.simulated"].includes(m.kind)) {

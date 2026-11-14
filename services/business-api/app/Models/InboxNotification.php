@@ -99,7 +99,31 @@ class InboxNotification extends Model
         // Role and asset ownership are checked INSIDE the statement that
         // reads/updates the inbox. A revoked vendor cannot reuse an already
         // built query to see a transferred company's station/charger IDs.
+        $providerInvoice = $field('invoice_id');
+        $providerDispute = $field('external_dispute_id');
+        $noMoney = $boolean('real_money_moved', false);
+        $providerProof = '('.$physicalFalse.') AND ('.$noMoney.') AND ('.$boolean('review_only', true).') AND '.$field('evidence')." = 'STRIPE_TEST_CONTRACT'";
+
         return $query->where('user_id', $actor->id)
+            ->where(function (Builder $visible) use ($providerInvoice, $providerDispute, $providerProof): void {
+                $visible->where('kind', '!=', 'payment.provider_dispute.test')
+                    ->orWhere(function (Builder $notice) use ($providerInvoice, $providerDispute, $providerProof): void {
+                        $notice->whereRaw($providerProof)
+                            ->whereExists(function ($current) use ($providerInvoice, $providerDispute): void {
+                                $current->selectRaw('1')->from('external_disputes as notice_dispute')
+                                    ->join('gateway_checkouts as notice_checkout', 'notice_checkout.id', '=', 'notice_dispute.checkout_id')
+                                    ->join('finance_invoices as notice_invoice', 'notice_invoice.id', '=', 'notice_checkout.invoice_id')
+                                    ->join('users as notice_recipient', 'notice_recipient.id', '=', 'inbox_notifications.user_id')
+                                    ->where('notice_recipient.account_status', 'active')
+                                    ->whereRaw("CAST(notice_invoice.id AS TEXT) = {$providerInvoice}")
+                                    ->whereRaw("CAST(notice_dispute.id AS TEXT) = {$providerDispute}")
+                                    ->where(function ($party): void {
+                                        $party->where(fn ($customer) => $customer->where('notice_recipient.role', 'customer')->whereColumn('notice_invoice.user_id', 'notice_recipient.id'))
+                                            ->orWhere(fn ($vendor) => $vendor->where('notice_recipient.role', 'vendor')->whereColumn('notice_invoice.vendor_id', 'notice_recipient.id'));
+                                    });
+                            });
+                    });
+            })
             ->where(function (Builder $provenance) use ($provenanceKinds, $physicalFalse): void {
                 $provenance->whereNotIn('kind', $provenanceKinds)
                     // A metadata-null legacy text notice has no physical

@@ -1,3 +1,4 @@
+import 'provider_disputes.dart';
 import 'privacy_requests.dart';
 import 'phone_verification.dart';
 import 'account_second_factor.dart';
@@ -1229,6 +1230,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                           RiderAccessView(api: api!, onExpired: expiredSession),
                     ),
                   );
+                } else if (value == 'providerDisputes') {
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+                    ProviderDisputesView(api: api!, onExpired: expiredSession)));
                 } else if (value == 'paymentCases') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -1391,6 +1395,12 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   value: 'financialAnalytics',
                   enabled: !busy,
                   child: Text(analyticsText(context, 'title')),
+                ),
+                if (['customer', 'vendor'].contains(account!.role))
+                  PopupMenuItem(
+                  value: 'providerDisputes',
+                  enabled: !busy,
+                  child: Text(providerDisputeText(context, 'Provider disputes', 'نزاعات مزود الدفع')),
                 ),
                 PopupMenuItem(
                   value: 'paymentCases',

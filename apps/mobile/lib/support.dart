@@ -1,3 +1,4 @@
+import 'provider_disputes.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'api.dart';
@@ -16,6 +17,16 @@ String newSupportRequestKey() {
 
 /// Presentation-only: all values are text, never an authorization or charging
 /// command. Unknown or malformed event metadata cannot crash the inbox.
+int? providerDisputeNotificationTarget(Map<String, dynamic> row) {
+  final metadata = row['metadata'];
+  if (row['kind'] != 'payment.provider_dispute.test' || metadata is! Map ||
+      metadata['evidence'] != 'STRIPE_TEST_CONTRACT' || metadata['review_only'] != true ||
+      metadata['real_money_moved'] != false || metadata['physical_verification'] != false ||
+      metadata['invoice_id'] is! int || metadata['invoice_id'] <= 0 ||
+      metadata['external_dispute_id'] is! int || metadata['external_dispute_id'] <= 0) return null;
+  return metadata['external_dispute_id'] as int;
+}
+
 String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
   final data = row['metadata'];
   final metadata = data is Map ? data : const <String, Object>{};
@@ -25,6 +36,10 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
   }
 
   switch (row['kind']) {
+    case 'payment.provider_dispute.test':
+      return providerDisputeNotificationTarget(row) == null ? strings.t('notificationOtherTitle')
+        : strings.t('providerDisputeNotice', {'invoice': id('invoice_id')});
+
     case 'charging.fault.simulated':
       return strings.t('simulatedFaultAlert', {
         'station': id('station_id'),
@@ -880,6 +895,14 @@ class SupportViewState extends State<SupportView> {
                                     },
                               child: Text(s.t('reviewOperationalCase')),
                             ),
+                          if (providerDisputeNotificationTarget(row) != null)
+                            TextButton(onPressed: loading ? null : () async {
+                              final id = providerDisputeNotificationTarget(row);
+                              if (id == null) return;
+                              await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+                                ProviderDisputesView(api: widget.api, onExpired: widget.onSessionExpired, initialDisputeId: id)));
+                              if (mounted) await refresh();
+                            }, child: Text(s.t('reviewProviderDispute'))),
                           if (simulatedMonitorTarget(row) != null)
                             TextButton(
                               key: const Key('review-simulator-monitor'),
