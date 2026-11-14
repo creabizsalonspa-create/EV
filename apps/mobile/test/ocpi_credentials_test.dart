@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -6,6 +7,11 @@ import 'test_support.dart';
 
 class CredentialsApi extends FixtureApi {
   int writes = 0;
+  bool active = true;
+  Completer<dynamic>? delayed;
+  @override
+  bool Function() sessionFence() =>
+      () => active;
   bool lost = false, expired = false, incoming = false;
   Map<String, dynamic>? intent;
   @override
@@ -22,9 +28,19 @@ class CredentialsApi extends FixtureApi {
       lost = true;
       throw const ApiException(503, 'PRIVATE TOKEN');
     }
+    if (delayed != null) return delayed!.future;
     if (expired) throw const ApiException(401, 'PRIVATE TOKEN');
     return {
       'configured': true,
+      'configured_receiver_modules': [
+        'cdrs',
+        'locations',
+        'sessions',
+        'tariffs',
+      ],
+      'active_receiver_modules': lost || incoming
+          ? []
+          : ['locations', 'tariffs'],
       'state': lost
           ? 'outcome_unknown'
           : (incoming ? 'not_exchanged' : 'active'),
@@ -54,6 +70,93 @@ class CredentialsApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets(
+    'retained credential approval cannot dispatch under a different authenticated account',
+    (tester) async {
+      final api = CredentialsApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rotate partner credentials'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField),
+        'Approved old account context',
+      );
+      await tester.pump();
+      api.active = false;
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(api.writes, 0);
+    },
+  );
+  testWidgets(
+    'background clears approval notes and cannot revive an old credential decision',
+    (tester) async {
+      final api = CredentialsApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rotate partner credentials'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'PRIVATE APPROVAL NOTE');
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(find.text('PRIVATE APPROVAL NOTE'), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField),
+        'A new note cannot revive the old decision',
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Confirm'))
+            .onPressed,
+        isNull,
+      );
+      expect(api.writes, 0);
+    },
+  );
+
+  testWidgets(
+    'configured catalog modules do not imply active token reception after uncertainty',
+    (tester) async {
+      final api = CredentialsApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OcpiCredentialsView(api: api, providerId: 7, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Configured partner reception: cdrs, locations, sessions, tariffs',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Active credential reception: locations, tariffs'),
+        findsOneWidget,
+      );
+      api.lost = true;
+      await tester.tap(find.text('Refresh'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Active credential reception: locations, tariffs'),
+        findsNothing,
+      );
+      expect(api.writes, 0);
+    },
+  );
+
   testWidgets(
     'incoming enrollment action uses the approved backend workflow without exposing a bootstrap token',
     (tester) async {

@@ -34,7 +34,7 @@ class OcpiProtocolCredentialsController extends Controller
         $enrolling = $link->state === 'awaiting_registration' && $link->bootstrap_expires_at && CarbonImmutable::parse($link->bootstrap_expires_at)->isFuture() && (($r->isMethod('GET') && in_array($resource, ['versions', 'details'], true)) || ($r->isMethod('POST') && $resource === 'credentials'));
         abort_unless($link->state === 'active' || $provisional || $enrolling, 401);
         $p = OcpiProvider::findOrFail($link->provider_id);
-        abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);
+        abort_unless($p->authorized && $p->owner_id === $link->owner_id && User::whereKey($p->owner_id)->where('role', 'vendor')->exists() && ($resource !== 'catalog' || User::whereKey($p->owner_id)->where('account_status', 'active')->exists()) && hash_equals($link->configuration_hash, $exchange->configurationHash($p)), 401);
 
         return [$p, $link];
     }
@@ -78,7 +78,7 @@ class OcpiProtocolCredentialsController extends Controller
             $data = DB::transaction(function () use ($p, $link, $exchange, $peer, $body) {
                 $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
                 $active = DB::table('ocpi_credential_links')->where('id', $link->id)->lockForUpdate()->firstOrFail();
-                abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision && $active->state === 'active' && $active->local_token_digest === $link->local_token_digest && hash_equals($active->configuration_hash, $exchange->configurationHash($current)) && User::whereKey($current->owner_id)->where('role', 'vendor')->exists(), 401);
+                abort_unless($current->authorized && $current->owner_id === $p->owner_id && $current->connection_key === $p->connection_key && $current->authorization_revision === $p->authorization_revision && $active->state === 'active' && $active->local_token_digest === $link->local_token_digest && hash_equals($active->configuration_hash, $exchange->configurationHash($current)) && User::whereKey($current->owner_id)->where('role', 'vendor')->when($peer !== null, fn ($q) => $q->where('account_status', 'active'))->exists(), 401);
                 if ($peer) {
                     abort_unless($active->generation < 2147483647 && $current->authorization_revision < PHP_INT_MAX, 409);
                 }

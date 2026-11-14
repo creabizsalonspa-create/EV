@@ -25,7 +25,6 @@ use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\RemoteSessionAuthorizationController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\RiderSourceController;
-use App\Http\Controllers\RoamingOrderController;
 use App\Http\Controllers\SimulationController as S;
 use App\Http\Controllers\StationAvailabilityBlockController;
 use App\Http\Controllers\StationInformationController;
@@ -163,6 +162,8 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
     Route::get('2.2.1/tokens/{country}/{party}/{uid}', [OcpiRoamingProtocolController::class, 'token']);
     Route::post('2.2.1/tokens/{uid}/authorize', [OcpiRoamingProtocolController::class, 'authorize']);
     Route::match(['GET', 'PUT', 'PATCH'], '2.2.1/sessions/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'session']);
+    Route::match(['GET', 'PUT', 'PATCH'], '2.2.1/locations/{country}/{party}/{external}/{evse?}/{connector?}', [OcpiProtocolRecordsController::class, 'location']);
+    Route::match(['GET', 'PUT', 'DELETE'], '2.2.1/tariffs/{country}/{party}/{external}', [OcpiProtocolRecordsController::class, 'tariff']);
     Route::post('2.2.1/cdrs', [OcpiProtocolRecordsController::class, 'cdr']);
     Route::get('2.2.1/cdrs/{external}', [OcpiProtocolRecordsController::class, 'cdr']);
     Route::get('versions', [OcpiProtocolCredentialsController::class, 'handle']);
@@ -171,7 +172,7 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
 });
 
 Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1/roaming')->group(__DIR__.'/roaming_orders.php');
-Route::get('v1/ocpi/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api']);
+Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1/ocpi')->group(__DIR__.'/ocpi_operations.php');
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
 Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->where('operation', '[0-9]{1,18}')->middleware('throttle:30,1');
 

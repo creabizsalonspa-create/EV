@@ -87,6 +87,19 @@ class OcpiProtocolRecordsTest extends TestCase
         $this->assertDatabaseCount('ocpi_record_receipts', 0);
     }
 
+    public function test_suspending_owner_preserves_authenticated_historical_session_and_cdr_evidence(): void
+    {
+        [$provider, $headers] = $this->context();
+        $session = $this->sessionPayload();
+        $path = '/api/roaming-protocol/2.2.1';
+        $this->putJson($path.'/sessions/NL/ABC/session-1', $session, $headers)->assertCreated();
+        User::findOrFail($provider->owner_id)->forceFill(['account_status' => 'suspended'])->save();
+        $this->postJson($path.'/cdrs', $this->cdr($session), $headers)->assertCreated();
+        $this->getJson($path.'/cdrs/cdr-1', $headers)->assertOk();
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_receiver_capabilities_are_opt_in_pinned_to_credential_scope_and_discovered(): void
     {
         [$provider, $headers] = $this->context();

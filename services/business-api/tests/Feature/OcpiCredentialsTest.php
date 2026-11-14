@@ -84,6 +84,20 @@ class OcpiCredentialsTest extends TestCase
         return ['Authorization' => 'Token '.base64_encode($token)];
     }
 
+    public function test_suspended_owner_cannot_rotate_but_admin_can_still_unregister_the_peer(): void
+    {
+        [$provider, $admin, $owner, $url] = $this->fixture();
+        $this->source();
+        $this->actingAs($admin)->postJson($url, $this->intent())->assertOk();
+        $owner->forceFill(['account_status' => 'suspended'])->save();
+        $this->postJson($url, $this->intent('rotate', 'blocked-rotate'))->assertConflict();
+        $this->postJson($url, $this->intent('unregister', 'safe-unregister'))->assertOk()->assertJsonPath('state', 'acknowledged');
+        $this->assertSame('unregistered', DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('state'));
+        $this->assertNull(DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('local_token_digest'));
+        $this->assertNull($provider->fresh()->version);
+        $this->assertSame('DELETE', $this->writes[1]['method']);
+    }
+
     public function test_registered_credentials_are_private_one_shot_and_not_charging_or_billing_authority(): void
     {
         [$p, $admin, $owner, $url] = $this->fixture();

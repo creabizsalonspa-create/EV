@@ -37,6 +37,14 @@ class RecordSynchronizer
                 $identity = ['ocpi_provider_id' => $locked->id, 'module' => $module, 'country_code' => $n['country_code'], 'party_id' => $n['party_id'], 'external_id' => $n['id']];
                 $existing = OcpiRecord::where($identity)->first();
                 $updated = CarbonImmutable::parse($n['last_updated']);
+                if ($existing && $module === 'tariffs') {
+                    $retired = DB::table('ocpi_catalog_retirements')->where('record_id', $existing->id)->orderByDesc('id')->first();
+                    if ($retired && ($updated->lte(CarbonImmutable::parse($retired->retired_at, 'UTC')) || $updated->lte(CarbonImmutable::parse($retired->source_updated_at, 'UTC')))) {
+                        $counts['stale']++;
+
+                        continue;
+                    }
+                }
                 if ($existing) {
                     if (hash_equals($existing->content_hash, $hash)) {
                         $counts['duplicate']++;

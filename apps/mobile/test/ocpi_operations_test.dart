@@ -96,6 +96,31 @@ class CdrApi extends PartnerApi {
   }
 }
 
+class RetiredTariffApi extends PartnerApi {
+  @override
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    Map<String, String> query = const {},
+  }) async {
+    if (path.endsWith('/records/tariffs'))
+      return {
+        'current_page': 1,
+        'last_page': 1,
+        'total': 1,
+        'data': [
+          {
+            'external_id': 'retired-1',
+            'catalog_retired': true,
+            'normalized': {'currency': 'EUR', 'elements': []},
+          },
+        ],
+      };
+    return super.request(path, method: method, body: body, query: query);
+  }
+}
+
 class ProvisionApi extends PartnerApi {
   Map<String, dynamic>? created;
   @override
@@ -132,6 +157,31 @@ class ProvisionApi extends PartnerApi {
 }
 
 void main() {
+  testWidgets(
+    'withdrawn tariffs remain visibly historical and never imply a current price offer',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: OcpiOperationsView(
+            api: RetiredTariffApi(),
+            admin: false,
+            onExpired: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Inspect Tariffs'));
+      await tester.tap(find.text('Inspect Tariffs'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Withdrawn partner tariff. Historical source only; not a current offer.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets(
     'CDR source discrepancies are visible without billing authority or private payloads',
     (tester) async {

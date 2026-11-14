@@ -336,6 +336,13 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
     final n = row['normalized'] as Map? ?? {};
     // Render only normalized allowlisted fields, never opaque tokens or source payloads.
     return [
+      if (row['catalog_retired'] == true)
+        Text(
+          tr(
+            'Withdrawn partner tariff. Historical source only; not a current offer.',
+            'تعرفة مسحوبة من الشريك. محفوظة للسجل فقط وليست عرضاً حالياً.',
+          ),
+        ),
       Text(
         '${row['country_code'] ?? ''} · ${row['party_id'] ?? ''} · ${row['external_id'] ?? ''}',
       ),
