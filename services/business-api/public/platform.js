@@ -1654,7 +1654,7 @@ async function refreshInbox() {
         }
     };
     view.append(categorySelect);
-    const emailSettings = ui("button", "Email activity notices / إشعارات البريد");
+    const emailSettings = ui("button", "Email activity notices");
     emailSettings.type = "button";
     emailSettings.onclick = () => window.EvNotificationEmail.open({host: view, api,
         current: () => session === client.sessionEpoch && account === user?.id});
@@ -1717,7 +1717,7 @@ async function refreshInbox() {
         delaySelect.value = String(currentDelay);
         delayLabel.append(delaySelect);
         settings.append(delayLabel);
-        settings.append(ui("p", "Critical in-app notifications always remain visible. Email notices require separate consent / إشعارات البريد تتطلب موافقة مستقلة."));
+        settings.append(ui("p", "Critical in-app notifications always remain visible. Email notices require separate consent and server configuration."));
         const save = ui("button", "Save notification preferences");
         save.id = "notification-preference-save";
         save.type = "submit";
