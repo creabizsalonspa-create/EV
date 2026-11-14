@@ -175,6 +175,7 @@ Route::prefix('roaming-protocol')->middleware('throttle:60,1')->group(function (
 
 Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1/roaming')->group(__DIR__.'/roaming_orders.php');
 Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->prefix('v1/ocpi')->group(__DIR__.'/ocpi_operations.php');
+Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class])->prefix('v1/notifications')->group(__DIR__.'/notification_email.php');
 // Expiring source-only upload capability; never a browser account or configurable remote URL.
 Route::put('/internal/diagnostic-logs/{operation}', [ChargerDiagnosticLogController::class, 'upload'])->where('operation', '[0-9]{1,18}')->middleware('throttle:30,1');
 

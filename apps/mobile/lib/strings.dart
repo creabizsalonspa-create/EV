@@ -30,7 +30,7 @@ class EvStrings {
     'notificationReminderDelayTitle': 'Simulated fault reminder delay',
     'notificationReminderDelayChoice': 'After {minutes} minutes',
     'notificationDeliveryUnavailable':
-        'Critical in-app notifications remain visible. External email, SMS and push delivery are not active.',
+        'Critical in-app notifications remain visible. Email notices require separate consent and server configuration.',
     'notificationCategoryAll': 'All',
     'notificationCategorySupport': 'Support',
     'notificationCategoryVehicle': 'Vehicle',
@@ -439,7 +439,7 @@ class EvStrings {
     'notificationReminderDelayTitle': 'مهلة تذكير عطل الشاحن التجريبي',
     'notificationReminderDelayChoice': 'بعد {minutes} دقيقة',
     'notificationDeliveryUnavailable':
-        'تبقى الإشعارات الحرجة داخل التطبيق ظاهرة. البريد الإلكتروني والرسائل النصية والإشعارات الفورية الخارجية غير مفعلة.',
+        'تبقى الإشعارات الحرجة داخل التطبيق ظاهرة. إشعارات البريد تتطلب موافقة مستقلة وتهيئة الخادم.',
     'notificationCategoryAll': 'الكل',
     'notificationCategorySupport': 'الدعم',
     'notificationCategoryVehicle': 'المركبة',

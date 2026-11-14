@@ -1,3 +1,4 @@
+import 'notification_email.dart';
 import 'provider_disputes.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -781,6 +782,12 @@ class SupportViewState extends State<SupportView> {
               onPressed: loading ? null : editNotificationPreferences,
               icon: const Icon(Icons.tune),
               label: Text(s.t('notificationPreferencesTitle')),
+            ),
+          if (notifications && preferencesLoaded)
+            TextButton(
+              onPressed: loading ? null : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => NotificationEmailView(api: widget.api, onExpired: widget.onSessionExpired))),
+              child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'إشعارات البريد' : 'Email activity notices'),
             ),
           if (notifications && preferencesLoaded)
             Text(s.t('notificationDeliveryUnavailable')),
