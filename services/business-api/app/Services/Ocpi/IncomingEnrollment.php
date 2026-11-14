@@ -11,8 +11,11 @@ use Illuminate\Support\Facades\DB;
 /** Preapproved, expiring bootstrap A -> independently validated peer B -> local C. */
 class IncomingEnrollment
 {
-    public function prepare(OcpiProvider $p, int $actor, array $v): array
+    public function prepare(OcpiProvider $p, int $actor, array $v, ?User $requestActor = null): array
     {
+        $approval = clone ($requestActor ?? User::findOrFail($actor));
+        abort_unless($approval->id === $actor, 403);
+        app(AdminCredentialApproval::class)->current($approval);
         $exchange = app(CredentialExchange::class);
         [$c] = $exchange->configuration($p);
         abort_unless(($c['registration_direction'] ?? 'outbound') === 'incoming', 409, 'Server configuration must approve incoming enrollment.');
@@ -22,9 +25,9 @@ class IncomingEnrollment
         $payloadHash = hash('sha256', json_encode([$v['action'], $v['reason']], JSON_THROW_ON_ERROR));
         $configuration = $exchange->configurationHash($p);
 
-        return DB::transaction(function () use ($p, $actor, $v, $exchange, $encoded, $raw, $payloadHash, $configuration) {
+        return DB::transaction(function () use ($p, $actor, $v, $exchange, $encoded, $raw, $payloadHash, $configuration, $approval) {
+            app(AdminCredentialApproval::class)->current($approval, true);
             $current = OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
-            abort_unless(User::whereKey($actor)->where('role', 'admin')->exists(), 403);
             $this->current($p, $current, $configuration);
             $old = DB::table('ocpi_credential_operations')->where('provider_id', $p->id)->where('idempotency_key', $v['idempotency_key'])->first();
             if ($old) {

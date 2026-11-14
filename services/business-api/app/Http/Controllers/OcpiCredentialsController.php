@@ -62,7 +62,7 @@ class OcpiCredentialsController extends Controller
         abort_unless($r->user()->role === 'admin', 403);
         $v = $r->validate(['action' => 'required|in:register,rotate,unregister,prepare_incoming', 'reason' => 'required|string|min:10|max:2000', 'idempotency_key' => 'required|string|max:100']);
         try {
-            $result = $v['action'] === 'prepare_incoming' ? app(IncomingEnrollment::class)->prepare($provider, $r->user()->id, $v) : $exchange->exchange($provider, $r->user()->id, $v);
+            $result = $v['action'] === 'prepare_incoming' ? app(IncomingEnrollment::class)->prepare($provider, $r->user()->id, $v, $r->user()) : $exchange->exchange($provider, $r->user()->id, $v, $r->user());
         } catch (OcpiException) {
             abort(409, 'Partner credentials discovery is unavailable; no application token is disclosed.');
         }

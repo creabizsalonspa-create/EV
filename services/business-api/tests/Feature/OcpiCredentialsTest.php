@@ -4,13 +4,17 @@ namespace Tests\Feature;
 
 use App\Models\OcpiProvider;
 use App\Models\User;
+use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiException;
 use App\Services\Ocpi\PartnerClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\TestWith;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class OcpiCredentialsTest extends TestCase
@@ -82,6 +86,71 @@ class OcpiCredentialsTest extends TestCase
     private function protocol(string $token): array
     {
         return ['Authorization' => 'Token '.base64_encode($token)];
+    }
+
+    #[TestWith(['epoch'])]
+    #[TestWith(['password'])]
+    #[TestWith(['suspension'])]
+    public function test_administrator_revocation_during_discovery_cannot_dispatch_a_stale_approval(string $change): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source(duringDiscovery: function () use ($admin, $change) {
+            if ($change === 'epoch') {
+                DB::table('users')->where('id', $admin->id)->increment('auth_epoch');
+            } elseif ($change === 'password') {
+                DB::table('users')->where('id', $admin->id)->update(['password' => Hash::make('New synthetic password only')]);
+            } else {
+                DB::table('users')->where('id', $admin->id)->update(['account_status' => 'suspended']);
+            }
+        });
+        $reply = $this->actingAs($admin)->postJson($url, $this->intent());
+        if ($change === 'suspension') {
+            $reply->assertForbidden();
+        } else {
+            $reply->assertConflict();
+        }
+        $this->assertSame([], $this->writes);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+        $this->assertNull($provider->fresh()->version);
+    }
+
+    public function test_approval_revoked_after_claim_is_quarantined_and_fresh_receipt_recovery_never_resends(): void
+    {
+        [$provider, $admin, , $url] = $this->fixture();
+        $this->source();
+        $revoked = false;
+        DB::listen(function ($query) use ($admin, &$revoked) {
+            if (! $revoked && str_contains($query->sql, 'insert into "ocpi_credential_operations"')) {
+                $revoked = true;
+                DB::table('users')->where('id', $admin->id)->increment('auth_epoch');
+            }
+        });
+        $receipt = $this->actingAs($admin)->postJson($url, $this->intent())->assertOk()->assertJsonPath('state', 'outcome_unknown')->json();
+        $this->assertTrue($revoked);
+        $this->assertSame([], $this->writes);
+        $this->assertNull(DB::table('ocpi_credential_links')->where('provider_id', $provider->id)->value('local_token_digest'));
+        $current = $admin->fresh();
+        $this->actingAs($current)->withSession(['account_auth_epoch' => $current->auth_epoch])->postJson($url, $this->intent())->assertOk()->assertJsonPath('id', $receipt['id'])->assertJsonPath('state', 'outcome_unknown');
+        $this->assertSame([], $this->writes);
+        $this->assertDatabaseCount('ocpi_credential_operations', 1);
+    }
+
+    public function test_incoming_preparation_cannot_borrow_a_new_admin_epoch_from_a_stale_request(): void
+    {
+        [$provider, $admin] = $this->fixture();
+        config(['ocpi.connections.managed.registration_direction' => 'incoming', 'ocpi.connections.managed.inbound_authorization_token' => base64_encode('SYNTHETIC-INCOMING-BOOTSTRAP')]);
+        $snapshot = clone $admin;
+        DB::table('users')->where('id', $admin->id)->increment('auth_epoch');
+        try {
+            app(IncomingEnrollment::class)->prepare($provider, $admin->id, $this->intent('prepare_incoming'), $snapshot);
+            $this->fail('A stale administrator prepared new enrollment authority.');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+        $this->assertDatabaseCount('ocpi_credential_links', 0);
+        $this->assertDatabaseCount('ocpi_credential_operations', 0);
+        Http::assertNothingSent();
     }
 
     public function test_suspended_owner_cannot_rotate_but_admin_can_still_unregister_the_peer(): void
