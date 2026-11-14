@@ -4,8 +4,8 @@ const {BusinessClient}=require('./helpers/business-client.cjs');
 let stage='fixture';
 (async()=>{
  const run=randomBytes(4).toString('hex'),password=randomBytes(24).toString('hex')+'Aa9!';
- const f=JSON.parse(execFileSync('./scripts/php',['tests/Fixtures/admin-operations-map.php',run,password],{encoding:'utf8'}));assert.equal(f.fixture_only,true);
- async function login(email){const c=new BusinessClient();c.csrf=(await c.request('csrf')).token;await c.request('login','POST',{email,password});c.csrf=(await c.request('csrf')).token;return c;}
+ const f=JSON.parse(execFileSync(process.env.EV_TEST_PHP_RUNNER||'./scripts/php',['tests/Fixtures/admin-operations-map.php',run,password],{encoding:'utf8'}));assert.equal(f.fixture_only,true);
+ async function login(email){const c=new BusinessClient({base:process.env.EV_TEST_URL||"http://127.0.0.1:8000"});c.csrf=(await c.request('csrf')).token;await c.request('login','POST',{email,password});c.csrf=(await c.request('csrf')).token;return c;}
  stage='admin-login';const c=await login(f.admin_email);
  stage='private-read';const data=await c.request('admin/operations/map?q='+encodeURIComponent(f.name));assert.equal(data.total,1);assert.equal(data.data[0].company.id,f.company_id);assert.equal(data.data[0].remote_control,false);
  const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined,args:['--no-sandbox']});
