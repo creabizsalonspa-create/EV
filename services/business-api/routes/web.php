@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AccountPrivacyController;
+use App\Http\Controllers\AccountSessionController;
 use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\AdminAuditTrailController;
 use App\Http\Controllers\AdminKycQueueController;
@@ -74,6 +75,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
 });
 
 Route::get('/api/admin/accounts', [AdminAccountDirectoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
+Route::post('/api/account/sessions/revoke-all', [AccountSessionController::class, 'revokeAll'])->middleware(['auth', 'throttle:authentication']);
 Route::post('/api/admin/sessions/revoke-all', [AdminSessionController::class, 'revokeAll'])->middleware(['auth', 'throttle:authentication']);
 Route::get('/api/account/privacy-requests', [AccountPrivacyController::class, 'mine'])->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/account/privacy-requests', [AccountPrivacyController::class, 'submit'])->middleware(['auth', 'throttle:authentication']);

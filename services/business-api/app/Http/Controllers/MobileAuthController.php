@@ -21,6 +21,11 @@ class MobileAuthController extends Controller
             abort_unless(in_array($account->role, ['customer', 'vendor']), 403, 'Admin accounts use the web administration portal.');
             abort_unless($account->account_status === 'active', 403, 'Account access is unavailable.');
 
+            // A login checked before revocation/reset cannot mint a token
+            // after the account's authorization boundary has moved.
+            abort_unless((int) $account->auth_epoch === (int) $u->auth_epoch
+                && hash_equals((string) $account->password, (string) $u->password), 409, 'Account credentials changed; sign in again.');
+
             $account->tokens()->where('created_at', '<', now()->subDay())->delete();
             if ($account->tokens()->count() >= 5) {
                 $account->tokens()->oldest('id')->first()->delete();

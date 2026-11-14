@@ -1,0 +1,22 @@
+{
+  "baseline_sha": "24087a8a7c1d7b2554a0884270293c162be08b8c",
+  "depends_on_pr": 91,
+  "observed_at_utc": "2026-11-13T04:13:34.447120+00:00",
+  "scope": "Customer/vendor password-confirmed global session revocation, authorization-epoch and mobile-login race fence, cross-tab private-state clearing, Flutter explicit confirmation and secure-store/cookie cleanup source",
+  "validation": {
+    "laravel_sqlite": {
+      "passed": 974,
+      "assertions": 19544
+    },
+    "postgresql_17_authentication": {
+      "passed": 13,
+      "assertions": 100
+    },
+    "web_security_contracts": 10,
+    "php_style": "passed"
+  },
+  "hosted_checks": "pending",
+  "native": "source and password privacy widget test added; local bootstrap remains blocked by earlier automatic review; required hosted validation pending",
+  "production_accepted": false,
+  "coverage": "No whole-atom credit before all required verification and source integration."
+}
