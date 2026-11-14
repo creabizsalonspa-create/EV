@@ -1,10 +1,10 @@
 /* Same-origin read-only unified catalog. Source data is always rendered as text. */
 (() => {
- const text=(tag,en,ar)=>{const n=document.createElement(tag);n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;return n;};
+ const text=(tag,en,ar)=>{const n=document.createElement(tag);if(tag==='label'){n.append(text('span',en,ar));return n;}n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;return n;};
  const button=(en,ar,action)=>{const n=text('button',en,ar);n.type='button';n.onclick=action;return n;};
  function install(root,api,onCatalog){
   let generation=0,page=1,query='',scope='all',connector='',mapRows=[],recentStatus='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false;
-  const form=document.createElement('form'),input=document.createElement('input'),source=document.createElement('select'),plug=document.createElement('select'),state=text('p','',''),list=document.createElement('div'),nav=document.createElement('nav');
+  const form=document.createElement('form'),input=document.createElement('input'),source=document.createElement('select'),plug=document.createElement('select'),state=document.createElement('p'),list=document.createElement('div'),nav=document.createElement('nav');
   input.maxLength=80;input.name='unified-query';
   const field=text('label','Name, address or operator','الاسم أو العنوان أو المشغل');field.append(input);form.append(field);
   for(const [value,en,ar] of [['all','All published sources','كل المصادر المنشورة'],['catalog','Platform catalog','كتالوج المنصة'],['partner','Authorized partner reports','تقارير الشركاء المصرح لهم']]){const option=text('option',en,ar);option.value=value;source.append(option);}
@@ -24,7 +24,7 @@
   });mapButton.disabled=true;root.append(mapButton);
   async function load(target){
    if(writing)return;
-   uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.textContent=document.documentElement.lang==='ar'?'جارٍ البحث…':'Searching…';submit.disabled=true;
+   uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
    try{
     const data=await api('search?'+new URLSearchParams({q:query,scope,connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus}));if(turn!==generation)return;
     if(!Array.isArray(data.data)||!Number.isInteger(data.current_page)||!Number.isInteger(data.last_page)||!Number.isInteger(data.total))throw Error('Invalid catalog response');
