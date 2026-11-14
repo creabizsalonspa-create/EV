@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\PrechargePricingController;
+use App\Http\Controllers\SimulationController;
 use App\Models\ChargingSession;
 use App\Models\Finance\SessionQuote;
 use App\Models\Finance\TariffVersion;
@@ -9,10 +11,13 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
+use App\Services\Finance\PrechargePricing;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\AcceptsPrechargePricing;
 use Tests\TestCase;
 
@@ -185,5 +190,44 @@ class PrechargePricingTest extends TestCase
         $this->assertSame($before->id, SessionQuote::firstOrFail()->id);
         $this->expectException(QueryException::class);
         DB::table('finance_session_quotes')->where('id', $before->id)->update(['rate_minor_per_kwh' => 0]);
+    }
+
+    public function test_stale_start_request_cannot_use_a_receipt_accepted_after_global_revocation(): void
+    {
+        [, $customer, , , $id] = $this->scenario();
+        $stale = clone $customer;
+        DB::table('users')->where('id', $customer->id)->increment('auth_epoch');
+        $fresh = $customer->fresh();
+        $this->actingAs($fresh)->withSession(['account_auth_epoch' => $fresh->auth_epoch]);
+        $this->acceptPrechargePrice($id);
+        $request = Request::create('/api/reservations/'.$id.'/simulate-start', 'POST');
+        $request->setUserResolver(fn () => $stale);
+        try {
+            app(SimulationController::class)->start($request, Reservation::findOrFail($id));
+            $this->fail('A stale authenticated request created a session using a newer pricing receipt.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('charging_sessions', 0);
+        $this->assertDatabaseCount('finance_session_quotes', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('charging_price_consents', 1);
+    }
+
+    public function test_stale_preview_request_cannot_issue_a_new_confirmation_after_revocation(): void
+    {
+        [, $customer, , , $id] = $this->scenario();
+        $stale = clone $customer;
+        DB::table('users')->where('id', $customer->id)->increment('auth_epoch');
+        $request = Request::create('/api/reservations/'.$id.'/price-estimate', 'POST', ['energy_wh' => 10000]);
+        $request->setUserResolver(fn () => $stale);
+        try {
+            app(PrechargePricingController::class)->preview($request, Reservation::findOrFail($id), app(PrechargePricing::class));
+            $this->fail('A stale authenticated request received a new pricing confirmation.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('charging_price_consents', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
     }
 }

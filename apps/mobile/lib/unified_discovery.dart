@@ -1,3 +1,4 @@
+import 'partner_report_map.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 
@@ -57,10 +58,16 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       FilledButton(onPressed:busy?null:(){submitted=query.text.trim();submittedScope=scope;submittedConnector=connector;load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
       if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!),
       Text(tr('$total published results','$total نتيجة منشورة')),
+      if (mapPoints().isNotEmpty) OutlinedButton(key:const Key('unified-map-open'),onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>PartnerReportMap(points:mapPoints()))),child:Text(tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'))),
       for(final row in rows)card(row),
       Wrap(children:[if(page>1)TextButton(onPressed:busy?null:()=>load(page-1),child:Text(tr('Previous','السابق'))),Text('$page / $last'),if(page<last)TextButton(onPressed:busy?null:()=>load(page+1),child:Text(tr('Next','التالي')))]),
     ]),
   );
+  List<PartnerMapPoint> mapPoints()=>[
+    for(final row in rows)
+      if(row['kind']=='catalog') PartnerMapPoint.fromPublishedCatalog(Map<String,dynamic>.from(row['station'] as Map))
+      else PartnerMapPoint.fromPublishedLocation(Map<String,dynamic>.from(row['location'] as Map),providerLabel:row['provider_label'] as String?),
+  ].whereType<PartnerMapPoint>().toList();
   Widget card(Map<String,dynamic> row){
     if(row['kind']=='catalog'){
       final station=Station.fromJson(Map<String,dynamic>.from(row['station'] as Map));

@@ -761,6 +761,15 @@
             : [];
         render();
     });
+    window.addEventListener("unified-map-data", (event) => {
+        const rows = Array.isArray(event.detail) && event.detail.length <= 25 ? event.detail : [];
+        records = rows.filter(row => row?.kind === 'catalog' && valid(row.station)).map(row => row.station);
+        partnerRows = rows.filter(row => row?.kind === 'partner').map(row => ({...row,id:row.record_id})).filter(partnerSafe);
+        ocmRows = [];
+        planner?.update(records);
+        render();
+        fitLoaded(true);
+    });
     window.addEventListener("catalog-map-data", (event) => {
         records = event.detail;
         planner?.update(records);
