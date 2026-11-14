@@ -109,6 +109,7 @@ test("post-finance operational windows preserve all suites and do not consume th
       "vehicle-reservation",
       "privacy-e2e",
       "privacy-admin-e2e",
+      "privacy-access-copy",
       "charging-reviews",
       "ocpi-test-invoice",
       "ocpi-credit-picker",

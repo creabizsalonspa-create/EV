@@ -23,6 +23,7 @@ const groups = [
   ["operating-calendar"], // explicit operator calendar; six synthetic authentication requests, no charging
   ["vehicle-reservation"], // real garage/selected vehicle/future booking; scoped three-role reads, no charging
   ["privacy-e2e", "privacy-admin-e2e"], // canonical rights UI; three synthetic logins; no erasure or money
+  ["privacy-access-copy"], // dedicated unchanged authentication window for reviewed private copies
   ["charging-reviews"], // own unchanged authentication window
   ["ocpi-test-invoice", "ocpi-credit-picker"], // TEST billing and source-credit review: at most 4 logins; unchanged auth window
   ["partner-billing"], // scoped source-to-ledger workbench; separate authentication window
