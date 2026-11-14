@@ -330,6 +330,12 @@ The 30-minute slot and 15-minute early self-arrival window match existing enforc
 
 Future bookings remain schedulable. Starting another session on the same logical resource is blocked by an active/unknown session, an incomplete stopped record, or an unclosed source link. Canonical EVSEs remain independent; an ambiguous legacy session conservatively holds its station. The guard fixes overlapping legacy application-simulator starts and reuses station-lock ordering; natural start replay and stop/reconciliation remain available. UI rules are shown in EN/AR on web and Flutter confirmations/receipts, and supported versions are fenced into uncertain booking identities. Physical occupancy acceptance and source freshness remain separate external/software requirements.
 
+### Source-observed status duration accounting
+
+Charger source diagnostics include `status_durations` for the current immutable source generation over the preceding 24 hours in UTC. Each persisted component observation contributes at most 300 seconds, clipped at the next observation/window boundary. Silence, unsupported states and conflicting statuses in the same second remain unknown. Reported errors count as fault observations. Components remain separate; neither heartbeats nor source online flags fill gaps. These are bounded simulator-source observations, not physical uptime percentages, availability guarantees or charging authority.
+
+Analysis refuses partial claims above 12,000 observations or 64 components and returns `requires_review` with no component totals. Web and Flutter show source seconds and unknown gaps; authorization, mapping fences and no-store diagnostics remain unchanged. No command, fee, capacity update or physical acceptance is inferred.
+
 ### Provider dispute inbox receipts
 
 New or changed test-provider dispute status, deadline, reason or settlement-hold receipts create in-app notices for canonical invoice parties in the same transaction. Replayed events and unchanged reconciliations do not emit duplicate notices. Read/counter/read-state queries recheck current active customer/vendor role and current invoice lineage; malformed or non-test proofs stay hidden. Notices contain local record IDs only and never send email/push, submit provider evidence or create financial postings. Web opens the financial workspace; Flutter opens the exact scoped provider receipt.

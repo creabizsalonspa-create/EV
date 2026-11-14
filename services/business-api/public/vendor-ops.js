@@ -2524,6 +2524,48 @@ window.createVendorWorkspace = ({
                             );
                     }
                 });
+            const duration = result.status_durations;
+            if (
+                duration?.basis === "BOUNDED_SIMULATED_STATUS_OBSERVATIONS" &&
+                duration.physical_uptime_verified === false
+            ) {
+                pane.append(ui("p", "Observed status durations over 24 hours"));
+                pane.append(
+                    ui(
+                        "p",
+                        "Each observation covers at most five minutes. Gaps are unknown; this is not physical uptime or live availability.",
+                    ),
+                );
+                pane.append(
+                    raw(
+                        "p",
+                        `${duration.window_started_at} — ${duration.window_ended_at}`,
+                    ),
+                );
+                if (duration.state === "requires_review")
+                    pane.append(
+                        ui("p", "Status duration analysis requires review"),
+                    );
+                if (duration.state === "not_observed")
+                    pane.append(
+                        ui("p", "Status duration history not observed"),
+                    );
+                for (const component of duration.components || []) {
+                    pane.append(
+                        raw(
+                            "p",
+                            `EVSE ${component.evse_number} / ${component.connector_number}`,
+                        ),
+                    );
+                    pane.append(ui("p", "Observed status seconds"));
+                    for (const [status, seconds] of Object.entries(
+                        component.observed_status_seconds || {},
+                    ))
+                        pane.append(raw("p", `${status}: ${seconds}`));
+                    pane.append(ui("p", "Unknown seconds"));
+                    pane.append(raw("p", component.unknown_seconds));
+                }
+            }
             const monitor = result.automatic_monitor;
             pane.append(ui("p", "Automatic fault monitoring"));
             pane.append(
