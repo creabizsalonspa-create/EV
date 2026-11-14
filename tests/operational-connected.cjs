@@ -39,6 +39,7 @@ function prepareOperationalAdapters(execute) {
   for (const script of [
     "./scripts/configuration-read-setup",
     "./scripts/diagnostic-logs-setup",
+    "./scripts/reset-operations-setup",
   ]) {
     const result = execute(script, [], { encoding: "utf8" });
     if (result.error) throw result.error;
