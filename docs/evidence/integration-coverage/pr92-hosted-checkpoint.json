@@ -1,0 +1,78 @@
+{
+  "source_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+  "integrated_sha": "433bffb312291c34f5be535e4d16b1247b4367f1",
+  "pr": 92,
+  "verified_at_utc": "2026-11-14T00:21:08.670Z",
+  "test_result": "passed",
+  "required_check_count": 9,
+  "required_checks": [
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149261/job/131706956433"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149261/job/131706956667"
+    },
+    {
+      "name": "financial-browser",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149234/job/131706956106"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149270/job/131706956068"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149270/job/131706956397"
+    },
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149270/job/131706956431"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149270/job/131706956452"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149270/job/131706956591"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43371149270/job/131723108771"
+    }
+  ],
+  "scope": "Customer/vendor password-confirmed own-account browser/remember/bearer revocation, epoch race protection, cross-tab signal, web and Flutter. Source/merge trees verified identical. Android debug and iOS simulator validation are not signed production releases. No production acceptance.",
+  "limitations": [
+    "No live charger, PSP, OCPI partner, staging or store acceptance.",
+    "Subsequent Laravel advisory is addressed in the phone branch; no audit bypass."
+  ]
+}

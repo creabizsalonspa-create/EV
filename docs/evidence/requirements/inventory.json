@@ -94,6 +94,12 @@
       "merge_sha": "24087a8a7c1d7b2554a0884270293c162be08b8c",
       "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr58-hosted-checkpoint.json"
+    },
+    "pr92": {
+      "source_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "merge_sha": "433bffb312291c34f5be535e4d16b1247b4367f1",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr92-hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -420,7 +426,7 @@
       "prd": "2.6",
       "requirement": "Reservations and occupancy policy",
       "implemented_code_scope": "Canonical company/site/charger/EVSE/connector/source mapping; shared-EVSE capacity and parallel reservations; scoped web/native connector selection, cancellation, arrival reporting, unused expiry; PostgreSQL process races; PR58 opt-in station-local weekly/overnight/holiday operating calendar, immutable booking-policy snapshots, both-protocol start/authorization/claim gates and web/native editor/customer parity",
-      "automated_evidence_scope": "ConnectorTopologyTest, ReservationLifecycleTest; PostgreSQL connector/lifecycle races. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; current hosted verification and merge pending, coded-only credit for two named calendar atoms.",
+      "automated_evidence_scope": "ConnectorTopologyTest, ReservationLifecycleTest; PostgreSQL connector/lifecycle races. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; official exact-source PR58 Platform/Native checks passed on2679617c; identical source/merge trees integrated at24087a8. The two named calendar atoms receive separately verified tested/merged credit.",
       "remaining_scope": "Complete no-show/occupancy policy and physical occupancy acceptance; reported arrival never proves physical presence",
       "atoms": [
         {
@@ -470,7 +476,7 @@
           "software_atom": "Operating calendar and reservation blocks",
           "coded": true,
           "checkpoint": "operating_calendar",
-          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability."
+          "note": "Official exact-source PR58 Platform/Native checks passed; integrated at24087a8 with an identical tree. Opt-in calendar policy is not physical availability."
         }
       ]
     },
@@ -933,7 +939,7 @@
       "prd": "3.4",
       "requirement": "Vendor calendar/blocks/tariffs",
       "implemented_code_scope": "Reservation views; company connector maintenance with linked booking/start/dispatch-claim gates; exact web/native simulated price/tax publication and admin commission retention; PR58 opt-in station-local weekly/overnight/holiday operating calendar, immutable booking-policy snapshots, both-protocol start/authorization/claim gates and web/native editor/customer parity",
-      "automated_evidence_scope": "ManagedChargingGateTest, ReservationLifecycleTest, FinanceTest; tariff/maintenance clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; current hosted verification and merge pending, coded-only credit for two named calendar atoms.",
+      "automated_evidence_scope": "ManagedChargingGateTest, ReservationLifecycleTest, FinanceTest; tariff/maintenance clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; official exact-source PR58 Platform/Native checks passed on2679617c; identical source/merge trees integrated at24087a8. The two named calendar atoms receive separately verified tested/merged credit.",
       "remaining_scope": "Remaining availability-block/notice parity, dynamic pricing and commercial tariff acceptance; no live availability is inferred from a vendor calendar",
       "atoms": [
         {
@@ -969,7 +975,7 @@
           "software_atom": "Operating calendars/schedules",
           "coded": true,
           "checkpoint": "operating_calendar",
-          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability."
+          "note": "Official exact-source PR58 Platform/Native checks passed; integrated at24087a8 with an identical tree. Opt-in calendar policy is not physical availability."
         },
         {
           "id": "3.4.6",
@@ -2368,9 +2374,9 @@
     {
       "prd": "9.1",
       "requirement": "RBAC/privacy/security/operations",
-      "implemented_code_scope": "Tenant checks, encrypted private records/secrets, CSRF/HMAC/replay/idempotency, unchanged production rate limits and audit controls; web Admin TOTP, role-change revocation and private request workflow; data-excluded staging runtime and atomic evidence packaging.",
-      "automated_evidence_scope": "Auth/tenant/replay/privacy/upload tests across named suites; deployment acceptance pending. Integrated subset through63886428; later candidates explicitly noted; sourcecbed320/merge6a9b404: two actual image audits and PostgreSQL17 migration/HTTP/private-volume smokes; not a deployment/restore acceptance; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "Customer2FA, complete global/cross-tab revocation UX, authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review.",
+      "implemented_code_scope": "Tenant checks, encrypted private records/secrets, CSRF/HMAC/replay/idempotency, unchanged production rate limits and audit controls; web Admin TOTP, role-change revocation and private request workflow; data-excluded staging runtime and atomic evidence packaging. Customer/vendor global session revocation and web cross-tab invalidation integrated through PR92.",
+      "automated_evidence_scope": "Auth/tenant/replay/privacy/upload tests across named suites; deployment acceptance pending. Integrated subset through63886428; later candidates explicitly noted; sourcecbed320/merge6a9b404: two actual image audits and PostgreSQL17 migration/HTTP/private-volume smokes; not a deployment/restore acceptance; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR92 source205c080 passed all nine applicable checks, merged433bffb with identical source/merge trees.",
+      "remaining_scope": "Customer2FA, authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review.",
       "atoms": [
         {
           "id": "9.1.1",
@@ -2424,9 +2430,9 @@
         {
           "id": "9.1.8",
           "software_atom": "Global/cross-tab session revocation",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr92",
+          "note": "Password-confirmed customer/vendor global revocation, web cross-tab cache invalidation and Flutter cleanup; all nine applicable source checks passed and source/merge trees match. Production acceptance remains separate."
         },
         {
           "id": "9.1.9",

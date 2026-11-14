@@ -8,9 +8,9 @@ A conservative, explicit software-coverage checklist, not production readiness, 
 
 | Stage | Weighted coverage |
 |---|---:|
-| coded | 56.40% |
-| tested | 56.40% |
-| merged | 56.40% |
+| coded | 56.58% |
+| tested | 56.58% |
+| merged | 56.58% |
 | production_accepted | 0.00% |
 
 Production acceptance: 0.00% under explicit per-atom approval evidence. No hardware, live merchant, live partner, signing/store or operational acceptance is inferred from code/tests. Coded coverage is not a release-completion claim.
@@ -55,7 +55,7 @@ Production acceptance: 0.00% under explicit per-atom approval evidence. No hardw
 | 7.3 | End-to-end ledgers/reconciliation | 9 | 6/9 | 6/9 | 6/9 | 0/9 |
 | 7.4 | Wallet/stored value | 2 | 0/2 | 0/2 | 0/2 | 0/2 |
 | 8.1 | Enterprise organizations/billing | 8 | 4/8 | 4/8 | 4/8 | 0/8 |
-| 9.1 | RBAC/privacy/security/operations | 13 | 8/13 | 8/13 | 8/13 | 0/13 |
+| 9.1 | RBAC/privacy/security/operations | 13 | 9/13 | 9/13 | 9/13 | 0/13 |
 | 9.2 | Accessible responsive release surfaces | 10 | 5/10 | 5/10 | 5/10 | 0/10 |
 | 9.3 | Maintainable architecture/tests/licensing | 8 | 6/8 | 6/8 | 6/8 | 0/8 |
 | 9.4 | International readiness | 6 | 4/6 | 4/6 | 4/6 | 0/6 |
@@ -462,7 +462,7 @@ C=coded, T=tested, M=merged, P=production accepted. A missing letter is incomple
 - `9.1.5` [CTM] Safe production rate limiting (evidence: main638).
 - `9.1.6` [CTM] Guarded migrations/source recovery (evidence: main638).
 - `9.1.7` [CTM] Admin 2FA (evidence: pr84).
-- `9.1.8` [—] Global/cross-tab session revocation (evidence: none).
+- `9.1.8` [CTM] Global/cross-tab session revocation (evidence: pr92).
 - `9.1.9` [—] Privacy deletion workflows (evidence: none).
 - `9.1.10` [—] Verified backup/restore (evidence: none).
 - `9.1.11` [—] Alerting/telemetry operations (evidence: none).

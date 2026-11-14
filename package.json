@@ -11,7 +11,7 @@
     "test:invoices": "node tests/invoice-history.cjs",
     "test:tariffs": "node tests/money-input.cjs && node tests/tariffs.cjs",
     "test:managed-gate": "node tests/managed-gate.cjs",
-    "test:web-session": "node tests/web-session-client.cjs && node tests/web-session.cjs && node tests/account-session-security.cjs && node tests/catalog-startup.cjs",
+    "test:web-session": "node tests/web-session-client.cjs && node tests/web-session.cjs && node tests/account-session-security.cjs && node tests/phone-verification.cjs && node tests/catalog-startup.cjs && node tests/account-second-factor.cjs",
     "test:ocpi-provisioning": "node tests/ocpi-provisioning.cjs",
     "test:commercial": "node tests/commercial-workspace.cjs",
     "test:connectors": "node tests/canonical-topology.cjs",

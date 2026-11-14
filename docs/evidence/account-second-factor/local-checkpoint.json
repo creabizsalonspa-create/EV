@@ -1,0 +1,35 @@
+{
+  "status": "local_verified_hosted_pending",
+  "scope": [
+    "Customer/vendor authenticator enrollment and proof",
+    "Password plus single-use TOTP/recovery browser and bearer sign-in",
+    "Encrypted seed/recovery storage and bounded pending cleanup",
+    "Password/factor-confirmed rotation and disablement; credential revocation",
+    "English/Arabic web and Flutter secret/lifecycle fences"
+  ],
+  "laravel": {
+    "tests": 994,
+    "assertions": 19786,
+    "result": "passed",
+    "framework": "12.72.0"
+  },
+  "postgresql": {
+    "tests": 49,
+    "assertions": 499,
+    "result": "passed",
+    "version": 17
+  },
+  "web_component_contracts": {
+    "tests": 17,
+    "result": "passed"
+  },
+  "coverage_guards": {
+    "tests": 14,
+    "result": "passed"
+  },
+  "composer_validate": "passed",
+  "composer_audit": "no advisories",
+  "native": "Source and widget tests added; hosted validation pending. No local Flutter bootstrap retry.",
+  "browser": "Local Playwright unavailable; hosted actual browser verification required.",
+  "production_accepted": false
+}

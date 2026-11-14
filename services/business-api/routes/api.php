@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController as A;
 use App\Http\Controllers\AccountPrivacyController;
+use App\Http\Controllers\AccountSecondFactorController;
 use App\Http\Controllers\AccountSessionController;
 use App\Http\Controllers\ChargerDiagnosticLogController;
 use App\Http\Controllers\ChargerFirmwareController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\OcpiProtocolCredentialsController;
 use App\Http\Controllers\OcpiProtocolRecordsController;
 use App\Http\Controllers\OcpiRoamingProtocolController;
 use App\Http\Controllers\PaymentGatewayController;
+use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\RemoteSessionAuthorizationController;
@@ -37,6 +39,18 @@ Route::prefix('v1')->group(function () {
         Route::post('/register', [M::class, 'register']);
     });
     Route::post('/account/sessions/revoke-all', [AccountSessionController::class, 'revokeAll'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication']);
+    Route::get('/account/phone', [PhoneVerificationController::class, 'show'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:account-security-read']);
+    Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication'])->group(function () {
+        Route::post('/account/phone/challenges', [PhoneVerificationController::class, 'start']);
+        Route::post('/account/phone/challenges/{challenge}/confirm', [PhoneVerificationController::class, 'confirm'])->whereUuid('challenge');
+        Route::delete('/account/phone', [PhoneVerificationController::class, 'remove']);
+    });
+    Route::get('/account/second-factor', [AccountSecondFactorController::class, 'status'])->middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:account-security-read']);
+    Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:authentication'])->group(function () {
+        Route::post('/account/second-factor/prepare', [AccountSecondFactorController::class, 'prepare']);
+        Route::post('/account/second-factor/enable', [AccountSecondFactorController::class, 'enable']);
+        Route::post('/account/second-factor/{action}', [AccountSecondFactorController::class, 'change'])->whereIn('action', ['disable', 'recovery-codes']);
+    });
     Route::get('/stations', [P::class, 'stations'])->middleware('throttle:catalog');
     Route::get('/regions', [E::class, 'regions'])->middleware('throttle:catalog');
     Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(function () {

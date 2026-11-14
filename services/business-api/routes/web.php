@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AccountPrivacyController;
+use App\Http\Controllers\AccountSecondFactorController;
 use App\Http\Controllers\AccountSessionController;
 use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\AdminAuditTrailController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\NotificationCenterController;
+use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
@@ -209,3 +211,17 @@ Route::get('/api/vendor/stations', function (Request $r) {
 })->middleware(['auth', 'throttle:platform-api']);
 
 Route::middleware(['auth', 'throttle:platform-api'])->prefix('api')->group(__DIR__.'/vehicle_driver_preferences.php');
+
+Route::get('/api/account/phone', [PhoneVerificationController::class, 'show'])->middleware(['auth', 'throttle:account-security-read']);
+Route::middleware(['auth', 'throttle:authentication'])->group(function () {
+    Route::post('/api/account/phone/challenges', [PhoneVerificationController::class, 'start']);
+    Route::post('/api/account/phone/challenges/{challenge}/confirm', [PhoneVerificationController::class, 'confirm'])->whereUuid('challenge');
+    Route::delete('/api/account/phone', [PhoneVerificationController::class, 'remove']);
+});
+
+Route::get('/api/account/second-factor', [AccountSecondFactorController::class, 'status'])->middleware(['auth', 'throttle:account-security-read']);
+Route::middleware(['auth', 'throttle:authentication'])->group(function () {
+    Route::post('/api/account/second-factor/prepare', [AccountSecondFactorController::class, 'prepare']);
+    Route::post('/api/account/second-factor/enable', [AccountSecondFactorController::class, 'enable']);
+    Route::post('/api/account/second-factor/{action}', [AccountSecondFactorController::class, 'change'])->whereIn('action', ['disable', 'recovery-codes']);
+});

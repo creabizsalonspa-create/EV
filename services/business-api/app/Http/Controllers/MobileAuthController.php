@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\Identity\AccountSecondFactor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -38,10 +39,14 @@ class MobileAuthController extends Controller
 
     public function login(Request $r)
     {
-        $v = $r->validate(['email' => 'required|email', 'password' => 'required|string']);
+        $v = $r->validate(['email' => 'required|email', 'password' => 'required|string|max:128', 'second_factor_code' => 'nullable|string|max:128']);
         $u = User::where('email', $v['email'])->first();
         if (! $u || ! Hash::check($v['password'], $u->password)) {
             throw ValidationException::withMessages(['email' => 'Invalid credentials.']);
+        }
+
+        if (in_array($u->role, ['customer', 'vendor'], true)) {
+            $u = app(AccountSecondFactor::class)->authenticate($u, $v['second_factor_code'] ?? '');
         }
 
         return $this->issue($u);
