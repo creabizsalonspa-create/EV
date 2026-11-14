@@ -147,6 +147,10 @@ function renderIdentity() {
     el("signed").hidden = !user;
     el("bookings").hidden = !user;
     el("unified-discovery-panel").hidden = !user;
+    window.EvUnifiedDiscovery?.active?.setContext({owner:user?.id??null,customer:user?.role==='customer',favorite:async(kind,id,desired)=>{
+        const result=await api((kind==='catalog'?'favorites/':'roaming/favorites/')+id,desired?'PUT':'DELETE');
+        return result.is_favorite;
+    }});
     el("vendor").hidden = user?.role !== "vendor";
     if (user)
         EvLocale.bind(el("who"), "{name} · {role}", {

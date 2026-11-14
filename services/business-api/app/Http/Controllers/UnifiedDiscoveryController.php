@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\Station;
+use App\Models\User;
 use App\Services\Discovery\CatalogTextFilters;
 use App\Services\Discovery\PublicPartnerLocation;
 use App\Services\Discovery\StationCatalog;
@@ -16,10 +17,17 @@ final class UnifiedDiscoveryController extends Controller
 {
     public function index(Request $request)
     {
-        $v = $request->validate(['q' => 'nullable|string|max:80', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000']);
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean']);
+        $actor = $this->currentActor($request);
+        $customer = $actor->role === 'customer' ? $actor->id : null;
+        abort_if($request->boolean('saved_only') && $customer === null, 403);
         $catalog = Station::query();
         $partner = OcpiRecord::query()->where('module', 'locations')->where('normalized->publish', true)
             ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'));
+        if ($request->boolean('saved_only')) {
+            $catalog->whereIn('id', DB::table('station_favorites')->where('user_id', $customer)->select('station_id'));
+            $partner->whereIn('id', DB::table('partner_location_favorites')->where('user_id', $customer)->select('record_id'));
+        }
         $text = trim($v['q'] ?? '');
         if ($text !== '') {
             $catalog->where(function ($query) use ($text) {
@@ -61,23 +69,25 @@ final class UnifiedDiscoveryController extends Controller
             ->unionAll($partner->selectRaw("id, 'partner' AS kind")->toBase());
         $page = DB::query()->fromSub($union, 'discovery')->orderByDesc('id')->orderBy('kind')->paginate(25)->appends($v);
         $rows = $page->getCollection();
-        $stations = app(StationCatalog::class)->present(Station::whereIn('id', $rows->where('kind', 'catalog')->pluck('id'))->get())->keyBy('id');
+        $stations = app(StationCatalog::class)->present(Station::whereIn('id', $rows->where('kind', 'catalog')->pluck('id'))->get(), $customer)->keyBy('id');
         $partners = OcpiRecord::whereIn('id', $rows->where('kind', 'partner')->pluck('id'))->where('module', 'locations')->where('normalized->publish', true)
             ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'))
             ->get(['id', 'ocpi_provider_id', 'normalized', 'source_updated_at', 'received_at'])->keyBy('id');
         $labels = OcpiProvider::whereIn('id', $partners->pluck('ocpi_provider_id'))->where('authorized', true)->pluck('name', 'id');
-        $page->setCollection($rows->map(function ($row) use ($stations, $partners, $labels) {
+        $savedPartners = $customer === null ? collect() : DB::table('partner_location_favorites')->where('user_id', $customer)->whereIn('record_id', $partners->keys())->pluck('record_id')->flip();
+        $this->currentActor($request);
+        $page->setCollection($rows->map(function ($row) use ($stations, $partners, $labels, $savedPartners) {
             if ($row->kind === 'catalog') {
                 $station = $stations->get($row->id);
 
-                return $station ? ['key' => 'catalog:'.$row->id, 'kind' => 'catalog', 'station' => $station] : null;
+                return $station ? ['key' => 'catalog:'.$row->id, 'kind' => 'catalog', 'is_favorite' => $station['is_favorite'] ?? false, 'station' => $station] : null;
             }
             $record = $partners->get($row->id);
             if (! $record || ! $labels->has($record->ocpi_provider_id)) {
                 return null;
             }
 
-            return ['key' => 'partner:'.$row->id, 'kind' => 'partner', 'record_id' => $row->id,
+            return ['key' => 'partner:'.$row->id, 'kind' => 'partner', 'record_id' => $row->id, 'is_favorite' => $savedPartners->has($row->id),
                 'provider_label' => $labels->get($record->ocpi_provider_id), 'provider_label_evidence' => 'PROVIDER_CONFIGURED_UNVERIFIED',
                 'location' => PublicPartnerLocation::project($record->normalized ?? []),
                 'source_updated_at' => $record->source_updated_at, 'received_at' => $record->received_at,
@@ -85,5 +95,16 @@ final class UnifiedDiscoveryController extends Controller
         })->filter()->values());
 
         return response()->json($page)->header('Cache-Control', 'private, no-store');
+    }
+
+    private function currentActor(Request $request): User
+    {
+        $snapshot = $request->user();
+        $current = User::findOrFail($snapshot->id);
+        abort_unless($current->account_status === 'active' && $current->role === $snapshot->role
+            && (int) $current->auth_epoch === (int) $snapshot->auth_epoch
+            && hash_equals((string) $current->password, (string) $snapshot->password), 409, 'Account authorization changed. Sign in again.');
+
+        return $current;
     }
 }

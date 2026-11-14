@@ -24,3 +24,15 @@ test('partner authority claims never render an actionable card',async()=>{
 test('mapping the mixed page is explicit, preserves typed sources and performs no lookup',async()=>{
  const f=fixture();assert.equal(f.events.length,0);f.form.onsubmit({preventDefault(){}});await tick();assert.equal(f.events.length,0);f.root.children[6].onclick();assert.equal(f.events.length,1);assert.equal(f.events[0].type,'unified-map-data');assert.deepEqual(Array.from(f.events[0].detail,row=>row.key),['catalog:7','partner:7']);assert.equal(f.calls.length,1);f.control.clear();assert.equal(f.root.children[6].disabled,true);
 });
+test('unified favorites use existing typed writers and refresh authoritative saved state',async()=>{
+ const saved=new Set(),writes=[];const f=fixture('en',async()=>({...sample,data:sample.data.map(row=>({...row,is_favorite:saved.has(row.key)}))}));
+ f.control.setContext({owner:1,customer:true,favorite:async(kind,id,desired)=>{const key=kind+':'+id;writes.push({key,desired});desired?saved.add(key):saved.delete(key);return desired;}});
+ f.form.onsubmit({preventDefault(){}});await tick();let star=f.list.children[0].children.find(x=>x.dataset.favoriteKind);await star.onclick();assert.deepEqual(writes,[{key:'catalog:7',desired:true}]);assert.match(f.list.children[0].textContent,/Remove saved place/);
+ star=f.list.children[1].children.find(x=>x.dataset.favoriteKind);await star.onclick();assert.equal(writes[1].key,'partner:7');assert.equal(saved.size,2);
+ f.form.children[3].children[0].checked=true;f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'1');
+ f.control.setContext({owner:2,customer:true,favorite:async()=>{throw Error('Unexpected write');}});assert.equal(f.list.children.length,0);
+});
+test('unknown preference outcomes require explicit refresh and late account replies do not reload',async()=>{
+ let writes=0,finish;const f=fixture();f.control.setContext({owner:1,customer:true,favorite:async()=>{writes++;throw Error('lost response');}});f.form.onsubmit({preventDefault(){}});await tick();await f.list.children[0].children.find(x=>x.dataset.favoriteKind).onclick();await f.list.children[1].children.find(x=>x.dataset.favoriteKind).onclick();assert.equal(writes,1);assert.match(f.root.textContent,/outcome unknown/);
+ f.control.setContext({owner:2,customer:true,favorite:()=>new Promise(resolve=>finish=resolve)});f.form.onsubmit({preventDefault(){}});await tick();const pending=f.list.children[0].children.find(x=>x.dataset.favoriteKind).onclick();f.control.setContext({owner:3,customer:true,favorite:async()=>true});const reads=f.calls.length;finish(true);await pending;assert.equal(f.calls.length,reads);assert.equal(f.list.children.length,0);
+});

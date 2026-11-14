@@ -1,0 +1,13 @@
+{
+  "scope": "Customer-only unified saved-place filtering and existing canonical/partner star controls across web and Flutter",
+  "laravel": {"tests": 1076, "assertions": 21115, "skipped": 1, "result": "passed", "skip_reason": "PostgreSQL-only price-consent rollback proof"},
+  "postgresql": {"tests": 87, "assertions": 1207, "result": "passed", "version": 17, "encoding": "UTF8"},
+  "web_components": {"tests": 7, "result": "passed"},
+  "private_state": "Current account checked around reads; own favorite tables filtered before SQL union; revoked partners excluded; typed supplier identities retained",
+  "unknown_outcomes": "No automatic write replay; explicit search rereads authoritative saved state",
+  "hosted_pending": ["actual Laravel/browser save both sources, saved-only search, removal and unaffected map/catalog handoff", "Flutter typed preference writers, unknown outcomes and permanent account fence", "complete exact-source platform, native and recovery gates"],
+  "new_mutation_endpoints": false,
+  "financial_or_charging_writes": false,
+  "production_accepted": false,
+  "original_atom_credit_added": false
+}

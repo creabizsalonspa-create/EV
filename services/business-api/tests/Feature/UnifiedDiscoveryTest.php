@@ -2,13 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\UnifiedDiscoveryController;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\Station;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class UnifiedDiscoveryTest extends TestCase
@@ -80,6 +83,49 @@ class UnifiedDiscoveryTest extends TestCase
             $this->getJson('/api/discovery/search?'.$query)->assertUnprocessable();
         }
         $this->getJson('/api/stations?station_id='.$f['station']->id)->assertJsonPath('total', 1)->assertJsonPath('data.0.id', $f['station']->id);
+    }
+
+    public function test_unified_saved_places_use_only_the_current_customers_existing_preferences(): void
+    {
+        $f = $this->fixtures();
+        $customer = auth()->user();
+        $other = User::factory()->create();
+        DB::table('station_favorites')->insert(['user_id' => $other->id, 'station_id' => $f['station']->id, 'created_at' => now()]);
+        DB::table('partner_location_favorites')->insert(['user_id' => $other->id, 'record_id' => $f['record']->id, 'created_at' => now()]);
+        $this->getJson('/api/discovery/search?saved_only=1')->assertOk()->assertJsonPath('total', 0);
+        $this->putJson('/api/favorites/'.$f['station']->id)->assertOk();
+        $this->putJson('/api/roaming/favorites/'.$f['record']->id)->assertOk();
+        $reply = $this->getJson('/api/discovery/search?saved_only=1')->assertJsonPath('total', 2)->assertJsonPath('data.0.is_favorite', true)->assertJsonPath('data.1.is_favorite', true);
+        $this->assertStringNotContainsString($other->email, $reply->getContent());
+        $this->getJson('/api/v1/discovery/search?saved_only=1&scope=partner')->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'partner');
+        $f['provider']->update(['authorized' => false]);
+        $this->getJson('/api/discovery/search?saved_only=1')->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
+        $this->deleteJson('/api/favorites/'.$f['station']->id)->assertOk();
+        $this->deleteJson('/api/roaming/favorites/'.$f['record']->id)->assertOk();
+        $this->getJson('/api/discovery/search?saved_only=1')->assertJsonPath('total', 0);
+        $this->assertDatabaseHas('station_favorites', ['user_id' => $other->id, 'station_id' => $f['station']->id]);
+        $this->assertDatabaseHas('partner_location_favorites', ['user_id' => $other->id, 'record_id' => $f['record']->id]);
+        $this->assertDatabaseMissing('station_favorites', ['user_id' => $customer->id]);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_saved_filter_rejects_other_roles_and_stale_request_accounts(): void
+    {
+        $f = $this->fixtures();
+        $this->getJson('/api/discovery/search?saved_only=bad')->assertUnprocessable();
+        $this->actingAs(User::factory()->create(['role' => 'vendor']));
+        $this->getJson('/api/discovery/search')->assertOk();
+        $this->getJson('/api/discovery/search?saved_only=1')->assertForbidden();
+        $customer = User::factory()->create();
+        $request = Request::create('/api/discovery/search', 'GET', ['saved_only' => '1']);
+        $request->setUserResolver(fn () => $customer);
+        User::whereKey($customer->id)->update(['auth_epoch' => $customer->auth_epoch + 1]);
+        try {
+            app(UnifiedDiscoveryController::class)->index($request);
+            $this->fail('Revoked snapshot returned private preferences.');
+        } catch (HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
     }
 
     public function test_union_pagination_is_bounded_and_stable_with_colliding_ids(): void
