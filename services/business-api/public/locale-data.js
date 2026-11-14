@@ -1,4 +1,5 @@
 window.EV_MESSAGES = {
+    "SIMULATED · #{id} · {status} · {energy} Wh · No payment processed": {en: "SIMULATED · #{id} · {status} · {energy} Wh · No payment processed", ar: "محاكاة · #{id} · {status} · {energy} Wh · لم تتم معالجة دفعة"},
     "The selected time is outside the station operating calendar.": {en: "The selected time is outside the station operating calendar.", ar: "الوقت المحدد خارج جدول عمل المحطة."},
     "The operating calendar is unavailable. Refresh before booking or starting.": {en: "The operating calendar is unavailable. Refresh before booking or starting.", ar: "جدول العمل غير متاح. حدّث قبل الحجز أو بدء الشحن."},
     "Verify your email before viewing company staff invitations.": {en: "Verify your email before viewing company staff invitations.", ar: "تحقق من بريدك الإلكتروني قبل عرض دعوات موظفي الشركة."},

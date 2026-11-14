@@ -41,6 +41,7 @@ final class AccountDataExport
             'reservations' => $this->rows($owned('reservations'), ['id', 'station_id', 'starts_at', 'status', 'created_at', 'updated_at']),
             'charging_sessions' => $this->rows(DB::table('charging_sessions')->whereIn('reservation_id', $reservations()), ['id', 'reservation_id', 'status', 'energy_wh', 'currency', 'total_minor', 'stopped_at', 'created_at']),
             'invoices' => $this->rows($owned('finance_invoices'), ['id', 'number', 'charging_session_id', 'currency', 'minor_units', 'subtotal_minor', 'tax_minor', 'total_minor', 'evidence', 'created_at']),
+            'pricing_consents' => $this->rows($owned('charging_price_consents')->whereIn('reservation_id', $reservations()), ['id', 'reservation_id', 'estimate', 'accepted_at', 'valid_until']),
             'payments' => $this->rows(DB::table('finance_payments')->whereIn('invoice_id', $invoices()), ['id', 'invoice_id', 'amount_minor', 'created_at']),
             'refunds' => $this->rows(DB::table('finance_refunds')->whereIn('invoice_id', $invoices()), ['id', 'invoice_id', 'amount_minor', 'created_at']),
             'station_favorites' => $this->rows($owned('station_favorites'), ['station_id', 'created_at'], 'station_id'),
@@ -52,6 +53,9 @@ final class AccountDataExport
             'subscriptions' => $this->rows($owned('commercial_subscriptions'), ['id', 'plan_id', 'status', 'period_start', 'period_end', 'cancel_at_period_end', 'created_at']),
             'notification_preferences' => $this->rows($owned('notification_preferences'), ['user_id', 'default_category', 'default_unread_only', 'remind_unresolved_simulator_faults', 'updated_at'], 'user_id'),
         ];
+        foreach ($sections['pricing_consents'] as $record) {
+            $record->estimate = json_decode($record->estimate, true, 32, JSON_THROW_ON_ERROR);
+        }
         $sections['privacy_requests'] = $this->rows($owned('account_privacy_requests'), ['id', 'kind', 'status', 'request_details_encrypted', 'created_at']);
         foreach ($sections['privacy_requests'] as $record) {
             $record->details = Crypt::decryptString($record->request_details_encrypted);

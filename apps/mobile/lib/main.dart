@@ -1,5 +1,5 @@
+import 'session_cost.dart';
 import 'precharge_pricing.dart';
-
 import 'vendor_campaigns.dart';
 import 'provider_disputes.dart';
 import 'privacy_requests.dart';
@@ -630,12 +630,13 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
               ),
             if (tab == 2)
               Text(
-                s.t('energy', {
+                s.t(row.containsKey('cost_projection') ? 'meterEnergyOnly' : 'energy', {
                   'energy': row['energy_wh'],
                   'total': row['total_minor'] ?? s.t('pending'),
                   'currency': row['currency'],
                 }),
               ),
+            if (tab == 2) SessionCostPanel(value:row['cost_projection']),
             if (tab == 3 && account?.role == 'customer')
               TextButton.icon(
                 key: Key('vehicle-model-$id'),

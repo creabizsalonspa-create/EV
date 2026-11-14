@@ -805,7 +805,7 @@ async function simulations() {
     for (let s of j.data) {
         let a = ui(
             "article",
-            "SIMULATED · #{id} · {status} · {energy} Wh · {cost} minor units {currency} · No payment processed",
+            s.cost_projection ? "SIMULATED · #{id} · {status} · {energy} Wh · No payment processed" : "SIMULATED · #{id} · {status} · {energy} Wh · {cost} minor units {currency} · No payment processed",
             {
                 id: s.id,
                 status: { translate: s.status },
@@ -814,6 +814,7 @@ async function simulations() {
                 currency: s.currency,
             },
         );
+        window.EvSessionCost.attach(a,s.cost_projection);
         if (s.csms_linked) a.append(ui("p", "Source controls disclaimer"));
         if (s.authorization_method === "rider_token")
             a.append(ui("p", "Card source authorization"));
