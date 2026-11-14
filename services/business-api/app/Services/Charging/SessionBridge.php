@@ -10,6 +10,7 @@ use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Models\User;
 use App\Services\Finance\FinanceService;
 use App\Services\Finance\Money;
 use Carbon\CarbonImmutable;
@@ -29,17 +30,21 @@ class SessionBridge
         DB::table('audit_events')->insert(['actor_id' => $actor, 'action' => $action, 'subject' => (string) $id, 'created_at' => now()]);
     }
 
-    private function command(int $actor, int $station, string $action, array $payload, string $key): ChargerCommand
+    private function command(int $actor, int $station, string $action, array $payload, string $key, ?int $epoch = null): ChargerCommand
     {
-        return ChargerCommand::create(['actor_id' => $actor, 'station_id' => $station, 'action' => $action, 'payload' => $payload, 'idempotency_key' => $key, 'payload_hash' => hash('sha256', json_encode([$station, $action, $payload], JSON_THROW_ON_ERROR))]);
+        return ChargerCommand::create(['consent_auth_epoch' => $action === 'start' ? $epoch : null, 'actor_id' => $actor, 'station_id' => $station, 'action' => $action, 'payload' => $payload, 'idempotency_key' => $key, 'payload_hash' => hash('sha256', json_encode([$station, $action, $payload], JSON_THROW_ON_ERROR))]);
     }
 
-    public function start(Reservation $reservation, int $actor, ?RiderAccessToken $rider = null, ?int $grantId = null): array
+    public function start(Reservation $reservation, int $actor, ?RiderAccessToken $rider = null, ?int $grantId = null, ?User $consentingActor = null): array
     {
         $this->enabled();
         abort_unless($reservation->user_id === $actor, 404);
 
-        return DB::transaction(function () use ($reservation, $actor, $rider, $grantId) {
+        return DB::transaction(function () use ($reservation, $actor, $rider, $grantId, $consentingActor) {
+            $customer = $consentingActor
+                ? app(ChargingActorConsent::class)->capture($consentingActor)
+                : User::whereKey($actor)->lockForUpdate()->firstOrFail();
+            abort_unless($customer->id === $actor && $customer->role === 'customer' && $customer->account_status === 'active', 403);
             Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $binding = app(ConnectorTopology::class)->binding($reservation, true);
             abort_unless($binding, 409, 'No CSMS simulator binding.');
@@ -80,7 +85,7 @@ class SessionBridge
             }
             $remote = ! $rider && config('csms.remote_authorization_enabled');
             $tag = $remote ? 'EV-'.strtoupper(bin2hex(random_bytes(8))) : 'EV-SIM-'.$s->id;
-            $c = $rider ? null : $this->command($actor, $station->id, 'start', ['session_id' => $s->id, 'id_token' => $tag], 'csms-session:'.$s->id.':start');
+            $c = $rider ? null : $this->command($actor, $station->id, 'start', ['session_id' => $s->id, 'id_token' => $tag], 'csms-session:'.$s->id.':start', (int) $customer->auth_epoch);
             $link = SessionLink::create(['charging_session_id' => $s->id, 'binding_id' => $binding->id, 'start_command_id' => $c?->id, 'rider_token_id' => $rider?->id, 'rider_grant_id' => $rider ? $grantId : null, 'connector_mapping_id' => $r->connector_mapping_id, 'protocol' => $binding->protocol, 'identifier' => $binding->identifier, 'last_sequence' => -1, 'remote_token_digest' => $remote ? hash('sha256', $tag) : null, 'remote_registration_nonce' => $remote ? (string) Str::uuid() : null]);
             $this->audit($actor, 'csms.session_requested', $s->id);
 

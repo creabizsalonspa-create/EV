@@ -5,6 +5,7 @@ namespace App\Services\Ocpi;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Charging\ChargingActorConsent;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -37,6 +38,7 @@ class SandboxRoaming
     {
         $p = OcpiProvider::findOrFail($location->ocpi_provider_id);
         [$c,$local,$link] = $this->policy($p);
+        abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');
         abort_unless($location->module === 'locations' && $location->country_code === $c['party_country'] && $location->party_id === $c['party_id'] && ($location->normalized['publish'] ?? false) === true && $location->source_updated_at->betweenIncluded(now()->subMinutes(5), now()), 409, 'Refresh the approved partner location before requesting a test session.');
         $raw = $location->payload;
         $evses = array_values(array_filter($raw['evses'] ?? [], fn ($e) => is_array($e) && ($e['uid'] ?? null) === $evseUid));
@@ -64,11 +66,19 @@ class SandboxRoaming
         return ['provider' => $p, 'configuration' => $c, 'local' => $local, 'link' => $link, 'tariff' => $tariff, 'target' => $target, 'hash' => $hash];
     }
 
+    public function consentCurrent(object $order): bool
+    {
+        $driver = User::whereKey($order->user_id)->first();
+
+        return User::whereKey($order->provider_owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists() && $driver?->role === 'customer' && app(ChargingActorConsent::class)->matches($driver, $order->consent_auth_epoch === null ? null : (int) $order->consent_auth_epoch);
+    }
+
     public function token(object $order, bool $valid = true): array
     {
         $p = OcpiProvider::findOrFail($order->provider_id);
         [, $local] = $this->policy($p);
         $role = $local['roles'][0];
+        $valid = $valid && $this->consentCurrent($order);
 
         return ['country_code' => $role['country_code'], 'party_id' => $role['party_id'], 'uid' => Crypt::decryptString($order->token_ciphertext), 'type' => 'APP_USER', 'contract_id' => $order->authorization_reference, 'issuer' => mb_substr($role['business_details']['name'], 0, 64), 'valid' => $valid, 'whitelist' => 'NEVER', 'last_updated' => CarbonImmutable::parse($order->updated_at)->utc()->toISOString()];
     }
@@ -88,7 +98,7 @@ class SandboxRoaming
 
         return DB::transaction(function () use ($actor, $location, $v, $offer, $hash) {
             $p = OcpiProvider::whereKey($offer['provider']->id)->lockForUpdate()->firstOrFail();
-            $current = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            $current = app(ChargingActorConsent::class)->capture($actor);
             abort_unless($current->role === 'customer', 403);
             $fresh = $this->offer($location->fresh(), $v['evse_uid'], $v['connector_id'], $v['tariff_id']);
             abort_unless(hash_equals($offer['hash'], $fresh['hash']), 409);
@@ -102,7 +112,7 @@ class SandboxRoaming
             abort_if(DB::table('ocpi_roaming_orders')->where('active_target_key', $key)->exists(), 409, 'An unresolved test order already holds this partner EVSE.');
             abort_if(DB::table('ocpi_roaming_orders')->where('user_id', $actor->id)->whereNotNull('active_target_key')->exists(), 409, 'Resolve the existing sandbox charging order first.');
             $uid = strtoupper(bin2hex(random_bytes(10)));
-            $id = DB::table('ocpi_roaming_orders')->insertGetId(['user_id' => $actor->id, 'provider_id' => $p->id, 'location_record_id' => $location->id, 'tariff_record_id' => $offer['tariff']->id, 'request_key' => $v['request_key'], 'intent_hash' => $hash, 'offer_hash' => $offer['hash'], 'contract_reference' => $offer['configuration']['test_command_contract'], 'provider_owner_id' => $p->owner_id, 'counterparty_hash' => $offer['link']->configuration_hash, 'source_record_floor' => (int) DB::table('ocpi_records')->where('ocpi_provider_id', $p->id)->max('id'), 'provider_revision' => $p->authorization_revision, 'credential_generation' => $offer['link']->generation, 'authorization_reference' => (string) Str::ulid(), 'target_ciphertext' => Crypt::encryptString(json_encode($offer['target'], JSON_THROW_ON_ERROR)), 'token_ciphertext' => Crypt::encryptString($uid), 'token_digest' => hash('sha256', $uid), 'token_state' => 'unregistered', 'state' => 'prepared', 'active_target_key' => $key, 'consented_at' => now(), 'expires_at' => now()->addMinutes(15), 'created_at' => now(), 'updated_at' => now()]);
+            $id = DB::table('ocpi_roaming_orders')->insertGetId(['consent_auth_epoch' => (int) $current->auth_epoch, 'user_id' => $actor->id, 'provider_id' => $p->id, 'location_record_id' => $location->id, 'tariff_record_id' => $offer['tariff']->id, 'request_key' => $v['request_key'], 'intent_hash' => $hash, 'offer_hash' => $offer['hash'], 'contract_reference' => $offer['configuration']['test_command_contract'], 'provider_owner_id' => $p->owner_id, 'counterparty_hash' => $offer['link']->configuration_hash, 'source_record_floor' => (int) DB::table('ocpi_records')->where('ocpi_provider_id', $p->id)->max('id'), 'provider_revision' => $p->authorization_revision, 'credential_generation' => $offer['link']->generation, 'authorization_reference' => (string) Str::ulid(), 'target_ciphertext' => Crypt::encryptString(json_encode($offer['target'], JSON_THROW_ON_ERROR)), 'token_ciphertext' => Crypt::encryptString($uid), 'token_digest' => hash('sha256', $uid), 'token_state' => 'unregistered', 'state' => 'prepared', 'active_target_key' => $key, 'consented_at' => now(), 'expires_at' => now()->addMinutes(15), 'created_at' => now(), 'updated_at' => now()]);
             DB::table('audit_events')->insert(['actor_id' => $actor->id, 'action' => 'ocpi.sandbox_consent_recorded', 'subject' => (string) $id, 'created_at' => now()]);
 
             return ['order' => DB::table('ocpi_roaming_orders')->find($id), 'created' => true];
@@ -115,7 +125,9 @@ class SandboxRoaming
         [$c,$local,$link] = $this->policy($p);
         abort_unless($p->owner_id === $order->provider_owner_id && hash_equals($order->counterparty_hash, $link->configuration_hash) && $c['test_command_contract'] === $order->contract_reference && User::whereKey($order->user_id)->exists(), 409, 'Original roaming counterparty authority changed; source review is required.');
         if ($start) {
-            abort_unless(User::whereKey($order->user_id)->where('role', 'customer')->exists(), 403);
+            $driver = User::whereKey($order->user_id)->first();
+            abort_unless($driver?->role === 'customer' && app(ChargingActorConsent::class)->matches($driver, $order->consent_auth_epoch === null ? null : (int) $order->consent_auth_epoch), 409, 'Charging consent was revoked or the customer account is unavailable.');
+            abort_unless(User::whereKey($p->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists(), 409, 'Partner owner is unavailable for new charging.');
             abort_unless($p->authorization_revision === $order->provider_revision && $link->generation === $order->credential_generation, 409, 'Review current credentials and terms before starting.');
         }
         if ($start) {
@@ -173,6 +185,6 @@ class SandboxRoaming
         $canInvoice = $driver && app(TestInvoiceLineage::class)->available(User::findOrFail($order->user_id), $order);
         $invoiceId = $invoice && ($driver || OcpiProvider::find($order->provider_id)?->owner_id === $order->provider_owner_id) ? $invoice->invoice_id : null;
 
-        return ['reported_cost' => $cost, 'can_stop' => $canStop, 'can_revoke' => $driver && $order->token_revoked_at === null, 'id' => $order->id, 'provider_id' => $order->provider_id, 'location_name' => $target['location_name'], 'evse_uid' => $target['evse_uid'], 'connector_id' => $target['connector_id'], 'state' => $order->state, 'token_state' => $order->token_state, 'expires_at' => $order->expires_at, 'energy_wh' => $order->energy_wh, 'source_status' => $order->source_status, 'reconciliation_state' => $order->reconciliation_state, 'source_observed_at' => $order->source_observed_at, 'created_at' => $order->created_at, 'commands' => $commands, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'billing_eligible' => false, 'local_invoice_created' => $invoiceId !== null, 'test_invoice_id' => $invoiceId, 'test_invoice_evidence' => $invoiceId ? 'SIMULATED_CANONICAL_LEDGER' : null, 'can_preview_test_invoice' => $canInvoice, 'real_payment_processed' => false, 'physical_charging_verified' => false, 'live_commands_enabled' => false];
+        return ['reported_cost' => $cost, 'can_stop' => $canStop, 'can_revoke' => $driver && $order->token_revoked_at === null, 'id' => $order->id, 'provider_id' => $order->provider_id, 'location_name' => $target['location_name'], 'evse_uid' => $target['evse_uid'], 'connector_id' => $target['connector_id'], 'state' => $order->state, 'token_state' => $order->token_state, 'expires_at' => $order->expires_at, 'energy_wh' => $order->energy_wh, 'source_status' => $order->source_status, 'reconciliation_state' => $order->reconciliation_state, 'source_observed_at' => $order->source_observed_at, 'created_at' => $order->created_at, 'commands' => $commands, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED', 'billing_eligible' => false, 'start_consent_current' => $this->consentCurrent($order), 'local_invoice_created' => $invoiceId !== null, 'test_invoice_id' => $invoiceId, 'test_invoice_evidence' => $invoiceId ? 'SIMULATED_CANONICAL_LEDGER' : null, 'can_preview_test_invoice' => $canInvoice, 'real_payment_processed' => false, 'physical_charging_verified' => false, 'live_commands_enabled' => false];
     }
 }

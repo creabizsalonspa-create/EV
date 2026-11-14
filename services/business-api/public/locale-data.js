@@ -2266,6 +2266,14 @@ window.EV_MESSAGES = {
         en: "Linking enforces company approval, current license and connector maintenance for new bookings/starts. Configure exactly one matching simulator connector first. Parallel connector targets require explicit mapping and remain unavailable. Active sessions can still stop.",
         ar: "يطبق الربط شروط اعتماد الشركة وسريان الترخيص وصيانة الموصل على الحجوزات وبدء الجلسات الجديدة. يجب إعداد موصل تجريبي واحد مطابق. الأهداف المتوازية تحتاج ربطاً صريحاً وغير متاحة حالياً. يمكن إيقاف الجلسات النشطة.",
     },
+    "Start authorization revoked": {
+        en: "Account authorization changed before this start was sent. Cancel the undispatched reservation and confirm a fresh request; this does not stop an existing source session.",
+        ar: "تغير تفويض الحساب قبل إرسال طلب البدء. ألغِ الحجز غير المرسل وأكد طلباً جديداً؛ لا يوقف هذا جلسة مصدر قائمة.",
+    },
+    "Roaming start authorization revoked": {
+        en: "Account or partner authorization changed. This order cannot start; revoke its token and review a fresh request. A dispatched or uncertain command still needs source reconciliation.",
+        ar: "تغير تفويض الحساب أو الشريك. لا يمكن بدء هذا الطلب؛ ألغِ رمزه وراجع طلباً جديداً. لا يزال الأمر المرسل أو غير المؤكد يحتاج مطابقة المصدر.",
+    },
     "Start admission blocked": {
         en: "This start has not been dispatched because admission is unavailable. Refresh or cancel the undispatched reservation.",
         ar: "لم يتم إرسال طلب البدء لأن شروط السماح غير متاحة. حدّث الحالة أو ألغِ الحجز الذي لم يُرسل طلبه.",

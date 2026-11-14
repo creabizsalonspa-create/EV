@@ -5,7 +5,7 @@ import 'package:creabiz_ev/sandbox_roaming.dart';
 import 'test_support.dart';
 
 class RoamingApi extends FixtureApi {
-  bool lost = false, unsafe = false, denied = false;
+  bool lost = false, unsafe = false, denied = false, revoked = false;
   int attempts = 0;
   Map<String, dynamic>? first;
   Map<String, dynamic> order() => {
@@ -22,6 +22,7 @@ class RoamingApi extends FixtureApi {
     'local_invoice_created': false,
     'physical_charging_verified': false,
     'can_stop': false,
+    'start_consent_current': !revoked,
     'can_revoke': true,
   };
   @override
@@ -80,6 +81,25 @@ Widget app(RoamingApi api, {bool operator = false, VoidCallback? expired}) =>
       ),
     );
 void main() {
+  testWidgets(
+    'revoked start authorization requires explicit token recovery without another command',
+    (tester) async {
+      final api = RoamingApi()..revoked = true;
+      await tester.pumpWidget(app(api));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Review sandbox history'));
+      await tester.tap(find.text('Review sandbox history'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Account or partner authorization changed.'),
+        findsOneWidget,
+      );
+      expect(find.text('Request sandbox stop'), findsNothing);
+      expect(api.attempts, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets(
     'consent and lost response keep original request; reads do not redispatch',
     (tester) async {

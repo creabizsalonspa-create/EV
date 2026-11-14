@@ -840,7 +840,9 @@ async function simulations() {
                 a.append(reconcile);
             }
         }
-        if (s.start_admission_blocked)
+        if (s.start_authorization_revoked)
+            a.append(ui("p", "Start authorization revoked"));
+        else if (s.start_admission_blocked)
             a.append(ui("p", "Start admission blocked"));
         if (user.role === "customer" && s.can_cancel_before_dispatch) {
             const cancel = ui("button", "Cancel undispatched start");
