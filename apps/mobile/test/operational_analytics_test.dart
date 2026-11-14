@@ -74,8 +74,18 @@ void main() {
       var expired = 0;
       await tester.pumpWidget(app(api, () => expired++));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Completed energy (Wh): 1250'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Completed energy (Wh): 1250'), findsOneWidget);
       api.fail = true;
+      await tester.scrollUntilVisible(
+        find.text('Apply and refresh'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Apply and refresh'));
       await tester.pumpAndSettle();
       expect(expired, 1);
@@ -92,8 +102,18 @@ void main() {
       expect(find.textContaining('1250'), findsNothing);
       expect(find.text('View private report PDF'), findsNothing);
       api.unsafe = false;
+      await tester.scrollUntilVisible(
+        find.text('Apply and refresh'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Apply and refresh'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Completed energy (Wh): 1250'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Completed energy (Wh): 1250'), findsOneWidget);
       final calls = api.applied.length;
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
@@ -124,6 +144,11 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Apply and refresh'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Apply and refresh'));
       await tester.pumpAndSettle();
       expect(find.text('Observed simulator feedback'), findsNothing);
