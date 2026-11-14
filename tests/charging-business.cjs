@@ -306,6 +306,20 @@ async function session(version, actors, revokedTag = null) {
           "Accepted",
           "A fresh successful session must not revive revoked authorization",
         );
+        const revokedSession = await latestSession(customer, sessionId);
+        assert(revokedSession, "Revoked intent remains visible to its owner");
+        assert.notEqual(
+          revokedSession.status,
+          "active",
+          "Rejected authorization must not establish charging",
+        );
+        const ownerInvoices = await customer.request("finance/invoices");
+        assert.equal(
+          ownerInvoices.data.filter((i) => i.charging_session_id === sessionId)
+            .length,
+          0,
+          "Revoked unstarted intent must not create a financial record",
+        );
         return;
       }
 
