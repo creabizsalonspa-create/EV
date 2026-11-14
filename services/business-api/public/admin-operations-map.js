@@ -19,7 +19,12 @@ window.EvAdminOperationsMap = (() => {
     }
     function stopMap() {
         map?.remove(); map = markers = null;
-        if (canvas) canvas.hidden = true;
+        if (canvas) {
+            // Leaflet removes its panes but retains container classes. Clear
+            // the detached projection and focus state before another consent.
+            canvas.replaceChildren(); canvas.className = ''; canvas.hidden = true;
+            canvas.removeAttribute?.('tabindex');
+        }
         if (viewport) { viewport.checked = false; viewport.disabled = true; }
         if (enable) enable.hidden = false;
         if (disable) disable.hidden = true;
