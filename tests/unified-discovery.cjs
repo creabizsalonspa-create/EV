@@ -36,3 +36,7 @@ test('unknown preference outcomes require explicit refresh and late account repl
  let writes=0,finish;const f=fixture();f.control.setContext({owner:1,customer:true,favorite:async()=>{writes++;throw Error('lost response');}});f.form.onsubmit({preventDefault(){}});await tick();await f.list.children[0].children.find(x=>x.dataset.favoriteKind).onclick();await f.list.children[1].children.find(x=>x.dataset.favoriteKind).onclick();assert.equal(writes,1);assert.match(f.root.textContent,/outcome unknown/);
  f.control.setContext({owner:2,customer:true,favorite:()=>new Promise(resolve=>finish=resolve)});f.form.onsubmit({preventDefault(){}});await tick();const pending=f.list.children[0].children.find(x=>x.dataset.favoriteKind).onclick();f.control.setContext({owner:3,customer:true,favorite:async()=>true});const reads=f.calls.length;finish(true);await pending;assert.equal(f.calls.length,reads);assert.equal(f.list.children.length,0);
 });
+
+test('source-report selection sends an exact bounded status and clear removes it',async()=>{
+ const f=fixture();f.form.children[4].children[0].value='Available';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('recent_source_status'),'Available');f.control.clear();assert.equal(f.form.children[4].children[0].value,'');
+});

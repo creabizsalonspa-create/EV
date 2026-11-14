@@ -42,10 +42,12 @@ class SavedUnifiedApi extends UnifiedApi {
     return data;
   }
 }
+void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
  for(final ar in [false,true]){
   testWidgets('unified query and typed source results in both languages ($ar)',(tester)async{
-   tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+  roomy(tester);
+   
    final api=UnifiedApi();addTearDown(api.close);final chosen=<Station>[];
    await tester.pumpWidget(app(api,chosen.add,ar:ar));expect(api.calls,isEmpty);
    await tester.enterText(find.byKey(const Key('unified-query')),'Shared');await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
@@ -56,10 +58,12 @@ void main(){
   });
  }
  testWidgets('partner control claims fail closed without a station action',(tester)async{
+  roomy(tester);
   final api=UnifiedApi()..invalid=true;addTearDown(api.close);await tester.pumpWidget(app(api,(_)=>fail('Unexpected action')));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(find.text('Search failed. Retry explicitly.'),findsOneWidget);expect(find.text('Synthetic partner'),findsNothing);
  });
  testWidgets('unified saved places use both existing writers and scoped read filtering',(tester)async{
-  tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+  roomy(tester);
+  
   final api=SavedUnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},customer:true));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('unified-favorite-catalog:7')));await tester.pumpAndSettle();expect(api.writes,['PUT favorites/7']);
   await tester.tap(find.byKey(const ValueKey('unified-favorite-partner:7')));await tester.pumpAndSettle();expect(api.writes.last,'PUT roaming/favorites/7');expect(api.saved.length,2);
@@ -67,18 +71,26 @@ void main(){
   await tester.tap(find.byKey(const ValueKey('unified-favorite-catalog:7')));await tester.pumpAndSettle();expect(api.writes.last,'DELETE favorites/7');expect(api.saved,{'partner:7'});
  });
  testWidgets('unknown saved outcomes block replay until explicit refresh',(tester)async{
-  tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+  roomy(tester);
+  
   final api=SavedUnifiedApi()..unknown=true;addTearDown(api.close);await tester.pumpWidget(app(api,(_){},customer:true));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();await tester.tap(find.byKey(const ValueKey('unified-favorite-catalog:7')));await tester.pumpAndSettle();
   expect(api.writes.length,1);expect(tester.widget<TextButton>(find.byKey(const ValueKey('unified-favorite-partner:7'))).onPressed,isNull);
   api.unknown=false;await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(tester.widget<TextButton>(find.byKey(const ValueKey('unified-favorite-partner:7'))).onPressed,isNotNull);
   api.epoch++;await tester.tap(find.byKey(const ValueKey('unified-favorite-partner:7')));await tester.pump();expect(api.writes.length,1);
  });
+ testWidgets('source report filter preserves the explicit normalized status query',(tester)async{
+  roomy(tester);
+  
+  final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){ }));await tester.tap(find.byKey(const Key('unified-source-status')));await tester.pumpAndSettle();await tester.tap(find.text('Charging').last);await tester.pumpAndSettle();await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.queries.single['recent_source_status'],'Charging');
+ });
  testWidgets('an open view cannot acquire the next accounts private saved state',(tester)async{
+  roomy(tester);
   final api=UnifiedApi()..pending=Completer<dynamic>();addTearDown(api.close);await tester.pumpWidget(app(api,(_)=>fail('Unexpected station handoff'),customer:true));await tester.tap(find.byType(FilledButton));await tester.pump();api.epoch++;
   api.pending!.complete({'data':[partnerRow()],'current_page':1,'last_page':1,'total':1});await tester.pumpAndSettle();expect(find.text('Synthetic partner'),findsNothing);expect(find.text('Account changed. Reopen search.'),findsOneWidget);
   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();expect(api.calls.length,1);
  });
  testWidgets('background and old account responses cannot repopulate results',(tester)async{
+  roomy(tester);
   final api=UnifiedApi()..pending=Completer<dynamic>();addTearDown(api.close);await tester.pumpWidget(app(api,(_)=>fail('Unexpected action')));await tester.tap(find.byType(FilledButton));await tester.pump();
   for(final state in [AppLifecycleState.inactive,AppLifecycleState.hidden,AppLifecycleState.paused]){tester.binding.handleAppLifecycleStateChanged(state);}
   api.epoch++;api.pending!.complete({'data':[partnerRow()],'current_page':1,'last_page':1,'total':1});await tester.pump();expect(find.text('Synthetic partner'),findsNothing);

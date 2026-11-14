@@ -1,3 +1,4 @@
+import 'connector_freshness.dart';
 import 'station_information.dart';
 import 'charging_reviews.dart';
 import 'package:flutter/material.dart';
@@ -114,6 +115,7 @@ class CatalogViewState extends State<CatalogView> {
   final radius = TextEditingController();
   final form = GlobalKey<FormState>();
   String connector = '';
+  String sourceStatus = '';
   final favoriteBusy = <int>{};
   final favoriteErrors = <int, Object>{};
   int confirmedFavoriteRead = -1;
@@ -143,7 +145,7 @@ class CatalogViewState extends State<CatalogView> {
   void compatibleWith(String type) {
     if (!['CCS2', 'Type2', 'CHAdeMO'].contains(type)) return;
     setState(() {
-      connector = type;
+      connector = type;sourceStatus='';
       for (final field in [
         search,
         address,
@@ -168,6 +170,7 @@ class CatalogViewState extends State<CatalogView> {
       controller.load(
         filter: CatalogFilter(
           search: search.text,
+          recentSourceStatus:sourceStatus,
           address: address.text,
           operatorName: operatorName.text,
           access: access.text,
@@ -268,6 +271,7 @@ class CatalogViewState extends State<CatalogView> {
                               : (lat, lng) {
                                   if (!mounted) return;
                                   search.text = controller.filter.search;
+                                  sourceStatus=controller.filter.recentSourceStatus;
                                   address.text = controller.filter.address;
                                   operatorName.text = controller.filter.operatorName;
                                   access.text = controller.filter.access;
@@ -285,6 +289,7 @@ class CatalogViewState extends State<CatalogView> {
                                   controller.load(
                                     filter: CatalogFilter(
                                       search: controller.filter.search,
+                                      recentSourceStatus:controller.filter.recentSourceStatus,
                                       address: controller.filter.address,
                                       operatorName: controller.filter.operatorName,
                                       access: controller.filter.access,
@@ -433,6 +438,8 @@ class CatalogViewState extends State<CatalogView> {
                                 title: Text(s.arabic ? 'العنوان والمشغل والسعر' : 'Address, operator and price'),
                                 maintainState: true,
                                 children: [
+DropdownButtonFormField<String>(key:ValueKey('catalog-source-status-$sourceStatus'),initialValue:sourceStatus,decoration:InputDecoration(labelText:s.arabic?'حالة مصدر المحاكاة عند البحث':'Simulated source state at search'),items:[DropdownMenuItem(value:'',child:Text(s.arabic?'كل الحالات':'All states')),for(final status in reportedConnectorStatuses)DropdownMenuItem(value:status,child:Text(connectorStatusLabel(status,s.arabic)))],onChanged:(value)=>setState(()=>sourceStatus=value!)),
+                          Text(s.arabic?'تقارير الموصلات خلال خمس دقائق عند البحث فقط. التوفر الفعلي غير مؤكد؛ أعد البحث للتحقق.':'Connector reports within five minutes at search only. Physical availability is unverified; search again to recheck.'),
 for (final field in [
                             ('addressSearch', address, 150),
                             ('operatorName', operatorName, 100),

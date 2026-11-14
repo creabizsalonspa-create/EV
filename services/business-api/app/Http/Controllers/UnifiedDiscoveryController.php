@@ -8,6 +8,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Services\Discovery\CatalogTextFilters;
 use App\Services\Discovery\PublicPartnerLocation;
+use App\Services\Discovery\SourceReportFilter;
 use App\Services\Discovery\StationCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,7 +18,7 @@ final class UnifiedDiscoveryController extends Controller
 {
     public function index(Request $request)
     {
-        $v = $request->validate(['q' => 'nullable|string|max:80', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean']);
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
         $actor = $this->currentActor($request);
         $customer = $actor->role === 'customer' ? $actor->id : null;
         abort_if($request->boolean('saved_only') && $customer === null, 403);
@@ -27,6 +28,10 @@ final class UnifiedDiscoveryController extends Controller
         if ($request->boolean('saved_only')) {
             $catalog->whereIn('id', DB::table('station_favorites')->where('user_id', $customer)->select('station_id'));
             $partner->whereIn('id', DB::table('partner_location_favorites')->where('user_id', $customer)->select('record_id'));
+        }
+        if (! empty($v['recent_source_status'])) {
+            app(SourceReportFilter::class)->apply($catalog, [...$v, ...(! empty($v['connector']) ? ['connector_type' => $v['connector']] : [])]);
+            $partner->whereRaw('1 = 0'); // Partner reports cannot fulfill canonical five-minute source evidence.
         }
         $text = trim($v['q'] ?? '');
         if ($text !== '') {

@@ -3,7 +3,7 @@
  const text=(tag,en,ar)=>{const n=document.createElement(tag);n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;return n;};
  const button=(en,ar,action)=>{const n=text('button',en,ar);n.type='button';n.onclick=action;return n;};
  function install(root,api,onCatalog){
-  let generation=0,page=1,query='',scope='all',connector='',mapRows=[],savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false;
+  let generation=0,page=1,query='',scope='all',connector='',mapRows=[],recentStatus='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false;
   const form=document.createElement('form'),input=document.createElement('input'),source=document.createElement('select'),plug=document.createElement('select'),state=text('p','',''),list=document.createElement('div'),nav=document.createElement('nav');
   input.maxLength=80;input.name='unified-query';
   const field=text('label','Name, address or operator','الاسم أو العنوان أو المشغل');field.append(input);form.append(field);
@@ -12,6 +12,10 @@
   for(const value of ['', 'CCS2','Type2','CHAdeMO']){const option=text('option',value||'All connectors',value||'كل الموصلات');option.value=value;plug.append(option);}
   const connectorLabel=text('label','Connector','الموصل');connectorLabel.append(plug);form.append(connectorLabel);
   const savedField=text('label','Saved places only','الأماكن المحفوظة فقط'),savedInput=document.createElement('input');savedInput.type='checkbox';savedField.append(savedInput);savedField.hidden=true;form.append(savedField);
+  const report=document.createElement('select');report.name='recent_source_status';
+  for(const value of ['',...(window.EvConnectorFreshness?.statuses||['Available','Charging','Reserved','Faulted','Unavailable'])]){const option=text('option',value||'All states',value?(window.EvConnectorFreshness?.label(value,true)||value):'كل الحالات');option.value=value;report.append(option);}
+  const reportLabel=text('label','Simulated source state at search','حالة مصدر المحاكاة عند البحث');reportLabel.append(report);form.append(reportLabel);
+  form.append(text('p','Canonical connector reports within five minutes at search only; excludes partner reports. Physical availability is unverified. Search again to recheck.','تقارير موصلات المنصة خلال خمس دقائق عند البحث فقط؛ باستثناء تقارير الشركاء. التوفر الفعلي غير مؤكد. أعد البحث للتحقق.'));
   const submit=text('button','Search all sources','البحث في كل المصادر');submit.type='submit';form.append(submit);state.setAttribute('role','status');
   root.append(text('h3','Search platform and partner locations','البحث في مواقع المنصة والشركاء'),text('p','One search of published records. Partner reports are unverified and cannot authorize booking, charging or payment. External discovery providers require their separate consent.','بحث موحد في السجلات المنشورة. تقارير الشركاء غير مؤكدة ولا تسمح بالحجز أو الشحن أو الدفع. يتطلب مزودو الاكتشاف الخارجيون موافقة منفصلة.'),form,state,list,nav);
   const mapButton=button('Map these loaded results','عرض هذه النتائج المحملة على الخريطة',()=>{
@@ -22,7 +26,7 @@
    if(writing)return;
    uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.textContent=document.documentElement.lang==='ar'?'جارٍ البحث…':'Searching…';submit.disabled=true;
    try{
-    const data=await api('search?'+new URLSearchParams({q:query,scope,connector,page:String(target),saved_only:savedOnly?'1':'0'}));if(turn!==generation)return;
+    const data=await api('search?'+new URLSearchParams({q:query,scope,connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus}));if(turn!==generation)return;
     if(!Array.isArray(data.data)||!Number.isInteger(data.current_page)||!Number.isInteger(data.last_page)||!Number.isInteger(data.total))throw Error('Invalid catalog response');
     mapRows=data.data;mapButton.disabled=mapRows.length===0;
     page=data.current_page;state.replaceChildren(text('span',`${data.total} published results`,`${data.total} نتيجة منشورة`));
@@ -59,9 +63,9 @@
    }catch{if(turn===generation)state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));}
    finally{if(turn===generation)submit.disabled=false;}
   }
-  form.onsubmit=e=>{e.preventDefault();if(writing)return;query=input.value.trim();scope=source.value;connector=plug.value;savedOnly=customer&&savedInput.checked;load(1);};
+  form.onsubmit=e=>{e.preventDefault();if(writing)return;query=input.value.trim();scope=source.value;connector=plug.value;recentStatus=report.value;savedOnly=customer&&savedInput.checked;load(1);};
   // Location queries and result sets stay in memory; there is no automatic lookup.
-  return {setContext(context){if(owner!==context.owner)this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){generation++;writing=false;uncertain=false;savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
+  return {setContext(context){if(owner!==context.owner)this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){generation++;writing=false;uncertain=false;recentStatus='';report.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
  }
  window.EvUnifiedDiscovery={install};
  window.addEventListener('discovery-api-ready',event=>{const root=document.getElementById('unified-discovery');if(root)window.EvUnifiedDiscovery.active=install(root,event.detail,id=>window.dispatchEvent(new CustomEvent('unified-catalog-open',{detail:id})));});

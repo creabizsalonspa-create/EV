@@ -792,6 +792,7 @@ class CatalogFilter {
   final String operatorName;
   final String access;
   final String maximumRate;
+  final String recentSourceStatus;
   final String priceCurrency;
   final String connector;
   final String country;
@@ -803,6 +804,7 @@ class CatalogFilter {
     this.operatorName = '',
     this.access = '',
     this.maximumRate = '',
+    this.recentSourceStatus = '',
     this.priceCurrency = '',
     this.connector = '',
     this.country = '',
@@ -816,6 +818,7 @@ class CatalogFilter {
     if (address.trim().isNotEmpty) 'address': address.trim(),
     if (operatorName.trim().isNotEmpty) 'operator': operatorName.trim(),
     if (access.trim().isNotEmpty) 'access': access.trim(),
+    if (recentSourceStatus.isNotEmpty) 'recent_source_status':recentSourceStatus,
     if (maximumRate.trim().isNotEmpty) 'max_rate_per_kwh': maximumRate.trim(),
     if (priceCurrency.trim().isNotEmpty) 'price_currency': priceCurrency.trim().toUpperCase(),
     if (connector.isNotEmpty) 'connector_type': connector,
