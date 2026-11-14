@@ -1034,6 +1034,12 @@ window.createRoamingWorkspace = ({
                             epoch === generation && version === details,
                     });
                 });
+                button(card, "Scheduled partner synchronization", () => {
+                    if (epoch !== generation) return;
+                    const viewer = actor(), version = ++details;
+                    return window.EvOcpiSyncPlans.open({host: detail, providerId: provider.id, api,
+                        current: () => epoch === generation && version === details && actor()?.id === viewer?.id && actor()?.role === viewer?.role});
+                });
                 button(card, "Roaming credentials", () =>
                     credentialWorkspace(provider, detail),
                 );

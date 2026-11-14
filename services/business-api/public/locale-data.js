@@ -1,4 +1,5 @@
 window.EV_MESSAGES = {
+    "Scheduled partner synchronization": {en: "Scheduled partner synchronization", ar: "مزامنة الشريك المجدولة"},
     "Email activity notices": {en: "Email activity notices", ar: "إشعارات النشاط بالبريد"},
     "Critical in-app notifications always remain visible. Email notices require separate consent and server configuration.": {en: "Critical in-app notifications always remain visible. Email notices require separate consent and server configuration.", ar: "تبقى الإشعارات الحرجة داخل التطبيق ظاهرة. إشعارات البريد تتطلب موافقة مستقلة وتهيئة الخادم."},
     "SIMULATED · #{id} · {status} · {energy} Wh · No payment processed": {en: "SIMULATED · #{id} · {status} · {energy} Wh · No payment processed", ar: "محاكاة · #{id} · {status} · {energy} Wh · لم تتم معالجة دفعة"},
