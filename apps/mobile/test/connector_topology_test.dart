@@ -129,7 +129,7 @@ void main() {
         onReserve: (_) async {},
       ), arabic:arabic));
       await tester.pumpAndSettle();
-      expect(find.textContaining(arabic ? 'غير معروف' : 'status: unknown'), findsOneWidget);
+      expect(find.textContaining(arabic ? 'حالة مصدر المحاكاة: غير معروف' : 'status: unknown'), findsOneWidget);
       final refresh = find.text(arabic ? 'تحديث' : 'Refresh');
       await tester.ensureVisible(refresh);
       await tester.tap(refresh);
