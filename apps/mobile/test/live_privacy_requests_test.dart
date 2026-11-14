@@ -12,7 +12,7 @@ void main() {
           jsonDecode(await File(fixture!).readAsString())
               as Map<String, dynamic>;
       expect(f['fixture_only'], true);
-      final api = EvApi(Uri.parse('http://127.0.0.1:8000'));
+      final api = EvApi(Uri.parse(f['base'] as String));
       addTearDown(api.close);
       final customer = f['accounts']['customer'];
       final other = f['accounts']['other'];
@@ -76,5 +76,42 @@ void main() {
     skip: fixture == null
         ? 'Requires explicit private local Laravel privacy fixture; no automated erasure.'
         : false,
+  );
+  test(
+    'native private copy reads authenticated source and discard prevents subsequent access',
+    () async {
+      final f =
+          jsonDecode(await File(fixture!).readAsString())
+              as Map<String, dynamic>;
+      expect(f['fixture_only'], true);
+      final base = Uri.parse(f['base'] as String);
+      expect(base.host, '127.0.0.1');
+      expect(base.scheme, 'http');
+      final api = EvApi(base);
+      addTearDown(api.close);
+      final owner = f['accounts']['copycustomer'];
+      await api.signIn(owner['email'], owner['password']);
+      final path =
+          'account/privacy-requests/${f['copy_request_id']}/access-copy';
+      final copy = await api.request(
+        path,
+        method: 'POST',
+        body: {'password': owner['password']},
+      );
+      expect(copy['owner_id'], owner['id']);
+      expect(copy['schema_version'], 1);
+      expect(copy['sections']['profile']['email'], owner['email']);
+      expect(copy['sections']['profile'].containsKey('password'), false);
+      await api.request('$path/revoke', method: 'POST');
+      await expectLater(
+        api.request(
+          path,
+          method: 'POST',
+          body: {'password': owner['password']},
+        ),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 410)),
+      );
+    },
+    skip: fixture == null ? 'Requires owned local privacy-copy fixture' : false,
   );
 }

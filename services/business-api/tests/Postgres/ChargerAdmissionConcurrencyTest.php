@@ -107,7 +107,7 @@ class ChargerAdmissionConcurrencyTest extends TestCase
         $site = VendorSite::create(['company_id' => $company->id, 'station_id' => $station->id, 'name' => 'PG', 'country' => 'AE', 'timezone' => 'Asia/Dubai', 'address' => 'PG', 'latitude' => 25, 'longitude' => 55]);
         $charger = VendorCharger::create(['company_id' => $company->id, 'site_id' => $site->id, 'asset_reference' => 'PG', 'manufacturer' => 'PG', 'model' => 'PG', 'source' => 'simulator', 'ocpp_protocol' => '1.6']);
         $profile = AdmissionProfile::create(['charger_id' => $charger->id, 'identity' => 'ev-test-pg-admission', 'protocol' => '1.6']);
-        $command = ChargerCommand::create(['actor_id' => $owner->id, 'station_id' => $station->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('a', 64), 'idempotency_key' => 'PG', 'status' => 'outcome_unknown']);
+        $command = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $owner->id, 'station_id' => $station->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('a', 64), 'idempotency_key' => 'PG', 'status' => 'outcome_unknown']);
         if ($other === 'admission_expire') {
             $profile->update(['enabled' => true, 'credential_digest' => hash('sha256', str_repeat('a', 40)), 'expires_at' => now()->subMinute()]);
         }

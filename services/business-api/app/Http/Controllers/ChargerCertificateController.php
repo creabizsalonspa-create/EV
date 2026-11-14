@@ -34,7 +34,7 @@ class ChargerCertificateController extends Controller
         $service->scope($r->user(), $company, $charger, true);
         abort_unless(in_array($action, ['enroll', 'revoke'], true), 404);
         abort_if(app()->environment('production') && ! $r->isSecure(), 503);
-        $v = $r->validate(['idempotency_key' => 'required|uuid', 'expected_actor_id' => 'required|integer|min:1', 'expected_profile_id' => 'required|integer|min:1', 'expected_version' => 'required|integer|min:0', 'consent' => 'required|boolean', 'reason' => 'required|string|min:10|max:1000', 'public_certificate' => $action === 'enroll' ? 'required|string|max:16384' : 'prohibited', 'certificate_id' => $action === 'revoke' ? 'required|integer|min:1' : 'prohibited']);
+        $v = $r->validate(['idempotency_key' => 'required|uuid', 'expected_actor_id' => 'required|integer|min:1', 'expected_profile_id' => 'required|integer|min:1', 'expected_version' => 'required|integer|min:0', 'consent' => 'required|boolean', 'reason' => 'required|string|min:10|max:1000', 'public_certificate' => $action === 'enroll' ? 'required|string|max:16384' : 'prohibited', 'issuer_chain' => $action === 'enroll' ? 'sometimes|nullable|string|max:49152' : 'prohibited', 'certificate_id' => $action === 'revoke' ? 'required|integer|min:1' : 'prohibited']);
         foreach (['expected_actor_id', 'expected_profile_id', 'expected_version', 'certificate_id'] as $key) {
             if (isset($v[$key])) {
                 $v[$key] = (int) $v[$key];

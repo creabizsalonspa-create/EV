@@ -303,6 +303,11 @@ Web and Flutter support explicit preparation, proof, rotation, disablement and f
 
 `accounts:expire-second-factor-setup` clears at most 1,000 expired pending seeds per run and is scheduled every ten minutes. Migration rollback refuses to drop surviving enrollment records. Automated tests do not establish real-device, store, independent security-review or production acceptance.
 
+### Charging credential epoch and recovery-key rollover
+
+Unsent remote OCPP/OCPI starts bind to the authenticated actor's security epoch. Logout/revocation or suspension blocks stale pending starts; old unstamped queued starts require fresh consent rather than silent backfilling. Proven unsent starts remain cancellable. Dispatched/uncertain commands remain unreplayed, and established source observations and queued stops retain their existing reconciliation rules. Private epochs are not returned to clients; history provides safe recovery notices.
+
+New account recovery sets use encrypted format2 with domain-separated digests of128-bit random one-use codes. Legacy96-bit HMAC sets accept only the current or explicitly approved `APP_PREVIOUS_KEYS` during key overlap, and web/native status recommends regeneration. Keep required previous keys until legacy recovery sets are regenerated and encrypted data is rewrapped. Once format2 codes are issued, rollback software must retain its format2 reader; an older MFA reader is not compatible with that data.
 ### Operator station availability blocks
 
 Public `GET /api/stations/{station}/availability-blocks` lists up to 50 current/future station-wide policy intervals with bilingual public reasons, UTC timestamps, revision and explicit unverified physical availability. The same bounded public projection is included in station information/catalog responses; creator, request identity and audit details remain private. Bearer route equivalents use `/api/v1`.

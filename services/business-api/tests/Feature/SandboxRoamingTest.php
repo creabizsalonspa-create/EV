@@ -8,6 +8,8 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\CreatesSandboxRoaming;
 use Tests\TestCase;
 
@@ -153,5 +155,53 @@ class SandboxRoamingTest extends TestCase
         $this->withHeaders(['Authorization' => ''])->postJson('/api/roaming/sandbox-orders/'.$id.'/stop', ['request_key' => (string) Str::uuid()])->assertOk();
         $this->assertSame('S1', end($this->writes)['body']['session_id']);
         $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public static function revocationCases(): array
+    {
+        return ['customer epoch' => ['epoch'], 'customer suspension' => ['customer'], 'partner owner suspension' => ['vendor']];
+    }
+
+    #[DataProvider('revocationCases')]
+    public function test_customer_revocation_between_token_registration_and_start_prevents_command_dispatch(string $kind): void
+    {
+        [$owner, $driver, , , $location] = $this->fixture();
+        $attempts = 0;
+        Http::fake(function ($request) use ($owner, $driver, $kind, &$attempts) {
+            if ($request->method() === 'PUT') {
+                DB::table('users')->where('id', $kind === 'vendor' ? $owner->id : $driver->id)->update($kind === 'epoch' ? ['auth_epoch' => 1] : ['account_status' => 'suspended']);
+            } else {
+                $attempts++;
+            }
+
+            return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $request->method() === 'PUT' ? null : ['result' => 'ACCEPTED', 'timeout' => 30]]);
+        });
+        $offer = $this->actingAs($driver)->getJson('/api/roaming/locations/'.$location->id.'/sandbox-offers')->assertOk()->json('offers.0');
+        $this->postJson('/api/roaming/locations/'.$location->id.'/sandbox-orders', ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true])->assertCreated()->assertJsonPath('state', 'not_dispatched')->assertJsonPath('start_consent_current', false);
+        $this->assertSame(0, $attempts);
+        $command = DB::table('ocpi_roaming_commands')->first();
+        $this->assertNull($command->attempted_at);
+        $order = DB::table('ocpi_roaming_orders')->first();
+        $this->assertFalse(app(SandboxRoaming::class)->token($order)['valid']);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_stale_authenticated_actor_cannot_create_new_roaming_consent_but_fresh_actor_can(): void
+    {
+        [, $driver, , , $location] = $this->fixture();
+        $service = app(SandboxRoaming::class);
+        $offer = $service->offer($location, 'E1', '1', 'T1');
+        $body = ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true];
+        DB::table('users')->where('id', $driver->id)->update(['auth_epoch' => 1]);
+        try {
+            $service->create($driver, $location, $body);
+            $this->fail('A stale actor must not create a new start intent.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+        $this->assertDatabaseCount('ocpi_roaming_orders', 0);
+        $this->assertSame(1, (int) $service->create($driver->fresh(), $location, $body)['order']->consent_auth_epoch);
+        Http::assertNothingSent();
     }
 }

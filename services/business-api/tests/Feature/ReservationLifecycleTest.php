@@ -91,7 +91,7 @@ class ReservationLifecycleTest extends TestCase
     {
         $r = $this->booking();
         $this->travelTo(CarbonImmutable::parse($r->starts_at)->addHour());
-        $command = ChargerCommand::create(['actor_id' => $r->user_id, 'station_id' => $r->station_id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('a', 64), 'idempotency_key' => 'unknown', 'status' => 'outcome_unknown']);
+        $command = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $r->user_id, 'station_id' => $r->station_id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('a', 64), 'idempotency_key' => 'unknown', 'status' => 'outcome_unknown']);
         $service = app(ReservationLifecycle::class);
         $this->assertSame(1, $service->expire()['skipped']);
         $this->assertSame('confirmed', $r->fresh()->status);
@@ -106,7 +106,7 @@ class ReservationLifecycleTest extends TestCase
     {
         $r = $this->booking();
         $this->travelTo(CarbonImmutable::parse($r->starts_at)->addHour());
-        ChargerCommand::create(['actor_id' => $r->user_id, 'station_id' => $r->station_id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('b', 64), 'idempotency_key' => 'hold']);
+        ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $r->user_id, 'station_id' => $r->station_id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('b', 64), 'idempotency_key' => 'hold']);
         $this->artisan('reservations:expire-unused', ['--limit' => '0'])->assertExitCode(2);
         $this->artisan('reservations:expire-unused', ['--limit' => '1', '--scheduled' => true])->expectsOutputToContain('"skipped":1')->assertSuccessful();
         $this->assertSame($r->id, Cache::get('reservations:unused-expiry-cursor'));

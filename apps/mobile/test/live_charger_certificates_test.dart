@@ -34,6 +34,8 @@ void main() {
             'expected_profile_id': profile['id'],
             'expected_version': 0,
             'public_certificate': charger['pem'],
+            if ((charger['issuer_chain'] as String? ?? '').isNotEmpty)
+              'issuer_chain': charger['issuer_chain'],
             'reason': 'Explicit isolated native certificate enrollment',
             'consent': true,
           };
@@ -45,6 +47,10 @@ void main() {
           expect(enrolled['action'], 'enroll');
           expect(enrolled['profile_id'], profile['id']);
           expect(enrolled['result_version'], 1);
+          expect(
+            enrolled['certificate']['chain_length'],
+            (charger['issuer_chain'] as String? ?? '').isNotEmpty ? 1 : 0,
+          );
           expect(enrolled['device_commands_sent'], false);
           final replay = await owner.request(
             '$root/enroll',

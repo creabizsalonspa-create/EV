@@ -36,7 +36,7 @@ class CommandWorkerTest extends TestCase
     {
         $c = $this->fixture();
         foreach (['pending', 'outcome_unknown', 'submitted', 'dispatching'] as $status) {
-            ChargerCommand::create(['actor_id' => $c->actor_id, 'station_id' => $c->station_id, 'action' => 'start', 'payload' => [], 'idempotency_key' => 'unlinked-'.$status, 'payload_hash' => str_repeat('a', 64), 'status' => $status]);
+            ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $c->actor_id, 'station_id' => $c->station_id, 'action' => 'start', 'payload' => [], 'idempotency_key' => 'unlinked-'.$status, 'payload_hash' => str_repeat('a', 64), 'status' => $status]);
         }
         $this->mock(CsmsDispatcher::class)->shouldReceive('dispatch')->once()->with($c->id)->andReturnUsing(function () use ($c) {
             $c->update(['status' => 'outcome_unknown']);

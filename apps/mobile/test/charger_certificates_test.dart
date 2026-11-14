@@ -106,7 +106,7 @@ Widget screen(CertificateApi api, CertificateStore store) => MaterialApp(
     onExpired: () {},
   ),
 );
-Future<void> enroll(WidgetTester tester) async {
+Future<void> enroll(WidgetTester tester, {String chain = ''}) async {
   await tester.enterText(
     find.widgetWithText(TextField, 'Certificate operation reason'),
     'Explicit isolated certificate enrollment',
@@ -115,6 +115,23 @@ Future<void> enroll(WidgetTester tester) async {
     find.widgetWithText(TextField, 'Public PEM client certificate'),
     '-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----',
   );
+  if (chain.isNotEmpty) {
+    await tester.scrollUntilVisible(
+      find.widgetWithText(
+        TextField,
+        'Intermediate issuer certificates (optional)',
+      ),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(
+      find.widgetWithText(
+        TextField,
+        'Intermediate issuer certificates (optional)',
+      ),
+      chain,
+    );
+  }
   FocusManager.instance.primaryFocus?.unfocus();
   await tester.pumpAndSettle();
   await tester.ensureVisible(find.byType(CheckboxListTile));
@@ -202,6 +219,49 @@ void main() {
       await enroll(tester);
       expect(store.values.length, 1);
       expect(find.text('Retry saved request'), findsOneWidget);
+    },
+  );
+  testWidgets('issuer chain is frozen with the original enrollment retry', (
+    tester,
+  ) async {
+    final api = CertificateApi(), store = CertificateStore();
+    await tester.pumpWidget(screen(api, store));
+    await tester.pumpAndSettle();
+    const chain =
+        '-----BEGIN CERTIFICATE-----\nAQ==\n-----END CERTIFICATE-----';
+    await enroll(tester, chain: chain);
+    expect(api.bodies.single['issuer_chain'], chain);
+    await tester.ensureVisible(find.text('Retry saved request'));
+    await tester.tap(find.text('Retry saved request'));
+    await tester.pumpAndSettle();
+    expect(api.bodies.length, 2);
+    expect(api.bodies[0], api.bodies[1]);
+    expect(store.values, isEmpty);
+  });
+  testWidgets(
+    'private issuer key is cleared before intent storage or dispatch',
+    (tester) async {
+      final api = CertificateApi(), store = CertificateStore();
+      await tester.pumpWidget(screen(api, store));
+      await tester.pumpAndSettle();
+      await enroll(
+        tester,
+        chain: '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----',
+      );
+      expect(api.bodies, isEmpty);
+      expect(store.values, isEmpty);
+      expect(
+        tester
+            .widget<TextField>(
+              find.widgetWithText(
+                TextField,
+                'Intermediate issuer certificates (optional)',
+              ),
+            )
+            .controller!
+            .text,
+        '',
+      );
     },
   );
 }

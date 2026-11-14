@@ -42,7 +42,7 @@ class ChargerCommandTest extends TestCase
         $v = User::factory()->create(['role' => 'vendor']);
         $s = $this->station($v);
         DB::table('csms_bindings')->insert(['station_id' => $s->id, 'identifier' => 'ev-test-dispatch', 'protocol' => '2.0.1', 'created_at' => now(), 'updated_at' => now()]);
-        $c = ChargerCommand::create(['actor_id' => $v->id, 'station_id' => $s->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('a', 64), 'idempotency_key' => 'abc']);
+        $c = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $v->id, 'station_id' => $s->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('a', 64), 'idempotency_key' => 'abc']);
         Http::fake(['*/dev/token' => Http::response(['accessToken' => 'test-only-token']), '*/ocpp/*' => Http::response([['success' => true, 'messageId' => 'sim-123']])]);
         $r = app(CsmsDispatcher::class)->dispatch($c->id);
         $this->assertSame('submitted', $r->status);
@@ -58,7 +58,7 @@ class ChargerCommandTest extends TestCase
         $v = User::factory()->create(['role' => 'vendor']);
         $s = $this->station($v);
         DB::table('csms_bindings')->insert(['station_id' => $s->id, 'identifier' => 'ev-test-timeout', 'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now()]);
-        $c = ChargerCommand::create(['actor_id' => $v->id, 'station_id' => $s->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('b', 64), 'idempotency_key' => 'timeout']);
+        $c = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $v->id, 'station_id' => $s->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('b', 64), 'idempotency_key' => 'timeout']);
         Http::fake(['*/dev/token' => Http::response(['accessToken' => 'test-token']), '*/ocpp/*' => Http::failedConnection()]);
         $this->assertSame('outcome_unknown', app(CsmsDispatcher::class)->dispatch($c->id)->status);
         app(CsmsDispatcher::class)->dispatch($c->id);
@@ -71,7 +71,7 @@ class ChargerCommandTest extends TestCase
         $v = User::factory()->create(['role' => 'vendor']);
         $s = $this->station($v);
         DB::table('csms_bindings')->insert(['station_id' => $s->id, 'identifier' => 'ev-test-offline', 'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now()]);
-        $c = ChargerCommand::create(['actor_id' => $v->id, 'station_id' => $s->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('c', 64), 'idempotency_key' => 'offline']);
+        $c = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $v->id, 'station_id' => $s->id, 'action' => 'start', 'payload' => [], 'payload_hash' => str_repeat('c', 64), 'idempotency_key' => 'offline']);
         Http::fake(['*/dev/token' => Http::response(['accessToken' => 'test-token']), '*/ocpp/*' => Http::response([['success' => false]])]);
         $this->assertSame('rejected', app(CsmsDispatcher::class)->dispatch($c->id)->status);
         app(CsmsDispatcher::class)->dispatch($c->id);

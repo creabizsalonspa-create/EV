@@ -440,6 +440,14 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
             '${row['location_name']} · ${row['evse_uid']} / ${row['connector_id']}',
           ),
           Text('${tr('Order state', 'حالة الطلب')}: ${row['state']}'),
+          if (row['start_consent_current'] == false &&
+              !['source_active', 'source_completed'].contains(row['state']))
+            Text(
+              tr(
+                'Account or partner authorization changed. New start authorization is unavailable. Revoke this token and review source state before a fresh request. Dispatched or uncertain commands still need source reconciliation.',
+                'تغير تفويض الحساب أو الشريك. تفويض البدء الجديد غير متاح. ألغِ الرمز وراجع حالة المصدر قبل طلب جديد. تحتاج الأوامر المرسلة أو غير المؤكدة مطابقة المصدر.',
+              ),
+            ),
           Text(
             '${tr('Token state', 'حالة رمز التفويض')}: ${row['token_state']}',
           ),

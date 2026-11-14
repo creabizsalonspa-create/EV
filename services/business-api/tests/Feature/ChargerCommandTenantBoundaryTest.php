@@ -36,7 +36,7 @@ class ChargerCommandTenantBoundaryTest extends TestCase
 
     private function command(User $vendor, Station $station, string $key): ChargerCommand
     {
-        return ChargerCommand::create([
+        return ChargerCommand::create(['consent_auth_epoch' => 0,
             'actor_id' => $vendor->id,
             'station_id' => $station->id,
             'action' => 'start',

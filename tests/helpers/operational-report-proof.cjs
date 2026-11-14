@@ -41,6 +41,23 @@ module.exports = async function (fixture, clients) {
     const page = await context.newPage(),
       errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    const failedReads = [];
+    page.on("response", (response) => {
+      const pathname = new URL(response.url()).pathname;
+      if (
+        response.request().method() === "GET" &&
+        response.status() >= 400 &&
+        [
+          "/api/vendor-ops/companies",
+          "/api/support",
+          "/api/regions",
+          "/api/me",
+        ].some((path) => pathname === path || pathname.startsWith(path + "/"))
+      ) {
+        failedReads.push({ path: pathname, status: response.status() });
+        if (failedReads.length > 12) failedReads.shift();
+      }
+    });
     await page.goto(clients.vendor.base);
     // Logout must exercise a separate browser session, never revoke the CLI
     // vendor session needed by the following source-review assertions.
@@ -59,17 +76,25 @@ module.exports = async function (fixture, clients) {
     assert.equal((await login).status(), 200);
 
     const ops = page.locator("#vendor-operations");
-    await ops
-      .locator("article")
-      .filter({
-        has: page.getByRole("heading", {
-          name: `Synthetic charging lab ${fixture.run}`,
-          exact: true,
-        }),
-      })
-      .first()
-      .getByRole("button", { name: "Open company", exact: true })
-      .click();
+    try {
+      await ops
+        .locator("article")
+        .filter({
+          has: page.getByRole("heading", {
+            name: `Synthetic charging lab ${fixture.run}`,
+            exact: true,
+          }),
+        })
+        .first()
+        .getByRole("button", { name: "Open company", exact: true })
+        .click();
+    } catch (error) {
+      throw new Error(
+        error.message +
+          "\nCompany bootstrap failed reads (paths/status only): " +
+          JSON.stringify(failedReads),
+      );
+    }
     await ops
       .getByRole("button", {
         name: "Charging operational analytics",
