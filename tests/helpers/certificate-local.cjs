@@ -17,7 +17,7 @@ module.exports = async (runTest) => {
   try {
     fs.writeFileSync(
       file("extensions.cnf"),
-      "[root]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n[client]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n[server]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1\n",
+      "[root]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n[client]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n[server]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1\n[issuer]\nbasicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n",
       { mode: 0o600 },
     );
     openssl([
@@ -40,7 +40,7 @@ module.exports = async (runTest) => {
       "-addext",
       "keyUsage=critical,keyCertSign,cRLSign",
     ]);
-    const issue = (identity, label, purpose) => {
+    const issue = (identity, label, purpose, signer = "root") => {
       openssl([
         "req",
         "-newkey",
@@ -59,15 +59,15 @@ module.exports = async (runTest) => {
         "-in",
         file(label + ".csr"),
         "-CA",
-        file("root.pem"),
+        file(signer + ".pem"),
         "-CAkey",
-        file("root.key"),
+        file(signer + ".key"),
         "-set_serial",
         "0x" + randomBytes(12).toString("hex"),
         "-out",
         file(label + ".pem"),
         "-days",
-        "3",
+        purpose === "issuer" ? "7" : "3",
         "-sha256",
         "-extfile",
         file("extensions.cnf"),
@@ -82,6 +82,10 @@ module.exports = async (runTest) => {
     const server = issue("localhost", "server", "server"),
       password = randomBytes(24).toString("hex") + "aA9!",
       secret = randomBytes(32).toString("hex");
+    const intermediate =
+      process.env.EV_CERTIFICATE_INTERMEDIATE_CHAIN === "1"
+        ? issue("Synthetic model issuer", "issuer", "issuer")
+        : null;
     const env = {
       APP_ENV: "local",
       APP_DEBUG: "false",
@@ -192,7 +196,13 @@ module.exports = async (runTest) => {
     for (const [index, charger] of fixture.chargers.entries())
       Object.assign(
         charger,
-        issue(charger.identity, "client" + index, "client"),
+        issue(
+          charger.identity,
+          "client" + index,
+          "client",
+          intermediate ? "issuer" : "root",
+        ),
+        { issuer_chain: intermediate?.pem || "" },
       );
     await runTest({
       ...fixture,

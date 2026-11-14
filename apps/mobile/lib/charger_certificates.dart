@@ -26,7 +26,9 @@ class ChargerCertificatesPage extends StatefulWidget {
 class _CertificatesState extends State<ChargerCertificatesPage>
     with WidgetsBindingObserver {
   late final bool Function() current;
-  final pem = TextEditingController(), reason = TextEditingController();
+  final pem = TextEditingController(),
+      reason = TextEditingController(),
+      issuers = TextEditingController();
   Map<String, dynamic>? data;
   FinancialOperation? operation;
   int? actor;
@@ -49,6 +51,7 @@ class _CertificatesState extends State<ChargerCertificatesPage>
     generation++;
     WidgetsBinding.instance.removeObserver(this);
     pem.dispose();
+    issuers.dispose();
     reason.dispose();
     operation = null;
     super.dispose();
@@ -59,6 +62,7 @@ class _CertificatesState extends State<ChargerCertificatesPage>
     if (state != AppLifecycleState.resumed && mounted) {
       generation++;
       pem.clear();
+      issuers.clear();
       reason.clear();
       setState(() {
         data = null;
@@ -187,7 +191,13 @@ class _CertificatesState extends State<ChargerCertificatesPage>
         (!pem.text.trim().startsWith('-----BEGIN CERTIFICATE-----') ||
             pem.text.contains('PRIVATE KEY'))) {
       pem.clear();
+      issuers.clear();
       failed(const FormatException('Public certificate only'));
+      return;
+    }
+    if (!pending && issuers.text.contains('PRIVATE KEY')) {
+      issuers.clear();
+      failed(const FormatException('Public issuer certificates only'));
       return;
     }
     final epoch = generation;
@@ -207,6 +217,8 @@ class _CertificatesState extends State<ChargerCertificatesPage>
                 'reason': reason.text.trim(),
                 'consent': true,
                 if (action == 'enroll') 'public_certificate': pem.text.trim(),
+                if (action == 'enroll' && issuers.text.trim().isNotEmpty)
+                  'issuer_chain': issuers.text.trim(),
                 if (action == 'revoke') 'certificate_id': certificateId,
               }
             : Map<String, dynamic>.from(old),
@@ -223,6 +235,7 @@ class _CertificatesState extends State<ChargerCertificatesPage>
       await operation!.confirmed();
       if (!mounted || !current() || epoch != generation) return;
       pem.clear();
+      issuers.clear();
       reason.clear();
       consent = false;
       await load();
@@ -356,6 +369,25 @@ class _CertificatesState extends State<ChargerCertificatesPage>
                         ),
                       ),
                     ),
+                    TextField(
+                      controller: issuers,
+                      maxLength: 49152,
+                      maxLines: 4,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: InputDecoration(
+                        labelText: t(
+                          'Intermediate issuer certificates (optional)',
+                          'شهادات جهات الإصدار الوسيطة (اختيارية)',
+                        ),
+                      ),
+                    ),
+                    Text(
+                      t(
+                        'Submitted issuers must link to a server-pinned root; they do not add trust. Issuer blocks are checked locally without contacting CA revocation services.',
+                        'يجب أن ترتبط جهات الإصدار المرسلة بجذر موثوق مهيأ على الخادم؛ لا تضيف ثقة جديدة. تُطبق سياسة الحظر محلياً دون الاتصال بخدمات إبطال جهة الإصدار.',
+                      ),
+                    ),
                     FilledButton(
                       onPressed: busy || !consent
                           ? null
@@ -376,6 +408,15 @@ class _CertificatesState extends State<ChargerCertificatesPage>
                       children: [
                         Text('${cert['identity']} · ${state(cert['state'])}'),
                         Text('${cert['fingerprint']}'),
+                        Text(
+                          '${t('Issuer', 'جهة الإصدار')}: ${cert['issuer_fingerprint']}',
+                        ),
+                        Text(
+                          '${t('Pinned root', 'الجذر الموثوق')}: ${cert['trust_anchor_fingerprint'] ?? cert['issuer_fingerprint']}',
+                        ),
+                        Text(
+                          '${t('Intermediate certificates', 'الشهادات الوسيطة')}: ${cert['chain_length'] ?? 0}',
+                        ),
                         Text(
                           '${cert['not_before']} → ${cert['not_after']} UTC',
                         ),

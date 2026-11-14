@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'certificate_denied_issuers' => array_values(array_filter(array_map('strtolower', array_map('trim', explode(',', (string) env('CSMS_CERTIFICATE_DENIED_ISSUERS', '')))))),
     'certificate_management_enabled' => env('CSMS_CERTIFICATE_MANAGEMENT_ENABLED', false),
     'certificate_issuer_bundle' => env('CSMS_CERTIFICATE_ISSUER_BUNDLE', storage_path('app/private/charger-certificates/issuers.pem')),
     'certificate_issuer_pins' => array_values(array_filter(explode(',', (string) env('CSMS_CERTIFICATE_ISSUER_PINS', '')))),
