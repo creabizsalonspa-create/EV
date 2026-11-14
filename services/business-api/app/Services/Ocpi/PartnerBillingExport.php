@@ -51,24 +51,41 @@ class PartnerBillingExport
         $pdf = new \TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
-        $pdf->SetTitle('Partner billing reconciliation');
+        $title = $ar ? 'مطابقة فوترة الشريك' : 'Partner billing reconciliation';
+        $pdf->SetTitle($title);
         $pdf->SetMargins(14, 14, 14);
         $pdf->SetAutoPageBreak(true, 14);
         $pdf->SetFont('dejavusans', '', 9);
         $pdf->setFontSubsetting(true);
-        $pdf->setRTL($ar);
+        // Keep cell geometry left-based; force text direction separately.
+        // The pinned legacy MultiCell adapter otherwise places RTL text off-page.
+        $pdf->setRTL(false);
+        $pdf->setTempRTL($ar ? 'R' : 'L');
         $pdf->AddPage();
+        // Explicit width is required by the pinned TCPDF RTL cell adapter;
+        // width zero resolves to zero at the right margin and renders blank.
+        $width = $pdf->getPageWidth() - 28;
         $notice = $ar
             ? 'مطابقة الشريك للعرض فقط. سجل اختبار وليس إثبات دفع مصرفي أو تسوية. الإشعار الدائن مرجع للفاتورة الأصلية؛ لا تجمع السجلات كإيراد.'
             : 'Read-only partner reconciliation. TEST ledger, not bank payment or partner settlement. Credits reference the original invoice; do not sum rows as revenue.';
-        $pdf->MultiCell(0, 6, $notice, 0, 'L');
-        $pdf->MultiCell(0, 6, 'Provider: '.$provider.' | UTC: '.now()->toIso8601String().' | Records: '.count($rows), 0, 'L');
-        $pdf->MultiCell(0, 6, 'Filters: '.json_encode(array_diff_key($filters, ['locale' => true]), JSON_UNESCAPED_UNICODE), 0, 'L');
+        $align = $ar ? 'R' : 'L';
+        $pdf->SetFont('dejavusans', 'B', 14);
+        $pdf->MultiCell($width, 9, $title, 0, $align);
+        $pdf->SetFont('dejavusans', '', 9);
+        $pdf->MultiCell($width, 6, $notice, 0, $align);
+        $pdf->MultiCell($width, 6, ($ar ? 'المزوّد: ' : 'Provider: ').$provider.' | UTC: '.now()->toIso8601String().' | '.($ar ? 'عدد السجلات: ' : 'Records: ').count($rows), 0, $align);
+        $pdf->MultiCell($width, 6, ($ar ? 'المرشحات: ' : 'Filters: ').json_encode(array_diff_key($filters, ['locale' => true]), JSON_UNESCAPED_UNICODE), 0, $align);
+        $arabicLabels = ['source_id' => 'معرّف المصدر', 'country' => 'الدولة', 'party' => 'الطرف', 'kind' => 'نوع السجل',
+            'source_currency' => 'عملة المصدر', 'source_status' => 'حالة المصدر', 'billing_status' => 'حالة الفوترة',
+            'invoice' => 'الفاتورة الأصلية', 'invoice_currency' => 'عملة الفاتورة', 'minor_units' => 'منازل العملة العشرية',
+            'invoice_total_minor' => 'إجمالي الفاتورة بالوحدات الصغرى', 'paid_minor' => 'المدفوع بالوحدات الصغرى',
+            'refunded_minor' => 'المسترد بالوحدات الصغرى', 'noncash_credit_minor' => 'الرصيد غير النقدي بالوحدات الصغرى',
+            'due_minor' => 'المستحق بالوحدات الصغرى', 'ledger_balanced' => 'توازن الدفتر', 'evidence' => 'تصنيف الإثبات'];
         foreach ($rows as $row) {
             $pdf->Ln(3);
             foreach (array_combine(self::HEADERS, $this->values($row)) as $label => $value) {
                 // Plain text only; partner strings never become HTML, links or paths.
-                $pdf->MultiCell(0, 5, $label.': '.preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) ($value ?? '')), 0, 'L');
+                $pdf->MultiCell($width, 5, ($ar ? $arabicLabels[$label] : $label).': '.preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) ($value ?? '')), 0, $align);
             }
         }
         $result = $pdf->Output('partner-billing.pdf', 'S');
