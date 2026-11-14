@@ -1,0 +1,80 @@
+{
+  "source_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+  "integrated_sha": "2a91931f0d576a9d0fe450e212227eea7d1d4f48",
+  "source_tree": "27ad90938abcdf8a0439a4ee51dfa7fddda446cc",
+  "pr": 93,
+  "verified_at_utc": "2026-11-14T01:18:57.243Z",
+  "test_result": "passed",
+  "required_check_count": 9,
+  "required_checks": [
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461236/job/132256715087"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461236/job/132256715447"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461236/job/132256715512"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461236/job/132256715610"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461236/job/132256715619"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461236/job/132272851768"
+    },
+    {
+      "name": "financial-browser",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461257/job/132256598337"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461264/job/132256745391"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43533461264/job/132256745770"
+    }
+  ],
+  "scope": "Private contact phone verification, encrypted storage, password/consent checks, bounded idempotent Twilio Verify contracts, own-account removal and web/Flutter parity. Source/merge trees match.",
+  "limitations": [
+    "Provider HTTP contracts are simulated; no SMS/provider/device acceptance.",
+    "Native checks include debug Android and unsigned simulator iOS validation, not signed production releases.",
+    "No staging, production or physical charger acceptance."
+  ]
+}

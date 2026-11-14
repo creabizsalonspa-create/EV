@@ -14,13 +14,14 @@ class ReservationIntentKeys {
     required int? mappingId,
     required int? vehicleId,
     required String startsAtUtc,
+    int? termsVersion,
     required bool Function() sessionFence,
   }) {
     if (!sessionFence()) {
       throw StateError('The booking session changed.');
     }
     final fingerprint =
-        '$ownerId:$stationId:${mappingId ?? 0}:${vehicleId ?? 0}:$startsAtUtc';
+        '$ownerId:$stationId:${mappingId ?? 0}:${vehicleId ?? 0}:$startsAtUtc:${termsVersion ?? 0}';
     if (identical(_api, api) &&
         _fence?.call() == true &&
         _fingerprint == fingerprint &&

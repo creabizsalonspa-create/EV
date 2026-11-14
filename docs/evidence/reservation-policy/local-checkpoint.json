@@ -1,0 +1,36 @@
+{
+  "status": "local_verified_hosted_pending",
+  "scope": [
+    "Immutable versioned booking terms and receipt replay",
+    "Explicit zero-penalty no-show/cancellation policy and self-arrival/expiry rules",
+    "Same-resource start occupancy guard including legacy application sessions, incomplete stops and unclosed source links",
+    "Web/Flutter confirmation and receipt presentation, stale-version rejection and uncertain-intent separation"
+  ],
+  "laravel": {
+    "tests": 1007,
+    "assertions": 19951,
+    "result": "passed"
+  },
+  "postgresql": {
+    "tests": 27,
+    "assertions": 330,
+    "result": "passed",
+    "version": 17
+  },
+  "web_component_security_contracts": {
+    "tests": 22,
+    "result": "passed"
+  },
+  "fixed_inventory_guards": {
+    "tests": 14,
+    "result": "passed"
+  },
+  "native": "Four new policy/model/intent/RTL contracts; hosted analysis and actual browser/native acceptance pending.",
+  "original_requirement_credit_added": false,
+  "production_accepted": false,
+  "limitations": [
+    "Planned reservations remain available; occupancy is enforced at start admission.",
+    "No physical presence, hardware or PSP acceptance.",
+    "No automatic fee, refund, invoice or charger stop."
+  ]
+}
