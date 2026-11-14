@@ -7,6 +7,7 @@ use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\CdrReconciler;
 use App\Services\Ocpi\OcpiException;
+use App\Services\Ocpi\PartnerBillingExport;
 use App\Services\Ocpi\PartnerBillingReconciliation;
 use App\Services\Ocpi\PartnerClient;
 use App\Services\Ocpi\RecordSynchronizer;
@@ -119,6 +120,24 @@ class OcpiController extends Controller
 
             return response()->json($service->page($provider, $filters))->header('Cache-Control', 'private, no-store');
         });
+    }
+
+    public function billingExport(Request $r, OcpiProvider $provider, PartnerBillingReconciliation $service, PartnerBillingExport $export, string $format)
+    {
+        $this->owner($r, $provider);
+        abort_unless(in_array($format, ['csv', 'pdf'], true), 404);
+        $filters = $r->validate(['currency' => 'sometimes|regex:/^[A-Z]{3}$/D', 'country_code' => 'sometimes|regex:/^[A-Z]{2}$/D', 'party_id' => 'sometimes|regex:/^[A-Z0-9]{3}$/D', 'kind' => 'sometimes|in:all,charges,credits', 'locale' => 'sometimes|in:en,ar', 'page' => 'prohibited']);
+        $rows = DB::transaction(function () use ($r, $provider, $filters, $service) {
+            $locked = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+            $this->owner($r, $locked);
+
+            return $service->exportRows($locked, $filters);
+        });
+        $body = $format === 'csv' ? $export->csv($rows) : $export->pdf($rows, $provider->id, $filters);
+
+        return response($body)->header('Content-Type', $format === 'csv' ? 'text/csv; charset=UTF-8' : 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="partner-billing.'.$format.'"')
+            ->header('Cache-Control', 'private, no-store')->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function records(Request $r, OcpiProvider $provider, string $module, CdrReconciler $reconciler)
