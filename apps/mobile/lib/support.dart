@@ -777,17 +777,20 @@ class SupportViewState extends State<SupportView> {
             ],
           ),
           if (notifications && preferencesLoaded)
-            TextButton.icon(
-              key: const Key('notification-preferences-open'),
-              onPressed: loading ? null : editNotificationPreferences,
-              icon: const Icon(Icons.tune),
-              label: Text(s.t('notificationPreferencesTitle')),
-            ),
-          if (notifications && preferencesLoaded)
-            TextButton(
-              onPressed: loading ? null : () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => NotificationEmailView(api: widget.api, onExpired: widget.onSessionExpired))),
-              child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'إشعارات البريد' : 'Email activity notices'),
+            Wrap(
+              children: [
+                TextButton.icon(
+                  key: const Key('notification-preferences-open'),
+                  onPressed: loading ? null : editNotificationPreferences,
+                  icon: const Icon(Icons.tune),
+                  label: Text(s.t('notificationPreferencesTitle')),
+                ),
+                TextButton(
+                  onPressed: loading ? null : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => NotificationEmailView(api: widget.api, onExpired: widget.onSessionExpired))),
+                  child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'إشعارات البريد' : 'Email activity notices'),
+                ),
+              ],
             ),
           if (notifications && preferencesLoaded)
             Text(s.t('notificationDeliveryUnavailable')),

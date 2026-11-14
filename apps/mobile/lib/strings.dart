@@ -30,7 +30,7 @@ class EvStrings {
     'notificationReminderDelayTitle': 'Simulated fault reminder delay',
     'notificationReminderDelayChoice': 'After {minutes} minutes',
     'notificationDeliveryUnavailable':
-        'Critical in-app notifications remain visible. Email notices require separate consent and server configuration.',
+        'Critical in-app notices remain visible. Email requires separate consent and configuration.',
     'notificationCategoryAll': 'All',
     'notificationCategorySupport': 'Support',
     'notificationCategoryVehicle': 'Vehicle',
