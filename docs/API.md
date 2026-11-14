@@ -430,3 +430,9 @@ explicit consent; moving the map makes no API request, and there is no GPS looku
 Polar coordinates outside Web Mercator stay in the text list. The map covers
 platform inventory across companies; it does not assert partner-network coverage,
 physical connectivity or live operating acceptance.
+
+### Optional generic notification email
+
+Authenticated web `/api/notifications/email` and native `/api/v1/notifications/email` support GET settings and PUT `{enabled, confirmed, expected_revision}`. The revision is a decimal **string**; enabling requires explicit consent, a verified account email and configured server transport. No recipient override is accepted. Disabling cancels queued digests. GET `email/history?page=1` returns only the current account's paginated generic handoff receipts; transport acceptance never confirms delivery. Existing in-app preferences remain a separate contract.
+
+`NOTIFICATION_EMAIL_ENABLED=false` is the default. Approved production configuration requires a public HTTPS root `APP_URL`, SMTP/TLS and a valid sender. No SMTP credentials enter client responses. The scheduler runs bounded `php artisan notifications:handoff-email --max=100`; use the existing scheduler, not a second sender. Local/testing accepts only the in-memory array transport. Users consent to new unread activity only, up to one generic digest per 15 minutes, excluding activity older than 24 hours. Email contains no notification details or authentication tokens. Changed account epoch/role/email/transport invalidates consent. A durable claim is committed before handoff; claimed or unknown outcomes are never automatically retried. Inspect receipts for interrupted operations; do not replay them. Actual email receipt and production activation require separate operator acceptance.

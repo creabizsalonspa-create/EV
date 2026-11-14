@@ -150,6 +150,8 @@ Route::middleware(['auth', 'throttle:support'])->group(function () {
     Route::patch('/api/support/{ticket}/status', [$c, 'transition']);
 });
 
+Route::middleware('auth')->prefix('api/notifications')->group(__DIR__.'/notification_email.php');
+
 // The existing session-backed /api routes and bearer-token /api/v1 routes
 // must expose equivalent scoped inbox operations. Inbox reads never exhaust
 // the support-ticket action allowance, and writes receive a tighter budget.
