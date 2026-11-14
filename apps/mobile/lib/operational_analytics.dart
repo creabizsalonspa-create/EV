@@ -158,7 +158,9 @@ class _OperationalState extends State<OperationalAnalyticsView>
       if (row is! Map || row['name'] is! String || !exact(row['site_id']))
         throw const FormatException('Invalid site');
       for (final key in operationalLabels.keys) {
-        if (key == 'maximum_observed_site_interval_average_w' && row[key] == null) {
+        if (key == 'maximum_observed_site_interval_average_w' &&
+            row.containsKey(key) &&
+            row[key] == null) {
           continue;
         }
         if (!exact(row[key]))
