@@ -1,3 +1,4 @@
+import 'privacy_copy.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'api.dart';
@@ -456,6 +457,27 @@ class _PrivacyRequestsState extends State<PrivacyRequestsView>
                           Text(status((row['status'] ?? '').toString())),
                           if (row['details'] is String)
                             Text(row['details'] as String),
+                          if (row['copy'] is Map &&
+                              row['copy']['status'] == 'available')
+                            TextButton(
+                              onPressed: sending || loading
+                                  ? null
+                                  : () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => PrivacyCopyPage(
+                                          api: widget.api,
+                                          requestId: row['id'] as int,
+                                          onExpired: widget.onExpired,
+                                        ),
+                                      ),
+                                    ),
+                              child: Text(
+                                t(
+                                  'View private account copy',
+                                  'عرض نسخة الحساب الخاصة',
+                                ),
+                              ),
+                            ),
                           if ([
                             'pending',
                             'reviewing',

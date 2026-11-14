@@ -19,6 +19,7 @@ use App\Http\Controllers\EnterpriseController;
 use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
+use App\Http\Controllers\PrivacyAccessExportController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\StationInformationController;
@@ -225,3 +226,7 @@ Route::middleware(['auth', 'throttle:authentication'])->group(function () {
     Route::post('/api/account/second-factor/enable', [AccountSecondFactorController::class, 'enable']);
     Route::post('/api/account/second-factor/{action}', [AccountSecondFactorController::class, 'change'])->whereIn('action', ['disable', 'recovery-codes']);
 });
+
+Route::post('/api/admin/privacy-requests/{privacyCase}/access-copy', [PrivacyAccessExportController::class, 'prepare'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:authentication']);
+Route::post('/api/account/privacy-requests/{privacyCase}/access-copy', [PrivacyAccessExportController::class, 'read'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:authentication']);
+Route::post('/api/account/privacy-requests/{privacyCase}/access-copy/revoke', [PrivacyAccessExportController::class, 'revoke'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
