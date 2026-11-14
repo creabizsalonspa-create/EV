@@ -148,6 +148,23 @@ class OperationalAnalyticsTest extends TestCase
         foreach (['en', 'ar'] as $locale) {
             $pdf = $this->get($url.'/pdf?locale='.$locale)->assertOk()->assertHeader('Content-Type', 'application/pdf');
             $this->assertStringStartsWith('%PDF-', $pdf->getContent());
+            preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdf->getContent(), $streams);
+            $positions = [];
+            foreach ($streams[1] as $stream) {
+                $decoded = @gzuncompress($stream);
+                $content = is_string($decoded) ? $decoded : $stream;
+                preg_match_all('/BT [^\r\n]*? (-?[0-9]+\.[0-9]+) (-?[0-9]+\.[0-9]+) Td [\s\S]*? Tj ET/', $content, $matches, PREG_SET_ORDER);
+                foreach ($matches as $match) {
+                    $positions[] = [(float) $match[1], (float) $match[2]];
+                }
+            }
+            $this->assertGreaterThanOrEqual(20, count($positions), $locale.': expected report labels and values, not just a valid PDF header');
+            foreach ($positions as [$x, $y]) {
+                $this->assertGreaterThanOrEqual(0, $x, $locale.': text starts left of page');
+                $this->assertLessThan(595.3, $x, $locale.': text starts beyond right edge');
+                $this->assertGreaterThanOrEqual(0, $y, $locale.': text starts below page');
+                $this->assertLessThan(841.9, $y, $locale.': text starts above page');
+            }
         }
         $this->getJson($url.'?from=2026-11-06&to=2026-11-05')->assertUnprocessable();
     }
