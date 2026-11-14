@@ -405,6 +405,28 @@ window.EV_MESSAGES = {
         ar: "النتيجة غير مؤكدة. لن تتكرر العملية تلقائيًا؛ حدّث سجل العملية قبل أي إجراء آخر.",
     },
 
+    "Observed status durations over 24 hours": {
+        en: "Observed status durations over 24 hours",
+        ar: "مدد الحالات المرصودة خلال 24 ساعة",
+    },
+    "Each observation covers at most five minutes. Gaps are unknown; this is not physical uptime or live availability.":
+        {
+            en: "Each observation covers at most five minutes. Gaps are unknown; this is not physical uptime or live availability.",
+            ar: "تغطي كل ملاحظة خمس دقائق كحد أقصى. الفجوات مجهولة؛ ليست هذه مدة تشغيل فعلية أو إتاحة مباشرة.",
+        },
+    "Status duration analysis requires review": {
+        en: "Status duration analysis requires review",
+        ar: "يتطلب تحليل مدد الحالات مراجعة",
+    },
+    "Status duration history not observed": {
+        en: "Status duration history not observed",
+        ar: "لم يُرصد سجل مدد الحالات",
+    },
+    "Observed status seconds": {
+        en: "Observed status seconds",
+        ar: "ثواني الحالات المرصودة",
+    },
+    "Unknown seconds": { en: "Unknown seconds", ar: "ثوانٍ مجهولة" },
     "Automatic fault monitoring": {
         en: "Automatic fault monitoring",
         ar: "المراقبة التلقائية لأعطال الشاحن",
