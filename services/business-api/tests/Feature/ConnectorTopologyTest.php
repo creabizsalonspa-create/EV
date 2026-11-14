@@ -169,6 +169,10 @@ class ConnectorTopologyTest extends TestCase
         foreach (['/api/stations', '/api/v1/stations', '/api/discovery/search', '/api/v1/discovery/search'] as $endpoint) {
             $this->getJson($endpoint.'?recent_source_status=Available')->assertOk()->assertJsonPath('total', 1);
         }
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->getJson('/api/admin/operations/map?recent_source_status=Available')->assertOk()
+            ->assertJsonPath('total', 1)->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.remote_control', false);
+        $this->actingAs($f['customer']);
         $this->getJson($path)->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.reservable', false);
         $f['connectors'][1]->update(['connector_type' => 'Type2', 'max_power_kw' => 100]);
         $this->getJson($path.'&connector_type=Type2')->assertJsonPath('total', 0);
@@ -176,6 +180,8 @@ class ConnectorTopologyTest extends TestCase
         $this->getJson('/api/discovery/search?recent_source_status=Available&connector=Type2')->assertJsonPath('total', 0);
         DB::table('csms_bindings')->where('id', $binding->id)->update(['identifier' => 'ev-test-filter-rebound']);
         $this->getJson($path)->assertJsonPath('total', 0);
+        $this->actingAs($admin)->getJson('/api/admin/operations/map?recent_source_status=Available')->assertOk()->assertJsonPath('total', 0);
+        $this->actingAs($f['customer']);
         $binding = DB::table('csms_bindings')->find($binding->id);
         DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 2, 'source_generation' => FaultMonitor::generation($binding)]));
         $this->getJson($path)->assertJsonPath('total', 1);
