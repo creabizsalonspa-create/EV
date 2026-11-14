@@ -63,6 +63,8 @@ class User extends Authenticatable implements MustVerifyEmail
         'remember_token',
         'auth_epoch',
         'suspended_at',
+        'phone_e164',
+        'phone_verified_at',
     ];
 
     /**
@@ -74,6 +76,8 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return [
             'email_verified_at' => 'datetime',
+            'phone_e164' => 'encrypted',
+            'phone_verified_at' => 'datetime',
             'password' => 'hashed',
             'auth_epoch' => 'integer',
             'suspended_at' => 'datetime',

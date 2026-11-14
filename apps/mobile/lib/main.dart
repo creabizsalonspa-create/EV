@@ -1,4 +1,5 @@
 import 'privacy_requests.dart';
+import 'phone_verification.dart';
 import 'vehicle_model_catalog.dart';
 import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
@@ -1120,7 +1121,9 @@ class _WorkspaceState extends State<Workspace> {
             PopupMenuButton<String>(
               tooltip: s.t('account'),
               onSelected: (value) async {
-                if (value == 'revokeSessions') {
+                if (value == 'phoneVerification') {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PhoneVerificationView(api: api!, onExpired: expiredSession)));
+                } else if (value == 'revokeSessions') {
                   await revokeSessions();
                 } else if (value == 'profile') {
                   profile();
@@ -1458,6 +1461,11 @@ class _WorkspaceState extends State<Workspace> {
                     enabled: !busy,
                     child: Text(s.t('forgetSignIn')),
                   ),
+                PopupMenuItem(
+                  value: 'phoneVerification',
+                  enabled: !busy,
+                  child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'التحقق من رقم الهاتف' : 'Verify your phone'),
+                ),
                 PopupMenuItem(
                   value: 'revokeSessions',
                   enabled: !busy,

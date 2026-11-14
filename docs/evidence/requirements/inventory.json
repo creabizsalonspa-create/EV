@@ -420,7 +420,7 @@
       "prd": "2.6",
       "requirement": "Reservations and occupancy policy",
       "implemented_code_scope": "Canonical company/site/charger/EVSE/connector/source mapping; shared-EVSE capacity and parallel reservations; scoped web/native connector selection, cancellation, arrival reporting, unused expiry; PostgreSQL process races; PR58 opt-in station-local weekly/overnight/holiday operating calendar, immutable booking-policy snapshots, both-protocol start/authorization/claim gates and web/native editor/customer parity",
-      "automated_evidence_scope": "ConnectorTopologyTest, ReservationLifecycleTest; PostgreSQL connector/lifecycle races. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; current hosted verification and merge pending, coded-only credit for two named calendar atoms.",
+      "automated_evidence_scope": "ConnectorTopologyTest, ReservationLifecycleTest; PostgreSQL connector/lifecycle races. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; official exact-source PR58 Platform/Native checks passed on2679617c; identical source/merge trees integrated at24087a8. The two named calendar atoms receive separately verified tested/merged credit.",
       "remaining_scope": "Complete no-show/occupancy policy and physical occupancy acceptance; reported arrival never proves physical presence",
       "atoms": [
         {
@@ -470,7 +470,7 @@
           "software_atom": "Operating calendar and reservation blocks",
           "coded": true,
           "checkpoint": "operating_calendar",
-          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability."
+          "note": "Official exact-source PR58 Platform/Native checks passed; integrated at24087a8 with an identical tree. Opt-in calendar policy is not physical availability."
         }
       ]
     },
@@ -933,7 +933,7 @@
       "prd": "3.4",
       "requirement": "Vendor calendar/blocks/tariffs",
       "implemented_code_scope": "Reservation views; company connector maintenance with linked booking/start/dispatch-claim gates; exact web/native simulated price/tax publication and admin commission retention; PR58 opt-in station-local weekly/overnight/holiday operating calendar, immutable booking-policy snapshots, both-protocol start/authorization/claim gates and web/native editor/customer parity",
-      "automated_evidence_scope": "ManagedChargingGateTest, ReservationLifecycleTest, FinanceTest; tariff/maintenance clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; current hosted verification and merge pending, coded-only credit for two named calendar atoms.",
+      "automated_evidence_scope": "ManagedChargingGateTest, ReservationLifecycleTest, FinanceTest; tariff/maintenance clients. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR58 local952 Laravel,207 PostgreSQL plus27 races,401 Flutter, actual web/native HTTP; official exact-source PR58 Platform/Native checks passed on2679617c; identical source/merge trees integrated at24087a8. The two named calendar atoms receive separately verified tested/merged credit.",
       "remaining_scope": "Remaining availability-block/notice parity, dynamic pricing and commercial tariff acceptance; no live availability is inferred from a vendor calendar",
       "atoms": [
         {
@@ -969,7 +969,7 @@
           "software_atom": "Operating calendars/schedules",
           "coded": true,
           "checkpoint": "operating_calendar",
-          "note": "Complete named calendar software has local backend/PostgreSQL/web/native evidence; hosted checks and merge pending. Opt-in policy is not physical availability."
+          "note": "Official exact-source PR58 Platform/Native checks passed; integrated at24087a8 with an identical tree. Opt-in calendar policy is not physical availability."
         },
         {
           "id": "3.4.6",

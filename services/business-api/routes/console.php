@@ -209,3 +209,12 @@ if (app()->environment(['local', 'testing'])) {
     Schedule::command('notifications:remind-faults --limit=50 --older-than=15')
         ->everyTenMinutes()->withoutOverlapping();
 }
+
+Artisan::command('accounts:expire-phone-challenges', function () {
+    $ids = DB::table('account_phone_challenges')->where('expires_at', '<=', now())
+        ->whereNotNull('phone_ciphertext')->orderBy('expires_at')->limit(1000)->pluck('id');
+    $count = DB::table('account_phone_challenges')->whereIn('id', $ids)->where('expires_at', '<=', now())
+        ->update(['phone_ciphertext' => null, 'provider_sid' => null, 'status' => 'expired', 'updated_at' => now()]);
+    $this->info('Expired verification payloads removed: '.$count);
+})->purpose('Remove bounded expired encrypted phone challenge payloads; retain replay tombstones');
+Schedule::command('accounts:expire-phone-challenges')->everyTenMinutes()->withoutOverlapping();
