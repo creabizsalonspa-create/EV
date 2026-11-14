@@ -113,6 +113,34 @@ VendorTopologyView vendor(
   evse: evse,
 );
 void main() {
+  for (final arabic in [false, true]) {
+    testWidgets('connector status refresh remains explicitly simulated ($arabic)', (tester) async {
+      var loads = 0;
+      await tester.pumpWidget(app(ConnectorChoicesView(
+        station: parent,
+        loader: (_) async {
+          loads++;
+          return ApiPage(items: [{...option(1), 'status_freshness': loads == 1 ? null : {
+            'state':'recent', 'reported_status':'Available', 'evidence':'SIMULATED_SOURCE',
+            'physical_availability_verified':false, 'max_age_seconds':300,
+            'observed_at':'2026-11-14T05:00:00Z', 'checked_at':'2026-11-14T05:04:00Z', 'valid_until':'2026-11-14T05:05:00Z'
+          }}], current:1, last:1, total:1);
+        },
+        onReserve: (_) async {},
+      ), arabic:arabic));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(arabic ? 'حالة مصدر المحاكاة: غير معروف' : 'status: unknown'), findsOneWidget);
+      final refresh = find.text(arabic ? 'تحديث' : 'Refresh');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+      expect(find.textContaining(arabic ? 'متاح بحسب المصدر' : 'status: Available'), findsOneWidget);
+      expect(find.textContaining(arabic ? 'التوفر الفعلي غير مؤكد' : 'Physical availability is unverified'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   test(
     'canonical resource localization contracts match',
     () => expect(topologyEn.keys.toSet(), topologyAr.keys.toSet()),

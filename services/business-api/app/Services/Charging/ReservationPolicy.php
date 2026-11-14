@@ -14,7 +14,7 @@ final class ReservationPolicy
 
     public function publicTerms(): array
     {
-        return ['version' => self::VERSION, 'slot_minutes' => 30, 'arrival_before_minutes' => 15,
+        return ['price_acceptance_required' => true, 'version' => self::VERSION, 'slot_minutes' => 30, 'arrival_before_minutes' => 15,
             'unused_expiry_minutes' => 30, 'cancellation_rule' => 'BEFORE_ADMITTED_OR_UNCERTAIN_START',
             'no_show_fee_minor' => 0, 'cancellation_fee_minor' => 0,
             'occupancy_basis' => 'CANONICAL_LOGICAL_SESSION_ONLY', 'occupancy_enforcement' => 'START_ADMISSION', 'physical_occupancy_verified' => false,

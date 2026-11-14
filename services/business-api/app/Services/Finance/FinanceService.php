@@ -28,9 +28,9 @@ class FinanceService
         return TariffVersion::where('station_id', $station->id)->where('effective_from', '<=', $at ?? now())->orderByDesc('effective_from')->orderByDesc('id')->first();
     }
 
-    public function snapshotSession(ChargingSession $session, ?TariffVersion $selectedTariff = null): SessionQuote
+    public function snapshotSession(ChargingSession $session, ?TariffVersion $selectedTariff = null, ?int $priceConsentId = null): SessionQuote
     {
-        return DB::transaction(function () use ($session, $selectedTariff) {
+        return DB::transaction(function () use ($session, $selectedTariff, $priceConsentId) {
             $session = ChargingSession::whereKey($session->id)->lockForUpdate()->firstOrFail();
             $old = SessionQuote::where('charging_session_id', $session->id)->first();
             if ($old) {
@@ -49,7 +49,12 @@ class FinanceService
                 abort_unless($tariff->rate_minor_per_kwh === $session->rate_minor_per_kwh && $tariff->currency === $session->currency, 409, 'Session rate does not match its effective tariff; reconcile before invoicing.');
             }
 
-            return SessionQuote::create(['charging_session_id' => $session->id, 'tariff_version_id' => $tariff?->id, 'user_id' => $reservation->user_id, 'vendor_id' => $station->vendor_id, 'country' => $station->country, 'currency' => $session->currency, 'minor_units' => $tariff?->minor_units ?? $region?->minor_units ?? 2, 'rate_minor_per_kwh' => $session->rate_minor_per_kwh, 'tax_bps' => $tariff?->tax_bps ?? 0, 'commission_bps' => $tariff?->commission_bps ?? 0, 'evidence' => 'SIMULATED']);
+            if ($priceConsentId !== null || ($reservation->reservation_terms_snapshot['price_acceptance_required'] ?? false)) {
+                $verifiedConsent = app(PrechargePricing::class)->consent($reservation, $station, $tariff);
+                abort_unless($priceConsentId !== null && $priceConsentId === $verifiedConsent, 409, 'The session quote requires its verified customer price consent.');
+            }
+
+            return SessionQuote::create(['price_consent_id' => $priceConsentId, 'charging_session_id' => $session->id, 'tariff_version_id' => $tariff?->id, 'user_id' => $reservation->user_id, 'vendor_id' => $station->vendor_id, 'country' => $station->country, 'currency' => $session->currency, 'minor_units' => $tariff?->minor_units ?? $region?->minor_units ?? 2, 'rate_minor_per_kwh' => $session->rate_minor_per_kwh, 'tax_bps' => $tariff?->tax_bps ?? 0, 'commission_bps' => $tariff?->commission_bps ?? 0, 'evidence' => 'SIMULATED']);
         }, 3);
     }
 

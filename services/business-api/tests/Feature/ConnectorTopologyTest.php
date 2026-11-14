@@ -13,6 +13,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\SessionBridge;
 use App\Services\CsmsDispatcher;
 use Carbon\CarbonImmutable;
@@ -21,10 +22,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Support\AcceptsPrechargePricing;
 use Tests\TestCase;
 
 class ConnectorTopologyTest extends TestCase
 {
+    use AcceptsPrechargePricing;
     use RefreshDatabase;
 
     private function topology(?string $protocol = null): array
@@ -104,11 +107,53 @@ class ConnectorTopologyTest extends TestCase
         $later['starts_at'] = $start->copy()->addMinutes(30)->format('Y-m-d\TH:i:s\Z');
         $three = $this->postJson('/api/reservations', $later)->assertCreated()->json();
         $this->travelTo($start->copy()->addMinutes(1));
+        $this->acceptPrechargePrice($one['id']);
         $this->postJson('/api/reservations/'.$one['id'].'/simulate-start')->assertCreated();
+        $this->acceptPrechargePrice($two['id']);
         $this->postJson('/api/reservations/'.$two['id'].'/simulate-start')->assertCreated();
         $this->travelTo($start->copy()->addMinutes(31));
         $this->postJson('/api/reservations/'.$three['id'].'/simulate-start')->assertConflict();
         $this->assertSame(2, ChargingSession::where('status', 'charging')->count());
+    }
+
+    public function test_connector_freshness_is_scoped_to_current_binding_generation_and_expires_inclusively(): void
+    {
+        $f = $this->topology('2.0.1');
+        $this->freezeTime();
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.status_freshness.state', 'unknown');
+        $observation = ['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('a', 64), 'evse_number' => 5, 'connector_number' => 7, 'status' => 'Available', 'error_code' => 'NoError', 'occurred_at' => now(), 'created_at' => now()];
+        DB::table('charging_status_observations')->insert($observation);
+        $reply = $this->getJson($path)->assertOk()->assertJsonPath('data.0.status_freshness.reported_status', 'Available')
+            ->assertJsonPath('data.0.status_freshness.state', 'recent')->assertJsonPath('data.1.status_freshness.state', 'unknown')
+            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.reservable', true)
+            ->assertJsonPath('data.0.status_freshness.physical_availability_verified', false);
+        foreach (['checked_at', 'observed_at', 'valid_until'] as $field) {
+            $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/D', $reply->json('data.0.status_freshness.'.$field));
+        }
+        $this->assertStringNotContainsString($observation['source_generation'], $reply->getContent());
+        $this->travel(300)->seconds();
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'stale')->assertJsonPath('data.0.status_freshness.reported_status', null);
+        DB::table('csms_bindings')->where('id', $binding->id)->update(['identifier' => 'ev-test-changed']);
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown')->assertJsonPath('data.0.status_freshness.observed_at', null);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_conflicting_future_and_faulted_source_reports_never_imply_available(): void
+    {
+        $f = $this->topology('1.6');
+        $this->freezeTime();
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        $row = ['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('b', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => 'GroundFailure', 'occurred_at' => now(), 'created_at' => now()];
+        DB::table('charging_status_observations')->insert($row);
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.reported_status', 'Faulted');
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 2, 'status' => 'Charging']));
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown')->assertJsonPath('data.0.status_freshness.reported_status', null);
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 3, 'occurred_at' => now()->addSecond(), 'error_code' => null]));
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown');
     }
 
     public static function protocols(): array
@@ -129,6 +174,7 @@ class ConnectorTopologyTest extends TestCase
         Http::fake(['*/dev/token' => Http::response(['accessToken' => 'synthetic']), '*/ocpp/*' => Http::response([['success' => true]])]);
         foreach ($bookings as $index => $booking) {
             $this->postJson('/api/reservations/'.$booking['id'].'/simulate-start')->assertConflict();
+            $this->acceptPrechargePrice($booking['id']);
             $queued = $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertAccepted()->json();
             $this->assertSame('submitted', app(CsmsDispatcher::class)->dispatch($queued['start_command']['id'])->status);
             $expected = $protocol === '1.6' ? ($index === 0 ? 7 : 9) : ($index === 0 ? 5 : 6);
@@ -145,6 +191,7 @@ class ConnectorTopologyTest extends TestCase
         $start = now()->startOfHour()->addHour();
         $booking = $this->postJson('/api/reservations', $this->book($f, 0, 'source'))->assertCreated()->json();
         $this->travelTo($start->addMinute());
+        $this->acceptPrechargePrice($booking['id']);
         $queued = $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertAccepted()->json();
         $event = ['event_id' => 'target-proof', 'session_id' => $queued['session']['id'], 'identifier' => 'ev-test-canonical', 'protocol' => '1.6', 'transaction_id' => '333', 'type' => 'started', 'sequence' => 0, 'meter_wh' => 1000, 'occurred_at' => now()->toISOString(), 'source_evse_number' => 0, 'source_connector_number' => 9];
         try {
@@ -190,6 +237,7 @@ class ConnectorTopologyTest extends TestCase
         $body['connector_mapping_id'] = $map['id'];
         $booking = $this->actingAs($f['customer'])->postJson('/api/reservations', $body)->assertCreated()->json();
         $this->travelTo(CarbonImmutable::parse($body['starts_at'])->addMinute());
+        $this->acceptPrechargePrice($booking['id']);
         $queued = $this->postJson('/api/reservations/'.$booking['id'].'/csms-start')->assertAccepted()->json();
         Http::fake(['*/dev/token' => Http::response(['accessToken' => 'synthetic']), '*/ocpp/*' => Http::response([['success' => true]])]);
         $this->assertSame('submitted', app(CsmsDispatcher::class)->dispatch($queued['start_command']['id'])->status);

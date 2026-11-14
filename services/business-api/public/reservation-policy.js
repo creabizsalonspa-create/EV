@@ -13,6 +13,10 @@ window.EvReservationPolicy = (() => {
         summary.dataset.ar = 'موعد 30 دقيقة؛ دون رسوم إلغاء أو عدم حضور؛ المكان الفعلي غير مؤكد.';
         text.dataset.en = 'Self-reported arrival opens 15 minutes before the slot. An unused booking expires at the slot end, unless an uncertain source operation needs review. Cancellation is available before an admitted or uncertain charging start. Active/uncertain logical sessions block starting another session on the same resource until completed or reconciled. No automatic physical stop or financial penalty occurs. A booking does not guarantee physical access or live charger availability.';
         text.dataset.ar = 'يبدأ تسجيل الوصول الذاتي قبل الموعد بـ15 دقيقة. ينتهي الحجز غير المستخدم بنهاية الموعد، إلا إذا احتاجت عملية مصدر غير مؤكدة للمراجعة. يتاح الإلغاء قبل بدء شحن مقبول أو غير مؤكد. تمنع الجلسات الجارية أو غير المؤكدة بدء جلسة أخرى لنفس المورد حتى اكتمالها أو تسويتها. لا يحدث إيقاف فعلي تلقائي أو غرامة مالية. الحجز لا يضمن الدخول الفعلي أو توفر الشاحن مباشرة.';
+        if (terms.price_acceptance_required === true) {
+            text.dataset.en += ' Review and explicitly accept current simulated charging prices before starting; this is separate from booking confirmation.';
+            text.dataset.ar += ' راجع أسعار محاكاة الشحن الحالية واقبلها صراحة قبل البدء؛ وهذا منفصل عن تأكيد الحجز.';
+        }
         for (const node of [summary,text]) node.textContent = document.documentElement.lang === 'ar' ? node.dataset.ar : node.dataset.en;
         details.append(summary,text); root.append(details);
     }

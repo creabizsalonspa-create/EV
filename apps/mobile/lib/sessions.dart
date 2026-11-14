@@ -5,6 +5,7 @@ import 'strings.dart';
 import 'action_form.dart';
 import 'charging_operations.dart';
 import 'charging_reviews.dart';
+import 'session_cost.dart';
 
 class SessionsView extends StatefulWidget {
   final EvApi api;
@@ -20,25 +21,33 @@ class SessionsView extends StatefulWidget {
   State<SessionsView> createState() => _SessionsViewState();
 }
 
-class _SessionsViewState extends State<SessionsView> {
+class _SessionsViewState extends State<SessionsView> with WidgetsBindingObserver {
   ApiPage<Map<String, dynamic>>? data;
   bool busy = false;
   Object? error;
   int generation = 0;
+  bool foreground = true;
+  late bool Function() ownSession;
   @override
   void initState() {
     super.initState();
+    ownSession = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
+  bool active(int epoch, bool Function() fence) => mounted && foreground && epoch == generation && fence();
+
   void failed(Object e) {
-    if (!mounted) return;
+    if (!mounted || !foreground || !ownSession()) return;
     if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
     if (mounted) setState(() => error = e);
   }
 
   Future<void> load({int page = 1}) async {
-    final request = ++generation;
+    if (!foreground) return;
+    if (!ownSession()) { if (mounted) setState(() { data = null; error = const ApiException(409,'Session changed'); }); return; }
+    final request = ++generation, current = ownSession;
     setState(() {
       busy = true;
       error = null;
@@ -48,22 +57,24 @@ class _SessionsViewState extends State<SessionsView> {
         'simulations',
         query: {'page': '$page'},
       );
-      if (mounted && request == generation)
+      if (mounted && request == generation && current() && foreground)
         setState(() => data = ApiPage.fromJson(result, (v) => v));
     } catch (e) {
-      if (mounted && request == generation) failed(e);
+      if (mounted && request == generation && current() && foreground) failed(e);
     } finally {
-      if (mounted && request == generation) setState(() => busy = false);
+      if (mounted && request == generation) setState(() { busy = false; if (!current()) data = null; });
     }
   }
 
   Future<void> reconcile(int id) async {
+    final epoch = generation, fence = ownSession;
+    if (!active(epoch,fence)) return;
     if (!await confirmAction(
           context,
           'reconcileEvidence',
           'reconcileConsent',
         ) ||
-        !mounted)
+        !active(epoch,fence))
       return;
     setState(() {
       busy = true;
@@ -75,15 +86,17 @@ class _SessionsViewState extends State<SessionsView> {
         method: 'POST',
         body: {},
       );
-      if (mounted) await load(page: data?.current ?? 1);
+      if (active(epoch,fence)) await load(page: data?.current ?? 1);
     } catch (e) {
-      if (mounted) failed(e);
+      if (active(epoch,fence)) failed(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == generation) setState(() => busy = false);
     }
   }
 
   Future<void> meter(Map<String, dynamic> row) async {
+    final epoch = generation, fence = ownSession;
+    if (!active(epoch,fence)) return;
     final initial = (row['energy_wh'] as num).toInt();
     final result = await apiForm(
       context,
@@ -103,24 +116,29 @@ class _SessionsViewState extends State<SessionsView> {
           },
         ),
       ],
-      submit: (v) => widget.api.request(
+      submit: (v) {
+        if (!active(epoch,fence)) throw const ApiException(409,'Session changed');
+        return widget.api.request(
         'simulations/${row['id']}/meter',
         method: 'PUT',
         body: {'energy_wh': int.parse(v['energy_wh'])},
-      ),
-      onExpired: widget.onExpired,
+      );
+      },
+      onExpired: () { if (active(epoch,fence)) widget.onExpired(); },
     );
-    if (mounted) await load(page: data?.current ?? 1);
+    if (active(epoch,fence)) await load(page: data?.current ?? 1);
     if (result == null) return;
   }
 
   Future<void> stop(int id, {bool linked = false}) async {
+    final epoch = generation, fence = ownSession;
+    if (!active(epoch,fence)) return;
     if (!await confirmAction(
           context,
           linked ? 'stopCsms' : 'stopSimulation',
           linked ? 'stopCsmsConsent' : 'stopConsent',
         ) ||
-        !mounted)
+        !active(epoch,fence))
       return;
     setState(() => busy = true);
     try {
@@ -128,21 +146,23 @@ class _SessionsViewState extends State<SessionsView> {
         linked ? 'charging-sessions/$id/csms-stop' : 'simulations/$id/stop',
         method: 'POST',
       );
-      if (mounted) await load(page: data?.current ?? 1);
+      if (active(epoch,fence)) await load(page: data?.current ?? 1);
     } catch (e) {
-      failed(e);
+      if (active(epoch,fence)) failed(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == generation) setState(() => busy = false);
     }
   }
 
   Future<void> cancelPending(Map<String, dynamic> row) async {
+    final epoch = generation, fence = ownSession;
+    if (!active(epoch,fence)) return;
     if (!await confirmAction(
           context,
           'cancelUndispatched',
           'cancelUndispatchedConsent',
         ) ||
-        !mounted)
+        !active(epoch,fence))
       return;
     setState(() => busy = true);
     try {
@@ -150,17 +170,17 @@ class _SessionsViewState extends State<SessionsView> {
         'reservations/${row['reservation_id']}',
         method: 'DELETE',
       );
-      if (mounted) await load(page: data?.current ?? 1);
+      if (active(epoch,fence)) await load(page: data?.current ?? 1);
     } catch (e) {
-      failed(e);
+      if (active(epoch,fence)) failed(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == generation) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = EvStrings.of(context), p = data;
+    final s = EvStrings.of(context), p = ownSession() && foreground ? data : null;
     return RefreshIndicator(
       onRefresh: () => load(page: p?.current ?? 1),
       child: ListView(
@@ -187,6 +207,7 @@ class _SessionsViewState extends State<SessionsView> {
             style: Theme.of(context).textTheme.headlineLarge,
           ),
           Text(s.t('meterDisclaimer')),
+          TextButton(onPressed:busy ? null : () => load(page:data?.current ?? 1),child:Text(s.t('refresh'))),
           if (['customer', 'vendor'].contains(widget.role))
             TextButton(
               onPressed: busy
@@ -247,12 +268,13 @@ class _SessionsViewState extends State<SessionsView> {
                       s.t('reservationNumber', {'id': row['reservation_id']}),
                     ),
                     Text(
-                      s.t('energy', {
+                      s.t(row.containsKey('cost_projection') ? 'meterEnergyOnly' : 'energy', {
                         'energy': row['energy_wh'],
                         'total': row['total_minor'] ?? s.t('pending'),
                         'currency': row['currency'],
                       }),
                     ),
+                    SessionCostPanel(value:row['cost_projection']),
                     if (row['csms_linked'] == true) Text(s.t('sourceControls')),
                     if (row['authorization_method'] == 'rider_token')
                       Text(
@@ -401,8 +423,23 @@ class _SessionsViewState extends State<SessionsView> {
   }
 
   @override
+  void didUpdateWidget(covariant SessionsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api || oldWidget.role != widget.role) {
+      generation++; data = null; error = null; busy = false;
+      ownSession = widget.api.sessionFence();
+      if (foreground) load();
+    }
+  }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (!foreground && mounted) setState(() { generation++; data = null; error = null; busy = false; });
+  }
+  @override
   void dispose() {
     generation++;
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }

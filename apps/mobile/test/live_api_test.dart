@@ -1,3 +1,5 @@
+import 'package:creabiz_ev/precharge_pricing.dart';
+import 'package:creabiz_ev/session_cost.dart';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/api.dart';
@@ -257,6 +259,9 @@ void main() {
           "require 'vendor/autoload.php'; \$app = require 'bootstrap/app.php'; \$app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); \$now = Carbon\\CarbonImmutable::now('UTC'); App\\Models\\Reservation::whereKey(${reservation['id']})->update(['starts_at' => \$now->startOfHour()->addMinutes(intdiv(\$now->minute, 30) * 30)->format('Y-m-d H:i:s')]);",
         ]);
         expect(fixture.exitCode, 0, reason: fixture.stderr.toString());
+        final estimate = await customer.request('reservations/${reservation['id']}/price-estimate', method:'POST', body:{'energy_wh':10000});
+        expect(validPrechargeEstimate(estimate['estimate']),true);
+        await customer.request('reservations/${reservation['id']}/price-consent', method:'POST', body:{'quote_token':estimate['quote_token'],'accepted':true});
         final session = await customer.request(
           'reservations/${reservation['id']}/simulate-start',
           method: 'POST',
@@ -288,6 +293,8 @@ void main() {
           ),
           throwsA(isA<ApiException>().having((e) => e.status, 'status', 409)),
         );
+        final running = (await customer.request('simulations'))['data'].firstWhere((row)=>row['id']==session['id'])['cost_projection'];
+        expect(validSessionCost(running),true);expect(running['state'],'estimated');expect(running['total_minor'],'150');
         final stopped = await customer.request(
           'simulations/${session['id']}/stop',
           method: 'POST',
@@ -299,6 +306,9 @@ void main() {
         );
         final invoice = issued['invoice'];
         expect(invoice['evidence'], 'SIMULATED');
+        final projectedInvoice = (await customer.request('simulations'))['data'].firstWhere((row)=>row['id']==session['id'])['cost_projection'];
+        expect(projectedInvoice['state'],'invoiced');expect(projectedInvoice['total_minor'],'${invoice['total_minor']}');
+        expect(validSessionCost(projectedInvoice),true);
         final history = await customer.request(
           'finance/invoices',
           query: {
