@@ -1396,7 +1396,8 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   enabled: !busy,
                   child: Text(analyticsText(context, 'title')),
                 ),
-                PopupMenuItem(
+                if (['customer', 'vendor'].contains(account!.role))
+                  PopupMenuItem(
                   value: 'providerDisputes',
                   enabled: !busy,
                   child: Text(providerDisputeText(context, 'Provider disputes', 'نزاعات مزود الدفع')),
