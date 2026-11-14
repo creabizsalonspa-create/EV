@@ -55,7 +55,7 @@ class SimulationController extends Controller
                 'authorization_method' => $link?->rider_token_id ? 'rider_token' : ($link ? 'remote_start' : 'application_simulator'),
                 'awaiting_rider_transaction' => $link?->rider_token_id !== null && $link->started_at === null && $link->ended_at === null && $link->closed_without_dispatch_at === null,
                 'start_command_status' => $start?->status,
-                'start_authorization_revoked' => $session->status === 'pending_start' && $start && ! app(ChargingActorConsent::class)->matches($actors->get($start->actor_id), $start->consent_auth_epoch),
+                'start_authorization_revoked' => $session->status === 'pending_start' && $start?->status === 'pending' && $link->transaction_id === null && $link->started_at === null && $link->closed_without_dispatch_at === null && $link->last_sequence === -1 && $link->last_meter_wh === null && ! app(ChargingActorConsent::class)->matches($actors->get($start->actor_id), $start->consent_auth_epoch),
                 'start_admission_blocked' => in_array($start?->failure_code, ['pre_dispatch_actor_revoked', 'pre_dispatch_vendor_unavailable', 'pre_dispatch_company_gate', 'pre_dispatch_window_unavailable', 'pre_dispatch_operating_calendar'], true),
                 'can_cancel_before_dispatch' => $link && $session->status === 'pending_start' && $start?->status === 'pending' && $link->transaction_id === null && $link->started_at === null && $link->closed_without_dispatch_at === null,
                 'stop_command_status' => $link ? $commands->get($link->stop_command_id)?->status : null];

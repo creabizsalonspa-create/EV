@@ -2271,8 +2271,8 @@ window.EV_MESSAGES = {
         ar: "تغير تفويض الحساب قبل إرسال طلب البدء. ألغِ الحجز غير المرسل وأكد طلباً جديداً؛ لا يوقف هذا جلسة مصدر قائمة.",
     },
     "Roaming start authorization revoked": {
-        en: "Account or partner authorization changed. This order cannot start; revoke its token and review a fresh request. A dispatched or uncertain command still needs source reconciliation.",
-        ar: "تغير تفويض الحساب أو الشريك. لا يمكن بدء هذا الطلب؛ ألغِ رمزه وراجع طلباً جديداً. لا يزال الأمر المرسل أو غير المؤكد يحتاج مطابقة المصدر.",
+        en: "Account or partner authorization changed. New start authorization is unavailable; revoke its token and review source state before a fresh request. A dispatched or uncertain command still needs source reconciliation.",
+        ar: "تغير تفويض الحساب أو الشريك. تفويض البدء الجديد غير متاح؛ ألغِ رمزه وراجع حالة المصدر قبل طلب جديد. لا يزال الأمر المرسل أو غير المؤكد يحتاج مطابقة المصدر.",
     },
     "Start admission blocked": {
         en: "This start has not been dispatched because admission is unavailable. Refresh or cancel the undispatched reservation.",

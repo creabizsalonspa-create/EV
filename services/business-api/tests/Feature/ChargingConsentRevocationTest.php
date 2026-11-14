@@ -90,4 +90,18 @@ class ChargingConsentRevocationTest extends TestCase
         $this->assertSame('stopping', $session->fresh()->status);
         $this->assertDatabaseCount('finance_invoices', 0);
     }
+
+    public function test_revocation_does_not_describe_an_unknown_dispatch_as_an_unsent_start(): void
+    {
+        [$customer, , $command] = $this->queued();
+        $command->update(['status' => 'outcome_unknown']);
+        DB::table('users')->where('id', $customer->id)->update(['auth_epoch' => 1]);
+        $this->actingAs($customer->fresh())->withSession(['account_auth_epoch' => 1])->getJson('/api/simulations')->assertOk()
+            ->assertJsonPath('data.0.start_authorization_revoked', false)
+            ->assertJsonPath('data.0.can_cancel_before_dispatch', false)
+            ->assertJsonPath('data.0.start_command_status', 'outcome_unknown');
+        $this->assertSame('outcome_unknown', app(CsmsDispatcher::class)->dispatch($command->id)->status);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
 }

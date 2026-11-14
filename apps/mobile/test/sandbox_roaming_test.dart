@@ -5,7 +5,11 @@ import 'package:creabiz_ev/sandbox_roaming.dart';
 import 'test_support.dart';
 
 class RoamingApi extends FixtureApi {
-  bool lost = false, unsafe = false, denied = false, revoked = false;
+  bool lost = false,
+      unsafe = false,
+      denied = false,
+      revoked = false,
+      active = false;
   int attempts = 0;
   Map<String, dynamic>? first;
   Map<String, dynamic> order() => {
@@ -13,7 +17,7 @@ class RoamingApi extends FixtureApi {
     'location_name': 'Private source site',
     'evse_uid': 'E1',
     'connector_id': '1',
-    'state': 'start_accepted',
+    'state': active ? 'source_active' : 'start_accepted',
     'token_state': 'registered',
     'commands': <dynamic>[],
     'evidence': 'SANDBOX_PARTNER_UNVERIFIED',
@@ -81,6 +85,27 @@ Widget app(RoamingApi api, {bool operator = false, VoidCallback? expired}) =>
       ),
     );
 void main() {
+  testWidgets(
+    'credential revocation does not label an already active source session as unstarted',
+    (tester) async {
+      final api = RoamingApi()
+        ..revoked = true
+        ..active = true;
+      await tester.pumpWidget(app(api));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Review sandbox history'));
+      await tester.tap(find.text('Review sandbox history'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Account or partner authorization changed.'),
+        findsNothing,
+      );
+      expect(find.textContaining('source_active'), findsOneWidget);
+      expect(api.attempts, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets(
     'revoked start authorization requires explicit token recovery without another command',
     (tester) async {
