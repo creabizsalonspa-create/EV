@@ -761,8 +761,21 @@ async function bookings() {
                     ? "Request CSMS simulator start"
                     : "Start simulator",
             );
+            const reviewPrice = async () => {
+                const epoch = client.sessionEpoch, owner = user?.id;
+                return window.EvPrechargePricing.review({api, reservationId:r.id,
+                    current:() => epoch === client.sessionEpoch && owner === user?.id,
+                    ar:document.documentElement.lang === 'ar'});
+            };
+            const pricing = document.createElement('button');
+            pricing.dataset.en = 'Review charging price'; pricing.dataset.ar = 'مراجعة سعر الشحن';
+            pricing.textContent = document.documentElement.lang === 'ar' ? pricing.dataset.ar : pricing.dataset.en;
+            pricing.onclick = async () => { pricing.disabled = true; try { await reviewPrice(); } catch (e) { notice(e); } finally { if(pricing.isConnected) pricing.disabled = false; } };
+            a.append(pricing);
             start.onclick = async () => {
+                start.disabled = true;
                 try {
+                    if (r.reservation_terms_snapshot?.price_acceptance_required === true && !await reviewPrice()) { await simulations(); return; }
                     await api(
                         "reservations/" +
                             r.id +
@@ -772,6 +785,8 @@ async function bookings() {
                     await simulations();
                 } catch (e) {
                     notice(e);
+                } finally {
+                    if(start.isConnected) start.disabled = false;
                 }
             };
             a.append(start);
@@ -790,7 +805,7 @@ async function simulations() {
     for (let s of j.data) {
         let a = ui(
             "article",
-            "SIMULATED · #{id} · {status} · {energy} Wh · {cost} minor units {currency} · No payment processed",
+            s.cost_projection ? "SIMULATED · #{id} · {status} · {energy} Wh · No payment processed" : "SIMULATED · #{id} · {status} · {energy} Wh · {cost} minor units {currency} · No payment processed",
             {
                 id: s.id,
                 status: { translate: s.status },
@@ -799,6 +814,7 @@ async function simulations() {
                 currency: s.currency,
             },
         );
+        window.EvSessionCost.attach(a,s.cost_projection);
         if (s.csms_linked) a.append(ui("p", "Source controls disclaimer"));
         if (s.authorization_method === "rider_token")
             a.append(ui("p", "Card source authorization"));

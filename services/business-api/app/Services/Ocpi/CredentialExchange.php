@@ -60,9 +60,9 @@ class CredentialExchange
     {
         [$c, $local] = $this->configuration($p);
         $modules = $c['incoming_modules'] ?? [];
-        abort_unless(is_array($modules) && array_is_list($modules) && count($modules) <= 2 && count(array_unique($modules, SORT_REGULAR)) === count($modules), 409);
+        abort_unless(is_array($modules) && array_is_list($modules) && count($modules) <= 4 && count(array_unique($modules, SORT_REGULAR)) === count($modules), 409);
         foreach ($modules as $module) {
-            abort_unless(is_string($module) && in_array($module, ['sessions', 'cdrs'], true), 409);
+            abort_unless(is_string($module) && in_array($module, ['locations', 'tariffs', 'sessions', 'cdrs'], true), 409);
         }
         if ($modules !== []) {
             abort_unless($c['party_role'] === 'CPO' && $local['roles'][0]['role'] === 'EMSP', 409);
@@ -145,7 +145,7 @@ class CredentialExchange
         }
         [$c] = $this->configuration($p);
         $client = app(PartnerClient::class);
-        abort_unless($p->authorized && ($v['action'] === 'unregister' || $p->authorization_revision < PHP_INT_MAX) && User::whereKey($p->owner_id)->where('role', 'vendor')->exists(), 409);
+        abort_unless($p->authorized && ($v['action'] === 'unregister' || $p->authorization_revision < PHP_INT_MAX) && User::whereKey($p->owner_id)->where('role', 'vendor')->when($v['action'] !== 'unregister', fn ($q) => $q->where('account_status', 'active'))->exists(), 409);
         $link = DB::table('ocpi_credential_links')->where('provider_id', $p->id)->first();
         abort_unless($v['action'] !== 'register' || ($c['registration_direction'] ?? 'outbound') === 'outbound', 409, 'This connection requires incoming partner enrollment.');
         $bootstrap = (string) ($c['authorization_token'] ?? '');
@@ -215,7 +215,7 @@ class CredentialExchange
 
     private function unchanged(OcpiProvider $original, OcpiProvider $current, string $configuration, bool $unregister = false): void
     {
-        abort_unless($current->authorized && $current->owner_id === $original->owner_id && $current->connection_key === $original->connection_key && $current->authorization_revision === $original->authorization_revision && ($unregister || $current->authorization_revision < PHP_INT_MAX) && User::whereKey($current->owner_id)->where('role', 'vendor')->exists() && hash_equals($configuration, $this->configurationHash($current)), 409, 'Partner authority changed; exchange was fenced.');
+        abort_unless($current->authorized && $current->owner_id === $original->owner_id && $current->connection_key === $original->connection_key && $current->authorization_revision === $original->authorization_revision && ($unregister || $current->authorization_revision < PHP_INT_MAX) && User::whereKey($current->owner_id)->where('role', 'vendor')->when(! $unregister, fn ($q) => $q->where('account_status', 'active'))->exists() && hash_equals($configuration, $this->configurationHash($current)), 409, 'Partner authority changed; exchange was fenced.');
     }
 
     public function operation(object $row): array

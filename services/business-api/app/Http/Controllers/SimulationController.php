@@ -14,6 +14,8 @@ use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\ReservationPolicy;
 use App\Services\Charging\StationGate;
 use App\Services\Finance\FinanceService;
+use App\Services\Finance\PrechargePricing;
+use App\Services\Finance\SessionCostProjection;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -48,11 +50,13 @@ class SimulationController extends Controller
         $commands = ChargerCommand::whereIn('id', $links->pluck('start_command_id')->merge($links->pluck('stop_command_id'))->filter())->get(['id', 'actor_id', 'consent_auth_epoch', 'status', 'failure_code'])->keyBy('id');
         $actors = User::whereIn('id', $commands->pluck('actor_id'))->get()->keyBy('id');
 
-        return $page->through(function ($session) use ($links, $commands, $actors) {
+        $costs = app(SessionCostProjection::class)->forSessions($page->getCollection(), $links);
+
+        return response()->json($page->through(function ($session) use ($links, $commands, $actors, $costs) {
             $link = $links->get($session->id);
             $start = $link ? $commands->get($link->start_command_id) : null;
 
-            return $session->toArray() + ['evidence' => $link ? 'SIMULATED_CSMS' : 'SIMULATED', 'payment_status' => 'not_processed', 'csms_linked' => $link !== null,
+            return $session->toArray() + ['cost_projection' => $costs->get($session->id), 'evidence' => $link ? 'SIMULATED_CSMS' : 'SIMULATED', 'payment_status' => 'not_processed', 'csms_linked' => $link !== null,
                 'authorization_method' => $link?->rider_token_id ? 'rider_token' : ($link ? 'remote_start' : 'application_simulator'),
                 'awaiting_rider_transaction' => $link?->rider_token_id !== null && $link->started_at === null && $link->ended_at === null && $link->closed_without_dispatch_at === null,
                 'start_command_status' => $start?->status,
@@ -60,7 +64,7 @@ class SimulationController extends Controller
                 'start_admission_blocked' => in_array($start?->failure_code, ['pre_dispatch_actor_revoked', 'pre_dispatch_vendor_unavailable', 'pre_dispatch_company_gate', 'pre_dispatch_window_unavailable', 'pre_dispatch_operating_calendar'], true),
                 'can_cancel_before_dispatch' => $link && $session->status === 'pending_start' && $start?->status === 'pending' && $link->transaction_id === null && $link->started_at === null && $link->closed_without_dispatch_at === null,
                 'stop_command_status' => $link ? $commands->get($link->stop_command_id)?->status : null];
-        });
+        }))->header('Cache-Control', 'private, no-store');
     }
 
     public function start(Request $r, Reservation $reservation)
@@ -68,6 +72,7 @@ class SimulationController extends Controller
         abort_unless($r->user()->id === $reservation->user_id, 404);
 
         return DB::transaction(function () use ($r, $reservation) {
+            app(ChargingActorConsent::class)->capture($r->user());
             Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $b = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
             $old = ChargingSession::where('reservation_id', $b->id)->first();
@@ -89,8 +94,9 @@ class SimulationController extends Controller
             abort_if($b->charging_evse_id && ChargingSession::where('charging_evse_id', $b->charging_evse_id)->whereIn('status', ['pending_start', 'charging', 'stopping'])->exists(), 409, 'This EVSE still has an unresolved session.');
             $finance = app(FinanceService::class);
             $tariff = $finance->activeTariff($station);
+            $priceConsentId = app(PrechargePricing::class)->consent($b, $station, $tariff);
             $s = ChargingSession::create(['reservation_id' => $b->id, 'charging_evse_id' => $b->charging_evse_id, 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
-            $finance->snapshotSession($s, $tariff);
+            $finance->snapshotSession($s, $tariff, $priceConsentId);
             $this->audit($r, 'simulation.started', $s->id);
 
             return response()->json($s, 201);

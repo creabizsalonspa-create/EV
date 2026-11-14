@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\OcpiProvider;
+use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\IncomingEnrollment;
 use App\Services\Ocpi\OcpiException;
@@ -18,8 +19,10 @@ class OcpiCredentialsController extends Controller
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'vendor' && $r->user()->id === $provider->owner_id), 404);
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
         $configured = true;
+        $receiverModules = [];
         try {
             $exchange->configuration($provider);
+            $receiverModules = $exchange->receiverModules($provider);
         } catch (Throwable) {
             $configured = false;
         }
@@ -40,15 +43,18 @@ class OcpiCredentialsController extends Controller
             $state = 'enrollment_expired';
         }
         $actions = [];
-        if ($configured && $provider->authorized && $r->user()->role === 'admin') {
+        $owner = User::find($provider->owner_id);
+        $ownerVendor = $owner?->role === 'vendor';
+        $ownerActive = $ownerVendor && $owner->account_status === 'active';
+        if ($configured && $provider->authorized && $r->user()->role === 'admin' && $ownerVendor) {
             if ($state === 'active') {
-                $actions = ['rotate', 'unregister'];
-            } elseif ($bootstrapReady && in_array($state, ['not_exchanged', 'revoked', 'unregistered', 'awaiting_registration', 'enrollment_expired'], true)) {
+                $actions = $ownerActive ? ['rotate', 'unregister'] : ['unregister'];
+            } elseif ($ownerActive && $bootstrapReady && in_array($state, ['not_exchanged', 'revoked', 'unregistered', 'awaiting_registration', 'enrollment_expired'], true)) {
                 $actions = [$incoming ? 'prepare_incoming' : 'register'];
             }
         }
 
-        return response()->json(['configured' => $configured, 'state' => $state, 'generation' => $link->generation ?? 0, 'exchanged_at' => $link->exchanged_at ?? null, 'bootstrap_expires_at' => $link->bootstrap_expires_at ?? null, 'available_actions' => $actions, 'partner_acceptance_verified' => false, 'charging_commands_enabled' => false, 'billing_eligible' => false, 'operations' => DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25, ['id', 'generation', 'action', 'state', 'attempted_at', 'completed_at', 'created_at'])->toArray()])->header('Cache-Control', 'private, no-store');
+        return response()->json(['configured_receiver_modules' => $receiverModules, 'active_receiver_modules' => $configured && $state === 'active' && $provider->authorized ? ($ownerActive ? $receiverModules : array_values(array_intersect($receiverModules, ['sessions', 'cdrs']))) : [], 'configured' => $configured, 'state' => $state, 'generation' => $link->generation ?? 0, 'exchanged_at' => $link->exchanged_at ?? null, 'bootstrap_expires_at' => $link->bootstrap_expires_at ?? null, 'available_actions' => $actions, 'partner_acceptance_verified' => false, 'charging_commands_enabled' => false, 'billing_eligible' => false, 'operations' => DB::table('ocpi_credential_operations')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25, ['id', 'generation', 'action', 'state', 'attempted_at', 'completed_at', 'created_at'])->toArray()])->header('Cache-Control', 'private, no-store');
     }
 
     public function exchange(Request $r, OcpiProvider $provider, CredentialExchange $exchange)

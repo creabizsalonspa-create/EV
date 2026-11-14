@@ -23,10 +23,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Support\AcceptsPrechargePricing;
 use Tests\TestCase;
 
 class ManagedChargingGateTest extends TestCase
 {
+    use AcceptsPrechargePricing;
     use RefreshDatabase;
 
     private function inventory(): array
@@ -79,6 +81,8 @@ class ManagedChargingGateTest extends TestCase
         $this->postJson('/api/reservations/'.$booking['id'].'/simulate-start')->assertConflict();
         $this->assertDatabaseCount('charging_sessions', 0);
         $this->actingAs($owner)->patchJson($url, ['maintenance_blocked' => false, 'maintenance_reason' => 'Synthetic recovery'])->assertOk();
+        $this->actingAs($customer);
+        $this->acceptPrechargePrice($booking['id']);
         $session = $this->actingAs($customer)->postJson('/api/reservations/'.$booking['id'].'/simulate-start')->assertCreated()->json();
         $company->update(['status' => 'suspended']);
         $this->actingAs($owner)->patchJson($url, ['maintenance_blocked' => true, 'maintenance_reason' => 'Suspended for maintenance'])->assertOk();
@@ -96,6 +100,8 @@ class ManagedChargingGateTest extends TestCase
         $this->travelTo($start->addMinutes(5));
         $booking = Reservation::create(['station_id' => $station->id, 'user_id' => $customer->id, 'starts_at' => $start->format('Y-m-d H:i:s'), 'idempotency_key' => 'pending-cancellation']);
         DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-pending-cancel', 'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now()]);
+        $this->actingAs($customer);
+        $this->acceptPrechargePrice($booking->id);
         $queued = $this->actingAs($customer)->postJson('/api/reservations/'.$booking->id.'/csms-start')->assertAccepted()->json();
 
         return [$customer, $station, $company, $booking, $queued];
@@ -121,6 +127,7 @@ class ManagedChargingGateTest extends TestCase
         $next = CarbonImmutable::parse($booking->starts_at, 'UTC')->addMinutes(30);
         $new = $this->postJson('/api/reservations', ['station_id' => $station->id, 'starts_at' => $next->format('Y-m-d\TH:i:s\Z'), 'idempotency_key' => 'after-cancel'])->assertCreated()->json();
         $this->travelTo($next->addMinutes(5));
+        $this->acceptPrechargePrice($new['id']);
         $this->postJson('/api/reservations/'.$new['id'].'/csms-start')->assertAccepted();
         $this->assertSame(2, ChargerCommand::count());
     }
@@ -155,6 +162,7 @@ class ManagedChargingGateTest extends TestCase
         $connector->update(['connector_number' => 2]);
         $this->postJson('/api/reservations/'.$booking->id.'/csms-start')->assertConflict();
         $connector->update(['connector_number' => 1]);
+        $this->acceptPrechargePrice($booking->id);
         $queued = $this->postJson('/api/reservations/'.$booking->id.'/csms-start')->assertAccepted()->json();
         $commandId = $queued['start_command']['id'];
         $company->update(['status' => 'suspended']);
@@ -205,6 +213,7 @@ class ManagedChargingGateTest extends TestCase
         Http::assertNothingSent();
         $this->getJson('/api/simulations')->assertOk()->assertJsonPath('data.0.status', 'expired_unstarted')->assertJsonPath('data.0.can_cancel_before_dispatch', false);
         $next = Reservation::create(['station_id' => $station->id, 'user_id' => $customer->id, 'starts_at' => $end->format('Y-m-d H:i:s'), 'idempotency_key' => 'after-expiry']);
+        $this->acceptPrechargePrice($next->id);
         $this->postJson('/api/reservations/'.$next->id.'/csms-start')->assertAccepted();
     }
 

@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\OcpiRecord;
+use App\Services\Ocpi\RecordSynchronizer;
 use App\Services\Ocpi\SandboxRoaming;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -9,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\TestWith;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\CreatesSandboxRoaming;
 use Tests\TestCase;
@@ -17,6 +20,40 @@ class SandboxRoamingTest extends TestCase
 {
     use CreatesSandboxRoaming;
     use RefreshDatabase;
+
+    #[TestWith([false])]
+    #[TestWith([true])]
+    public function test_withdrawn_tariff_blocks_initial_grants_but_preserves_existing_authorization_and_safe_stop(bool $established): void
+    {
+        [, $driver, , $provider, $location] = $this->fixture();
+        [$id] = $this->start($driver, $location);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $token = $this->writes[0]['body'];
+        $headers = $this->peer();
+        $path = '/api/roaming-protocol/2.2.1/tokens/'.$token['uid'].'/authorize?type=APP_USER';
+        $body = ['location_id' => 'L1', 'evse_uids' => ['E1']];
+        if ($established) {
+            $this->withHeaders($headers)->postJson($path, $body)->assertOk()->assertJsonPath('data.allowed', 'ALLOWED');
+            $this->withHeaders($this->peer())->putJson('/api/roaming-protocol/2.2.1/sessions/NL/ABC/S1', $this->sourceSessionFixture($provider, $order, $token))->assertCreated();
+            $this->withHeaders(['Authorization' => ''])->postJson('/api/roaming/sandbox-orders/'.$id.'/reconcile')->assertOk()->assertJsonPath('state', 'source_active');
+        }
+        $tariff = OcpiRecord::findOrFail($order->tariff_record_id);
+        DB::table('ocpi_catalog_retirements')->insert(['record_id' => $tariff->id, 'content_hash' => $tariff->content_hash, 'credential_generation' => 1, 'payload_encrypted' => $tariff->getRawOriginal('payload'), 'source_updated_at' => $tariff->source_updated_at->format('Y-m-d H:i:s.u'), 'retired_at' => now()->format('Y-m-d H:i:s.u')]);
+        $this->withHeaders($headers)->postJson($path, $body)->assertOk()->assertJsonPath('data.allowed', $established ? 'ALLOWED' : 'NOT_ALLOWED');
+        $this->withHeaders(['Authorization' => ''])->getJson('/api/roaming/locations/'.$location->id.'/sandbox-offers')->assertOk()->assertJsonCount(0, 'offers');
+        if ($established) {
+            $this->postJson('/api/roaming/sandbox-orders/'.$id.'/stop', ['request_key' => (string) Str::uuid()])->assertOk();
+            $this->assertSame('S1', $this->writes[2]['body']['session_id']);
+        } else {
+            $republished = $tariff->payload;
+            $republished['last_updated'] = now()->addSecond()->toISOString();
+            app(RecordSynchronizer::class)->ingest($provider, 'tariffs', [$republished]);
+            // Republished content never revives the original withdrawn consent.
+            $this->withHeaders($headers)->postJson($path, $body)->assertOk()->assertJsonPath('data.allowed', 'NOT_ALLOWED');
+        }
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
 
     public function test_explicit_sandbox_consent_registers_never_offline_token_and_dispatches_once_without_financial_writes(): void
     {

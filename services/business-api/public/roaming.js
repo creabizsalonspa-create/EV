@@ -1139,6 +1139,12 @@ window.createRoamingWorkspace = ({
             ),
             ui("p", `Roaming credential state ${result.state}`),
         );
+        for (const [key, en, ar] of [
+            ['configured_receiver_modules', 'Configured partner reception', 'استقبال الشريك المهيأ'],
+            ['active_receiver_modules', 'Active credential reception', 'استقبال التفويض النشط']
+        ]) {
+            if (Array.isArray(result[key])) target.append(raw('p', `${document.documentElement.lang === 'ar' ? ar : en}: ${result[key].filter(x => ['locations', 'tariffs', 'sessions', 'cdrs'].includes(x)).join(', ') || '—'}`));
+        }
         if (result.bootstrap_expires_at)
             line(
                 target,
@@ -1268,6 +1274,7 @@ window.createRoamingWorkspace = ({
             const card = document.createElement("article");
             card.className = "station-card";
             card.append(raw("h4", row.external_id));
+            if (row.catalog_retired === true) card.append(raw('p', document.documentElement.lang === 'ar' ? 'تعرفة مسحوبة من الشريك. محفوظة للسجل فقط وليست عرضاً حالياً.' : 'Withdrawn partner tariff. Historical source only; not a current offer.'));
             line(card, "Roaming received", row.received_at);
             if (module === "locations") location(card, row.normalized);
             else {

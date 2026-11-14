@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\AccountPrivacyRequest;
+use App\Models\Reservation;
+use App\Models\Station;
 use App\Models\User;
 use App\Security\AdminTotp;
 use App\Services\Privacy\AccountDataExport;
@@ -162,5 +164,27 @@ class PrivacyAccessExportTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $migration = require database_path('migrations/2026_11_26_000001_create_privacy_access_exports.php');
         $migration->down();
+    }
+
+    public function test_account_copy_includes_only_own_price_receipts_without_tokens_or_epoch_material(): void
+    {
+        [$owner, $admin, $other, $case] = $this->scenario();
+        $vendor = User::factory()->create(['role' => 'vendor']);
+        $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Private receipt copy fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
+        $ids = [];
+        foreach ([$owner, $other] as $index => $user) {
+            $reservation = Reservation::create(['user_id' => $user->id, 'station_id' => $station->id, 'starts_at' => now()->addHours($index), 'idempotency_key' => 'copy-price-'.$index]);
+            $quote = $this->actingAs($user)->postJson('/api/reservations/'.$reservation->id.'/price-estimate', ['energy_wh' => 1500])->assertOk()->json();
+            $ids[] = $this->postJson('/api/reservations/'.$reservation->id.'/price-consent', ['quote_token' => $quote['quote_token'], 'accepted' => true])->assertOk()->json('id');
+        }
+        $this->actingAs($admin)->postJson('/api/admin/privacy-requests/'.$case->id.'/access-copy', ['password' => 'password', 'request_key' => 'private-pricing-copy'])->assertCreated();
+        $copy = $this->actingAs($owner)->postJson('/api/account/privacy-requests/'.$case->id.'/access-copy', ['password' => 'password'])->assertOk()
+            ->assertJsonCount(1, 'sections.pricing_consents')->assertJsonPath('sections.pricing_consents.0.id', $ids[0])
+            ->assertJsonPath('sections.pricing_consents.0.estimate.total_minor', '150');
+        foreach (['token_digest', 'price_fingerprint', 'auth_epoch', 'quote_token'] as $secret) {
+            $this->assertStringNotContainsString('"'.$secret.'":', $copy->getContent());
+        }
+        $this->assertDatabaseCount('charging_price_consents', 2);
+        $this->assertDatabaseCount('finance_journals', 0);
     }
 }

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'api.dart';
 import 'rider_access.dart';
+import 'vendor_agreements.dart';
 import 'strings.dart';
 import 'vendor_forms.dart';
 import 'vendor_operations_strings.dart';
@@ -231,6 +232,7 @@ class _CompanyState extends State<VendorCompanyView> {
               ),
               if (caps['owner'] == true || caps['reviewer'] == true) TextButton(onPressed: busy ? null : () => open(RiderAccessView(api: widget.api, onExpired: widget.onExpired, records: RiderRecords.operatorRequests, companyId: c['id'] as int)), child: Text(riderTitle(context))),
               if (caps['owner'] == true) ...[
+                TextButton(onPressed: busy ? null : () => open(VendorAgreementsView(api: widget.api, companyId: c['id'] as int, onExpired: widget.onExpired)), child: Text(vendorAgreementTitle(context))),
                 if (editable)
                   FilledButton(
                     onPressed: busy

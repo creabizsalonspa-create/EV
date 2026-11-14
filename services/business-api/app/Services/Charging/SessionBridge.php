@@ -13,6 +13,7 @@ use App\Models\Station;
 use App\Models\User;
 use App\Services\Finance\FinanceService;
 use App\Services\Finance\Money;
+use App\Services\Finance\PrechargePricing;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -79,8 +80,9 @@ class SessionBridge
             abort_if($r->charging_evse_id && ChargingSession::where('charging_evse_id', $r->charging_evse_id)->whereIn('status', ['pending_start', 'charging', 'stopping'])->exists(), 409, 'This EVSE still has an unresolved session.');
             $finance = app(FinanceService::class);
             $tariff = $finance->activeTariff($station);
+            $priceConsentId = app(PrechargePricing::class)->consent($r, $station, $tariff);
             $s = ChargingSession::create(['reservation_id' => $r->id, 'charging_evse_id' => $r->charging_evse_id, 'status' => 'pending_start', 'rate_minor_per_kwh' => $tariff?->rate_minor_per_kwh ?? 100, 'currency' => $station->currency]);
-            $finance->snapshotSession($s, $tariff);
+            $finance->snapshotSession($s, $tariff, $priceConsentId);
             if ($rider) {
                 abort_if(SessionLink::where('rider_token_id', $rider->id)->whereNull('ended_at')->whereNull('closed_without_dispatch_at')->exists(), 409, 'This rider token has an unresolved source session.');
             }

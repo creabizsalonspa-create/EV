@@ -145,9 +145,20 @@ class OcpiController extends Controller
         $this->owner($r, $provider);
         abort_unless(in_array($module, PartnerClient::MODULES, true), 404);
 
-        return OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', $module)->orderByDesc('id')->paginate(25)->through(function ($record) use ($provider, $module, $reconciler) {
-            return $record->toArray() + ($module === 'cdrs' ? ['reconciliation' => $reconciler->inspect($provider, $record)] : []);
-        });
+        $page = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', $module)->orderByDesc('id')->paginate(25);
+        $retired = [];
+        if ($module === 'tariffs' && $page->count() > 0) {
+            $retired = DB::table('ocpi_catalog_retirements')->where(function ($q) use ($page) {
+                foreach ($page as $record) {
+                    $q->orWhere(fn ($pair) => $pair->where('record_id', $record->id)->where('content_hash', $record->content_hash));
+                }
+            })->pluck('record_id')->all();
+        }
+
+        return response()->json($page->through(function ($record) use ($provider, $module, $reconciler, $retired) {
+            return $record->toArray() + ($module === 'cdrs' ? ['reconciliation' => $reconciler->inspect($provider, $record)] : [])
+                + ($module === 'tariffs' ? ['catalog_retired' => in_array($record->id, $retired, true)] : []);
+        }))->header('Cache-Control', 'private, no-store');
     }
 
     public function locations(Request $request)

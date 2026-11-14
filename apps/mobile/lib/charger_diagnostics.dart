@@ -28,31 +28,77 @@ class ChargerDiagnosticsView extends StatefulWidget {
   State<ChargerDiagnosticsView> createState() => _DiagnosticsState();
 }
 
-class _DiagnosticsState extends State<ChargerDiagnosticsView> {
+class _DiagnosticsState extends State<ChargerDiagnosticsView>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? data;
   Map<String, dynamic>? alerts;
   int? inspectionCursor;
   Object? error;
   bool busy = false;
   int generation = 0;
+  bool foreground = true;
+  late bool Function() authorized;
+  bool current(int epoch) =>
+      mounted && foreground && authorized() && epoch == generation;
   String get path =>
       'vendor-ops/companies/${widget.companyId}/chargers/${widget.chargerId}';
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     if (widget.openFaultAlerts) {
       // Sequential loads prevent a later alert query from invalidating the
       // diagnostic response's request generation. No POST/PATCH is performed.
       () async {
+        final initialRead = generation + 1;
         await load();
-        if (mounted) await loadAlerts();
+        if (current(initialRead)) await loadAlerts();
       }();
     } else {
       load();
     }
   }
 
+  void clearPrivateState() {
+    generation++;
+    data = null;
+    alerts = null;
+    inspectionCursor = null;
+    error = null;
+    busy = false;
+  }
+
+  @override
+  void didUpdateWidget(covariant ChargerDiagnosticsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.companyId != widget.companyId ||
+        oldWidget.chargerId != widget.chargerId) {
+      clearPrivateState();
+      authorized = widget.api.sessionFence();
+      // A changed target requires an explicit read, never an automatic write.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted)
+      setState(() {
+        if (!foreground) clearPrivateState();
+      });
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> load({int? before}) async {
+    if (!foreground || !authorized()) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -64,21 +110,22 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
         'vendor-ops/companies/${widget.companyId}/chargers/${widget.chargerId}/source-diagnostics',
         query: {if (before != null) 'before': '$before'},
       );
-      if (mounted && epoch == generation) {
+      if (current(epoch)) {
         setState(() => data = Map<String, dynamic>.from(value));
       }
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current(epoch)) {
         setState(() => error = e);
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> loadAlerts({int page = 1}) async {
+    if (!foreground || !authorized()) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -90,20 +137,22 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
         '$path/fault-alerts',
         query: {'page': '$page'},
       );
-      if (mounted && epoch == generation)
+      if (current(epoch))
         setState(() => alerts = Map<String, dynamic>.from(value));
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current(epoch)) {
         setState(() => error = e);
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> inspect({bool older = false}) async {
+    if (!foreground || !authorized()) return;
+    final epoch = ++generation;
     setState(() {
       busy = true;
       error = null;
@@ -117,27 +166,30 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
           if (older && inspectionCursor != null) 'before': '$inspectionCursor',
         },
       );
-      if (!mounted) return;
+      if (!current(epoch)) return;
       inspectionCursor = result['next_before'] as int?;
       await loadAlerts();
     } catch (e) {
-      if (mounted) {
+      if (current(epoch)) {
         setState(() => error = e);
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> acknowledge(int id) async {
+    if (!foreground || !authorized()) return;
+    final epoch = ++generation;
     final ar = Localizations.localeOf(context).languageCode == 'ar';
     final note = await showDialog<String>(
       context: context,
-      builder: (_) => _FaultNoteDialog(ar: ar),
+      builder: (_) =>
+          _FaultNoteDialog(ar: ar, authorized: () => current(epoch)),
     );
-    if (!mounted || note == null) return;
+    if (!current(epoch) || note == null) return;
     setState(() {
       busy = true;
       error = null;
@@ -148,15 +200,16 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
         method: 'PATCH',
         body: {'note': note},
       );
-      if (mounted) await loadAlerts(page: alerts?['current_page'] as int? ?? 1);
+      if (current(epoch))
+        await loadAlerts(page: alerts?['current_page'] as int? ?? 1);
     } catch (e) {
-      if (mounted) {
+      if (current(epoch)) {
         setState(() => error = e);
         if (e is ApiException && [401, 419].contains(e.status))
           widget.onExpired();
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
@@ -164,6 +217,9 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
   Widget build(BuildContext context) {
     final ar = Localizations.localeOf(context).languageCode == 'ar';
     String tr(String en, String arabic) => ar ? arabic : en;
+    if (!foreground || !authorized()) {
+      return Scaffold(appBar: AppBar(title: Text(diagnosticsTitle(context))));
+    }
     final value = data;
     return Scaffold(
       appBar: AppBar(title: Text(diagnosticsTitle(context))),
@@ -326,7 +382,8 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
           ],
           if (value != null) ...[
             Text('${value['protocol']}'),
-            if (value['status_durations'] != null) SourceStatusDurationsView(report: value['status_durations']),
+            if (value['status_durations'] != null)
+              SourceStatusDurationsView(report: value['status_durations']),
             Text(
               tr(
                 'Automatic fault monitoring',
@@ -407,15 +464,32 @@ class _DiagnosticsState extends State<ChargerDiagnosticsView> {
 
 class _FaultNoteDialog extends StatefulWidget {
   final bool ar;
-  const _FaultNoteDialog({required this.ar});
+  final bool Function() authorized;
+  const _FaultNoteDialog({required this.ar, required this.authorized});
   @override
   State<_FaultNoteDialog> createState() => _FaultNoteState();
 }
 
-class _FaultNoteState extends State<_FaultNoteDialog> {
+class _FaultNoteState extends State<_FaultNoteDialog>
+    with WidgetsBindingObserver {
   final controller = TextEditingController();
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed && mounted) {
+      FocusScope.of(context).unfocus();
+      setState(controller.clear);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     controller.dispose();
     super.dispose();
   }
@@ -444,7 +518,7 @@ class _FaultNoteState extends State<_FaultNoteDialog> {
           child: Text(tr('Cancel', 'إلغاء')),
         ),
         FilledButton(
-          onPressed: controller.text.trim().length < 10
+          onPressed: !widget.authorized() || controller.text.trim().length < 10
               ? null
               : () => Navigator.pop(context, controller.text.trim()),
           child: Text(tr('Save', 'حفظ')),

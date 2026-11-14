@@ -15,6 +15,9 @@ class CompleteApiAuthenticationInventoryTest extends TestCase
 {
     private const EXPLICIT_PUBLIC_API_SURFACE = [
         'DELETE|GET|HEAD|POST|PUT api/roaming-protocol/2.2.1/credentials',
+        // Scoped opaque peer tokens, not browser identity: denial/isolation is
+        // exercised in OcpiCatalogPushTest; receiver modules are server-pinned.
+        'DELETE|GET|HEAD|PUT api/roaming-protocol/2.2.1/tariffs/{country}/{party}/{external}',
         'GET|HEAD api/csrf',
         'GET|HEAD api/discovery/capabilities',
         'GET|HEAD api/discovery/open-charge-map/capabilities',
@@ -41,6 +44,7 @@ class CompleteApiAuthenticationInventoryTest extends TestCase
         'GET|HEAD api/v1/stations/{station}/information',
         'GET|HEAD api/v1/stations/{station}/reviews',
         'GET|HEAD|PATCH|PUT api/roaming-protocol/2.2.1/sessions/{country}/{party}/{external}',
+        'GET|HEAD|PATCH|PUT api/roaming-protocol/2.2.1/locations/{country}/{party}/{external}/{evse?}/{connector?}',
         'POST api/corporate-payments/stripe-test/webhook',
         'POST api/discovery/addresses',
         'POST api/discovery/open-charge-map/search',

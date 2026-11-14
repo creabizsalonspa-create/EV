@@ -1,0 +1,51 @@
+{
+  "scope": "Read-only canonical quote/meter/invoice cost projection, EN/AR web/native presentation and foreground/account fencing",
+  "laravel": {
+    "tests": 1024,
+    "assertions": 20623,
+    "skipped": 1,
+    "result": "passed",
+    "skip_reason": "PostgreSQL-only unused-column rollback proof"
+  },
+  "postgresql": {
+    "tests": 31,
+    "assertions": 384,
+    "result": "passed",
+    "version": 17,
+    "encoding": "UTF8"
+  },
+  "web_components": {
+    "tests": 4,
+    "result": "passed"
+  },
+  "query_bound": "25-session projection uses three batched data queries",
+  "hosted_pending": [
+    "native helper, EN/AR widget and lifecycle tests",
+    "actual Laravel/browser metered estimate and final invoice",
+    "actual Flutter HTTP lifecycle",
+    "Android debug and unsigned iOS simulator builds"
+  ],
+  "financial_writes_added": false,
+  "production_accepted": false,
+  "original_atom_credit_added": false,
+  "combined_integration": {
+    "laravel": {
+      "tests": 1067,
+      "assertions": 21000,
+      "skipped": 1,
+      "result": "passed"
+    },
+    "postgresql": {
+      "tests": 38,
+      "assertions": 584,
+      "result": "passed",
+      "version": 17,
+      "encoding": "UTF8"
+    },
+    "web_components": {
+      "tests": 12,
+      "result": "passed"
+    },
+    "privacy": "Owned pricing-consent receipts included in private account exports without token digests, account epochs or tariff fingerprints"
+  }
+}

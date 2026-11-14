@@ -21,6 +21,22 @@ class RecordNormalizer
         if ($validator->fails()) {
             throw new OcpiException('Invalid '.$module.' record fields: '.implode(', ', array_keys($validator->errors()->toArray())));
         }
+        if ($module === 'locations') {
+            $uids = [];
+            foreach ($record['evses'] ?? [] as $evse) {
+                if (in_array($evse['uid'], $uids, true)) {
+                    throw new OcpiException('Ambiguous location EVSE identity.');
+                }
+                $uids[] = $evse['uid'];
+                $ids = [];
+                foreach ($evse['connectors'] as $connector) {
+                    if (in_array($connector['id'], $ids, true)) {
+                        throw new OcpiException('Ambiguous EVSE connector identity.');
+                    }
+                    $ids[] = $connector['id'];
+                }
+            }
+        }
         $updated = CarbonImmutable::parse($record['last_updated'])->utc();
         if ($updated->greaterThan(now()->addMinutes(5))) {
             throw new OcpiException('Operator record timestamp is in the future.');
@@ -40,6 +56,9 @@ class RecordNormalizer
     {
         $standards = [];
         foreach ($evses as $evse) {
+            if ($evse['status'] === 'REMOVED') {
+                continue;
+            }
             foreach ($evse['connectors'] as $connector) {
                 $standards[] = $connector['standard'];
             }

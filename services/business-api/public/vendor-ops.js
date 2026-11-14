@@ -315,6 +315,10 @@ window.createVendorWorkspace = ({
             owner = caps.owner,
             admin = caps.reviewer;
         if (owner || admin)
+            button(host, document.documentElement.lang === 'ar' ? 'اتفاقية الشركة' : 'Vendor agreement', () =>
+                window.EvVendorAgreements.open({host, api, company, current, notice}),
+            );
+        if (owner || admin)
             button(host, "Signed firmware releases", () =>
                 firmwareReleases(company, host, epoch),
             );

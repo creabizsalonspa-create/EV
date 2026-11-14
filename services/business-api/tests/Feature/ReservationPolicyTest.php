@@ -11,10 +11,12 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Support\AcceptsPrechargePricing;
 use Tests\TestCase;
 
 class ReservationPolicyTest extends TestCase
 {
+    use AcceptsPrechargePricing;
     use RefreshDatabase;
 
     private function scenario(): array
@@ -76,12 +78,14 @@ class ReservationPolicyTest extends TestCase
         $first = $this->postJson('/api/reservations', $this->booking($station))->assertCreated()->json('id');
         $second = $this->postJson('/api/reservations', $this->booking($station, 'next', '2026-11-17T09:00:00Z'))->assertCreated()->json('id');
         $this->travelTo(CarbonImmutable::parse('2026-11-17T08:30:00Z'));
+        $this->acceptPrechargePrice($first);
         $sid = $this->postJson('/api/reservations/'.$first.'/simulate-start')->assertCreated()->json('id');
         $this->travelTo(CarbonImmutable::parse('2026-11-17T09:00:00Z'));
         $this->postJson('/api/reservations/'.$second.'/simulate-start')->assertConflict();
         $this->postJson('/api/reservations/'.$first.'/simulate-start')->assertOk()->assertJsonPath('id', $sid);
         $this->deleteJson('/api/reservations/'.$first)->assertConflict();
         $this->postJson('/api/simulations/'.$sid.'/stop')->assertOk();
+        $this->acceptPrechargePrice($second);
         $this->postJson('/api/reservations/'.$second.'/simulate-start')->assertCreated();
         $this->assertSame(1, ChargingSession::where('status', 'charging')->count());
         $this->assertDatabaseCount('finance_invoices', 0);

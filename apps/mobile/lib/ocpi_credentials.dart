@@ -20,22 +20,65 @@ class OcpiCredentialsView extends StatefulWidget {
   State<OcpiCredentialsView> createState() => _OcpiCredentialsState();
 }
 
-class _OcpiCredentialsState extends State<OcpiCredentialsView> {
+class _OcpiCredentialsState extends State<OcpiCredentialsView>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? status;
   ApiPage<Map<String, dynamic>>? operations;
   String? message;
   bool busy = false, uncertain = false;
   int generation = 0;
+  bool foreground = true;
+  late bool Function() authorized;
+  bool current(int epoch) =>
+      mounted && foreground && authorized() && epoch == generation;
   String tr(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   String get path => 'ocpi/providers/${widget.providerId}/credentials';
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
+  void clearPrivate() {
+    generation++;
+    status = null;
+    operations = null;
+    message = null;
+    busy = false;
+    uncertain = false;
+  }
+
+  @override
+  void didUpdateWidget(covariant OcpiCredentialsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.providerId != widget.providerId) {
+      clearPrivate();
+      authorized = widget.api.sessionFence();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted)
+      setState(() {
+        if (!foreground) clearPrivate();
+      });
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> load({int page = 1}) async {
+    if (!foreground || !authorized()) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -54,7 +97,7 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView> {
       if (value['charging_commands_enabled'] != false ||
           value['billing_eligible'] != false)
         throw const FormatException('Unexpected partner authority');
-      if (mounted && epoch == generation)
+      if (current(epoch))
         setState(() {
           status = value;
           operations = history;
@@ -63,12 +106,12 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView> {
     } catch (e) {
       fail(e, epoch);
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   void fail(Object e, int epoch) {
-    if (!mounted || epoch != generation) return;
+    if (!current(epoch)) return;
     setState(() {
       status = null;
       operations = null;
@@ -86,15 +129,17 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView> {
   }
 
   Future<void> exchange(String action) async {
-    if (busy || uncertain) return;
+    if (!foreground || !authorized() || busy || uncertain) return;
+    final decision = generation;
     final reason = await showDialog<String>(
       context: context,
       builder: (_) => _ApprovalNote(
         title: actionTitle(action),
         ar: Localizations.localeOf(context).languageCode == 'ar',
+        authorized: () => current(decision),
       ),
     );
-    if (!mounted || reason == null || busy || uncertain) return;
+    if (!current(decision) || reason == null || busy || uncertain) return;
     final body = {
       'action': action,
       'reason': reason,
@@ -107,14 +152,14 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView> {
     });
     try {
       await widget.api.request(path, method: 'POST', body: body);
-      if (mounted && epoch == generation) await load();
+      if (current(epoch)) await load();
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current(epoch)) {
         setState(() => uncertain = true);
         fail(e, epoch);
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
@@ -181,103 +226,145 @@ class _OcpiCredentialsState extends State<OcpiCredentialsView> {
   };
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(partnerCredentialsTitle(context))),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(
-          tr(
-            'Tokens stay on the server. Exchanges are one-shot. Unknown outcomes require partner reconciliation. No charging or billing authority is granted.',
-            'تبقى الرموز على الخادم. يُنفذ التبادل مرة واحدة. تتطلب النتائج غير المعروفة مطابقة مع الشريك. لا تُمنح صلاحية الشحن أو الفوترة.',
+  Widget build(BuildContext context) {
+    if (!foreground || !authorized())
+      return Scaffold(
+        appBar: AppBar(title: Text(partnerCredentialsTitle(context))),
+      );
+    return Scaffold(
+      appBar: AppBar(title: Text(partnerCredentialsTitle(context))),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            tr(
+              'Tokens stay on the server. Exchanges are one-shot. Unknown outcomes require partner reconciliation. No charging or billing authority is granted.',
+              'تبقى الرموز على الخادم. يُنفذ التبادل مرة واحدة. تتطلب النتائج غير المعروفة مطابقة مع الشريك. لا تُمنح صلاحية الشحن أو الفوترة.',
+            ),
           ),
-        ),
-        TextButton(
-          onPressed: busy ? null : () => load(page: operations?.current ?? 1),
-          child: Text(tr('Refresh', 'تحديث')),
-        ),
-        if (busy) const LinearProgressIndicator(),
-        if (message != null) Text(message!),
-        if (status != null) ...[
-          Text(stateTitle('${status!['state']}')),
-          if (status!['configured'] != true)
-            Text(
-              tr(
-                'Approved managed credentials configuration unavailable.',
-                'تهيئة بيانات الاعتماد المُدارة المعتمدة غير متاحة.',
-              ),
-            ),
-          if (status!['bootstrap_expires_at'] != null)
-            Text(
-              '${tr('Enrollment expires (UTC)', 'تنتهي مهلة التسجيل (UTC)')}: ${status!['bootstrap_expires_at']}',
-            ),
-          if (status!['exchanged_at'] != null)
-            Text('${status!['exchanged_at']}'),
-          for (final action in (status!['available_actions'] as List? ?? []))
-            if ([
-              'register',
-              'rotate',
-              'unregister',
-              'prepare_incoming',
-            ].contains(action))
-              TextButton(
-                onPressed: busy || uncertain
-                    ? null
-                    : () => exchange(action as String),
-                child: Text(actionTitle(action as String)),
-              ),
-        ],
-        if (operations != null) ...[
-          for (final op in operations!.items)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '#${op['id']} · ${actionTitle('${op['action']}')} · ${stateTitle('${op['state']}')}',
-                    ),
-                    Text('${op['attempted_at'] ?? op['created_at']}'),
-                  ],
+          TextButton(
+            onPressed: busy ? null : () => load(page: operations?.current ?? 1),
+            child: Text(tr('Refresh', 'تحديث')),
+          ),
+          if (busy) const LinearProgressIndicator(),
+          if (message != null) Text(message!),
+          if (status != null) ...[
+            Text(stateTitle('${status!['state']}')),
+            for (final entry in [
+              [
+                'configured_receiver_modules',
+                tr('Configured partner reception', 'استقبال الشريك المهيأ'),
+              ],
+              [
+                'active_receiver_modules',
+                tr('Active credential reception', 'استقبال التفويض النشط'),
+              ],
+            ])
+              if (status![entry[0]] is List)
+                Text(
+                  '${entry[1]}: ${(status![entry[0]] as List).where((m) => ['locations', 'tariffs', 'sessions', 'cdrs'].contains(m)).join(', ')}',
+                ),
+
+            if (status!['configured'] != true)
+              Text(
+                tr(
+                  'Approved managed credentials configuration unavailable.',
+                  'تهيئة بيانات الاعتماد المُدارة المعتمدة غير متاحة.',
                 ),
               ),
+            if (status!['bootstrap_expires_at'] != null)
+              Text(
+                '${tr('Enrollment expires (UTC)', 'تنتهي مهلة التسجيل (UTC)')}: ${status!['bootstrap_expires_at']}',
+              ),
+            if (status!['exchanged_at'] != null)
+              Text('${status!['exchanged_at']}'),
+            for (final action in (status!['available_actions'] as List? ?? []))
+              if ([
+                'register',
+                'rotate',
+                'unregister',
+                'prepare_incoming',
+              ].contains(action))
+                TextButton(
+                  onPressed: busy || uncertain
+                      ? null
+                      : () => exchange(action as String),
+                  child: Text(actionTitle(action as String)),
+                ),
+          ],
+          if (operations != null) ...[
+            for (final op in operations!.items)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '#${op['id']} · ${actionTitle('${op['action']}')} · ${stateTitle('${op['state']}')}',
+                      ),
+                      Text('${op['attempted_at'] ?? op['created_at']}'),
+                    ],
+                  ),
+                ),
+              ),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: busy || operations!.current <= 1
+                      ? null
+                      : () => load(page: operations!.current - 1),
+                  child: Text(tr('Previous', 'السابق')),
+                ),
+                Text('${operations!.current} / ${operations!.last}'),
+                TextButton(
+                  onPressed: busy || operations!.current >= operations!.last
+                      ? null
+                      : () => load(page: operations!.current + 1),
+                  child: Text(tr('Next', 'التالي')),
+                ),
+              ],
             ),
-          Row(
-            children: [
-              TextButton(
-                onPressed: busy || operations!.current <= 1
-                    ? null
-                    : () => load(page: operations!.current - 1),
-                child: Text(tr('Previous', 'السابق')),
-              ),
-              Text('${operations!.current} / ${operations!.last}'),
-              TextButton(
-                onPressed: busy || operations!.current >= operations!.last
-                    ? null
-                    : () => load(page: operations!.current + 1),
-                child: Text(tr('Next', 'التالي')),
-              ),
-            ],
-          ),
+          ],
         ],
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class _ApprovalNote extends StatefulWidget {
   final String title;
   final bool ar;
-  const _ApprovalNote({required this.title, required this.ar});
+  final bool Function() authorized;
+  const _ApprovalNote({
+    required this.title,
+    required this.ar,
+    required this.authorized,
+  });
   @override
   State<_ApprovalNote> createState() => _ApprovalNoteState();
 }
 
-class _ApprovalNoteState extends State<_ApprovalNote> {
+class _ApprovalNoteState extends State<_ApprovalNote>
+    with WidgetsBindingObserver {
   final note = TextEditingController();
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed && mounted) {
+      FocusScope.of(context).unfocus();
+      setState(note.clear);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     note.dispose();
     super.dispose();
   }
@@ -301,7 +388,7 @@ class _ApprovalNoteState extends State<_ApprovalNote> {
         child: Text(widget.ar ? 'إلغاء' : 'Cancel'),
       ),
       TextButton(
-        onPressed: note.text.trim().length < 10
+        onPressed: !widget.authorized() || note.text.trim().length < 10
             ? null
             : () => Navigator.pop(context, note.text.trim()),
         child: Text(widget.ar ? 'تأكيد' : 'Confirm'),
