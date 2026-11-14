@@ -9,6 +9,8 @@ use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Models\User;
+use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\CommandReconciler;
 use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\StationGate;
@@ -23,11 +25,14 @@ class CsmsDispatcher
     {
         abort_unless(config('csms.simulator_enabled') && ! app()->environment('production'), 503, 'Simulator dispatch is disabled.');
         app(CommandReconciler::class)->forCommand($id);
-        $stationId = ChargerCommand::findOrFail($id)->station_id;
-        $command = DB::transaction(function () use ($id, $stationId) {
+        $hint = ChargerCommand::findOrFail($id);
+        $stationId = $hint->station_id;
+        $actorId = $hint->actor_id;
+        $command = DB::transaction(function () use ($id, $stationId, $actorId) {
+            $actor = User::whereKey($actorId)->lockForUpdate()->firstOrFail();
             Station::whereKey($stationId)->lockForUpdate()->firstOrFail();
             $c = ChargerCommand::whereKey($id)->lockForUpdate()->firstOrFail();
-            abort_unless($c->station_id === $stationId, 409, 'Command station changed.');
+            abort_unless($c->station_id === $stationId && $c->actor_id === $actorId, 409, 'Command station changed.');
             if ($c->status === 'pending') {
                 if (isset($c->payload['session_id'])) {
                     $linked = SessionLink::where('charging_session_id', $c->payload['session_id'])->first();
@@ -38,14 +43,24 @@ class CsmsDispatcher
                     }
                 }
                 if ($c->action === 'start') {
-                    $blocked = null;
-                    if (isset($c->payload['session_id'])) {
+                    $blocked = app(ChargingActorConsent::class)->matches($actor, $c->consent_auth_epoch) ? null : 'pre_dispatch_actor_revoked';
+                    $station = Station::findOrFail($c->station_id);
+                    if (! $blocked && ! User::whereKey($station->vendor_id)->where('role', 'vendor')->where('account_status', 'active')->exists()) {
+                        $blocked = 'pre_dispatch_vendor_unavailable';
+                    }
+                    if (! $blocked && isset($c->payload['session_id'])) {
                         $session = ChargingSession::findOrFail($c->payload['session_id']);
                         $booking = Reservation::findOrFail($session->reservation_id);
+                        if ($actor->role !== 'customer' || $booking->user_id !== $actor->id) {
+                            $blocked = 'pre_dispatch_actor_revoked';
+                        }
                         $start = CarbonImmutable::parse($booking->starts_at, 'UTC');
                         if ($booking->status !== 'confirmed' || ! now()->gte($start) || ! now()->lt($start->addMinutes(30))) {
                             $blocked = 'pre_dispatch_window_unavailable';
                         }
+                    }
+                    if (! $blocked && ! isset($booking) && ! ($actor->role === 'vendor' && $station->vendor_id === $actor->id)) {
+                        $blocked = 'pre_dispatch_actor_revoked';
                     }
                     if (! $blocked) {
                         try {
@@ -82,7 +97,7 @@ class CsmsDispatcher
             }
 
             return null;
-        });
+        }, 3);
         if (! $command) {
             app(CommandReconciler::class)->forCommand($id);
 

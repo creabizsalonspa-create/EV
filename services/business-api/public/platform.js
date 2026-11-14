@@ -278,9 +278,14 @@ async function identity() {
     }
     renderIdentity();
     await vehicleModelCatalog.setActor(user);
+    if (epoch !== client.sessionEpoch) return;
     vehicleManualSoc.setActor(user);
     if (user && epoch === client.sessionEpoch) setIdentityBusy(false);
     if (!user) clearPrivateViews();
+    // Company controls must not wait behind unrelated customer/support reads.
+    // This remains an authenticated read with the workspace's own actor fence.
+    await vendorWorkspace.setActor(user);
+    if (epoch !== client.sessionEpoch) return;
     if (user) {
         await bookings();
         await simulations();
@@ -290,7 +295,6 @@ async function identity() {
     }
     await window.EvPhoneVerification?.setActor(user, api);
     await window.EvAccountSecondFactor?.setActor(user, api);
-    await vendorWorkspace.setActor(user);
     await stationInfo.setActor(user);
     await riderWorkspace.setActor(user);
     await roamingWorkspace.setActor(user);
@@ -849,7 +853,9 @@ async function simulations() {
                 a.append(reconcile);
             }
         }
-        if (s.start_admission_blocked)
+        if (s.start_authorization_revoked)
+            a.append(ui("p", "Start authorization revoked"));
+        else if (s.start_admission_blocked)
             a.append(ui("p", "Start admission blocked"));
         if (user.role === "customer" && s.can_cancel_before_dispatch) {
             const cancel = ui("button", "Cancel undispatched start");
