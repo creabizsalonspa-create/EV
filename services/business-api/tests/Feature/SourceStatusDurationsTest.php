@@ -99,4 +99,21 @@ class SourceStatusDurationsTest extends TestCase
         $this->assertSame('observation_budget_exceeded', $report['reason']);
         $this->assertSame([], $report['components']);
     }
+
+    public function test_current_fractional_second_is_observed_without_counting_future_or_unelapsed_time(): void
+    {
+        $binding = $this->binding();
+        $this->travelTo(CarbonImmutable::parse('2026-11-28T12:00:00.500000Z'));
+        app(FaultMonitor::class)->ingest($binding, ['source_generation' => FaultMonitor::generation($binding), 'events' => [
+            ['id' => 1, 'evseId' => 1, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-28T12:00:00.250000Z'],
+            ['id' => 2, 'evseId' => 1, 'connectorId' => 2, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-28T12:00:00.750000Z'],
+        ]]);
+        $report = app(SourceStatusDurations::class)->report($binding);
+        $this->assertSame('observed', $report['state']);
+        $this->assertCount(1, $report['components']);
+        $this->assertSame(1, $report['components'][0]['connector_number']);
+        $this->assertSame([], (array) $report['components'][0]['observed_status_seconds']);
+        $this->assertSame(86400, $report['components'][0]['unknown_seconds']);
+        $this->assertFalse($report['physical_uptime_verified']);
+    }
 }
