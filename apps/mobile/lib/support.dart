@@ -37,6 +37,14 @@ String inboxNotificationTitle(Map<String, dynamic> row, EvStrings strings) {
   }
 
   switch (row['kind']) {
+    case 'account.security.enabled':
+      return strings.t('accountSecurity_enabled');
+    case 'account.security.disabled':
+      return strings.t('accountSecurity_disabled');
+    case 'account.security.recovery_rotated':
+      return strings.t('accountSecurity_recovery_rotated');
+    case 'account.security.recovery_used':
+      return strings.t('accountSecurity_recovery_used');
     case 'payment.provider_dispute.test':
       return providerDisputeNotificationTarget(row) == null ? strings.t('notificationOtherTitle')
         : strings.t('providerDisputeNotice', {'invoice': id('invoice_id')});

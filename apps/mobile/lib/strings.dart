@@ -16,6 +16,10 @@ class EvStrings {
   }
 
   static const en = <String, String>{
+    'accountSecurity_enabled': "Authenticator enabled for your account. If this was not you, change your password and contact support.",
+    'accountSecurity_disabled': "Authenticator disabled for your account. If this was not you, change your password and contact support.",
+    'accountSecurity_recovery_rotated': "Authenticator recovery codes replaced. If this was not you, change your password and contact support.",
+    'accountSecurity_recovery_used': "An authenticator recovery code was used. If this was not you, change your password and contact support.",
     'calendarClosed':
         'The selected time is outside the station operating calendar.',
     'calendarUnavailable':
@@ -427,6 +431,10 @@ class EvStrings {
     "ledgerUnbalanced": "Ledger needs reconciliation",
   };
   static const ar = <String, String>{
+    'accountSecurity_enabled': "تم تفعيل تطبيق التحقق لحسابك. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم.",
+    'accountSecurity_disabled': "تم تعطيل تطبيق التحقق لحسابك. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم.",
+    'accountSecurity_recovery_rotated': "تم استبدال رموز استرداد تطبيق التحقق. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم.",
+    'accountSecurity_recovery_used': "تم استخدام رمز استرداد لتطبيق التحقق. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم.",
     'calendarClosed': 'الوقت المحدد خارج جدول عمل المحطة.',
     'calendarUnavailable': 'جدول العمل غير متاح. حدّث قبل الحجز أو بدء الشحن.',
     'notificationCategoryCounts':

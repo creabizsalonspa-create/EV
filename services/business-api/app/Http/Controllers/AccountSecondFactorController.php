@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Security\AdminTotp;
 use App\Services\Identity\AccountSecondFactor;
+use App\Services\Identity\AccountSecurityNotices;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
@@ -27,6 +28,15 @@ final class AccountSecondFactorController extends Controller
     private function audit(User $user, string $action): void
     {
         DB::table('audit_events')->insert(['actor_id' => $user->id, 'action' => $action, 'subject' => (string) $user->id, 'created_at' => now()]);
+        $event = match ($action) {
+            'account.second_factor.enabled' => 'enabled',
+            'account.second_factor.disable' => 'disabled',
+            'account.second_factor.recovery-codes' => 'recovery_rotated',
+            default => null,
+        };
+        if ($event !== null) {
+            AccountSecurityNotices::record($user, $event);
+        }
     }
 
     private function currentBrowser(Request $request, User $user): void

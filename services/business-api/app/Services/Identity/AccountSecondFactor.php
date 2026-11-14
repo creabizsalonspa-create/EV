@@ -65,6 +65,7 @@ final class AccountSecondFactor
                 ]);
 
                 DB::table('audit_events')->insert(['actor_id' => $user->id, 'action' => 'account.second_factor.recovery_used', 'subject' => (string) $user->id, 'created_at' => now()]);
+                AccountSecurityNotices::record($user, 'recovery_used');
 
                 return;
             }
