@@ -12,7 +12,7 @@ final class ConnectorFreshness
     {
         $now = CarbonImmutable::now('UTC');
         $result = ['state' => 'unknown', 'reported_status' => null, 'observed_at' => null,
-            'checked_at' => $now->toIso8601String(), 'valid_until' => null, 'max_age_seconds' => 300,
+            'checked_at' => $now->toISOString(), 'valid_until' => null, 'max_age_seconds' => 300,
             'evidence' => 'SIMULATED_SOURCE', 'physical_availability_verified' => false];
         if (! $binding || $evse === null || $connector === null) {
             return $result;
@@ -25,8 +25,8 @@ final class ConnectorFreshness
             return $result;
         }
         $observed = CarbonImmutable::parse($latest->occurred_at, 'UTC');
-        $result['observed_at'] = $observed->toIso8601String();
-        $result['valid_until'] = $observed->addSeconds(300)->toIso8601String();
+        $result['observed_at'] = $observed->toISOString();
+        $result['valid_until'] = $observed->addSeconds(300)->toISOString();
         // Conflicting reports at the same instant cannot be resolved by row ID.
         $conflict = (clone $query)->where('occurred_at', $latest->occurred_at)
             ->where(fn ($q) => $q->where('status', '!=', $latest->status)

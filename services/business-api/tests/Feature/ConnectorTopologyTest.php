@@ -125,6 +125,9 @@ class ConnectorTopologyTest extends TestCase
             ->assertJsonPath('data.0.status_freshness.state', 'recent')->assertJsonPath('data.1.status_freshness.state', 'unknown')
             ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.reservable', true)
             ->assertJsonPath('data.0.status_freshness.physical_availability_verified', false);
+        foreach (['checked_at', 'observed_at', 'valid_until'] as $field) {
+            $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/D', $reply->json('data.0.status_freshness.'.$field));
+        }
         $this->assertStringNotContainsString($observation['source_generation'], $reply->getContent());
         $this->travel(300)->seconds();
         $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'stale')->assertJsonPath('data.0.status_freshness.reported_status', null);
