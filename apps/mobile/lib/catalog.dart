@@ -71,7 +71,7 @@ class CatalogController extends ChangeNotifier {
 class CatalogView extends StatefulWidget {
   final CatalogLoader loader;
   final EvApi? discoveryApi;
-  final VoidCallback? onRoaming, onFavorites, onExpired;
+  final VoidCallback? onRoaming, onFavorites, onExpired, onUnified;
   final Future<bool> Function(Station, bool)? onFavorite;
   final bool savedOnly;
   final void Function(Station)? onChooseConnectors;
@@ -83,6 +83,7 @@ class CatalogView extends StatefulWidget {
     required this.loader,
     this.discoveryApi,
     this.onRoaming,
+    this.onUnified,
     this.onFavorites,
     this.onExpired,
     this.onFavorite,
@@ -225,6 +226,8 @@ class CatalogViewState extends State<CatalogView> {
                 style: Theme.of(context).textTheme.headlineLarge,
               ),
               Text(s.t('development')),
+              if (widget.onUnified != null)
+                OutlinedButton(onPressed:widget.onUnified,child:Text(s.arabic?'البحث في كل المصادر':'Search all sources')),
               if (widget.onRoaming != null)
                 OutlinedButton.icon(
                   key: const Key('roaming-open'),

@@ -104,6 +104,7 @@ function clearPrivateViews() {
     tariffWorkspace.clear();
     window.EvAdminSessions?.clear();
     window.EvAccountSessions?.clear();
+    window.EvUnifiedDiscovery?.active?.clear();
     window.EvPhoneVerification?.clear();
     window.EvAccountSecondFactor?.clear();
     commandRequest?.abort();
@@ -145,6 +146,7 @@ function renderIdentity() {
     el("forgot-password").hidden = !!user;
     el("signed").hidden = !user;
     el("bookings").hidden = !user;
+    el("unified-discovery-panel").hidden = !user;
     el("vendor").hidden = user?.role !== "vendor";
     if (user)
         EvLocale.bind(el("who"), "{name} · {role}", {
@@ -2710,4 +2712,11 @@ window.addEventListener('storage', event => {
         clearIdentity();
         window.location.assign('/?sessions=revoked');
     }
+});
+
+window.addEventListener('unified-catalog-open', event => {
+    if (!Number.isSafeInteger(event.detail) || event.detail < 1) return;
+    favoriteMode = false;
+    el('filters').reset();
+    stations('?station_id=' + event.detail).then(() => el('stations').scrollIntoView({block:'start'})).catch(error => { el("catalog-state").textContent = error.message; });
 });

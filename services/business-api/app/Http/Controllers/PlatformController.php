@@ -109,8 +109,11 @@ class PlatformController extends Controller
 
     public function stations(Request $r)
     {
-        $v = $r->validate(['q' => 'nullable|string|max:100', 'operator' => 'nullable|string|max:100', 'access' => 'nullable|string|max:150', 'address' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'connector_type' => 'sometimes|in:CCS2,Type2,CHAdeMO', 'country' => 'sometimes|string|size:2', 'min_power_kw' => 'sometimes|integer|min:1|max:1000', 'latitude' => 'required_with:longitude,radius_km|numeric|between:-90,90', 'longitude' => 'required_with:latitude,radius_km|numeric|between:-180,180', 'radius_km' => 'required_with:latitude,longitude|numeric|between:1,200']);
+        $v = $r->validate(['station_id' => 'nullable|integer|min:1', 'q' => 'nullable|string|max:100', 'operator' => 'nullable|string|max:100', 'access' => 'nullable|string|max:150', 'address' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'connector_type' => 'sometimes|in:CCS2,Type2,CHAdeMO', 'country' => 'sometimes|string|size:2', 'min_power_kw' => 'sometimes|integer|min:1|max:1000', 'latitude' => 'required_with:longitude,radius_km|numeric|between:-90,90', 'longitude' => 'required_with:latitude,radius_km|numeric|between:-180,180', 'radius_km' => 'required_with:latitude,longitude|numeric|between:1,200']);
         $q = Station::query();
+        if (isset($v['station_id'])) {
+            $q->whereKey($v['station_id']);
+        }
         app(CatalogTextFilters::class)->apply($q, $v);
         app(CatalogPriceFilter::class)->apply($q, $v);
         if (isset($v['country'])) {

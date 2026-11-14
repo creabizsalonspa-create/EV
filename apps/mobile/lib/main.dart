@@ -1,3 +1,4 @@
+import 'unified_discovery.dart';
 import 'session_cost.dart';
 import 'precharge_pricing.dart';
 import 'vendor_campaigns.dart';
@@ -1078,6 +1079,13 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                   if (mounted && account?.role == 'customer')
                     await catalogKey.currentState?.refresh();
                 },
+                onUnified: () => Navigator.of(context).push(MaterialPageRoute<void>(builder:(unifiedContext)=>UnifiedDiscoveryView(api:api!,onCatalog:(station){
+                  Navigator.of(unifiedContext).push(MaterialPageRoute<void>(builder:(detailContext)=>Scaffold(appBar:AppBar(title:Text(station.name)),body:CatalogView(
+                    discoveryApi:api,customer:account?.role=='customer',
+                    loader:(_,page)async=>ApiPage.fromJson(await api!.request('stations',query:{'station_id':'${station.id}','page':'$page'}),Station.fromJson),
+                    onChooseConnectors:chooseConnectors,onReserve:reserve,
+                  ))));
+                }))),
                 onRoaming: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => RoamingView(
