@@ -33,7 +33,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (DB::table('charging_price_consents')->exists() || DB::table('finance_session_quotes')->exists()) {
+        if (DB::table('charging_price_consents')->exists() || (DB::getDriverName() === 'sqlite' && DB::table('finance_session_quotes')->exists())) {
             throw new RuntimeException('Preserve accepted pricing and canonical quote history; use a forward migration.');
         }
         Schema::table('finance_session_quotes', fn (Blueprint $t) => $t->dropConstrainedForeignId('price_consent_id'));

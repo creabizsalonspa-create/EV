@@ -38,5 +38,16 @@
     "tests": 11,
     "assertions": 162,
     "result": "passed"
+  },
+  "postgresql_full_concurrency_after_review_fix": {
+    "tests": 89,
+    "assertions": 1302,
+    "result": "passed"
+  },
+  "postgresql_pricing_rollback": {
+    "tests": 7,
+    "assertions": 123,
+    "result": "passed",
+    "scope": "Used receipts still block rollback; unused PostgreSQL FK rollback preserves legacy quotes and immutability"
   }
 }

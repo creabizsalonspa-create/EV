@@ -168,4 +168,22 @@ class PrechargePricingTest extends TestCase
         $this->assertNull(SessionQuote::first()->price_consent_id);
         $this->assertDatabaseCount('charging_price_consents', 0);
     }
+
+    public function test_unused_postgres_pricing_schema_can_roll_back_without_mutating_legacy_quotes(): void
+    {
+        if (DB::getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL can drop an unused FK column without rebuilding immutable quotes.');
+        }
+        [, $customer, $station, , $id] = $this->scenario();
+        $this->deleteJson('/api/reservations/'.$id)->assertOk();
+        $legacy = Reservation::create(['user_id' => $customer->id, 'station_id' => $station->id, 'starts_at' => now(), 'idempotency_key' => 'rollback-unused-price']);
+        $this->postJson('/api/reservations/'.$legacy->id.'/simulate-start')->assertCreated();
+        $before = SessionQuote::firstOrFail();
+        $migration = require database_path('migrations/2026_11_28_000001_create_charging_price_consents.php');
+        $migration->down();
+        $this->assertSame($before->rate_minor_per_kwh, SessionQuote::firstOrFail()->rate_minor_per_kwh);
+        $this->assertSame($before->id, SessionQuote::firstOrFail()->id);
+        $this->expectException(QueryException::class);
+        DB::table('finance_session_quotes')->where('id', $before->id)->update(['rate_minor_per_kwh' => 0]);
+    }
 }
