@@ -26,7 +26,7 @@ const failureCodes = new Set([
   "expired_before_dispatch",
 ]);
 const safeState = (value) => (states.has(value) ? value : "unavailable");
-function redact({ protocol, status = {}, journal = {}, commands = [] }) {
+function redact({ protocol, status = {}, journal = {}, commands = [], backend = {} }) {
   return {
     protocol: ["1.6", "2.0.1"].includes(protocol) ? protocol : "unknown",
     device_state: safeState(status.state),
@@ -53,6 +53,12 @@ function redact({ protocol, status = {}, journal = {}, commands = [] }) {
         ? row.failure_code
         : null,
     })),
+    backend: {
+      exception_kind: ['sqlite_locked','database_deadlock','unique_constraint','foreign_key_constraint','undefined_call','type_error','database_error'].includes(backend.exception_kind) ? backend.exception_kind : 'unavailable',
+      application_file: typeof backend.application_file === 'string' && /^(?:[A-Za-z0-9_]+\/){0,6}[A-Za-z0-9_]+\.php$/.test(backend.application_file) ? backend.application_file : null,
+      application_line: Number.isSafeInteger(backend.application_line) && backend.application_line > 0 && backend.application_line < 10000 ? backend.application_line : null,
+      correlation: 'RECENT_UNATTRIBUTED_LOCAL_ERROR',
+    },
     evidence: "SIMULATED_CSMS_FAILURE_DIAGNOSTIC",
     commands_replayed: false,
     physical_charging_verified: false,
@@ -94,20 +100,13 @@ function capture(file, station) {
       return {};
     }
   };
-  let commands = [];
+  let commands = [], backend = {};
   try {
-    const php =
-      'require "vendor/autoload.php"; $app=require "bootstrap/app.php"; $app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); if (!app()->environment(["local","testing"])) exit(2); $session=App\\Models\\ChargingSession::where("reservation_id",' +
-      station.reservation_id +
-      ')->first(); echo json_encode($session ? App\\Models\\ChargerCommand::where("payload->session_id",$session->id)->orderBy("id")->limit(2)->get(["id","action","status","failure_code"]) : []);';
-    commands = JSON.parse(
-      execFileSync("./scripts/php", ["-r", php], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 15000,
-        maxBuffer: 16384,
-      }),
-    );
+    const result = JSON.parse(execFileSync('./scripts/php', ['tests/Fixtures/client-demo-backend-diagnostic.php', String(station.reservation_id)], {
+      encoding:'utf8', stdio:['ignore','pipe','ignore'], timeout:15000, maxBuffer:16384
+    }));
+    commands = Array.isArray(result.commands) ? result.commands : [];
+    backend = result.backend || {};
   } catch {
     /* Missing diagnostics never replace or retry the original failure. */
   }
@@ -116,6 +115,7 @@ function capture(file, station) {
     status: read("status-"),
     journal: read("device-"),
     commands,
+    backend,
   });
   fs.mkdirSync("artifacts/operational-browser", { recursive: true });
   fs.writeFileSync(

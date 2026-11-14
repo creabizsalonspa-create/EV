@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const { randomUUID } = require("node:crypto");
 const assert = require("node:assert/strict");
+const { CONNECT_TIMEOUT_MS, RPC_TIMEOUT_MS } = require('./csms-timeouts.cjs');
 const env = fs.readFileSync("services/csms/charging/.env", "utf8");
 const secret = env
   .split("\n")
@@ -176,7 +177,7 @@ class SimulatedCharger {
       }
     });
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(Error("Connect timeout")), 10000);
+      const timer = setTimeout(() => reject(Error("Connect timeout")), CONNECT_TIMEOUT_MS);
       this.socket.addEventListener(
         "open",
         () => {
@@ -223,7 +224,7 @@ class SimulatedCharger {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(Error(action + " timed out"));
-      }, 25000);
+      }, RPC_TIMEOUT_MS);
       this.pending.set(id, {
         resolve: (x) => {
           clearTimeout(timer);

@@ -35,6 +35,7 @@ test("failure evidence whitelists owned operational state and excludes credentia
 test("malformed diagnostic fields cannot copy arbitrary private strings into artifacts", () => {
   const result = redact({
     protocol: "SECRET",
+    backend: {exception_kind:"SECRET",application_file:"https://SECRET?token=key",application_line:"SECRET",message:"SECRET"},
     status: { state: "SECRET" },
     journal: { phase: "SECRET", meter_wh: -1 },
     commands: Array.from({ length: 4 }, () => ({

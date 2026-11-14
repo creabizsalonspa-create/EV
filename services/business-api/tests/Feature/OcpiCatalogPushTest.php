@@ -43,6 +43,19 @@ class OcpiCatalogPushTest extends TestCase
         return ['country_code' => 'NL', 'party_id' => 'ABC', 'id' => 'location-1', 'last_updated' => now()->subMinutes(5)->toISOString(), 'publish' => true, 'name' => 'Pushed partner station', 'address' => 'Synthetic address', 'city' => 'Amsterdam', 'country' => 'NLD', 'coordinates' => ['latitude' => '52.37', 'longitude' => '4.89'], 'private_extension' => 'PRIVATE-PARTNER-PAYLOAD', 'evses' => [['uid' => 'evse-1', 'status' => 'AVAILABLE', 'connectors' => [['id' => '1', 'standard' => 'IEC_62196_T2_COMBO']]]]];
     }
 
+    public function test_catalog_routes_require_the_scoped_peer_token_even_with_an_admin_browser_session(): void
+    {
+        [, , , $path] = $this->context();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin);
+        foreach ([['GET', $path], ['PUT', $path], ['PATCH', $path.'/evse-1/1'], ['GET', '/api/roaming-protocol/2.2.1/tariffs/NL/ABC/tariff-1'], ['PUT', '/api/roaming-protocol/2.2.1/tariffs/NL/ABC/tariff-1'], ['DELETE', '/api/roaming-protocol/2.2.1/tariffs/NL/ABC/tariff-1']] as [$method, $route]) {
+            $this->json($method, $route, $this->location())->assertUnauthorized();
+            $this->json($method, $route, $this->location(), ['Authorization' => 'Token '.base64_encode('INVALID-SYNTHETIC-TOKEN')])->assertUnauthorized();
+        }
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('ocpi_record_receipts', 0);
+    }
+
     public function test_catalog_push_reuses_owned_operations_and_public_discovery_without_financial_or_charging_authority(): void
     {
         [$provider, $owner, $headers, $path] = $this->context();
@@ -55,6 +68,8 @@ class OcpiCatalogPushTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->withToken($owner->createToken('native-ocpi')->plainTextToken)->getJson('/api/v1/ocpi/providers/'.$provider->id.'/records/locations')->assertOk()->assertJsonPath('data.0.normalized.availability', 'unknown');
         $this->getJson('/api/v1/ocpi/providers/'.$provider->id.'/credentials')->assertOk()->assertJsonPath('active_receiver_modules', ['cdrs', 'locations', 'sessions', 'tariffs']);
+        $this->app['auth']->forgetGuards();
+        $this->withToken(User::factory()->create(['role' => 'admin'])->createToken('forbidden-native-admin')->plainTextToken)->getJson('/api/v1/ocpi/providers/'.$provider->id.'/records/locations')->assertForbidden();
         $this->assertDatabaseCount('ocpi_record_receipts', 1);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charger_commands', 0);

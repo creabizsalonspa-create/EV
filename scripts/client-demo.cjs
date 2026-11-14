@@ -4,6 +4,7 @@ const fs = require("node:fs"),
   assert = require("node:assert/strict");
 const { randomBytes } = require("node:crypto");
 const { spawn, spawnSync, execFileSync } = require("node:child_process");
+const { SIMULATOR_STARTUP_TIMEOUT_MS } = require('../tests/helpers/csms-timeouts.cjs');
 const root = path.resolve(__dirname, ".."),
   base = path.join(root, "artifacts/client-demo");
 process.chdir(root);
@@ -170,15 +171,21 @@ async function main() {
       write(file, { pid });
       running = true;
       let ready = false;
-      for (let attempt = 0; attempt < 80; attempt++) {
+      // Connection, BootNotification and initial status each have their own
+      // existing transport deadline. Readiness must allow those valid replies.
+      const readinessDeadline = Date.now() + SIMULATOR_STARTUP_TIMEOUT_MS;
+      while (Date.now() < readinessDeadline) {
         const readyFile = path.join(dir, "status-" + suffix + ".json");
-        if (
-          fs.existsSync(readyFile) &&
-          JSON.parse(fs.readFileSync(readyFile, "utf8")).pid === pid &&
-          JSON.parse(fs.readFileSync(readyFile, "utf8")).state === "idle"
-        ) {
-          ready = true;
-          break;
+        if (fs.existsSync(readyFile)) {
+          const observed = JSON.parse(fs.readFileSync(readyFile, 'utf8'));
+          if (observed.pid === pid) {
+            assert(observed.state !== 'requires_operator_review', 'Simulator requires source/operator review.');
+            const age = Date.now() - Date.parse(observed.observed_at);
+            if (observed.state === 'idle' && age >= 0 && age <= 35000) {
+              ready = true;
+              break;
+            }
+          }
         }
         if (!owned(pid, manifest))
           throw Error("Simulator did not remain running.");
@@ -208,7 +215,17 @@ async function main() {
     );
   }
 }
-main().catch(() => {
+main().catch((error) => {
+  // Fixed operator reason codes only; never emit errors, manifests, tokens or journals.
+  const reasons = new Map([
+    ['Unresolved device state must be reconciled; never remove its journal.', 'unresolved_journal'],
+    ['PID belongs to another process.', 'foreign_process'],
+    ['Simulator did not remain running.', 'child_exited'],
+    ['Simulator has not reached online idle readiness.', 'readiness_unobserved'],
+    ['Simulator shutdown requires review.', 'shutdown_incomplete'],
+    ['Simulator requires source/operator review.', 'source_review_required'],
+  ]);
+  console.error(JSON.stringify({component:'local_demo', action:['prepare','start','stop','status','swipe'].includes(mode) ? mode : 'unknown', failure_code:reasons.get(error?.message) || 'operator_review_required', commands_replayed:false, physical_charging_verified:false}));
   console.error(
     "Local demo setup/state requires review. Private credentials and source details withheld.",
   );
