@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\FirmwareCompatibility;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
@@ -72,7 +73,82 @@ class SignedFirmwareTest extends TestCase
         }parent::tearDown();
     }
 
-    private function fixture(string $protocol = '1.6'): array
+    #[DataProvider('protocols')]
+    public function test_signed_compatibility_policy_binds_approval_and_current_source_before_transport(string $protocol): void
+    {
+        $f = $this->fixture($protocol, ['protocols' => [$protocol], 'from_versions' => ['sim-fw-v1']]);
+        $this->source($f);
+        $id = $this->actingAs($f['admin'])->postJson($f['releases'], ['catalog_key' => 'synthetic-v1', 'note' => 'Approve independently signed compatibility'])->assertCreated()->json('id');
+        $this->getJson($f['releases'])->assertOk()->assertJsonPath('data.0.compatibility_policy.protocols.0', $protocol)->assertJsonPath('data.0.compatibility_policy.from_versions.0', 'sim-fw-v1')->assertJsonMissingPath('data.0.compatibility_signature');
+        $this->actingAs($f['owner'])->postJson($f['path'], ['release_id' => $id, 'reason' => 'Apply the signed source compatibility path', 'idempotency_key' => 'signed-policy'])->assertCreated()->assertJsonPath('status', 'transport_submitted')->assertJsonPath('physical_execution_verified', false);
+        $this->assertDatabaseCount('charger_firmware_operations', 1);
+    }
+
+    #[DataProvider('protocols')]
+    public function test_unsigned_metadata_change_cannot_change_a_signed_compatibility_path(string $protocol): void
+    {
+        $f = $this->fixture($protocol, ['protocols' => [$protocol], 'from_versions' => ['sim-fw-v1']]);
+        $changed = $f['entry'];
+        $changed['compatibility']['from_versions'] = ['a-different-source-version'];
+        file_put_contents($this->catalogRoot.'/catalog.json', json_encode([$changed], JSON_THROW_ON_ERROR));
+        $this->actingAs($f['admin'])->postJson($f['releases'], ['catalog_key' => 'synthetic-v1', 'note' => 'Metadata signature must bind compatibility'])->assertUnprocessable();
+        $this->assertDatabaseCount('charger_firmware_releases', 0);
+        Http::assertNothingSent();
+    }
+
+    public static function incompatiblePolicies(): array
+    {
+        return [['1.6', 'version'], ['2.0.1', 'version'], ['1.6', 'protocol'], ['2.0.1', 'protocol'], ['1.6', 'missing'], ['2.0.1', 'missing']];
+    }
+
+    #[DataProvider('incompatiblePolicies')]
+    public function test_incompatible_or_unknown_source_never_claims_a_firmware_command(string $protocol, string $failure): void
+    {
+        $allowed = $failure === 'protocol' ? ($protocol === '1.6' ? '2.0.1' : '1.6') : $protocol;
+        $f = $this->fixture($protocol, ['protocols' => [$allowed], 'from_versions' => ['sim-fw-v1']]);
+        $this->source($f, firmwareVersion: $failure === 'version' ? 'sim-fw-unknown' : ($failure === 'missing' ? null : 'sim-fw-v1'));
+        $id = $this->actingAs($f['admin'])->postJson($f['releases'], ['catalog_key' => 'synthetic-v1', 'note' => 'Approve bounded signed compatibility'])->assertCreated()->json('id');
+        $this->actingAs($f['owner'])->postJson($f['path'], ['release_id' => $id, 'reason' => 'Reject incompatible source before command claim', 'idempotency_key' => 'incompatible'])->assertConflict();
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        Http::assertNotSent(fn ($r) => str_ends_with($r->url(), '/dev/token') || str_contains($r->url(), '/signedUpdateFirmware?') || str_contains($r->url(), '/updateFirmware?'));
+    }
+
+    public function test_changed_approved_compatibility_rows_fail_verification_before_source_access(): void
+    {
+        $f = $this->fixture('1.6', ['protocols' => ['1.6'], 'from_versions' => ['sim-fw-v1']]);
+        $id = $this->actingAs($f['admin'])->postJson($f['releases'], ['catalog_key' => 'synthetic-v1', 'note' => 'Approve immutable compatibility evidence'])->assertCreated()->json('id');
+        DB::table('charger_firmware_releases')->where('id', $id)->update(['compatibility_from_versions' => json_encode(['changed-without-signature'])]);
+        $this->actingAs($f['owner'])->postJson($f['path'], ['release_id' => $id, 'reason' => 'Preserve approved policy and artifact integrity', 'idempotency_key' => 'changed-policy'])->assertConflict();
+        $this->assertDatabaseCount('charger_firmware_operations', 0);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('protocols')]
+    public function test_firmware_drift_after_claim_blocks_wire_and_keeps_the_operation_quarantined(string $protocol): void
+    {
+        $f = $this->fixture($protocol, ['protocols' => [$protocol], 'from_versions' => ['sim-fw-v1']]);
+        $this->source($f, drift: true);
+        $id = $this->actingAs($f['admin'])->postJson($f['releases'], ['catalog_key' => 'synthetic-v1', 'note' => 'Approve explicit signed compatibility'])->assertCreated()->json('id');
+        $body = ['release_id' => $id, 'reason' => 'Keep uncertain operation held after source drift', 'idempotency_key' => 'source-drift'];
+        $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'not_dispatched');
+        $this->assertDatabaseCount('charger_firmware_operations', 1);
+        Http::assertNotSent(fn ($r) => str_ends_with($r->url(), '/dev/token') || str_contains($r->url(), '/signedUpdateFirmware?') || str_contains($r->url(), '/updateFirmware?'));
+        $before = Http::recorded()->count();
+        $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('status', 'not_dispatched');
+        $this->assertSame($before, Http::recorded()->count(), 'Exact retry must not re-dispatch after source drift.');
+        $operation = DB::table('charger_firmware_operations')->first();
+        $this->assertNull($operation->reviewed_at, 'The local hold must remain until explicit cancellation.');
+        $this->assertNotNull($operation->download_token_digest);
+        $this->get('/api/internal/firmware/'.Crypt::decryptString($operation->download_token_ciphertext))->assertNotFound();
+        $this->assertNotNull($operation->pre_dispatch_blocked_at);
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('data.0.can_cancel', true);
+        $this->postJson($f['path'].'/'.$operation->id.'/cancel', ['note' => 'Reviewed application proof that no firmware command was sent'])->assertOk();
+        $this->assertDatabaseHas('charger_firmware_operations', ['id' => $operation->id, 'status' => 'cancelled_unsent']);
+        $this->assertNotNull(DB::table('charger_firmware_operations')->where('id', $operation->id)->value('reviewed_at'));
+        $this->assertSame($before, Http::recorded()->count(), 'Cancellation must not contact the charger.');
+    }
+
+    private function fixture(string $protocol = '1.6', ?array $compatibility = null): array
     {
         Http::preventStrayRequests();
         Storage::fake('local');
@@ -88,6 +164,11 @@ class SignedFirmwareTest extends TestCase
         file_put_contents($this->catalogRoot.'/signer.pem', $pem);
         $pin = openssl_x509_fingerprint($pem, 'sha256');
         $entry = ['key' => 'synthetic-v1', 'version' => 'sim-fw-v1', 'manufacturer' => 'Synthetic', 'model' => 'Fixture', 'sha256' => hash('sha256', $bytes), 'file' => 'firmware.bin', 'certificate' => 'signer.pem', 'signature' => base64_encode($signature)];
+        if ($compatibility !== null) {
+            $entry['compatibility'] = $compatibility;
+            openssl_sign(app(FirmwareCompatibility::class)->message($entry, $compatibility), $manifestSignature, $key, OPENSSL_ALGO_SHA256);
+            $entry['compatibility_signature'] = base64_encode($manifestSignature);
+        }
         file_put_contents($this->catalogRoot.'/catalog.json', json_encode([$entry], JSON_THROW_ON_ERROR));
         config(['csms.firmware_enabled' => true, 'csms.rider_client_secret' => str_repeat('s', 64), 'csms.rider_source_api_url' => 'http://source.test', 'csms.session_bridge_enabled' => true, 'csms.firmware_catalog_root' => $this->catalogRoot, 'csms.firmware_signer_pins' => [$pin], 'csms.graphql_secret' => str_repeat('s', 64), 'csms.graphql_url' => 'http://source.test/graph', 'csms.operations_base_url' => 'http://source.test', 'csms.firmware_download_base' => 'http://127.0.0.1:8000']);
         $owner = User::factory()->create(['role' => 'vendor']);
@@ -103,9 +184,10 @@ class SignedFirmwareTest extends TestCase
         return compact('owner', 'admin', 'station', 'company', 'charger', 'binding', 'releases', 'path', 'entry', 'bytes', 'pin', 'protocol');
     }
 
-    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null): void
+    private function source(array $f, bool $unknown = false, bool $loss = false, ?string $statusTime = null, ?string $firmwareVersion = 'sim-fw-v1', bool $drift = false): void
     {
-        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime) {
+        $compatibilityReads = 0;
+        Http::fake(function ($r) use ($f, $unknown, $loss, $statusTime, $firmwareVersion, $drift, &$compatibilityReads) {
             if (str_contains($r->url(), '/capabilities')) {
                 parse_str(parse_url($r->url(), PHP_URL_QUERY), $query);
 
@@ -122,7 +204,9 @@ class SignedFirmwareTest extends TestCase
                     return Http::response(['data' => ['OCPPMessages' => [['payload' => ['status' => 'Installed', 'requestId' => 1]]]]]);
                 }
                 if (str_contains($q, 'ChargingStations')) {
-                    return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'protocol' => $f['protocol'], 'isOnline' => true, 'firmwareVersion' => 'sim-fw-v1', 'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture']]]]);
+                    $reportedVersion = $drift && str_contains($q, 'chargePointVendor') && ++$compatibilityReads > 1 ? 'changed-source-version' : $firmwareVersion;
+
+                    return Http::response(['data' => ['ChargingStations' => [['id' => 9, 'protocol' => $f['protocol'], 'isOnline' => true, 'firmwareVersion' => $reportedVersion, 'chargePointVendor' => 'Synthetic', 'chargePointModel' => 'Fixture']]]]);
                 }
 
                 return Http::response(['data' => ['Transactions' => [], 'Connectors' => [['id' => 7]], 'StatusNotifications' => [['connectorDatabaseId' => 7, 'connectorStatus' => 'Available', 'timestamp' => $statusTime ?? now()->toISOString()]]]]);
@@ -239,6 +323,9 @@ class SignedFirmwareTest extends TestCase
         $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'transport_submitted')->assertJsonPath('physical_execution_verified', false)->json('id');
         $this->postJson($f['path'], $body)->assertOk()->assertJsonPath('id', $id);
         Http::assertSentCount(9);
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('data.0.can_cancel', false);
+        $this->postJson($f['path'].'/'.$id.'/cancel', ['note' => 'Do not accept client supplied dispatch proof', 'status' => 'not_dispatched', 'pre_dispatch_blocked_at' => now()->toISOString()])->assertConflict();
+        Http::assertSentCount(9);
         Http::assertSent(fn ($r) => str_contains($r->url(), $protocol === '1.6' ? '/signedUpdateFirmware?' : '/updateFirmware?') && $r['retries'] === 1 && $r['firmware']['signature'] === $f['entry']['signature']);
         $op = DB::table('charger_firmware_operations')->find($id);
         $raw = Crypt::decryptString($op->download_token_ciphertext);
@@ -273,6 +360,9 @@ class SignedFirmwareTest extends TestCase
         $body = ['release_id' => $release, 'reason' => 'Preserve unknown firmware outcome', 'idempotency_key' => 'unknown'];
         $id = $this->actingAs($f['owner'])->postJson($f['path'], $body)->assertCreated()->assertJsonPath('status', 'outcome_unknown')->json('id');
         $this->postJson($f['path'], $body)->assertOk();
+        Http::assertSentCount(9);
+        $this->getJson($f['path'])->assertOk()->assertJsonPath('data.0.can_cancel', false);
+        $this->postJson($f['path'].'/'.$id.'/cancel', ['note' => 'Reject fabricated client dispatch proof', 'status' => 'not_dispatched', 'pre_dispatch_blocked_at' => now()->toISOString()])->assertConflict();
         Http::assertSentCount(9);
         $this->postJson($f['path'], array_replace($body, ['idempotency_key' => 'new-intent']))->assertConflict();
         $this->postJson($f['path'].'/'.$id.'/review', ['note' => 'Do not fabricate an installation'])->assertConflict();

@@ -1,4 +1,10 @@
 window.EV_MESSAGES = {
+    "Blocked before firmware command submission; review or cancel": {en: "Blocked before firmware command submission; review or cancel", ar: "حُظر قبل إرسال أمر البرنامج الثابت؛ راجع أو ألغِ"},
+    "OCPP protocols": {en: "OCPP protocols", ar: "بروتوكولات OCPP"},
+    "Allowed current firmware": {en: "Allowed current firmware", ar: "البرنامج الثابت الحالي المسموح"},
+    "Approved signed compatibility policy": {en: "Approved signed compatibility policy", ar: "سياسة توافق موقعة معتمدة"},
+    "Legacy model check; no declared signed upgrade path": {en: "Legacy model check; no declared signed upgrade path", ar: "فحص طراز سابق؛ لا يوجد مسار ترقية موقع معلن"},
+    "Compatibility signature will be verified on approval": {en: "Compatibility signature will be verified on approval", ar: "سيتم التحقق من توقيع التوافق عند الاعتماد"},
     "Scheduled partner synchronization": {en: "Scheduled partner synchronization", ar: "مزامنة الشريك المجدولة"},
     "Email activity notices": {en: "Email activity notices", ar: "إشعارات النشاط بالبريد"},
     "Critical in-app notifications always remain visible. Email notices require separate consent and server configuration.": {en: "Critical in-app notifications always remain visible. Email notices require separate consent and server configuration.", ar: "تبقى الإشعارات الحرجة داخل التطبيق ظاهرة. إشعارات البريد تتطلب موافقة مستقلة وتهيئة الخادم."},
