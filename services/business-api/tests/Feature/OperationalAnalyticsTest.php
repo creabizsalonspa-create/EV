@@ -75,7 +75,7 @@ class OperationalAnalyticsTest extends TestCase
             ['id' => 1, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Faulted', 'errorCode' => 'GroundFailure', 'timestamp' => '2026-11-06T10:00:00Z'],
             ['id' => 2, 'evseId' => 0, 'connectorId' => 1, 'connectorStatus' => 'Available', 'errorCode' => 'NoError', 'timestamp' => '2026-11-06T10:02:00Z']]]);
         $before = DB::table('finance_journals')->count();
-        $reply = $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.completed_energy_wh', 2000)->assertJsonPath('sites.0.observed_busy_seconds', 5400)->assertJsonPath('sites.0.source_completed', 2)->assertJsonPath('sites.0.maximum_session_interval_average_w', 1000)->assertJsonPath('sites.0.status_known_seconds', 420)->assertJsonPath('sites.0.reported_fault_seconds', 120)->assertJsonPath('sites.0.status_unknown_seconds', 42780)->assertJsonPath('invoice_facts.0.invoiced_minor', 200)->assertJsonPath('physical_uptime_verified', false);
+        $reply = $this->actingAs($owner)->getJson($url.'?from=2026-11-06&to=2026-11-06')->assertOk()->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', 1000)->assertJsonPath('sites.0.demand_ambiguous_evse_seconds', 1800)->assertJsonPath('sites.0.demand_observed_seconds', 3600)->assertJsonPath('sites.0.completed_energy_wh', 2000)->assertJsonPath('sites.0.observed_busy_seconds', 5400)->assertJsonPath('sites.0.source_completed', 2)->assertJsonPath('sites.0.maximum_session_interval_average_w', 1000)->assertJsonPath('sites.0.status_known_seconds', 420)->assertJsonPath('sites.0.reported_fault_seconds', 120)->assertJsonPath('sites.0.status_unknown_seconds', 42780)->assertJsonPath('invoice_facts.0.invoiced_minor', 200)->assertJsonPath('physical_uptime_verified', false);
         $this->assertSame($before, DB::table('finance_journals')->count());
         $this->assertStringContainsString('no-store', $reply->headers->get('Cache-Control'));
         $this->assertStringNotContainsString('user_id', $reply->getContent());
@@ -142,6 +142,9 @@ class OperationalAnalyticsTest extends TestCase
         $this->actingAs($owner);
         $csv = $this->get($url.'/export')->assertOk();
         $this->assertStringContainsString("'=UNTRUSTED()", $csv->getContent());
+        $this->assertStringContainsString('PARTIAL_INTERVAL_AVERAGES_NOT_GRID_PEAK', $csv->getContent());
+        $this->getJson($url)->assertOk()->assertJsonPath('sites.0.maximum_observed_site_interval_average_w', null)
+            ->assertJsonPath('sites.0.demand_observed_seconds', 0)->assertJsonPath('physical_site_demand_verified', false);
         foreach (['en', 'ar'] as $locale) {
             $pdf = $this->get($url.'/pdf?locale='.$locale)->assertOk()->assertHeader('Content-Type', 'application/pdf');
             $this->assertStringStartsWith('%PDF-', $pdf->getContent());

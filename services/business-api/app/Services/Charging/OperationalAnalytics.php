@@ -69,6 +69,7 @@ class OperationalAnalytics
         abort_if($events->count() > 20000, 409, 'Narrow the report period/site.');
         $byLink = $events->groupBy('link_id');
         $intervals = [];
+        $demand = [];
         $validCompleted = [];
         foreach ($links as $l) {
             $b = $byBinding[$l->binding_id];
@@ -123,6 +124,7 @@ class OperationalAnalytics
                     $fraction = intdiv(($delta % $duration) * 3600, $duration);
                     abort_unless($whole <= intdiv(self::MAX - $fraction, 3600), 409, 'Report exceeds exact numeric bounds.');
                     $watts = $whole * 3600 + $fraction;
+                    $demand[$site][] = [$previous[0], $time, $evse->id, $watts];
                     $rows[$site]['maximum_session_interval_average_w'] = max($rows[$site]['maximum_session_interval_average_w'], $watts);
                 }
                 $previous = [$time, (int) $e->meter_wh];
@@ -189,6 +191,7 @@ class OperationalAnalytics
             $rows[$site]['reported_fault_seconds'] += $fault;
         }
         foreach ($rows as &$row) {
+            $row += app(ObservedSiteDemand::class)->project($demand[$row['site_id']] ?? []);
             $row['status_unknown_seconds'] = $row['possible_connector_seconds'] - $row['status_known_seconds'];
         }unset($row);
         // Canonical invoice facts stay separate by currency, precision and provenance.
@@ -217,7 +220,7 @@ class OperationalAnalytics
                 return ['site_id' => $siteByStation[$g->station_id]->id, 'evidence' => $g->evidence, 'ratings' => $ratings, 'rating_sum' => $sum];
             })->all();
 
-        return ['company_id' => $company->id, 'from' => $from->toDateString(), 'to' => CarbonImmutable::parse($filters['to'] ?? $asOf->toDateString(), 'UTC')->toDateString(), 'as_of' => $asOf->toISOString(), 'until' => $until->toISOString(), 'window_seconds' => $z - $a, 'status_freshness_seconds' => 300, 'sites' => array_values($rows), 'invoice_facts' => array_values($money), 'feedback_groups' => $feedback, 'feedback_scope' => 'currently_published_revisions_created_in_window', 'feedback_physical_charging_verified' => false, 'evidence' => 'SIMULATED_SOURCE', 'physical_uptime_verified' => false, 'billing_authority' => false];
+        return ['company_id' => $company->id, 'from' => $from->toDateString(), 'to' => CarbonImmutable::parse($filters['to'] ?? $asOf->toDateString(), 'UTC')->toDateString(), 'as_of' => $asOf->toISOString(), 'until' => $until->toISOString(), 'window_seconds' => $z - $a, 'status_freshness_seconds' => 300, 'sites' => array_values($rows), 'invoice_facts' => array_values($money), 'feedback_groups' => $feedback, 'feedback_scope' => 'currently_published_revisions_created_in_window', 'feedback_physical_charging_verified' => false, 'evidence' => 'SIMULATED_SOURCE', 'physical_uptime_verified' => false, 'billing_authority' => false, 'demand_scope' => 'sum_of_floored_accepted_session_interval_averages_within_window_excluding_same_evse_overlaps', 'physical_site_demand_verified' => false];
     }
 
     public function csv(array $report): string
@@ -225,6 +228,7 @@ class OperationalAnalytics
         $f = fopen('php://temp', 'w+');
         $safe = fn ($v) => is_string($v) && preg_match('/^[\s\x00-\x1f]*[=+@-]/u', $v) ? "'".$v : $v;
         fputcsv($f, ['SIMULATED_SOURCE', 'from_utc', $report['from'], 'to_utc', $report['to'], 'as_of', $report['as_of']], ',', '"', '');
+        fputcsv($f, ['PARTIAL_INTERVAL_AVERAGES_NOT_GRID_PEAK', 'same_evse_overlaps_excluded', 'blank_demand_is_unknown'], ',', '"', '');
         if ($report['sites']) {
             fputcsv($f, array_keys($report['sites'][0]), ',', '"', '');
             foreach ($report['sites'] as $row) {
