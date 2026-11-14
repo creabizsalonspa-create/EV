@@ -2,20 +2,27 @@ const { chromium } = require("playwright");
 const { execFileSync } = require("node:child_process");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
+const phpRunner = process.env.EV_TEST_PHP_RUNNER || "./scripts/php";
 
 // Shell role changes are privileged test mutations. Never print raw SQL or email.
 function provisionTestRole(email, role) {
   try {
-    execFileSync("./scripts/php", ["artisan", "platform:role", email, role], {
+    execFileSync(phpRunner, ["artisan", "platform:role", email, role], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
     const output = String(error.stdout || "") + String(error.stderr || "");
     const sqlstate = output.match(/SQLSTATE\[([A-Z0-9]{5})\]/);
+    const diagnosis = /database is locked|database table is locked/i.test(output)
+      ? "SQLITE_BUSY_OR_LOCKED"
+      : /readonly database/i.test(output) ? "SQLITE_READONLY"
+      : /unable to open database file/i.test(output) ? "SQLITE_CANTOPEN"
+      : /database or disk is full/i.test(output) ? "SQLITE_FULL"
+      : "DATABASE_CAUSE_UNCLASSIFIED";
     throw new Error(
       "Synthetic role provisioning failed: " +
-        (sqlstate ? "SQLSTATE " + sqlstate[1] : "SQLSTATE unavailable") +
+        (sqlstate ? "SQLSTATE " + sqlstate[1] : "SQLSTATE unavailable") + " · " + diagnosis +
         "; inspect private CI evidence for cause.",
       { cause: { exitCode: error.status } },
     );
@@ -116,7 +123,7 @@ function provisionTestRole(email, role) {
     // Obtain the normal notification URL in memory through the local test shell.
     // This is test-only tooling, not a public verification bypass or mail-delivery claim.
     const verificationUrl = execFileSync(
-      "./scripts/php",
+      phpRunner,
       [
         "-r",
         `
@@ -331,7 +338,7 @@ function provisionTestRole(email, role) {
     await admin.page.locator("#verify-email").click();
     assert.equal((await adminVerificationSent).status(), 202);
     const adminVerificationUrl = execFileSync(
-      "./scripts/php",
+      phpRunner,
       [
         "-r",
         `
