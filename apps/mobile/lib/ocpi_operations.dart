@@ -1,3 +1,4 @@
+import 'ocpi_sync_plans.dart';
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'ocpi_credentials.dart';
@@ -467,6 +468,11 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
                     ),
                     if (p['last_synced_at'] != null)
                       Text('${p['last_synced_at']}'),
+                    TextButton(
+                      onPressed: busy || uncertain ? null : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => OcpiSyncPlansView(api: widget.api, providerId: p['id'] as int, onExpired: widget.onExpired))),
+                      child: Text(tr('Scheduled partner synchronization', 'مزامنة الشريك المجدولة')),
+                    ),
                     TextButton(
                       onPressed: busy || uncertain
                           ? null
