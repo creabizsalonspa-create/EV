@@ -241,6 +241,11 @@ class EvStrings {
     'priceCurrency': 'Price currency',
     'addressSearch': 'Published address contains',
     'invalidPriceFilter': 'Enter a price and its three-letter currency.',
+    'authenticatorCode': 'Authenticator or recovery code',
+    'second_factor_code': 'Authenticator or recovery code',
+    'authenticatorSettings': 'Authenticator two-factor authentication',
+    'factorSupplied': 'Authenticator code supplied. Sign in to verify it.',
+    'authenticatorRequired': 'Use the shield button to enter a fresh authenticator or unused recovery code.',
     'signOutEverywhere': 'Sign out everywhere',
     'operatorName': 'Operator name',
     'accessSearch': 'Access instructions contain',
@@ -637,6 +642,11 @@ class EvStrings {
     'priceCurrency': 'عملة السعر',
     'addressSearch': 'يتضمن العنوان المنشور',
     'invalidPriceFilter': 'أدخل السعر ورمز العملة المكون من ثلاثة أحرف.',
+    'authenticatorCode': 'رمز تطبيق التحقق أو الاسترداد',
+    'second_factor_code': 'رمز تطبيق التحقق أو الاسترداد',
+    'authenticatorSettings': 'المصادقة الثنائية بتطبيق التحقق',
+    'factorSupplied': 'تم إدخال رمز التحقق. سجّل الدخول للتحقق منه.',
+    'authenticatorRequired': 'استخدم زر الدرع لإدخال رمز تحقق جديد أو رمز استرداد غير مستخدم.',
     'signOutEverywhere': 'تسجيل الخروج من جميع الأجهزة',
     'operatorName': 'اسم المشغل',
     'accessSearch': 'تتضمن تعليمات الدخول',
@@ -816,6 +826,7 @@ String errorKey(Object error) {
   // UI translates status classes; raw server diagnostics remain in the API layer.
   if (error is SessionStorageException) return 'secureStorageError';
   if (error is! ApiException) return 'genericError';
+  if (error.status == 422 && error.message == 'Enter a valid authenticator or recovery code.') return 'authenticatorRequired';
   if (error.status == 409) {
     if (error.message ==
         'The selected time is outside the station operating calendar.')

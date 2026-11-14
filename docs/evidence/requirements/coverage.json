@@ -96,18 +96,24 @@
       "merge_sha": "24087a8a7c1d7b2554a0884270293c162be08b8c",
       "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr58-hosted-checkpoint.json"
+    },
+    "pr92": {
+      "source_sha": "205c080c35da4172cbd4f6ff06f088327aca2ef3",
+      "merge_sha": "433bffb312291c34f5be535e4d16b1247b4367f1",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr92-hosted-checkpoint.json"
     }
   },
   "weighted_percent": {
-    "coded": "56.40",
-    "tested": "56.40",
-    "merged": "56.40",
+    "coded": "56.58",
+    "tested": "56.58",
+    "merged": "56.58",
     "production_accepted": "0.00"
   },
   "exact_weighted_fractions": {
-    "coded": "8536417/15135120",
-    "tested": "8536417/15135120",
-    "merged": "8536417/15135120",
+    "coded": "8564137/15135120",
+    "tested": "8564137/15135120",
+    "merged": "8564137/15135120",
     "production_accepted": "0"
   },
   "categories": [
@@ -4185,9 +4191,9 @@
       "requirement": "RBAC/privacy/security/operations",
       "atoms": 13,
       "counts": {
-        "coded": 8,
-        "tested": 8,
-        "merged": 8,
+        "coded": 9,
+        "tested": 9,
+        "merged": 9,
         "production_accepted": 0
       },
       "details": [
@@ -4285,13 +4291,13 @@
         {
           "id": "9.1.8",
           "software_atom": "Global/cross-tab session revocation",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope",
+          "coded": true,
+          "checkpoint": "pr92",
+          "note": "Password-confirmed customer/vendor global revocation, web cross-tab cache invalidation and Flutter cleanup; all nine applicable source checks passed and source/merge trees match. Production acceptance remains separate.",
           "stages": {
-            "coded": false,
-            "tested": false,
-            "merged": false,
+            "coded": true,
+            "tested": true,
+            "merged": true,
             "production_accepted": false
           }
         },

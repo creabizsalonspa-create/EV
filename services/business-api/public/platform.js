@@ -105,6 +105,7 @@ function clearPrivateViews() {
     window.EvAdminSessions?.clear();
     window.EvAccountSessions?.clear();
     window.EvPhoneVerification?.clear();
+    window.EvAccountSecondFactor?.clear();
     commandRequest?.abort();
     el("charging-dashboard").replaceChildren();
     el("commands-state").textContent = "";
@@ -288,6 +289,7 @@ async function identity() {
         await support();
     }
     await window.EvPhoneVerification?.setActor(user, api);
+    await window.EvAccountSecondFactor?.setActor(user, api);
     await vendorWorkspace.setActor(user);
     await stationInfo.setActor(user);
     await riderWorkspace.setActor(user);
@@ -1160,6 +1162,9 @@ el("account").onsubmit = async (e) => {
     if (identityBusy || identityInitializing) return;
     const mode = e.submitter.value,
         values = Object.fromEntries(new FormData(e.target));
+    if (!values.second_factor_code?.trim()) delete values.second_factor_code;
+    const factorField = e.target.elements.namedItem("second_factor_code");
+    if (factorField) factorField.value = "";
     const epoch = clearIdentity();
     setIdentityBusy(true);
     try {
@@ -1178,7 +1183,11 @@ el("account").onsubmit = async (e) => {
         await stations();
         if (epoch === client.sessionEpoch) notice("Signed in.");
     } catch (error) {
-        notice(error);
+        if (error.status === 422 && error.errors?.second_factor_code) {
+            const options = document.querySelector('[data-second-factor-login]');
+            if (options) options.open = true;
+            notice(document.documentElement.lang === 'ar' ? 'أدخل رمز تحقق جديداً أو رمز استرداد غير مستخدم.' : 'Enter a fresh authenticator code or an unused recovery code.');
+        } else notice(error);
     } finally {
         if (epoch === client.sessionEpoch) setIdentityBusy(false);
     }

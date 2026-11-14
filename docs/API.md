@@ -290,3 +290,15 @@ Authenticated customer/vendor `GET /api/account/phone` (and `/api/v1/account/pho
 Enable only with approved SMS service configuration: `PHONE_VERIFICATION_ENABLED`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`. Adapter uses a fixed TLS origin, no redirects/retries, explicit SMS consent and server-side checks of provider account/service/channel/verification/recipient identity. References: https://www.twilio.com/docs/verify/api/verification and https://www.twilio.com/docs/verify/api/verification-check . Provider contract tests do not constitute real SMS acceptance.
 
 Production phone delivery additionally requires a restricted Verify API key through `TWILIO_VERIFY_API_KEY_SID` and `TWILIO_VERIFY_API_KEY_SECRET`; root account-auth-token fallback is rejected in production. Credential scope and country/SMS activation must be approved by the owner and provider.
+
+### Customer/vendor authenticator protection
+
+`GET /api/account/second-factor` reports only enabled/pending status and the count of unused recovery codes. The same routes exist below `/api/v1` for non-Admin bearer clients. Reads use the bounded account-security read limit; writes use the authentication limit and require the current password.
+
+`POST .../prepare` returns a new manual-entry secret and local `otpauth` URI once. Its encrypted pending seed expires after ten minutes and is bound to the current authorization epoch. `POST .../enable` requires a six-digit authenticator proof. Login accepts optional `second_factor_code`; after enrollment the correct password alone cannot establish either a browser or bearer session. TOTP counters and recovery-code consumption are locked and single use.
+
+`POST .../recovery-codes` replaces the eight recovery codes; `POST .../disable` removes enrollment. Both require a fresh TOTP or unused recovery code as well as the password. Secrets and encrypted recovery digests are separate from generic user serialization and audit payloads. Every activation/change revokes existing bearer credentials and other browser epochs. A proven current browser receives a regenerated session; bearer callers receive `reauthentication_required: true` and must retain the returned one-time recovery codes before signing in again.
+
+Web and Flutter support explicit preparation, proof, rotation, disablement and factor/recovery login in English/Arabic. Seeds/codes are memory-only, cleared on refresh/account change/background; neither surface sends a seed to an external QR service. Losing all factors requires an independently approved recovery process; this feature provides no password-only recovery bypass. Admin retains its independent mandatory MFA/recovery policy.
+
+`accounts:expire-second-factor-setup` clears at most 1,000 expired pending seeds per run and is scheduled every ten minutes. Migration rollback refuses to drop surviving enrollment records. Automated tests do not establish real-device, store, independent security-review or production acceptance.

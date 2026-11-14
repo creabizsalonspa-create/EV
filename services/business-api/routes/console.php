@@ -218,3 +218,12 @@ Artisan::command('accounts:expire-phone-challenges', function () {
     $this->info('Expired verification payloads removed: '.$count);
 })->purpose('Remove bounded expired encrypted phone challenge payloads; retain replay tombstones');
 Schedule::command('accounts:expire-phone-challenges')->everyTenMinutes()->withoutOverlapping();
+
+Artisan::command('accounts:expire-second-factor-setup', function () {
+    $ids = DB::table('account_second_factors')->whereNotNull('pending_secret')->where('pending_until', '<=', now())
+        ->orderBy('pending_until')->limit(1000)->pluck('user_id');
+    $count = DB::table('account_second_factors')->whereIn('user_id', $ids)->where('pending_until', '<=', now())
+        ->update(['pending_secret' => null, 'pending_until' => null, 'pending_epoch' => null, 'updated_at' => now()]);
+    $this->info('Expired authenticator setups removed: '.$count);
+})->purpose('Remove bounded expired encrypted authenticator enrollment payloads');
+Schedule::command('accounts:expire-second-factor-setup')->everyTenMinutes()->withoutOverlapping();

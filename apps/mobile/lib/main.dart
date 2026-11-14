@@ -1,5 +1,7 @@
 import 'privacy_requests.dart';
 import 'phone_verification.dart';
+import 'account_second_factor.dart';
+import 'vendor_forms.dart';
 import 'vehicle_model_catalog.dart';
 import 'vehicle_manual_soc.dart';
 import 'reservation_vehicle.dart';
@@ -148,7 +150,7 @@ class Workspace extends StatefulWidget {
   State<Workspace> createState() => _WorkspaceState();
 }
 
-class _WorkspaceState extends State<Workspace> {
+class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   EvApi? api;
   Account? account;
   String? error;
@@ -159,7 +161,8 @@ class _WorkspaceState extends State<Workspace> {
   int recordPage = 1, recordLast = 1, recordTotal = 0;
   final email = TextEditingController(),
       password = TextEditingController(),
-      name = TextEditingController();
+      name = TextEditingController(),
+      secondFactorCode = TextEditingController();
   final loginForm = GlobalKey<FormState>();
   final catalogKey = GlobalKey<CatalogViewState>();
   final supportKey = GlobalKey<SupportViewState>();
@@ -187,6 +190,7 @@ class _WorkspaceState extends State<Workspace> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (widget.initialApi != null) {
       api = widget.initialApi;
       restoreSaved();
@@ -248,6 +252,7 @@ class _WorkspaceState extends State<Workspace> {
       tab = 0;
       name.clear();
       password.clear();
+      secondFactorCode.clear();
       email.clear();
       message = null;
     });
@@ -292,12 +297,12 @@ class _WorkspaceState extends State<Workspace> {
 
   Future<void> login() async {
     if (!loginForm.currentState!.validate()) return;
+    final factor = secondFactorCode.text.trim();
+    secondFactorCode.clear();
     await perform(() async {
-      final user = await api!.signIn(
-        email.text.trim(),
-        password.text,
-        name: registering ? name.text.trim() : null,
-      );
+      final user = !registering && factor.isNotEmpty
+          ? await api!.signInWithFactor(email.text.trim(), password.text, factor)
+          : await api!.signIn(email.text.trim(), password.text, name: registering ? name.text.trim() : null);
       password.clear();
       if (!mounted) return;
       if (user.role == 'admin') {
@@ -822,7 +827,18 @@ class _WorkspaceState extends State<Workspace> {
                 TextFormField(
                   key: const Key('auth-password'),
                   controller: password,
-                  decoration: InputDecoration(labelText: s.t('password')),
+                  decoration: InputDecoration(labelText: s.t('password'),
+                    suffixIcon: registering ? null : IconButton(
+                      key: const Key('auth-second-factor'), tooltip: s.t('authenticatorCode'),
+                      icon: const Icon(Icons.shield_outlined),
+                      onPressed: busy || api == null ? null : () async {
+                        final boundApi = api!, fence = api!.sessionFence();
+                        final value = await entry(s.t('authenticatorCode'), {'second_factor_code': ''});
+                        if (!mounted || busy || registering || !identical(api, boundApi) || !fence() || value == null) return;
+                        secondFactorCode.text = vendorDigits('${value['second_factor_code']}').trim();
+                        setState(() => message = 'factorSupplied');
+                      },
+                    )),
                   enabled: !busy,
                   obscureText: true,
                   autofillHints: const [AutofillHints.password],
@@ -1121,7 +1137,9 @@ class _WorkspaceState extends State<Workspace> {
             PopupMenuButton<String>(
               tooltip: s.t('account'),
               onSelected: (value) async {
-                if (value == 'phoneVerification') {
+                if (value == 'accountSecondFactor') {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AccountSecondFactorView(api: api!, onExpired: expiredSession)));
+                } else if (value == 'phoneVerification') {
                   await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PhoneVerificationView(api: api!, onExpired: expiredSession)));
                 } else if (value == 'revokeSessions') {
                   await revokeSessions();
@@ -1462,6 +1480,11 @@ class _WorkspaceState extends State<Workspace> {
                     child: Text(s.t('forgetSignIn')),
                   ),
                 PopupMenuItem(
+                  value: 'accountSecondFactor',
+                  enabled: !busy,
+                  child: Text(s.t('authenticatorSettings')),
+                ),
+                PopupMenuItem(
                   value: 'phoneVerification',
                   enabled: !busy,
                   child: Text(Localizations.localeOf(context).languageCode == 'ar' ? 'التحقق من رقم الهاتف' : 'Verify your phone'),
@@ -1549,7 +1572,14 @@ class _WorkspaceState extends State<Workspace> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) { secondFactorCode.clear(); password.clear(); }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    secondFactorCode.dispose();
     email.dispose();
     password.dispose();
     name.dispose();
@@ -1566,12 +1596,13 @@ class EntryDialog extends StatefulWidget {
   State<EntryDialog> createState() => _EntryDialogState();
 }
 
-class _EntryDialogState extends State<EntryDialog> {
+class _EntryDialogState extends State<EntryDialog> with WidgetsBindingObserver {
   late final Map<String, TextEditingController> controls;
   final form = GlobalKey<FormState>();
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     controls = widget.fields.map(
       (k, v) => MapEntry(k, TextEditingController(text: v)),
     );
@@ -1621,10 +1652,10 @@ class _EntryDialogState extends State<EntryDialog> {
                             )
                           : TextFormField(
                               controller: e.value,
-                              obscureText: e.key == 'password',
-                              autocorrect: e.key != 'password',
-                              enableSuggestions: e.key != 'password',
-                              maxLength: e.key == 'password' ? 128 : null,
+                              obscureText: ['password', 'second_factor_code'].contains(e.key),
+                              autocorrect: !['password', 'second_factor_code'].contains(e.key),
+                              enableSuggestions: !['password', 'second_factor_code'].contains(e.key),
+                              maxLength: ['password', 'second_factor_code'].contains(e.key) ? 128 : null,
                               decoration: InputDecoration(
                                 labelText: s.t(e.key),
                               ),
@@ -1660,7 +1691,14 @@ class _EntryDialogState extends State<EntryDialog> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      controls['password']?.clear(); controls['second_factor_code']?.clear();
+    }
+  }
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (final c in controls.values) c.dispose();
     super.dispose();
   }

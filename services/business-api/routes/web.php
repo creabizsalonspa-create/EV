@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AccountPrivacyController;
+use App\Http\Controllers\AccountSecondFactorController;
 use App\Http\Controllers\AccountSessionController;
 use App\Http\Controllers\AdminAccountDirectoryController;
 use App\Http\Controllers\AdminAuditTrailController;
@@ -216,4 +217,11 @@ Route::middleware(['auth', 'throttle:authentication'])->group(function () {
     Route::post('/api/account/phone/challenges', [PhoneVerificationController::class, 'start']);
     Route::post('/api/account/phone/challenges/{challenge}/confirm', [PhoneVerificationController::class, 'confirm'])->whereUuid('challenge');
     Route::delete('/api/account/phone', [PhoneVerificationController::class, 'remove']);
+});
+
+Route::get('/api/account/second-factor', [AccountSecondFactorController::class, 'status'])->middleware(['auth', 'throttle:account-security-read']);
+Route::middleware(['auth', 'throttle:authentication'])->group(function () {
+    Route::post('/api/account/second-factor/prepare', [AccountSecondFactorController::class, 'prepare']);
+    Route::post('/api/account/second-factor/enable', [AccountSecondFactorController::class, 'enable']);
+    Route::post('/api/account/second-factor/{action}', [AccountSecondFactorController::class, 'change'])->whereIn('action', ['disable', 'recovery-codes']);
 });
