@@ -100,6 +100,18 @@
       "merge_sha": "433bffb312291c34f5be535e4d16b1247b4367f1",
       "test_result": "passed",
       "evidence": "docs/evidence/integration-coverage/pr92-hosted-checkpoint.json"
+    },
+    "pr93": {
+      "source_sha": "6438e0a5145f79ff45f7e1fed039ee2b34aa1644",
+      "merge_sha": "2a91931f0d576a9d0fe450e212227eea7d1d4f48",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr93-hosted-checkpoint.json"
+    },
+    "pr94": {
+      "source_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "merge_sha": "f71bdff6e32ab55d4f56432a4ea1d292dba14132",
+      "test_result": "passed",
+      "evidence": "docs/evidence/integration-coverage/pr94-hosted-checkpoint.json"
     }
   },
   "production_acceptance": null,
@@ -107,9 +119,9 @@
     {
       "prd": "2.1",
       "requirement": "Identity, verification, 2FA, privacy",
-      "implemented_code_scope": "Verified email/password web/native identity and encrypted session persistence; role changes revoke old browser/bearer authority; independent web Admin TOTP and canonical encrypted privacy request/review/withdrawal software. Canonical privacy source passed all12 mandatory checks and is merged at a9e291e; automated export/erasure remains uncredited.",
-      "automated_evidence_scope": "PlatformTest, AccountTest, MobileAuthTest, EmailVerificationTest; browser web-session; native persistence. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit.",
-      "remaining_scope": "Phone verification, approved social login, customer2FA, authorized data export/erasure fulfillment, configured delivery and full security/device review.",
+      "implemented_code_scope": "Verified email/password web/native identity and encrypted session persistence; role changes revoke old browser/bearer authority; independent web Admin TOTP and canonical encrypted privacy request/review/withdrawal software. Canonical privacy source passed all12 mandatory checks and is merged at a9e291e; automated export/erasure remains uncredited. Private encrypted phone-verification and removal software with bounded Twilio Verify contracts is integrated through PR93. Customer/vendor authenticator enrollment, replay-resistant login and recovery management across web/Flutter are integrated through PR94.",
+      "automated_evidence_scope": "PlatformTest, AccountTest, MobileAuthTest, EmailVerificationTest; browser web-session; native persistence. Integrated subset through63886428; later candidates explicitly noted; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR93 source6438e0a passed all nine applicable checks, merged2a91931 with identical source/merge trees. PR94 source7a5ba72 passed all nine applicable checks, mergedf71bdff with identical source/merge trees.",
+      "remaining_scope": "approved social login, authorized data export/erasure fulfillment, configured delivery and full security/device review.",
       "atoms": [
         {
           "id": "2.1.1",
@@ -149,9 +161,9 @@
         {
           "id": "2.1.6",
           "software_atom": "Phone verification",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr93",
+          "note": "Private contact-phone software across Laravel, web and Flutter passed all nine source gates and was integrated with matching trees. No actual SMS/provider/production acceptance is inferred from simulated delivery contracts."
         },
         {
           "id": "2.1.7",
@@ -163,9 +175,9 @@
         {
           "id": "2.1.8",
           "software_atom": "Customer/admin 2FA",
-          "coded": false,
-          "checkpoint": null,
-          "note": "Unfinished software or unverified required scope"
+          "coded": true,
+          "checkpoint": "pr94",
+          "note": "Customer/vendor authenticator enrollment, single-use factor/recovery login and management across Laravel/web/Flutter are verified and integrated. Independent Admin MFA is already verified through PR84. No device/security-review or production acceptance is inferred."
         },
         {
           "id": "2.1.9",
@@ -2376,7 +2388,7 @@
       "requirement": "RBAC/privacy/security/operations",
       "implemented_code_scope": "Tenant checks, encrypted private records/secrets, CSRF/HMAC/replay/idempotency, unchanged production rate limits and audit controls; web Admin TOTP, role-change revocation and private request workflow; data-excluded staging runtime and atomic evidence packaging. Customer/vendor global session revocation and web cross-tab invalidation integrated through PR92.",
       "automated_evidence_scope": "Auth/tenant/replay/privacy/upload tests across named suites; deployment acceptance pending. Integrated subset through63886428; later candidates explicitly noted; sourcecbed320/merge6a9b404: two actual image audits and PostgreSQL17 migration/HTTP/private-volume smokes; not a deployment/restore acceptance; PR84 tested fcef152 with12 exact-source gates, merged961c234; canonical privacy PR60 tested4bad250 with12 gates, mergeda9e291e. Both source/merge trees match. No broad unfinished atom receives credit. PR92 source205c080 passed all nine applicable checks, merged433bffb with identical source/merge trees.",
-      "remaining_scope": "Customer2FA, authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review.",
+      "remaining_scope": "authorized privacy erasure/export, operational backups/restore and alerting, verified production deployment/rollback and full security review.",
       "atoms": [
         {
           "id": "9.1.1",

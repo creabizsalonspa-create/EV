@@ -1,0 +1,79 @@
+{
+  "source_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+  "integrated_sha": "f71bdff6e32ab55d4f56432a4ea1d292dba14132",
+  "source_tree": "8ff99fa9226829ab594b9e5013cbef5133e3acaf",
+  "pr": 94,
+  "verified_at_utc": "2026-11-14T01:32:26.927Z",
+  "test_result": "passed",
+  "required_check_count": 9,
+  "required_checks": [
+    {
+      "name": "finance-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077198/job/132265370486"
+    },
+    {
+      "name": "staging-image",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077198/job/132265370719"
+    },
+    {
+      "name": "csms-recovery",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077198/job/132265370770"
+    },
+    {
+      "name": "connector-postgres",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077198/job/132265370903"
+    },
+    {
+      "name": "business-platform",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077198/job/132265370977"
+    },
+    {
+      "name": "recovery-acceptance",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077198/job/132280724525"
+    },
+    {
+      "name": "financial-browser",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077201/job/132265372197"
+    },
+    {
+      "name": "native (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077213/job/132265397772"
+    },
+    {
+      "name": "native (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "7a5ba72ca1f1459101b7f945dddc2771b33348a2",
+      "details_url": "https://github.com/creabizsalonspa-create/EV/actions/runs/43536077213/job/132265398128"
+    }
+  ],
+  "scope": "Customer/vendor authenticator enrollment, password plus single-use TOTP/recovery login, recovery rotation/disablement, encryption, epoch-bound pending cleanup and web/Flutter parity. Existing independent Admin MFA remains intact. Source/merge trees match.",
+  "limitations": [
+    "Debug Android and unsigned simulator iOS validation are not signed production releases.",
+    "No real-device, independent security assessment, staging or production acceptance."
+  ]
+}
