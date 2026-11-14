@@ -131,6 +131,38 @@ window.mountPartnerBilling = ({
                 !Array.isArray(result.data)
             )
                 throw Error("Unverified report");
+            const exports = document.createElement("nav");
+            exports.setAttribute(
+                "aria-label",
+                t("Private reconciliation exports", "تصدير المطابقة الخاصة"),
+            );
+            for (const [format, en, arabic] of [
+                ["csv", "Download filtered CSV", "تنزيل CSV المرشح"],
+                ["pdf", "Download filtered PDF", "تنزيل PDF المرشح"],
+            ]) {
+                const link = el("a", t(en, arabic));
+                const update = () => {
+                    link.href = `/api/ocpi/providers/${provider.id}/billing-reconciliation/${format}?${new URLSearchParams({ ...filters, locale: ar() ? "ar" : "en" })}`;
+                };
+                update();
+                link.onclick = (event) => {
+                    if (!live()) event.preventDefault();
+                    else update();
+                };
+                link.download = "";
+                link.referrerPolicy = "no-referrer";
+                exports.append(link, document.createTextNode(" · "));
+            }
+            content.append(
+                exports,
+                el(
+                    "p",
+                    t(
+                        "Exports use applied filters across all pages (maximum 250 records). Credit rows reference original invoices; do not sum rows as revenue.",
+                        "يستخدم التصدير المرشحات المطبقة لكل الصفحات (٢٥٠ سجلًا كحد أقصى). تشير الإشعارات الدائنة للفواتير الأصلية؛ لا تجمع السجلات كإيراد.",
+                    ),
+                ),
+            );
             for (const row of result.data) {
                 const card = document.createElement("article");
                 card.className = "station-card";

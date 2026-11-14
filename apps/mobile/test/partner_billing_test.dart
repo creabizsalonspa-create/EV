@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/partner_billing.dart';
+import 'package:creabiz_ev/api.dart';
 import 'test_support.dart';
 
 Map<String, dynamic> response({int provider = 7}) => {
@@ -44,6 +45,19 @@ Map<String, dynamic> response({int provider = 7}) => {
 class BillingApi extends FixtureApi {
   Map<String, dynamic> result = response();
   Completer<dynamic>? pending;
+  final exportQueries = <Map<String, String>>[];
+  Completer<PrivateDocument>? exportPending;
+  @override
+  Future<PrivateDocument> downloadPartnerBilling(
+    int providerId,
+    Map<String, String> query,
+  ) async {
+    expect(providerId, 7);
+    exportQueries.add(Map.of(query));
+    if (exportPending != null) return exportPending!.future;
+    throw const ApiException(409, 'Narrow filters');
+  }
+
   @override
   Future<dynamic> request(
     String path, {
@@ -59,6 +73,57 @@ class BillingApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets(
+    'private PDF uses applied filters and reports bounded export failure',
+    (tester) async {
+      final api = BillingApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, 'Currency'), 'USD');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.scrollUntilVisible(
+        find.text('View filtered private PDF'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('View filtered private PDF'));
+      await tester.pumpAndSettle();
+      expect(api.exportQueries.single, {'kind': 'all', 'locale': 'en'});
+      expect(find.textContaining('Export unavailable.'), findsOneWidget);
+    },
+  );
+
+  testWidgets('backgrounded export cannot open a stale private report', (
+    tester,
+  ) async {
+    final api = BillingApi()..exportPending = Completer<PrivateDocument>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PartnerBillingPage(api: api, providerId: 7, onExpired: () {}),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('View filtered private PDF'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('View filtered private PDF'));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    api.exportPending!.completeError(const ApiException(409, 'Expired source'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Export unavailable.'), findsNothing);
+    expect(find.text('View filtered private PDF'), findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'exact amounts, noncash and refund-review separation and scoped pagination',
     (tester) async {

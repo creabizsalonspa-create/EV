@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Services\Finance\FinanceService;
+use App\Services\Ocpi\PartnerBillingExport;
 use App\Services\Ocpi\RecordSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -89,6 +90,55 @@ class PartnerBillingReconciliationTest extends TestCase
         $receipt = DB::table('ocpi_test_invoice_receipts')->where('invoice_id', $invoice->id)->first();
         DB::table('ocpi_records')->where('id', $receipt->source_session_record_id)->update(['content_hash' => str_repeat('a', 64)]);
         $this->actingAs($owner)->getJson($path)->assertOk()->assertJsonPath('data.0.billing.status', 'source_requires_review')->assertJsonMissingPath('data.0.billing.invoice');
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_private_exports_preserve_exact_units_filters_and_credit_references_without_collection(): void
+    {
+        [$owner, $driver, $other, $invoice, $credit, $intent, , $provider] = $this->scenario('KWD', 3, '0.251', 251, 500);
+        app(FinanceService::class)->creditUnpaid($invoice, $owner->id, $intent);
+        $path = '/api/ocpi/providers/'.$provider->id.'/billing-reconciliation/';
+        $response = $this->actingAs($owner)->get($path.'csv?kind=credits&currency=KWD')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')->assertHeader('X-Content-Type-Options', 'nosniff');
+        $file = fopen('php://temp', 'w+');
+        fwrite($file, $response->getContent());
+        rewind($file);
+        $headers = fgetcsv($file, escape: '');
+        $row = array_combine($headers, fgetcsv($file, escape: ''));
+        $this->assertFalse(fgetcsv($file, escape: ''));
+        fclose($file);
+        $this->assertSame('credit_reference', $row['kind']);
+        $this->assertSame($invoice->number, $row['invoice']);
+        $this->assertSame('3', $row['minor_units']);
+        $this->assertSame((string) $invoice->total_minor, $row['noncash_credit_minor']);
+        $this->assertSame('0', $row['paid_minor']);
+        $this->assertSame('0', $row['due_minor']);
+        $this->get($path.'pdf?locale=ar&kind=credits')->assertOk()->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF-', $this->get($path.'pdf')->getContent());
+        $this->getJson($path.'csv?page=1')->assertUnprocessable();
+        $this->actingAs($driver)->getJson($path.'csv')->assertNotFound();
+        $this->actingAs($other)->getJson($path.'pdf')->assertNotFound();
+        $this->assertDatabaseCount('finance_payments', 0);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_export_never_truncates_and_escapes_spreadsheet_formulas(): void
+    {
+        $export = new PartnerBillingExport;
+        $row = ['external_id' => "\t=HYPERLINK(1)", 'country_code' => 'NL', 'party_id' => 'TST', 'credit' => false, 'currency' => 'EUR', 'source' => [], 'billing' => ['status' => 'not_invoiced']];
+        $csv = $export->csv([$row]);
+        $this->assertStringContainsString("'\t=HYPERLINK(1)", $csv);
+        [$owner, , , , , , $original, $provider] = $this->scenario();
+        $batch = [];
+        for ($i = 0; $i < 249; $i++) {
+            $batch[] = array_replace($original->payload, ['id' => 'export-bound-'.$i]);
+        }
+        app(RecordSynchronizer::class)->ingest($provider, 'cdrs', $batch);
+        $path = '/api/ocpi/providers/'.$provider->id.'/billing-reconciliation/';
+        $this->actingAs($owner)->getJson($path.'csv')->assertConflict();
+        $this->getJson($path.'pdf')->assertConflict();
+        $this->get($path.'csv?kind=credits')->assertOk();
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('finance_payments', 0);
     }

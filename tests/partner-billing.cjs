@@ -90,6 +90,25 @@ withSource(async (f) => {
       ),
       false,
     );
+    for (const format of ["CSV", "PDF"]) {
+      const link = panel.getByRole("link", {
+        name: `Download filtered ${format}`,
+        exact: true,
+      });
+      const href = await link.getAttribute("href");
+      assert(new URL(href, f.base).searchParams.get("kind") === "credits");
+      const exported = await context.request.get(new URL(href, f.base).href);
+      assert.equal(exported.status(), 200);
+      assert.equal(exported.headers()["cache-control"], "no-store, private");
+      if (format === "PDF")
+        assert((await exported.body()).subarray(0, 5).toString() === "%PDF-");
+      else {
+        const csv = await exported.text();
+        assert(csv.includes("credit_reference"));
+        assert(csv.includes(f.invoice.number));
+        assert.equal(csv.trim().split("\n").length, 2);
+      }
+    }
     await page.locator("#language").click();
     await ops
       .getByRole("button", { name: "مطابقة فوترة الشريك", exact: true })

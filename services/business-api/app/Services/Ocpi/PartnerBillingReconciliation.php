@@ -13,21 +13,37 @@ class PartnerBillingReconciliation
 {
     public function page(OcpiProvider $provider, array $filters): array
     {
-        $rows = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')
+        $rows = $this->query($provider, $filters)->paginate(25, ['*'], 'page', $filters['page'] ?? 1);
+        $rows->through(fn ($cdr) => $this->row($provider, $cdr));
+
+        return $rows->toArray() + ['schema_version' => 1, 'provider_id' => $provider->id, 'read_only' => true, 'billing_authority' => false, 'payment_execution' => false];
+    }
+
+    public function exportRows(OcpiProvider $provider, array $filters): array
+    {
+        // Fail closed instead of silently exporting only a page of a larger report.
+        $records = $this->query($provider, $filters)->limit(251)->get();
+        abort_if($records->count() > 250, 409, 'Narrow partner filters to at most 250 source records.');
+
+        return $records->map(fn ($cdr) => $this->row($provider, $cdr))->all();
+    }
+
+    private function query(OcpiProvider $provider, array $filters)
+    {
+        return OcpiRecord::where('ocpi_provider_id', $provider->id)->where('module', 'cdrs')
             ->when($filters['currency'] ?? null, fn ($q, $currency) => $q->where('normalized->currency', $currency))
             ->when($filters['country_code'] ?? null, fn ($q, $country) => $q->where('country_code', $country))
             ->when($filters['party_id'] ?? null, fn ($q, $party) => $q->where('party_id', $party))
             ->when(($filters['kind'] ?? 'all') === 'credits', fn ($q) => $q->where('normalized->credit', true))
             ->when(($filters['kind'] ?? 'all') === 'charges', fn ($q) => $q->where(fn ($x) => $x->where('normalized->credit', false)->orWhereNull('normalized->credit')))
-            ->orderByDesc('id')->paginate(25, ['*'], 'page', $filters['page'] ?? 1);
-        $comparison = new CdrReconciler;
-        $rows->through(function ($cdr) use ($provider, $comparison) {
-            return ['id' => $cdr->id, 'external_id' => $cdr->external_id, 'country_code' => $cdr->country_code, 'party_id' => $cdr->party_id,
-                'currency' => $cdr->normalized['currency'] ?? null, 'credit' => ($cdr->normalized['credit'] ?? false) === true,
-                'received_at' => $cdr->received_at, 'source' => $comparison->inspect($provider, $cdr), 'billing' => $this->lineage($provider, $cdr)];
-        });
+            ->orderByDesc('id');
+    }
 
-        return $rows->toArray() + ['schema_version' => 1, 'provider_id' => $provider->id, 'read_only' => true, 'billing_authority' => false, 'payment_execution' => false];
+    private function row(OcpiProvider $provider, OcpiRecord $cdr): array
+    {
+        return ['id' => $cdr->id, 'external_id' => $cdr->external_id, 'country_code' => $cdr->country_code, 'party_id' => $cdr->party_id,
+            'currency' => $cdr->normalized['currency'] ?? null, 'credit' => ($cdr->normalized['credit'] ?? false) === true,
+            'received_at' => $cdr->received_at, 'source' => (new CdrReconciler)->inspect($provider, $cdr), 'billing' => $this->lineage($provider, $cdr)];
     }
 
     private function lineage(OcpiProvider $provider, OcpiRecord $cdr): array
