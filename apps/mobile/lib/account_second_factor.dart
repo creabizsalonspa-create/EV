@@ -86,6 +86,7 @@ class _AccountSecondFactorState extends State<AccountSecondFactorView> with Widg
       OutlinedButton(onPressed: busy ? null : refresh, child: Text(t('Refresh authenticator status', 'تحديث حالة تطبيق التحقق'))),
       if (status != null) Text(status!['enabled'] == true ? t('Authenticator is enabled.', 'تطبيق التحقق مفعّل.') : t('Authenticator is not enabled.', 'تطبيق التحقق غير مفعّل.')),
       if (status?['enabled'] == true && status?['recovery_remaining'] is int) Text(t('Recovery codes remaining: ', 'رموز الاسترداد المتبقية: ') + '${status!['recovery_remaining']}'),
+      if (status?['recovery_rotation_recommended'] == true) Text(t('Refresh your recovery codes to keep recovery working through security upgrades.', 'جدّد رموز الاسترداد لضمان استمرار الاسترداد أثناء تحديثات الأمان.')),
       if (seed != null) ...[
         Text(t('Add this secret to your authenticator, then confirm a fresh code. Never share it.', 'أضف هذا المفتاح إلى تطبيق التحقق ثم أكّد برمز جديد. لا تشاركه.')),
         SelectableText(seed!, key: const Key('factor-secret'), textDirection: TextDirection.ltr),

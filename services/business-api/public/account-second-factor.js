@@ -18,6 +18,7 @@ window.EvAccountSecondFactor = (() => {
         root.replaceChildren(); root.append(label('h2', 'Authenticator two-factor authentication', 'المصادقة الثنائية بتطبيق التحقق'));
         root.append(label('p', state.enabled ? 'Authenticator is enabled.' : 'Authenticator is not enabled.', state.enabled ? 'تطبيق التحقق مفعّل.' : 'تطبيق التحقق غير مفعّل.'));
         if (state.enabled && Number.isInteger(state.recovery_remaining)) root.append(label('p', 'Recovery codes remaining: ' + state.recovery_remaining, 'رموز الاسترداد المتبقية: ' + state.recovery_remaining));
+        if (state.recovery_rotation_recommended === true) root.append(label('p', 'Refresh your recovery codes to keep recovery working through security upgrades.', 'جدّد رموز الاسترداد لضمان استمرار الاسترداد أثناء تحديثات الأمان.'));
         const notice = label('p', '', ''); notice.setAttribute('role', 'status'); root.append(notice);
         if (seed) {
             root.append(label('p', 'Add this secret to your authenticator, then confirm a fresh code. Never share the secret.', 'أضف هذا المفتاح إلى تطبيق التحقق ثم أكّد برمز جديد. لا تشارك المفتاح.'));

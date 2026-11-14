@@ -209,7 +209,7 @@ class ConnectorTopologyTest extends TestCase
         $this->actingAs($f['owner'])->postJson($url, [])->assertConflict();
         $this->assertNull($legacy->fresh()->connector_mapping_id);
         $this->actingAs($f['customer'])->deleteJson('/api/reservations/'.$legacy->id)->assertOk();
-        $command = ChargerCommand::create(['actor_id' => $f['owner']->id, 'station_id' => $f['station']->id, 'action' => 'start', 'idempotency_key' => 'legacy-direct', 'payload_hash' => str_repeat('a', 64), 'payload' => []]);
+        $command = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $f['owner']->id, 'station_id' => $f['station']->id, 'action' => 'start', 'idempotency_key' => 'legacy-direct', 'payload_hash' => str_repeat('a', 64), 'payload' => []]);
         $this->actingAs($f['owner'])->postJson($url, [])->assertConflict();
         $command->update(['status' => 'cancelled']);
         $this->postJson($url, [])->assertCreated();

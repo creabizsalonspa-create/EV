@@ -405,6 +405,34 @@ window.EV_MESSAGES = {
         ar: "النتيجة غير مؤكدة. لن تتكرر العملية تلقائيًا؛ حدّث سجل العملية قبل أي إجراء آخر.",
     },
 
+    "Observed status durations over 24 hours": {
+        en: "Observed status durations over 24 hours",
+        ar: "مدد الحالات المرصودة خلال 24 ساعة",
+    },
+    "Each observation covers at most five minutes. Gaps are unknown; this is not physical uptime or live availability.":
+        {
+            en: "Each observation covers at most five minutes. Gaps are unknown; this is not physical uptime or live availability.",
+            ar: "تغطي كل ملاحظة خمس دقائق كحد أقصى. الفجوات مجهولة؛ ليست هذه مدة تشغيل فعلية أو إتاحة مباشرة.",
+        },
+    "Status duration analysis requires review": {
+        en: "Status duration analysis requires review",
+        ar: "يتطلب تحليل مدد الحالات مراجعة",
+    },
+    "Status duration history not observed": {
+        en: "Status duration history not observed",
+        ar: "لم يُرصد سجل مدد الحالات",
+    },
+    "Observed status seconds": {
+        en: "Observed status seconds",
+        ar: "ثواني الحالات المرصودة",
+    },
+    "Unknown seconds": { en: "Unknown seconds", ar: "ثوانٍ مجهولة" },
+
+    "Test-provider dispute updated · invoice #{id}": {en: "Test-provider dispute updated · invoice #{id}", ar: "تحديث نزاع مزود الاختبار · الفاتورة #{id}"},
+    "Review provider dispute": {en: "Review provider dispute", ar: "مراجعة نزاع المزود"},
+
+    "Section data unavailable. Refresh to retry.": {en: "Section data unavailable. Refresh to retry.", ar: "بيانات القسم غير متاحة. حدّث للمحاولة مجددًا."},
+    "Refresh section": {en: "Refresh section", ar: "تحديث القسم"},
     "Automatic fault monitoring": {
         en: "Automatic fault monitoring",
         ar: "المراقبة التلقائية لأعطال الشاحن",
@@ -2265,6 +2293,14 @@ window.EV_MESSAGES = {
     "Catalog link gate notice": {
         en: "Linking enforces company approval, current license and connector maintenance for new bookings/starts. Configure exactly one matching simulator connector first. Parallel connector targets require explicit mapping and remain unavailable. Active sessions can still stop.",
         ar: "يطبق الربط شروط اعتماد الشركة وسريان الترخيص وصيانة الموصل على الحجوزات وبدء الجلسات الجديدة. يجب إعداد موصل تجريبي واحد مطابق. الأهداف المتوازية تحتاج ربطاً صريحاً وغير متاحة حالياً. يمكن إيقاف الجلسات النشطة.",
+    },
+    "Start authorization revoked": {
+        en: "Account authorization changed before this start was sent. Cancel the undispatched reservation and confirm a fresh request; this does not stop an existing source session.",
+        ar: "تغير تفويض الحساب قبل إرسال طلب البدء. ألغِ الحجز غير المرسل وأكد طلباً جديداً؛ لا يوقف هذا جلسة مصدر قائمة.",
+    },
+    "Roaming start authorization revoked": {
+        en: "Account or partner authorization changed. New start authorization is unavailable; revoke its token and review source state before a fresh request. A dispatched or uncertain command still needs source reconciliation.",
+        ar: "تغير تفويض الحساب أو الشريك. تفويض البدء الجديد غير متاح؛ ألغِ رمزه وراجع حالة المصدر قبل طلب جديد. لا يزال الأمر المرسل أو غير المؤكد يحتاج مطابقة المصدر.",
     },
     "Start admission blocked": {
         en: "This start has not been dispatched because admission is unavailable. Refresh or cancel the undispatched reservation.",

@@ -261,7 +261,28 @@ window.mountChargerCertificates = ({
                         "شهادة العميل العامة بصيغة PEM",
                     ),
                 );
-                root.append(pem);
+                const chain = document.createElement("textarea");
+                chain.maxLength = 49152;
+                chain.autocomplete = "off";
+                chain.spellcheck = false;
+                chain.setAttribute(
+                    "aria-label",
+                    t(
+                        "Intermediate issuer certificates (optional)",
+                        "شهادات جهات الإصدار الوسيطة (اختيارية)",
+                    ),
+                );
+                root.append(
+                    pem,
+                    chain,
+                    el(
+                        "p",
+                        t(
+                            "Submitted issuers must link to a server-pinned root; they do not add trust. Issuer blocks are checked locally without contacting CA revocation services.",
+                            "يجب أن ترتبط جهات الإصدار المرسلة بجذر موثوق مهيأ على الخادم؛ لا تضيف ثقة جديدة. تُطبق سياسة الحظر محلياً دون الاتصال بخدمات إبطال جهة الإصدار.",
+                        ),
+                    ),
+                );
                 button(
                     root,
                     "Enroll or renew public certificate",
@@ -277,8 +298,14 @@ window.mountChargerCertificates = ({
                             pem.value = "";
                             throw Error("Public certificate only");
                         }
+                        const issuers = chain.value.trim();
+                        if (issuers.includes("PRIVATE KEY")) {
+                            chain.value = "";
+                            throw Error("Public issuers only");
+                        }
                         await prepare("enroll", {
                             public_certificate: certificate,
+                            ...(issuers ? { issuer_chain: issuers } : {}),
                         });
                     },
                 );
@@ -303,6 +330,18 @@ window.mountChargerCertificates = ({
                         `${cert.identity} · ${t(...(states[cert.state] || states.requires_review))}`,
                     ),
                     el("p", cert.fingerprint),
+                    el(
+                        "p",
+                        `${t("Issuer", "جهة الإصدار")}: ${cert.issuer_fingerprint}`,
+                    ),
+                    el(
+                        "p",
+                        `${t("Pinned root", "الجذر الموثوق")}: ${cert.trust_anchor_fingerprint || cert.issuer_fingerprint}`,
+                    ),
+                    el(
+                        "p",
+                        `${t("Intermediate certificates", "الشهادات الوسيطة")}: ${cert.chain_length || 0}`,
+                    ),
                     el("p", `${cert.not_before} → ${cert.not_after} UTC`),
                 );
                 if (result.can_manage && !p && cert.state !== "revoked")

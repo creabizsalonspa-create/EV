@@ -25,7 +25,7 @@ const { spawnSync } = require("node:child_process");
       "native-ocpi-credentials",
       "native-ocpi-incoming",
     ], // 9 identities including private saved-location redaction; no live partner requests
-    ["native-charger-certificates"], // isolated certificate API lifecycle; own login window
+    ["native-charger-certificates", "native-charger-certificate-chains"], // isolated certificate API lifecycle; own login window
     ["native-charging-reviews"], // five private synthetic identities; independent auth window
     ["native-ocpi-test-invoice", "native-ocpi-credit-picker"], // owned TEST invoice and source-credit review: at most 7 logins; unchanged auth window
     ["native-ocpi-unpaid-credit"], // no collection; own unchanged authentication window

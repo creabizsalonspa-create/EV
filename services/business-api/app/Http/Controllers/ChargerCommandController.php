@@ -7,6 +7,7 @@ use App\Models\Charging\ConnectorMapping;
 use App\Models\Station;
 use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\ChargingActorConsent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -62,9 +63,11 @@ class ChargerCommandController extends Controller
         }
 
         return DB::transaction(function () use ($r, $station, $v, $payload, $hash) {
+            $actor = app(ChargingActorConsent::class)->capture($r->user());
+            abort_unless($actor->role === 'vendor' && $station->vendor_id === $actor->id, 404);
             Station::whereKey($station->id)->lockForUpdate()->firstOrFail();
             abort_if(ConnectorMapping::where('station_id', $station->id)->exists(), 409, 'Use a mapped reservation.');
-            $c = ChargerCommand::create(['actor_id' => $r->user()->id, 'station_id' => $station->id, 'action' => $v['action'], 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'payload' => $payload]);
+            $c = ChargerCommand::create(['consent_auth_epoch' => $v['action'] === 'start' ? (int) $actor->auth_epoch : null, 'actor_id' => $r->user()->id, 'station_id' => $station->id, 'action' => $v['action'], 'idempotency_key' => $v['idempotency_key'], 'payload_hash' => $hash, 'payload' => $payload]);
             DB::table('audit_events')->insert(['actor_id' => $r->user()->id, 'action' => 'csms.command_queued', 'subject' => (string) $c->id, 'created_at' => now()]);
 
             return response()->json($c, 202);

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\ExternalDisputesController;
 use App\Models\ChargingSession;
+use App\Models\InboxNotification;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
@@ -109,6 +110,37 @@ class ExternalDisputesTest extends TestCase
         $this->providerEvent()->assertConflict();
         $this->providerEvent('evt_Other')->assertConflict();
         $this->assertDatabaseCount('external_dispute_events', 1);
+    }
+
+    public function test_receipts_remain_scoped_and_reconciliation_stays_admin_web_only(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $path = '/dispute-test/commercial/external-disputes/'.$id;
+        foreach ([$this->user, $this->vendor] as $actor) {
+            $this->actingAs($actor)->getJson($path)->assertOk()->assertJsonPath('dispute.id', $id);
+            $this->postJson($path.'/reconcile')->assertForbidden();
+        }
+        $this->actingAs(User::factory()->create())->getJson($path)->assertNotFound();
+        $this->actingAs($this->admin)->getJson($path)->assertOk()->assertJsonPath('dispute.id', $id);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_provider_notices_are_deduplicated_and_current_invoice_party_scoped(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->providerEvent()->assertOk();
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->actingAs($this->admin)->postJson('/dispute-test/commercial/external-disputes/'.$id.'/reconcile')->assertOk();
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $query = InboxNotification::visibleTo($this->vendor);
+        $this->assertSame(1, (clone $query)->count());
+        DB::table('users')->where('id', $this->vendor->id)->update(['role' => 'customer']);
+        $this->assertSame(0, (clone $query)->count());
+        DB::table('users')->where('id', $this->vendor->id)->update(['role' => 'vendor', 'account_status' => 'suspended']);
+        $this->assertSame(0, (clone $query)->count());
+        $this->assertSame(1, InboxNotification::visibleTo($this->user)->count());
+        $this->assertDatabaseCount('finance_refunds', 0);
     }
 
     public function test_provider_reconciliation_releases_only_won_hold_and_preserves_lost_hold(): void
@@ -313,5 +345,14 @@ class ExternalDisputesTest extends TestCase
         $this->assertSame(1, $counts['failed']);
         $this->assertSame($before, DB::table('external_disputes')->find($id)->provider_observed_at);
         $this->assertDatabaseHas('gateway_cases', ['status' => 'open']);
+    }
+
+    public function test_native_provider_receipts_reject_admin_personal_access_tokens(): void
+    {
+        $this->providerEvent()->assertOk();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($this->vendor->createToken('vendor-dispute-reader')->plainTextToken)->getJson('/api/v1/commercial/external-disputes')->assertOk()->assertJsonPath('total', 1);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($this->admin->createToken('forbidden-admin-dispute-native')->plainTextToken)->getJson('/api/v1/commercial/external-disputes')->assertForbidden();
     }
 }

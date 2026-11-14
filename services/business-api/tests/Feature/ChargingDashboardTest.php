@@ -28,7 +28,7 @@ class ChargingDashboardTest extends TestCase
         $binding = DB::table('csms_bindings')->insertGetId(['station_id' => $station->id, 'identifier' => 'ev-test-dashboard-'.$station->id, 'protocol' => '1.6', 'created_at' => now(), 'updated_at' => now()]);
         $reservation = Reservation::create(['user_id' => $customer->id, 'station_id' => $station->id, 'starts_at' => now(), 'idempotency_key' => 'dashboard']);
         $session = ChargingSession::create(['reservation_id' => $reservation->id, 'rate_minor_per_kwh' => 100, 'currency' => 'AED']);
-        $command = ChargerCommand::create(['actor_id' => $customer->id, 'station_id' => $station->id, 'action' => 'start', 'idempotency_key' => 'dashboard', 'payload_hash' => str_repeat('a', 64), 'payload' => ['token' => 'PRIVATE-TOKEN'], 'status' => 'outcome_unknown']);
+        $command = ChargerCommand::create(['consent_auth_epoch' => 0, 'actor_id' => $customer->id, 'station_id' => $station->id, 'action' => 'start', 'idempotency_key' => 'dashboard', 'payload_hash' => str_repeat('a', 64), 'payload' => ['token' => 'PRIVATE-TOKEN'], 'status' => 'outcome_unknown']);
         DB::table('csms_session_links')->insert($extra + ['charging_session_id' => $session->id, 'binding_id' => $binding, 'start_command_id' => $command->id, 'identifier' => 'ev-test-dashboard-'.$station->id, 'protocol' => '1.6', 'last_event_at' => $event, 'created_at' => now(), 'updated_at' => now()]);
 
         return $session->id;

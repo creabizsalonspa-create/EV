@@ -25,6 +25,14 @@ if (! is_file($go)) {
 }
 try {
     $service = app(CampaignService::class);
+    if ($operation === 'create-or-cancel') {
+        $operation = $data['operation'];
+    }
+    if ($operation === 'cancel') {
+        $receipt = $service->cancelIntent(User::findOrFail($data['vendor']), $data['values']['idempotency_key']);
+        echo json_encode(['status' => 200, 'cancelled' => $receipt['cancelled'], 'id' => $receipt['campaign']?->id]);
+        exit(0);
+    }
     $result = $operation === 'create' ? $service->create(User::findOrFail($data['vendor']), $data['values']) : $service->ingest($data['values']);
     echo json_encode(['status' => $operation === 'create' ? 201 : 200, 'id' => $result->id ?? null, 'duplicate' => is_array($result) ? $result['duplicate'] : null]);
 } catch (HttpException $error) {
