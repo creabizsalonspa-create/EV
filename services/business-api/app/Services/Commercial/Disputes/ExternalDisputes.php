@@ -3,6 +3,7 @@
 namespace App\Services\Commercial\Disputes;
 
 use App\Models\Finance\Invoice;
+use App\Models\InboxNotification;
 use App\Services\Commercial\Payments\StripeSandboxProvider;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
@@ -87,6 +88,9 @@ class ExternalDisputes
             $due = $body['evidence_details']['due_by'] ?? null;
             abort_unless($due === null || (is_int($due) && $due > 0 && $due < 4102444800), 422, 'Invalid evidence deadline.');
             $values = ['status' => $status, 'reason' => substr((string) ($body['reason'] ?? 'unknown'), 0, 100), 'evidence_due_at' => $due ? Carbon::createFromTimestampUTC($due) : null, 'settlement_hold' => $hold, 'provider_observed_at' => now(), 'updated_at' => now()];
+            $notify = ! $row || $row->status !== $status || (bool) $row->settlement_hold !== $hold
+                || ($row->evidence_due_at ? Carbon::parse($row->evidence_due_at, 'UTC')->getTimestamp() : null) !== $due
+                || $row->reason !== $values['reason'];
             if ($row) {
                 abort_unless((int) $row->checkout_id === (int) $checkout->id && $row->charge_reference === $body['charge'] && (int) $row->amount_minor === $body['amount'] && $row->currency === $checkout->currency, 409, 'Historical dispute economics changed.');
                 DB::table('external_disputes')->where('id', $row->id)->update($values);
@@ -101,6 +105,17 @@ class ExternalDisputes
             // never manufacture refunds or silently release a vendor payable.
             DB::table('gateway_cases')->where('id', $case)->update(['status' => $hold ? 'open' : 'rejected', 'resolution' => 'Authoritative provider TEST status: '.$status, 'updated_at' => now()]);
             DB::table('external_dispute_events')->insert(['dispute_id' => $id, 'event_reference' => $event, 'fingerprint' => $hash, 'type' => $type, 'status' => $status, 'created_at' => now()]);
+            // This transaction's unique provider event is the delivery boundary.
+            // Only invoice parties receive notices; no external message or
+            // financial posting is implied, and replay returns above this point.
+            foreach ($notify ? array_unique([$invoice->user_id, $invoice->vendor_id]) : [] as $recipient) {
+                InboxNotification::create([
+                    'user_id' => $recipient, 'kind' => 'payment.provider_dispute.test',
+                    'metadata' => ['invoice_id' => $invoice->id, 'external_dispute_id' => $id,
+                        'evidence' => 'STRIPE_TEST_CONTRACT', 'real_money_moved' => false,
+                        'physical_verification' => false, 'review_only' => true],
+                ]);
+            }
 
             return DB::table('external_disputes')->find($id);
         }, 3);

@@ -27,10 +27,12 @@ Map<String, dynamic> providerDispute(dynamic value, {int? expectedId}) {
 class ProviderDisputesView extends StatefulWidget {
   final EvApi api;
   final VoidCallback onExpired;
+  final int? initialDisputeId;
   const ProviderDisputesView({
     super.key,
     required this.api,
     required this.onExpired,
+    this.initialDisputeId,
   });
   @override
   State<ProviderDisputesView> createState() => _ProviderDisputesState();
@@ -50,7 +52,7 @@ class _ProviderDisputesState extends State<ProviderDisputesView>
     super.initState();
     authorized = widget.api.sessionFence();
     WidgetsBinding.instance.addObserver(this);
-    load();
+    load(id: widget.initialDisputeId);
   }
 
   @override

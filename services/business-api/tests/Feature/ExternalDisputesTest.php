@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\ExternalDisputesController;
 use App\Models\ChargingSession;
+use App\Models\InboxNotification;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
@@ -121,6 +122,24 @@ class ExternalDisputesTest extends TestCase
         }
         $this->actingAs(User::factory()->create())->getJson($path)->assertNotFound();
         $this->actingAs($this->admin)->getJson($path)->assertOk()->assertJsonPath('can_reconcile', true);
+        $this->assertDatabaseCount('finance_refunds', 0);
+    }
+
+    public function test_provider_notices_are_deduplicated_and_current_invoice_party_scoped(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->providerEvent()->assertOk();
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $this->actingAs($this->admin)->postJson('/dispute-test/commercial/external-disputes/'.$id.'/reconcile')->assertOk();
+        $this->assertDatabaseCount('inbox_notifications', 2);
+        $query = InboxNotification::visibleTo($this->vendor);
+        $this->assertSame(1, (clone $query)->count());
+        DB::table('users')->where('id', $this->vendor->id)->update(['role' => 'customer']);
+        $this->assertSame(0, (clone $query)->count());
+        DB::table('users')->where('id', $this->vendor->id)->update(['role' => 'vendor', 'account_status' => 'suspended']);
+        $this->assertSame(0, (clone $query)->count());
+        $this->assertSame(1, InboxNotification::visibleTo($this->user)->count());
         $this->assertDatabaseCount('finance_refunds', 0);
     }
 

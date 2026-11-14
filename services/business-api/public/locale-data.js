@@ -427,6 +427,9 @@ window.EV_MESSAGES = {
         ar: "ثواني الحالات المرصودة",
     },
     "Unknown seconds": { en: "Unknown seconds", ar: "ثوانٍ مجهولة" },
+
+    "Test-provider dispute updated · invoice #{id}": {en: "Test-provider dispute updated · invoice #{id}", ar: "تحديث نزاع مزود الاختبار · الفاتورة #{id}"},
+    "Review provider dispute": {en: "Review provider dispute", ar: "مراجعة نزاع المزود"},
     "Automatic fault monitoring": {
         en: "Automatic fault monitoring",
         ar: "المراقبة التلقائية لأعطال الشاحن",
