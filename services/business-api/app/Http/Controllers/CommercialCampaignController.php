@@ -23,12 +23,12 @@ class CommercialCampaignController extends Controller
         $data = (array) $row;
         unset($data['request_key'], $data['fingerprint']);
 
-        return $data + ['delivered_units' => $service->delivered($row->id), 'verified_server_clicks' => DB::table('commercial_campaign_deliveries')->where('campaign_id', $row->id)->where('kind', 'click')->count(), 'unit' => 'PREPAID_PACKAGE_DELIVERY_UNIT', 'additional_cash_charge' => false, 'human_impressions_verified' => false, 'sponsored' => true];
+        return $data + ['control_revision' => (string) $service->controlRevision($row->id), 'delivered_units' => $service->delivered($row->id), 'verified_server_clicks' => DB::table('commercial_campaign_deliveries')->where('campaign_id', $row->id)->where('kind', 'click')->count(), 'unit' => 'PREPAID_PACKAGE_DELIVERY_UNIT', 'additional_cash_charge' => false, 'human_impressions_verified' => false, 'sponsored' => true];
     }
 
     public function index(Request $r, CampaignService $s)
     {
-        return $this->scope($r)->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row, $s));
+        return response()->json($this->scope($r)->orderByDesc('id')->paginate(25)->through(fn ($row) => $this->safe($row, $s))->toArray() + ['adapter_enabled' => (bool) config('campaigns.enabled')]);
     }
 
     public function stations(Request $r)
@@ -69,6 +69,14 @@ class CommercialCampaignController extends Controller
         return response()->json(['campaign' => $this->safe($s->create($r->user(), $v), $s)], 201);
     }
 
+    public function cancelIntent(Request $r, CampaignService $s)
+    {
+        $v = $r->validate(['idempotency_key' => 'required|string|max:100']);
+        $receipt = $s->cancelIntent($r->user(), $v['idempotency_key']);
+
+        return response()->json(['cancelled' => $receipt['cancelled'], 'campaign' => $receipt['campaign'] ? $this->safe($receipt['campaign'], $s) : null]);
+    }
+
     public function show(Request $r, int $campaign, CampaignService $s)
     {
         $row = $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
@@ -79,9 +87,9 @@ class CommercialCampaignController extends Controller
     public function action(Request $r, int $campaign, string $action, CampaignService $s)
     {
         $this->scope($r)->where('id', $campaign)->first() ?? abort(404);
-        $v = $r->validate(['reason' => 'required|string|min:5|max:500']);
+        $v = $r->validate(['reason' => 'required|string|min:5|max:500', 'expected_control_revision' => 'sometimes|integer|min:1']);
 
-        return response()->json(['campaign' => $this->safe($s->action($campaign, $r->user(), $action, $v['reason']), $s)]);
+        return response()->json(['campaign' => $this->safe($s->action($campaign, $r->user(), $action, $v['reason'], isset($v['expected_control_revision']) ? (int) $v['expected_control_revision'] : null), $s)]);
     }
 
     public function eligible(Request $r, CampaignService $s)

@@ -7,6 +7,8 @@ use App\Models\Charging\SessionLink;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
+use App\Models\User;
+use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\ConnectorTopology;
 use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\ReservationPolicy;
@@ -44,9 +46,10 @@ class SimulationController extends Controller
 
         $page = $q->orderByDesc('id')->paginate(25);
         $links = SessionLink::whereIn('charging_session_id', $page->getCollection()->pluck('id'))->get()->keyBy('charging_session_id');
-        $commands = ChargerCommand::whereIn('id', $links->pluck('start_command_id')->merge($links->pluck('stop_command_id'))->filter())->get(['id', 'status', 'failure_code'])->keyBy('id');
+        $commands = ChargerCommand::whereIn('id', $links->pluck('start_command_id')->merge($links->pluck('stop_command_id'))->filter())->get(['id', 'actor_id', 'consent_auth_epoch', 'status', 'failure_code'])->keyBy('id');
+        $actors = User::whereIn('id', $commands->pluck('actor_id'))->get()->keyBy('id');
 
-        return $page->through(function ($session) use ($links, $commands) {
+        return $page->through(function ($session) use ($links, $commands, $actors) {
             $link = $links->get($session->id);
             $start = $link ? $commands->get($link->start_command_id) : null;
 
@@ -54,7 +57,8 @@ class SimulationController extends Controller
                 'authorization_method' => $link?->rider_token_id ? 'rider_token' : ($link ? 'remote_start' : 'application_simulator'),
                 'awaiting_rider_transaction' => $link?->rider_token_id !== null && $link->started_at === null && $link->ended_at === null && $link->closed_without_dispatch_at === null,
                 'start_command_status' => $start?->status,
-                'start_admission_blocked' => in_array($start?->failure_code, ['pre_dispatch_company_gate', 'pre_dispatch_window_unavailable', 'pre_dispatch_operating_calendar'], true),
+                'start_authorization_revoked' => $session->status === 'pending_start' && $start?->status === 'pending' && $link->transaction_id === null && $link->started_at === null && $link->closed_without_dispatch_at === null && $link->last_sequence === -1 && $link->last_meter_wh === null && ! app(ChargingActorConsent::class)->matches($actors->get($start->actor_id), $start->consent_auth_epoch),
+                'start_admission_blocked' => in_array($start?->failure_code, ['pre_dispatch_actor_revoked', 'pre_dispatch_vendor_unavailable', 'pre_dispatch_company_gate', 'pre_dispatch_window_unavailable', 'pre_dispatch_operating_calendar'], true),
                 'can_cancel_before_dispatch' => $link && $session->status === 'pending_start' && $start?->status === 'pending' && $link->transaction_id === null && $link->started_at === null && $link->closed_without_dispatch_at === null,
                 'stop_command_status' => $link ? $commands->get($link->stop_command_id)?->status : null];
         });
@@ -65,6 +69,7 @@ class SimulationController extends Controller
         abort_unless($r->user()->id === $reservation->user_id, 404);
 
         return DB::transaction(function () use ($r, $reservation) {
+            app(ChargingActorConsent::class)->capture($r->user());
             Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
             $b = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
             $old = ChargingSession::where('reservation_id', $b->id)->first();

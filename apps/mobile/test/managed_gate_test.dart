@@ -9,6 +9,7 @@ import 'test_support.dart';
 class UndispatchedApi extends FixtureApi {
   bool cancelled = false;
   bool expired = false;
+  bool revoked = false;
   @override
   Future<dynamic> request(
     String path, {
@@ -36,6 +37,7 @@ class UndispatchedApi extends FixtureApi {
           'currency': 'AED',
           'csms_linked': true,
           'start_admission_blocked': !cancelled && !expired,
+          'start_authorization_revoked': revoked && !cancelled && !expired,
           'can_cancel_before_dispatch': !cancelled && !expired,
         },
       ],
@@ -47,6 +49,29 @@ class UndispatchedApi extends FixtureApi {
 }
 
 void main() {
+  testWidgets(
+    'revoked start shows safe cancellation recovery without source completion claims',
+    (tester) async {
+      final api = UndispatchedApi()..revoked = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SessionsView(api: api, role: 'customer', onExpired: () {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining(
+          'Account authorization changed before this start was sent.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Cancel undispatched start'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets(
     'expired unsent session is localized in Arabic and offers no charging or cancellation controls',
     (tester) async {

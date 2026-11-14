@@ -307,7 +307,13 @@ class _SessionsViewState extends State<SessionsView> {
                           child: Text(s.t('reconcileEvidence')),
                         ),
                     ],
-                    if (row['start_admission_blocked'] == true)
+                    if (row['start_authorization_revoked'] == true)
+                      Text(
+                        Localizations.localeOf(context).languageCode == 'ar'
+                            ? 'تغير تفويض الحساب قبل إرسال طلب البدء. ألغِ الحجز غير المرسل وأكد طلباً جديداً؛ لا يوقف هذا جلسة مصدر قائمة.'
+                            : 'Account authorization changed before this start was sent. Cancel the undispatched reservation and confirm a fresh request; this does not stop an existing source session.',
+                      )
+                    else if (row['start_admission_blocked'] == true)
                       Text(s.t('startAdmissionBlocked')),
                     if (widget.role == 'customer' &&
                         row['can_cancel_before_dispatch'] == true)

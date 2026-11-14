@@ -31,6 +31,7 @@ class RoamingDispatch
         $service = app(SandboxRoaming::class);
         $command = DB::transaction(function () use ($order, $service) {
             OcpiProvider::whereKey($order->provider_id)->lockForUpdate()->firstOrFail();
+            User::whereKey($order->user_id)->lockForUpdate()->firstOrFail();
             $current = DB::table('ocpi_roaming_orders')->where('id', $order->id)->lockForUpdate()->firstOrFail();
             $existing = DB::table('ocpi_roaming_commands')->where('order_id', $current->id)->where('action', 'START_SESSION')->first();
             if ($existing) {

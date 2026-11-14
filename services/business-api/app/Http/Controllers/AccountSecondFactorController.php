@@ -38,13 +38,14 @@ final class AccountSecondFactorController extends Controller
         }
     }
 
-    public function status(Request $request)
+    public function status(Request $request, AccountSecondFactor $service)
     {
         abort_unless(in_array($request->user()->role, ['customer', 'vendor'], true), 403);
         $row = DB::table('account_second_factors')->where('user_id', $request->user()->id)->first();
-        $hashes = $row?->recovery_hashes === null ? [] : json_decode(Crypt::decryptString($row->recovery_hashes), true, 512, JSON_THROW_ON_ERROR);
+        $recovery = $service->recoverySet($row?->recovery_hashes);
+        $hashes = $recovery['hashes'];
 
-        return response()->json(['enabled' => $row?->secret !== null, 'recovery_remaining' => count($hashes),
+        return response()->json(['enabled' => $row?->secret !== null, 'recovery_remaining' => count($hashes), 'recovery_rotation_recommended' => $recovery['version'] === 1 && $hashes !== [],
             'pending' => $row?->pending_secret !== null && $row->pending_until > now()->toDateTimeString()
                 && (int) $row->pending_epoch === (int) $request->user()->auth_epoch])
             ->header('Cache-Control', 'no-store, private');

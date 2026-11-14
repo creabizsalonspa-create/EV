@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
-use App\Models\User;
+use App\Services\Charging\ChargingActorConsent;
 use App\Services\Finance\PrechargePricing;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,9 +22,8 @@ class PrechargePricingController extends Controller
         $this->authorizeOwner($request, $reservation);
 
         return DB::transaction(function () use ($request, $reservation, $action) {
+            app(ChargingActorConsent::class)->capture($request->user());
             Station::whereKey($reservation->station_id)->lockForUpdate()->firstOrFail();
-            $user = User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
-            abort_unless($user->role === 'customer' && $user->account_status === 'active', 404);
 
             return $action(Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail());
         }, 3);

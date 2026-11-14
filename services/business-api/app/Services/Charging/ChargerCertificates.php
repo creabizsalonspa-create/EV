@@ -31,8 +31,10 @@ class ChargerCertificates
         $cert = DB::table('charger_certificates')->find($profile->managed_certificate_id);
         abort_unless($cert && $cert->profile_id === $profile->id && $cert->identity === $profile->identity && hash_equals($cert->fingerprint, $profile->certificate_sha256 ?? '') && CarbonImmutable::parse($cert->not_before)->lte(now()) && CarbonImmutable::parse($cert->not_after)->gt(now()), 409, 'Managed charger certificate is not currently usable.');
         abort_if(DB::table('charger_certificate_actions')->where('certificate_id', $cert->id)->where('action', 'revoke')->where('state', 'completed')->exists(), 409, 'Managed charger certificate is revoked.');
-        $verified = app(ChargerCertificateVerifier::class)->verify(Crypt::decryptString($cert->public_certificate), $profile->identity);
-        abort_unless(hash_equals($cert->fingerprint, $verified['fingerprint']) && hash_equals($cert->issuer_fingerprint, $verified['issuer_fingerprint']), 409, 'Managed certificate fingerprints changed.');
+        $chain = $cert->issuer_chain === null ? '' : Crypt::decryptString($cert->issuer_chain);
+        abort_unless(($cert->chain_sha256 === null && $chain === '') || ($cert->chain_sha256 !== null && hash_equals($cert->chain_sha256, hash('sha256', $chain))), 409, 'Certificate issuer chain changed.');
+        $verified = app(ChargerCertificateVerifier::class)->verify(Crypt::decryptString($cert->public_certificate), $profile->identity, $chain);
+        abort_unless(hash_equals($cert->fingerprint, $verified['fingerprint']) && hash_equals($cert->issuer_fingerprint, $verified['issuer_fingerprint']) && hash_equals($cert->trust_anchor_fingerprint ?? $cert->issuer_fingerprint, $verified['trust_anchor_fingerprint']) && (int) $cert->chain_length === $verified['chain_length'], 409, 'Managed certificate fingerprints changed.');
 
         return $cert;
     }
@@ -54,7 +56,7 @@ class ChargerCertificates
             $state = 'superseded';
         }
 
-        return ['id' => $cert->id, 'profile_id' => $cert->profile_id, 'fingerprint' => $cert->fingerprint, 'issuer_fingerprint' => $cert->issuer_fingerprint, 'serial' => $cert->serial, 'identity' => $cert->identity, 'key_type' => $cert->key_type, 'key_bits' => $cert->key_bits, 'not_before' => $cert->not_before, 'not_after' => $cert->not_after, 'state' => $state, 'created_at' => $cert->created_at];
+        return ['id' => $cert->id, 'profile_id' => $cert->profile_id, 'fingerprint' => $cert->fingerprint, 'issuer_fingerprint' => $cert->issuer_fingerprint, 'trust_anchor_fingerprint' => $cert->trust_anchor_fingerprint ?? $cert->issuer_fingerprint, 'chain_length' => (int) $cert->chain_length, 'serial' => $cert->serial, 'identity' => $cert->identity, 'key_type' => $cert->key_type, 'key_bits' => $cert->key_bits, 'not_before' => $cert->not_before, 'not_after' => $cert->not_after, 'state' => $state, 'created_at' => $cert->created_at];
     }
 
     private function receipt(object $action): array
@@ -88,9 +90,11 @@ class ChargerCertificates
                     abort_unless(config('csms.certificate_management_enabled'), 503, 'Certificate enrollment is disabled.');
                     app(VendorAccess::class)->operational($company);
                     abort_unless(app(AdmissionIdentity::class)->compatible($company, $charger, $p->identity, $p->protocol, app()->environment('production')), 409, 'Canonical charger identity requires review.');
-                    $metadata = app(ChargerCertificateVerifier::class)->verify($intent['public_certificate'], $p->identity);
+                    $metadata = app(ChargerCertificateVerifier::class)->verify($intent['public_certificate'], $p->identity, $intent['issuer_chain'] ?? null);
+                    $chain = $metadata['issuer_chain'];
+                    unset($metadata['issuer_chain']);
                     abort_if(DB::table('charger_certificates')->where('fingerprint', $metadata['fingerprint'])->exists(), 409, 'Certificate is already registered; resolve its existing request.');
-                    $id = DB::table('charger_certificates')->insertGetId(['profile_id' => $p->id, 'public_certificate' => Crypt::encryptString($intent['public_certificate']), 'created_at' => now()] + $metadata);
+                    $id = DB::table('charger_certificates')->insertGetId(['profile_id' => $p->id, 'public_certificate' => Crypt::encryptString($intent['public_certificate']), 'issuer_chain' => $chain === '' ? null : Crypt::encryptString($chain), 'created_at' => now()] + $metadata);
                     $p->update(['managed_certificate_id' => $id, 'certificate_sha256' => $metadata['fingerprint'], 'enabled' => false, 'credential_digest' => null, 'credential_version' => $p->credential_version + 1]);
                 } else {
                     $cert = DB::table('charger_certificates')->where('id', $intent['certificate_id'])->where('profile_id', $p->id)->first();

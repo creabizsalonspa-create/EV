@@ -10,6 +10,7 @@ use App\Models\ChargingSession;
 use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Charging\ChargingActorConsent;
 use App\Services\Charging\OperatingCalendar;
 use App\Services\Charging\RemoteSessionAuthorization;
 use App\Services\Charging\RiderServiceAuth;
@@ -34,7 +35,9 @@ class RemoteSessionAuthorizationController extends Controller
                 $map = ConnectorMapping::find($link->connector_mapping_id);
                 $evse = $map ? Evse::find($map->evse_id) : null;
                 if ($binding && $evse && $evse->binding_id === $binding->id && $map->station_id === $binding->station_id && app(RiderSourceController::class)->targetMatches($binding, $map, $evse, $v)) {
-                    $allowed = DB::transaction(function () use ($link, $binding, $v) {
+                    $hintOwner = Reservation::findOrFail(ChargingSession::findOrFail($link->charging_session_id)->reservation_id)->user_id;
+                    $allowed = DB::transaction(function () use ($link, $binding, $v, $hintOwner) {
+                        $owner = User::whereKey($hintOwner)->lockForUpdate()->firstOrFail();
                         $station = Station::whereKey($binding->station_id)->lockForUpdate()->firstOrFail();
                         app(StationGate::class)->requireReady($station, $link->connector_mapping_id);
                         $session = ChargingSession::findOrFail($link->charging_session_id);
@@ -45,6 +48,9 @@ class RemoteSessionAuthorizationController extends Controller
                         $current = SessionLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
                         $command = ChargerCommand::whereKey($current->start_command_id)->lockForUpdate()->firstOrFail();
                         $start = CarbonImmutable::parse($reservation->starts_at);
+                        if ($reservation->user_id !== $owner->id || $owner->account_status !== 'active' || ($session->status === 'pending_start' && ! app(ChargingActorConsent::class)->matches($owner, $command->consent_auth_epoch))) {
+                            return false;
+                        }
 
                         return $current->ended_at === null && $current->closed_without_dispatch_at === null && hash_equals($current->remote_token_digest, hash('sha256', $v['idToken'])) && $command->actor_id === $reservation->user_id && ($command->payload['id_token'] ?? null) === $v['idToken'] && in_array($command->status, ['dispatching', 'submitted', 'outcome_unknown', 'source_observed'], true) && $reservation->station_id === $station->id && $reservation->connector_mapping_id === $current->connector_mapping_id && $reservation->status === 'confirmed' && User::whereKey($reservation->user_id)->where('role', 'customer')->exists() && in_array($session->status, ['pending_start', 'charging', 'stopping'], true) && now()->gte($start) && now()->lt($start->addMinutes(30));
                     });

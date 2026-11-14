@@ -15,7 +15,7 @@ const groups = [
     "maintenance-windows",
   ], // 2+1+1+0+1+2+2 = 9 logins
   ["signed-firmware", "ocpi-credentials", "ocpi-incoming", "ocpi-receiver"], // signed delivery and two synthetic partner logins
-  ["charger-certificates"], // isolated PKI/TLS/owner controls; dedicated unchanged auth window
+  ["charger-certificates", "charger-certificate-chains"], // isolated PKI/TLS/owner controls; dedicated unchanged auth window
   ["rider-access", "charger-resets"], // six logins; separate unchanged auth window
   ["charging-business", "station-favorites"], // 3 registrations +2 registrations = 5
   ["client-demo-lifecycle"], // eight private fixture/browser logins; dedicated window
@@ -23,6 +23,7 @@ const groups = [
   ["operating-calendar"], // explicit operator calendar; six synthetic authentication requests, no charging
   ["vehicle-reservation"], // real garage/selected vehicle/future booking; scoped three-role reads, no charging
   ["privacy-e2e", "privacy-admin-e2e"], // canonical rights UI; three synthetic logins; no erasure or money
+  ["privacy-access-copy"], // dedicated unchanged authentication window for reviewed private copies
   ["charging-reviews"], // own unchanged authentication window
   ["ocpi-test-invoice", "ocpi-credit-picker"], // TEST billing and source-credit review: at most 4 logins; unchanged auth window
   ["partner-billing"], // scoped source-to-ledger workbench; separate authentication window

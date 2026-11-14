@@ -20,6 +20,7 @@ use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\PrechargePricingController;
+use App\Http\Controllers\PrivacyAccessExportController;
 use App\Http\Controllers\ReservationLifecycleController;
 use App\Http\Controllers\SimulationController;
 use App\Http\Controllers\StationAvailabilityBlockController;
@@ -230,6 +231,9 @@ Route::middleware(['auth', 'throttle:authentication'])->group(function () {
     Route::post('/api/account/second-factor/{action}', [AccountSecondFactorController::class, 'change'])->whereIn('action', ['disable', 'recovery-codes']);
 });
 
+Route::post('/api/admin/privacy-requests/{privacyCase}/access-copy', [PrivacyAccessExportController::class, 'prepare'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:authentication']);
+Route::post('/api/account/privacy-requests/{privacyCase}/access-copy', [PrivacyAccessExportController::class, 'read'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:authentication']);
+Route::post('/api/account/privacy-requests/{privacyCase}/access-copy/revoke', [PrivacyAccessExportController::class, 'revoke'])->where('privacyCase', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
 Route::get('/api/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'index'])->where('station', '[0-9]{1,18}')->middleware('throttle:catalog');
 Route::post('/api/stations/{station}/availability-blocks', [StationAvailabilityBlockController::class, 'store'])->where('station', '[0-9]{1,18}')->middleware(['auth', 'throttle:platform-api']);
 Route::post('/api/stations/{station}/availability-blocks/{block}/cancel', [StationAvailabilityBlockController::class, 'cancel'])->where('station', '[0-9]{1,18}')->whereUuid('block')->middleware(['auth', 'throttle:platform-api']);

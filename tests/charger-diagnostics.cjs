@@ -63,6 +63,18 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
       const monitored = await client.request(path);
       assert.equal(monitored.automatic_monitor.state, "caught_up");
       assert(monitored.automatic_monitor.checked_at);
+      assert.equal(monitored.status_durations.state, "observed");
+      assert.equal(monitored.status_durations.physical_uptime_verified, false);
+      for (const component of monitored.status_durations.components) {
+        assert.equal(
+          Object.values(component.observed_status_seconds).reduce(
+            (a, b) => a + b,
+            0,
+          ) + component.unknown_seconds,
+          86400,
+        );
+      }
+
       const inspected = await client.request(
         faultPath + "/inspect",
         "POST",
@@ -116,6 +128,11 @@ const { SimulatedCharger, poll } = require("./helpers/csms-local.cjs");
           .getByText("Source reports online", { exact: true })
           .waitFor();
         assert.match(await panel.innerText(), /Faulted/);
+        await panel
+          .getByText("Observed status durations over 24 hours", { exact: true })
+          .waitFor();
+        assert.match(await panel.innerText(), /Unknown seconds/);
+
         await panel
           .getByRole("button", { name: "Fault alerts", exact: true })
           .click();

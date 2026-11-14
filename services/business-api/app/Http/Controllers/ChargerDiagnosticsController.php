@@ -7,6 +7,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorSite;
 use App\Services\Charging\FaultMonitor;
+use App\Services\Charging\SourceStatusDurations;
 use App\Services\Charging\SourceStatusTime;
 use App\Services\VendorOps\VendorAccess;
 use Carbon\CarbonImmutable;
@@ -87,6 +88,7 @@ class ChargerDiagnosticsController extends Controller
 
         return response()->json([
             'source_generation' => FaultMonitor::generation($binding),
+            'status_durations' => app(SourceStatusDurations::class)->report($binding),
             'automatic_monitor' => DB::table('charging_fault_cursors')->where('source_generation', FaultMonitor::generation($binding))->first(['state', 'checked_at']),
             'can_manage_faults' => app(VendorAccess::class)->capabilities($r->user(), $company)['inventory_write'],
             'evidence' => 'SIMULATED_SOURCE', 'protocol' => $binding->protocol,

@@ -581,6 +581,8 @@ window.createRoamingWorkspace = ({
                 ["Sandbox reconciliation", row.reconciliation_state],
             ])
                 line(card, label, value);
+            if (row.start_consent_current === false && !["source_active", "source_completed"].includes(row.state))
+                card.append(ui("p", "Roaming start authorization revoked"));
             if (row.reported_cost)
                 line(
                     card,

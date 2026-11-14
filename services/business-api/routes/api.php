@@ -20,6 +20,7 @@ use App\Http\Controllers\PaymentGatewayController;
 use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
 use App\Http\Controllers\PrechargePricingController;
+use App\Http\Controllers\PrivacyAccessExportController;
 use App\Http\Controllers\RecurringPaymentController;
 use App\Http\Controllers\RemoteSessionAuthorizationController;
 use App\Http\Controllers\ReservationLifecycleController;
@@ -56,6 +57,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/stations', [P::class, 'stations'])->middleware('throttle:catalog');
     Route::get('/regions', [E::class, 'regions'])->middleware('throttle:catalog');
     Route::middleware(['auth:sanctum', RejectAdminPersonalAccessToken::class, 'throttle:platform-api'])->group(function () {
+        Route::post('/privacy-requests/{privacyCase}/access-copy', [PrivacyAccessExportController::class, 'read'])->where('privacyCase', '[0-9]{1,18}')->middleware('throttle:authentication');
+        Route::post('/privacy-requests/{privacyCase}/access-copy/revoke', [PrivacyAccessExportController::class, 'revoke'])->where('privacyCase', '[0-9]{1,18}');
         Route::get('/privacy-requests', [AccountPrivacyController::class, 'mine']);
         Route::post('/privacy-requests', [AccountPrivacyController::class, 'submit']);
         Route::post('/privacy-requests/{privacyCase}/withdraw', [AccountPrivacyController::class, 'withdraw'])->where('privacyCase', '[0-9]{1,18}');

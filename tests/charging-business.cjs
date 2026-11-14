@@ -107,7 +107,7 @@ async function sourceTransaction(station, tx) {
   );
   return d.Transactions.find((t) => t.stationId === d.ChargingStations[0]?.id);
 }
-async function session(version, actors) {
+async function session(version, actors, revokedTag = null) {
   const { customer, vendor, admin } = actors;
   const name =
     "ev-test-business-" +
@@ -229,6 +229,12 @@ async function session(version, actors) {
       );
       assert.equal((auth.idTagInfo ?? auth.idTokenInfo).status, "Accepted");
     }
+    if (revokedTag)
+      assert.notEqual(
+        tag,
+        revokedTag,
+        "Fresh consent requires a new credential",
+      );
     if (autoDispatch) {
       assert.match(tag, /^EV-[A-F0-9]{16}$/);
       const other = new SimulatedCharger(
@@ -253,21 +259,68 @@ async function session(version, actors) {
       } finally {
         await other.close();
       }
-      await customer.changeRole("vendor");
-      try {
-        const denied = await charger.call(
+      if (!revokedTag) {
+        await customer.changeRole("vendor");
+        try {
+          const denied = await charger.call(
+            "Authorize",
+            version === "1.6"
+              ? { idTag: tag }
+              : { idToken: { idToken: tag, type: "Central" } },
+          );
+          assert.notEqual(
+            (denied.idTagInfo ?? denied.idTokenInfo).status,
+            "Accepted",
+            "Current customer authority must be rechecked online",
+          );
+        } finally {
+          await customer.changeRole("customer");
+        }
+
+        const revoked = await charger.call(
           "Authorize",
           version === "1.6"
             ? { idTag: tag }
             : { idToken: { idToken: tag, type: "Central" } },
         );
         assert.notEqual(
-          (denied.idTagInfo ?? denied.idTokenInfo).status,
+          (revoked.idTagInfo ?? revoked.idTokenInfo).status,
           "Accepted",
-          "Current customer authority must be rechecked online",
+          "Restoring a role must never restore the old charging credential",
         );
-      } finally {
-        await customer.changeRole("customer");
+        await stopWorker(worker);
+        worker = null;
+        await stopWorker(dispatcher);
+        dispatcher = null;
+        // changeRole performed normal current-role login. A separate owned
+        // reservation obtains fresh consent; the old remote intent is not replayed.
+        await session(version, actors, tag);
+        const replay = await charger.call(
+          "Authorize",
+          version === "1.6"
+            ? { idTag: tag }
+            : { idToken: { idToken: tag, type: "Central" } },
+        );
+        assert.notEqual(
+          (replay.idTagInfo ?? replay.idTokenInfo).status,
+          "Accepted",
+          "A fresh successful session must not revive revoked authorization",
+        );
+        const revokedSession = await latestSession(customer, sessionId);
+        assert(revokedSession, "Revoked intent remains visible to its owner");
+        assert.notEqual(
+          revokedSession.status,
+          "active",
+          "Rejected authorization must not establish charging",
+        );
+        const ownerInvoices = await customer.request("finance/invoices");
+        assert.equal(
+          ownerInvoices.data.filter((i) => i.charging_session_id === sessionId)
+            .length,
+          0,
+          "Revoked unstarted intent must not create a financial record",
+        );
+        return;
       }
 
       const online = await charger.call(

@@ -12,6 +12,7 @@ use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
+use App\Services\Privacy\AccountDataExport;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -227,3 +228,6 @@ Artisan::command('accounts:expire-second-factor-setup', function () {
     $this->info('Expired authenticator setups removed: '.$count);
 })->purpose('Remove bounded expired encrypted authenticator enrollment payloads');
 Schedule::command('accounts:expire-second-factor-setup')->everyTenMinutes()->withoutOverlapping();
+
+// Remove expired encrypted account copies; retain only their review/audit receipt.
+Schedule::call(fn () => app(AccountDataExport::class)->purge())->name('privacy-access-copies-expire')->everyFifteenMinutes()->withoutOverlapping();
