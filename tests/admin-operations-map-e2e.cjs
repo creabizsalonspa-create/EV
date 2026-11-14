@@ -4,8 +4,8 @@ const {BusinessClient}=require('./helpers/business-client.cjs');
 let stage='fixture';
 (async()=>{
  const run=randomBytes(4).toString('hex'),password=randomBytes(24).toString('hex')+'Aa9!';
- const f=JSON.parse(execFileSync('./scripts/php',['tests/Fixtures/admin-operations-map.php',run,password],{encoding:'utf8'}));assert.equal(f.fixture_only,true);
- async function login(email){const c=new BusinessClient();c.csrf=(await c.request('csrf')).token;await c.request('login','POST',{email,password});c.csrf=(await c.request('csrf')).token;return c;}
+ const f=JSON.parse(execFileSync(process.env.EV_TEST_PHP_RUNNER||'./scripts/php',['tests/Fixtures/admin-operations-map.php',run,password],{encoding:'utf8'}));assert.equal(f.fixture_only,true);
+ async function login(email){const c=new BusinessClient({base:process.env.EV_TEST_URL||"http://127.0.0.1:8000"});c.csrf=(await c.request('csrf')).token;await c.request('login','POST',{email,password});c.csrf=(await c.request('csrf')).token;return c;}
  stage='admin-login';const c=await login(f.admin_email);
  stage='private-read';const data=await c.request('admin/operations/map?q='+encodeURIComponent(f.name));assert.equal(data.total,1);assert.equal(data.data[0].company.id,f.company_id);assert.equal(data.data[0].remote_control,false);
  const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined,args:['--no-sandbox']});
@@ -18,7 +18,7 @@ let stage='fixture';
   stage='consented-map';const tileRequest=page.waitForRequest(request=>new URL(request.url()).hostname==='tile.openstreetmap.org');await root.getByRole('button',{name:'Enable map tiles',exact:true}).click();await root.locator('.leaflet-container').waitFor();await tileRequest;
   await root.getByRole('button',{name:'Search / refresh inventory',exact:true}).click();await root.locator('.leaflet-marker-icon').waitFor();
   assert.equal(await root.locator('article').count(),1);
-  stage='disable';await root.getByRole('button',{name:'Disable map tiles',exact:true}).click();assert.equal(await root.locator('.leaflet-container').isVisible(),false);assert.equal(await root.locator('.leaflet-tile').count(),0);assert.equal(await root.locator('.leaflet-marker-icon').count(),0);assert.equal(await root.locator('article').count(),0);
+  stage='disable';await root.getByRole('button',{name:'Disable map tiles',exact:true}).click();assert.equal(await root.locator('.leaflet-container').count(),0);assert.equal(await root.locator('article').count(),0);
   stage='arabic';await page.locator('#language').click();await root.getByRole('button',{name:'بحث / تحديث المخزون',exact:true}).click();
   await root.locator('article').filter({hasText:f.name}).waitFor();assert.equal(await root.locator('input[name=q]').count(),1);assert.equal(await root.locator('select[name=recent_source_status]').count(),1);
   assert.equal(await page.locator('html').getAttribute('dir'),'rtl');assert.deepEqual(errors,[]);

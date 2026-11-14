@@ -387,6 +387,25 @@ Station and unified searches accept `recent_source_status` using the ten bounded
 
 The EN/AR filter is explicitly an as-of-search simulator-source report, excluding OCPI partner reports. `availability` stays unknown and every booking/start gate is unchanged. Search again to recheck; list membership never proves physical availability or grants charger control.
 
+Managed OCPI credential register/rotate/unregister and incoming preparation retain the original authenticated Admin snapshot. Current role, active status, security epoch and password hash are checked before discovery/claim and again under the Admin→provider lock order immediately before one-shot transport. Revocation during discovery denies the stale request without creating credentials. Revocation after claim conservatively quarantines the operation under the existing unknown-outcome policy; a newly authenticated operator can recover the receipt without resending. Completed partner approvals and historical source reconciliation are not retroactively rewritten.
+
+### Observed site interval demand
+
+The existing authenticated company operational analytics read and CSV/PDF exports
+now include `maximum_observed_site_interval_average_w`,
+`demand_observed_seconds`, and `demand_ambiguous_evse_seconds`. The maximum
+is nullable when no usable accepted meter intervals exist; observed zero
+remains zero. The calculation sums floored integer average watts from accepted
+session meter intervals wholly inside the UTC report window. It uses the same
+canonical current binding/topology and tenant scope as the energy report.
+Concurrent intervals from different EVSEs contribute together; overlapping
+sessions on one EVSE are excluded during their ambiguous overlap. Missing
+EVSE telemetry is not inferred to be zero. Coverage is partial, not a whole-site
+instantaneous peak or grid-meter demand measurement. `physical_site_demand_verified`
+is always false and `billing_authority` remains false. EN/AR web, PDF and native
+views preserve these distinctions. No ledger writes or provider calls occur.
+Oversized exact-number sums return409 rather than rounding or overflowing.
+
 ### Private Admin platform operations map
 
 `GET /api/admin/operations/map` is web-session Admin only, behind the existing
@@ -411,23 +430,21 @@ explicit consent; moving the map makes no API request, and there is no GPS looku
 Polar coordinates outside Web Mercator stay in the text list. The map covers
 platform inventory across companies; it does not assert partner-network coverage,
 physical connectivity or live operating acceptance.
-### Observed site interval demand
 
-The existing authenticated company operational analytics read and CSV/PDF exports
-now include `maximum_observed_site_interval_average_w`,
-`demand_observed_seconds`, and `demand_ambiguous_evse_seconds`. The maximum
-is nullable when no usable accepted meter intervals exist; observed zero
-remains zero. The calculation sums floored integer average watts from accepted
-session meter intervals wholly inside the UTC report window. It uses the same
-canonical current binding/topology and tenant scope as the energy report.
-Concurrent intervals from different EVSEs contribute together; overlapping
-sessions on one EVSE are excluded during their ambiguous overlap. Missing
-EVSE telemetry is not inferred to be zero. Coverage is partial, not a whole-site
-instantaneous peak or grid-meter demand measurement. `physical_site_demand_verified`
-is always false and `billing_authority` remains false. EN/AR web, PDF and native
-views preserve these distinctions. No ledger writes or provider calls occur.
-Oversized exact-number sums return409 rather than rounding or overflowing.
-Managed OCPI credential register/rotate/unregister and incoming preparation retain the original authenticated Admin snapshot. Current role, active status, security epoch and password hash are checked before discovery/claim and again under the Admin→provider lock order immediately before one-shot transport. Revocation during discovery denies the stale request without creating credentials. Revocation after claim conservatively quarantines the operation under the existing unknown-outcome policy; a newly authenticated operator can recover the receipt without resending. Completed partner approvals and historical source reconciliation are not retroactively rewritten.
+### Optional generic notification email
+
+Authenticated web `/api/notifications/email` and native `/api/v1/notifications/email` support GET settings and PUT `{enabled, confirmed, expected_revision}`. The revision is a decimal **string**; enabling requires explicit consent, a verified account email and configured server transport. No recipient override is accepted. Disabling cancels queued digests. GET `email/history?page=1` returns only the current account's paginated generic handoff receipts; transport acceptance never confirms delivery. Existing in-app preferences remain a separate contract.
+
+`NOTIFICATION_EMAIL_ENABLED=false` is the default. Approved production configuration requires a public HTTPS root `APP_URL`, SMTP/TLS and a valid sender. No SMTP credentials enter client responses. The scheduler runs bounded `php artisan notifications:handoff-email --max=100`; use the existing scheduler, not a second sender. Local/testing accepts only the in-memory array transport. Users consent to new unread activity only, up to one generic digest per 15 minutes, excluding activity older than 24 hours. Email contains no notification details or authentication tokens. Changed account epoch/role/email/transport invalidates consent. A durable claim is committed before handoff; claimed or unknown outcomes are never automatically retried. Inspect receipts for interrupted operations; do not replay them. Actual email receipt and production activation require separate operator acceptance.
+
+
+### Consented scheduled OCPI module polling
+
+Web `/api/ocpi/providers/{provider}/sync-plans` and native `/api/v1/ocpi/providers/{provider}/sync-plans` GET return current plans and 25 private run receipts per page. PUT `sync-plans/{locations|tariffs|sessions|cdrs}` accepts `enabled`, explicit `confirmed` consent when enabling, `interval_minutes` (15,30,60,360,1440), and decimal-string `expected_revision`. Only the current owning vendor or protected web Admin may manage plans; Admin bearer access remains forbidden. Recipient URLs/tokens cannot be supplied by clients.
+
+`OCPI_SCHEDULED_SYNC_ENABLED=false` defaults off. The existing scheduler runs `ocpi:poll-approved` once per minute, at most one negotiated module per invocation and one in-flight scheduled poll per provider. Approved connection metadata, active provider owner, current actor role/epoch, partner authorization revision and credential/configuration fingerprint are checked before reads and again before canonical ingestion. No database lock spans the HTTP pull. Opt-out during a pull prevents ingestion. Changed authority requires renewed explicit consent. Existing PartnerClient pagination/record/origin/credential limits and RecordSynchronizer replay, retirement and immutable CDR rules apply unchanged. No charging command, reservation, invoice or financial posting is performed.
+
+A failed read waits for its next configured interval; the error receipt contains only fixed codes. A claim interrupted for 30 minutes disables that plan and records operator review. Renewing consent starts a new run identity; it never silently resumes an interrupted request. History and outcomes remain partner-reported/unverified and do not establish physical operation or commercial acceptance. Configure and accept actual partner polling separately; local tests fake every partner request.
 
 ### Private process and queue observations
 
@@ -451,3 +468,9 @@ secrets. `OPERATIONAL_HEALTH_ENABLED=false` disables observations.
 The EN/AR Admin view refreshes explicitly, labels the snapshot time and clears
 private results on account/background changes. It offers no retry, delete,
 charger, payment or external-probe actions. Public health contracts are unchanged.
+
+
+Loyalty HTTP requests recheck the original active account role, credential epoch
+and password snapshot under a user lock before scoped reads or awards. A revoked
+Admin cannot retain global redemption visibility or award access through an old
+request snapshot. Existing publication and fulfillment service guards remain.

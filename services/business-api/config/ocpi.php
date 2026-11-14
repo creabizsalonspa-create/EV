@@ -43,4 +43,4 @@ foreach ($metadata as $key => $connection) {
     ];
 }
 
-return ['test_billing_enabled' => env('OCPI_TEST_BILLING_ENABLED', false), 'test_commands_enabled' => env('OCPI_TEST_COMMANDS_ENABLED', false), 'local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];
+return ['scheduled_sync_enabled' => env('OCPI_SCHEDULED_SYNC_ENABLED', false), 'test_billing_enabled' => env('OCPI_TEST_BILLING_ENABLED', false), 'test_commands_enabled' => env('OCPI_TEST_COMMANDS_ENABLED', false), 'local_credentials' => json_decode(env('OCPI_LOCAL_CREDENTIALS_JSON', '{}'), true, flags: JSON_THROW_ON_ERROR), 'connections' => $connections, 'max_pages' => 20, 'max_records' => 1000];

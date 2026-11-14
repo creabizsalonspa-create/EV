@@ -12,6 +12,8 @@ use App\Services\Charging\FaultReminderEscalator;
 use App\Services\Charging\SessionBridge;
 use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
+use App\Services\Notifications\EmailNotices;
+use App\Services\Ocpi\ScheduledSync;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Foundation\Inspiring;
@@ -232,6 +234,35 @@ Schedule::command('accounts:expire-second-factor-setup')->everyTenMinutes()->wit
 
 // Remove expired encrypted account copies; retain only their review/audit receipt.
 Schedule::call(fn () => app(AccountDataExport::class)->purge())->name('privacy-access-copies-expire')->everyFifteenMinutes()->withoutOverlapping();
+
+Artisan::command('notifications:handoff-email {--max=100}', function () {
+    $maximum = $this->option('max');
+    if (! preg_match('/^[1-9][0-9]{0,2}$/D', (string) $maximum) || (int) $maximum > 100) {
+        $this->error('Select one to 100 account digests.');
+
+        return 1;
+    }
+    try {
+        $result = app(EmailNotices::class)->run((int) $maximum);
+        $this->info(json_encode($result, JSON_THROW_ON_ERROR));
+    } catch (Throwable) {
+        $this->error('Email handoff requires operator review. No claimed send is automatically retried.');
+
+        return 1;
+    }
+})->purpose('Bounded, opt-in generic email digests; transport handoff does not prove delivery');
+Schedule::command('notifications:handoff-email')->everyMinute()->withoutOverlapping();
+
+Artisan::command('ocpi:poll-approved', function () {
+    try {
+        $this->info(json_encode(app(ScheduledSync::class)->run(), JSON_THROW_ON_ERROR));
+    } catch (Throwable) {
+        $this->error('Partner polling requires operator review.');
+
+        return 1;
+    }
+})->purpose('One bounded opt-in partner module pull through canonical OCPI ingress');
+Schedule::command('ocpi:poll-approved')->everyMinute()->withoutOverlapping(30);
 
 Artisan::command('platform:health-heartbeat', function () {
     $recorded = app(OperationalHealth::class)->record('scheduler');

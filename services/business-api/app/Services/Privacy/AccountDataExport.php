@@ -51,6 +51,8 @@ final class AccountDataExport
             'manual_battery_reports' => $this->rows(DB::table('vehicle_manual_soc_reports')->whereIn('vehicle_id', $vehicles()), ['id', 'vehicle_id', 'battery_percent', 'reported_at', 'created_at']),
             'loyalty_entries' => $this->rows($owned('loyalty_ledger'), ['id', 'kind', 'points', 'created_at']),
             'subscriptions' => $this->rows($owned('commercial_subscriptions'), ['id', 'plan_id', 'status', 'period_start', 'period_end', 'cancel_at_period_end', 'created_at']),
+            'email_notice_preferences' => $this->rows($owned('notification_email_preferences'), ['user_id', 'enabled', 'consented_at', 'disabled_reason', 'created_at', 'updated_at'], 'user_id'),
+            'email_notice_handoffs' => $this->rows($owned('notification_email_outbox'), ['id', 'state', 'evidence', 'failure_code', 'created_at', 'claimed_at', 'completed_at']),
             'notification_preferences' => $this->rows($owned('notification_preferences'), ['user_id', 'default_category', 'default_unread_only', 'remind_unresolved_simulator_faults', 'updated_at'], 'user_id'),
         ];
         foreach ($sections['pricing_consents'] as $record) {
