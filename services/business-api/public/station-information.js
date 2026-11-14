@@ -33,6 +33,7 @@
     };
     function attachCard(card, station) {
         const info = station.information || {};
+        window.EvStationBlocks?.show(card, info.availability_blocks);
         const details = document.createElement("details");
         details.className = "station-information";
         details.append(label("Hours, access & facilities", "ساعات العمل والدخول والمرافق", "summary"));
@@ -155,6 +156,7 @@
             // Remove the previous station's form before starting a new GET.
             // Otherwise its old submit closure could write stale content into
             // the newly selected station during a slow network response.
+            root.querySelector("[data-availability-blocks]")?.remove();
             root.querySelector("form")?.remove();
             selected = station || null;
             information = null;
@@ -176,6 +178,7 @@
             }
         }
         function renderForm() {
+            root.querySelector("[data-availability-blocks]")?.remove();
             root.querySelector("form")?.remove();
             if (!selected || !information || !state()) return;
             const info = information;
@@ -322,6 +325,9 @@
                 }
             };
             root.append(form);
+            const blocks = document.createElement("section"); blocks.dataset.availabilityBlocks = "1"; root.append(blocks);
+            window.EvStationBlocks?.mount(blocks, {api, stationId: formStationId, initialRows: info.availability_blocks || [],
+                current: () => state() && generation === formTicket && selected?.id === formStationId});
         }
         async function reload(target = 1) {
             if (!state()) { clear(); return; }

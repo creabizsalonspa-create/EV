@@ -17,6 +17,7 @@ final class OperatingCalendar
     /** Caller holds the station lock shared with information publication. */
     public function requireWindow(Station $station, CarbonInterface $start, CarbonInterface $end): ?array
     {
+        app(StationAvailabilityBlocks::class)->requireWindow($station, $start, $end);
         $row = DB::table('station_information')->where('station_id', $station->id)->first();
         if (! $row || ! ($row->enforce_operating_hours ?? false)) {
             return null; // Existing advisory metadata never silently becomes a control.
@@ -42,7 +43,10 @@ final class OperatingCalendar
     public function requireStart(Station $station): void
     {
         $at = CarbonImmutable::now('UTC');
-        $this->requireWindow($station, $at, $at->addMicrosecond());
+        // SQL policy intervals have second precision. A microsecond window
+        // collapses when the query bindings are serialized, missing a block
+        // that starts exactly now.
+        $this->requireWindow($station, $at, $at->addSecond());
     }
 
     /** Half-open UTC interval evaluated at each station-local minute boundary. */

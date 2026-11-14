@@ -1,0 +1,28 @@
+{
+  "status": "local_verified_hosted_pending",
+  "scope": "Station-wide vendor policy blocks, UTC public notices, immutable replay identities, revision-checked cancellation and booking/start/pre-dispatch gates through existing OperatingCalendar. Web/Flutter vendor actions and customer display.",
+  "laravel": {
+    "tests": 999,
+    "assertions": 19872,
+    "result": "passed"
+  },
+  "postgresql": {
+    "tests": 31,
+    "assertions": 295,
+    "result": "passed",
+    "version": 17
+  },
+  "web_security_components": {
+    "tests": 20,
+    "result": "passed"
+  },
+  "native": "New Flutter screen/widget contract; hosted analyzer, tests and builds pending.",
+  "public_privacy": "Exact new read routes reviewed in security inventory; projection excludes creator, idempotency and audit fields. Mutations remain owner-authenticated.",
+  "limitations": [
+    "Station-wide policies only; no connector-specific block credit.",
+    "Existing accepted bookings are not automatically cancelled/refunded.",
+    "Live charger availability, real hardware, staging and production acceptance are unverified."
+  ],
+  "original_atom_credit_added": false,
+  "production_accepted": false
+}
