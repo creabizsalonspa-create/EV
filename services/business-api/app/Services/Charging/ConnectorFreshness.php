@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\DB;
 /** Public projection of accepted observations, never command or booking authority. */
 final class ConnectorFreshness
 {
+    public const STATUSES = ['Available', 'Occupied', 'Preparing', 'Charging', 'SuspendedEV', 'SuspendedEVSE', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'];
+
     public function present(?object $binding, ?int $evse, ?int $connector): array
     {
         $now = CarbonImmutable::now('UTC');
@@ -38,7 +40,7 @@ final class ConnectorFreshness
             return array_replace($result, ['state' => 'stale']);
         }
         $status = $latest->status;
-        if (! in_array($status, ['Available', 'Occupied', 'Preparing', 'Charging', 'SuspendedEV', 'SuspendedEVSE', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'], true)) {
+        if (! in_array($status, self::STATUSES, true)) {
             return $result;
         }
 

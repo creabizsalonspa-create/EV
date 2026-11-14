@@ -1,0 +1,48 @@
+{
+  "scope": "As-of-search canonical current-generation connector-report filtering on Laravel/PostgreSQL, EN/AR web and Flutter",
+  "laravel": {
+    "tests": 1081,
+    "assertions": 21199,
+    "skipped": 1,
+    "result": "passed",
+    "skip_reason": "PostgreSQL-only price-consent rollback proof"
+  },
+  "postgresql": {
+    "tests": 97,
+    "assertions": 1307,
+    "result": "passed",
+    "version": 17,
+    "encoding": "UTF8"
+  },
+  "focused_source_filter": {
+    "tests": 4,
+    "assertions": 78,
+    "result": "passed",
+    "protocols": [
+      "1.6",
+      "2.0.1"
+    ]
+  },
+  "web_components": {
+    "tests": 20,
+    "result": "passed"
+  },
+  "safeguards": [
+    "exact current source generation and connector identity",
+    "same-connector connector/power conditions",
+    "five-minute inclusive expiry",
+    "future/newer and conflicting reports suppress old claims",
+    "fault normalization",
+    "ownership/approval/local license expiry",
+    "unchanged unknown physical availability and charging gates"
+  ],
+  "hosted_pending": [
+    "actual Laravel/browser filtered mixed discovery",
+    "Flutter normalized filter and Arabic contract",
+    "all exact-source platform, native and recovery gates"
+  ],
+  "physical_availability_verified": false,
+  "production_accepted": false,
+  "original_atom_credit_added": false,
+  "combined_integration": "Includes latest charging actor-epoch admission, source subsecond-duration correction, isolated browser fixture cleanup, unified maps and private favorites"
+}

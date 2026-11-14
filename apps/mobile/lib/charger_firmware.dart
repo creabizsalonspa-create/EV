@@ -25,11 +25,51 @@ class ChargerFirmwareView extends StatefulWidget {
   State<ChargerFirmwareView> createState() => _FirmwareState();
 }
 
-class _FirmwareState extends State<ChargerFirmwareView> {
+class _FirmwareState extends State<ChargerFirmwareView>
+    with WidgetsBindingObserver {
   ApiPage<Map<String, dynamic>>? operations, releases;
   bool busy = false, manager = false, enabled = false;
   Object? error;
   int generation = 0;
+  bool foreground = true, prompting = false;
+  late bool Function() authorized;
+  bool current(int epoch) =>
+      mounted && foreground && authorized() && epoch == generation;
+  void clearPrivateState() {
+    generation++;
+    pending?.clear();
+    pending = null;
+    error = null;
+    busy = false;
+    manager = false;
+    enabled = false;
+    operations = null;
+    releases = null;
+    selected = null;
+  }
+
+  @override
+  void didUpdateWidget(covariant ChargerFirmwareView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.api != widget.api ||
+        oldWidget.companyId != widget.companyId ||
+        oldWidget.chargerId != widget.chargerId ||
+        oldWidget.manufacturer != widget.manufacturer ||
+        oldWidget.model != widget.model) {
+      clearPrivateState();
+      authorized = widget.api.sessionFence();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (mounted)
+      setState(() {
+        if (!foreground) clearPrivateState();
+      });
+  }
+
   int? selected;
   Map<String, dynamic>? pending;
   String t(String en, String ar) =>
@@ -39,22 +79,26 @@ class _FirmwareState extends State<ChargerFirmwareView> {
   @override
   void initState() {
     super.initState();
+    authorized = widget.api.sessionFence();
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
   @override
   void dispose() {
-    pending?.clear();
+    clearPrivateState();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   void fail(Object e) {
-    if (!mounted) return;
+    if (!mounted || !foreground || !authorized()) return;
     setState(() => error = e);
     if (e is ApiException && [401, 419].contains(e.status)) widget.onExpired();
   }
 
   Future<void> load({int? page, int? releasePage}) async {
+    if (!foreground || !authorized()) return;
     final epoch = ++generation;
     setState(() {
       busy = true;
@@ -76,7 +120,7 @@ class _FirmwareState extends State<ChargerFirmwareView> {
           },
         ),
       ]);
-      if (mounted && epoch == generation)
+      if (current(epoch))
         setState(() {
           operations = ApiPage<Map<String, dynamic>>.fromJson(
             values[0],
@@ -94,7 +138,7 @@ class _FirmwareState extends State<ChargerFirmwareView> {
                 : releases!.items.first['id'] as int;
         });
     } catch (e) {
-      if (mounted && epoch == generation) {
+      if (current(epoch)) {
         setState(() {
           operations = null;
           releases = null;
@@ -102,76 +146,96 @@ class _FirmwareState extends State<ChargerFirmwareView> {
         fail(e);
       }
     } finally {
-      if (mounted && epoch == generation) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
-  Future<String?> note(String title) => showDialog<String>(
-    context: context,
-    builder: (_) => _FirmwareNote(title: title),
-  );
-  Future<void> deploy() async {
-    if (pending == null) {
-      final id = selected;
-      if (id == null) return;
-      final value = await note(
-        t('Request signed firmware', 'طلب برنامج ثابت موقع'),
+  Future<String?> note(String title, int epoch) async {
+    setState(() => prompting = true);
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (_) =>
+            _FirmwareNote(title: title, authorized: () => current(epoch)),
       );
-      if (!mounted || value == null) return;
-      pending = {
-        'release_id': id,
-        'reason': value,
-        'idempotency_key': operationKey(),
-      };
+    } finally {
+      if (mounted) setState(() => prompting = false);
     }
+  }
+
+  Future<void> deploy() async {
+    if (!foreground || !authorized() || busy || !manager || !enabled) return;
+    final epoch = ++generation;
+    final target = path;
+    final api = widget.api;
+    final releaseId = selected;
+    if (pending == null && releaseId == null) return;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      await widget.api.request(
-        path,
-        method: 'POST',
-        body: Map<String, dynamic>.from(pending!),
-      );
+      if (pending == null) {
+        final reason = await note(
+          t('Request signed firmware', 'طلب برنامج ثابت موقع'),
+          epoch,
+        );
+        if (!current(epoch) || reason == null) return;
+        pending = {
+          'release_id': releaseId,
+          'reason': reason,
+          'idempotency_key': operationKey(),
+        };
+      }
+      if (!current(epoch)) return;
+      final body = Map<String, dynamic>.from(pending!);
+      await api.request(target, method: 'POST', body: body);
+      if (!current(epoch)) return;
       pending = null;
-      if (mounted) await load(page: 1);
+      await load();
     } catch (e) {
-      if (e is ApiException && [409, 422].contains(e.status)) pending = null;
-      fail(e);
+      if (current(epoch)) {
+        if (e is ApiException && [409, 422].contains(e.status)) pending = null;
+        fail(e);
+      }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
   Future<void> review(int id, {bool cancel = false}) async {
-    final value = await note(
-      cancel
-          ? t(
-              'Cancel firmware before dispatch',
-              'إلغاء البرنامج الثابت قبل الإرسال',
-            )
-          : t(
-              'Review firmware source evidence',
-              'مراجعة دليل مصدر البرنامج الثابت',
-            ),
-    );
-    if (!mounted || value == null) return;
+    if (!foreground || !authorized() || busy || !manager || !enabled) return;
+    final epoch = ++generation;
+    final target = path;
+    final api = widget.api;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      await widget.api.request(
-        '$path/$id/${cancel ? 'cancel' : 'review'}',
+      final value = await note(
+        cancel
+            ? t(
+                'Cancel firmware before dispatch',
+                'إلغاء البرنامج الثابت قبل الإرسال',
+              )
+            : t(
+                'Review firmware source evidence',
+                'مراجعة دليل مصدر البرنامج الثابت',
+              ),
+        epoch,
+      );
+      if (!current(epoch) || value == null) return;
+      await api.request(
+        '$target/$id/${cancel ? 'cancel' : 'review'}',
         method: 'POST',
         body: {'note': value},
       );
-      if (mounted) await load();
+      if (current(epoch)) await load();
     } catch (e) {
-      fail(e);
+      if (current(epoch)) fail(e);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (current(epoch)) setState(() => busy = false);
     }
   }
 
@@ -201,139 +265,166 @@ class _FirmwareState extends State<ChargerFirmwareView> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(firmwareTitle(context))),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(
-          t(
-            'Local simulator only. Admin must approve independently trusted signed artifacts. Only compatible approved releases are eligible. No unsigned fallback or automatic retry. Starts remain blocked until fresh idle state and correlated terminal source evidence are reviewed. Source reports do not prove physical installation.',
-            'للمحاكاة المحلية فقط. يجب أن يعتمد المسؤول ملفات موقعة موثوقة بشكل مستقل. تتاح الإصدارات المعتمدة والمتوافقة فقط. لا يوجد بديل غير موقع أو إعادة تلقائية. يبقى الشحن محظوراً حتى مراجعة حالة خمول حديثة ودليل مصدر نهائي مرتبط. لا تثبت تقارير المصدر التثبيت الفعلي.',
-          ),
-        ),
-        if (busy) const LinearProgressIndicator(),
-        if (error != null) Text(EvStrings.of(context).t(errorKey(error!))),
-        TextButton(
-          onPressed: busy ? null : () => load(),
-          child: Text(t('Refresh', 'تحديث')),
-        ),
-        if (manager && enabled) ...[
-          if (releases?.items.isNotEmpty == true)
-            DropdownButtonFormField<int>(
-              initialValue: selected,
-              key: ValueKey('${releases!.current}:$selected'),
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: t(
-                  'Approved signed release',
-                  'الإصدار الموقع المعتمد',
+    body: !authorized()
+        ? Center(child: Text(t('Sign in again.', 'سجّل الدخول مجددًا.')))
+        : ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                t(
+                  'Local simulator only. Admin must approve independently trusted signed artifacts. Only compatible approved releases are eligible. No unsigned fallback or automatic retry. Starts remain blocked until fresh idle state and correlated terminal source evidence are reviewed. Source reports do not prove physical installation.',
+                  'للمحاكاة المحلية فقط. يجب أن يعتمد المسؤول ملفات موقعة موثوقة بشكل مستقل. تتاح الإصدارات المعتمدة والمتوافقة فقط. لا يوجد بديل غير موقع أو إعادة تلقائية. يبقى الشحن محظوراً حتى مراجعة حالة خمول حديثة ودليل مصدر نهائي مرتبط. لا تثبت تقارير المصدر التثبيت الفعلي.',
                 ),
               ),
-              items: [
-                for (final r in releases!.items)
-                  DropdownMenuItem(
-                    value: r['id'] as int,
+              if (busy && !prompting) const LinearProgressIndicator(),
+              if (error != null)
+                Text(EvStrings.of(context).t(errorKey(error!))),
+              TextButton(
+                onPressed: busy ? null : () => load(),
+                child: Text(t('Refresh', 'تحديث')),
+              ),
+              if (manager && enabled) ...[
+                if (releases?.items.isNotEmpty == true)
+                  DropdownButtonFormField<int>(
+                    initialValue: selected,
+                    key: ValueKey('${releases!.current}:$selected'),
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: t(
+                        'Approved signed release',
+                        'الإصدار الموقع المعتمد',
+                      ),
+                    ),
+                    items: [
+                      for (final r in releases!.items)
+                        DropdownMenuItem(
+                          value: r['id'] as int,
+                          child: Text(
+                            '${r['version']}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: busy || pending != null
+                        ? null
+                        : (v) => setState(() => selected = v),
+                  ),
+                if (releases?.items.isEmpty == true)
+                  Text(
+                    t(
+                      'No compatible approved release. Server provisioning and Admin approval are required.',
+                      'لا يوجد إصدار معتمد ومتوافق. يلزم إعداد الملف على الخادم واعتماد المسؤول.',
+                    ),
+                  ),
+                if ((releases?.current ?? 1) > 1)
+                  TextButton(
+                    onPressed: busy || pending != null
+                        ? null
+                        : () => load(releasePage: releases!.current - 1),
+                    child: Text(t('Previous releases', 'الإصدارات السابقة')),
+                  ),
+                if ((releases?.current ?? 1) < (releases?.last ?? 1))
+                  TextButton(
+                    onPressed: busy || pending != null
+                        ? null
+                        : () => load(releasePage: releases!.current + 1),
+                    child: Text(t('More releases', 'المزيد من الإصدارات')),
+                  ),
+                if (selected != null || pending != null)
+                  FilledButton(
+                    onPressed: busy ? null : deploy,
                     child: Text(
-                      '${r['version']}',
-                      overflow: TextOverflow.ellipsis,
+                      pending == null
+                          ? t('Request signed firmware', 'طلب برنامج ثابت موقع')
+                          : t('Retry saved request', 'إعادة الطلب المحفوظ'),
                     ),
                   ),
               ],
-              onChanged: busy || pending != null
-                  ? null
-                  : (v) => setState(() => selected = v),
-            ),
-          if (releases?.items.isEmpty == true)
-            Text(
-              t(
-                'No compatible approved release. Server provisioning and Admin approval are required.',
-                'لا يوجد إصدار معتمد ومتوافق. يلزم إعداد الملف على الخادم واعتماد المسؤول.',
-              ),
-            ),
-          if ((releases?.current ?? 1) > 1)
-            TextButton(
-              onPressed: busy || pending != null
-                  ? null
-                  : () => load(releasePage: releases!.current - 1),
-              child: Text(t('Previous releases', 'الإصدارات السابقة')),
-            ),
-          if ((releases?.current ?? 1) < (releases?.last ?? 1))
-            TextButton(
-              onPressed: busy || pending != null
-                  ? null
-                  : () => load(releasePage: releases!.current + 1),
-              child: Text(t('More releases', 'المزيد من الإصدارات')),
-            ),
-          if (selected != null || pending != null)
-            FilledButton(
-              onPressed: busy ? null : deploy,
-              child: Text(
-                pending == null
-                    ? t('Request signed firmware', 'طلب برنامج ثابت موقع')
-                    : t('Retry saved request', 'إعادة الطلب المحفوظ'),
-              ),
-            ),
-        ],
-        for (final op in operations?.items ?? <Map<String, dynamic>>[])
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('#${op['id']} · ${op['version']}'),
-                  Text(state(op['status'])),
-                  Text('${op['sha256']}', textDirection: TextDirection.ltr),
-                  Text('${op['created_at']}'),
-                  if (op['reviewed_at'] == null && manager && enabled)
-                    TextButton(
-                      onPressed: busy
-                          ? null
-                          : () => review(
-                              op['id'] as int,
-                              cancel: op['status'] == 'requested',
-                            ),
-                      child: Text(
-                        t(
-                          op['status'] == 'requested'
-                              ? 'Cancel firmware before dispatch'
-                              : 'Review firmware source evidence',
-                          op['status'] == 'requested'
-                              ? 'إلغاء البرنامج الثابت قبل الإرسال'
-                              : 'مراجعة دليل مصدر البرنامج الثابت',
+              for (final op in operations?.items ?? <Map<String, dynamic>>[])
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('#${op['id']} · ${op['version']}'),
+                        Text(state(op['status'])),
+                        Text(
+                          '${op['sha256']}',
+                          textDirection: TextDirection.ltr,
                         ),
-                      ),
+                        Text('${op['created_at']}'),
+                        if (op['reviewed_at'] == null && manager && enabled)
+                          TextButton(
+                            onPressed: busy
+                                ? null
+                                : () => review(
+                                    op['id'] as int,
+                                    cancel: op['status'] == 'requested',
+                                  ),
+                            child: Text(
+                              t(
+                                op['status'] == 'requested'
+                                    ? 'Cancel firmware before dispatch'
+                                    : 'Review firmware source evidence',
+                                op['status'] == 'requested'
+                                    ? 'إلغاء البرنامج الثابت قبل الإرسال'
+                                    : 'مراجعة دليل مصدر البرنامج الثابت',
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                ],
-              ),
-            ),
+                  ),
+                ),
+              if ((operations?.current ?? 1) > 1)
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => load(page: operations!.current - 1),
+                  child: Text(t('Previous', 'السابق')),
+                ),
+              if ((operations?.current ?? 1) < (operations?.last ?? 1))
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => load(page: operations!.current + 1),
+                  child: Text(t('Next', 'التالي')),
+                ),
+            ],
           ),
-        if ((operations?.current ?? 1) > 1)
-          TextButton(
-            onPressed: busy ? null : () => load(page: operations!.current - 1),
-            child: Text(t('Previous', 'السابق')),
-          ),
-        if ((operations?.current ?? 1) < (operations?.last ?? 1))
-          TextButton(
-            onPressed: busy ? null : () => load(page: operations!.current + 1),
-            child: Text(t('Next', 'التالي')),
-          ),
-      ],
-    ),
   );
 }
 
 class _FirmwareNote extends StatefulWidget {
   final String title;
-  const _FirmwareNote({required this.title});
+  final bool Function() authorized;
+  const _FirmwareNote({required this.title, required this.authorized});
   @override
   State<_FirmwareNote> createState() => _FirmwareNoteState();
 }
 
-class _FirmwareNoteState extends State<_FirmwareNote> {
+class _FirmwareNoteState extends State<_FirmwareNote>
+    with WidgetsBindingObserver {
   final controller = TextEditingController();
   final form = GlobalKey<FormState>();
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed && mounted) {
+      FocusScope.of(context).unfocus();
+      setState(controller.clear);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     controller.dispose();
     super.dispose();
   }
@@ -369,7 +460,7 @@ class _FirmwareNoteState extends State<_FirmwareNote> {
         ),
         FilledButton(
           onPressed: () {
-            if (form.currentState!.validate())
+            if (widget.authorized() && form.currentState!.validate())
               Navigator.pop(context, controller.text.trim());
           },
           child: Text(ar ? 'تأكيد' : 'Confirm'),
