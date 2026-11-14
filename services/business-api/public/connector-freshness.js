@@ -21,5 +21,5 @@ window.EvConnectorFreshness = (() => {
         root.append(p); render();
         const timer = setInterval(() => { if (!p.isConnected) clearInterval(timer); else render(); }, 1000);
     }
-    return {state, attach};
+    return {state, attach, statuses, label:(status,ar=false)=>ar?(arabic[status]||arabic.unknown):status};
 })();

@@ -36,6 +36,28 @@ void main() {
     expect(zero.longitude, 0);
   });
 
+  test('published catalog map points preserve their own evidence and reject malformed sources', () {
+    final row=<String,dynamic>{'id':7,'name':'Platform source','latitude':'25.2','longitude':'55.3','evidence':'SIMULATED'};
+    final point=PartnerMapPoint.fromPublishedCatalog(row)!;
+    expect(point.platformCatalog,true);expect(point.catalogEvidence,'SIMULATED');expect(point.providerLabel,isNull);
+    for(final update in <Map<String,dynamic>>[{'id':0},{'latitude':89},{'evidence':'LIVE_VERIFIED'},{'name':null}])expect(PartnerMapPoint.fromPublishedCatalog({...row,...update}),isNull);
+  });
+
+  testWidgets('mixed map keeps supplier labels and tile consent independent of source', (tester) async {
+    final tiles=FakeMapTiles();
+    final platform=PartnerMapPoint.fromPublishedCatalog({'id':7,'name':'Platform fixture','latitude':25.2,'longitude':55.3,'evidence':'SIMULATED'})!;
+    final partner=PartnerMapPoint.fromPublishedLocation({'name':'Partner fixture','latitude':25.2,'longitude':55.3})!;
+    await tester.pumpWidget(MaterialApp(home:PartnerReportMap(points:[platform,partner],tileProvider:tiles)));
+    expect(tiles.requests,0);expect(find.byType(FlutterMap),findsNothing);
+    expect(find.text('Published location map (not live)'),findsOneWidget);
+    await tester.tap(find.text('Platform fixture'));await tester.pumpAndSettle();
+    expect(find.textContaining('Platform catalog · SIMULATED. Availability'),findsOneWidget);
+    expect(find.textContaining('Partner-reported place; live availability'),findsNothing);expect(tiles.requests,0);
+    await tester.tap(find.byKey(const Key('partner-report-details-close')));await tester.pumpAndSettle();
+    await tester.tap(find.text('Partner fixture'));await tester.pumpAndSettle();
+    expect(find.textContaining('Partner-reported place; live availability'),findsOneWidget);expect(tiles.requests,0);
+  });
+
   testWidgets('consent gates every partner map tile and map has no charging controls',
       (tester) async {
     final tiles = FakeMapTiles();

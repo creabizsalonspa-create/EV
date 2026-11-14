@@ -156,6 +156,80 @@ class ConnectorTopologyTest extends TestCase
         $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown');
     }
 
+    #[DataProvider('protocols')]
+    public function test_recent_source_filter_uses_the_exact_current_connector_before_pagination(string $protocol): void
+    {
+        $this->freezeTime();
+        $f = $this->topology($protocol);
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $path = '/api/stations?recent_source_status=Available';
+        $this->getJson($path)->assertOk()->assertJsonPath('total', 0);
+        $row = ['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('a', 64), 'evse_number' => $protocol === '1.6' ? 0 : 5, 'connector_number' => 7, 'status' => 'Available', 'error_code' => 'NoError', 'occurred_at' => now(), 'created_at' => now()];
+        DB::table('charging_status_observations')->insert($row);
+        foreach (['/api/stations', '/api/v1/stations', '/api/discovery/search', '/api/v1/discovery/search'] as $endpoint) {
+            $this->getJson($endpoint.'?recent_source_status=Available')->assertOk()->assertJsonPath('total', 1);
+        }
+        $this->getJson($path)->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.reservable', false);
+        $f['connectors'][1]->update(['connector_type' => 'Type2', 'max_power_kw' => 100]);
+        $this->getJson($path.'&connector_type=Type2')->assertJsonPath('total', 0);
+        $this->getJson($path.'&min_power_kw=60')->assertJsonPath('total', 0);
+        $this->getJson('/api/discovery/search?recent_source_status=Available&connector=Type2')->assertJsonPath('total', 0);
+        DB::table('csms_bindings')->where('id', $binding->id)->update(['identifier' => 'ev-test-filter-rebound']);
+        $this->getJson($path)->assertJsonPath('total', 0);
+        $binding = DB::table('csms_bindings')->find($binding->id);
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 2, 'source_generation' => FaultMonitor::generation($binding)]));
+        $this->getJson($path)->assertJsonPath('total', 1);
+        $this->assertDatabaseCount('reservations', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+    }
+
+    public function test_recent_report_filter_rejects_stale_future_conflicting_and_faulted_available_claims(): void
+    {
+        $this->freezeTime();
+        $f = $this->topology('2.0.1');
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $path = '/api/stations?recent_source_status=Available';
+        $row = ['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('b', 64), 'evse_number' => 5, 'connector_number' => 7, 'status' => 'Available', 'error_code' => null, 'occurred_at' => now()->subSeconds(300), 'created_at' => now()];
+        DB::table('charging_status_observations')->insert($row);
+        $this->getJson($path)->assertOk()->assertJsonPath('total', 0);
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 2, 'occurred_at' => now()->subSeconds(299)]));
+        $this->getJson($path)->assertJsonPath('total', 1);
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 3, 'occurred_at' => now()->addSecond()]));
+        $this->getJson($path)->assertJsonPath('total', 0);
+        $this->travel(2)->seconds();
+        $this->getJson($path)->assertJsonPath('total', 1);
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 4, 'occurred_at' => now()->subSecond(), 'status' => 'Charging']));
+        $this->getJson($path)->assertJsonPath('total', 0);
+        $this->getJson('/api/stations?recent_source_status=Charging')->assertJsonPath('total', 0);
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 5, 'occurred_at' => now(), 'error_code' => 'GroundFailure']));
+        $this->getJson($path)->assertJsonPath('total', 0);
+        $this->getJson('/api/stations?recent_source_status=Faulted')->assertJsonPath('total', 1);
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 6, 'occurred_at' => now(), 'created_at' => now()->addSecond()]));
+        $this->getJson($path)->assertJsonPath('total', 0);
+        $this->getJson('/api/stations?recent_source_status=LIVE')->assertUnprocessable();
+    }
+
+    public function test_report_filter_preserves_canonical_ownership_approval_and_local_license_boundaries(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-14T19:59:58Z'));
+        $f = $this->topology('1.6');
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        DB::table('charging_status_observations')->insert(['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('c', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => null, 'occurred_at' => now(), 'created_at' => now()]);
+        $path = '/api/stations?recent_source_status=Available';
+        $this->getJson($path)->assertJsonPath('total', 1);
+        foreach ([[$f['company'], 'status', 'suspended'], [$f['connectors'][0], 'maintenance_blocked', true], [$f['station'], 'vendor_id', User::factory()->create(['role' => 'vendor'])->id], [$f['charger'], 'ocpp_protocol', '2.0.1']] as [$model, $field, $value]) {
+            $original = $model->{$field};
+            $model->update([$field => $value]);
+            $this->getJson($path)->assertJsonPath('total', 0);
+            $model->update([$field => $original]);
+        }
+        $f['company']->update(['license_expires_on' => '2026-11-14']);
+        $this->getJson($path)->assertJsonPath('total', 1);
+        $this->travel(2)->seconds();
+        $this->getJson($path)->assertJsonPath('total', 0);
+    }
+
     public static function protocols(): array
     {
         return [['1.6'], ['2.0.1']];

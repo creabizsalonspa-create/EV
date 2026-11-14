@@ -13,6 +13,8 @@ class PartnerMapPoint {
   final String name;
   final String? providerLabel;
   final int? reportedAgeMinutes;
+  final bool platformCatalog;
+  final String? catalogEvidence;
 
   const PartnerMapPoint({
     required this.latitude,
@@ -20,7 +22,17 @@ class PartnerMapPoint {
     required this.name,
     this.providerLabel,
     this.reportedAgeMinutes,
+    this.platformCatalog = false,
+    this.catalogEvidence,
   });
+
+  /// A platform pin retains its own provenance; it is never relabeled as a partner.
+  static PartnerMapPoint? fromPublishedCatalog(Map<String,dynamic> row) {
+    if (row['name'] is! String || row['id'] is! int || (row['id'] as int) < 1 || !['SIMULATED','DISCOVERY_ONLY'].contains(row['evidence'])) return null;
+    final point = fromPublishedLocation(row);
+    if (point == null) return null;
+    return PartnerMapPoint(latitude:point.latitude,longitude:point.longitude,name:point.name,platformCatalog:true,catalogEvidence:row['evidence'] as String);
+  }
 
   static double? _coordinate(Object? raw) {
     if (raw is num) return raw.toDouble();
@@ -101,7 +113,8 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
             children: [
               Text(point.name,
                   style: Theme.of(sheet).textTheme.titleLarge),
-              Text(t(
+              if (point.platformCatalog) Text(t('Platform catalog · ${point.catalogEvidence}. Availability and physical charging are unverified. Booking remains in the station catalog.', 'كتالوج المنصة · ${point.catalogEvidence}. التوفر والشحن الفعلي غير مؤكدين. يظل الحجز في كتالوج المحطات.'))
+              else Text(t(
                 'Partner-reported place; live availability and connector access are unknown. This map cannot reserve, authorize, charge or bill.',
                 'موقع أبلغ عنه الشريك؛ التوافر المباشر والوصول إلى الموصل غير معروفين. لا يمكن لهذه الخريطة الحجز أو تشغيل الشحن أو الفوترة.',
               )),
@@ -135,14 +148,15 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
     final points = widget.points;
     return Scaffold(
       appBar: AppBar(
-        title: Text(t('Partner report map (not live)',
+        title: Text(widget.points.any((p)=>p.platformCatalog) ? t('Published location map (not live)','خريطة المواقع المنشورة (ليست مباشرة)') : t('Partner report map (not live)',
             'خريطة تقارير الشركاء (ليست مباشرة)')),
       ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(12),
           children: [
-            Text(t(
+            if (points.any((p)=>p.platformCatalog)) Text(t('Only the loaded platform and authorized partner results are shown. Source labels remain distinct; no verified live availability, charging or billing.','تُعرض نتائج المنصة والشركاء المصرح لهم المحملة فقط. تظل تسميات المصادر مميزة؛ لا تحقق من التوفر المباشر أو الشحن أو الفوترة.'))
+            else Text(t(
               'Only this loaded page of authorized published partner reports is shown. Sources may be stale. No verified live availability, booking, charging or billing.',
               'تُعرض هذه الصفحة المحملة فقط من تقارير الشركاء المنشورة والمصرح بها. قد تكون البيانات قديمة. لا يوجد تحقق من التوافر المباشر أو الحجز أو الشحن أو الفوترة.',
             )),
@@ -194,7 +208,7 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                           width: 48,
                           height: 48,
                           child: Semantics(
-                            label: point.name + ' — unverified partner report',
+                            label: point.name + (point.platformCatalog ? ' — platform catalog, availability unverified' : ' — unverified partner report'),
                             button: true,
                             child: IconButton(
                               key: ValueKey('partner-report-pin-$index'),
@@ -231,7 +245,7 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
             for (final point in points)
               ListTile(
                 title: Text(point.name),
-                subtitle: Text(t(
+                subtitle: point.platformCatalog ? Text(t('Platform catalog · ${point.catalogEvidence} · not live','كتالوج المنصة · ${point.catalogEvidence} · ليست بيانات مباشرة')) : Text(t(
                   'Unverified partner location · not live',
                   'موقع شريك غير مؤكد · ليست بيانات مباشرة',
                 )),

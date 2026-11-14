@@ -1,6 +1,13 @@
+import 'package:creabiz_ev/api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/connector_freshness.dart';
 void main() {
+  test('source filter statuses and Arabic labels share the detail contract', () {
+    expect(reportedConnectorStatuses.length,10);
+    expect(connectorStatusLabel('Available',true),'متاح بحسب المصدر');
+    expect(const CatalogFilter(recentSourceStatus:'Available',connector:'CCS2').query,containsPair('recent_source_status','Available'));
+  });
+
   final value = <String,dynamic>{'state':'recent','reported_status':'Available','evidence':'SIMULATED_SOURCE','physical_availability_verified':false,'max_age_seconds':300,'observed_at':'2026-11-14T05:00:00Z','checked_at':'2026-11-14T05:04:00Z','valid_until':'2026-11-14T05:05:00Z'};
   test('source freshness expires inclusively using monotonic elapsed time', () {
     expect(connectorReportedState(value,const Duration(milliseconds:59999)),'Available');

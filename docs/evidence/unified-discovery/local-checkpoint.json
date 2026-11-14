@@ -1,0 +1,32 @@
+{
+  "scope": "Authenticated unified SQL-paginated catalog and authorized published OCPI location search, EN/AR web and native interfaces and consent-gated mixed-source map handoff",
+  "laravel": {
+    "tests": 1074,
+    "assertions": 21092,
+    "skipped": 1,
+    "result": "passed",
+    "skip_reason": "PostgreSQL-only unused price-consent column rollback proof"
+  },
+  "postgresql": {
+    "tests": 76,
+    "assertions": 1056,
+    "result": "passed",
+    "version": 17,
+    "encoding": "UTF8"
+  },
+  "web_components": {
+    "tests": 5,
+    "result": "passed"
+  },
+  "authentication_inventory": "Both unchanged complete API/private route guards pass; no public surface added",
+  "hosted_pending": [
+    "actual Laravel/browser mixed-source query, Arabic/safe-text/catalog handoff and consented source-separated map pins",
+    "Flutter unified search and mixed-map provenance/consent tests",
+    "required complete platform, native, PostgreSQL and recovery gates"
+  ],
+  "external_provider_calls_added": false,
+  "financial_or_charging_writes_added": false,
+  "production_accepted": false,
+  "original_atom_credit_added": false,
+  "preserved_security": "Current request actor/account epoch checked before price consent and application start"
+}
