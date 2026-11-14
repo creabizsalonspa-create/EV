@@ -13,6 +13,7 @@ use App\Models\VendorOps\VendorCharger;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorConnector;
 use App\Models\VendorOps\VendorSite;
+use App\Services\Charging\FaultMonitor;
 use App\Services\Charging\SessionBridge;
 use App\Services\CsmsDispatcher;
 use Carbon\CarbonImmutable;
@@ -109,6 +110,43 @@ class ConnectorTopologyTest extends TestCase
         $this->travelTo($start->copy()->addMinutes(31));
         $this->postJson('/api/reservations/'.$three['id'].'/simulate-start')->assertConflict();
         $this->assertSame(2, ChargingSession::where('status', 'charging')->count());
+    }
+
+    public function test_connector_freshness_is_scoped_to_current_binding_generation_and_expires_inclusively(): void
+    {
+        $f = $this->topology('2.0.1');
+        $this->freezeTime();
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        $this->getJson($path)->assertOk()->assertJsonPath('data.0.status_freshness.state', 'unknown');
+        $observation = ['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('a', 64), 'evse_number' => 5, 'connector_number' => 7, 'status' => 'Available', 'error_code' => 'NoError', 'occurred_at' => now(), 'created_at' => now()];
+        DB::table('charging_status_observations')->insert($observation);
+        $reply = $this->getJson($path)->assertOk()->assertJsonPath('data.0.status_freshness.reported_status', 'Available')
+            ->assertJsonPath('data.0.status_freshness.state', 'recent')->assertJsonPath('data.1.status_freshness.state', 'unknown')
+            ->assertJsonPath('data.0.availability', 'unknown')->assertJsonPath('data.0.reservable', true)
+            ->assertJsonPath('data.0.status_freshness.physical_availability_verified', false);
+        $this->assertStringNotContainsString($observation['source_generation'], $reply->getContent());
+        $this->travel(300)->seconds();
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'stale')->assertJsonPath('data.0.status_freshness.reported_status', null);
+        DB::table('csms_bindings')->where('id', $binding->id)->update(['identifier' => 'ev-test-changed']);
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown')->assertJsonPath('data.0.status_freshness.observed_at', null);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
+    public function test_conflicting_future_and_faulted_source_reports_never_imply_available(): void
+    {
+        $f = $this->topology('1.6');
+        $this->freezeTime();
+        $binding = DB::table('csms_bindings')->find($f['binding']);
+        $path = '/api/stations/'.$f['station']->id.'/connectors';
+        $row = ['binding_id' => $binding->id, 'source_generation' => FaultMonitor::generation($binding), 'source_event_id' => 1, 'fingerprint' => str_repeat('b', 64), 'evse_number' => 0, 'connector_number' => 7, 'status' => 'Available', 'error_code' => 'GroundFailure', 'occurred_at' => now(), 'created_at' => now()];
+        DB::table('charging_status_observations')->insert($row);
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.reported_status', 'Faulted');
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 2, 'status' => 'Charging']));
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown')->assertJsonPath('data.0.status_freshness.reported_status', null);
+        DB::table('charging_status_observations')->insert(array_replace($row, ['source_event_id' => 3, 'occurred_at' => now()->addSecond(), 'error_code' => null]));
+        $this->getJson($path)->assertJsonPath('data.0.status_freshness.state', 'unknown');
     }
 
     public static function protocols(): array
