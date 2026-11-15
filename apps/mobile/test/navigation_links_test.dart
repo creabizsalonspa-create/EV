@@ -82,7 +82,13 @@ void main() {
     await tester.pumpWidget(EvApp(preferences: preferences, api: api));
     await tester.pumpAndSettle();
     await login(tester);
+    // Widget tests can remain in a detached lifecycle state even though the
+    // fixture has a visible route. Model an actual foreground app-link event.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
     final dynamic workspace = tester.state(find.byType(Workspace));
+    expect(workspace.account?.role, 'customer');
+    expect(workspace.busy, isFalse);
 
     final writesBefore = api.calls.where((value) => value.startsWith('POST ')).length;
     nextTarget = 'support';
@@ -136,6 +142,8 @@ void main() {
     expect(find.byKey(const Key('auth-email')), findsOneWidget);
 
     await login(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
     expect(workspace.tab, 0);
     nextTarget = 'garage';
     NativeNavigationBridge.pending.value++;
