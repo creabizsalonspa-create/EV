@@ -15,6 +15,7 @@ use App\Services\CsmsDispatcher;
 use App\Services\Notifications\EmailNotices;
 use App\Services\Ocpi\ScheduledSync;
 use App\Services\Operations\OperationalHealth;
+use App\Services\Operations\OperationalIncidents;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
@@ -270,3 +271,17 @@ Artisan::command('platform:health-heartbeat', function () {
     return 0;
 })->purpose('Record a scheduler process observation, not successful task execution');
 Schedule::command('platform:health-heartbeat')->everyMinute()->withoutOverlapping();
+
+Artisan::command('operations:scan-incidents', function () {
+    try {
+        $result = app(OperationalIncidents::class)->scan(app(OperationalHealth::class));
+        $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+
+        return 0;
+    } catch (Throwable) {
+        $this->error('Operational incident scan failed; existing incident states remain unchanged.');
+
+        return 1;
+    }
+})->purpose('Record idempotent read-only operational incident transitions; no retries or external actions');
+Schedule::command('operations:scan-incidents')->everyMinute()->withoutOverlapping();
