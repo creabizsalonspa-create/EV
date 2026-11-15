@@ -197,7 +197,11 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    foreground = state == AppLifecycleState.resumed;
+    // A foreground OS permission sheet can transiently mark the app
+    // "inactive"; do not cancel that explicit one-shot permission workflow.
+    // Paused/hidden/detached always invalidate pending GPS responses.
+    foreground = state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
     if (!foreground) {
       locationGeneration++;
       if (mounted) setState(() => locating = false);
