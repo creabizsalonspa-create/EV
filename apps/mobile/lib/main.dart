@@ -214,6 +214,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   bool keepSignedIn = false, restoring = false, restoreFailed = false;
   int tab = 0;
   int recordPage = 1, recordLast = 1, recordTotal = 0;
+  int _recordRequestGeneration = 0;
   final email = TextEditingController(),
       password = TextEditingController(),
       name = TextEditingController(),
@@ -296,6 +297,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   void resetSession() {
+    _recordRequestGeneration++;
     reservationIntents.clear();
     if (!mounted) return;
     Navigator.of(context).popUntil((route) => route.isFirst);
@@ -337,11 +339,27 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> load({int page = 1}) async {
-    if ([0, 2, 4, 5].contains(tab)) return;
+    if ([0, 2, 4, 5].contains(tab) || account == null || api == null) return;
+    final requestApi = api!;
+    final owner = account!;
+    final currentSession = requestApi.sessionFence();
     final selectedTab = tab;
-    final data = await api!.request(endpoints[tab], query: {'page': '$page'});
+    final generation = ++_recordRequestGeneration;
+    final data = await requestApi.request(
+      endpoints[selectedTab],
+      query: {'page': '$page'},
+    );
     final parsed = ApiPage.fromJson(data, (row) => row);
-    if (!mounted || tab != selectedTab) return;
+    // Two in-flight GETs can finish out of order, even if UI actions are
+    // disabled while a normal load runs. Never publish an older page or a
+    // previous identity's private rows after revocation/account switching.
+    if (!mounted ||
+        generation != _recordRequestGeneration ||
+        tab != selectedTab ||
+        !identical(api, requestApi) ||
+        !currentSession() ||
+        account?.id != owner.id ||
+        account?.role != owner.role) return;
     setState(() {
       records = parsed.items;
       recordPage = parsed.current;
@@ -376,6 +394,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
           if (mounted) setState(() => message = 'sessionNotSaved');
         }
       }
+      _recordRequestGeneration++;
       setState(() {
         account = user;
         tab = 0;
@@ -1074,6 +1093,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       ),
     ];
     void select(int value) {
+      _recordRequestGeneration++;
       setState(() {
         tab = value;
         records = [];
