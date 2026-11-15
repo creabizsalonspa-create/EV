@@ -14,7 +14,7 @@ class OcpiSourceTimestampTest extends TestCase
             'country_code' => 'AE',
             'party_id' => 'TST',
             'id' => 'fixture-'.$module,
-            'last_updated' => '2025-03-10T11:00:00.123456+02:00',
+            'last_updated' => '2025-03-10T09:00:00.123456',
         ];
 
         $fields = match ($module) {
@@ -30,8 +30,8 @@ class OcpiSourceTimestampTest extends TestCase
                 'elements' => [['price_components' => [['type' => 'ENERGY', 'price' => '0.50', 'step_size' => 1]]]],
             ],
             'sessions' => [
-                'start_date_time' => '2025-03-10T10:00:00+02:00',
-                'end_date_time' => '2025-03-10T10:30:00+02:00',
+                'start_date_time' => '2025-03-10T08:00:00Z',
+                'end_date_time' => '2025-03-10T08:30:00',
                 'kwh' => '1.5',
                 'currency' => 'AED',
                 'status' => 'COMPLETED',
@@ -40,8 +40,8 @@ class OcpiSourceTimestampTest extends TestCase
                 'connector_id' => '1',
             ],
             'cdrs' => [
-                'start_date_time' => '2025-03-10T10:00:00+02:00',
-                'end_date_time' => '2025-03-10T10:30:00+02:00',
+                'start_date_time' => '2025-03-10T08:00:00Z',
+                'end_date_time' => '2025-03-10T08:30:00',
                 'currency' => 'AED',
                 'total_energy' => '1.5',
                 'total_time' => '0.5',
@@ -53,13 +53,15 @@ class OcpiSourceTimestampTest extends TestCase
         return $common + $fields;
     }
 
-    public function test_source_timestamp_offsets_normalize_to_one_utc_instant_in_all_modules(): void
+    public function test_ocpi_source_timestamp_accepts_utc_with_or_without_z_in_all_modules(): void
     {
         $normalizer = app(RecordNormalizer::class);
 
         foreach (['locations', 'tariffs', 'sessions', 'cdrs'] as $module) {
             $normalized = $normalizer->normalize($module, $this->fixture($module));
             $this->assertSame('2025-03-10T09:00:00.123456Z', $normalized['last_updated']);
+            $explicit = array_replace($this->fixture($module), ['last_updated' => '2025-03-10T09:00:00.123456Z']);
+            $this->assertSame($normalized['last_updated'], $normalizer->normalize($module, $explicit)['last_updated']);
             if (in_array($module, ['sessions', 'cdrs'], true)) {
                 $this->assertSame('2025-03-10T08:00:00.000000Z', $normalized['start_date_time']);
                 $this->assertSame('2025-03-10T08:30:00.000000Z', $normalized['end_date_time']);
@@ -72,7 +74,7 @@ class OcpiSourceTimestampTest extends TestCase
         $normalizer = app(RecordNormalizer::class);
 
         foreach (['locations', 'tariffs', 'sessions', 'cdrs'] as $module) {
-            foreach (['2025-03-10 11:00:00', '2025-03-10T11:00:00', 'yesterday', '2025-02-30T11:00:00Z', '2025-03-10T25:00:00Z', '2025-03-10T11:61:00Z', '2025-03-10T11:00:00.1234567Z'] as $invalid) {
+            foreach (['2025-03-10 11:00:00', 'yesterday', '2025-02-30T11:00:00Z', '2025-03-10T25:00:00Z', '2025-03-10T11:61:00Z', '2025-03-10T11:00:00.1234567Z', '2025-03-10T11:00:00+02:00', '2025-03-10T11:00:00+00:00'] as $invalid) {
                 try {
                     $normalizer->normalize($module, array_replace($this->fixture($module), ['last_updated' => $invalid]));
                     $this->fail('Timezone-free or imprecise '.$module.' source timestamp was accepted.');
@@ -88,7 +90,7 @@ class OcpiSourceTimestampTest extends TestCase
         $normalizer = app(RecordNormalizer::class);
 
         foreach (['sessions', 'cdrs'] as $module) {
-            foreach (['start_date_time' => '2025-03-10T10:00:00', 'end_date_time' => '2025-03-10T10:30:00'] as $field => $invalid) {
+            foreach (['start_date_time' => '2025-03-10 08:00:00', 'end_date_time' => '2025-03-10T08:30:00+04:00'] as $field => $invalid) {
                 try {
                     $normalizer->normalize($module, array_replace($this->fixture($module), [$field => $invalid]));
                     $this->fail('Timezone-free '.$module.' '.$field.' was accepted.');
