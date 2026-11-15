@@ -22,7 +22,7 @@ class RiderTokenRegistry
             return DB::transaction(function () use ($actor, $v, $value, $expiry, $hash) {
                 // Serialize this owner's request identities, including concurrent
                 // generated-token requests whose random values differ per attempt.
-                User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+                app(RiderActor::class)->check($actor);
                 $old = RiderAccessToken::where('user_id', $actor->id)->where('idempotency_key', $v['idempotency_key'])->first();
                 if ($old) {
                     abort_unless(hash_equals($old->payload_hash, $hash), 409, 'Idempotency key payload mismatch.');
@@ -46,7 +46,9 @@ class RiderTokenRegistry
     {
         abort_unless($actor->id === $token->user_id && $actor->role === 'customer', 404);
         DB::transaction(function () use ($actor, $token) {
+            app(RiderActor::class)->check($actor);
             $current = RiderAccessToken::whereKey($token->id)->lockForUpdate()->firstOrFail();
+            abort_unless($current->user_id === $actor->id, 404);
             if ($current->revoked_at !== null) {
                 return;
             }

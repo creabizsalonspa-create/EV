@@ -496,3 +496,20 @@ currency. Recorded claim totals are not balances, cash collections, refunds,
 settlement or proof of physical charging. No financial or charging record is
 created. Web downloads the displayed CSV snapshot; Flutter previews a selectable
 private CSV in memory and clears it on background/account change.
+
+
+### Current-account RFID registry and publication authority
+
+All customer card/grant reads and database changes recheck the captured active
+account's role, password and authentication epoch under a User-first transaction.
+Card issue and revocation also enforce this when invoked through their service.
+Operator source publication runs separate short authorization/claim/commit
+transactions, with no HTTP inside a transaction. Before creating or accepting a
+source authorization it rechecks the current account, approved licensed company,
+original token expiry, active approved grant and unexpired matching publication
+lease. Credential changes after a source write prevent local promotion and leave
+`requires_inspection`; this never marks a session started or paid and never
+retries an uncertain publication automatically. Web and Flutter require explicit
+publication confirmation and explain this inspection state. All existing local
+adapter, real-time rider callback, no-offline-fallback, token privacy, source
+ownership/CAS and hardware-unverified boundaries remain required.

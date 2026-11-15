@@ -1,4 +1,7 @@
 window.EV_MESSAGES = {
+    "Confirm rider source publication": {en: "Inspect and publish this approved token to the test source? Current account, company, grant and lease will be rechecked. This does not start charging. An uncertain result requires inspection; it is never retried automatically.", ar: "فحص ونشر الرمز المعتمد إلى مصدر الاختبار؟ ستتم إعادة التحقق من الحساب والشركة والموافقة والمهلة. لا يبدأ هذا الشحن. النتيجة غير المؤكدة تحتاج فحصاً ولا تعاد المحاولة تلقائياً."},
+    "Rider publication requires inspection": {en: "Source publication requires inspection. Local authorization has not been verified. Refresh and review current access before any explicit publication; this does not prove charging or stop an active session.", ar: "نشر المصدر يحتاج فحصاً. لم يتم التحقق من التفويض المحلي. حدّث وراجع الوصول الحالي قبل أي نشر صريح؛ لا يثبت ذلك الشحن ولا يوقف جلسة نشطة."},
+
     "Blocked before firmware command submission; review or cancel": {en: "Blocked before firmware command submission; review or cancel", ar: "حُظر قبل إرسال أمر البرنامج الثابت؛ راجع أو ألغِ"},
     "OCPP protocols": {en: "OCPP protocols", ar: "بروتوكولات OCPP"},
     "Allowed current firmware": {en: "Allowed current firmware", ar: "البرنامج الثابت الحالي المسموح"},

@@ -1,3 +1,21 @@
+# 15 November 2026 — current-account RFID source operations (integration pending)
+
+Customer card/grant reads, issue/revoke/renew and operator reviews now retain and
+recheck the original active account credentials under database locks. Source
+publication rechecks authority, approved licensed company, grant, expiry and
+matching live lease before creation/acceptance and before local promotion; HTTP
+never spans these short transactions. Changed authority after an outbound write
+leaves inspection required and no local authorization promotion. Web and Flutter
+add explicit test-source confirmation and localized inspection guidance; uncertain
+publication is not retried automatically. No physical command or ledger change.
+
+Focused PostgreSQL rider/history/source27 tests/330 assertions,17 native rider
+privacy/history/confirmation cases and targeted analysis passed. New PostgreSQL
+cases are registered in required CI; actual source/browser validation remains a
+mandatory hosted gate, including confirmation cancellation before publication.
+No inventory or production credit. Next: combine with current connected delivery,
+resolve actual hosted failures and merge only exact-source validated changes.
+
 # 15 November 2026 — private fleet operations reporting (integration pending)
 
 Implemented owner/protected web Admin reports and connected EN/AR web/Flutter
