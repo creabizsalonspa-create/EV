@@ -23,7 +23,16 @@ const client = new EvApi(csrf);
 async function api(path, method = "GET", data, signal) {
     client.token = csrf;
     try {
-        return await client.request(path, method, data, signal);
+        const result = await client.request(path, method, data, signal);
+        // A proven MFA change rotates the session and CSRF token. Accept the
+        // handoff only from these current-account mutations; never replay them.
+        if (method === "POST" && ["account/second-factor/enable", "account/second-factor/disable", "account/second-factor/recovery-codes"].includes(path)
+            && result?.reauthentication_required === false &&
+            typeof result.csrf_token === "string" && /^[A-Za-z0-9]{40}$/.test(result.csrf_token)) {
+            csrf = result.csrf_token;
+            client.token = csrf;
+        }
+        return result;
     } catch (error) {
         if ([401, 419].includes(error.status) && user) {
             clearIdentity();

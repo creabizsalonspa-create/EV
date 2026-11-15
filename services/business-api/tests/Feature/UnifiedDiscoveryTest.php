@@ -87,6 +87,29 @@ class UnifiedDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_catalog_age_policy_is_shared_across_customer_search_and_saved_place_surfaces(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));
+        config(['partner_catalog.max_age_seconds' => 60]);
+        $f = $this->fixtures();
+        $this->putJson('/api/roaming/favorites/'.$f['record']->id)->assertOk();
+        foreach ([[-59, -59, 'within_policy'], [-60, 0, 'stale'], [0, -60, 'stale'], [1, 0, 'unknown'], [0, 1, 'unknown']] as [$source, $receipt, $state]) {
+            $f['record']->update(['source_updated_at' => now()->addSeconds($source), 'received_at' => now()->addSeconds($receipt)]);
+            foreach (['/api/discovery/search?scope=partner', '/api/v1/discovery/search?scope=partner', '/api/roaming/locations', '/api/roaming/favorites'] as $path) {
+                $this->getJson($path)->assertOk()->assertJsonPath('data.0.catalog_age_policy.state', $state)
+                    ->assertJsonPath('data.0.catalog_age_policy.max_age_seconds', 60)
+                    ->assertJsonPath('data.0.catalog_age_policy.physical_availability_verified', false)
+                    ->assertJsonPath('data.0.remote_control', false)->assertJsonPath('data.0.reservable', false);
+            }
+        }
+        config(['partner_catalog.max_age_seconds' => false]);
+        $this->getJson('/api/discovery/search?scope=partner')->assertJsonPath('data.0.catalog_age_policy.state', 'policy_unavailable')
+            ->assertJsonPath('data.0.catalog_age_policy.max_age_seconds', null);
+        $f['provider']->update(['authorized' => false]);
+        $this->getJson('/api/roaming/favorites')->assertJsonPath('data.0.catalog_age_policy', null);
+        Http::assertNothingSent();
+    }
+
     public function test_unified_routes_require_identity_without_expanding_the_public_surface(): void
     {
         $this->getJson('/api/discovery/search')->assertUnauthorized();

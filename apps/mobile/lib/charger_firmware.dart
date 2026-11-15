@@ -244,6 +244,10 @@ class _FirmwareState extends State<ChargerFirmwareView>
       'Delivery submitted; awaiting source evidence',
       'تم إرسال الطلب؛ بانتظار دليل المصدر',
     ),
+    'not_dispatched' => t(
+      'Blocked before firmware command submission; review or cancel',
+      'حُظر قبل إرسال أمر البرنامج الثابت؛ راجع أو ألغِ',
+    ),
     'outcome_unknown' => t(
       'Delivery outcome unknown; charger remains on hold',
       'نتيجة الإرسال مجهولة؛ يبقى الشاحن محجوزاً',
@@ -309,6 +313,35 @@ class _FirmwareState extends State<ChargerFirmwareView>
                         ? null
                         : (v) => setState(() => selected = v),
                   ),
+                for (final release
+                    in releases?.items ?? <Map<String, dynamic>>[])
+                  if (release['id'] == selected) ...[
+                    Text(
+                      release['compatibility_policy'] is Map
+                          ? t(
+                              'Approved signed compatibility policy',
+                              'سياسة توافق موقعة معتمدة',
+                            )
+                          : t(
+                              'Legacy model check; no declared signed upgrade path',
+                              'فحص طراز سابق؛ لا يوجد مسار ترقية موقع معلن',
+                            ),
+                    ),
+                    if (release['compatibility_policy'] is Map) ...[
+                      Text(
+                        '${t('OCPP protocols', 'بروتوكولات OCPP')}: ${(release['compatibility_policy']['protocols'] as List).join(' · ')}',
+                      ),
+                      Text(
+                        '${t('Allowed current firmware', 'البرنامج الثابت الحالي المسموح')}: ${(release['compatibility_policy']['from_versions'] as List).join(' · ')}',
+                      ),
+                    ],
+                    Text(
+                      t(
+                        'Fresh source identity and compatibility are checked before dispatch. This does not verify physical installation.',
+                        'تُفحص هوية المصدر الحديثة والتوافق قبل الإرسال. لا يثبت ذلك التثبيت الفعلي.',
+                      ),
+                    ),
+                  ],
                 if (releases?.items.isEmpty == true)
                   Text(
                     t(
@@ -360,14 +393,21 @@ class _FirmwareState extends State<ChargerFirmwareView>
                                 ? null
                                 : () => review(
                                     op['id'] as int,
-                                    cancel: op['status'] == 'requested',
+                                    cancel:
+                                        op['can_cancel'] == true ||
+                                        (op['status'] == 'requested' &&
+                                            op['attempted_at'] == null),
                                   ),
                             child: Text(
                               t(
-                                op['status'] == 'requested'
+                                (op['can_cancel'] == true ||
+                                        (op['status'] == 'requested' &&
+                                            op['attempted_at'] == null))
                                     ? 'Cancel firmware before dispatch'
                                     : 'Review firmware source evidence',
-                                op['status'] == 'requested'
+                                (op['can_cancel'] == true ||
+                                        (op['status'] == 'requested' &&
+                                            op['attempted_at'] == null))
                                     ? 'إلغاء البرنامج الثابت قبل الإرسال'
                                     : 'مراجعة دليل مصدر البرنامج الثابت',
                               ),

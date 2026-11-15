@@ -7,10 +7,11 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
    window.writes=[];window.enabled=false;window.active=true;
    const api=async(path,method='GET',body)=>{
     if(method==='PUT'){window.writes.push({path,body});window.enabled=body.enabled;throw Error('PRIVATE PARTNER RESPONSE');}
-    return {configured:true,read_only_polling:true,billing_authority:false,remote_control:false,intervals:[15,60],plans:[{module:'locations',enabled:window.enabled,consent_current:window.enabled,revision:'9007199254740993',interval_minutes:60,negotiated:true,running:false}],history:{data:[{module:'locations',state:'failed',started_at:'<img src=x onerror=alert(1)>',result_code:'poll_requires_review'}],current_page:1,last_page:1}};
+    return {catalog_health:{state:'attention',checked_at:'2026-11-15T12:00:00.000000Z',max_age_seconds:86400,published_count:6,within_policy_count:1,stale_count:3,unknown_age_count:2,future_clock_count:2,evidence:'PARTNER_CATALOG_TIMESTAMPS_ONLY',physical_availability_verified:false,remote_control:false,billing_authority:false},configured:true,read_only_polling:true,billing_authority:false,remote_control:false,intervals:[15,60],plans:[{module:'locations',enabled:window.enabled,consent_current:window.enabled,revision:'9007199254740993',interval_minutes:60,negotiated:true,running:false}],history:{data:[{module:'locations',state:'failed',started_at:'<img src=x onerror=alert(1)>',result_code:'poll_requires_review'}],current_page:1,last_page:1}};
    };
    await window.EvOcpiSyncPlans.open({host:document.querySelector('#host'),providerId:7,api,current:()=>window.active});
   });
+  assert.match(await page.locator('[data-catalog-health]').textContent(),ar?/ساعات مستقبلية 2/:/future clocks 2/);
   const save=page.getByRole('button',{name:ar?'تفعيل القراءة المراجعة':'Enable reviewed polling',exact:true});assert.equal(await save.isDisabled(),true);assert.equal(await page.locator('img').count(),0);
   await page.getByRole('checkbox').check();await page.getByRole('combobox').selectOption('15');assert.equal(await save.isDisabled(),true);
   await page.getByRole('checkbox').check();await save.click();

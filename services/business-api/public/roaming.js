@@ -121,6 +121,10 @@ window.createRoamingWorkspace = ({
             card.append(ui("p", "Roaming stale partner source warning"));
         if (Number.isSafeInteger(metadata?.received_age_minutes) && metadata.received_age_minutes >= 0)
             line(card, "Roaming receipt age", String(metadata.received_age_minutes) + " min · not live availability");
+        const policy = raw('p', window.EvPartnerCatalogPolicy?.text(metadata?.catalog_age_policy, document.documentElement.lang === 'ar') || 'Catalog-age policy unavailable.');
+        policy.dataset.en = window.EvPartnerCatalogPolicy?.text(metadata?.catalog_age_policy, false) || 'Catalog-age policy unavailable.';
+        policy.dataset.ar = window.EvPartnerCatalogPolicy?.text(metadata?.catalog_age_policy, true) || 'سياسة عمر الكتالوج غير متاحة.';
+        card.append(policy);
         for (const evse of item.evses || []) {
             const group = document.createElement("div");
             line(group, "Roaming EVSE", evse.uid);

@@ -1,0 +1,108 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:creabiz_ev/charger_firmware.dart';
+import 'charger_firmware_test.dart' as firmware;
+
+void main() {
+  for (final ar in [false, true]) {
+    testWidgets(
+      'signed source compatibility is shown without claiming physical installation ($ar)',
+      (tester) async {
+        final api = firmware.FirmwareApi()..policy = true;
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: Locale(ar ? 'ar' : 'en'),
+            supportedLocales: const [Locale('en'), Locale('ar')],
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            home: ChargerFirmwareView(
+              api: api,
+              companyId: 1,
+              chargerId: 2,
+              manufacturer: 'Synthetic',
+              model: 'Fixture',
+              onExpired: () {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.text(
+            ar
+                ? 'سياسة توافق موقعة معتمدة'
+                : 'Approved signed compatibility policy',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('sim-fw-v1'), findsOneWidget);
+        expect(
+          find.textContaining(
+            ar
+                ? 'لا يثبت ذلك التثبيت الفعلي'
+                : 'does not verify physical installation',
+          ),
+          findsOneWidget,
+        );
+        expect(api.attempts, isEmpty);
+      },
+    );
+  }
+  testWidgets(
+    'historical model-only releases are not labelled as signed upgrade paths',
+    (tester) async {
+      final api = firmware.FirmwareApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChargerFirmwareView(
+            api: api,
+            companyId: 1,
+            chargerId: 2,
+            manufacturer: 'Synthetic',
+            model: 'Fixture',
+            onExpired: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Legacy model check; no declared signed upgrade path'),
+        findsOneWidget,
+      );
+      expect(find.text('Approved signed compatibility policy'), findsNothing);
+      expect(api.attempts, isEmpty);
+    },
+  );
+  testWidgets(
+    'proven application block offers explicit cancellation without firmware resend',
+    (tester) async {
+      final api = firmware.FirmwareApi()..blocked = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChargerFirmwareView(
+            api: api,
+            companyId: 1,
+            chargerId: 2,
+            manufacturer: 'Synthetic',
+            model: 'Fixture',
+            onExpired: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final cancel = find.text('Cancel firmware before dispatch');
+      await tester.ensureVisible(cancel);
+      await tester.tap(cancel);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextFormField),
+        'Reviewed positive proof that firmware command was not sent',
+      );
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(api.cancellations, [
+        {'note': 'Reviewed positive proof that firmware command was not sent'},
+      ]);
+      expect(api.attempts, isEmpty);
+    },
+  );
+}

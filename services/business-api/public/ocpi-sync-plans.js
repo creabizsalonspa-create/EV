@@ -1,5 +1,18 @@
 /* Explicit owner polling consent; never a charging or financial command. */
 window.EvOcpiSyncPlans = {
+    catalogHealth(parent, value) {
+        const section=document.createElement('section');section.dataset.catalogHealth='';parent.append(section);
+        const text=(tag,en,ar)=>{const n=document.createElement(tag);n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;section.append(n);};
+        text('h4','Catalog report age at this read','عمر تقارير الكتالوج عند هذه القراءة');
+        text('p','Catalog timestamps only. Physical availability, charging and billing authority remain unverified. Refresh to recheck.','أوقات الكتالوج فقط. التوفر الفعلي وصلاحيات الشحن والفوترة غير مؤكدة. حدّث لإعادة التحقق.');
+        const fields=['published_count','within_policy_count','stale_count','unknown_age_count','future_clock_count'];
+        const shape=value&&value.evidence==='PARTNER_CATALOG_TIMESTAMPS_ONLY'&&value.physical_availability_verified===false&&value.remote_control===false&&value.billing_authority===false&&fields.every(k=>Number.isSafeInteger(value[k])&&value[k]>=0)&&Number.isSafeInteger(value.max_age_seconds)&&value.max_age_seconds>=60&&value.max_age_seconds<=604800&&typeof value.checked_at==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value.checked_at);
+        const valid=shape&&value.within_policy_count+value.stale_count+value.unknown_age_count===value.published_count&&value.future_clock_count<=value.unknown_age_count&&((value.state==='empty'&&value.published_count===0)||(value.state==='within_policy'&&value.published_count>0&&value.stale_count+value.unknown_age_count===0)||(value.state==='attention'&&value.published_count>0&&value.stale_count+value.unknown_age_count>0));
+        if(!valid){text('p','Catalog age unavailable; review the partner and age policy.','عمر الكتالوج غير متاح؛ راجع الشريك وسياسة العمر.');return;}
+        text('p',`Published ${value.published_count} · within age policy ${value.within_policy_count} · old ${value.stale_count} · unknown ${value.unknown_age_count} · future clocks ${value.future_clock_count}`,`منشور ${value.published_count} · ضمن سياسة العمر ${value.within_policy_count} · قديم ${value.stale_count} · غير معروف ${value.unknown_age_count} · ساعات مستقبلية ${value.future_clock_count}`);
+        text('p',`Maximum age: ${value.max_age_seconds} seconds · checked (UTC): ${value.checked_at}`,`الحد الأقصى للعمر: ${value.max_age_seconds} ثانية · وقت التحقق (UTC): ${value.checked_at}`);
+    },
+
     async open({host, providerId, api, current}) {
         const root = document.createElement('section'); host.replaceChildren(root);
         let sequence = 0, busy = false;
@@ -65,6 +78,7 @@ window.EvOcpiSyncPlans = {
             }
             root.append(node('h4', t('Private polling history', 'سجل القراءة الخاص')));
             for (const run of data.history.data) root.append(node('p', `${run.started_at} UTC · ${modules()[run.module] || ''} · ${state(run.state)} · ${counts(run.counts)}`));
+            window.EvOcpiSyncPlans.catalogHealth(root, data.catalog_health);
             if (page > 1) button(root, t('Previous', 'السابق'), () => load(page - 1));
             if (data.history.current_page < data.history.last_page) button(root, t('Next', 'التالي'), () => load(page + 1));
         }

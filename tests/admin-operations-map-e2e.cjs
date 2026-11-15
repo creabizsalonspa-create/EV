@@ -18,7 +18,7 @@ let stage='fixture';
   stage='consented-map';const tileRequest=page.waitForRequest(request=>new URL(request.url()).hostname==='tile.openstreetmap.org');await root.getByRole('button',{name:'Enable map tiles',exact:true}).click();await root.locator('.leaflet-container').waitFor();await tileRequest;
   await root.getByRole('button',{name:'Search / refresh inventory',exact:true}).click();await root.locator('.leaflet-marker-icon').waitFor();
   assert.equal(await root.locator('article').count(),1);
-  stage='disable';await root.getByRole('button',{name:'Disable map tiles',exact:true}).click();assert.equal(await root.locator('.leaflet-container').count(),0);assert.equal(await root.locator('article').count(),0);
+  stage='disable';await root.getByRole('button',{name:'Disable map tiles',exact:true}).click();assert.equal(await root.locator('.leaflet-container').count(),0);assert.equal(await root.locator('.leaflet-container').isVisible(),false);assert.equal(await root.locator('.leaflet-tile').count(),0);assert.equal(await root.locator('.leaflet-marker-icon').count(),0);assert.equal(await root.locator('article').count(),0);
   stage='arabic';await page.locator('#language').click();await root.getByRole('button',{name:'بحث / تحديث المخزون',exact:true}).click();
   await root.locator('article').filter({hasText:f.name}).waitFor();assert.equal(await root.locator('input[name=q]').count(),1);assert.equal(await root.locator('select[name=recent_source_status]').count(),1);
   assert.equal(await page.locator('html').getAttribute('dir'),'rtl');assert.deepEqual(errors,[]);
