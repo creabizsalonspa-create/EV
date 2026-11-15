@@ -7,7 +7,8 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         generation = 0,
         section = "account",
         page = 1;
-    const alive = () => container.isConnected && actor()?.id === owner;
+    const alive = () => container.isConnected &&
+        actor()?.id === owner && actor()?.role === role;
     const observer = new MutationObserver(() => {
         if (!alive()) {
             generation++;
@@ -770,9 +771,28 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         rejected: ["Reward request rejected", "رُفض طلب المكافأة"],
     };
     async function redemptionHistory(parent, id) {
-        const result = await request("redemptions/" + id);
-        if (!alive() || !parent.isConnected) return;
+        const epoch = generation;
+        // An old decision history is not authoritative once refreshed.
         parent.querySelector("[data-loyalty-history]")?.remove();
+        const loading = t("p", "Loading reward decisions…",
+            "جارٍ تحميل قرارات المكافأة…");
+        loading.dataset.loyaltyHistoryLoading = "true";
+        parent.append(loading);
+        let result;
+        try {
+            result = await request("redemptions/" + id);
+            if (!alive() || epoch !== generation || !parent.isConnected) return;
+            if (!result?.reward || !Array.isArray(result.events))
+                throw Error("Unreadable reward decision history");
+        } catch {
+            if (alive() && epoch === generation && parent.isConnected)
+                status.replaceChildren(t("span",
+                    "Reward decisions unavailable. Retry to verify the current status.",
+                    "تعذر تحميل قرارات المكافأة؛ أعد المحاولة للتحقق من الحالة."));
+            return;
+        } finally {
+            loading.remove();
+        }
         const history = node("div");
         history.dataset.loyaltyHistory = "true";
         history.append(
@@ -890,34 +910,53 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         const epoch = ++generation;
         section = kind;
         page = requestedPage;
+        // Clear sensitive ledger/reward actions before the network read.
+        // A rejected or unresponsive refresh is not a verified empty account.
+        content.replaceChildren();
+        content.setAttribute("aria-busy", "true");
         status.replaceChildren(
             t("span", "Loading loyalty records…", "جار تحميل سجلات الولاء…"),
         );
-        const result = await request(
-            kind === "account" ? "account" : kind + "?page=" + requestedPage,
-        );
-        if (!alive() || epoch !== generation) return;
-        content.replaceChildren();
-        const nav = node("nav");
-        nav.className = "finance-pagination";
-        for (const [id, en, ar] of [
-            ["account", "Points & membership", "النقاط والعضوية"],
-            ["ledger", "Points history", "سجل النقاط"],
-            ["rewards", "Reward catalog", "دليل المكافآت"],
-            ["redemptions", "Reward requests", "طلبات المكافآت"],
-            ["policies", "Points policies", "سياسات النقاط"],
-        ])
-            button(nav, en, ar, () => load(id));
-        button(nav, "Refresh loyalty", "تحديث الولاء", () =>
-            load(kind, requestedPage),
-        );
-        content.append(nav);
-        ({ account, ledger, policies, rewards, redemptions })[kind](
-            content,
-            result,
-        );
-        if (kind !== "account") pager(content, result, kind);
-        status.textContent = "";
+        try {
+            const result = await request(
+                kind === "account" ? "account" : kind + "?page=" + requestedPage,
+            );
+            if (!alive() || epoch !== generation) return;
+            if (!["account", "ledger", "policies", "rewards", "redemptions"].includes(kind) ||
+                !result || (kind !== "account" && !Array.isArray(result.data)))
+                throw Error("Unreadable loyalty response");
+            content.replaceChildren();
+            const nav = node("nav");
+            nav.className = "finance-pagination";
+            for (const [id, en, ar] of [
+                ["account", "Points & membership", "النقاط والعضوية"],
+                ["ledger", "Points history", "سجل النقاط"],
+                ["rewards", "Reward catalog", "دليل المكافآت"],
+                ["redemptions", "Reward requests", "طلبات المكافآت"],
+                ["policies", "Points policies", "سياسات النقاط"],
+            ])
+                button(nav, en, ar, () => load(id));
+            button(nav, "Refresh loyalty", "تحديث الولاء", () =>
+                load(kind, requestedPage),
+            );
+            content.append(nav);
+            ({ account, ledger, policies, rewards, redemptions })[kind](
+                content, result,
+            );
+            if (kind !== "account") pager(content, result, kind);
+            status.textContent = "";
+        } catch {
+            if (!alive() || epoch !== generation) return;
+            content.replaceChildren();
+            status.replaceChildren(t("span",
+                "Loyalty records unavailable. Retry to verify points and rewards.",
+                "تعذر تحميل سجلات الولاء؛ أعد المحاولة للتحقق من النقاط والمكافآت."));
+            button(content, "Retry loyalty records", "إعادة تحميل سجلات الولاء",
+                () => load(kind, requestedPage));
+        } finally {
+            if (alive() && epoch === generation)
+                content.removeAttribute("aria-busy");
+        }
     }
     button(container, "Open loyalty & rewards", "فتح الولاء والمكافآت", () =>
         load(),
