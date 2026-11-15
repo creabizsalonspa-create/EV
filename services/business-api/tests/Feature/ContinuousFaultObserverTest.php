@@ -137,6 +137,77 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public static function malformedSourceStatusProjections(): array
+    {
+        $cases = [];
+        foreach (['1.6', '2.0.1'] as $protocol) {
+            foreach (['nonlist_station', 'missing_station_id', 'nonlist_status_events', 'nonlist_newest', 'missing_newest_id'] as $kind) {
+                $cases[$protocol.'_'.$kind] = [$protocol, $kind];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('malformedSourceStatusProjections')]
+    public function test_malformed_ocpp_status_projection_cannot_hide_faults_and_recovers_after_review(string $protocol, string $kind): void
+    {
+        $f = $this->fixture($protocol);
+        $station = [['id' => 42, 'protocol' => $protocol]];
+        $events = $this->events(1, 2);
+        $newest = [['id' => 2]];
+        if ($kind === 'nonlist_station') {
+            $station = ['station' => $station[0]];
+        }
+        if ($kind === 'missing_station_id') {
+            $station = [['protocol' => $protocol]];
+        }
+        if ($kind === 'nonlist_status_events') {
+            $events = ['observation' => $events[0]];
+        }
+        if ($kind === 'nonlist_newest') {
+            $events = [];
+            $newest = ['observation' => ['id' => 2]];
+        }
+        if ($kind === 'missing_newest_id') {
+            $events = [];
+            $newest = [[]];
+        }
+
+        Http::fakeSequence()
+            ->push(['data' => ['ChargingStations' => $station]])
+            ->push(['data' => ['StatusNotifications' => $events, 'newest' => $newest]]);
+
+        try {
+            app(ContinuousFaultObserver::class)->observe($f['binding']);
+            $this->fail('Malformed source projection was accepted as an observed status.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 0, 'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.requires_review.simulated')->count());
+
+        // Independent confirmation of the original source identity and full
+        // event page must be required before any cursor or alert progresses.
+        $this->source($f, $this->events(1, 2), newest: 2);
+        $result = app(ContinuousFaultObserver::class)->observe($f['binding']);
+        $this->assertSame('caught_up', $result['state']);
+        $this->assertSame(2, $result['events']);
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 2, 'source_station_id' => 42, 'state' => 'caught_up',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public static function invalidOcppObservations(): array
     {
         return [
