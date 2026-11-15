@@ -405,8 +405,9 @@ function provisionTestRole(email, role) {
       .filter({ hasText: "Browser fleet " + run })
       .waitFor();
     assert.equal(
-      await outsider.page.locator("#vehicle-list").textContent(),
-      "",
+      await outsider.page.locator("#vehicle-list [data-garage-vehicle-id]").count(),
+      0,
+      "a fleet invitation cannot expose another member's private garage",
     );
     await customer.page
       .locator('#fleet-detail input[data-i18n-aria="Cost center code"]')
