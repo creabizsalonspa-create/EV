@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:creabiz_ev/main.dart';
 import 'package:creabiz_ev/navigation_links.dart';
 import 'package:creabiz_ev/preferences.dart';
@@ -107,6 +108,90 @@ void main() {
       api.calls.where((value) => value.startsWith('POST ')).length,
       writesBefore,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+
+  testWidgets('inactive app defers a link until an authenticated foreground frame',
+      (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    String? nextTarget;
+    messenger.setMockMethodCallHandler(
+      NativeNavigationBridge.channel,
+      (_) async {
+        final value = nextTarget;
+        nextTarget = null;
+        return value;
+      },
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(
+          NativeNavigationBridge.channel,
+          null,
+        ));
+    final api = FixtureApi();
+    addTearDown(api.close);
+    final preferences = AppPreferences(TestStore());
+    await preferences.load();
+    await tester.pumpWidget(EvApp(preferences: preferences, api: api));
+    await tester.pumpAndSettle();
+    await login(tester);
+    final dynamic workspace = tester.state(find.byType(Workspace));
+    expect(workspace.account?.role, 'customer');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+
+    nextTarget = 'support';
+    NativeNavigationBridge.pending.value++;
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 0);
+    expect(nextTarget, 'support');
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 4);
+    expect(nextTarget, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('late link response after account reset cannot revive a private route',
+      (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    Completer<String?>? blocked;
+    messenger.setMockMethodCallHandler(
+      NativeNavigationBridge.channel,
+      (_) async => blocked == null ? null : await blocked!.future,
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(
+          NativeNavigationBridge.channel,
+          null,
+        ));
+    final api = FixtureApi();
+    addTearDown(api.close);
+    final preferences = AppPreferences(TestStore());
+    await preferences.load();
+    await tester.pumpWidget(EvApp(preferences: preferences, api: api));
+    await tester.pumpAndSettle();
+    await login(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    final dynamic workspace = tester.state(find.byType(Workspace));
+    expect(workspace.account?.role, 'customer');
+
+    blocked = Completer<String?>();
+    NativeNavigationBridge.pending.value++;
+    await tester.pump();
+    await tester.pump();
+    workspace.expiredSession();
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 0);
+    expect(find.byKey(const Key('auth-email')), findsOneWidget);
+
+    blocked.complete('fleet');
+    await tester.pumpAndSettle();
+    expect(workspace.tab, 0);
+    expect(find.byKey(const Key('auth-email')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
