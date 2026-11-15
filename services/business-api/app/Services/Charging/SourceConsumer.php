@@ -108,7 +108,10 @@ class SourceConsumer
         $this->localInbox = $localInbox;
         app(SessionBridge::class)->enabled();
         $link->refresh();
-        if ($link->closed_without_dispatch_at !== null) {
+        if ($link->closed_without_dispatch_at !== null || $link->ended_at !== null) {
+            // The signed inbox already committed a terminal source event and
+            // its canonical invoice in the same transaction. Later upstream
+            // telemetry cannot reopen or increment this immutable session.
             return 0;
         }
         if (! preg_match('/^ev-test-[a-zA-Z0-9-]{1,80}$/D', $link->identifier) || ! in_array($link->protocol, ['1.6', '2.0.1'], true)) {
