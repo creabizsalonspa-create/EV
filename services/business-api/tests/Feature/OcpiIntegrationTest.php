@@ -72,6 +72,17 @@ class OcpiIntegrationTest extends TestCase
         $this->assertArrayNotHasKey('commands', $modules);
     }
 
+    public function test_legacy_headerless_synthetic_partner_read_remains_available_without_conformance_claim(): void
+    {
+        $provider = $this->provider();
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake(['https://partner.example/locations' => Http::response($this->envelope([$this->location()]))]);
+
+        $records = app(PartnerClient::class)->pull($provider->fresh(), 'locations');
+        $this->assertCount(1, $records);
+        Http::assertSentCount(1);
+    }
+
     public function test_outbound_partner_reads_accept_matching_trace_ids_and_do_not_retry(): void
     {
         $provider = $this->provider();
