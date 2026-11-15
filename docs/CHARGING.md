@@ -41,6 +41,17 @@ The successful protocol-run output is retained in `docs/evidence/charging-protoc
 
 These protocol tests do not by themselves establish Laravel-to-CSMS transaction correlation, event-inbox authenticity/deduplication, final business invoice/payment reconciliation, physical charger safety, complete OCPP conformance, diagnostics/firmware controls, or production operational resilience. The Laravel business bridge and its separate end-to-end evidence must be verified independently before claiming the entire customer/vendor charging-to-invoice workflow.
 
+## Started sessions require authenticated source continuity
+
+Before a signed start has been observed, the source consumer can wait for a
+simulator station/authorization that is still being provisioned. Once a
+transaction has started or the source station has been pinned, disappearance
+of either authenticated identity is a reconciliation incident rather than a
+healthy empty poll. The reader never finalizes or releases capacity from
+missing-source evidence, and resumes only after a verified original identity
+returns. OCPP 1.6 and 2.0.1 station-removal/authorization-removal tests
+require exactly one final invoice and zero extra commands after recovery.
+
 ## Monotonic meter cursor under parallel workers
 
 The signed inbox owns charging event idempotency, while the restartable
