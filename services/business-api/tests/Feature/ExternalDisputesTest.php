@@ -347,6 +347,61 @@ class ExternalDisputesTest extends TestCase
         $this->assertDatabaseHas('gateway_cases', ['status' => 'open']);
     }
 
+    public function test_admin_deadline_queue_is_scoped_time_bounded_and_read_only(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $path = '/dispute-test/commercial/external-disputes/deadline-queue';
+
+        $this->actingAs($this->vendor)->getJson($path)->assertForbidden();
+        $this->actingAs($this->user)->getJson($path)->assertForbidden();
+        $this->actingAs($this->admin)->getJson($path.'?window_hours=48')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('total', 0);
+        $this->getJson($path.'?window_hours=72')->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.urgency', 'evidence_due_soon')
+            ->assertJsonPath('data.0.amount_minor', 700)
+            ->assertJsonPath('data.0.real_money_moved', false)
+            ->assertJsonPath('provider_actions_performed', false)
+            ->assertJsonMissingPath('data.0.provider_reference')
+            ->assertJsonMissingPath('data.0.charge_reference');
+        $this->getJson($path.'?window_hours=169')->assertUnprocessable();
+        $this->getJson($path.'?window_hours=-1')->assertUnprocessable();
+        $this->getJson($path.'?window_hours=72&per_page=26')->assertUnprocessable();
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('external_dispute_events', 1);
+        $this->assertDatabaseCount('external_dispute_evidence', 0);
+
+        $this->travel(4)->days();
+        $this->getJson($path.'?window_hours=0')->assertOk()
+            ->assertJsonPath('data.0.urgency', 'deadline_passed')
+            ->assertJsonPath('data.0.deadline_passed', true)
+            ->assertJsonPath('data.0.provider_observation_stale', true);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('external_dispute_events', 1);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    }
+
+    public function test_lost_provider_dispute_remains_held_in_admin_deadline_queue_without_refund(): void
+    {
+        $id = $this->providerEvent()->assertOk()->json('dispute_id');
+        $this->body['status'] = 'lost';
+        $this->actingAs($this->admin)->postJson(
+            '/dispute-test/commercial/external-disputes/'.$id.'/reconcile'
+        )->assertOk()->assertJsonPath('dispute.requires_financial_resolution', true);
+
+        $this->getJson('/dispute-test/commercial/external-disputes/deadline-queue?window_hours=0')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.urgency', 'financial_resolution_required')
+            ->assertJsonPath('data.0.settlement_hold', true)
+            ->assertJsonPath('data.0.requires_financial_resolution', true)
+            ->assertJsonPath('provider_actions_performed', false);
+        $this->assertDatabaseCount('finance_refunds', 0);
+        $this->assertDatabaseCount('finance_payments', 1);
+    }
+
     public function test_native_provider_receipts_reject_admin_personal_access_tokens(): void
     {
         $this->providerEvent()->assertOk();
