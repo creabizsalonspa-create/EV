@@ -214,11 +214,18 @@ class SandboxRoamingTest extends TestCase
             return Http::response(['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => $request->method() === 'PUT' ? null : ['result' => 'ACCEPTED', 'timeout' => 30]]);
         });
         $offer = $this->actingAs($driver)->getJson('/api/roaming/locations/'.$location->id.'/sandbox-offers')->assertOk()->json('offers.0');
-        $this->postJson('/api/roaming/locations/'.$location->id.'/sandbox-orders', ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true])->assertCreated()->assertJsonPath('state', 'not_dispatched')->assertJsonPath('start_consent_current', false);
+        $response = $this->postJson('/api/roaming/locations/'.$location->id.'/sandbox-orders', ['request_key' => (string) Str::uuid(), 'evse_uid' => 'E1', 'connector_id' => '1', 'tariff_id' => 'T1', 'offer_hash' => $offer['offer_hash'], 'terms_version' => SandboxRoaming::TERMS, 'consent' => true]);
+        if ($kind === 'vendor') {
+            $response->assertCreated()->assertJsonPath('state', 'not_dispatched')->assertJsonPath('start_consent_current', false);
+        } else {
+            // A revoked request must not receive private order data after the source call.
+            $response->assertStatus(409)->assertJsonMissingPath('id')->assertJsonMissingPath('commands');
+        }
         $this->assertSame(0, $attempts);
         $command = DB::table('ocpi_roaming_commands')->first();
         $this->assertNull($command->attempted_at);
         $order = DB::table('ocpi_roaming_orders')->first();
+        $this->assertSame('not_dispatched', $order->state);
         $this->assertFalse(app(SandboxRoaming::class)->token($order)['valid']);
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('finance_journals', 0);

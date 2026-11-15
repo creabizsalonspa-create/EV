@@ -21,14 +21,40 @@ const el = (id) => document.getElementById(id),
     };
 const client = new EvApi(csrf);
 async function api(path, method = "GET", data, signal) {
+    if (client.securityChange) throw new SessionChangedError();
+    const changesSecurity = method === "POST" && ["account/second-factor/enable", "account/second-factor/disable", "account/second-factor/recovery-codes"].includes(path);
+    let securityAttempt = null;
+    if (changesSecurity) {
+        // Fence earlier responses before the server can revoke their session.
+        // Other requests wait for an explicit fresh action; none are replayed.
+        client.invalidateSession();
+        securityAttempt = {epoch: client.sessionEpoch};
+        client.securityChange = securityAttempt;
+    }
     client.token = csrf;
     try {
-        return await client.request(path, method, data, signal);
+        const result = await client.request(path, method, data, signal);
+        // A proven MFA change rotates the session and CSRF token. Accept the
+        // handoff only from these current-account mutations; never replay them.
+        if (changesSecurity
+            && result?.reauthentication_required === false &&
+            typeof result.csrf_token === "string" && /^[A-Za-z0-9]{40}$/.test(result.csrf_token)) {
+            csrf = result.csrf_token;
+            client.token = csrf;
+        }
+        return result;
     } catch (error) {
         if ([401, 419].includes(error.status) && user) {
             clearIdentity();
         }
         throw error;
+    } finally {
+        if (securityAttempt && client.securityChange === securityAttempt) {
+            client.securityChange = null;
+            // Rebind old read controls even after a failed proof. This never
+            // acknowledges notices or replays a security or charging action.
+            if (typeof refreshVisibleInbox === "function") setTimeout(refreshVisibleInbox, 0);
+        }
     }
 }
 window.dispatchEvent(
@@ -2542,6 +2568,7 @@ async function commandHistory(page = 1) {
         );
         if (request.signal.aborted || user !== actor) return;
         const metrics = el("charging-dashboard");
+        window.renderConnectorFleetAction?.(metrics, { api, actor: () => user, openDiagnostics: (companyId, chargerId) => vendorWorkspace.openMonitorNotice(companyId, chargerId) });
         const ar = document.documentElement.lang === "ar";
         const line = (en, arabic, value) => {
             const item = document.createElement("p");

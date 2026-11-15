@@ -18,8 +18,10 @@ class EvApi {
     constructor(token) {
         this.token = token;
         this.sessionEpoch = 0;
+        this.securityChange = null;
     }
     invalidateSession() {
+        this.securityChange = null;
         return ++this.sessionEpoch;
     }
     async request(path, method = "GET", data, signal) {

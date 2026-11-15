@@ -561,3 +561,93 @@ projected; no owner email, driver list, personal invoice/session or ledger data.
 The current active Admin role/password/auth epoch is checked under lock. Private
 no-store replies and EN/AR directory controls retain applied filters across pages,
 open the selected authorized fleet report and fence account/background replies.
+
+
+### Stored partner catalog observations
+
+`GET /api/ocpi/providers/{provider}/catalog-observations` and native `/api/v1/ocpi/...`
+are current active owning-vendor/protected web Admin reads; Admin personal tokens
+remain forbidden. Optional `module=all|locations|tariffs` filters before the bounded
+10000-record scalar projection. Larger results reject422 with no partial counts.
+No encrypted upstream payload, session/CDR, credential, endpoint, customer identity
+or raw coordinate is selected/returned. Private no-store responses contain current
+provider ID/name/authorization, snapshot UTC time, module totals, disjoint source-
+report and local-receipt age buckets, stored publication/coordinate/list quality
+and current-hash tariff retirement counts. Future clocks (including fractions of
+a second), invalid or missing clocks are never current observations. Buckets are
+within1h, over1h through24h, over24h through7d, over7d, unknown and clock-ahead.
+
+A recent receipt never refreshes source age. Coordinates usable for rendering are
+not geographic accuracy; stored publish flags and connector lists are not live
+availability or supported charging. Unauthorized providers show private archived
+records only. Physical/live-availability/remote-control/billing flags remain false.
+The EN/AR web/vendor Flutter view reads explicitly, selects a module, clears on
+background/account/target changes and never dispatches a partner request, booking,
+command or payment. This report does not activate discovery providers or roaming.
+
+### Partner catalog-age operations
+
+The private owner/Admin `GET /api/ocpi/providers/{provider}/sync-plans` response includes `catalog_health` under the existing current-account and provider lock. Only this provider's published location records are counted. A bounded server policy (`OCPI_CATALOG_MAX_AGE_SECONDS`, default86400, valid60–604800) classifies source-update and local-receipt age: both must be within policy, not future; age equal to the limit is stale. A new receipt cannot freshen an old source report. Missing/future age remains unknown; future clocks are a subset of unknown. Counts partition published records and expose no payload, location, credential or customer data. Revoked providers/inactive owners return unavailable counts; invalid policy returns `policy_unavailable`, never invented zeros. Web/Flutter polling views show the same EN/AR read-time summary with explicit refresh. No polling consent, synchronization, tariff, session, billing or charging authority changes, and no physical availability or external delivery is verified by these observations.
+
+Successful browser authenticator enable/disable/recovery-code replacement responses include the newly rotated `csrf_token` alongside `reauthentication_required=false`, under private/no-store headers. The web API accepts this handoff only for those proven mutations in its current account context, without replay. Native responses require reauthentication and return no browser token. This preserves session/CSRF rotation while allowing the next legitimate browser action.
+
+The same validated policy also generates each available partner result's `catalog_age_policy` in unified search, partner search and saved places. English/Arabic web and Flutter views show its read-time state and explicitly unverified physical availability. Both source and receipt timestamps must be inside the configured limit; future/missing clocks stay unknown and exact expiry is stale. Private saved rows redact the policy after publication or provider authorization is withdrawn. Caller-selected source-age search filters remain separate from this server policy and never confer operational authority.
+
+
+Browser MFA mutations fence earlier private requests before session rotation and
+reject concurrent unrelated sends until the attempt settles. Only a successful,
+current-account MFA response may hand off its rotated CSRF token. A safe inbox
+read then rebuilds epoch-bound controls; it never acknowledges notices or retries
+a mutation. Logout/account replacement invalidates the pending transition, so an
+older completion cannot change the new account or its token.
+
+
+### Current-request roaming authority and explicit unsent deactivation
+
+Private roaming reads validate the captured request's role, password hash,
+security epoch and active status under the user lock; an old request cannot
+reload its user to acquire fresh authority. Provider operations history belongs
+to the current owner and the original order owner; protected Admin history
+remains available. Reassignment does not transfer previous customer records.
+Start/stop/revoke HTTP calls remain outside application database transactions.
+Stop validates the same actor and bound active source session again immediately
+before transport. A known pre-wire failure retains `not_dispatched` with no
+attempt marker: exact replay never resends, but a new explicit stop identity may
+be confirmed. Any attempted/transport/callback evidence continues to block an
+additional stop, even if a contradictory state claims `not_dispatched`.
+
+`can_complete_source_revocation` permits explicit customer confirmation of
+local authority deactivation that never reached source transport. Only immutable,
+hash-matching `valid=false` token bytes with no attempt/receipt/callback facts
+may be reused. Prepared, dispatching and unknown outcomes never retry. Web and
+Flutter show a separate completion action; cancel sends nothing. Local revoke
+and source token deactivation never imply that an active session stopped,
+release an active EVSE hold, or authorize billing/physical charging.
+
+
+### Recorded connector fleet
+
+Owner vendor/protected web Admin `GET /api/charging-operations/connectors`
+(native `/api/v1/...`, existing native Admin restriction preserved) provides
+25 mapped connectors/page, stable ascending mapping IDs, optional positive
+`station_id` and bounded `page`. Current captured role/password/epoch/status
+is checked under user lock. Foreign station filters return404; station transfers
+cannot expose prior-owner source evidence. Canonical topology/license/maintenance
+checks and existing `ConnectorFreshness` generation/component rules qualify each
+source snapshot. Exact five-minute expiry is stale; missing, future, conflicting,
+replaced or blocked source stays unknown. No credential, raw payload, customer,
+transaction or billing record is projected and no upstream read is performed.
+
+EN/AR web and Flutter use explicit filtered reads and frozen-filter pagination.
+Account/background changes discard cached and in-flight snapshots; resume does
+not poll. Reports are labeled with snapshot/source timestamps and simulated
+source evidence, never current physical availability, connectivity or command
+permission. This observation page does not replace topology or admission checks.
+
+
+Fleet rows may include `operations_target={company_id,charger_id}` only when the
+current station/company/site/charger ownership is consistent. This is a navigation
+hint, not a control grant; blocked connectors may still need diagnosis. Explicit
+web/native selection opens the existing scoped source diagnostics/repair workspace.
+No fault acknowledgment, inspection, reset, firmware or maintenance change occurs
+merely by reading a fleet snapshot. Reassignment removes previous-owner targets.

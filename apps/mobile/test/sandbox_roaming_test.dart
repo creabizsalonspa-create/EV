@@ -9,7 +9,8 @@ class RoamingApi extends FixtureApi {
       unsafe = false,
       denied = false,
       revoked = false,
-      active = false;
+      active = false,
+      completeRevocation = false;
   int attempts = 0;
   Map<String, dynamic>? first;
   Map<String, dynamic> order() => {
@@ -27,7 +28,8 @@ class RoamingApi extends FixtureApi {
     'physical_charging_verified': false,
     'can_stop': false,
     'start_consent_current': !revoked,
-    'can_revoke': true,
+    'can_revoke': !completeRevocation,
+    'can_complete_source_revocation': completeRevocation,
   };
   @override
   Future<dynamic> request(
@@ -39,6 +41,11 @@ class RoamingApi extends FixtureApi {
     if (denied) throw const ApiException(401, 'PRIVATE account error');
     if (method != 'GET') {
       attempts++;
+      if (method == 'DELETE') {
+        expect(path, 'roaming/sandbox-orders/1/authority');
+        completeRevocation = false;
+        return order();
+      }
       first ??= Map<String, dynamic>.from(body!);
       expect(body, first);
       if (lost) {
@@ -85,6 +92,33 @@ Widget app(RoamingApi api, {bool operator = false, VoidCallback? expired}) =>
       ),
     );
 void main() {
+  testWidgets(
+    'known-unsent source deactivation requires a new explicit confirmation',
+    (tester) async {
+      final api = RoamingApi()..completeRevocation = true;
+      await tester.pumpWidget(app(api));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Review sandbox history'));
+      await tester.tap(find.text('Review sandbox history'));
+      await tester.pumpAndSettle();
+      final complete = find.text('Complete test-source token deactivation');
+      await tester.ensureVisible(complete);
+      await tester.tap(complete);
+      await tester.pumpAndSettle();
+      expect(api.attempts, 0);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(api.attempts, 0);
+      await tester.ensureVisible(complete);
+      await tester.tap(complete);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(api.attempts, 1);
+      expect(complete, findsNothing);
+    },
+  );
+
   testWidgets(
     'credential revocation does not label an already active source session as unstarted',
     (tester) async {

@@ -37,6 +37,48 @@ const assert = require('node:assert/strict');
             assert.equal(await page.getByText('retired-1',{exact:true}).count(),0);
             await page.close();
         }
+        const customer = await browser.newPage();
+        await customer.setContent('<section id="public"></section><section id="private"></section>');
+        await customer.addScriptTag({path:'services/business-api/public/roaming.js'});
+        await customer.evaluate(async () => {
+            window.writes = 0;
+            window.currentActor = {id:3,role:'customer'};
+            window.EvLocale = {text:value=>value,attribute:(n,k,v)=>n.setAttribute(k,v)};
+            const page = data => ({data,current_page:1,last_page:1,total:data.length});
+            window.order = {id:1,location_name:'Synthetic private source',commands:[],can_revoke:false,can_complete_source_revocation:true,can_stop:false,start_consent_current:false,evidence:'SANDBOX_PARTNER_UNVERIFIED',billing_eligible:false,live_commands_enabled:false,local_invoice_created:false,physical_charging_verified:false};
+            window.workspace = window.createRoamingWorkspace({
+                publicRoot:document.querySelector('#public'),privateRoot:document.querySelector('#private'),
+                actor:()=>window.currentActor,notice:error=>{throw error;},
+                ui:(tag,text)=>{const n=document.createElement(tag);n.textContent=text;return n;},
+                api:async(path,method='GET')=>{
+                    if(method==='DELETE') {
+                        if(path!=='roaming/sandbox-orders/1/authority') throw Error('Wrong private target');
+                        window.writes++;
+                        window.order.can_complete_source_revocation=false;
+                        return window.order;
+                    }
+                    if(method!=='GET') throw Error('Unexpected mutation');
+                    if(path.startsWith('roaming/sandbox-orders')) return page([window.order]);
+                    return page([]);
+                }
+            });
+            await window.workspace.setActor();
+        });
+        await customer.getByRole('button',{name:'Review sandbox history',exact:true}).click();
+        const complete = customer.getByRole('button',{name:'Complete sandbox source deactivation',exact:true});
+        await complete.waitFor();
+        assert.equal(await customer.getByRole('button',{name:'Request sandbox stop',exact:true}).count(),0);
+        customer.once('dialog',dialog=>dialog.dismiss());
+        await complete.click();
+        assert.equal(await customer.evaluate(()=>window.writes),0);
+        customer.once('dialog',dialog=>dialog.accept());
+        await complete.click();
+        await complete.waitFor({state:'detached'});
+        assert.equal(await customer.evaluate(()=>window.writes),1);
+        assert.equal(await customer.getByRole('button',{name:'Complete sandbox source deactivation',exact:true}).count(),0);
+        await customer.evaluate(async()=>{window.currentActor=null;await window.workspace.setActor();});
+        assert.equal(await customer.getByText('Synthetic private source',{exact:true}).count(),0);
+        await customer.close();
         console.log('OCPI configured/active reception and withdrawn historical tariff web workflows passed in English/Arabic.');
     } finally { await browser.close(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

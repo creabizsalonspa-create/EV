@@ -1,3 +1,99 @@
+# 15 November 2026 — fleet-to-diagnostics connected workflow
+
+Fleet rows now navigate explicitly into the existing authorized source diagnosis
+and repair workspaces in web/Flutter. Server hints require consistent current
+station/company/site/charger ownership, remain available for maintenance-blocked
+inventory and disappear after station reassignment. Navigation grants no new
+permission and never automatically acknowledges faults or sends commands.
+Focused PostgreSQL22/382, three native cases/analysis and EN/AR browser navigation
+contracts passed. Required hosted final-source checks remain the integration gate.
+
+# 15 November 2026 — connected operations integration candidate PR128
+
+Combined source preserves PR125 catalog/MFA workflows, PR127 current-request
+OCPI stop/deactivation controls, new connector fleet monitoring and the existing
+PR126 advanced discovery filters (pinned3d49109b; remote branches preserved).
+A deterministic defect reproduced a same-second partner report disappearing:
+Carbon query bindings lost microseconds. Unified and partner source-age filters
+now preserve both exact bounds; one-microsecond future/out-of-window records
+remain excluded. SQLite24/496 and PostgreSQL24/496 passed this regression.
+
+Combined focused PostgreSQL69/1268, Flutter24, six-file analysis, PHP style11,
+14 unified web contracts and actual Laravel EN/AR fleet/advanced-search/MFA
+workflows passed. Nested advanced-filter summaries required a direct-child
+outer-section browser selector; all original business assertions remain.
+Mandatory exact-source hosted checks and main/source merge-tree equality are
+still required before integration. No source control/payment/deployment flags
+were enabled. Original312-feature scope and production acceptance unchanged.
+
+# 15 November 2026 — connected connector fleet observations (integration pending)
+
+Laravel, vendor/Admin EN/AR web and vendor Flutter now provide explicit paginated
+fleet snapshots from canonical connector mappings and existing accepted source
+freshness rules. Both OCPP versions remain distinct; missing/stale/conflicting/
+future/replaced/maintenance-blocked source cannot become a recent status. Private
+station filters, ownership/security-epoch checks, no credential/customer payloads,
+background/account fences and frozen pagination are enforced. No command, source
+poll, bill or physical/live-availability claim is created.
+
+Focused PostgreSQL22/376 including canonical topology regressions, two new Flutter
+cases plus existing operational-control cases, changed native analysis, browser
+EN/AR source contracts and actual isolated Laravel/vendor EN/AR filtered snapshot
+workflow passed. Mandatory hosted validation and integration remain pending.
+The original312 inventory and production acceptance remain unchanged; this is
+stored-source monitoring, not verified physical fleet connectivity.
+
+# 15 November 2026 — current-request OCPI operations (integration pending)
+
+Connected Laravel, customer EN/AR web and Flutter preserve captured account
+security through private reads and stop/token-deactivation dispatch. Vendor
+history stays with the original provider owner after reassignment. Explicit
+confirmed completion is available only for immutable proven-unsent source token
+deactivation; unknown transport outcomes remain held without replay. A source
+stop never follows a stale account or changed session; exact identity replay
+never resends. No live command, financial record or production change.
+
+Focused PostgreSQL26/386, six Flutter cases, changed native analysis and real
+browser cancellation/confirmation/single-dispatch/logout controls passed. The
+new authority suite is included in mandatory PostgreSQL connector CI. Hosted
+exact-source validation and integration remain pending. Original312 scope and
+external hardware/partner/payment/store gates remain unchanged.
+
+# 15 November 2026 — combined catalog policy and browser security handoff
+
+Preserved current PR1204f2ea2e7 shared catalog policy and PR124d2c9ba77 offline
+source-matched dependency inventory alongside detailed stored catalog observations.
+Policy remains the single customer-facing age verdict; descriptive age histograms
+confer no eligibility. All parent commands, PostgreSQL filters, assets, API surfaces
+and localization values were checked during normal non-force merges.
+
+Actual browser acceptance exposed late private authorization replies and stale
+inbox controls around MFA session rotation. A scoped transition now fences older
+requests before mutation, prevents unrelated sends until settlement, adopts only
+proven current-account CSRF replies and rebuilds inbox controls through a read.
+No mutation is replayed; account replacement clears the transition safely.
+
+Focused combined PG94/1232, Flutter33 and seven-file analysis, PHP style759,19
+client/policy/inventory contracts (including two reproduced MFA races), actual
+Laravel EN/AR MFA/inbox/search/fleet/catalog workflows and delayed-session browser
+regressions passed. No complete historical QA replay. Latest exact-source hosted
+CI remains required before merge; original312 inventory/production gates remain.
+
+# 15 November 2026 — stored partner catalog monitoring (integration pending)
+
+Connected owner/Admin API, EN/AR web and vendor Flutter observations expose
+stored locations/tariffs, disjoint report/receipt clocks, unknown/future data,
+map-field usability and current-version tariff withdrawal counts. No upstream
+lookup or session/CDR/payload/credential read; no live availability or command/
+billing authority. Scalar projection is bounded10000 records; no partial totals.
+Current-account/provider scope and foreground/target fences remain required.
+
+Focused PostgreSQL12/267 (including discovery), SQLite3/34, four native cases,
+EN/AR browser filter/privacy/authority checks and actual Laravel/vendor report
+plus customer denial passed. New cases are registered in mandatory CI. Targeted analysis and PHP style passed; no original atom/production
+credit or real partner activation claimed. Continue remaining authorized OCPI
+reservation/start-consent/cancel lifecycle and interoperability after integration.
+
 # 15 November 2026 — private Admin fleet discovery connected to reports
 
 Admin can now find fleets by literal name/country, page bounded25-row results and

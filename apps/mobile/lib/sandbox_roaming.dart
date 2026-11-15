@@ -526,7 +526,8 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
                       },
                 child: Text(tr('Request sandbox stop', 'طلب إيقاف تجريبي')),
               ),
-            if (row['can_revoke'] == true)
+            if (row['can_revoke'] == true ||
+                row['can_complete_source_revocation'] == true)
               TextButton(
                 onPressed: busy || background || pendingPath != null
                     ? null
@@ -543,7 +544,15 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
                         );
                       },
                 child: Text(
-                  tr('Revoke sandbox authority', 'إلغاء التفويض التجريبي'),
+                  row['can_complete_source_revocation'] == true
+                      ? tr(
+                          'Complete test-source token deactivation',
+                          'إكمال إلغاء رمز مصدر الاختبار',
+                        )
+                      : tr(
+                          'Revoke sandbox authority',
+                          'إلغاء التفويض التجريبي',
+                        ),
                 ),
               ),
           ],

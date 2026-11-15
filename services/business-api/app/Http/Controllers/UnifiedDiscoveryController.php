@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\Discovery\CatalogPriceFilter;
 use App\Services\Discovery\CatalogTextFilters;
 use App\Services\Discovery\PartnerCatalogAge;
 use App\Services\Discovery\PublicPartnerLocation;
@@ -19,17 +20,46 @@ final class UnifiedDiscoveryController extends Controller
 {
     public function index(Request $request)
     {
-        $v = $request->validate(['q' => 'nullable|string|max:80', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'max_source_age_hours' => 'nullable|integer|between:1,168', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'operator' => 'nullable|string|max:100', 'address' => 'nullable|string|max:150', 'access' => 'nullable|string|max:150', 'max_rate_per_kwh' => ['nullable', 'required_with:price_currency', 'string', 'regex:/^[0-9]{1,6}(\.[0-9]{1,3})?$/D'], 'price_currency' => 'nullable|required_with:max_rate_per_kwh|string|size:3|uppercase', 'scope' => 'nullable|in:all,catalog,partner', 'connector' => 'nullable|in:CCS2,Type2,CHAdeMO', 'page' => 'nullable|integer|between:1,1000000', 'saved_only' => 'nullable|boolean', 'max_source_age_hours' => 'nullable|integer|between:1,168', 'recent_source_status' => 'nullable|in:Available,Occupied,Preparing,Charging,SuspendedEV,SuspendedEVSE,Finishing,Reserved,Unavailable,Faulted']);
         $actor = $this->currentActor($request);
         $customer = $actor->role === 'customer' ? $actor->id : null;
         abort_if($request->boolean('saved_only') && $customer === null, 403);
         $catalog = Station::query();
         $partner = OcpiRecord::query()->where('module', 'locations')->where('normalized->publish', true)
             ->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->select('id'));
+        // Apply individual filters before the SQL union and pagination.
+        // Explicit access and price filters require canonical platform evidence.
+        app(CatalogTextFilters::class)->apply($catalog, array_intersect_key($v, array_flip(['operator', 'address', 'access'])));
+        app(CatalogPriceFilter::class)->apply($catalog, $v);
+        if (trim($v['access'] ?? '') !== '' || isset($v['max_rate_per_kwh'])) {
+            $partner->whereRaw('1 = 0');
+        }
+        foreach (['operator', 'address'] as $field) {
+            $value = trim($v[$field] ?? '');
+            if ($value === '') {
+                continue;
+            }
+            $driver = DB::connection()->getDriverName();
+            $comparison = match ($driver) {
+                'pgsql' => 'ILIKE', 'sqlite' => 'LIKE',
+                default => throw new \LogicException('Unsupported discovery database.'),
+            };
+            $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $value).'%';
+            if ($field === 'operator') {
+                $partner->whereIn('ocpi_provider_id', OcpiProvider::where('authorized', true)->whereRaw("name $comparison ? ESCAPE '!'", [$pattern])->select('id'));
+            } else {
+                $partner->where(function ($query) use ($driver, $comparison, $pattern) {
+                    foreach (['address', 'city'] as $key) {
+                        $column = $driver === 'pgsql' ? "(ocpi_records.normalized->>'$key')" : "json_extract(ocpi_records.normalized, '$.$key')";
+                        $query->orWhereRaw("$column $comparison ? ESCAPE '!'", [$pattern]);
+                    }
+                });
+            }
+        }
         if (isset($v['max_source_age_hours'])) {
             // Partner source timestamps only: never a receipt-age or availability claim.
             $checkedAt = now();
-            $partner->whereBetween('source_updated_at', [$checkedAt->copy()->subHours((int) $v['max_source_age_hours']), $checkedAt]);
+            $partner->whereBetween('source_updated_at', [$checkedAt->copy()->subHours((int) $v['max_source_age_hours'])->format('Y-m-d H:i:s.u'), $checkedAt->format('Y-m-d H:i:s.u')]);
         }
         if ($request->boolean('saved_only')) {
             $catalog->whereIn('id', DB::table('station_favorites')->where('user_id', $customer)->select('station_id'));

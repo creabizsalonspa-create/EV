@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\OcpiRecord;
 use App\Models\User;
+use App\Services\Charging\ChargingActorConsent;
 use App\Services\Ocpi\RoamingDispatch;
 use App\Services\Ocpi\RoamingReconciler;
 use App\Services\Ocpi\SandboxRoaming;
@@ -13,9 +14,34 @@ use Illuminate\Support\Facades\DB;
 
 class RoamingOrderController extends Controller
 {
+    private function actor(Request $request): User
+    {
+        $snapshot = $request->user();
+        app(ChargingActorConsent::class)->capture($snapshot);
+
+        return $snapshot;
+    }
+
+    public function callAction($method, $parameters)
+    {
+        $request = collect($parameters)->first(fn ($value) => $value instanceof Request);
+        abort_unless($request?->user(), 401);
+        if (in_array($method, ['capabilities', 'offers', 'index', 'show', 'operations', 'reconcile'], true)) {
+            return DB::transaction(function () use ($request, $method, $parameters) {
+                $this->actor($request);
+
+                return $this->{$method}(...array_values($parameters));
+            }, 3);
+        }
+        // Network operations own short claims/checkpoints; never wrap HTTP in a transaction.
+        $this->actor($request);
+
+        return $this->{$method}(...array_values($parameters));
+    }
+
     private function driver(Request $r): User
     {
-        $actor = User::findOrFail($r->user()->id);
+        $actor = $this->actor($r);
         abort_unless($actor->role === 'customer', 403);
 
         return $actor;
@@ -23,7 +49,7 @@ class RoamingOrderController extends Controller
 
     private function order(Request $r, int $order): object
     {
-        $actor = User::findOrFail($r->user()->id);
+        $actor = $this->actor($r);
 
         return DB::table('ocpi_roaming_orders')->where('id', $order)->where('user_id', $actor->id)->firstOrFail();
     }
@@ -35,7 +61,7 @@ class RoamingOrderController extends Controller
 
     public function capabilities(Request $r)
     {
-        $actor = User::findOrFail($r->user()->id);
+        $actor = $this->actor($r);
 
         return $this->reply(['sandbox_enabled' => app()->environment(['local', 'testing']) && (bool) config('ocpi.test_commands_enabled'), 'driver_can_start' => $actor->role === 'customer', 'terms_version' => SandboxRoaming::TERMS, 'live_commands_enabled' => false, 'billing_eligible' => false, 'evidence' => 'SANDBOX_PARTNER_UNVERIFIED']);
     }
@@ -81,7 +107,7 @@ class RoamingOrderController extends Controller
 
     public function index(Request $r, SandboxRoaming $service)
     {
-        $actor = User::findOrFail($r->user()->id);
+        $actor = $this->actor($r);
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
         $rows = DB::table('ocpi_roaming_orders')->where('user_id', $actor->id)->orderByDesc('id')->paginate(25)->through(fn ($row) => $service->present($row, true))->toArray();
 
@@ -115,7 +141,7 @@ class RoamingOrderController extends Controller
     {
         $v = $r->validate(['request_key' => 'required|uuid']);
         $row = $this->order($r, $order);
-        $dispatch->stop(User::findOrFail($r->user()->id), $row, $v['request_key']);
+        $dispatch->stop($this->actor($r), $row, $v['request_key']);
 
         return $this->reply($service->present($this->order($r, $order), true));
     }
@@ -124,8 +150,8 @@ class RoamingOrderController extends Controller
     {
         $own = $this->order($r, $order);
         DB::transaction(function () use ($own, $r) {
+            $actor = $this->actor($r);
             OcpiProvider::whereKey($own->provider_id)->lockForUpdate()->firstOrFail();
-            $actor = User::whereKey($r->user()->id)->lockForUpdate()->firstOrFail();
             $row = DB::table('ocpi_roaming_orders')->where('id', $own->id)->lockForUpdate()->firstOrFail();
             abort_unless($row->user_id === $actor->id, 404);
             if ($row->token_revoked_at !== null) {
@@ -139,17 +165,18 @@ class RoamingOrderController extends Controller
             DB::table('ocpi_roaming_orders')->where('id', $row->id)->update($values);
             DB::table('audit_events')->insert(['actor_id' => $actor->id, 'action' => 'ocpi.sandbox_new_authority_revoked', 'subject' => (string) $row->id, 'created_at' => now()]);
         }, 3);
-        $dispatch->revokeToken($this->order($r, $order));
+        $dispatch->revokeToken($this->order($r, $order), $this->actor($r));
 
         return $this->reply($service->present($this->order($r, $order), true) + ['physical_stop_implied' => false]);
     }
 
     public function operations(Request $r, OcpiProvider $provider, SandboxRoaming $service)
     {
-        $actor = User::findOrFail($r->user()->id);
-        abort_unless($actor->role === 'admin' || $provider->owner_id === $actor->id, 404);
+        $actor = $this->actor($r);
+        $provider = OcpiProvider::whereKey($provider->id)->lockForUpdate()->firstOrFail();
+        abort_unless($actor->role === 'admin' || ($actor->role === 'vendor' && $provider->owner_id === $actor->id), 404);
         $r->validate(['page' => 'sometimes|integer|min:1|max:100000']);
 
-        return $this->reply(DB::table('ocpi_roaming_orders')->where('provider_id', $provider->id)->orderByDesc('id')->paginate(25)->through(fn ($row) => $service->present($row, false)));
+        return $this->reply(DB::table('ocpi_roaming_orders')->where('provider_id', $provider->id)->when($actor->role !== 'admin', fn ($q) => $q->where('provider_owner_id', $actor->id))->orderByDesc('id')->paginate(25)->through(fn ($row) => $service->present($row, false)));
     }
 }

@@ -44,6 +44,33 @@ class SavedUnifiedApi extends UnifiedApi {
 }
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+ testWidgets('changing accounts clears advanced search drafts and submitted fields',(tester)async{
+  roomy(tester);final first=UnifiedApi(),second=UnifiedApi();addTearDown(first.close);addTearDown(second.close);await tester.pumpWidget(app(first,(_){}));
+  await tester.enterText(find.byKey(const Key('unified-query')),'Private place');
+  await tester.ensureVisible(find.byType(ExpansionTile));await tester.tap(find.byType(ExpansionTile));await tester.pumpAndSettle();
+  final operator=find.byKey(const Key('unified-operator'));await tester.ensureVisible(operator);await tester.enterText(operator,'Private operator');
+  await tester.pumpWidget(app(second,(_){}));await tester.pumpAndSettle();
+  expect(tester.widget<TextField>(operator).controller!.text,isEmpty);
+  await tester.scrollUntilVisible(find.byKey(const Key('unified-query')),-300,scrollable:find.byType(Scrollable).first);
+  expect(tester.widget<TextField>(find.byKey(const Key('unified-query'))).controller!.text,isEmpty);
+  await tester.ensureVisible(find.byType(FilledButton));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+  expect(first.calls,isEmpty);expect(second.queries.single.containsKey('operator'),false);expect(second.queries.single['q'],'');
+ });
+
+ for(final ar in [false,true]){
+  testWidgets('advanced filters normalize rate digits and preserve submitted pagination ($ar)',(tester)async{
+   roomy(tester);final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},ar:ar));
+   final expand=find.byType(ExpansionTile);await tester.ensureVisible(expand);await tester.tap(expand);await tester.pumpAndSettle();
+   for(final field in {'operator':'100%_operator','address':'دبي','access':'Visitors','max_rate_per_kwh':'١٫٥٠','price_currency':'aed'}.entries){
+    final input=find.byKey(Key('unified-${field.key}'));await tester.ensureVisible(input);await tester.enterText(input,field.value);
+   }
+   final search=find.byType(FilledButton);await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(api.queries.single['operator'],'100%_operator');expect(api.queries.single['address'],'دبي');expect(api.queries.single['access'],'Visitors');expect(api.queries.single['max_rate_per_kwh'],'1.50');expect(api.queries.single['price_currency'],'AED');
+   final next=find.text(ar?'التالي':'Next');await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();expect(api.queries.last['page'],'2');expect(api.queries.last['max_rate_per_kwh'],'1.50');
+   expect(api.calls.every((path)=>path=='GET discovery/search'),true);
+  });
+ }
+
  for(final ar in [false,true]){
   testWidgets('unified query and typed source results in both languages ($ar)',(tester)async{
   roomy(tester);

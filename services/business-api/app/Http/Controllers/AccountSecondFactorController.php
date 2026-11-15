@@ -103,7 +103,7 @@ final class AccountSecondFactorController extends Controller
             $this->currentBrowser($request, $user);
             $this->audit($user, 'account.second_factor.enabled');
 
-            return response()->json(['enabled' => true, 'recovery_codes' => $codes, 'reauthentication_required' => ! $request->hasSession()])
+            return response()->json(['enabled' => true, 'recovery_codes' => $codes, 'reauthentication_required' => ! $request->hasSession(), 'csrf_token' => $request->hasSession() ? $request->session()->token() : null])
                 ->header('Cache-Control', 'no-store, private');
         });
     }
@@ -129,7 +129,7 @@ final class AccountSecondFactorController extends Controller
             $this->audit($user, 'account.second_factor.'.$action);
 
             return response()->json(['enabled' => $action !== 'disable', 'recovery_codes' => $codes,
-                'reauthentication_required' => ! $request->hasSession()])->header('Cache-Control', 'no-store, private');
+                'reauthentication_required' => ! $request->hasSession(), 'csrf_token' => $request->hasSession() ? $request->session()->token() : null])->header('Cache-Control', 'no-store, private');
         });
     }
 }

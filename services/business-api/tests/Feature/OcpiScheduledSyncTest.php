@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\OcpiProvider;
+use App\Models\OcpiRecord;
 use App\Models\User;
 use App\Services\Ocpi\ScheduledSync;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -34,6 +36,45 @@ class OcpiScheduledSyncTest extends TestCase
     private function response(): array
     {
         return ['status_code' => 1000, 'timestamp' => now()->toISOString(), 'data' => [['id' => 'LOC-1', 'country_code' => 'AE', 'party_id' => 'ABC', 'publish' => true, 'name' => 'Partner reported fixture', 'address' => 'Synthetic', 'city' => 'Dubai', 'country' => 'ARE', 'coordinates' => ['latitude' => '25.1', 'longitude' => '55.1'], 'time_zone' => 'Asia/Dubai', 'last_updated' => now()->subMinute()->toISOString(), 'evses' => []]]];
+    }
+
+    public function test_private_catalog_age_policy_counts_old_and_future_reports_without_granting_authority(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));
+        config(['partner_catalog.max_age_seconds' => 86400]);
+        [$owner, $provider, $url] = $this->fixture();
+        $this->actingAs($owner)->getJson($url)->assertOk()->assertJsonPath('catalog_health.state', 'empty')->assertJsonPath('catalog_health.published_count', 0);
+        foreach ([[-30, -20, true], [-1500, 0, true], [-5, -1500, true], [1, 0, true], [0, 1, true], [-1440, 0, true], [-1500, 0, false]] as $n => [$source, $receipt, $published]) {
+            OcpiRecord::create(['ocpi_provider_id' => $provider->id, 'module' => 'locations', 'country_code' => 'AE', 'party_id' => 'ABC', 'external_id' => 'health-'.$n, 'payload' => ['private' => 'DO-NOT-REPORT-CATALOG-PAYLOAD'], 'content_hash' => str_repeat('a', 64), 'normalized' => ['publish' => $published, 'name' => 'DO-NOT-REPORT-LOCATION'], 'source_updated_at' => now()->addMinutes($source), 'received_at' => now()->addMinutes($receipt)]);
+        }
+        $this->getJson($url)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('catalog_health.state', 'attention')->assertJsonPath('catalog_health.published_count', 6)
+            ->assertJsonPath('catalog_health.within_policy_count', 1)->assertJsonPath('catalog_health.stale_count', 3)
+            ->assertJsonPath('catalog_health.unknown_age_count', 2)->assertJsonPath('catalog_health.future_clock_count', 2)
+            ->assertJsonPath('catalog_health.checked_at', '2026-11-15T12:00:00.000000Z')
+            ->assertJsonPath('catalog_health.physical_availability_verified', false)->assertJsonPath('catalog_health.remote_control', false)
+            ->assertJsonPath('catalog_health.billing_authority', false)->assertDontSee('DO-NOT-REPORT');
+        $recent = OcpiRecord::where('ocpi_provider_id', $provider->id)->where('external_id', 'health-0')->firstOrFail();
+        $recent->update(['source_updated_at' => now()->addMicrosecond()]);
+        $this->getJson($url)->assertOk()->assertJsonPath('catalog_health.within_policy_count', 0)
+            ->assertJsonPath('catalog_health.unknown_age_count', 3)->assertJsonPath('catalog_health.future_clock_count', 3);
+        $recent->update(['source_updated_at' => now()->subMinutes(30)]);
+        if (DB::getDriverName() === 'sqlite') {
+            DB::table('ocpi_records')->where('ocpi_provider_id', $provider->id)->where('external_id', 'health-0')->update(['source_updated_at' => 'malformed-legacy-time']);
+            $this->getJson($url)->assertOk()->assertJsonPath('catalog_health.within_policy_count', 0)
+                ->assertJsonPath('catalog_health.unknown_age_count', 3)->assertJsonPath('catalog_health.future_clock_count', 2);
+        }
+        foreach ([0, 'invalid', '86400.5', 604801, 86400.0, true] as $invalid) {
+            config(['partner_catalog.max_age_seconds' => $invalid]);
+            $this->getJson($url)->assertOk()->assertJsonPath('catalog_health.state', 'policy_unavailable')
+                ->assertJsonPath('catalog_health.published_count', null)->assertJsonPath('catalog_health.max_age_seconds', null);
+        }
+        config(['partner_catalog.max_age_seconds' => 86400]);
+        $provider->update(['authorized' => false]);
+        $this->getJson($url)->assertOk()->assertJsonPath('catalog_health.state', 'unavailable')->assertJsonPath('catalog_health.published_count', null);
+        $other = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($other)->getJson($url)->assertNotFound();
+        Http::assertNothingSent();
     }
 
     public function test_explicit_plan_polls_canonical_records_once_per_interval_and_exposes_only_private_receipts(): void

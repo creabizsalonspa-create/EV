@@ -69,8 +69,8 @@ final class PartnerLocationDiscoveryController extends Controller
                 // charging authority. Do not accept future clocks as fresh.
                 $current = now();
                 $q->whereBetween('source_updated_at', [
-                    $current->copy()->subHours((int) $filters['max_source_age_hours']),
-                    $current,
+                    $current->copy()->subHours((int) $filters['max_source_age_hours'])->format('Y-m-d H:i:s.u'),
+                    $current->format('Y-m-d H:i:s.u'),
                 ]);
             })
             ->when(! empty($filters['reported_evse_status']), function ($q) use ($filters) {

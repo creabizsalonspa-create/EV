@@ -366,6 +366,7 @@ class _SyncPlansState extends State<OcpiSyncPlansView>
                       '${run['started_at']} UTC · ${countLabel(run['counts'])}',
                     ),
                   ),
+                if (raw != null) ocpiCatalogHealthCard(raw['catalog_health'], Localizations.localeOf(context).languageCode == 'ar'),
                 if (page > 1)
                   TextButton(
                     onPressed: busy ? null : () => load(number: page - 1),
@@ -382,4 +383,61 @@ class _SyncPlansState extends State<OcpiSyncPlansView>
             ),
     );
   }
+}
+
+Widget ocpiCatalogHealthCard(dynamic value, bool ar) {
+  String t(String en, String arabic) => ar ? arabic : en;
+  const keys = [
+    'published_count', 'within_policy_count', 'stale_count',
+    'unknown_age_count', 'future_clock_count',
+  ];
+  final shape = value is Map &&
+      value['evidence'] == 'PARTNER_CATALOG_TIMESTAMPS_ONLY' &&
+      value['physical_availability_verified'] == false &&
+      value['remote_control'] == false && value['billing_authority'] == false &&
+      keys.every((k) => value[k] is int && value[k] >= 0 &&
+          value[k] <= 9007199254740991) &&
+      value['max_age_seconds'] is int && value['max_age_seconds'] >= 60 &&
+      value['max_age_seconds'] <= 604800 && value['checked_at'] is String &&
+      RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$')
+          .hasMatch(value['checked_at']);
+  final valid = shape &&
+      value['within_policy_count'] + value['stale_count'] +
+          value['unknown_age_count'] == value['published_count'] &&
+      value['future_clock_count'] <= value['unknown_age_count'] &&
+      ((value['state'] == 'empty' && value['published_count'] == 0) ||
+       (value['state'] == 'within_policy' && value['published_count'] > 0 &&
+           value['stale_count'] + value['unknown_age_count'] == 0) ||
+       (value['state'] == 'attention' && value['published_count'] > 0 &&
+           value['stale_count'] + value['unknown_age_count'] > 0));
+  return Card(
+    key: const Key('ocpi-catalog-health'),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(t('Catalog report age at this read',
+              'عمر تقارير الكتالوج عند هذه القراءة')),
+          Text(t(
+            'Catalog timestamps only. Physical availability, charging and billing authority remain unverified. Refresh to recheck.',
+            'أوقات الكتالوج فقط. التوفر الفعلي وصلاحيات الشحن والفوترة غير مؤكدة. حدّث لإعادة التحقق.',
+          )),
+          if (!valid)
+            Text(t('Catalog age unavailable; review the partner and age policy.',
+                'عمر الكتالوج غير متاح؛ راجع الشريك وسياسة العمر.'))
+          else ...[
+            Text(t(
+              'Published ${value['published_count']} · within age policy ${value['within_policy_count']} · old ${value['stale_count']} · unknown ${value['unknown_age_count']} · future clocks ${value['future_clock_count']}',
+              'منشور ${value['published_count']} · ضمن سياسة العمر ${value['within_policy_count']} · قديم ${value['stale_count']} · غير معروف ${value['unknown_age_count']} · ساعات مستقبلية ${value['future_clock_count']}',
+            )),
+            Text(t(
+              'Maximum age: ${value['max_age_seconds']} seconds · checked (UTC): ${value['checked_at']}',
+              'الحد الأقصى للعمر: ${value['max_age_seconds']} ثانية · وقت التحقق (UTC): ${value['checked_at']}',
+            )),
+          ],
+        ],
+      ),
+    ),
+  );
 }

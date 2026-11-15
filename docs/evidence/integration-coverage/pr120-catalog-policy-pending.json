@@ -1,0 +1,26 @@
+{
+  "source_sha": "31073038113bc4a8a068190f69fb99b0d7231329",
+  "source_tree": "e840afe29e808010ba5f6d42cce23e16909d65d0",
+  "test_result": "pending",
+  "integrated_sha": null,
+  "coded_atoms": [
+    "6.1.5"
+  ],
+  "scope": "Shared bounded source/receipt age policy across customer unified/partner/saved-place web and Flutter views, plus private owner/Admin operational age counts; no physical availability or command authority.",
+  "local_verification": {
+    "laravel": {
+      "tests": 1174,
+      "assertions": 23306,
+      "skipped": 1,
+      "skip_scope": "PostgreSQL-only case"
+    },
+    "postgresql": {
+      "tests": 94,
+      "assertions": 1411
+    },
+    "targeted_web_tests": 22,
+    "business_api_pint": "passed"
+  },
+  "hosted_browser_and_native": "pending",
+  "production_accepted": false
+}

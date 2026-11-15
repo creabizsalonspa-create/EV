@@ -17,6 +17,7 @@ final class PartnerCatalogAge
         $receiptAhead = $record->received_at?->greaterThan($checkedAt) ?? false;
 
         return [
+            'catalog_age_policy' => PartnerCatalogPolicy::present($record, $checkedAt),
             'catalog_checked_at' => $checkedAt->toISOString(),
             'received_at' => $record->received_at,
             'received_age_minutes' => $receipt !== null && ! $receiptAhead ? intdiv($now - $receipt, 60) : null,

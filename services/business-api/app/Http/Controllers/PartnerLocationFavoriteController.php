@@ -31,7 +31,7 @@ class PartnerLocationFavoriteController extends CustomerFavoritesController
                 'location_available' => $available,
                 'location' => $available ? PublicPartnerLocation::project($record->normalized ?? []) : null,
                 ...($available ? PartnerCatalogAge::present($record, $checkedAt) : array_fill_keys([
-                    'catalog_checked_at', 'received_at', 'received_age_minutes', 'received_timestamp_evidence',
+                    'catalog_age_policy', 'catalog_checked_at', 'received_at', 'received_age_minutes', 'received_timestamp_evidence',
                     'source_updated_at', 'reported_source_age_minutes', 'source_clock_evidence', 'source_timestamp_evidence',
                 ], null)),
                 'favorite_since' => $record->favorite_since,
