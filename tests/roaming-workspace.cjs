@@ -282,14 +282,34 @@ const assert = require("node:assert/strict");
       })
       .first();
     page.on("dialog", (dialog) => dialog.accept());
+    // Revocation must remove every location from this run's already-scoped
+    // public search. Other test suites may still publish unrelated locations.
+    // Assert the real API is empty AND the correct filtered empty-state UI.
+    const revokedCatalogResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/roaming/locations" &&
+        url.searchParams.get("q") === run &&
+        url.searchParams.get("page") === "1"
+      );
+    });
     await card
       .getByRole("button", { name: "Revoke authorization", exact: true })
       .click();
     await card
       .getByText("Connection authorization revoked.", { exact: true })
       .waitFor();
+    const revokedCatalog = await revokedCatalogResponse;
+    assert.equal(
+      revokedCatalog.status(),
+      200,
+      "Revoked partner catalog must remain readable but empty.",
+    );
+    const revokedPage = await revokedCatalog.json();
+    assert.equal(revokedPage.total, 0, "Revoked location still publicly visible.");
+    assert.deepEqual(revokedPage.data, [], "Revoked records leaked to public search.");
     await pub
-      .getByText("No published partner locations.", { exact: true })
+      .getByText("No matching partner locations", { exact: true })
       .waitFor();
     assert.deepEqual(errors, []);
     console.log(
