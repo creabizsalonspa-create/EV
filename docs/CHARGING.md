@@ -69,10 +69,11 @@ Both OCPP protocol fixtures simulate a concurrently advanced cursor and
 verify that a late observer never rewinds it. This checks source checkpoint
 monotonicity, not live cross-process throughput or physical acceptance.
 
-## Immutable external source station identity
+## Immutable external source station and transaction identities
 
-The local OCPP source consumer now pins the independently authenticated
-CitrineOS `ChargingStations.id` onto the canonical session link before its
+The local OCPP source consumer pins the independently authenticated
+CitrineOS `ChargingStations.id` and its specific `Transactions.id` onto
+the canonical session link together under a database row lock before its
 first signed start event. The external station id is not a cross-database
 foreign key. Subsequent observations must match the original id **as well as**
 the existing OCPP connection name, protocol, source authorization, transaction,
@@ -80,9 +81,12 @@ connector proof and signed inbox lineage. Reprovisioning a station with the
 same name and protocol under a different source row never splices energy into
 an existing session or issues a second start command.
 
-The new nullable source-id column does not fabricate historical identity:
-sessions already started without a pin require explicit reconciliation rather
-than adopting the current row. A new session without source transaction evidence
+The new nullable station-id and transaction-row-id columns do not
+fabricate historical identities: sessions already started without either
+pin require explicit reconciliation rather than adopting the current row.
+Even if the OCPP protocol transactionId has been reused under the same source
+station, a different persisted source transaction database row cannot
+resume an existing canonical session. A new session without source transaction evidence
 does not pin an arbitrary upstream station. Both OCPP 1.6 and 2.0.1 have
 replacement, legacy-unpinned and resume-with-original-source regressions.
 This remains simulator-only evidence, not approved physical charger identity
