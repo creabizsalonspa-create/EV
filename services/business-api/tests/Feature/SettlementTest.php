@@ -267,6 +267,7 @@ class SettlementTest extends TestCase
         $this->postJson('/api/commercial/cases/'.$case['id'].'/resolve', ['outcome' => 'rejected', 'resolution' => 'Resolved'])->assertOk();
         $this->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 900);
     }
+
     public function test_vendor_earnings_report_reuses_settlement_policy_and_refund_debt(): void
     {
         $invoice = $this->invoice();
@@ -329,5 +330,4 @@ class SettlementTest extends TestCase
             ->assertOk()->assertJsonPath('data.0.invoice_id', $invoice->id);
         $this->assertDatabaseCount('finance_journals', 2);
     }
-
 }
