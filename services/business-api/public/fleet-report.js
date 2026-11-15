@@ -28,7 +28,35 @@ window.EvFleetReport = (() => {
             }catch(error){if(identity===serial&&run===request&&!document.hidden)output.replaceChildren(text('p','Report unavailable. Check access, dates and cost center, then read again.','التقرير غير متاح. تحقق من الصلاحية والتواريخ ومركز التكلفة ثم اقرأ مجدداً.'));}finally{if(identity===serial&&run===request)button.disabled=false;}
         };
     }
-    function setActor(current,request){clear();actor=current;api=request;host=document.getElementById('fleet-admin-report');if(!host||actor?.role!=='admin')return;roots.add(host);const id=document.createElement('input');id.type='number';id.min='1';const label=text('label','Fleet ID','معرف الأسطول');label.append(id);const open=text('button','Open fleet reporting','فتح تقارير الأسطول');open.type='button';const slot=document.createElement('div');open.onclick=()=>{slot.replaceChildren();if(/^[1-9][0-9]{0,17}$/.test(id.value))mount(slot,id.value);};host.append(label,open,slot);}
+    function setActor(current,request){
+        clear();actor=current;api=request;host=document.getElementById('fleet-admin-report');
+        if(!host||actor?.role!=='admin')return;
+        roots.add(host);
+        const target=host, identity=serial, form=document.createElement('form'), name=document.createElement('input'), country=document.createElement('input');
+        name.type='search';name.maxLength=80;country.maxLength=2;
+        for(const [input,en,ar]of[[name,'Fleet name (literal search)','اسم الأسطول (بحث حرفي)'],[country,'Country code (optional)','رمز الدولة (اختياري)']]){const label=text('label',en,ar);label.append(input);form.append(label);}
+        const search=text('button','Search fleets','بحث الأساطيل');search.type='submit';form.append(search);
+        const rows=document.createElement('div'), slot=document.createElement('div');slot.dataset.fleetReportSlot='';
+        let turn=0;
+        const openFleet=id=>{if(identity!==serial||document.hidden)return;slot.replaceChildren();mount(slot,id);};
+        async function load(page=1,applied=null){
+            if(identity!==serial||document.hidden)return;
+            const run=++turn, filters=applied||{q:name.value.trim(),country:country.value.trim().toUpperCase()}, params=new URLSearchParams({...filters,page:String(page)});
+            rows.replaceChildren();search.disabled=true;
+            try{
+                const d=await api(`admin/fleets?${params}`);
+                if(identity!==serial||run!==turn||document.hidden||!target.isConnected)return;
+                rows.append(text('p',`Fleet results: ${d.total}`,`نتائج الأساطيل: ${d.total}`));
+                for(const fleet of d.data){const card=document.createElement('article'),open=raw('button',fleet.name);open.type='button';open.onclick=()=>openFleet(fleet.id);card.append(open,raw('p',`${fleet.country} · #${fleet.id}`));rows.append(card);}
+                for(const [enabled,pageNumber,en,ar]of[[d.current_page>1,d.current_page-1,'Previous','السابق'],[d.current_page<d.last_page,d.current_page+1,'Next','التالي']]){if(!enabled)continue;const button=text('button',en,ar);button.type='button';button.onclick=()=>load(pageNumber,filters);rows.append(button);}
+            }catch(error){if(identity===serial&&run===turn&&!document.hidden)rows.replaceChildren(text('p','Fleet directory unavailable. Check filters and current access, then search again.','دليل الأساطيل غير متاح. تحقق من المرشحات والصلاحية الحالية ثم ابحث مجدداً.'));}
+            finally{if(identity===serial&&run===turn)search.disabled=false;}
+        }
+        form.onsubmit=e=>{e.preventDefault();load();};
+        const id=document.createElement('input');id.type='number';id.min='1';const label=text('label','Fleet ID','معرف الأسطول');label.append(id);
+        const open=text('button','Open fleet reporting','فتح تقارير الأسطول');open.type='button';open.onclick=()=>{if(/^[1-9][0-9]{0,17}$/.test(id.value))openFleet(id.value);};
+        target.append(form,rows,label,open,slot);
+    }
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)return;const mounts=[...roots].filter(r=>r.isConnected&&r.dataset.fleetReportId).map(r=>[r,r.dataset.fleetReportId]);setActor(actor,api);for(const [root,id]of mounts){if(root.isConnected)mount(root,id);}});window.addEventListener('pagehide',clear);
     return {setActor,mount};
 })();

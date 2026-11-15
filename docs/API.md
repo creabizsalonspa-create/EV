@@ -549,3 +549,15 @@ Web/Flutter offer explicit confirmation and label retirement as a source snapsho
 never physical charging-stop evidence. Response includes observation time,
 `source_retirement_observed`, `source_record_absent`, and false
 `active_sessions_stopped`/`hardware_verified`.
+
+
+### Private Admin fleet directory
+
+`GET /api/admin/fleets` is protected web Admin only (no Admin mobile route).
+Optional `q` is a literal name substring (80 characters; SQL wildcards escaped),
+`country` an uppercase two-letter filter, and `page`1..1000000. Filters apply
+before pagination at25 rows. Only fleet ID, name, country and creation time are
+projected; no owner email, driver list, personal invoice/session or ledger data.
+The current active Admin role/password/auth epoch is checked under lock. Private
+no-store replies and EN/AR directory controls retain applied filters across pages,
+open the selected authorized fleet report and fence account/background replies.

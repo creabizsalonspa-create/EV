@@ -1,3 +1,14 @@
+# 15 November 2026 — private Admin fleet discovery connected to reports
+
+Admin can now find fleets by literal name/country, page bounded25-row results and
+open the selected private report. No owner/driver/private billing data enters the
+directory. Current role/password/epoch checks, no-store responses, frozen filters
+and account/background fences apply. No Admin mobile surface was introduced.
+Focused PG corporate/fleet26/292, EN/AR Chromium literal/pagination/late-account
+checks and actual Laravel directory -> report workflows passed; style clean.
+This completes the lookup side of the connected operations candidate; hosted
+current-source gates remain required and no whole-atom credit is taken.
+
 # 15 November 2026 — explicit inactive RFID source retirement (pending integration)
 
 Added owner/protected Admin API, vendor web and Flutter confirmation/history for

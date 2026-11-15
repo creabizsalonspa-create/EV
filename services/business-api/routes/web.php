@@ -119,6 +119,7 @@ Route::get('/api/regions', [EnterpriseController::class, 'regions'])->middleware
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     $c = EnterpriseController::class;
     Route::put('/api/regions/{country}', [$c, 'configureRegion']);
+    Route::get('/api/admin/fleets', [FleetReportController::class, 'index']);
     Route::get('/api/fleets', [$c, 'index']);
     Route::post('/api/fleets', [$c, 'create']);
     Route::get('/api/fleets/{fleet}', [$c, 'show']);

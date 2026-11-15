@@ -320,4 +320,35 @@ class CorporateBillingTest extends TestCase
             $this->assertSame(409, $error->getStatusCode());
         }
     }
+
+    public function test_admin_fleet_directory_is_private_literal_filtered_and_paginated(): void
+    {
+        Fleet::create(['owner_id' => $this->owner->id, 'name' => 'Directory %_ literal', 'country' => 'AE']);
+        for ($i = 0; $i < 26; $i++) {
+            Fleet::create(['owner_id' => $this->owner->id, 'name' => 'Other directory '.$i, 'country' => 'AE']);
+        }
+        $this->actingAs($this->owner)->getJson('/api/admin/fleets')->assertForbidden();
+        $literal = $this->actingAs($this->admin)->getJson('/api/admin/fleets?q=%25_&country=AE')->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('total', 1)->assertJsonPath('data.0.name', 'Directory %_ literal');
+        $this->assertSame(['id', 'name', 'country', 'created_at'], array_keys($literal->json('data.0')));
+        $this->getJson('/api/admin/fleets?q=Other%20directory')->assertOk()->assertJsonPath('total', 26)->assertJsonCount(25, 'data');
+        $this->getJson('/api/admin/fleets?q=Other%20directory&page=2')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('current_page', 2);
+        $this->getJson('/api/admin/fleets?country=ZZ')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/admin/fleets?country=%25')->assertUnprocessable();
+        $this->getJson('/api/admin/fleets?page=1000001')->assertUnprocessable();
+    }
+
+    public function test_stale_admin_cannot_use_fleet_directory_authority(): void
+    {
+        $snapshot = $this->admin->fresh();
+        DB::table('users')->where('id', $snapshot->id)->increment('auth_epoch');
+        $request = Request::create('/api/admin/fleets', 'GET');
+        $request->setUserResolver(fn () => $snapshot);
+        try {
+            app(FleetReportController::class)->index($request);
+            $this->fail('A revoked Admin snapshot cannot list fleets.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+    }
 }
