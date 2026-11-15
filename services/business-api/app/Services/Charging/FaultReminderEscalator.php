@@ -129,7 +129,7 @@ class FaultReminderEscalator
                     || ! str_starts_with($binding->identifier, 'ev-test-')
                     || DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->count() !== 1
                     || DB::table('csms_bindings')->where('identifier', $binding->identifier)->count() !== 1
-                    || ! DB::table('users')->where('id', $company->owner_id)->where('role', 'vendor')->exists()) {
+                    || ! DB::table('users')->where('id', $company->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists()) {
                     return false;
                 }
                 $alert = DB::table('charging_fault_alerts')
