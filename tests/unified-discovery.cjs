@@ -61,3 +61,13 @@ test('explicit partner age filter persists on pagination and clears with the acc
  const f=fixture();const age=f.form.children.flatMap(n=>n.children).find(n=>n.name==='max_source_age_hours');age.value='24';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('max_source_age_hours'),'24');f.nav.children.find(n=>n.tag==='button').onclick();await tick();assert.equal(new URLSearchParams(f.calls[1][0].split('?')[1]).get('max_source_age_hours'),'24');f.control.clear();assert.equal(age.value,'');f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).has('max_source_age_hours'),false);
 });
 
+
+for(const lang of ['en','ar'])test('advanced filters are explicit, normalize digits and persist until account clearing '+lang,async()=>{
+ const f=fixture(lang),details=f.form.children.find(n=>n.tag==='details'),controls=Object.fromEntries(details.children.filter(n=>n.tag==='label').map(n=>{const input=n.children.find(c=>c.tag==='input');return[input.name,input];}));
+ assert.equal(f.calls.length,0);controls.operator.value='100%_operator';controls.address.value='دبي';controls.access.value='Visitors';controls.max_rate_per_kwh.value='١٫٥٠';controls.price_currency.value='aed';
+ f.form.onsubmit({preventDefault(){}});await tick();let params=new URLSearchParams(f.calls[0][0].split('?')[1]);
+ assert.equal(params.get('operator'),'100%_operator');assert.equal(params.get('address'),'دبي');assert.equal(params.get('access'),'Visitors');assert.equal(params.get('max_rate_per_kwh'),'1.50');assert.equal(params.get('price_currency'),'AED');
+ assert.match(details.textContent,lang==='ar'?/تستثني.*تقارير الشركاء/:/exclude partner reports/);
+ controls.operator.value='unsent draft';f.nav.children.find(n=>n.tag==='button').onclick();await tick();params=new URLSearchParams(f.calls[1][0].split('?')[1]);assert.equal(params.get('operator'),'100%_operator');assert.equal(params.get('max_rate_per_kwh'),'1.50');
+ f.control.clear();assert(Object.values(controls).every(n=>n.value===''));f.form.onsubmit({preventDefault(){}});await tick();params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);assert.equal(params.has('price_currency'),false);assert.equal(params.has('operator'),false);
+});

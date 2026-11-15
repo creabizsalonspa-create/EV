@@ -231,4 +231,50 @@ class UnifiedDiscoveryTest extends TestCase
         $this->assertSame(array_column($first['data'], 'key'), array_column($this->getJson('/api/discovery/search')->json('data'), 'key'));
         $this->assertSame(['catalog', 'partner'], collect([...$first['data'], ...$second['data'], ...$third['data']])->pluck('kind')->unique()->sort()->values()->all());
     }
+
+    public function test_explicit_text_filters_intersect_before_union_pagination_and_escape_wildcards(): void
+    {
+        $f = $this->fixtures();
+        DB::table('station_information')->insert(['station_id' => $f['station']->id, 'operator_name' => 'Shared operator', 'address_en' => '100%_hub Dubai', 'address_ar' => 'دبي', 'access_en' => 'Visitors only', 'access_ar' => 'للزوار', 'weekly_hours' => '[]', 'closed_dates' => '[]', 'amenities' => '[]', 'accessibility' => '[]', 'created_at' => now(), 'updated_at' => now()]);
+        for ($n = 0; $n < 26; $n++) {
+            $copy = $f['record']->replicate();
+            $copy->external_id = 'unmatched-'.$n;
+            $copy->normalized = ['publish' => true, 'address' => '100XXhub', 'city' => 'Elsewhere'];
+            $copy->save();
+        }
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $path) {
+            $this->getJson($path.'?'.http_build_query(['operator' => 'Shared operator', 'address' => '100%_hub']))->assertOk()->assertJsonPath('total', 2)->assertJsonPath('last_page', 1);
+            $this->getJson($path.'?'.http_build_query(['operator' => 'missing', 'q' => 'Shared']))->assertJsonPath('total', 0);
+            $this->getJson($path.'?'.http_build_query(['access' => 'للزوار']))->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog');
+            $this->getJson($path.'?scope=partner&access=Visitors')->assertJsonPath('total', 0);
+            $this->getJson($path.'?'.http_build_query(['address' => 'دبي']))->assertJsonPath('total', 1);
+            foreach (['operator' => 101, 'address' => 151, 'access' => 151] as $key => $length) {
+                $this->getJson($path.'?'.http_build_query([$key => str_repeat('x', $length)]))->assertUnprocessable();
+            }
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_unified_price_uses_exact_current_simulated_rate_and_never_partner_or_unknown_prices(): void
+    {
+        $this->freezeTime();
+        $f = $this->fixtures();
+        $tariff = fn (int $rate, $at) => \App\Models\Finance\TariffVersion::create(['station_id' => $f['station']->id, 'created_by' => $f['station']->vendor_id, 'rate_minor_per_kwh' => $rate, 'tax_bps' => 500, 'commission_bps' => 1000, 'currency' => 'AED', 'minor_units' => 2, 'effective_from' => $at]);
+        $tariff(1, now()->subHour());
+        $tariff(150, now()->subMinute());
+        $tariff(900, now()->addMinute());
+        foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $path) {
+            $this->getJson($path.'?max_rate_per_kwh=1.50&price_currency=AED')->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.kind', 'catalog')->assertJsonPath('data.0.station.id', $f['station']->id);
+            $this->getJson($path.'?max_rate_per_kwh=1.49&price_currency=AED')->assertJsonPath('total', 0);
+            $this->getJson($path.'?scope=partner&max_rate_per_kwh=2&price_currency=AED')->assertJsonPath('total', 0);
+            foreach (['price_currency=AED', 'max_rate_per_kwh=1', 'max_rate_per_kwh=1.501&price_currency=AED', 'max_rate_per_kwh=1e2&price_currency=AED', 'max_rate_per_kwh=1&price_currency=ZZZ', 'max_rate_per_kwh[]=1&price_currency=AED'] as $bad) {
+                $this->getJson($path.'?'.$bad)->assertUnprocessable();
+            }
+        }
+        $f['station']->update(['source' => 'discovery']);
+        $this->getJson('/api/discovery/search?max_rate_per_kwh=2&price_currency=AED')->assertJsonPath('total', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        Http::assertNothingSent();
+    }
 }
