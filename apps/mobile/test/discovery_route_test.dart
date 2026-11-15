@@ -218,6 +218,11 @@ void main() {
   testWidgets(
     'unconfigured provider still supports explicit-consent manual multi-stop navigation',
     (tester) async {
+      // The expanded connector-filter UI is now taller than the default
+      // 800x600 widget harness. Test the unchanged consent/navigation journey
+      // in a viewport large enough to reach the actual, visible button.
+      await tester.binding.setSurfaceSize(const Size(900, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       Uri? opened;
       await tester.pumpWidget(
         MaterialApp(
