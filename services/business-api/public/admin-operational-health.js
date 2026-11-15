@@ -23,6 +23,9 @@ window.EvAdminOperationalHealth = (() => {
             if(!i || typeof i.store_readable!=='boolean' || typeof i.monitoring_enabled!=='boolean' || i.automatic_retry!==false || i.external_alert_delivery!==false || i.production_recovery_verified!==false || !Array.isArray(i.open) || !Array.isArray(i.recent_events) || i.open.length>5 || i.recent_events.length>20) return false;
             if(!i.open.every(v=>Object.hasOwn(incidentNames,v.condition_key)&&v.state==='open'&&typeof v.opened_at==='string'))return false;
             if(!i.recent_events.every(v=>exact(v.id)&&Object.hasOwn(incidentNames,v.condition_key)&&['opened','resolved'].includes(v.transition)&&typeof v.observed_at==='string'))return false;
+            if(i.scanner!==undefined && (!i.scanner || !['recent','stale','unknown'].includes(i.scanner.state) || i.scanner.max_age_seconds!==150 ||
+                (i.scanner.state==='unknown')!==(i.scanner.last_completed_at===null) ||
+                (i.scanner.last_completed_at!==null&&typeof i.scanner.last_completed_at!=='string')))return false;
         }
         const e=d.email_handoff;
         if(e!==undefined && (!e || !['available','unavailable'].includes(e.state) || e.age_threshold_seconds!==900 ||
@@ -56,6 +59,10 @@ window.EvAdminOperationalHealth = (() => {
             if(d.incidents) {
                 const i=d.incidents;output.append(n('h4','Operational incident timeline (read-only)','السجل الزمني للحوادث التشغيلية (للقراءة فقط)'));
                 output.append(n('p','Conditions are derived from local observations only. No external alert was delivered or command retried.','الحالات مستمدة من الملاحظات المحلية فقط. لم يُرسل تنبيه خارجي ولم تُعَد أي أوامر.'));
+                if(i.scanner){output.append(n('h5','Incident scanner completion','اكتمال فحص الحوادث'),n('p',...states[i.scanner.state]));
+                    if(i.scanner.last_completed_at!==null)output.append(plain('p',i.scanner.last_completed_at));
+                    if(i.scanner.state!=='recent')output.append(n('p','No fresh committed scan; scheduler heartbeat alone is insufficient.','لا يوجد فحص مكتمل حديث؛ نبضة المجدول وحدها غير كافية.'));
+                }
                 if(!i.store_readable)output.append(n('p','Incident history unavailable; do not assume there are no incidents.','سجل الحوادث غير متاح؛ لا تفترض عدم وجود حوادث.'));
                 else {
                     if(!i.open.length)output.append(n('p','No currently recorded open incidents. Unknown monitoring is not proof of health.','لا توجد حوادث مفتوحة مسجلة حالياً. عدم معرفة حالة المراقبة ليس دليلاً على السلامة.'));
