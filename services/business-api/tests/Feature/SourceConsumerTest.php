@@ -283,6 +283,9 @@ class SourceConsumerTest extends TestCase
             }
             if (str_contains($query, 'Transactions')) {
                 $transactionReads++;
+                if ($remove === 'transaction') {
+                    return Http::response(['data' => ['Transactions' => []]]);
+                }
 
                 return Http::response(['data' => ['Transactions' => [[
                     'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'source-station-identity',
@@ -818,6 +821,12 @@ class SourceConsumerTest extends TestCase
             'ocpp16_authorization_removed' => ['1.6', 'authorization'],
             'ocpp201_station_removed' => ['2.0.1', 'station'],
             'ocpp201_authorization_removed' => ['2.0.1', 'authorization'],
+            'ocpp16_transaction_missing' => ['1.6', 'transaction'],
+            'ocpp201_transaction_missing' => ['2.0.1', 'transaction'],
+            'ocpp16_meter_start_missing' => ['1.6', 'meter_start'],
+            'ocpp201_meter_start_missing' => ['2.0.1', 'meter_start'],
+            'ocpp16_start_time_missing' => ['1.6', 'start_time'],
+            'ocpp201_start_time_missing' => ['2.0.1', 'start_time'],
         ];
     }
 
@@ -845,8 +854,8 @@ class SourceConsumerTest extends TestCase
                     'id' => 10,
                     'transactionId' => $protocol === '1.6' ? '101' : 'disappeared-source-fixture',
                     'remoteStartId' => $link->start_command_id,
-                    'meterStart' => '1.000',
-                    'startTime' => $at->toIso8601String(),
+                    'meterStart' => $remove === 'meter_start' ? null : '1.000',
+                    'startTime' => $remove === 'start_time' ? null : $at->toIso8601String(),
                     'endTime' => $ended ? $at->addSeconds(2)->toIso8601String() : null,
                     'isActive' => ! $ended,
                     'totalKwh' => $ended ? '2.500' : null,
@@ -877,23 +886,28 @@ class SourceConsumerTest extends TestCase
         $this->assertSame(0, app(SourceConsumer::class)->consume($link, true));
         $this->assertNull($link->fresh()->source_station_id);
         $this->assertNull($link->fresh()->transaction_id);
-        $this->assertSame(0, $transactionReads);
+        $earlyReads = in_array($missing, ['station', 'authorization'], true) ? 0 : 1;
+        $this->assertSame($earlyReads, $transactionReads);
         $this->assertDatabaseCount('csms_inbox_events', 0);
         $remove = null;
 
         $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
         $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
         $this->assertSame(8, $link->fresh()->source_station_id);
-        $this->assertSame(1, $transactionReads);
+        $this->assertSame($earlyReads + 1, $transactionReads);
         $this->assertDatabaseCount('csms_inbox_events', 1);
         $remove = $missing;
         try {
             app(SourceConsumer::class)->consume($link->fresh(), true);
             $this->fail('A started session silently accepted a vanished source identity.');
         } catch (RuntimeException $e) {
-            $this->assertStringContainsString('identity disappeared', $e->getMessage());
+            $expected = in_array($missing, ['station', 'authorization'], true)
+                ? 'identity disappeared'
+                : 'transaction missing or incomplete';
+            $this->assertStringContainsString($expected, $e->getMessage());
         }
-        $this->assertSame(1, $transactionReads);
+        $laterReads = in_array($missing, ['station', 'authorization'], true) ? 0 : 1;
+        $this->assertSame($earlyReads + 1 + $laterReads, $transactionReads);
         $this->assertSame(0, $link->fresh()->source_meter_cursor);
         $this->assertSame(8, $link->fresh()->source_station_id);
         $this->assertDatabaseCount('csms_inbox_events', 1);
