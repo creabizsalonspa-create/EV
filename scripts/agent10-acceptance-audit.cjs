@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { parseJsonStrict } = require('./agent10-strict-json.cjs');
 
 const stages = ['coded', 'tested', 'merged', 'production_accepted'];
 // Independently preserve the 42 original PRD categories and denominators.
@@ -131,7 +132,7 @@ function readCoverageFile(filename) {
     assert.equal(identity(before), identity(after), 'Coverage modified during read');
     assert.equal(identity(before), identity(visible), 'Coverage path replaced during read');
     assert.equal(Buffer.byteLength(content), Number(before.size), 'Coverage changed byte length');
-    return JSON.parse(content);
+    return parseJsonStrict(content);
   } finally {
     fs.closeSync(fd);
   }
