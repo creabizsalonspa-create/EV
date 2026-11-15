@@ -406,3 +406,16 @@ Run `php artisan test --filter=NotificationCenterTest`, disposable
 PostgreSQL connector checks, web-session tests and exact-head CI before
 integration. No live messaging adapters, queue replay, charging or payment
 commands are introduced.
+
+### Active designated Admin for simulator fault escalation
+
+The local-only simulator fault reminder worker now confirms the explicitly
+configured Admin recipient is **currently active as well as currently an
+Admin**, while holding its account row lock. A suspended Admin cannot receive
+a *new* operator escalation or consume its one-time escalation marker.
+Reactivating the approved recipient allows the existing unresolved source
+fixture to be reviewed on a later bounded scan. Historical escalation closure
+records remain durable for audit; stale signed-in Admin snapshots now receive
+HTTP 409 from the protected notification APIs instead of an empty private
+inbox, and cannot acknowledge or reopen anything. No physical charger, email,
+SMS, push or live on-call provider is contacted.
