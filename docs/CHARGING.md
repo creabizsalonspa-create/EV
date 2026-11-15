@@ -103,9 +103,12 @@ including voltage/non-energy records that are intentionally not billed.
 Only ordered, strictly increasing positive integer source row identifiers
 within the signed inbox's sequence bound, an actual array of sampled values,
 explicit source timestamps and a maximum of 100 rows per page are accepted.
-The entire page is also checked for transaction chronology, unique cumulative
-energy registers, supported energy units and meter precision before any cursor
-advance. Ignored voltage-only records cannot conceal a timestamp outside the
+The entire page is also checked for transaction chronology, source-row
+timestamp monotonicity, unique cumulative energy registers, supported energy
+units and meter precision before any cursor advance. The first row of a later
+page must not precede the last signed source event in time; if it does, the
+observer preserves the cursor and requires reconciliation instead of silently
+skipping or billing reordered evidence. Ignored voltage-only records cannot conceal a timestamp outside the
 actual source transaction, and a malformed register later in the same page
 cannot cause earlier records to be marked read.
 Missing pages, overlong pages, unknown timestamps and re-ordered/repeated
