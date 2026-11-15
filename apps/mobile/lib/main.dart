@@ -444,30 +444,47 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   Future<void> login() async {
     if (!loginForm.currentState!.validate()) return;
+    final requestApi = api;
+    if (requestApi == null || busy) return;
+    final generation = _performGeneration;
+    bool currentAttempt() =>
+        mounted &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        account == null;
     final factor = secondFactorCode.text.trim();
     secondFactorCode.clear();
     await perform(() async {
       final user = !registering && factor.isNotEmpty
-          ? await api!.signInWithFactor(email.text.trim(), password.text, factor)
-          : await api!.signIn(email.text.trim(), password.text, name: registering ? name.text.trim() : null);
+          ? await requestApi.signInWithFactor(
+              email.text.trim(), password.text, factor)
+          : await requestApi.signIn(
+              email.text.trim(), password.text,
+              name: registering ? name.text.trim() : null);
+      // An old login may finish after a forced session reset or a new login.
+      // Never clear the newer form or publish the older account.
+      if (!currentAttempt()) return;
       password.clear();
-      if (!mounted) return;
       if (user.role == 'admin') {
-        await api!.signOut();
-        if (mounted) setState(() => error = 'webAdmin');
+        await requestApi.signOut();
+        if (currentAttempt()) setState(() => error = 'webAdmin');
         return;
       }
       if (keepSignedIn) {
         try {
-          if (!await api!.rememberSession()) {
+          final saved = await requestApi.rememberSession();
+          if (!currentAttempt()) return;
+          if (!saved) {
             keepSignedIn = false;
-            if (mounted) setState(() => message = 'sessionNotSaved');
+            setState(() => message = 'sessionNotSaved');
           }
         } on SessionStorageException {
+          if (!currentAttempt()) return;
           keepSignedIn = false;
-          if (mounted) setState(() => message = 'sessionNotSaved');
+          setState(() => message = 'sessionNotSaved');
         }
       }
+      if (!currentAttempt()) return;
       _recordRequestGeneration++;
       setState(() {
         account = user;
