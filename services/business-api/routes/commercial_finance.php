@@ -1,9 +1,12 @@
 <?php
 
 use App\Http\Controllers\CommercialFinanceController as C;
+use App\Http\Controllers\FinanceReconciliationAuditController as Audit;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/finance/report', [C::class, 'report']);
+Route::get('/finance/reconciliation-audit', [Audit::class, 'index']);
+Route::get('/finance/reconciliation-audit/export', [Audit::class, 'export']);
 Route::get('/finance/refund-requests', [C::class, 'requests']);
 Route::post('/finance/invoices/{invoice}/refund-requests', [C::class, 'requestRefund']);
 Route::post('/finance/refund-requests/{request}/review', [C::class, 'review'])->where('request', '[0-9]{1,18}');

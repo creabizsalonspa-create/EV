@@ -1,0 +1,83 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Finance\Invoice;
+use App\Services\Finance\InvoiceReconciliationAudit;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+
+final class FinanceReconciliationAuditController extends Controller
+{
+    private function page(Request $request, InvoiceReconciliationAudit $audit): array
+    {
+        $user = $request->user();
+        abort_unless(in_array($user->role, ['vendor', 'admin'], true), 403);
+        $values = $request->validate([
+            'currency' => ['sometimes', 'regex:/^[A-Z]{3}$/'],
+            'from' => ['sometimes', 'date_format:Y-m-d'],
+            'to' => ['sometimes', 'date_format:Y-m-d', Rule::when($request->filled('from'), 'after_or_equal:from')],
+            'per_page' => ['sometimes', 'integer', 'between:1,25'],
+        ]);
+
+        $query = Invoice::query();
+        if ($user->role === 'vendor') {
+            $query->where('vendor_id', $user->id);
+        }
+        if (isset($values['currency'])) {
+            $query->where('currency', $values['currency']);
+        }
+        if (isset($values['from'])) {
+            $query->where('created_at', '>=', $values['from'].' 00:00:00');
+        }
+        if (isset($values['to'])) {
+            $query->where('created_at', '<=', $values['to'].' 23:59:59.999999');
+        }
+
+        $page = $query->orderByDesc('id')->paginate((int) ($values['per_page'] ?? 20));
+
+        return [
+            'data' => $page->getCollection()->map(fn (Invoice $invoice) => $audit->inspect($invoice))->values()->all(),
+            'current_page' => $page->currentPage(),
+            'last_page' => $page->lastPage(),
+            'per_page' => $page->perPage(),
+            'total' => $page->total(),
+            'evidence' => 'SIMULATED_INTERNAL_RECONCILIATION',
+            'external_psp_or_bank_verified' => false,
+        ];
+    }
+
+    public function index(Request $request, InvoiceReconciliationAudit $audit)
+    {
+        return response()->json($this->page($request, $audit))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function export(Request $request, InvoiceReconciliationAudit $audit)
+    {
+        // Same tenant-scoped, validated page as JSON; never an unbounded export.
+        $payload = $this->page($request, $audit);
+
+        return response()->streamDownload(static function () use ($payload): void {
+            $output = fopen('php://output', 'wb');
+            fputcsv($output, [
+                'invoice_id', 'invoice_number', 'currency', 'minor_units', 'invoiced_minor',
+                'paid_minor', 'refunded_minor', 'unpaid_credited_minor', 'net_collected_minor',
+                'amount_due_minor', 'journal_count', 'status', 'issues', 'evidence',
+                'external_psp_or_bank_verified',
+            ]);
+            foreach ($payload['data'] as $row) {
+                fputcsv($output, [
+                    $row['invoice_id'], $row['invoice_number'], $row['currency'], $row['minor_units'],
+                    $row['invoiced_minor'], $row['paid_minor'], $row['refunded_minor'],
+                    $row['unpaid_credited_minor'], $row['net_collected_minor'],
+                    $row['amount_due_minor'], $row['journal_count'], $row['status'],
+                    implode(';', $row['issues']), $row['evidence'], 'false',
+                ]);
+            }
+            fclose($output);
+        }, 'simulated-finance-reconciliation-page.csv', [
+            'Content-Type' => 'text/csv; charset=utf-8',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+}
