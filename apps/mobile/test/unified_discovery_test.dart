@@ -279,4 +279,36 @@ void main(){
    expect(find.text('Account changed. Reopen search.'),findsOneWidget);
    expect(tester.takeException(),isNull);
  });
+
+ for(final ar in [false,true]){
+  testWidgets('empty viewport discovery preserves explicitly submitted country across map and pagination ($ar)',(tester)async{
+    roomy(tester);
+    final api=UnifiedApi(),tiles=UnifiedFixtureTiles();
+    addTearDown(api.close);
+    await tester.pumpWidget(app(api,(_)=>fail('No charging action'),ar:ar,tileProvider:tiles));
+    final market=find.byKey(const Key('unified-country'));
+    await tester.ensureVisible(market);await tester.tap(market);await tester.pumpAndSettle();
+    await tester.tap(find.text(ar?'الولايات المتحدة':'United States').last);
+    await tester.pumpAndSettle();
+    final submit=find.byType(FilledButton);
+    await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+    expect(api.queries.single['country'],'US');
+    final open=find.byKey(const Key('unified-map-open'));
+    await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+    expect(api.calls.length,1);
+    expect(tiles.requests,0);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));await tester.pumpAndSettle();
+    final bounds=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(bounds);await tester.tap(bounds);await tester.pumpAndSettle();
+    expect(api.queries.length,2);
+    expect(api.queries.last['country'],'US');
+    expect(api.queries.last.containsKey('west'),true);
+    await tester.ensureVisible(find.text(ar?'التالي':'Next'));
+    await tester.tap(find.text(ar?'التالي':'Next'));await tester.pumpAndSettle();
+    expect(api.queries.last['country'],'US');
+    expect(api.queries.last['west'],api.queries[1]['west']);
+    expect(api.calls.every((entry)=>entry=='GET discovery/search'),true);
+    expect(tester.takeException(),isNull);
+  });
+ }
 }
