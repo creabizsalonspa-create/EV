@@ -105,7 +105,6 @@ class PartnerClient
             if (! $response->successful()) {
                 throw new OcpiException('Operator HTTP request failed.');
             }
-            $this->verifyTrace($response, $trace);
             $stream = $response->toPsrResponse()->getBody();
             $text = '';
             try {
@@ -118,6 +117,7 @@ class PartnerClient
             if (strlen($text) > 2_000_000) {
                 throw new OcpiException('Operator response exceeded the accepted size.');
             }
+            $this->verifyTrace($response, $trace);
             $body = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
             if (! is_array($body) || ($body['status_code'] ?? null) !== 1000 || ! array_key_exists('data', $body) || ! is_string($body['timestamp'] ?? null) || strtotime($body['timestamp']) === false) {
                 throw new OcpiException('Operator OCPI response was unsuccessful or malformed.');
