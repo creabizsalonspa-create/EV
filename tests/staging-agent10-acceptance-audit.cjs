@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { audit, externalGates, originalCategoryCounts } = require('../scripts/agent10-acceptance-audit.cjs');
+const { audit, externalGates, originalCategoryCounts, readCoverageFile } = require('../scripts/agent10-acceptance-audit.cjs');
 
 function fixture() {
   return {
@@ -135,4 +135,39 @@ test('canonical fixed 42/312 inventory independently cross-checks without releas
   }
   assert.equal(result.customer_delivery_ready, false);
   assert.equal(result.live_ci_verified, false);
+});
+
+test('read-only input uses one nonfollowing bounded descriptor, never a symbolic or hard link', () => {
+  const os = require('node:os');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-qa-file-'));
+  try {
+    const candidate = path.join(directory, 'coverage.json');
+    fs.writeFileSync(candidate, JSON.stringify(fixture()));
+    assert.equal(readCoverageFile(candidate).atom_count, 3);
+    const alias = path.join(directory, 'symlink.json');
+    fs.symlinkSync(candidate, alias);
+    assert.throws(() => readCoverageFile(alias));
+    const hardlink = path.join(directory, 'hardlink.json');
+    fs.linkSync(candidate, hardlink);
+    assert.throws(() => readCoverageFile(candidate), /bounded regular file/);
+    fs.unlinkSync(hardlink);
+    fs.truncateSync(candidate, 0);
+    assert.throws(() => readCoverageFile(candidate), /bounded regular file/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('reject oversized source snapshots and malformed JSON without writing output', () => {
+  const os = require('node:os');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-qa-bounded-'));
+  try {
+    const candidate = path.join(directory, 'coverage.json');
+    fs.writeFileSync(candidate, '{bad json');
+    assert.throws(() => readCoverageFile(candidate), /JSON/);
+    fs.truncateSync(candidate, 2_000_001);
+    assert.throws(() => readCoverageFile(candidate), /bounded regular file/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

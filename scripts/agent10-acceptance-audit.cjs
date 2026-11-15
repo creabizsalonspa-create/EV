@@ -112,18 +112,41 @@ function audit(report, expected = { categories: 42, atoms: 312 }) {
   };
 }
 
+function readCoverageFile(filename) {
+  // A path-only lstat followed by readFileSync can read a *different* file
+  // after a concurrent replacement. Pin the same nonfollowing descriptor.
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) |
+    (fs.constants.O_NONBLOCK || 0);
+  const fd = fs.openSync(filename, flags);
+  try {
+    const before = fs.fstatSync(fd, { bigint: true });
+    assert.ok(before.isFile() && before.nlink === 1n && before.size > 0n &&
+      before.size <= 2_000_000n, 'Coverage input must be a bounded regular file');
+    const content = fs.readFileSync(fd, 'utf8');
+    const after = fs.fstatSync(fd, { bigint: true });
+    const visible = fs.lstatSync(filename, { bigint: true });
+    const identity = stat => [stat.dev, stat.ino, stat.size, stat.mtimeNs,
+      stat.ctimeNs, stat.mode, stat.nlink].map(String).join(':');
+    assert.ok(visible.isFile() && !visible.isSymbolicLink(), 'Coverage path replaced');
+    assert.equal(identity(before), identity(after), 'Coverage modified during read');
+    assert.equal(identity(before), identity(visible), 'Coverage path replaced during read');
+    assert.equal(Buffer.byteLength(content), Number(before.size), 'Coverage changed byte length');
+    return JSON.parse(content);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 if (require.main === module) {
   try {
     const root = path.resolve(__dirname, '..');
     const filename = process.argv[2] || path.join(root, 'docs/evidence/requirements/coverage.json');
     if (process.argv.length > 3) throw Error('Usage: node scripts/agent10-acceptance-audit.cjs [coverage.json]');
-    const stat = fs.lstatSync(filename);
-    if (!stat.isFile() || stat.size > 2_000_000) throw Error('Coverage file missing or oversized');
-    console.log(JSON.stringify(audit(JSON.parse(fs.readFileSync(filename, 'utf8'))), null, 2));
+    console.log(JSON.stringify(audit(readCoverageFile(filename)), null, 2));
   } catch (error) {
     console.error('INCOMPLETE: independent coverage audit failed:', error.message);
     process.exitCode = 1;
   }
 }
 
-module.exports = { audit, externalGates, originalCategoryCounts };
+module.exports = { audit, externalGates, originalCategoryCounts, readCoverageFile };
