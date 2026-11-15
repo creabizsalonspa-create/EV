@@ -97,7 +97,28 @@ const assert = require("node:assert/strict");
       await pub.getByRole("button", { name: /reserve|start|pay/i }).count(),
       0,
     );
+    // Assert the actual HTTP and pagination contract before waiting on the DOM.
+    // This distinguishes a throttled/failed catalog read from a render regression
+    // without relaxing the original visible second-page assertion.
+    const secondPageResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/roaming/locations" &&
+        url.searchParams.get("page") === "2"
+      );
+    });
     await pub.getByRole("button", { name: "Next", exact: true }).click();
+    const secondPage = await secondPageResponse;
+    assert.equal(
+      secondPage.status(),
+      200,
+      `Public roaming page 2 must return HTTP 200, got ${secondPage.status()} (Retry-After: ${secondPage.headers()["retry-after"] || "absent"}).`,
+    );
+    const secondPageData = await secondPage.json();
+    assert.equal(secondPageData.current_page, 2, "Catalog page cursor drift.");
+    assert.equal(secondPageData.last_page, 2, "Catalog page count drift.");
+    assert.equal(secondPageData.total, 26, "Synthetic public catalog count drift.");
+    assert.equal(secondPageData.data.length, 1, "Expected one final location.");
     await pub.getByText("Page 2 of 2 · 26 records", { exact: true }).waitFor();
     if (process.env.EV_ROAMING_VERIFY_RATE_LIMIT === "1") {
       const token = await page
