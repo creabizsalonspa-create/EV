@@ -1,8 +1,7 @@
 name: Agent 10 fast offline QA
 on:
   push:
-    branches:
-      - development/agent10-independent-acceptance-20261115
+    branches: [development/fullstack-continuation, development/platform-foundation]
   pull_request:
     paths:
       - 'scripts/agent10-*.cjs'
