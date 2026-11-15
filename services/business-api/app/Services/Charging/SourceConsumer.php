@@ -299,6 +299,12 @@ class SourceConsumer
                 self::wh($registers[0]['value'] ?? null, $registers[0]['unitOfMeasure']['unit'] ?? '', $registers[0]['unitOfMeasure']['multiplier'] ?? 0);
             }
             $previousId = $row['id'];
+            if ($registers && ($registers[0]['context'] ?? '') === 'Transaction.End') {
+                // A verified terminal source sample bounds the canonical
+                // session. Post-terminal diagnostics may remain in this same
+                // page but cannot prevent convergence or reopen charging.
+                break;
+            }
         }
         foreach ($rows as $row) {
             $samples = array_values(array_filter($row['sampledValue'], fn ($s) => ($s['measurand'] ?? '') === 'Energy.Active.Import.Register' && empty($s['phase'])));
