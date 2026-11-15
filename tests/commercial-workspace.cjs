@@ -183,6 +183,9 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const exportLink = vr.locator("[data-vendor-revenue-results]")
       .getByRole("link", { name: "Download private CSV", exact: true });
     assert.match(await exportLink.getAttribute("href"), /\/api\/commercial\/vendors\/\d+\/revenue-cohorts\/export\?/);
+    await revenueForm.locator("[name=from]").fill("2026-10-01");
+    assert.equal(await vr.locator("[data-vendor-revenue-results]").locator("*").count(), 0,
+      "Editing cohort filters must clear prior financial results");
     // Keep the existing customer refund review and Admin reconciliation flows
     // intact; do not issue any synthetic payment or refund from this report.
     const request = vr.locator(".finance-row").filter({
