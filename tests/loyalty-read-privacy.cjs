@@ -75,7 +75,7 @@ test("reward decision history clears old events before failed private refresh",a
  const h=harness();await h.find("Open loyalty & rewards").onclick();
  h.setNext((path)=>path.endsWith("/redemptions?page=1")
   ?Promise.resolve({data:[{id:31,reward_id:2,points_cost:10,status:"pending"}],current_page:1,last_page:1,total:1})
-  :Promise.resolve({reward:{name:"Private reward",name_ar:"مكافأة"},events:[{action:"requested",reason:"First review",created_at:"2026-11-16T00:00:00Z"}]}));
+  :Promise.resolve({redemption:{id:31,user_id:7,reward_id:2},reward:{id:2,name:"Private reward",name_ar:"مكافأة"},events:[{action:"requested",reason:"First review",created_at:"2026-11-16T00:00:00Z"}]}));
  await h.find("Reward requests").onclick();
  await h.find("Inspect reward decision history").onclick();
  assert.match(h.root.textContent,/First review/);
@@ -93,10 +93,23 @@ test("successful reward decision history is read-only and source-scoped",async()
  const h=harness();await h.find("Open loyalty & rewards").onclick();
  h.setNext(path=>path.endsWith("/redemptions?page=1")
   ?Promise.resolve({data:[{id:31,reward_id:2,points_cost:10,status:"pending"}],current_page:1,last_page:1,total:1})
-  :Promise.resolve({reward:{name:"Private reward",name_ar:"مكافأة"},events:[{action:"requested",reason:"Authorized review",created_at:"2026-11-16T00:00:00Z"}]}));
+  :Promise.resolve({redemption:{id:31,user_id:7,reward_id:2},reward:{id:2,name:"Private reward",name_ar:"مكافأة"},events:[{action:"requested",reason:"Authorized review",created_at:"2026-11-16T00:00:00Z"}]}));
  await h.find("Reward requests").onclick();
  await h.find("Inspect reward decision history").onclick();
  assert.match(h.root.textContent,/Authorized review/);
  assert.doesNotMatch(h.root.textContent,/Reward decisions unavailable/);
  assert(!h.calls.some(x=>x.method && x.method!=="GET"));
+});
+
+test("wrong-customer reward decision response fails closed without leaking events",async()=>{
+ const h=harness();await h.find("Open loyalty & rewards").onclick();
+ h.setNext(path=>path.endsWith("/redemptions?page=1")
+  ?Promise.resolve({data:[{id:31,reward_id:2,points_cost:10,status:"pending"}],current_page:1,last_page:1,total:1})
+  :Promise.resolve({redemption:{id:31,user_id:999,reward_id:2},
+   reward:{id:2,name:"Private reward",name_ar:"مكافأة"},
+   events:[{action:"requested",reason:"Foreign account event",created_at:"2026-11-16T00:00:00Z"}]}));
+ await h.find("Reward requests").onclick();
+ await h.find("Inspect reward decision history").onclick();
+ assert.match(h.root.textContent,/Reward decisions unavailable/);
+ assert.doesNotMatch(h.root.textContent,/Foreign account event/);
 });
