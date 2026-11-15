@@ -318,3 +318,22 @@ test('same-account customer-to-vendor role change also clears query history and 
  f.form.onsubmit({preventDefault(){}});await tick();
  assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'0');
 });
+
+
+for(const lang of ['en','ar'])test('forged published station evidence never creates a booking or saved-place action '+lang,async()=>{
+ const source={...sample.data[0],station:{
+  ...sample.data[0].station,evidence:'LIVE_VERIFIED',
+ }};
+ const f=fixture(lang,async()=>({...sample,data:[source,sample.data[1]]}));
+ f.control.setContext({owner:'customer',customer:true,
+  favorite:async()=>{throw Error('Forged evidence cannot create a customer write');}});
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.list.children.length,2);
+ assert.equal(f.list.children[0].children.some(x=>x.tag==='button'),false,
+  'Unrecognized source cannot be a booking action');
+ assert.match(f.list.children[0].textContent,
+  lang==='ar'?/غير مكتملة/:/details incomplete/);
+ assert.equal(f.list.children[1].children.some(x=>x.tag==='button'),true,
+  'Valid partner preferences must remain independent');
+ assert.equal(f.chosen.length,0);
+});
