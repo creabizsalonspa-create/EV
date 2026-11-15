@@ -321,7 +321,10 @@ class UnifiedDiscoveryTest extends TestCase
             $response = $this->getJson($route.$query)->assertOk()
                 ->assertJsonPath('total', 2)->assertJsonCount(2, 'data')
                 ->assertJsonPath('current_page', 1)
-                ->assertHeader('Cache-Control', 'private, no-store');
+                ->assertHeader('Cache-Control');
+            $directives = array_map('trim', explode(',', strtolower((string) $response->headers->get('Cache-Control'))));
+            $this->assertContains('private', $directives, 'Discovery must be private.');
+            $this->assertContains('no-store', $directives, 'Discovery must never be cached publicly.');
             $keys = array_column($response->json('data'), 'key');
             $this->assertEqualsCanonicalizing([
                 'catalog:'.$f['station']->id, 'partner:'.$f['record']->id,
