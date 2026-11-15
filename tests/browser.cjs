@@ -380,6 +380,45 @@ function provisionTestRole(email, role) {
         (row) => row.subject === "Browser support " + run,
       ).length, 1,
     );
+    // Paginated ticket API is private; UI must honor real page boundaries
+    // and never leave stale ticket data after a failed read.
+    const firstSupportPage = await customer.page.evaluate(() => api("support?page=1"));
+    assert(firstSupportPage.data.length >= 1);
+    let supportOutage = false;
+    const syntheticSupportTicket = 900000001;
+    await customer.page.route("**/api/support?page=*", async (route) => {
+      if (supportOutage) {
+        await route.fulfill({ status: 503, contentType: "application/json",
+          body: JSON.stringify({ message: "Synthetic support outage" }) });
+        return;
+      }
+      const requested = Number(new URL(route.request().url()).searchParams.get("page"));
+      const data = requested === 2
+        ? [{ ...firstSupportPage.data[0], id: syntheticSupportTicket,
+             subject: "Synthetic older ticket" }]
+        : firstSupportPage.data;
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ data, current_page: requested,
+          last_page: 2, total: 26, next_page_url: null, prev_page_url: null }) });
+    });
+    await customer.page.evaluate(() => refreshSupportTickets(1));
+    assert.equal(await customer.page.locator("#ticket-list [data-support-page-action=previous]").isDisabled(), true);
+    await customer.page.locator("#ticket-list [data-support-page-action=next]").click();
+    await customer.page.waitForFunction((id) =>
+      document.querySelector("#ticket-list [data-support-ticket-id='" + id + "']") != null,
+      syntheticSupportTicket);
+    assert.equal(await customer.page.locator("#ticket-list [data-support-page-action=next]").isDisabled(), true);
+    supportOutage = true;
+    await customer.page.locator("#ticket-list [data-support-page-action=refresh]").click();
+    await customer.page.locator("#ticket-list [data-support-retry]").waitFor();
+    assert.equal(await customer.page.locator("#ticket-list [data-support-ticket-id]").count(), 0);
+    supportOutage = false;
+    await customer.page.locator("#ticket-list [data-support-retry]").click();
+    await customer.page.locator("#ticket-list [data-support-ticket-id='" + syntheticSupportTicket + "']").waitFor();
+    await customer.page.unroute("**/api/support?page=*");
+    await customer.page.evaluate(() => refreshSupportTickets(1));
+    await customer.page.locator("#ticket-list [data-support-ticket-id='" + createdTicket.id + "']").waitFor();
+
     // Distinct role principals avoid spending one actor's entire protected-read
     // budget on repeated full-workspace reloads. Production limits stay enabled.
     const admin = await account("Admin");
@@ -710,6 +749,8 @@ function provisionTestRole(email, role) {
     assert.equal(await customer.page.locator("#who").textContent(), "");
     assert.equal(await customer.page.locator("#reservation-list article").count(), 0);
     assert.equal(await customer.page.locator("#reservation-list [data-reservation-pagination]").count(), 0);
+    assert.equal(await customer.page.locator("#ticket-list [data-support-ticket-id]").count(), 0);
+    assert.equal(await customer.page.locator("#ticket-list [data-support-pagination]").count(), 0);
     assert.equal(await customer.page.locator("#reservation-list").getAttribute("aria-busy"), null);
     // Explicit vendor logout must remove its already-loaded private reservation history.
     assert(await vendor.page.locator("#reservation-list article").count() > 0);
