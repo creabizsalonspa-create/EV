@@ -217,6 +217,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   int recordPage = 1, recordLast = 1, recordTotal = 0;
   int _recordRequestGeneration = 0;
   int _performGeneration = 0;
+  int _nativeNavigationGeneration = 0;
   final email = TextEditingController(),
       password = TextEditingController(),
       name = TextEditingController(),
@@ -271,13 +272,17 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   void _onNavigationAvailable() {
+    // A newer link or lifecycle transition supersedes all older responses.
+    // Native platform requests can complete in any order.
+    final generation = ++_nativeNavigationGeneration;
     // Navigation must wait until Flutter has mounted the Navigator, restored
     // identity and returned to the foreground.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || restoring) return;
+      if (!mounted || restoring ||
+          generation != _nativeNavigationGeneration) return;
       final lifecycle = WidgetsBinding.instance.lifecycleState;
       if (lifecycle == null || lifecycle == AppLifecycleState.resumed)
-        _consumeNavigation();
+        _consumeNavigation(generation);
     });
     // A native channel notification does not inherently schedule a Flutter
     // frame. Ensure the foreground navigation signal is consumed even when
@@ -285,7 +290,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     WidgetsBinding.instance.scheduleFrame();
   }
 
-  Future<void> _consumeNavigation() async {
+  Future<void> _consumeNavigation(int generation) async {
     final requestApi = api;
     final owner = account;
     final fence = requestApi?.sessionFence();
@@ -295,7 +300,8 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     final lifecycleAfterRead = WidgetsBinding.instance.lifecycleState;
     if ((lifecycleAfterRead != null &&
             lifecycleAfterRead != AppLifecycleState.resumed) ||
-        !mounted || target == null || owner == null || busy ||
+        !mounted || generation != _nativeNavigationGeneration ||
+        target == null || owner == null || busy ||
         !identical(api, requestApi) || fence == null || !fence() ||
         account?.id != owner.id || account?.role != owner.role ||
         !['customer', 'vendor'].contains(owner.role)) return;
@@ -351,6 +357,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   void resetSession() {
+    _nativeNavigationGeneration++;
     _recordRequestGeneration++;
     _performGeneration++;
     reservationIntents.clear();
