@@ -69,3 +69,5 @@ Partner reports with valid typed source identity but missing provider name, post
 
 
 Account/context reset additionally restores source scope to **all**, connector to **unfiltered**, country to **none** and source-age/status to **unset** on both web and canonical native clients, avoiding cross-account reuse of unsubmitted selectors. Recent search buttons use localized default place/country/source descriptions in English and Arabic. These are privacy and UI correctness guards only; neither source data nor valid billing/charging authorization is transferred between identities. Corresponding DOM and Flutter identity-transition tests exercise the full request payload after switching accounts.
+
+Same-account customer-to-vendor role changes also invalidate recent history, saved-only scope and selected filters in the unified web/native views, even when the underlying HTTP client or account identifier is reused. This is a UI/session defense, not a replacement for backend role/epoch authorization. Explicit EN/AR and role-transition tests verify that a downgraded role cannot reuse a customer-specific query after the transition.
