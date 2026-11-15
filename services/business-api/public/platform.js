@@ -10,6 +10,12 @@ let invitationPage = 1, invitationGeneration = 0,
     invitationRequest = null, invitationOwner = null;
 let fleetDetailGeneration = 0, fleetDetailRequest = null;
 let fleetCreatePending = false;
+// Startup's pending-logout branch can clear identity before lower sections
+// initialize. Every mutation lock read by clearPrivateViews must exist now.
+let garageGeneration = 0, vehicleCreatePending = false,
+    vehicleCreateGeneration = 0, profileUpdateGeneration = 0,
+    profileUpdatePending = false;
+let pendingTicketCreate = null, ticketCreatePending = false, ticketCreateGeneration = 0;
 let unconfirmedFavorite = null;
 let favoriteMode = false,
     previousCatalogQuery = "";
@@ -1786,9 +1792,6 @@ async function batteryEditor(id, row) {
     row.append(box);
 }
 
-let garageGeneration = 0, vehicleCreatePending = false,
-    vehicleCreateGeneration = 0, profileUpdateGeneration = 0,
-    profileUpdatePending = false;
 function resetCustomerMutationState() {
     // Increment tokens before unlocking the new account's form. Late
     // acknowledgements from the previous actor cannot release a newer write.
@@ -2603,7 +2606,6 @@ async function ticketDetail(id) {
         d.append(f);
     }
 }
-let pendingTicketCreate = null, ticketCreatePending = false, ticketCreateGeneration = 0;
 el("support-create").onsubmit = async (e) => {
     e.preventDefault();
     if (!user || ticketCreatePending) return;
