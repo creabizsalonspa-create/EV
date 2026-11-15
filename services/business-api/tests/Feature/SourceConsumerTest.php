@@ -871,6 +871,16 @@ class SourceConsumerTest extends TestCase
             $this->fail('A source identity check attempted unexpected outbound traffic.');
         });
 
+        // An unstarted request may wait for upstream station or token
+        // provisioning without falsely claiming an incident or a command.
+        $remove = $missing;
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link, true));
+        $this->assertNull($link->fresh()->source_station_id);
+        $this->assertNull($link->fresh()->transaction_id);
+        $this->assertSame(0, $transactionReads);
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $remove = null;
+
         $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
         $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
         $this->assertSame(8, $link->fresh()->source_station_id);
