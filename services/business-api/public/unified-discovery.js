@@ -90,6 +90,8 @@
       south >= north||west < -180||west > 180||east < -180||east > 180||
       west === east)return;
    viewportQuery=Object.fromEntries(keys.map((key,i)=>[key,values[i].toFixed(6)]));
+   const panel=root.closest?.('details');
+   if(panel)panel.open=true;
    load(1);
    root.scrollIntoView?.({block:'start'});
   });
