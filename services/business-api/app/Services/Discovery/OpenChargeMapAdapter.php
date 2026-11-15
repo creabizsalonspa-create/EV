@@ -248,6 +248,36 @@ final class OpenChargeMapAdapter
         }
         unset($item);
 
+        // Per-response quality evidence only. This describes at most 25
+        // returned, filtered, licensed crowd reports. It is never a census of
+        // physical chargers, national coverage or live operational readiness.
+        // Recalculate after the cached source has passed all privacy/license
+        // checks and dynamic age filtering, not from an untrusted cache field.
+        $unknownTimes = 0;
+        $olderThanDay = 0;
+        $unknownOperating = 0;
+        foreach ($values as $item) {
+            $age = $item['source_age_minutes'] ?? null;
+            if (! is_int($age) || $age < 0) {
+                $unknownTimes++;
+            } elseif ($age >= 1440) {
+                $olderThanDay++;
+            }
+            if (($item['reported_operational'] ?? null) === null) {
+                $unknownOperating++;
+            }
+        }
+        $quality = [
+            'evidence' => 'FILTERED_LICENSED_CROWD_SAMPLE_ONLY',
+            'returned_count' => count($values),
+            'source_time_unknown_or_future_count' => $unknownTimes,
+            'source_older_than_24h_count' => $olderThanDay,
+            'operational_report_unknown_count' => $unknownOperating,
+            'max_source_sample' => 25,
+            'complete_geographic_coverage' => false,
+            'live_status_verified' => false,
+        ];
+
         return [
             'provider' => 'open_charge_map',
             'evidence' => 'OPEN_LICENSED_DISCOVERY_ONLY',
@@ -258,6 +288,7 @@ final class OpenChargeMapAdapter
             'distance_basis' => 'great_circle',
             'license_policy' => 'PER_RECORD_ATTRIBUTION_REQUIRED',
             'count' => count($values),
+            'quality_sample' => $quality,
             'results' => $values,
         ];
     }
