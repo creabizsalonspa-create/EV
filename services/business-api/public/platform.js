@@ -911,7 +911,7 @@ async function bookings(page = reservationPage) {
         const pager = document.createElement("nav");
         pager.className = "pagination";
         pager.dataset.reservationPagination = "true";
-        pager.setAttribute("aria-label", EvLocale.language === "ar" ? "صفحات الحجوزات" : "Reservation pages");
+        pager.setAttribute("aria-label", "Reservation pages / صفحات الحجوزات");
         pager.append(ui("span", "Page {page} of {last} · {total} records", {
             page: j.current_page, last: j.last_page, total: j.total,
         }));
