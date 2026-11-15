@@ -144,6 +144,27 @@ class VendorRevenueCohortTest extends TestCase
         $this->assertDatabaseCount('finance_refunds', 0);
         $this->assertDatabaseCount('finance_journals', 2);
     }
+    public function test_invoice_cohort_aggregates_exclude_another_vendor_even_when_currency_and_date_match(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));
+        $this->invoice(100, 'owner', true);
+        $originalVendor = $this->vendor;
+        $this->vendor = User::factory()->create(['role' => 'vendor']);
+        $this->invoice(200, 'foreign', true);
+        $this->vendor = $originalVendor;
+
+        $this->actingAs($originalVendor)->getJson(
+            '/revenue-test/commercial/vendors/'.$originalVendor->id.
+            '/revenue-cohorts?currency=AED&from=2026-11-10&to=2026-11-10'
+        )->assertOk()
+            ->assertJsonPath('totals.invoice_count', 1)
+            ->assertJsonPath('totals.invoiced_minor', 100)
+            ->assertJsonPath('totals.paid_minor', 100)
+            ->assertJsonPath('totals.net_vendor_allocated_minor', 100);
+        $this->assertDatabaseCount('finance_invoices', 2);
+        $this->assertDatabaseCount('finance_payments', 2);
+    }
+
     public function test_native_revenue_cohorts_preserve_owner_and_admin_personal_token_boundaries(): void
     {
         $this->travelTo(Carbon::parse('2026-11-10 12:00:00', 'UTC'));

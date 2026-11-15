@@ -33,14 +33,26 @@ final class VendorRevenueCohortController extends Controller
         // regional and historical invoice denominations. Never combine currencies.
         $minorUnits = $settlements->currencyPrecision($vendor, $values['currency']);
 
+        // Restrict each posting aggregate to the requested cohort IDs before
+        // grouping; a small 93-day report must not scan unrelated vendors'
+        // entire financial history.
+        $cohortIds = DB::table('finance_invoices')
+            ->select('id')
+            ->where('vendor_id', $vendor)
+            ->where('currency', $values['currency'])
+            ->where('created_at', '>=', $values['from'].' 00:00:00')
+            ->where('created_at', '<=', $values['to'].' 23:59:59.999999');
         $payments = DB::table('finance_payments')
+            ->whereIn('invoice_id', clone $cohortIds)
             ->select('invoice_id')->selectRaw('SUM(amount_minor) AS paid_minor')
             ->groupBy('invoice_id');
         $refunds = DB::table('finance_refunds')
+            ->whereIn('invoice_id', clone $cohortIds)
             ->select('invoice_id')
             ->selectRaw('SUM(amount_minor) AS refunded_minor, SUM(vendor_minor) AS vendor_refunded_minor')
             ->groupBy('invoice_id');
         $credits = DB::table('finance_unpaid_credits')
+            ->whereIn('invoice_id', clone $cohortIds)
             ->select('invoice_id')
             ->selectRaw('SUM(amount_minor) AS unpaid_credited_minor, SUM(vendor_minor) AS vendor_credited_minor')
             ->groupBy('invoice_id');
