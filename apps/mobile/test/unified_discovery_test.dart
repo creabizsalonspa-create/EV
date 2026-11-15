@@ -60,6 +60,26 @@ class SavedUnifiedApi extends UnifiedApi {
     return data;
   }
 }
+class IncompleteMetadataApi extends UnifiedApi {
+  bool missingIdentity=false;
+  @override
+  Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}})async{
+    final raw=Map<String,dynamic>.from(await super.request(path,method:method,body:body,query:query) as Map);
+    final entries=List<Map<String,dynamic>>.from((raw['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)));
+    if(entries.isNotEmpty&&entries[0]['kind']=='catalog'){
+      entries[0]={
+        'key':'catalog:7','kind':'catalog','station':{
+          if(!missingIdentity)'id':7,
+          'name':'<img src=x>',
+          'evidence':'SIMULATED','connector_type':'CCS2',
+          // No power metadata. Must remain a non-actionable catalog card.
+        },
+      };
+    }
+    raw['data']=entries;
+    return raw;
+  }
+}
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
  testWidgets('changing accounts clears advanced search drafts and submitted fields',(tester)async{
@@ -271,5 +291,31 @@ void main(){
    api.epoch++;
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+ });
+
+ for(final ar in [false,true]){
+  testWidgets('incomplete catalog metadata stays visible without booking or saved action ($ar)',(tester)async{
+   roomy(tester);
+   final api=IncompleteMetadataApi();addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No catalog action without connector metadata'),
+     ar:ar,customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.text('<img src=x>'),findsOneWidget);
+   expect(find.textContaining(ar?'غير مكتملة':'details incomplete'),findsOneWidget);
+   expect(find.text(ar?'عرض المحطة وخيارات الحجز':'View station and booking options'),findsNothing);
+   expect(find.byKey(const ValueKey('unified-favorite-catalog:7')),findsNothing);
+   expect(find.text('Synthetic partner'),findsOneWidget);
+   expect(find.byKey(const ValueKey('unified-favorite-partner:7')),findsOneWidget);
+   expect(tester.takeException(),isNull);
+  });
+ }
+ testWidgets('missing canonical identity fails closed without inventing a station id',(tester)async{
+   roomy(tester);
+   final api=IncompleteMetadataApi()..missingIdentity=true;addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('Unexpected booking action')));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.text('Search failed. Retry explicitly.'),findsOneWidget);
+   expect(find.text('<img src=x>'),findsNothing);
+   expect(find.text('Synthetic partner'),findsNothing);
  });
 }
