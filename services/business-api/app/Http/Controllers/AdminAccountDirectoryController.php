@@ -20,9 +20,12 @@ class AdminAccountDirectoryController extends Controller
      */
     public function index(Request $request)
     {
-        $actor = $this->requireActiveAdmin($request);
+        return DB::transaction(function () use ($request) {
+            $actor = AdminTransactionAuthority::requireCurrent(
+                $this->requireActiveAdmin($request)
+            );
 
-        $filters = $request->validate([
+            $filters = $request->validate([
             'q' => 'sometimes|required|string|max:100',
             'role' => 'sometimes|required|in:customer,vendor,admin',
             'account_status' => 'sometimes|required|in:active,suspended',
@@ -93,7 +96,8 @@ class AdminAccountDirectoryController extends Controller
             'created_at' => now(),
         ]);
 
-        return response()->json($view)->header('Cache-Control', 'no-store, private');
+            return response()->json($view)->header('Cache-Control', 'no-store, private');
+        });
     }
 
     private function requireActiveAdmin(Request $request): User
@@ -178,8 +182,11 @@ class AdminAccountDirectoryController extends Controller
 
     public function moderationHistory(Request $request, User $target)
     {
-        $this->requireActiveAdmin($request);
-        $history = DB::table('admin_account_moderations')
+        return DB::transaction(function () use ($request, $target) {
+            AdminTransactionAuthority::requireCurrent(
+                $this->requireActiveAdmin($request)
+            );
+            $history = DB::table('admin_account_moderations')
             ->where('target_user_id', $target->id)
             ->orderByDesc('id')
             ->paginate(25)
@@ -200,6 +207,7 @@ class AdminAccountDirectoryController extends Controller
             'created_at' => now(),
         ]);
 
-        return response()->json($history)->header('Cache-Control', 'no-store, private');
+            return response()->json($history)->header('Cache-Control', 'no-store, private');
+        });
     }
 }
