@@ -246,6 +246,32 @@ class PartnerClient
         return $window;
     }
 
+    /** A requested date window must match the returned source evidence too. */
+    private function verifyWindowRecords(array $records, array $window): void
+    {
+        if ($window === []) {
+            return;
+        }
+        $from = isset($window['date_from']) ? new \DateTimeImmutable($window['date_from']) : null;
+        $to = isset($window['date_to']) ? new \DateTimeImmutable($window['date_to']) : null;
+        foreach ($records as $record) {
+            $value = is_array($record) ? ($record['last_updated'] ?? null) : null;
+            if (! is_string($value)
+                || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z?$/D', $value)) {
+                throw new OcpiException('Partner source record lacks a valid OCPI window timestamp.');
+            }
+            $format = '!Y-m-d\TH:i:s'
+                .(str_contains($value, '.') ? '.u' : '')
+                .(str_ends_with($value, 'Z') ? '\Z' : '');
+            $instant = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+            if (! $instant || \DateTimeImmutable::getLastErrors() !== false
+                || ($from !== null && $instant < $from)
+                || ($to !== null && $instant >= $to)) {
+                throw new OcpiException('Partner source record violated the requested OCPI date window.');
+            }
+        }
+    }
+
     /** Refuse a peer pagination link that silently broadens an explicit source window. */
     private function verifyWindowNext(string $url, array $window): void
     {
@@ -307,6 +333,7 @@ class PartnerClient
             if (! is_array($result['data']) || ! array_is_list($result['data'])) {
                 throw new OcpiException('Module response must contain a record list.');
             }
+            $this->verifyWindowRecords($result['data'], $window);
             $records = array_merge($records, $result['data']);
             if (count($records) > (int) config('ocpi.max_records', 1000)) {
                 throw new OcpiException('Operator synchronization exceeded the configured record limit.');
