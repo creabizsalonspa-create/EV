@@ -1825,7 +1825,8 @@ el("vehicle-create").onsubmit = async (e) => {
     if (!user || vehicleCreatePending) return;
     const epoch = client.sessionEpoch, actor = user.id;
     const active = () => epoch === client.sessionEpoch && actor === user?.id;
-    const submit = e.target.querySelector("button[type=submit]");
+    // The existing garage form uses the implicit submit type.
+    const submit = e.target.querySelector("button");
     vehicleCreatePending = true;
     if (submit) submit.disabled = true;
     try {
