@@ -195,6 +195,7 @@ function provisionTestRole(email, role) {
       .filter({ hasText: "Browser station " + run });
     const slot = new Date(Date.now() + 86400000);
     slot.setUTCMinutes(0, 0, 0);
+    await article.locator("select[data-booking-time-mode]").selectOption("utc");
     await article
       .locator("input[type=datetime-local]")
       .fill(slot.toISOString().slice(0, 16));
