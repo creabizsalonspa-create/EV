@@ -23,6 +23,7 @@ final class InvoiceReconciliationAudit
         $credits = DB::table('finance_unpaid_credits')->where('invoice_id', $invoice->id)->get();
         $byId = $journals->keyBy('id');
         $linked = [];
+        $expectedAccounts = [];
 
         $subtotal = (int) $invoice->subtotal_minor;
         $tax = (int) $invoice->tax_minor;
@@ -38,6 +39,14 @@ final class InvoiceReconciliationAudit
         if ($issuance->count() !== 1 || (int) ($issuance->first()?->amount_minor ?? -1) !== $total) {
             $flag('invoice_journal_mismatch');
         }
+        foreach ($issuance as $journal) {
+            $expectedAccounts[(string) $journal->id] = [
+                'receivable:user:'.$invoice->user_id => [$total, 0],
+                'vendor_payable:'.$invoice->vendor_id => [0, $vendor],
+                'platform_commission' => [0, $commission],
+                'tax_payable:'.$invoice->country => [0, $tax],
+            ];
+        }
 
         foreach ($payments as $payment) {
             $journal = $byId->get($payment->journal_id);
@@ -46,6 +55,12 @@ final class InvoiceReconciliationAudit
                 $flag('payment_journal_mismatch');
             }
             $linked[(string) $payment->journal_id] = true;
+            if ($journal && $journal->kind === 'payment') {
+                $expectedAccounts[(string) $journal->id] = [
+                    'cash:simulator' => [(int) $payment->amount_minor, 0],
+                    'receivable:user:'.$invoice->user_id => [0, (int) $payment->amount_minor],
+                ];
+            }
         }
 
         $refundedTax = $refundedCommission = $refundedVendor = 0;
@@ -63,6 +78,14 @@ final class InvoiceReconciliationAudit
                 $flag('refund_component_mismatch');
             }
             $linked[(string) $refund->journal_id] = true;
+            if ($journal && $journal->kind === 'refund') {
+                $expectedAccounts[(string) $journal->id] = [
+                    'tax_payable:'.$invoice->country => [(int) $refund->tax_minor, 0],
+                    'platform_commission' => [(int) $refund->commission_minor, 0],
+                    'vendor_payable:'.$invoice->vendor_id => [(int) $refund->vendor_minor, 0],
+                    'cash:simulator' => [0, (int) $refund->amount_minor],
+                ];
+            }
         }
         if ($refundedTax > $tax || $refundedCommission > $commission || $refundedVendor > $vendor) {
             $flag('refund_allocation_exceeded');
@@ -81,11 +104,20 @@ final class InvoiceReconciliationAudit
                 $flag('unpaid_credit_component_mismatch');
             }
             $linked[(string) $credit->journal_id] = true;
+            if ($journal && $journal->kind === 'unpaid_credit') {
+                $expectedAccounts[(string) $journal->id] = [
+                    'vendor_payable:'.$invoice->vendor_id => [(int) $credit->vendor_minor, 0],
+                    'platform_commission' => [(int) $credit->commission_minor, 0],
+                    'tax_payable:'.$invoice->country => [(int) $credit->tax_minor, 0],
+                    'receivable:user:'.$invoice->user_id => [0, (int) $credit->amount_minor],
+                ];
+            }
         }
 
         foreach ($journals as $journal) {
             $lines = $entries->get($journal->id, collect());
             $debits = $creditsSum = 0;
+            $postedAccounts = [];
             foreach ($lines as $line) {
                 $debit = (int) $line->debit_minor;
                 $credit = (int) $line->credit_minor;
@@ -94,6 +126,26 @@ final class InvoiceReconciliationAudit
                 }
                 $debits += $debit;
                 $creditsSum += $credit;
+                $postedAccounts[$line->account] ??= [0, 0];
+                $postedAccounts[$line->account][0] += $debit;
+                $postedAccounts[$line->account][1] += $credit;
+            }
+            if (isset($expectedAccounts[(string) $journal->id])) {
+                // The two sides balancing is necessary but not sufficient: a wrong
+                // payable/receivable account can otherwise hide a misposting.
+                $expected = array_filter(
+                    $expectedAccounts[(string) $journal->id],
+                    static fn (array $pair): bool => $pair[0] !== 0 || $pair[1] !== 0
+                );
+                $actual = array_filter(
+                    $postedAccounts,
+                    static fn (array $pair): bool => $pair[0] !== 0 || $pair[1] !== 0
+                );
+                ksort($expected);
+                ksort($actual);
+                if ($actual !== $expected) {
+                    $flag('journal_accounts_mismatch');
+                }
             }
             if (($lines->isEmpty() && (int) $journal->amount_minor !== 0) ||
                 $debits !== $creditsSum || $debits !== (int) $journal->amount_minor) {

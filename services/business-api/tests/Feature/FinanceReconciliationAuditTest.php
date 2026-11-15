@@ -102,6 +102,44 @@ class FinanceReconciliationAuditTest extends TestCase
             ->assertJsonPath('data.0.journal_count', 1);
     }
 
+    public function test_balanced_but_misposted_payment_is_flagged_without_rewriting_the_ledger(): void
+    {
+        [$vendor, $customer, $invoice] = $this->fixture();
+        // Construct a balanced, source-linked journal with the wrong credit
+        // account: traditional debit=credit tests alone would accept this.
+        $journal = DB::table('finance_journals')->insertGetId([
+            'invoice_id' => $invoice->id,
+            'kind' => 'payment',
+            'idempotency_key' => 'audit-mispost-'.$invoice->id,
+            'fingerprint' => str_repeat('a', 64),
+            'currency' => $invoice->currency,
+            'amount_minor' => 25,
+            'created_at' => now(),
+        ]);
+        DB::table('finance_entries')->insert([
+            [
+                'journal_id' => $journal, 'account' => 'cash:simulator',
+                'debit_minor' => 25, 'credit_minor' => 0, 'created_at' => now(),
+            ],
+            [
+                'journal_id' => $journal, 'account' => 'vendor_payable:'.$vendor->id,
+                'debit_minor' => 0, 'credit_minor' => 25, 'created_at' => now(),
+            ],
+        ]);
+        DB::table('finance_payments')->insert([
+            'invoice_id' => $invoice->id, 'journal_id' => $journal,
+            'actor_id' => $customer->id, 'amount_minor' => 25,
+            'evidence' => 'SIMULATED', 'created_at' => now(),
+        ]);
+
+        $this->actingAs($vendor)->getJson($this->url())->assertOk()
+            ->assertJsonPath('data.0.status', 'attention_required')
+            ->assertJsonPath('data.0.issues.0', 'journal_accounts_mismatch')
+            ->assertJsonPath('data.0.paid_minor', 25);
+        $this->assertDatabaseCount('finance_journals', 2);
+        $this->assertDatabaseCount('finance_payments', 1);
+    }
+
     public function test_orphan_journal_is_detected_without_mutating_financial_records(): void
     {
         [$vendor, $customer, $invoice] = $this->fixture();
