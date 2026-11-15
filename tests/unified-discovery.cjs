@@ -159,3 +159,55 @@ for(const lang of ['en','ar'])test('published power range is explicit, normalize
  assert.equal(params.has('min_power_kw'),false);
  assert.equal(params.has('max_power_kw'),false);
 });
+
+
+for(const lang of ['en','ar'])test('recent search filters are private, deduplicated, restored locally, and cleared by identity '+lang,async()=>{
+ const f=fixture(lang);
+ f.control.setContext({owner:'private-A',customer:true});
+ const q=f.form.children[0].children.find(n=>n.tag==='input');
+ const market=f.form.children.flatMap(n=>n.children).find(n=>n.name==='country');
+ const details=f.form.children.find(n=>n.tag==='details');
+ const operator=details.children.flatMap(n=>n.children).find(n=>n.name==='operator');
+ const panel=f.root.children[7];
+ assert.equal(panel.id,'unified-recent-presets');
+ assert.equal(panel.hidden,true);
+ q.value='Private first stop';market.value='CA';operator.value='Personal filter';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.calls.length,1);
+ assert.equal(panel.hidden,false);
+ assert.equal(panel.children[1].children.length,1);
+ q.value='Another stop';market.value='AE';operator.value='Different operator';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(panel.children[1].children.length,2);
+ const beforeRestore=f.calls.length;
+ // Restore an older saved filter, but do not send it to the backend.
+ panel.children[1].children[1].onclick();
+ assert.equal(f.calls.length,beforeRestore);
+ assert.equal(q.value,'Private first stop');assert.equal(market.value,'CA');
+ assert.equal(operator.value,'Personal filter');
+ assert.match(f.root.children[3].textContent,lang==='ar'?/استُعيدت المرشحات/:/Filters restored locally/);
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.get('q'),'Private first stop');assert.equal(params.get('country'),'CA');
+ assert.equal(params.get('operator'),'Personal filter');
+ assert.equal(panel.children[1].children.length,2,'Same successful query must be deduplicated');
+ const calls=f.calls.length;
+ panel.children[2].onclick();
+ assert.equal(panel.hidden,true);assert.equal(f.calls.length,calls,'Clearing history cannot search');
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(panel.children[1].children.length,1);
+ f.control.setContext({owner:'private-B',customer:true});
+ assert.equal(panel.hidden,true,'Account transition must destroy prior private presets');
+ assert.equal(panel.children[1].children.length,0);
+ assert.equal(q.value,'');
+});
+test('failed catalog or map-only queries cannot enter recent search history',async()=>{
+ const error=fixture('en',async()=>{throw Error('Offline');});
+ error.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(error.root.children[7].hidden,true);
+ const f=fixture();
+ f.emit('unified-viewport-search',{south:24,north:26,west:54,east:56});
+ await tick();
+ assert.equal(f.calls.length,1);
+ assert.equal(f.root.children[7].hidden,true,'Viewport lookup is not a newly saved search');
+});
