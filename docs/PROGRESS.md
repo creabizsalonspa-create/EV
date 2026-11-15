@@ -1,3 +1,21 @@
+# 15 November 2026 — connected source meter history (integration pending)
+
+Canonical OCPI ingestion now retains accepted scalar meter observations atomically,
+with exact readings/timestamps, original lineage and provider owner, high-water
+regression detection and explicit precision/clock flags. No duplicate/stale replay
+history or invented backfill. Private customer/provider/Admin reads preserve current
+account and original ownership; web/Flutter provide EN/AR history and stable bounded
+pagination, clearing on account/background changes. Source anomalies remain sticky
+in reconciliation and cannot be bypassed into test invoices by matching final totals
+or cached state. Existing safe stop and canonical finance remain preserved.
+
+Focused PG49/758 (including source/invoice safeguards), initial15 native cases plus
+final9 affected history/roaming cases, clean four-file analysis, EN/AR web contracts
+and actual isolated Laravel/synthetic-CPO browser/native HTTP proof passed. The native
+proof launcher is asynchronous so the existing local relay remains responsive; no
+transport retry or source assertion was removed. Mandatory hosted final-source checks
+and integration are pending. Original312 inventory and production credit unchanged.
+
 # 15 November 2026 — fleet-to-diagnostics connected workflow
 
 Fleet rows now navigate explicitly into the existing authorized source diagnosis

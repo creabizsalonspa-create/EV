@@ -28,6 +28,29 @@ class OcpiTestInvoiceLineageTest extends TestCase
         return ['request_key' => (string) Str::uuid(), 'preview_token' => $preview['preview_token'], 'terms_version' => TestInvoiceLineage::TERMS, 'consent' => true, 'expected_total_minor' => $preview['total_minor'], 'expected_currency' => $preview['currency'], 'expected_minor_units' => $preview['minor_units'], 'expected_energy_wh' => $preview['energy_wh']];
     }
 
+    public function test_matching_final_totals_cannot_hide_a_recorded_meter_regression_or_create_an_invoice(): void
+    {
+        [, $driver, , $provider, , $id] = $this->billable();
+        $consent = $this->accept($id);
+        $order = DB::table('ocpi_roaming_orders')->find($id);
+        $session = OcpiRecord::findOrFail($order->source_session_record_id);
+        $raw = $session->payload;
+        foreach (['0.5', '1'] as $energy) {
+            $this->travel(5)->seconds();
+            $raw['last_updated'] = now()->toISOString();
+            $raw['kwh'] = $energy;
+            app(RecordSynchronizer::class)->ingest($provider, 'sessions', [$raw]);
+        }
+        $this->postJson('/api/roaming/sandbox-orders/'.$id.'/reconcile')->assertOk()->assertJsonPath('reconciliation_state', 'requires_review')->assertJsonPath('can_preview_test_invoice', false);
+        // A cached "consistent" projection still cannot override canonical source history.
+        DB::table('ocpi_roaming_orders')->where('id', $id)->update(['reconciliation_state' => 'source_consistent']);
+        $this->getJson('/api/roaming/sandbox-orders/'.$id.'/test-invoice-preview')->assertConflict();
+        $this->postJson('/api/roaming/sandbox-orders/'.$id.'/test-invoice', $consent)->assertConflict();
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('finance_journals', 0);
+        $this->assertDatabaseCount('charging_sessions', 0);
+    }
+
     public function test_source_completion_never_bills_without_separate_signed_consent_and_uses_one_canonical_balanced_ledger(): void
     {
         [$owner,$driver,,,,$id] = $this->billable();

@@ -275,6 +275,7 @@ class _OcpiOperationsState extends State<OcpiOperationsView> {
       "Energy precision needs review",
       "تتطلب دقة الطاقة المراجعة",
     ),
+    "session_meter_history_requires_review" => tr("Accepted source meter history requires review", "تحتاج قراءات عداد المصدر المقبولة مراجعة"),
     "energy_mismatch" => tr(
       "Session and CDR energy differ",
       "تختلف طاقة الجلسة وسجل الشحن",

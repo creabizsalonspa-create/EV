@@ -5,11 +5,13 @@ use App\Http\Controllers\OcpiController;
 use App\Http\Controllers\OcpiCredentialsController;
 use App\Http\Controllers\OcpiProvisioningController;
 use App\Http\Controllers\OcpiSyncPlanController;
+use App\Http\Controllers\RoamingMeterHistoryController;
 use App\Http\Controllers\RoamingOrderController;
 use Illuminate\Support\Facades\Route;
 
 // Shared canonical operations; the parent supplies web or native authentication.
 Route::get('/providers/{provider}/sandbox-orders', [RoamingOrderController::class, 'operations']);
+Route::get('/providers/{provider}/sandbox-orders/{order}/meter-history', [RoamingMeterHistoryController::class, 'operator'])->where('provider', '[0-9]{1,18}')->where('order', '[0-9]{1,18}');
 Route::get('/connection-options', [OcpiProvisioningController::class, 'connections']);
 Route::get('/owner-options', [OcpiProvisioningController::class, 'owners']);
 Route::get('/providers/{provider}/credentials', [OcpiCredentialsController::class, 'status']);

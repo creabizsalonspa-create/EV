@@ -1,4 +1,13 @@
 window.EV_MESSAGES = {
+    "Recorded source meter history": {"en": "Recorded source meter history", "ar": "سجل قراءات عداد المصدر"},
+    "Source meter history disclaimer": {"en": "Accepted partner observations only; physical energy and billing are unverified. Earlier versions were not backfilled.", "ar": "ملاحظات مقبولة من الشريك فقط؛ لم تُتحقق الطاقة الفعلية أو الفوترة. لم يُستكمل السجل السابق بأثر رجعي."},
+    "Source meter timestamp": {"en": "Source timestamp", "ar": "وقت المصدر"},
+    "Source meter received": {"en": "Received", "ar": "وقت الاستلام"},
+    "Source meter decreased": {"en": "Meter decreased; reconciliation required.", "ar": "انخفض العداد؛ تلزم مطابقة البيانات."},
+    "Source meter precision review": {"en": "Meter precision requires review.", "ar": "تحتاج دقة العداد مراجعة."},
+    "Source meter clock ahead": {"en": "Source clock is ahead of receipt.", "ar": "ساعة المصدر متقدمة على وقت الاستلام."},
+    "No recorded source meter observations": {"en": "No accepted source observations recorded for this order.", "ar": "لا توجد ملاحظات مصدر مقبولة مسجلة لهذا الطلب."},
+    "Accepted source meter history requires review": {"en": "Accepted source meter history requires review", "ar": "تحتاج قراءات عداد المصدر المقبولة مراجعة"},
     "Complete sandbox source deactivation": {en: "Complete test-source token deactivation", ar: "إكمال إلغاء رمز مصدر الاختبار"},
     "Stored partner catalog observations": {en: "Stored partner catalog observations", ar: "ملاحظات كتالوج الشريك المخزنة"},
     "Retire inactive rider source": {en: "Retire inactive test-source registration", ar: "إنهاء تسجيل الرمز غير النشط بمصدر الاختبار"},

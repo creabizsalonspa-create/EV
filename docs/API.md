@@ -651,3 +651,35 @@ hint, not a control grant; blocked connectors may still need diagnosis. Explicit
 web/native selection opens the existing scoped source diagnostics/repair workspace.
 No fault acknowledgment, inspection, reset, firmware or maintenance change occurs
 merely by reading a fleet snapshot. Reassignment removes previous-owner targets.
+
+
+### Private source meter observation history
+
+`GET /api/roaming/sandbox-orders/{order}/meter-history` and provider operator
+`GET /api/ocpi/providers/{provider}/sandbox-orders/{order}/meter-history`
+(native equivalents under `/api/v1`) return accepted source Session versions
+for the original dispatched token/authorization/location/EVSE/connector lineage.
+Current captured account status/role/password/epoch is checked under user lock.
+Customer order ownership or current+original provider vendor ownership is required;
+protected Admin reads remain permitted. Reassignment never transfers customer readings.
+
+Responses contain only source status, bounded exact kWh text, exact nullable Wh,
+source/receipt timestamps and regression/precision/clock flags. They do not expose
+tokens, authorization references, source payloads or hashes. Pagination25 accepts
+bounded `page` and optional `through` (returned `through_id`) to freeze the accepted
+version window across pages. A fresh read chooses a new window. Old versions are
+not invented/backfilled; duplicate/stale records never refresh receipts/history.
+Each accepted ingestion version appends atomically with the canonical record;
+failed batches roll everything back. High-water and review indexes bound lookups.
+
+A detected meter decrease or unrepresentable Wh precision remains a reconciliation
+issue for that source lineage even after a later value rises. New test-invoice
+consent cannot bypass this through matching final CDR totals or cached order state.
+Existing invoices, ledger amounts, physical controls and capacity-release rules
+are unchanged. A proven owned active session remains stoppable despite meter review.
+
+Customer/vendor EN/AR web and Flutter history views use existing order workflows,
+explicit reads, frozen pagination and account/background fences. The actual synthetic
+CPO/browser/native proof covers active/completed readings, stop, privacy and revocation.
+`physical_energy_verified`, `billing_authority`, `commands_sent` and `backfilled`
+remain false. No real partner, physical energy or production acceptance is asserted.

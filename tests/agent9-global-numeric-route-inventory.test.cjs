@@ -37,7 +37,10 @@ test('favorites preserve validated HTTP 422 overflow behavior before any integer
 test('both OCPI location/model and sandbox order routes enforce safe numeric length', () => {
   const roaming = read('roaming_orders.php');
   assert.equal(roaming.split("->where('location', '[0-9]{1,18}')").length - 1, 2);
-  assert.equal(roaming.split("->where('order', '[0-9]{1,18}')").length - 1, 7);
+  assert.equal(roaming.split("->where('order', '[0-9]{1,18}')").length - 1, 8);
+  assert.match(roaming, /Route::get\('\/sandbox-orders\/\{order\}\/meter-history', \[RoamingMeterHistoryController::class, 'customer'\]\)->where\('order', '\[0-9\]\{1,18\}'\)/);
+  const operations = read('ocpi_operations.php');
+  assert.match(operations, /Route::get\('\/providers\/\{provider\}\/sandbox-orders\/\{order\}\/meter-history', \[RoamingMeterHistoryController::class, 'operator'\]\)->where\('provider', '\[0-9\]\{1,18\}'\)->where\('order', '\[0-9\]\{1,18\}'\)/);
   const src = fs.readFileSync(path.join(controllerRoot, 'RoamingOrderController.php'), 'utf8');
   assert.match(src, /public function offers\(Request \$r, OcpiRecord \$location/);
   assert.match(src, /public function create\(Request \$r, OcpiRecord \$location/);
