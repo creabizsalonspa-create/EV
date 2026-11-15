@@ -36,7 +36,7 @@ final class FinanceApprovalQueueController extends Controller
             $sources[] = DB::table('commercial_adjustments as a')
                 ->leftJoin('commercial_adjustment_approvals as p', 'p.adjustment_id', '=', 'a.id')
                 ->whereNull('p.id')
-                ->selectRaw("'adjustment' AS kind, a.id AS record_id, a.vendor_id, a.currency, NULL AS minor_units, a.amount_minor, 'awaiting_approval' AS status, a.created_at, NULL AS invoice_id");
+                ->selectRaw("'adjustment' AS kind, a.id AS record_id, a.vendor_id, a.currency, a.minor_units, a.amount_minor, 'awaiting_approval' AS status, a.created_at, NULL AS invoice_id");
         }
         $combined = array_shift($sources);
         foreach ($sources as $source) {

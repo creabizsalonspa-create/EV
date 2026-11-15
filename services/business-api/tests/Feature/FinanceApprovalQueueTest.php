@@ -74,13 +74,13 @@ class FinanceApprovalQueueTest extends TestCase
         ]);
         $adjustment = DB::table('commercial_adjustments')->insertGetId([
             'vendor_id' => $this->vendor->id, 'currency' => 'AED',
-            'amount_minor' => -10, 'reason' => 'Private merchant adjustment',
+            'amount_minor' => -10, 'minor_units' => 2, 'reason' => 'Private merchant adjustment',
             'request_key' => hash('sha256', 'approval-queue-adjustment'),
             'created_by' => $this->vendor->id, 'created_at' => now(),
         ]);
         $approved = DB::table('commercial_adjustments')->insertGetId([
             'vendor_id' => $this->vendor->id, 'currency' => 'AED',
-            'amount_minor' => 50, 'reason' => 'Already approved and not pending',
+            'amount_minor' => 50, 'minor_units' => 2, 'reason' => 'Already approved and not pending',
             'request_key' => hash('sha256', 'approval-queue-approved'),
             'created_by' => $this->vendor->id, 'created_at' => now(),
         ]);
@@ -116,7 +116,7 @@ class FinanceApprovalQueueTest extends TestCase
         $this->assertNull($rows['settlement']['invoice_id']);
         $this->assertSame($adjustment, $rows['adjustment']['record_id']);
         $this->assertSame(-10, $rows['adjustment']['amount_minor']);
-        $this->assertNull($rows['adjustment']['minor_units']);
+        $this->assertSame(2, $rows['adjustment']['minor_units']);
         foreach (['Private customer complaint', 'Private merchant adjustment',
             'idempotency_key', 'request_key', 'provider_reference'] as $secret) {
             $this->assertStringNotContainsString($secret, $response->getContent());
