@@ -23,7 +23,7 @@ String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
 bool completePublishedStation(Map<String,dynamic> station) =>
   station['id'] is int && (station['id'] as int)>0 &&
   station['name'] is String && (station['name'] as String).trim().isNotEmpty &&
-  station['evidence'] is String && (station['evidence'] as String).trim().isNotEmpty &&
+  ['SIMULATED','DISCOVERY_ONLY'].contains(station['evidence']) &&
   ['CCS2','Type2','CHAdeMO'].contains(station['connector_type']) &&
   station['power_kw'] is int && (station['power_kw'] as int)>=1 &&
   (station['power_kw'] as int)<=1000;
