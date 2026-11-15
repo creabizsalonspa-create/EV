@@ -48,8 +48,11 @@ class AdminFleetDirectoryTest extends TestCase
         $this->actingAs($owner)->getJson('/api/admin/fleets')->assertForbidden();
         $this->assertDatabaseCount('audit_events', 0);
 
-        $response = $this->actingAs($admin)->getJson('/api/admin/fleets')
-            ->assertOk()->assertHeader('Cache-Control', 'private, no-store')
+        $legacy = $this->actingAs($admin)->getJson('/api/admin/fleets')->assertOk();
+        $this->assertSame(['id', 'name', 'country', 'created_at'], array_keys($legacy->json('data.0')));
+
+        $response = $this->getJson('/api/admin/fleets?include=owner_inventory')
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('total', 2)
             ->assertJsonPath('data.0.id', $fleet->id)
             ->assertJsonPath('data.0.owner.id', $owner->id)
@@ -81,13 +84,13 @@ class AdminFleetDirectoryTest extends TestCase
 
         $this->actingAs($admin);
         foreach (['%', '_', '!'] as $symbol) {
-            $this->getJson('/api/admin/fleets?q='.rawurlencode($symbol))
+            $this->getJson('/api/admin/fleets?include=owner_inventory&q='.rawurlencode($symbol))
                 ->assertOk()->assertJsonPath('total', 1)
                 ->assertJsonPath('data.0.owner.id', $firstOwner->id);
         }
-        $this->getJson('/api/admin/fleets?country=AE&owner_id='.$secondOwner->id)
+        $this->getJson('/api/admin/fleets?include=owner_inventory&country=AE&owner_id='.$secondOwner->id)
             ->assertOk()->assertJsonPath('total', 0);
-        $this->getJson('/api/admin/fleets?owner_id='.$firstOwner->id)
+        $this->getJson('/api/admin/fleets?include=owner_inventory&owner_id='.$firstOwner->id)
             ->assertOk()->assertJsonPath('total', 1)
             ->assertJsonPath('data.0.owner.id', $firstOwner->id);
 
@@ -98,7 +101,7 @@ class AdminFleetDirectoryTest extends TestCase
                 'country' => 'CA',
             ]);
         }
-        $url = '/api/admin/fleets?owner_id='.$secondOwner->id.'&country=CA&q=QA';
+        $url = '/api/admin/fleets?include=owner_inventory&owner_id='.$secondOwner->id.'&country=CA&q=QA';
         $this->getJson($url.'&page=1')
             ->assertOk()->assertJsonPath('total', 27)
             ->assertJsonCount(25, 'data');
@@ -116,13 +119,13 @@ class AdminFleetDirectoryTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin, 'web');
-        foreach (['owner_id=0', 'owner_id=abc', 'country=usa', 'page=0'] as $filter) {
+        foreach (['owner_id=0', 'owner_id=abc', 'country=usa', 'page=0', 'include=all'] as $filter) {
             $this->getJson('/api/admin/fleets?'.$filter)->assertUnprocessable();
         }
         $this->assertDatabaseCount('audit_events', 0);
 
         DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
-        $this->getJson('/api/admin/fleets')->assertForbidden();
+        $this->getJson('/api/admin/fleets')->assertStatus(409);
 
         DB::table('users')->where('id', $admin->id)->update([
             'role' => 'admin', 'auth_epoch' => 1,
