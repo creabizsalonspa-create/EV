@@ -177,11 +177,11 @@ const assert = require("node:assert/strict");
     await page.getByRole("button", { name: "Show loaded locations on map" }).click();
     await page.getByText("Map fitted to loaded results only. Other nearby sites may not be listed.", { exact: true }).waitFor();
     assert.equal(viewportRequests.length, 0, "Map initialization and refit must not search the unified API");
-    const viewRequest = page.waitForRequest(request =>
+    const unifiedViewportRequest = page.waitForRequest(request =>
       new URL(request.url()).pathname === "/api/discovery/search" &&
       new URL(request.url()).searchParams.has("south"));
     await page.getByRole("button", { name: "Search platform and partner locations in this map view" }).click();
-    const viewUrl = new URL((await viewRequest).url());
+    const viewUrl = new URL((await unifiedViewportRequest).url());
     for (const key of ["south", "north", "west", "east"]) {
       assert(Number.isFinite(Number(viewUrl.searchParams.get(key))),
         "Viewport search must send finite numeric " + key);
