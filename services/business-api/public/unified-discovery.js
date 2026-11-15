@@ -72,6 +72,14 @@
    window.dispatchEvent(new CustomEvent('unified-map-data',{detail:mapRows}));
    document.getElementById('discovery-map')?.scrollIntoView({block:'start'});
   });mapButton.disabled=true;root.append(mapButton,recentPanel);
+  // Missing source metadata must never become a bookable catalog action.
+  // Location identity remains visible as read-only evidence.
+  const catalogMetadataComplete=row=>row&&row.station&&
+    typeof row.station.name==='string'&&row.station.name.trim()!==''&&
+    typeof row.station.evidence==='string'&&row.station.evidence.trim()!==''&&
+    ['CCS2','Type2','CHAdeMO'].includes(row.station.connector_type)&&
+    Number.isSafeInteger(row.station.power_kw)&&
+    row.station.power_kw>=1&&row.station.power_kw<=1000;
   async function load(target,remember=false){
    if(writing)return;
    const historySnapshot=remember?{q:query,scope,country,connector,recentStatus,maxSourceAge,savedOnly,advanced:{...advancedQuery}}:null;
@@ -83,11 +91,21 @@
     page=data.current_page;state.replaceChildren(text('span',`${data.total} published results`,`${data.total} نتيجة منشورة`));
     for(const row of data.data){
      const card=document.createElement('article');card.dataset.discoveryKey=row.key;
+     let allowedFavorite=false;
      if(row.kind==='catalog'&&row.station&&Number.isSafeInteger(row.station.id)&&row.station.id>0&&row.key==='catalog:'+row.station.id){
-      card.dataset.stationId=String(row.station.id);card.append(text('h4',row.station.name,row.station.name),text('p','Platform catalog · '+row.station.evidence,'كتالوج المنصة · '+row.station.evidence));
-      card.append(button('View station and booking options','عرض المحطة وخيارات الحجز',()=>onCatalog(row.station.id)));
+      card.dataset.stationId=String(row.station.id);
+      const name=typeof row.station.name==='string'&&row.station.name.trim()?row.station.name:'Unnamed platform station';
+      const evidence=typeof row.station.evidence==='string'&&row.station.evidence.trim()?row.station.evidence:'unknown';
+      card.append(text('h4',name,name),text('p','Platform catalog · '+evidence,'كتالوج المنصة · '+evidence));
+      if(catalogMetadataComplete(row)){
+       allowedFavorite=true;
+       card.append(button('View station and booking options','عرض المحطة وخيارات الحجز',()=>onCatalog(row.station.id)));
+      }else{
+       card.append(text('p','Published station details incomplete. Booking and saved-place actions are unavailable until catalog metadata is corrected.',
+         'بيانات المحطة المنشورة غير مكتملة. لا تتوفر إجراءات الحجز أو الحفظ حتى تصحيح بيانات الكتالوج.'));
+      }
      }else if(row.kind==='partner'&&Number.isSafeInteger(row.record_id)&&row.record_id>0&&row.key==='partner:'+row.record_id&&row.location&&row.reservable===false&&row.remote_control===false&&row.availability==='unknown'){
-      card.dataset.partnerLocationId=String(row.record_id);const l=row.location;card.append(text('h4',String(l.name||l.id||''),String(l.name||l.id||'')),text('p',String(row.provider_label||''),String(row.provider_label||'')),text('p',[l.address,l.city,l.country].filter(Boolean).join(' · '),[l.address,l.city,l.country].filter(Boolean).join(' · ')),text('p','Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد'));
+      allowedFavorite=true;card.dataset.partnerLocationId=String(row.record_id);const l=row.location;card.append(text('h4',String(l.name||l.id||''),String(l.name||l.id||'')),text('p',String(row.provider_label||''),String(row.provider_label||'')),text('p',[l.address,l.city,l.country].filter(Boolean).join(' · '),[l.address,l.city,l.country].filter(Boolean).join(' · ')),text('p','Partner reported · availability unknown · no booking or remote control','تقرير شريك · التوفر غير معروف · لا حجز أو تحكم عن بُعد'));
       card.append(text('p','Reported source time: '+String(row.source_updated_at||'unknown'),'وقت المصدر المبلغ عنه: '+String(row.source_updated_at||'غير معروف')));
       const age=row.source_timestamp_evidence==='PARTNER_REPORTED_ONLY'&&row.source_clock_evidence==='PARTNER_REPORTED_TIME'&&Number.isSafeInteger(row.reported_source_age_minutes)&&row.reported_source_age_minutes>=0?row.reported_source_age_minutes:null;
       card.append(text('p',age===null?'Reported catalog age unknown or partner clock ahead':`Reported catalog age at search: ${age} min${age>=1440?' · over 24 hours old':''}`,age===null?'عمر الكتالوج المبلغ عنه غير معروف أو ساعة الشريك متقدمة':`عمر الكتالوج المبلغ عنه عند البحث: ${age} دقيقة${age>=1440?' · أقدم من 24 ساعة':''}`));
@@ -95,7 +113,7 @@
       card.append(text('p','Catalog timestamps do not verify physical availability. Search again to recheck.','أوقات الكتالوج لا تؤكد التوفر الفعلي. أعد البحث للتحقق.'));
 
      }else continue;
-     if(customer&&typeof favoriteWriter==='function'){
+     if(customer&&allowedFavorite&&typeof favoriteWriter==='function'){
       const saved=row.is_favorite===true;
       const star=button(saved?'Remove saved place':'Save place',saved?'إزالة المكان المحفوظ':'حفظ المكان',async()=>{
        if(writing||uncertain||turn!==generation)return;
