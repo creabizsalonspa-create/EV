@@ -663,7 +663,11 @@ class SourceConsumerTest extends TestCase
                 $page = match ($after) {
                     0 => $nonEnergy,
                     100 => [$last],
-                    101 => [],
+                    101 => [[
+                        'id' => 102,
+                        'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                        'sampledValue' => [['measurand' => 'Voltage', 'value' => 240]],
+                    ]],
                     default => $this->fail('Meter page was read with an unexpected source cursor.'),
                 };
 
@@ -688,7 +692,9 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('charger_commands', 1);
         $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
-        $this->assertSame([0, 100, 101], $requested);
+        // The terminal signed event makes later source rows irrelevant; there
+        // must not be a third poll at cursor 101.
+        $this->assertSame([0, 100], $requested);
         $this->assertDatabaseCount('finance_invoices', 1);
     }
 
@@ -720,7 +726,7 @@ class SourceConsumerTest extends TestCase
         $pagesRequested = [];
 
         Http::preventStrayRequests();
-        Http::fake(function (Request $request) use ($link, $protocol, $at, $rows, &$pagesRequested) {
+        Http::fake(function (Request $request) use ($link, $protocol, $at, &$rows, &$pagesRequested) {
             $query = $request['query'];
             if (str_contains($query, 'ChargingStations')) {
                 return Http::response(['data' => [
@@ -775,8 +781,14 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 1);
         $this->assertSame(8, $link->fresh()->source_station_id);
 
+        // Source may retain additional post-terminal voltage telemetry.
+        // The already-finalized canonical session must not poll or replay it.
+        $rows[] = [
+            'id' => 251, 'timestamp' => $at->addSeconds(3)->toIso8601String(),
+            'sampledValue' => [['measurand' => 'Voltage', 'value' => 240]],
+        ];
         $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
-        $this->assertSame([0, 100, 200, 250], $pagesRequested);
+        $this->assertSame([0, 100, 200], $pagesRequested);
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('charger_commands', 1);
     }
