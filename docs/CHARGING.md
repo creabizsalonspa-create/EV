@@ -47,7 +47,9 @@ Before a signed start has been observed, the source consumer can wait for a
 simulator station/authorization that is still being provisioned. Once a
 transaction has started or the source station has been pinned, disappearance
 of either authenticated identity is a reconciliation incident rather than a
-healthy empty poll. The reader never finalizes or releases capacity from
+healthy empty poll. Similarly, a previously authenticated started transaction
+that disappears or loses its required meter start or absolute start time
+requires review; incomplete first-time source provisioning still waits safely. The reader never finalizes or releases capacity from
 missing-source evidence, and resumes only after a verified original identity
 returns. OCPP 1.6 and 2.0.1 station-removal/authorization-removal tests
 require exactly one final invoice and zero extra commands after recovery.
