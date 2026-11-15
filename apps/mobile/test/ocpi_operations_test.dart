@@ -170,7 +170,13 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Inspect Tariffs'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.ensureVisible(find.text('Inspect Tariffs'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Inspect Tariffs'));
       await tester.pumpAndSettle();
       expect(
