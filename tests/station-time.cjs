@@ -14,6 +14,8 @@ test("station-local booking resolves Dubai and US summer/winter into exact UTC s
     assert.equal(toUtc("2026-07-16T09:30", "America/New_York"), "2026-07-16T13:30:00Z");
     assert.equal(toUtc("2026-01-16T09:30", "America/New_York"), "2026-01-16T14:30:00Z");
     assert.equal(toUtc("2026-11-16T10:30", "UTC"), "2026-11-16T10:30:00Z");
+    // Nepal's +05:45 offset means a valid UTC :30 slot ends in :15 locally.
+    assert.equal(toUtc("2026-11-16T10:15", "Asia/Kathmandu"), "2026-11-16T04:30:00Z");
 });
 test("bad timezone cannot silently fall back to a device locale", () => {
     const { validZone, toUtc } = subject();
