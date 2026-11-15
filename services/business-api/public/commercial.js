@@ -1556,7 +1556,98 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 actor: () => actor,
             });
             await settlements(operations, current);
+            if (actor.role === "admin")
+                financeApprovals(panel("Finance approval review", "مراجعة الموافقات المالية"), current);
         }
+    }
+    function financeApprovals(parent, current) {
+        // All actions remain in their original canonical workflows.
+        const list = document.createElement("section");
+        list.dataset.financeApprovalQueue = "true";
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", "Finance approval kind");
+        for (const [key, en, ar] of [
+            ["all", "All pending", "جميع الطلبات المعلقة"],
+            ["refund", "Refund reviews", "مراجعات الاسترداد"],
+            ["settlement", "Settlement approvals", "موافقات التسوية"],
+            ["adjustment", "Adjustment approvals", "موافقات التعديل"],
+        ]) {
+            const o = translated("option", en, ar);
+            o.value = key;
+            select.append(o);
+        }
+        parent.append(
+            translated(
+                "p",
+                "Read-only TEST approvals; amounts are not bank payments or payout instructions.",
+                "مراجعة موافقات اختبارية للقراءة فقط؛ المبالغ ليست مدفوعات مصرفية أو أوامر صرف.",
+            ),
+            select,
+            list,
+        );
+        let generation = 0;
+        const clear = () => {
+            generation++;
+            list.replaceChildren();
+        };
+        select.addEventListener("change", clear);
+        document.addEventListener(
+            "visibilitychange",
+            () => {
+                if (document.hidden) clear();
+            },
+            { signal: controller.signal },
+        );
+        async function show(page = 1) {
+            const version = ++generation;
+            const payload = await api(
+                "finance/approval-queue?kind=" +
+                    encodeURIComponent(select.value) + "&per_page=20&page=" + page,
+                "GET",
+                undefined,
+                controller.signal,
+            );
+            if (current !== epoch || version !== generation ||
+                document.hidden || !list.isConnected) return;
+            if (payload.read_only !== true || payload.admin_only !== true ||
+                payload.real_money_moved !== false ||
+                payload.mutations_performed !== false ||
+                payload.not_a_payment_or_payout_authority !== true ||
+                !Array.isArray(payload.data))
+                throw Error("Financial approval queue source cannot be verified.");
+            list.replaceChildren(
+                translated("h4", "Pending financial reviews", "المراجعات المالية المعلقة"),
+                text("p", String(payload.total) + " · Pending / قيد المراجعة"),
+            );
+            for (const item of payload.data) {
+                if (!["refund", "settlement", "adjustment"].includes(item.kind) ||
+                    !Number.isSafeInteger(Number(item.record_id)) ||
+                    !Number.isSafeInteger(Number(item.amount_minor)) ||
+                    !/^[A-Z]{3}$/.test(item.currency))
+                    throw Error("Unverified financial review item.");
+                const line = document.createElement("article");
+                line.className = "finance-row";
+                line.dataset.financeApprovalKind = item.kind;
+                line.append(
+                    text("strong", item.kind + " #" + item.record_id),
+                    text("p", item.currency + " · " + String(item.amount_minor) +
+                        " minor units / وحدات صغرى"),
+                    text("p", "Vendor #" + item.vendor_id + " · " + item.status),
+                );
+                list.append(line);
+            }
+            const pager = document.createElement("div");
+            pager.className = "finance-pagination";
+            pager.append(text("p", String(payload.current_page) + " / " + String(payload.last_page)));
+            if (payload.current_page > 1)
+                button(pager, "Previous finance reviews", "المراجعات السابقة",
+                    () => show(payload.current_page - 1));
+            if (payload.current_page < payload.last_page)
+                button(pager, "Next finance reviews", "المراجعات التالية",
+                    () => show(payload.current_page + 1));
+            list.append(pager);
+        }
+        button(parent, "Load pending finance reviews", "عرض المراجعات المالية المعلقة", () => show(1));
     }
     async function settlements(parent, current) {
         const activeCache = cache,
