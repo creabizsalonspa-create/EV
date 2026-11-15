@@ -9,6 +9,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private var returnPending = false
+    private var clearPrivacyFlagOnResume = false
     private var returnChannel: MethodChannel? = null
 
     private fun acceptReturn(intent: Intent?) {
@@ -37,13 +38,20 @@ class MainActivity : FlutterActivity() {
     // The OS may capture a task-switcher thumbnail while Flutter is paused.
     // Keep screenshots enabled in the foreground; protect only inactive UI.
     override fun onPause() {
+        // A specialist screen may already require FLAG_SECURE while active.
+        // Never remove that independent restriction when coming back.
+        clearPrivacyFlagOnResume =
+            (window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE) == 0
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
-        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (clearPrivacyFlagOnResume) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        clearPrivacyFlagOnResume = false
     }
 
     override fun onNewIntent(intent: Intent) {
