@@ -643,3 +643,11 @@ Account/background changes discard cached and in-flight snapshots; resume does
 not poll. Reports are labeled with snapshot/source timestamps and simulated
 source evidence, never current physical availability, connectivity or command
 permission. This observation page does not replace topology or admission checks.
+
+
+Fleet rows may include `operations_target={company_id,charger_id}` only when the
+current station/company/site/charger ownership is consistent. This is a navigation
+hint, not a control grant; blocked connectors may still need diagnosis. Explicit
+web/native selection opens the existing scoped source diagnostics/repair workspace.
+No fault acknowledgment, inspection, reset, firmware or maintenance change occurs
+merely by reading a fleet snapshot. Reassignment removes previous-owner targets.

@@ -1,3 +1,13 @@
+# 15 November 2026 — fleet-to-diagnostics connected workflow
+
+Fleet rows now navigate explicitly into the existing authorized source diagnosis
+and repair workspaces in web/Flutter. Server hints require consistent current
+station/company/site/charger ownership, remain available for maintenance-blocked
+inventory and disappear after station reassignment. Navigation grants no new
+permission and never automatically acknowledges faults or sends commands.
+Focused PostgreSQL22/382, three native cases/analysis and EN/AR browser navigation
+contracts passed. Required hosted final-source checks remain the integration gate.
+
 # 15 November 2026 — connected operations integration candidate PR128
 
 Combined source preserves PR125 catalog/MFA workflows, PR127 current-request

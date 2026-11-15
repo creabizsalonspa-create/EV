@@ -2,11 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/connector_fleet.dart';
+import 'package:creabiz_ev/charger_diagnostics.dart';
 import 'test_support.dart';
 
 class FleetApi extends FixtureApi {
   int reads = 0;
-  bool unsafe = false;
+  bool unsafe = false, navigation = false;
+  int diagnosticsReads = 0;
   Completer<dynamic>? delayed;
   final queries = <Map<String, String>>[];
   Map<String, dynamic> result(int page) => {
@@ -26,6 +28,8 @@ class FleetApi extends FixtureApi {
           'station_name': 'Private fleet $page',
           'protocol': '2.0.1',
           'inventory_eligible_at_read': true,
+          if (navigation)
+            'operations_target': {'company_id': 7, 'charger_id': 9},
           'status_freshness': {
             'state': page == 1 ? 'recent' : 'stale',
             'reported_status': page == 1 ? 'Charging' : null,
@@ -44,6 +48,11 @@ class FleetApi extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path == 'vendor-ops/companies/7/chargers/9/source-diagnostics') {
+      expect(method, 'GET');
+      diagnosticsReads++;
+      return Completer<dynamic>().future;
+    }
     expect(path, 'charging-operations/connectors');
     expect(method, 'GET');
     reads++;
@@ -56,6 +65,30 @@ Widget app(FleetApi api) => MaterialApp(
   home: ConnectorFleetView(api: api, onExpired: () {}),
 );
 void main() {
+  testWidgets(
+    'diagnostics requires explicit navigation to the scoped existing workspace',
+    (tester) async {
+      final api = FleetApi()..navigation = true;
+      await tester.pumpWidget(app(api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Read connector snapshot'));
+      await tester.pumpAndSettle();
+      expect(api.diagnosticsReads, 0);
+      final open = find.text('Open source diagnostics');
+      await tester.ensureVisible(open);
+      await tester.tap(open);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      final view = tester.widget<ChargerDiagnosticsView>(
+        find.byType(ChargerDiagnosticsView),
+      );
+      expect(view.companyId, 7);
+      expect(view.chargerId, 9);
+      expect(api.diagnosticsReads, 1);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets(
     'explicit snapshot, frozen station pagination, stale label and background privacy',
     (tester) async {
@@ -76,14 +109,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(api.queries.last, {'page': '2', 'station_id': '7'});
       expect(find.text('Stale report; current state unknown'), findsOneWidget);
-      tester.binding.handleAppLifecycleStateChanged(
-        AppLifecycleState.inactive,
-      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       await tester.pumpAndSettle();
       expect(find.textContaining('Private fleet'), findsNothing);
-      tester.binding.handleAppLifecycleStateChanged(
-        AppLifecycleState.resumed,
-      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
       expect(find.textContaining('Private fleet'), findsNothing);
       expect(api.reads, 2);

@@ -60,7 +60,7 @@ class ConnectorFleetTest extends TestCase
         $f = $this->fixture($protocol);
         $this->observe($f);
         $path = '/api/charging-operations/connectors';
-        $this->actingAs($f['owner'])->getJson($path)->assertOk()->assertJsonPath('connectors.total', 1)->assertJsonPath('connectors.data.0.protocol', $protocol)->assertJsonPath('connectors.data.0.status_freshness.reported_status', 'Charging')->assertJsonPath('physical_availability_verified', false)->assertJsonPath('remote_control', false)->assertJsonMissingPath('connectors.data.0.identifier')->assertJsonMissingPath('connectors.data.0.customer');
+        $this->actingAs($f['owner'])->getJson($path)->assertOk()->assertJsonPath('connectors.total', 1)->assertJsonPath('connectors.data.0.protocol', $protocol)->assertJsonPath('connectors.data.0.operations_target.company_id', $f['company']->id)->assertJsonPath('connectors.data.0.operations_target.charger_id', $f['charger']->id)->assertJsonPath('connectors.data.0.status_freshness.reported_status', 'Charging')->assertJsonPath('physical_availability_verified', false)->assertJsonPath('remote_control', false)->assertJsonMissingPath('connectors.data.0.identifier')->assertJsonMissingPath('connectors.data.0.customer');
         $this->actingAs(User::factory()->create(['role' => 'admin']))->getJson($path)->assertOk()->assertJsonPath('connectors.total', 1);
         $this->actingAs(User::factory()->create(['role' => 'vendor']))->getJson($path)->assertOk()->assertJsonPath('connectors.total', 0);
         $this->getJson($path.'?station_id='.$f['station']->id)->assertNotFound();
@@ -85,7 +85,7 @@ class ConnectorFleetTest extends TestCase
         $this->observe($f, -60);
         $this->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.status_freshness.state', 'unknown');
         $f['connector']->update(['maintenance_blocked' => true]);
-        $this->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.inventory_eligible_at_read', false)->assertJsonPath('connectors.data.0.status_freshness.reported_status', null);
+        $this->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.inventory_eligible_at_read', false)->assertJsonPath('connectors.data.0.status_freshness.reported_status', null)->assertJsonPath('connectors.data.0.operations_target.company_id', $f['company']->id);
     }
 
     public function test_reassignment_changed_mapping_and_revoked_request_never_inherit_source_authority(): void
@@ -98,7 +98,7 @@ class ConnectorFleetTest extends TestCase
         $newOwner = User::factory()->create(['role' => 'vendor']);
         $f['station']->update(['vendor_id' => $newOwner->id]);
         $this->getJson($path)->assertOk()->assertJsonPath('connectors.total', 0);
-        $this->actingAs($newOwner)->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.inventory_eligible_at_read', false)->assertJsonPath('connectors.data.0.status_freshness.reported_status', null);
+        $this->actingAs($newOwner)->getJson($path)->assertOk()->assertJsonPath('connectors.data.0.inventory_eligible_at_read', false)->assertJsonPath('connectors.data.0.status_freshness.reported_status', null)->assertJsonPath('connectors.data.0.operations_target', null);
         $request = Request::create($path);
         $request->setUserResolver(fn () => $newOwner);
         DB::table('users')->where('id', $newOwner->id)->increment('auth_epoch');

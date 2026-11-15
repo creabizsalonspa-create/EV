@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
 import 'connector_freshness.dart';
+import 'charger_diagnostics.dart';
 
 class ConnectorFleetView extends StatefulWidget {
   final EvApi api;
@@ -84,6 +85,14 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
           row['station_name'] is! String ||
           ![null, '1.6', '2.0.1'].contains(row['protocol']) ||
           row['inventory_eligible_at_read'] is! bool)
+        return false;
+      final target = row['operations_target'];
+      if (target != null &&
+          (target is! Map ||
+              ![
+                'company_id',
+                'charger_id',
+              ].every((k) => target[k] is int && target[k] > 0)))
         return false;
       final f = row['status_freshness'];
       if (f is! Map ||
@@ -209,6 +218,29 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('${row['station_name']} · #${row['mapping_id']}'),
+                      if (row['operations_target'] != null)
+                        TextButton(
+                          onPressed: () {
+                            if (!foreground || !authorized()) return;
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ChargerDiagnosticsView(
+                                  api: widget.api,
+                                  companyId:
+                                      row['operations_target']['company_id']
+                                          as int,
+                                  chargerId:
+                                      row['operations_target']['charger_id']
+                                          as int,
+                                  onExpired: widget.onExpired,
+                                ),
+                              ),
+                            );
+                          },
+                          child: Text(
+                            t('Open source diagnostics', 'فتح تشخيص المصدر'),
+                          ),
+                        ),
                       Text(
                         '${t('Protocol', 'البروتوكول')}: ${row['protocol'] ?? t('No qualified source', 'لا يوجد مصدر مؤهل')}',
                       ),

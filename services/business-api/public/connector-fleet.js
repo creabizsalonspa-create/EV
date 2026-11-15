@@ -1,5 +1,5 @@
 /* Explicit stored-source snapshots; no polling or operational commands. */
-window.renderConnectorFleetAction = (root, { api, actor }) => {
+window.renderConnectorFleetAction = (root, { api, actor, openDiagnostics }) => {
     const viewer = actor();
     if (!viewer || !['vendor', 'admin'].includes(viewer.role)) return;
     const panel = document.createElement('section');
@@ -45,6 +45,7 @@ window.renderConnectorFleetAction = (root, { api, actor }) => {
                 data.connectors.current_page !== page || data.connectors.last_page < 1 || typeof data.as_of !== 'string') throw Error('Invalid snapshot');
             for (const row of data.connectors.data) {
                 const f = row.status_freshness;
+                if (row.operations_target != null && !['company_id','charger_id'].every(k => Number.isSafeInteger(row.operations_target[k]) && row.operations_target[k] > 0)) throw Error('Invalid navigation target');
                 if (!Number.isSafeInteger(row.mapping_id) || !Number.isSafeInteger(row.station_id) || typeof row.station_name !== 'string' ||
                     ![null,'1.6','2.0.1'].includes(row.protocol) || typeof row.inventory_eligible_at_read !== 'boolean' ||
                     !f || !['recent','stale','unknown'].includes(f.state) || f.evidence !== 'SIMULATED_SOURCE' || f.physical_availability_verified !== false ||
@@ -59,6 +60,17 @@ window.renderConnectorFleetAction = (root, { api, actor }) => {
                     f.state === 'recent' ? t('Recent report at snapshot: ', 'تقرير حديث وقت اللقطة: ') + (window.EvConnectorFreshness?.label(f.reported_status, document.documentElement.lang === 'ar') ?? f.reported_status) :
                     f.state === 'stale' ? t('Stale report; current state unknown', 'تقرير قديم؛ الحالة الحالية غير معروفة') : t('Source state unknown', 'حالة المصدر غير معروفة')));
                 if (f.observed_at) card.append(node('p', `${t('Source timestamp', 'وقت المصدر')}: ${f.observed_at}`));
+                if (row.operations_target && typeof openDiagnostics === 'function') {
+                    const b = node('button', t('Open source diagnostics', 'فتح تشخيص المصدر')); b.type = 'button';
+                    b.onclick = async () => {
+                        if (actor() !== viewer || !panel.isConnected || document.hidden || b.disabled) return;
+                        b.disabled = true;
+                        try { await openDiagnostics(row.operations_target.company_id, row.operations_target.charger_id); }
+                        catch { if (actor() === viewer && b.isConnected) card.append(node('p', t('Diagnostics unavailable. Recheck current access.', 'التشخيص غير متاح. تحقق من الوصول الحالي.'))); }
+                        finally { if (b.isConnected) b.disabled = false; }
+                    };
+                    card.append(b);
+                }
                 panel.append(card);
             }
             if (!data.connectors.data.length) panel.append(node('p', t('No mapped connectors in this scope.', 'لا توجد موصلات مرتبطة ضمن هذا النطاق.')));

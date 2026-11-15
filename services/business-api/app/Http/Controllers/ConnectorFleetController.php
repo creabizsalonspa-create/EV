@@ -33,6 +33,13 @@ final class ConnectorFleetController extends Controller
             $page->through(function ($map) use ($locked) {
                 $station = $locked->get($map->station_id);
                 abort_unless($station, 409);
+                // Navigation is independent of availability: blocked inventory still
+                // needs diagnostics. Recheck canonical ownership without granting control.
+                $navigation = DB::table('charging_evses as e')->join('vendor_chargers as ch', 'ch.id', '=', 'e.charger_id')
+                    ->join('vendor_sites as site', 'site.id', '=', 'ch.site_id')->join('vendor_companies as co', 'co.id', '=', 'ch.company_id')
+                    ->where('e.id', $map->evse_id)->whereColumn('site.company_id', 'co.id')->where('site.station_id', $station->id)
+                    ->where('co.owner_id', $station->vendor_id)->where('co.country', $station->country)->where('site.country', $station->country)
+                    ->where('ch.source', 'simulator')->where('ch.source', $station->source)->first(['co.id as company_id', 'ch.id as charger_id']);
                 $freshness = app(ConnectorFreshness::class)->present(null, null, null);
                 $protocol = null;
                 $ready = false;
@@ -47,6 +54,7 @@ final class ConnectorFleetController extends Controller
                 }
 
                 return ['mapping_id' => $map->id, 'station_id' => $station->id, 'station_name' => $station->name,
+                    'operations_target' => $navigation ? ['company_id' => (int) $navigation->company_id, 'charger_id' => (int) $navigation->charger_id] : null,
                     'protocol' => $protocol, 'inventory_eligible_at_read' => $ready, 'status_freshness' => $freshness];
             });
 
