@@ -249,6 +249,19 @@ class SourceConsumerTest extends TestCase
         $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
         $this->assertSame('source_observed', DB::table('charger_commands')->value('status'));
         $this->assertDatabaseCount('charger_commands', 1);
+
+        // Protocol identity is rechecked on every observation, even after
+        // the original start has been applied to the canonical session.
+        $reported = $protocol === '1.6' ? '2.0.1' : '1.6';
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('A changed upstream station protocol was accepted mid-session.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('protocol mismatch', $exception->getMessage());
+        }
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
     }
 
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
