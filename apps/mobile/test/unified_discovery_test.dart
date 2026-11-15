@@ -401,4 +401,26 @@ void main(){
    expect(second.queries.last['connector'],'');
    expect(second.queries.last.containsKey('max_source_age_hours'),false);
  });
+
+ testWidgets('native customer-to-vendor role downgrade purges recent search and saved-only fields on same API',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_){},customer:true));
+   final input=find.byKey(const Key('unified-query'));
+   await tester.enterText(input,'Private customer place');
+   await tester.ensureVisible(find.byType(CheckboxListTile));
+   await tester.tap(find.byType(CheckboxListTile));await tester.pump();
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.last['saved_only'],'1');
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   await tester.pumpWidget(app(api,(_){},customer:false));await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(tester.widget<TextField>(input).controller!.text,isEmpty);
+   expect(find.byType(CheckboxListTile),findsNothing);
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.last['saved_only'],'0');
+   expect(api.queries.last['q'],'');
+ });
 }
