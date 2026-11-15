@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Security\AdminTransactionAuthority;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -32,9 +33,9 @@ class AdminSessionController extends Controller
             // Revalidate current credentials and role after locking the user.
             // In particular, a concurrent password reset must not allow a
             // previously known password to revoke the new owner's sessions.
-            $account = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
-            abort_unless($account->role === 'admin'
-                && $account->account_status === 'active', 403);
+            // A stale authenticated snapshot is not sufficient authority
+            // to delete newer sessions after a password/epoch rotation.
+            $account = AdminTransactionAuthority::requireCurrent($actor);
             if (! Hash::check($input['password'], $account->password)) {
                 throw ValidationException::withMessages([
                     'password' => 'Unable to verify account credentials.',
