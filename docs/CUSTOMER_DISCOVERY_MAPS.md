@@ -24,3 +24,10 @@ The authenticated unified discovery browser now offers **Search platform and par
 The existing form filters, saved-state permissions, 25-row pagination, literal source evidence, unknown physical availability and existing role/authentication gates remain in force. Search results persist within the page until another explicit query or account reset. A regular form search clears the old viewport. Map pins remain the loaded page only, not a comprehensive viewport overlay.
 
 **Candidate validation to complete on the exact branch head:** Laravel `UnifiedDiscoveryTest` for web/native endpoints and PostgreSQL/SQLite, Node `tests/unified-discovery.cjs`, real Chromium `tests/discovery-map.cjs`, existing mapping/OCM suites and the hosted integration matrix. No live provider or device was contacted by implementation. Do not mark the original 312-item inventory as fully tested or production accepted based on an unmerged candidate.
+
+
+### Native Flutter viewport parity (Agent 8 candidate)
+
+The existing canonical `UnifiedDiscoveryView` now opens the existing, opt-in, source-labelled `PartnerReportMap` with a **Search platform and partner locations in this map view** action. Map taps, pan/zoom, tiles and ordinary map opening never query the catalog. The map returns sanitized, six-decimal bounds to the already-authenticated `discovery/search` client only when the driver explicitly taps that action. Bounds persist across pagination and are cleared by ordinary form search or account change. The view rechecks session epoch and app foreground state after the map route returns, preventing an expired account or backgrounded map from sending stale coordinates. No second native app, provider adapter, OCPI command or charging authority is added.
+
+Viewport geometry has focused pure-data tests for antimeridian/whole-world and invalid/degenerate bounds. Existing map tests gain a consent-based route-result contract. Unified native widget tests cover EN/AR map-to-query, pagination, no implicit tile/API requests and ordinary-search reset. These must pass with the pinned Flutter toolchain and device matrices on the exact final PR head before integration.
