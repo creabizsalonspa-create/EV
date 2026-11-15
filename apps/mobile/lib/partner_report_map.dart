@@ -123,21 +123,42 @@ List<List<PartnerMapPoint>> clusterPublishedMapPoints(
   if (!zoom.isFinite || zoom < 0 || zoom > 22) {
     return points.map((point) => [point]).toList();
   }
-  final scale = 256 * math.pow(2, zoom) / 48;
-  final grouped = <String, List<PartnerMapPoint>>{};
+  // This map renders at most one authenticated catalog page. Compare screen
+  // pixel distances in wrapped Web Mercator rather than raw longitude bins:
+  // sites 3px apart across the antimeridian must not appear as two distant
+  // independent pins. The *first real source point* anchors each group; no
+  // synthetic centroid or live charger status is fabricated.
+  final worldPixels = 256.0 * math.pow(2, zoom).toDouble();
+  final anchors = <({double x, double y})>[];
+  final groups = <List<PartnerMapPoint>>[];
   for (final point in points) {
     if (!point.latitude.isFinite ||
         !point.longitude.isFinite ||
         point.latitude.abs() > 85.05112878 ||
         point.longitude.abs() > 180) continue;
     final longitude = point.longitude == 180 ? -180.0 : point.longitude;
-    final phi = point.latitude * math.pi / 180;
-    final sine = math.sin(phi);
-    final x = (((longitude + 180) / 360) * scale).floor();
-    final y = ((0.5 - math.log((1 + sine) / (1 - sine)) / (4 * math.pi)) * scale).floor();
-    (grouped['$x:$y'] ??= <PartnerMapPoint>[]).add(point);
+    final radians = point.latitude * math.pi / 180;
+    final sine = math.sin(radians);
+    final x = ((longitude + 180) / 360) * worldPixels;
+    final y = (0.5 - math.log((1 + sine) / (1 - sine)) / (4 * math.pi)) * worldPixels;
+    var matched = -1;
+    for (var i = 0; i < anchors.length; i++) {
+      final distanceX = (x - anchors[i].x).abs();
+      final wrappedX = math.min(distanceX, worldPixels - distanceX);
+      final distanceY = (y - anchors[i].y).abs();
+      if (wrappedX * wrappedX + distanceY * distanceY <= 48 * 48) {
+        matched = i;
+        break;
+      }
+    }
+    if (matched >= 0) {
+      groups[matched].add(point);
+    } else {
+      anchors.add((x: x, y: y));
+      groups.add(<PartnerMapPoint>[point]);
+    }
   }
-  return grouped.values.toList();
+  return groups;
 }
 
 /// Read-only view of just the currently loaded public partner page. It does
