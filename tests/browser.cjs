@@ -295,6 +295,19 @@ function provisionTestRole(email, role) {
     await customer.page.unroute("**/api/fleets?page=*");
     await customer.page.evaluate(() => loadFleetAccounts(1));
     await customer.page.locator("#fleet-list [data-fleet-id='" + selectedFleet.id + "']").click();
+    await customer.page.locator("#fleet-detail input[type=email]").waitFor();
+    // A membership refresh must remove detail controls even when the GET
+    // fails. The customer's authority may have changed since opening them.
+    await customer.page.route("**/api/fleets?page=1", (route) =>
+      route.fulfill({status:503,contentType:"application/json",
+        body:JSON.stringify({message:"Membership refresh unavailable"})}));
+    await customer.page.evaluate(() => loadFleetAccounts(1));
+    await customer.page.locator("#fleet-list [data-fleet-retry]").waitFor();
+    assert.equal(await customer.page.locator("#fleet-detail input[type=email]").count(),0,
+      "failed membership recheck must not leave stale invite controls");
+    await customer.page.unroute("**/api/fleets?page=1");
+    await customer.page.evaluate(() => loadFleetAccounts(1));
+    await customer.page.locator("#fleet-list [data-fleet-id='" + selectedFleet.id + "']").click();
     await customer.page
       .locator("#fleet-detail input[type=email]")
       .fill(outsider.email);
