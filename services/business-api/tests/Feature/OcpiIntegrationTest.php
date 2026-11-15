@@ -72,6 +72,73 @@ class OcpiIntegrationTest extends TestCase
         $this->assertArrayNotHasKey('commands', $modules);
     }
 
+    public function test_outbound_partner_reads_accept_matching_trace_ids_and_do_not_retry(): void
+    {
+        $provider = $this->provider();
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        Http::fake(function ($request) {
+            $requestId = $request->header('X-Request-ID')[0];
+            $correlationId = $request->header('X-Correlation-ID')[0];
+
+            return Http::response($this->envelope([$this->location()]), 200, [
+                'X-Request-ID' => $requestId,
+                'X-Correlation-ID' => $correlationId,
+            ]);
+        });
+
+        $records = app(PartnerClient::class)->pull($provider->fresh(), 'locations');
+        $this->assertCount(1, $records);
+        $this->assertSame('fixture-1', $records[0]['id']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_outbound_partner_reads_reject_partial_or_mismatched_trace_echo_without_retry(): void
+    {
+        $provider = $this->provider();
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
+        foreach (['partial', 'mismatch'] as $mode) {
+            Http::fake(function ($request) use ($mode) {
+                $headers = ['X-Request-ID' => $request->header('X-Request-ID')[0]];
+                if ($mode === 'mismatch') {
+                    $headers['X-Correlation-ID'] = 'not-the-request-correlation';
+                }
+
+                return Http::response($this->envelope([$this->location()]), 200, $headers);
+            });
+            try {
+                app(PartnerClient::class)->pull($provider->fresh(), 'locations');
+                $this->fail('An unverifiable OCPI read response was trusted.');
+            } catch (OcpiException $e) {
+                $this->assertStringContainsString('tracing headers', $e->getMessage());
+            }
+        }
+        // Each attempt is one read. No automatic replay or second-page access.
+        Http::assertSentCount(2);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_sandbox_write_rejects_wrong_trace_echo_without_replaying_unknown_command(): void
+    {
+        $provider = $this->provider();
+        config(['ocpi.test_commands_enabled' => true, 'ocpi.connections.contract-test.test_commands' => true]);
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['commands_receiver' => 'https://partner.example/commands']]);
+        Http::fake(function ($request) {
+            return Http::response($this->envelope(['result' => 'ACCEPTED', 'timeout' => 30]), 200, [
+                'X-Request-ID' => $request->header('X-Request-ID')[0],
+                'X-Correlation-ID' => 'different-correlation-id',
+            ]);
+        });
+        try {
+            app(PartnerClient::class)->write($provider->fresh(), 'commands_receiver', 'POST', ['RESERVE_NOW'], [
+                'reservation_id' => 'synthetic-not-real',
+            ]);
+            $this->fail('A mismatched outbound command trace was incorrectly accepted.');
+        } catch (OcpiException $e) {
+            $this->assertStringContainsString('tracing headers', $e->getMessage());
+        }
+        Http::assertSentCount(1);
+    }
+
     public function test_endpoint_origin_escape_is_rejected_before_forwarding_credentials(): void
     {
         $p = $this->provider();
