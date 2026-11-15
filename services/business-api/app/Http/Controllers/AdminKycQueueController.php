@@ -19,10 +19,23 @@ class AdminKycQueueController extends Controller
      */
     public function index(Request $request)
     {
-        $actor = $request->user();
-        abort_unless($actor instanceof User
-            && $actor->role === 'admin'
+        // Keep the live Admin row locked across the private KYC query,
+        // decrypted-review metadata projection and successful-view audit.
+        return DB::transaction(fn () => $this->indexCurrent($request));
+    }
+
+    private function indexCurrent(Request $request)
+    {
+        $snapshot = $request->user();
+        abort_unless($snapshot instanceof User
+            && $snapshot->role === 'admin'
+            && $snapshot->account_status === 'active', 403);
+        $actor = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+        abort_unless($actor->role === 'admin'
             && $actor->account_status === 'active', 403);
+        abort_unless((int) $snapshot->auth_epoch === (int) $actor->auth_epoch
+            && hash_equals((string) $snapshot->password, (string) $actor->password),
+            409, 'Administrator credentials changed. Sign in again.');
 
         $filter = $request->validate([
             'status' => 'sometimes|required|in:draft,submitted,approved,rejected,changes_requested,suspended',
