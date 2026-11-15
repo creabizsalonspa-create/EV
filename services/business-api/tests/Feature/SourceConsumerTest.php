@@ -627,6 +627,98 @@ class SourceConsumerTest extends TestCase
     }
 
     #[DataProvider('protocolVersions')]
+    public function test_second_page_clock_regression_requires_review_and_recovers_from_original_source(string $protocol): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $bad = true;
+        $afterQueries = [];
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $protocol, $at, &$bad, &$afterQueries) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'source-clock-page',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $at->addSeconds(3)->toIso8601String(),
+                    'isActive' => false,
+                    'totalKwh' => '2.500',
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+                $afterQueries[] = $after;
+                $sample = fn (int $id, int $wh, string $context, int $seconds) => [
+                    'id' => $id,
+                    'timestamp' => $at->addSeconds($seconds)->toIso8601String(),
+                    'sampledValue' => [[
+                        'measurand' => 'Energy.Active.Import.Register',
+                        'value' => (string) $wh,
+                        'context' => $context,
+                        'unitOfMeasure' => ['unit' => 'Wh'],
+                    ]],
+                ];
+                $page = match ($after) {
+                    0 => [$sample(1, 2500, 'Sample.Periodic', 2)],
+                    1 => [
+                        [
+                            'id' => 2,
+                            'timestamp' => $at->addSeconds($bad ? 1 : 2)->toIso8601String(),
+                            'sampledValue' => [['measurand' => 'Voltage', 'value' => 230]],
+                        ],
+                        $sample(3, 3500, 'Transaction.End', 3),
+                    ],
+                    default => $this->fail('Terminal source reader attempted an unexpected page.'),
+                };
+
+                return Http::response(['data' => ['MeterValues' => $page]]);
+            }
+
+            $this->fail('Unexpected source request during clock regression verification.');
+        });
+
+        $this->assertSame(2, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame(1, $link->fresh()->source_meter_cursor);
+        $this->assertSame(1500, DB::table('charging_sessions')->value('energy_wh'));
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Second-page timestamp regression was accepted.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('chronology regressed', $e->getMessage());
+        }
+        $this->assertSame(1, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('csms_inbox_events', 2);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        $bad = false;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(3, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id, 'status' => 'stopped', 'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('csms_inbox_events', 3);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame([0, 1, 1], $afterQueries);
+        $this->assertDatabaseCount('finance_invoices', 1);
+    }
+
+    #[DataProvider('protocolVersions')]
     public function test_exact_hundred_row_source_page_resumes_at_next_unread_energy_record(string $protocol): void
     {
         $link = $this->link($protocol);
