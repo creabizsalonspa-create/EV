@@ -1792,10 +1792,12 @@ async function garage() {
     const generation = ++garageGeneration;
     const active = () => generation === garageGeneration &&
         epoch === client.sessionEpoch && actor === user?.id;
+    // Clear the previous account's vehicles before requesting the next list.
+    // A failed or delayed read must not leave private rows on screen.
+    el("vehicle-list").replaceChildren();
     const j = await api("vehicles");
     if (!active()) return;
     if (!Array.isArray(j?.data)) throw Error("Unreadable vehicle list.");
-    el("vehicle-list").replaceChildren();
     for (const v of j.data) {
         const row = node("div", "#" + v.id + " · " + v.name + " · " + v.connector_type);
         if (user.role === "customer") {
