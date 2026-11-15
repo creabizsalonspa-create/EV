@@ -93,6 +93,13 @@ const assert = require("node:assert/strict");
         },
       });
     });
+    const viewportRequests = [];
+    await page.route("**/api/discovery/search*", route => {
+      viewportRequests.push(new URL(route.request().url()));
+      return route.fulfill({
+        json: { data: [], total: 0, current_page: 1, last_page: 1 },
+      });
+    });
     await page.goto(process.env.EV_TEST_URL || "http://127.0.0.1:8000");
     // Capture the active tile layer for a deterministic delayed failure.
     // CI may deliver tileerror after the polar GPS callback.
@@ -169,6 +176,20 @@ const assert = require("node:assert/strict");
     // Refit requires explicit interaction; never creates new inventory.
     await page.getByRole("button", { name: "Show loaded locations on map" }).click();
     await page.getByText("Map fitted to loaded results only. Other nearby sites may not be listed.", { exact: true }).waitFor();
+    assert.equal(viewportRequests.length, 0, "Map initialization and refit must not search the unified API");
+    const viewRequest = page.waitForRequest(request =>
+      new URL(request.url()).pathname === "/api/discovery/search" &&
+      new URL(request.url()).searchParams.has("south"));
+    await page.getByRole("button", { name: "Search platform and partner locations in this map view" }).click();
+    const viewUrl = new URL((await viewRequest).url());
+    for (const key of ["south", "north", "west", "east"]) {
+      assert(Number.isFinite(Number(viewUrl.searchParams.get(key))),
+        "Viewport search must send finite numeric " + key);
+    }
+    assert(Number(viewUrl.searchParams.get("south")) < Number(viewUrl.searchParams.get("north")));
+    assert.equal(viewportRequests.length, 1, "One explicit click makes one unified catalog lookup");
+    assert.match(await page.locator("#discovery-map").textContent(),
+      /Results are paginated; availability is unverified/);
     const stationPinColor = await page.locator(".station-map-pin:not(.partner-map-pin)").evaluate(node => getComputedStyle(node).backgroundColor);
     const partnerPinColor = await page.locator(".partner-map-pin").evaluate(node => getComputedStyle(node).backgroundColor);
     assert.notEqual(partnerPinColor, stationPinColor, "Unverified partner pins must look distinct");
