@@ -249,7 +249,7 @@ for(const lang of ['en','ar'])test('missing partner name, provider, address and 
  f.form.onsubmit({preventDefault(){}});await tick();
  const card=f.list.children[1];
  assert.equal(f.list.children.length,2);
- assert.match(card.textContent,/Partner record #7/);
+ assert.match(card.textContent,lang==='ar'?/سجل الشريك #7/:/Partner record #7/);
  assert.match(card.textContent,lang==='ar'?/اسم مقدم الخدمة غير متاح/:/Provider label unavailable/);
  assert.match(card.textContent,lang==='ar'?/تفاصيل العنوان غير متاحة/:/Address details unavailable/);
  assert.match(card.textContent,lang==='ar'?/إحداثيات الخريطة غير متاحة/:/Map coordinates unavailable/);
