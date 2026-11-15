@@ -561,3 +561,26 @@ projected; no owner email, driver list, personal invoice/session or ledger data.
 The current active Admin role/password/auth epoch is checked under lock. Private
 no-store replies and EN/AR directory controls retain applied filters across pages,
 open the selected authorized fleet report and fence account/background replies.
+
+
+### Stored partner catalog observations
+
+`GET /api/ocpi/providers/{provider}/catalog-observations` and native `/api/v1/ocpi/...`
+are current active owning-vendor/protected web Admin reads; Admin personal tokens
+remain forbidden. Optional `module=all|locations|tariffs` filters before the bounded
+10000-record scalar projection. Larger results reject422 with no partial counts.
+No encrypted upstream payload, session/CDR, credential, endpoint, customer identity
+or raw coordinate is selected/returned. Private no-store responses contain current
+provider ID/name/authorization, snapshot UTC time, module totals, disjoint source-
+report and local-receipt age buckets, stored publication/coordinate/list quality
+and current-hash tariff retirement counts. Future clocks (including fractions of
+a second), invalid or missing clocks are never current observations. Buckets are
+within1h, over1h through24h, over24h through7d, over7d, unknown and clock-ahead.
+
+A recent receipt never refreshes source age. Coordinates usable for rendering are
+not geographic accuracy; stored publish flags and connector lists are not live
+availability or supported charging. Unauthorized providers show private archived
+records only. Physical/live-availability/remote-control/billing flags remain false.
+The EN/AR web/vendor Flutter view reads explicitly, selects a module, clears on
+background/account/target changes and never dispatches a partner request, booking,
+command or payment. This report does not activate discovery providers or roaming.

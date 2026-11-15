@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\OcpiCatalogObservationsController;
 use App\Http\Controllers\OcpiController;
 use App\Http\Controllers\OcpiCredentialsController;
 use App\Http\Controllers\OcpiProvisioningController;
@@ -24,3 +25,5 @@ Route::get('/providers/{provider}/records/{module}', [OcpiController::class, 're
 
 Route::get('/providers/{provider}/sync-plans', [OcpiSyncPlanController::class, 'show']);
 Route::put('/providers/{provider}/sync-plans/{module}', [OcpiSyncPlanController::class, 'update'])->whereIn('module', ['locations', 'tariffs', 'sessions', 'cdrs']);
+
+Route::get('/providers/{provider}/catalog-observations', [OcpiCatalogObservationsController::class, 'show'])->where('provider', '[0-9]{1,18}');

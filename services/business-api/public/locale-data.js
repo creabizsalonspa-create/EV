@@ -1,4 +1,5 @@
 window.EV_MESSAGES = {
+    "Stored partner catalog observations": {en: "Stored partner catalog observations", ar: "ملاحظات كتالوج الشريك المخزنة"},
     "Retire inactive rider source": {en: "Retire inactive test-source registration", ar: "إنهاء تسجيل الرمز غير النشط بمصدر الاختبار"},
     "Confirm inactive rider retirement": {en: "Inspect and block this globally revoked or expired token at the test source? This affects the shared token registration, does not stop active sessions and never processes payment. Uncertain outcomes require inspection; no automatic retry.", ar: "فحص وحظر الرمز المبطل عالمياً أو المنتهي بمصدر الاختبار؟ يؤثر هذا في تسجيل الرمز المشترك ولا يوقف الجلسات النشطة ولا يعالج دفعاً. النتيجة غير المؤكدة تحتاج فحصاً ولا تعاد تلقائياً."},
     "Rider retirement snapshot disclaimer": {en: "Retirement records a source snapshot for a globally revoked or expired token. A single company's withdrawn approval cannot retire an active token. It does not prove physical charging stopped.", ar: "يسجل الإنهاء لقطة من المصدر لرمز مبطل عالمياً أو منتهٍ. لا يسمح سحب موافقة شركة واحدة بإنهاء رمز نشط. لا يثبت ذلك توقف الشحن الفعلي."},

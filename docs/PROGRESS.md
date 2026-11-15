@@ -1,3 +1,18 @@
+# 15 November 2026 — stored partner catalog monitoring (integration pending)
+
+Connected owner/Admin API, EN/AR web and vendor Flutter observations expose
+stored locations/tariffs, disjoint report/receipt clocks, unknown/future data,
+map-field usability and current-version tariff withdrawal counts. No upstream
+lookup or session/CDR/payload/credential read; no live availability or command/
+billing authority. Scalar projection is bounded10000 records; no partial totals.
+Current-account/provider scope and foreground/target fences remain required.
+
+Focused PostgreSQL12/267 (including discovery), SQLite3/34, four native cases,
+EN/AR browser filter/privacy/authority checks and actual Laravel/vendor report
+plus customer denial passed. New cases are registered in mandatory CI. Targeted analysis and PHP style passed; no original atom/production
+credit or real partner activation claimed. Continue remaining authorized OCPI
+reservation/start-consent/cancel lifecycle and interoperability after integration.
+
 # 15 November 2026 — private Admin fleet discovery connected to reports
 
 Admin can now find fleets by literal name/country, page bounded25-row results and
