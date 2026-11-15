@@ -63,6 +63,22 @@ class UnifiedDiscoveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_source_age_filter_preserves_microseconds_at_both_bounds(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-15T12:00:00.500000Z'));
+        $f = $this->fixtures();
+        foreach ([['2026-11-15T12:00:00.250000Z', 1], ['2026-11-15T12:00:00.500000Z', 1],
+            ['2026-11-15T12:00:00.500001Z', 0], ['2026-11-14T12:00:00.500000Z', 1],
+            ['2026-11-14T12:00:00.499999Z', 0]] as [$source, $count]) {
+            $f['record']->update(['source_updated_at' => Carbon::parse($source)]);
+            foreach (['/api/discovery/search?scope=partner&', '/api/v1/discovery/search?scope=partner&',
+                '/api/roaming/locations?'] as $path) {
+                $this->getJson($path.'max_source_age_hours=24')->assertOk()->assertJsonPath('total', $count);
+            }
+        }
+        Http::assertNothingSent();
+    }
+
     public function test_partner_report_age_filter_is_bounded_before_pagination_and_leaves_catalog_unchanged(): void
     {
         $this->travelTo(Carbon::parse('2026-11-15T12:00:00Z'));
