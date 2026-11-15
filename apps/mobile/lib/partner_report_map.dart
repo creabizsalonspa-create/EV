@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'foreground_location.dart';
 
 
 /**
@@ -167,24 +168,97 @@ class PartnerReportMap extends StatefulWidget {
   final List<PartnerMapPoint> points;
   final TileProvider? tileProvider;
   final bool allowViewportSearch;
+  final Future<ForegroundFix> Function()? locationReader;
 
   const PartnerReportMap({
     super.key,
     required this.points,
     this.tileProvider,
     this.allowViewportSearch = false,
+    this.locationReader,
   });
 
   @override
   State<PartnerReportMap> createState() => _PartnerReportMapState();
 }
 
-class _PartnerReportMapState extends State<PartnerReportMap> {
+class _PartnerReportMapState extends State<PartnerReportMap>
+    with WidgetsBindingObserver {
   bool enabled = false, mapReady = false;
+  bool locating = false, foreground = true;
+  String? locationError;
+  int locationGeneration = 0;
   double currentZoom = 11;
   final mapController = MapController();
   @override
-  void dispose() { mapController.dispose(); super.dispose(); }
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (!foreground) {
+      locationGeneration++;
+      if (mounted) setState(() => locating = false);
+    }
+  }
+  @override
+  void dispose() {
+    locationGeneration++;
+    WidgetsBinding.instance.removeObserver(this);
+    mapController.dispose();
+    super.dispose();
+  }
+
+  /// One foreground fix, gated twice: this dialog and the native runtime
+  /// permission prompt. It never invokes catalog search or saves a GPS pin.
+  Future<void> locateOnce() async {
+    if (!mounted || !foreground || !enabled || !mapReady || locating) return;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(t('Use device location once?', 'استخدام موقع الجهاز مرة واحدة؟')),
+        content: Text(t(
+          'Read one foreground location only after permission. The map will move near it, so OpenStreetMap receives the displayed area while tiles are enabled. No coordinates are sent to the station search until you separately press Search. No background tracking or saved location.',
+          'قراءة الموقع مرة واحدة في المقدمة بعد الإذن. ستتحرك الخريطة بالقرب منه، لذلك سيتلقى OpenStreetMap المنطقة المعروضة عند تفعيل البلاطات. لا تُرسل الإحداثيات لبحث المحطات حتى تضغط بحث بشكل منفصل. لا تتبع في الخلفية ولا حفظ للموقع.',
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false),
+            child: Text(t('Cancel','إلغاء'))),
+          FilledButton(key: const Key('unified-native-gps-consent'),
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text(t('Allow once','السماح مرة واحدة'))),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted || !foreground || !enabled || !mapReady) return;
+    final request = ++locationGeneration;
+    setState(() { locating = true; locationError = null; });
+    try {
+      final reader = widget.locationReader ?? ForegroundLocationReader().read;
+      final point = await reader();
+      if (!mounted || !foreground || !enabled || !mapReady ||
+          request != locationGeneration) return;
+      if (!point.latitude.isFinite || !point.longitude.isFinite ||
+          point.latitude.abs() > 85.05112878 || point.longitude.abs() > 180) {
+        throw const LocationLookupFailure('invalid');
+      }
+      // Move a consented map camera, not a station pin or an API request.
+      mapController.move(LatLng(point.latitude, point.longitude), 12);
+    } catch (_) {
+      if (mounted && foreground && request == locationGeneration) {
+        setState(() => locationError = t(
+          'Location unavailable or outside this map area. Move the map manually.',
+          'الموقع غير متاح أو خارج نطاق عرض الخريطة. حرّك الخريطة يدوياً.',
+        ));
+      }
+    } finally {
+      if (mounted && request == locationGeneration) {
+        setState(() => locating = false);
+      }
+    }
+  }
   String t(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
 
@@ -313,9 +387,20 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
             if (enabled)
               OutlinedButton(
                 key: const Key('partner-map-disable'),
-                onPressed: () => setState(() { enabled = false; mapReady = false; }),
+                onPressed: () => setState(() { enabled = false; mapReady = false; locationGeneration++; locating = false; locationError = null; }),
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
+            if (enabled && widget.allowViewportSearch)
+              OutlinedButton.icon(
+                key: const Key('unified-native-gps-once'),
+                icon: const Icon(Icons.my_location),
+                onPressed: !mapReady || !foreground || locating ? null : locateOnce,
+                label: Text(t('Use my location once (optional)', 'استخدام موقعي مرة واحدة (اختياري)')),
+              ),
+            if (locating)
+              const LinearProgressIndicator(key: Key('unified-native-gps-loading')),
+            if (locationError != null)
+              Text(locationError!, key: const Key('unified-native-gps-error')),
             if (enabled && widget.allowViewportSearch)
               OutlinedButton.icon(
                 key: const Key('unified-native-viewport-search'),
