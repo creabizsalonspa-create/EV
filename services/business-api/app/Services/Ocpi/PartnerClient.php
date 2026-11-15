@@ -207,13 +207,87 @@ class PartnerClient
         return $endpoints;
     }
 
-    public function pull(OcpiProvider $provider, string $module): array
+    /** Explicit read-only OCPI date windows; never silently interpret server-local dates. */
+    private function pullWindow(array $requested): array
+    {
+        if (array_diff(array_keys($requested), ['date_from', 'date_to'])) {
+            throw new OcpiException('Unsupported OCPI source window parameter.');
+        }
+        $window = [];
+        $instants = [];
+        foreach (['date_from', 'date_to'] as $field) {
+            if (! array_key_exists($field, $requested)) {
+                continue;
+            }
+            $value = $requested[$field];
+            if (! is_string($value) || ! preg_match('/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$/D', $value)) {
+                throw new OcpiException('Invalid OCPI source window timestamp.');
+            }
+            $format = str_contains($value, '.') ? '!Y-m-d\\TH:i:s.uP' : '!Y-m-d\\TH:i:sP';
+            $instant = \DateTimeImmutable::createFromFormat($format, $value);
+            if (! $instant || \DateTimeImmutable::getLastErrors() !== false) {
+                throw new OcpiException('Invalid OCPI source window timestamp.');
+            }
+            $instants[$field] = $instant;
+            $window[$field] = $instant->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\\TH:i:s.u\\Z');
+        }
+        if (isset($instants['date_from'], $instants['date_to']) && $instants['date_from'] >= $instants['date_to']) {
+            throw new OcpiException('OCPI source window must have a later exclusive end.');
+        }
+
+        return $window;
+    }
+
+    /** Refuse a peer pagination link that silently broadens an explicit source window. */
+    private function verifyWindowNext(string $url, array $window): void
+    {
+        if ($window === []) {
+            return;
+        }
+        $parts = parse_url($url);
+        if (! is_array($parts)) {
+            throw new OcpiException('Malformed OCPI source-window pagination link.');
+        }
+        $observed = [];
+        foreach (explode('&', $parts['query'] ?? '') as $pair) {
+            if ($pair === '') {
+                continue;
+            }
+            [$name, $value] = array_pad(explode('=', $pair, 2), 2, '');
+            $name = rawurldecode($name);
+            if (! in_array($name, ['date_from', 'date_to'], true)) {
+                continue;
+            }
+            if (array_key_exists($name, $observed)) {
+                throw new OcpiException('Ambiguous OCPI source-window pagination link.');
+            }
+            $observed[$name] = rawurldecode($value);
+        }
+        if (count($observed) !== count($window)) {
+            throw new OcpiException('OCPI source-window pagination lost its bounds.');
+        }
+        foreach ($window as $field => $value) {
+            if (! isset($observed[$field]) || ! hash_equals($value, $observed[$field])) {
+                throw new OcpiException('OCPI source-window pagination changed its bounds.');
+            }
+        }
+    }
+
+    public function pull(OcpiProvider $provider, string $module, array $requestedWindow = []): array
     {
         $this->assertCurrent($provider);
         if (! in_array($module, self::MODULES, true) || $provider->version !== '2.2.1' || ! is_string($provider->endpoints[$module] ?? null)) {
             throw new OcpiException('Requested module has not been negotiated.');
         }
+        $window = $this->pullWindow($requestedWindow);
         $url = $provider->endpoints[$module];
+        if ($window !== []) {
+            parse_str((string) (parse_url($url, PHP_URL_QUERY) ?? ''), $existing);
+            if (array_key_exists('date_from', $existing) || array_key_exists('date_to', $existing)) {
+                throw new OcpiException('Negotiated endpoint already contains source-window bounds.');
+            }
+            $url .= (str_contains($url, '?') ? '&' : '?').http_build_query($window, '', '&', PHP_QUERY_RFC3986);
+        }
         $records = [];
         $seen = [];
         for ($page = 0; $page < (int) config('ocpi.max_pages', 20); $page++) {
@@ -231,7 +305,9 @@ class PartnerClient
             }
             if ($result['next'] === null) {
                 return $records;
-            }$url = $result['next'];
+            }
+            $this->verifyWindowNext($result['next'], $window);
+            $url = $result['next'];
         }
         throw new OcpiException('Operator pagination exceeded the configured page limit.');
     }
