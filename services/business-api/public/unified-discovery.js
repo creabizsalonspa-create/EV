@@ -43,8 +43,11 @@
     recentPanel.hidden=recentPresets.length===0;
     recentList.replaceChildren();
     for(const [i,record] of recentPresets.entries()){
-      const display=[record.q||'All locations',record.country||'all countries',record.scope].join(' · ').slice(0,120);
-      const restore=button('Restore filters: '+display,'استعادة المرشحات: '+display,()=>{
+      const scopes={all:['All published sources','كل المصادر المنشورة'],catalog:['Platform catalog','كتالوج المنصة'],partner:['Partner reports','تقارير الشركاء']};
+      const sourceLabel=scopes[record.scope]||scopes.all;
+      const displayEn=[record.q||'All locations',record.country||'all countries',sourceLabel[0]].join(' · ').slice(0,120);
+      const displayAr=[record.q||'كل المواقع',record.country||'كل الدول',sourceLabel[1]].join(' · ').slice(0,120);
+      const restore=button('Restore filters: '+displayEn,'استعادة المرشحات: '+displayAr,()=>{
         if(writing||submit.disabled)return;
         input.value=record.q;source.value=record.scope;market.value=record.country;
         plug.value=record.connector;report.value=record.recentStatus;
