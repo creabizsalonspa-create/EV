@@ -331,7 +331,7 @@ void main() {
     await tester.ensureVisible(filter);
     await tester.tap(filter);await tester.pumpAndSettle();
     await tester.tap(find.text('Type2').last);await tester.pumpAndSettle();
-    expect(calls,initialCalls,'Connector selection must never contact a routing provider');
+    expect(calls, initialCalls, reason: 'Connector selection must never contact a routing provider');
     expect(find.textContaining('not verified compatibility with your vehicle'),findsOneWidget);
     expect(tester.widget<FilledButton>(find.byKey(const Key('route-preview'))).onPressed,isNull);
     expect(tester.takeException(),isNull);
