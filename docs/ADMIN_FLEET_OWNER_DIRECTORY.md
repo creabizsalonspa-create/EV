@@ -13,10 +13,13 @@ billing, payments, and real-world physical charging are unchanged.
 - `owner_id` — optional exact numeric owner ID.
 - `page` — existing bounded paging, 25 fleets per page.
 
-Filters apply before pagination. For each returned fleet, **only** these
-fields are serialized: id, name, country, created_at, owner public identity
-(id/name/email), and inventory counts for active members, assigned vehicles
-and cost centers. Counts are current administrative inventory, **not**
+Filters apply before pagination. The original endpoint response remains
+**exactly** the existing four-field fleet record (`id`, `name`, `country`,
+`created_at`) for existing clients. Only an explicit
+`include=owner_inventory` query opt-in adds owner identity (id/name/email)
+and current inventory counts for active members, assigned vehicles and cost
+centers. The Admin web view always opts in; other consumers do not silently
+receive expanded private identity data. Counts are current administrative inventory, **not**
 evidence of charging-site physical availability or financial settlement.
 No password, bearer credential, private KYC, session secret or driver profile
 is included.
