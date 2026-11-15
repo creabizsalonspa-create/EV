@@ -4,6 +4,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var returnPending = false
+  private var inactivePrivacyCover: UIView?
   private var returnChannel: FlutterMethodChannel?
 
   private func acceptReturn(_ url: URL) -> Bool {
@@ -32,6 +33,25 @@ import UIKit
     }
     if let url = launchOptions?[.url] as? URL { _ = acceptReturn(url) }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // UIApplication can snapshot the window before Flutter renders an inactive
+  // lifecycle frame. Cover the full native window without disposing any route.
+  override func applicationWillResignActive(_ application: UIApplication) {
+    super.applicationWillResignActive(application)
+    guard inactivePrivacyCover == nil, let activeWindow = window else { return }
+    let cover = UIView(frame: activeWindow.bounds)
+    cover.backgroundColor = .black
+    cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    cover.isUserInteractionEnabled = true
+    activeWindow.addSubview(cover)
+    inactivePrivacyCover = cover
+  }
+
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    inactivePrivacyCover?.removeFromSuperview()
+    inactivePrivacyCover = nil
+    super.applicationDidBecomeActive(application)
   }
 
   override func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
