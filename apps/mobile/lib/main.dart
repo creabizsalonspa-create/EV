@@ -932,10 +932,20 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     onPressed: busy
                         ? null
                         : () => perform(() async {
-                            await api!.request(
+                            final requestApi = api!;
+                            final owner = account!;
+                            final generation = _performGeneration;
+                            final session = requestApi.sessionFence();
+                            await requestApi.request(
                               'reservations/$id',
                               method: 'DELETE',
                             );
+                            if (!mounted ||
+                                generation != _performGeneration ||
+                                !identical(api, requestApi) ||
+                                !session() ||
+                                account?.id != owner.id ||
+                                account?.role != owner.role) return;
                             await load(page: recordPage);
                           }),
                     child: Text(s.t('cancelBooking')),
@@ -948,16 +958,30 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     onPressed: busy
                         ? null
                         : () => perform(() async {
-                            final current = api!.sessionFence();
+                            final requestApi = api!;
+                            final owner = account!;
+                            final generation = _performGeneration;
+                            final session = requestApi.sessionFence();
+                            bool current() =>
+                                mounted &&
+                                generation == _performGeneration &&
+                                identical(api, requestApi) &&
+                                session() &&
+                                account?.id == owner.id &&
+                                account?.role == owner.role;
                             final requiredPrice = row['reservation_terms_snapshot'] is Map && row['reservation_terms_snapshot']['price_acceptance_required'] == true;
-                            final accepted = !requiredPrice || await reviewPrechargePricing(context, api!, id);
-                            if (!mounted || !current()) return;
+                            final accepted = !requiredPrice || await reviewPrechargePricing(context, requestApi, id);
+                            if (!current()) return;
                             if (!accepted) { await load(page:recordPage); return; }
-                            await api!.request(
+                            await requestApi.request(
                               'reservations/$id/${row['csms_bound'] == true ? 'csms-start' : 'simulate-start'}',
                               method: 'POST',
                             );
-                            if (mounted) setState(() => tab = 2);
+                            // A late accepted command cannot navigate or read
+                            // under another account. It never retries an
+                            // uncertain command or creates a second dispatch.
+                            if (!current()) return;
+                            setState(() => tab = 2);
                             await load();
                           }),
                     child: Text(
@@ -975,10 +999,20 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                 onPressed: busy
                     ? null
                     : () => perform(() async {
-                        await api!.request(
+                        final requestApi = api!;
+                        final owner = account!;
+                        final generation = _performGeneration;
+                        final session = requestApi.sessionFence();
+                        await requestApi.request(
                           'simulations/$id/stop',
                           method: 'POST',
                         );
+                        if (!mounted ||
+                            generation != _performGeneration ||
+                            !identical(api, requestApi) ||
+                            !session() ||
+                            account?.id != owner.id ||
+                            account?.role != owner.role) return;
                         await load(page: recordPage);
                       }),
                 child: Text(s.t('stopSimulation')),
