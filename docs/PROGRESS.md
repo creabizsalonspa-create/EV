@@ -1,3 +1,20 @@
+# 15 November 2026 — private fleet operations reporting (integration pending)
+
+Implemented owner/protected web Admin reports and connected EN/AR web/Flutter
+views: current inventory, fleet-local inclusive dates, scoped cost-center filters,
+approved explicitly shared claims, exact string amounts by currency/precision,
+and private formula-safe CSV snapshots. Personal sessions/invoices are not
+searched. This creates no financial or charger mutation and claims no cash balance
+or hardware verification. Bound:366 days/2500 claims; account/background fences.
+
+Focused verification: PostgreSQL corporate/fleet24 tests/274 assertions; three new
+Flutter cases and five existing fleet/session cases passed; targeted analysis clean;
+EN/AR Chromium CSV/account checks and actual Laravel owner/Admin browser reports
+plus outsider denial passed. Existing PostgreSQL boolean fixture assertions now
+accept disabled false as well as SQLite0, never true. Required hosted gates remain
+pending for this feature. No new atom or production credit; next: integrate only
+when exact-source mandatory checks pass and continue unfinished enterprise scope.
+
 # 13 November 2026 — private contact-phone verification continuation
 
 Implemented Laravel/web/Flutter contact verification with encrypted phone storage,

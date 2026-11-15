@@ -18,6 +18,7 @@ use App\Http\Controllers\ChargingReviewController;
 use App\Http\Controllers\ConnectorTopologyController;
 use App\Http\Controllers\CsmsSessionController;
 use App\Http\Controllers\EnterpriseController;
+use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PhoneVerificationController;
 use App\Http\Controllers\PlatformController as P;
@@ -121,6 +122,7 @@ Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
     Route::get('/api/fleets', [$c, 'index']);
     Route::post('/api/fleets', [$c, 'create']);
     Route::get('/api/fleets/{fleet}', [$c, 'show']);
+    Route::get('/api/fleets/{fleet}/report', [FleetReportController::class, 'show']);
     Route::post('/api/fleets/{fleet}/invitations', [$c, 'invite']);
     Route::get('/api/fleet-invitations', [$c, 'invitations']);
     Route::post('/api/fleet-invitations/{invitation}/accept', [$c, 'accept']);

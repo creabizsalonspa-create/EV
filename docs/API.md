@@ -495,3 +495,22 @@ The private owner/Admin `GET /api/ocpi/providers/{provider}/sync-plans` response
 Successful browser authenticator enable/disable/recovery-code replacement responses include the newly rotated `csrf_token` alongside `reauthentication_required=false`, under private/no-store headers. The web API accepts this handoff only for those proven mutations in its current account context, without replay. Native responses require reauthentication and return no browser token. This preserves session/CSRF rotation while allowing the next legitimate browser action.
 
 The same validated policy also generates each available partner result's `catalog_age_policy` in unified search, partner search and saved places. English/Arabic web and Flutter views show its read-time state and explicitly unverified physical availability. Both source and receipt timestamps must be inside the configured limit; future/missing clocks stay unknown and exact expiry is stale. Private saved rows redact the policy after publication or provider authorization is withdrawn. Caller-selected source-age search filters remain separate from this server policy and never confer operational authority.
+### Private fleet operations report
+
+`GET /api/fleets/{fleet}/report` and native `/api/v1/fleets/{fleet}/report`
+require the current active fleet owner or protected web Admin (Admin personal
+access tokens remain forbidden). Required `from` and `through` are inclusive
+`YYYY-MM-DD` fleet-local dates, at most 366 days. Optional `cost_center_id` must
+belong to that fleet. Unknown regional timezone fails closed. Optional
+`format=csv` returns a private, formula-safe CSV; default JSON returns current
+inventory counts, applied local/UTC bounds, observation time, and historical
+cost-center/currency/precision groups from approved claims **submitted** during
+the selected interval. Approval is evaluated at read time; no unshared personal
+invoice or session history is queried. Inventory covers the entire current fleet
+and is independent of claim-period/cost-center filters. More than 2500 matching
+claims requires narrower filters, with no silent truncation. Amounts are exact
+unsigned decimal strings in minor units, separately grouped by precision and
+currency. Recorded claim totals are not balances, cash collections, refunds,
+settlement or proof of physical charging. No financial or charging record is
+created. Web downloads the displayed CSV snapshot; Flutter previews a selectable
+private CSV in memory and clears it on background/account change.
