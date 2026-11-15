@@ -304,7 +304,9 @@ class VendorOpsController extends Controller
 
     public function review(Request $r, VendorCompany $company)
     {
-        abort_unless($r->user()->role === 'admin', 403);
+        $actor = $r->user();
+        abort_unless($actor instanceof User && $actor->role === 'admin'
+            && $actor->account_status === 'active', 403);
         // Validate the persisted explanation even without global input trimming.
         // The Admin UI requires an explanatory note; enforce the same
         // minimum on direct API calls before any transition or audit writes.
@@ -319,7 +321,17 @@ class VendorOpsController extends Controller
             'reason' => 'required|string|min:10|max:2000',
         ]);
 
-        $result = DB::transaction(function () use ($r, $company, $v) {
+        $result = DB::transaction(function () use ($r, $company, $v, $actor) {
+            // The middleware authenticated a snapshot. A suspended, demoted
+            // or credential-rotated reviewer must not finish a privileged
+            // decision using that now-stale snapshot. Lock the current actor
+            // before any company/owner rows to serialize revocation vs review.
+            $reviewer = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+            abort_unless($reviewer->role === 'admin' && $reviewer->account_status === 'active', 403);
+            abort_unless((int) $reviewer->auth_epoch === (int) $actor->auth_epoch
+                && hash_equals((string) $reviewer->password, (string) $actor->password),
+                409, 'Administrator credentials changed. Sign in again.');
+
             $c = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
             // An Admin must not review a company they also own.
             // A role change can make a former vendor into an administrator.
