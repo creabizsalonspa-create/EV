@@ -60,8 +60,16 @@ final class OperationalWatchdog
 
             if (($history['store_readable'] ?? null) !== true) {
                 $signals[] = 'incident_store_unavailable';
-            } elseif (count($history['open'] ?? []) > 0) {
-                $signals[] = 'recorded_incidents_open';
+            } else {
+                // Scheduler heartbeat does not prove its incident scan completed.
+                // Trust only the timestamp committed after a successful scan.
+                $scanner = $history['scanner']['state'] ?? 'unknown';
+                if ($scanner !== 'recent') {
+                    $signals[] = $scanner === 'stale' ? 'incident_scanner_stale' : 'incident_scanner_unknown';
+                }
+                if (count($history['open'] ?? []) > 0) {
+                    $signals[] = 'recorded_incidents_open';
+                }
             }
 
             return $this->result($signals);
