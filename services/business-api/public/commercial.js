@@ -1576,6 +1576,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
         results.dataset.vendorRevenueResults = "true";
         const today = new Date().toISOString().slice(0, 10);
         const from = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+        let reportGeneration = 0;
         const requestForm = form(
             area,
             [
@@ -1605,13 +1606,19 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                     from: String(data.from),
                     to: String(data.to),
                 });
+                const requestGeneration = ++reportGeneration;
                 const report = await api(
                     "commercial/vendors/" + vendor + "/revenue-cohorts?" + query,
                     "GET",
                     undefined,
                     controller.signal,
                 );
-                if (current !== epoch || !results.isConnected) return;
+                if (
+                    current !== epoch ||
+                    requestGeneration !== reportGeneration ||
+                    !results.isConnected ||
+                    document.hidden
+                ) return;
                 if (
                     Number(report.vendor_id) !== vendor ||
                     report.currency !== currency ||
@@ -1667,8 +1674,19 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                 results.append(link);
             },
         );
-        requestForm.addEventListener("input", () => results.replaceChildren());
-        requestForm.addEventListener("change", () => results.replaceChildren());
+        const clearResult = () => {
+            reportGeneration++;
+            results.replaceChildren();
+        };
+        requestForm.addEventListener("input", clearResult);
+        requestForm.addEventListener("change", clearResult);
+        document.addEventListener(
+            "visibilitychange",
+            () => {
+                if (document.hidden) clearResult();
+            },
+            { signal: controller.signal },
+        );
         area.append(results);
     }
 
