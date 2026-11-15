@@ -41,6 +41,7 @@ class FinanceReconciliationAuditTest extends TestCase
             'rate_minor_per_kwh' => 100, 'currency' => 'AED', 'total_minor' => 100,
             'stopped_at' => now(),
         ]);
+
         return [$vendor, $customer, app(FinanceService::class)->issue($session, $customer->id)];
     }
 

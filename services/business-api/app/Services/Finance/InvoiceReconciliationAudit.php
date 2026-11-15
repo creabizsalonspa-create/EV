@@ -11,7 +11,9 @@ final class InvoiceReconciliationAudit
     public function inspect(Invoice $invoice): array
     {
         $issues = [];
-        $flag = static function (string $code) use (&$issues): void { $issues[$code] = true; };
+        $flag = static function (string $code) use (&$issues): void {
+            $issues[$code] = true;
+        };
 
         $journals = DB::table('finance_journals')->where('invoice_id', $invoice->id)->orderBy('id')->limit(501)->get();
         abort_if($journals->count() > 500, 409, 'Invoice exceeds the bounded reconciliation audit limit.');
