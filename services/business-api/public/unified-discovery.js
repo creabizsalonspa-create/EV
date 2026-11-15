@@ -3,13 +3,16 @@
  const text=(tag,en,ar)=>{const n=document.createElement(tag);if(tag==='label'){n.append(text('span',en,ar));return n;}n.dataset.en=en;n.dataset.ar=ar;n.textContent=document.documentElement.lang==='ar'?ar:en;return n;};
  const button=(en,ar,action)=>{const n=text('button',en,ar);n.type='button';n.onclick=action;return n;};
  function install(root,api,onCatalog){
-  let advancedQuery={},viewportQuery={},generation=0,page=1,query='',scope='all',connector='',mapRows=[],recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false;
+  let advancedQuery={},viewportQuery={},generation=0,page=1,query='',scope='all',country='',connector='',mapRows=[],recentStatus='',maxSourceAge='',savedOnly=false,customer=false,owner=null,favoriteWriter=null,writing=false,uncertain=false;
   const form=document.createElement('form'),input=document.createElement('input'),source=document.createElement('select'),plug=document.createElement('select'),state=document.createElement('p'),list=document.createElement('div'),nav=document.createElement('nav');
   input.maxLength=80;input.name='unified-query';
   const field=text('label','Name, address or operator','الاسم أو العنوان أو المشغل');field.append(input);form.append(field);
   for(const [value,en,ar] of [['all','All published sources','كل المصادر المنشورة'],['catalog','Platform catalog','كتالوج المنصة'],['partner','Authorized partner reports','تقارير الشركاء المصرح لهم']]){const option=text('option',en,ar);option.value=value;source.append(option);}
   const sourceLabel=text('label','Source','المصدر');sourceLabel.append(source);form.append(sourceLabel);
   for(const value of ['', 'CCS2','Type2','CHAdeMO']){const option=text('option',value||'All connectors',value||'كل الموصلات');option.value=value;plug.append(option);}
+  const market=document.createElement('select');market.name='country';
+  for(const [value,en,ar] of [['','All supported markets','جميع الأسواق المدعومة'],['AE','United Arab Emirates','الإمارات العربية المتحدة'],['US','United States','الولايات المتحدة'],['CA','Canada','كندا']]){const option=text('option',en,ar);option.value=value;market.append(option);}
+  const marketLabel=text('label','Country (supported markets)','الدولة (الأسواق المدعومة)');marketLabel.append(market);form.append(marketLabel);
   const connectorLabel=text('label','Connector','الموصل');connectorLabel.append(plug);form.append(connectorLabel);
   const savedField=text('label','Saved places only','الأماكن المحفوظة فقط'),savedInput=document.createElement('input');savedInput.type='checkbox';savedField.append(savedInput);savedField.hidden=true;form.append(savedField);
   const report=document.createElement('select');report.name='recent_source_status';
@@ -35,7 +38,7 @@
    if(writing)return;
    uncertain=false;const turn=++generation;mapRows=[];mapButton.disabled=true;list.replaceChildren();nav.replaceChildren();state.replaceChildren(text('span','Searching…','جارٍ البحث…'));submit.disabled=true;
    try{
-    const data=await api('search?'+new URLSearchParams({...advancedQuery,...viewportQuery,q:query,scope,connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
+    const data=await api('search?'+new URLSearchParams({...advancedQuery,...viewportQuery,q:query,scope,...(country?{country}:{}),connector,page:String(target),saved_only:savedOnly?'1':'0',recent_source_status:recentStatus,...(maxSourceAge?{max_source_age_hours:maxSourceAge}:{})}));if(turn!==generation)return;
     if(!Array.isArray(data.data)||!Number.isInteger(data.current_page)||!Number.isInteger(data.last_page)||!Number.isInteger(data.total))throw Error('Invalid catalog response');
     mapRows=data.data;mapButton.disabled=mapRows.length===0;
     page=data.current_page;state.replaceChildren(text('span',`${data.total} published results`,`${data.total} نتيجة منشورة`));
@@ -77,7 +80,7 @@
    }catch{if(turn===generation)state.replaceChildren(text('span','Search failed. Submit again to retry.','تعذر البحث. أعد الإرسال للمحاولة.'));}
    finally{if(turn===generation)submit.disabled=false;}
   }
-  form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(key==='max_rate_per_kwh')value=normalizeRate(value);if(value)advancedQuery[key]=value;}query=input.value.trim();scope=source.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1);};
+  form.onsubmit=e=>{e.preventDefault();if(writing)return;advancedQuery={};viewportQuery={};for(const [key,control] of Object.entries(advancedInputs)){let value=control.value.trim();if(key==='price_currency')value=value.toUpperCase();if(key==='max_rate_per_kwh')value=normalizeRate(value);if(value)advancedQuery[key]=value;}query=input.value.trim();scope=source.value;country=market.value;connector=plug.value;recentStatus=report.value;maxSourceAge=ageFilter.value;savedOnly=customer&&savedInput.checked;load(1);};
   // Map movement does not make a request. Only the user's explicit map-view
   // search event supplies transient bounds to this existing authenticated API.
   window.addEventListener('unified-viewport-search',event=>{
@@ -96,7 +99,7 @@
    root.scrollIntoView?.({block:'start'});
   });
   // Location queries and result sets stay in memory; there is no automatic lookup.
-  return {setContext(context){if(owner!==context.owner)this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){advancedQuery={};viewportQuery={};for(const control of Object.values(advancedInputs))control.value='';generation++;writing=false;uncertain=false;recentStatus='';report.value='';maxSourceAge='';ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
+  return {setContext(context){if(owner!==context.owner)this.clear();owner=context.owner;customer=context.customer===true;favoriteWriter=context.favorite;savedField.hidden=!customer;},clear(){advancedQuery={};viewportQuery={};for(const control of Object.values(advancedInputs))control.value='';generation++;writing=false;uncertain=false;recentStatus='';report.value='';maxSourceAge='';ageFilter.value='';savedOnly=false;savedInput.checked=false;mapRows=[];mapButton.disabled=true;query='';input.value='';country='';market.value='';list.replaceChildren();nav.replaceChildren();state.replaceChildren();submit.disabled=false;}};
  }
  window.EvUnifiedDiscovery={install};
  window.addEventListener('discovery-api-ready',event=>{const root=document.getElementById('unified-discovery');if(root)window.EvUnifiedDiscovery.active=install(root,event.detail,id=>window.dispatchEvent(new CustomEvent('unified-catalog-open',{detail:id})));});
