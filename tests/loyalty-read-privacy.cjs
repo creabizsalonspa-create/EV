@@ -18,7 +18,7 @@ function harness(){
  const root=new Element("div");let current={id:7,role:"customer"},next=null;const calls=[];
  const api=(path,method,data,signal)=>{
   calls.push({path,method,data,signal});if(next)return next(path,method,data,signal);
-  if(path.endsWith("/account"))return Promise.resolve({balance_points:10,spendable_points:10,pending_reconciliation_points:0,qualified_lifetime_points:10,tier_by_currency:{}});
+  if(path.endsWith("/account"))return Promise.resolve({user_id:7,unit:"NON_MONETARY_POINTS",cash_value:false,transferable:false,evidence:"TEST_PROMOTIONAL_ECONOMICS",balance_points:10,spendable_points:10,pending_reconciliation_points:0,qualified_lifetime_points:10,tier_by_currency:{}});
   if(path.includes("/ledger?"))return Promise.resolve({data:[{id:1,kind:"earn",points:10}],current_page:1,last_page:1,total:1});
   return Promise.reject(Error("unexpected "+path));
  };
