@@ -43,6 +43,21 @@ void main() {
     }
   });
 
+  testWidgets('invalid native channel value cannot become a route',
+      (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      NativeNavigationBridge.channel,
+      (_) async => {'record_id': 7, 'status': 'paid'},
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(
+          NativeNavigationBridge.channel,
+          null,
+        ));
+    expect(await NativeNavigationBridge.consume(), isNull);
+  });
+
   testWidgets('signed-in customer can open sections without a write',
       (tester) async {
     final messenger =
