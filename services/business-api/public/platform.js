@@ -1112,15 +1112,14 @@ async function loadFleetAccounts(page = fleetPage) {
         fleetPage = 1;
         page = 1;
     }
-    if (page !== fleetPage) {
-        // A selected fleet from a different page must not retain old member
-        // controls when the owner navigates to a new membership page.
-        fleetDetailRequest?.abort();
-        fleetDetailRequest = null;
-        fleetDetailGeneration++;
-        el("fleet-detail").replaceChildren();
-        el("fleet-detail").removeAttribute("aria-busy");
-    }
+    // Any new list read invalidates previously rendered detail authority:
+    // the membership may have been revoked even if the requested page stays
+    // the same, or the refresh may fail entirely.
+    fleetDetailRequest?.abort();
+    fleetDetailRequest = null;
+    fleetDetailGeneration++;
+    el("fleet-detail").replaceChildren();
+    el("fleet-detail").removeAttribute("aria-busy");
     fleetRequest?.abort();
     const controller = new AbortController();
     fleetRequest = controller;
@@ -1258,7 +1257,9 @@ async function fleetDetail(id) {
         "جارٍ تحميل تفاصيل الأسطول…"));
     try {
     const j = await api("fleets/" + id, "GET", undefined, controller.signal);
-    if (!active() || document.hidden) return;
+    if (!active()) return;
+    // Never leave a stale "Loading" pane on return from a background tab.
+    if (document.hidden) { d.replaceChildren(); return; }
     if (j?.fleet?.id !== id || !Array.isArray(j.members) ||
         !Array.isArray(j.cost_centers) || !Array.isArray(j.vehicles))
         throw Error("Unreadable fleet details.");
@@ -1357,7 +1358,8 @@ async function fleetDetail(id) {
         );
     if (j.cost_centers.length) {
         const own = await api("vehicles?page=1", "GET", undefined, controller.signal);
-        if (!active() || document.hidden) return;
+        if (!active()) return;
+        if (document.hidden) { d.replaceChildren(); return; }
         if (!fleetPageResponse(own, 1)) throw Error("Unreadable vehicle selection.");
         if (own.data.length) {
             const form = document.createElement("form");
