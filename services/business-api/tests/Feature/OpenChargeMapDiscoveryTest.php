@@ -354,4 +354,60 @@ class OpenChargeMapDiscoveryTest extends TestCase
         $response->assertStatus(503)->assertJsonPath('reason', 'provider_unavailable');
         $this->assertStringNotContainsString('synthetic-private-ocm-key', $response->getContent());
     }
+
+    public function test_capped_crowd_sample_quality_is_recomputed_after_source_filters_without_suggesting_coverage(): void
+    {
+        $clock = Carbon::parse('2026-11-16T00:00:00Z');
+        Carbon::setTestNow($clock);
+        try {
+            $old = $this->point();
+            $old['DateLastStatusUpdate'] = $clock->copy()->subHours(25)->toIso8601ZuluString();
+
+            $missingTime = $this->point();
+            $missingTime['ID'] = 12346;
+            unset($missingTime['StatusType']);
+
+            $future = $this->point();
+            $future['ID'] = 12347;
+            $future['DateLastStatusUpdate'] = $clock->copy()->addMinutes(5)->toIso8601ZuluString();
+            unset($future['StatusType']);
+
+            $recent = $this->point();
+            $recent['ID'] = 12348;
+            $recent['DateLastStatusUpdate'] = $clock->copy()->subHour()->toIso8601ZuluString();
+            $recent['StatusType'] = ['IsOperational' => false];
+
+            Http::fake(fn () => Http::response([$old, $missingTime, $future, $recent], 200, ['Content-Type' => 'application/json']));
+
+            $reply = $this->postJson('/api/discovery/open-charge-map/search', $this->input())->assertOk()
+                ->assertJsonPath('count', 4)
+                ->assertJsonPath('quality_sample.evidence', 'FILTERED_LICENSED_CROWD_SAMPLE_ONLY')
+                ->assertJsonPath('quality_sample.returned_count', 4)
+                ->assertJsonPath('quality_sample.source_time_unknown_or_future_count', 2)
+                ->assertJsonPath('quality_sample.source_older_than_24h_count', 1)
+                ->assertJsonPath('quality_sample.operational_report_unknown_count', 2)
+                ->assertJsonPath('quality_sample.max_source_sample', 25)
+                ->assertJsonPath('quality_sample.complete_geographic_coverage', false)
+                ->assertJsonPath('quality_sample.live_status_verified', false);
+            $this->assertStringNotContainsString('synthetic-private-ocm-key', $reply->getContent());
+
+            // Local filter responses are freshly evaluated from one cached
+            // licensed subset. Unknown/future/old clocks cannot count as fresh.
+            $this->postJson('/api/v1/discovery/open-charge-map/search', $this->input() + [
+                'max_source_age_hours' => 2,
+            ])->assertOk()->assertJsonPath('count', 1)
+                ->assertJsonPath('quality_sample.returned_count', 1)
+                ->assertJsonPath('quality_sample.source_time_unknown_or_future_count', 0)
+                ->assertJsonPath('quality_sample.source_older_than_24h_count', 0)
+                ->assertJsonPath('quality_sample.operational_report_unknown_count', 0)
+                ->assertJsonPath('quality_sample.complete_geographic_coverage', false);
+            $this->postJson('/api/discovery/open-charge-map/search', $this->input() + [
+                'reported_operational' => true,
+            ])->assertOk()->assertJsonPath('count', 1)
+                ->assertJsonPath('quality_sample.source_older_than_24h_count', 1);
+            Http::assertSentCount(1);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
 }
