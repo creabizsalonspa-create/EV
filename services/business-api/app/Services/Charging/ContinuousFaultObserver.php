@@ -46,10 +46,13 @@ class ContinuousFaultObserver
         $after = (int) ($cursor->last_event_id ?? 0);
         try {
             $source = $this->graph('query($name:String!){ChargingStations(where:{tenantId:{_eq:1},ocppConnectionName:{_eq:$name}},limit:2){id protocol}}', ['name' => $b->identifier])['ChargingStations'] ?? null;
-            abort_unless(is_array($source) && count($source) <= 1, 409);
+            abort_unless(is_array($source) && array_is_list($source) && count($source) <= 1, 503, 'Malformed source station projection.');
             $sourceId = $source[0]['id'] ?? null;
-            if ($sourceId !== null) {
-                abort_unless(is_int($sourceId) && $sourceId > 0 && in_array($source[0]['protocol'] ?? null, [$b->protocol, 'ocpp'.$b->protocol], true) && (! $cursor?->source_station_id || $cursor->source_station_id === $sourceId), 409);
+            if ($source) {
+                // A malformed row is not an absent charger. Treating missing
+                // or non-numeric ids as a healthy empty poll can hide faults.
+                abort_unless(is_int($sourceId) && $sourceId > 0, 503, 'Malformed source station row.');
+                abort_unless(in_array($source[0]['protocol'] ?? null, [$b->protocol, 'ocpp'.$b->protocol], true) && (! $cursor?->source_station_id || $cursor->source_station_id === $sourceId), 409);
             } else {
                 abort_unless(! $cursor?->source_station_id, 409);
             }
@@ -58,7 +61,14 @@ class ContinuousFaultObserver
                 $data = $this->graph('query($station:Int!,$after:Int!){StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station},id:{_gt:$after}},order_by:{id:asc},limit:101){id connectorId evseId connectorStatus errorCode timestamp} newest:StatusNotifications(where:{tenantId:{_eq:1},stationId:{_eq:$station}},order_by:{id:desc},limit:1){id}}', ['station' => $sourceId, 'after' => $after]);
                 $events = $data['StatusNotifications'] ?? null;
                 $newest = $data['newest'] ?? null;
-                abort_unless(is_array($events) && count($events) <= 101 && is_array($newest) && count($newest) <= 1 && ($after === 0 || (is_int($newest[0]['id'] ?? null) && $newest[0]['id'] >= $after)), 503);
+                abort_unless(
+                    is_array($events) && array_is_list($events) && count($events) <= 101 &&
+                    is_array($newest) && array_is_list($newest) && count($newest) <= 1 &&
+                    (! $newest || (is_array($newest[0]) && is_int($newest[0]['id'] ?? null) && $newest[0]['id'] >= 0)) &&
+                    ($after === 0 || (is_int($newest[0]['id'] ?? null) && $newest[0]['id'] >= $after)),
+                    503,
+                    'Malformed source status page or newest-event projection.'
+                );
                 // An empty page cannot mean caught_up when this same
                 // source reports events newer than the previous cursor.
                 // Leave the cursor unchanged and raise a review incident.
