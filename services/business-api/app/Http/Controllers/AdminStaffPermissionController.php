@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorCompanyStaff;
+use App\Security\AdminTransactionAuthority;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -112,6 +113,7 @@ class AdminStaffPermissionController extends Controller
         ]);
 
         return DB::transaction(function () use ($actor, $membership, $input) {
+            AdminTransactionAuthority::requireCurrent($actor);
             $locked = VendorCompanyStaff::whereKey($membership->id)
                 ->lockForUpdate()->firstOrFail();
             // A company owner might revoke a membership just before the
@@ -171,6 +173,7 @@ class AdminStaffPermissionController extends Controller
         ]);
 
         return DB::transaction(function () use ($actor, $membership, $input) {
+            AdminTransactionAuthority::requireCurrent($actor);
             $locked = VendorCompanyStaff::whereKey($membership->id)
                 ->lockForUpdate()->firstOrFail();
             // A legacy writer may have incorrectly marked a held membership
