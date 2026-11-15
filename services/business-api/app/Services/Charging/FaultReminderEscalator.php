@@ -240,7 +240,7 @@ class FaultReminderEscalator
                     $occurredAt->lessThanOrEqualTo(now()->subMinutes(60))) {
                     $admin = DB::table('users')->where('id', $adminId)
                         ->lockForUpdate()->first();
-                    if ($admin && $admin->role === 'admin') {
+                    if ($admin && $admin->role === 'admin' && $admin->account_status === 'active') {
                         $insertedEscalation = DB::table('charging_fault_admin_escalations')
                             ->insertOrIgnore([
                                 'alert_id' => $alert->id,
