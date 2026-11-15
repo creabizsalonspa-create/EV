@@ -386,21 +386,21 @@ separate gate.
 
 ## Current-account authorization for notification reads and receipt mutations
 
-The notification summary/preferences GET routes now revalidate the persisted
+The notification listing, summary and preference GET routes now revalidate the persisted
 account role, active status, authentication epoch and credential hash before
 returning account-specific data. A legacy authenticated user object cannot
 override the current database actor after a moderation, password or role change.
 
-The preference PUT, read-through POST and mark-unread POST actions now hold a
+The preference PUT, read-through POST and individual mark-read/mark-unread POST actions now hold a
 `users` row lock and revalidate the same invariants **before** writing any
 receipt, preference or audit. The locked actor is used for tenant visibility;
 a stale role or credential aborts the transaction without changing rows.
 Lock order is current actor followed by notification preferences/inbox rows.
 Foreign inbox IDs continue to return 404 under a valid account. The existing
 read and list APIs, explicit consent requirements, and supported notification
-categories remain unchanged. This closes one stale-snapshot mutation path;
-it is not a claim that all API endpoints or physical delivery transports are
-production-certified.
+categories remain unchanged. This closes the covered in-app notification read/receipt mutation paths;
+it does not change support ticket authorization, external transports or
+claim production certification.
 
 Run `php artisan test --filter=NotificationCenterTest`, disposable
 PostgreSQL connector checks, web-session tests and exact-head CI before
