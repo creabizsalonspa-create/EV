@@ -41,6 +41,23 @@ The successful protocol-run output is retained in `docs/evidence/charging-protoc
 
 These protocol tests do not by themselves establish Laravel-to-CSMS transaction correlation, event-inbox authenticity/deduplication, final business invoice/payment reconciliation, physical charger safety, complete OCPP conformance, diagnostics/firmware controls, or production operational resilience. The Laravel business bridge and its separate end-to-end evidence must be verified independently before claiming the entire customer/vendor charging-to-invoice workflow.
 
+## Source station protocol identity and reconciliation
+
+The restartable local-simulator `SourceConsumer` now requires the authenticated
+CitrineOS station's reported protocol to match the immutable CSMS session
+binding before it reads transactions or emits signed start/meter/end events.
+The source may report the pinned version as `1.6`/`2.0.1` or
+`ocpp1.6`/`ocpp2.0.1`; missing, unknown or cross-version identities
+fail closed for operator reconciliation. A provisioned station without an
+authorization or transaction still contributes no session evidence.
+
+The protocol check runs on each observation, including after an existing
+start, so reprovisioning cannot silently reinterpret source meter readings.
+Regression coverage in `SourceConsumerTest` exercises mismatches for both
+versions, preserves the command and invoice state, and resumes only after
+an independently corrected source identity. It neither sends nor replays
+commands and does not establish physical hardware compatibility.
+
 ## Correlated business-to-CSMS-to-invoice test
 
 With the current local business service and CSMS running:
