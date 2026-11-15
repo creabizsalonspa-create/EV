@@ -14,6 +14,7 @@ use App\Services\Charging\SourceConsumer;
 use App\Services\CsmsDispatcher;
 use App\Services\Notifications\EmailNotices;
 use App\Services\Ocpi\ScheduledSync;
+use App\Services\Operations\OperationalHealth;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
@@ -262,3 +263,10 @@ Artisan::command('ocpi:poll-approved', function () {
     }
 })->purpose('One bounded opt-in partner module pull through canonical OCPI ingress');
 Schedule::command('ocpi:poll-approved')->everyMinute()->withoutOverlapping(30);
+Artisan::command('platform:health-heartbeat', function () {
+    $recorded = app(OperationalHealth::class)->record('scheduler');
+    $this->info($recorded ? 'Scheduler observation recorded.' : 'Scheduler observation not recorded.');
+
+    return 0;
+})->purpose('Record a scheduler process observation, not successful task execution');
+Schedule::command('platform:health-heartbeat')->everyMinute()->withoutOverlapping();

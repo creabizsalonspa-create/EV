@@ -2,8 +2,11 @@
 
 namespace App\Providers;
 
+use App\Services\Operations\OperationalHealth;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\Looping;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -14,7 +17,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(OperationalHealth::class);
     }
 
     /**
@@ -22,6 +25,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Queue::looping(fn (Looping $event) => app(OperationalHealth::class)->workerLoop($event));
         // Share a bounded account budget across browser and bearer sign-in.
         // The existing independent IP budget remains in force. Do not query
         // account existence or put an email address into cache keys.

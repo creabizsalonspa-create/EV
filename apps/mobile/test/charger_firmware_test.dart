@@ -5,7 +5,12 @@ import 'package:creabiz_ev/charger_firmware.dart';
 import 'test_support.dart';
 
 class FirmwareApi extends FixtureApi {
-  bool manager = true, fail = true, revoked = false;
+  bool manager = true,
+      fail = true,
+      revoked = false,
+      policy = false,
+      blocked = false;
+  final cancellations = <Map<String, dynamic>>[];
   final attempts = <Map<String, dynamic>>[];
   bool active = true;
   @override
@@ -18,6 +23,12 @@ class FirmwareApi extends FixtureApi {
     Map<String, dynamic>? body,
     Map<String, String> query = const {},
   }) async {
+    if (path.endsWith('/firmware-operations/7/cancel')) {
+      expect(method, 'POST');
+      cancellations.add(Map<String, dynamic>.from(body!));
+      blocked = false;
+      return {'cancelled': true, 'source_command_sent': false};
+    }
     if (path.endsWith('/firmware-releases')) {
       expect(query['manufacturer'], 'Synthetic');
       expect(query['model'], 'Fixture');
@@ -26,7 +37,17 @@ class FirmwareApi extends FixtureApi {
         'data': revoked
             ? <Map<String, dynamic>>[]
             : [
-                {'id': 1, 'version': 'sim-v1', 'sha256': 'synthetic'},
+                {
+                  'id': 1,
+                  'version': 'sim-v1',
+                  'sha256': 'synthetic',
+                  if (policy)
+                    'compatibility_policy': {
+                      'protocols': ['1.6'],
+                      'from_versions': ['sim-fw-v1'],
+                      'manifest_sha256': 'synthetic-hash',
+                    },
+                },
               ],
         'current_page': 1,
         'last_page': 1,
@@ -40,7 +61,21 @@ class FirmwareApi extends FixtureApi {
       return {'id': 7, 'status': 'outcome_unknown'};
     }
     return {
-      'data': <Map<String, dynamic>>[],
+      'data': blocked
+          ? [
+              {
+                'id': 7,
+                'release_id': 1,
+                'version': 'sim-v1',
+                'sha256': 'synthetic',
+                'status': 'not_dispatched',
+                'can_cancel': true,
+                'attempted_at': '2026-11-14',
+                'reviewed_at': null,
+                'created_at': '2026-11-14',
+              },
+            ]
+          : <Map<String, dynamic>>[],
       'current_page': 1,
       'last_page': 1,
       'total': 0,
