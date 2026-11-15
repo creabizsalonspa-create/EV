@@ -19,13 +19,13 @@ function harness() {
     };
     const user = {id:7,role:"customer"};
     const client = {sessionEpoch:1};
-    let read, create, requests = [], notices = [];
+    let reads = [], create, requests = [], notices = [];
     const api = (path,method) => {
         requests.push({path,method});
         if (path === "vehicles" && method === "POST")
             return new Promise(resolve => {create=resolve;});
         if (path === "vehicles")
-            return new Promise(resolve => {read=resolve;});
+            return new Promise(resolve => {reads.push(resolve);});
         throw Error("unexpected "+path);
     };
     const node = (tag,value) => ({tag,value,children:[],append(x){this.children.push(x);}});
@@ -39,22 +39,21 @@ function harness() {
     };
     const methods = new Function("env", "with(env){"+code+"return {garage};}")(env);
     return {methods,el,client,user,requests,notices,
-        resolveRead:value=>read(value),resolveCreate:()=>create()};
+        resolveRead:(index,value)=>reads[index](value),resolveCreate:()=>create()};
 }
 test("late garage response cannot render a previous customer's private vehicles",async()=>{
     const h=harness(),p=h.methods.garage();
     h.client.sessionEpoch++;
     h.user.id=8;
-    h.resolveRead({data:[{id:55,name:"Private",connector_type:"CCS2"}]});
+    h.resolveRead(0,{data:[{id:55,name:"Private",connector_type:"CCS2"}]});
     await p;
     assert.equal(h.el("vehicle-list").children.length,0);
 });
 test("overlapping garage reads cannot replace the newest list",async()=>{
     const h=harness(),first=h.methods.garage();
-    const old=h.resolveRead;
     const second=h.methods.garage();
-    h.resolveRead({data:[]});await second;
-    old({data:[{id:55,name:"Old",connector_type:"CCS2"}]});await first;
+    h.resolveRead(1,{data:[]});await second;
+    h.resolveRead(0,{data:[{id:55,name:"Old",connector_type:"CCS2"}]});await first;
     assert.equal(h.el("vehicle-list").children.length,0);
 });
 test("vehicle create submits only once while pending and does not render after account switch",async()=>{
