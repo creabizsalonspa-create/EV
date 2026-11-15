@@ -708,6 +708,17 @@ function provisionTestRole(email, role) {
       "",
     );
     assert.equal(await customer.page.locator("#who").textContent(), "");
+    assert.equal(await customer.page.locator("#reservation-list article").count(), 0);
+    assert.equal(await customer.page.locator("#reservation-list [data-reservation-pagination]").count(), 0);
+    assert.equal(await customer.page.locator("#reservation-list").getAttribute("aria-busy"), null);
+    // Explicit vendor logout must remove its already-loaded private reservation history.
+    assert(await vendor.page.locator("#reservation-list article").count() > 0);
+    const signedOut = vendor.page.waitForResponse((response) =>
+      response.url().endsWith("/api/logout") && response.request().method() === "POST");
+    await vendor.page.locator("#logout").click();
+    assert.equal((await signedOut).status(), 204);
+    await vendor.page.locator("#account").waitFor({state:"visible"});
+    assert.equal(await vendor.page.locator("#reservation-list article").count(), 0);
     const restricted = await browser.newContext();
     await restricted.addInitScript(() => {
       Object.defineProperty(window, "localStorage", {
