@@ -48,14 +48,19 @@ window.EvPrivacyRequests = (() => {
         s.value = options[0][0];
         return s;
     }
-    function wipeSensitive(state) {
+    function wipeSensitive(state, detach = false) {
         for (const preview of state.previews) preview.textContent = "";
         for (const input of state.secrets) input.value = "";
-        state.previews.clear();
-        state.secrets.clear();
+        // Backgrounding does not remove the forms. Keep references so a
+        // second background transition still wipes newly entered secrets.
+        // Discard references only when the owning DOM nodes are replaced.
+        if (detach) {
+            state.previews.clear();
+            state.secrets.clear();
+        }
     }
     function clear(state) {
-        wipeSensitive(state);
+        wipeSensitive(state, true);
         state.generation++;
         state.controller?.abort();
         state.controller = null;
@@ -128,7 +133,7 @@ window.EvPrivacyRequests = (() => {
             // Sensitive access-copy controls and previews are no longer
             // authoritative once a refresh begins; never retain them while
             // waiting for a failed or unresponsive read.
-            wipeSensitive(state);
+            wipeSensitive(state, true);
             results.replaceChildren();
             results.setAttribute("aria-busy", "true");
             message.textContent = "Refreshing your private request history… / جارٍ تحديث سجل طلباتك الخاص…";
@@ -462,7 +467,7 @@ window.EvPrivacyRequests = (() => {
                 page: String(page),
             });
             if (kind.value) params.set("kind", kind.value);
-            wipeSensitive(state);
+            wipeSensitive(state, true);
             message.textContent = "Loading private review queue…";
             results.replaceChildren();
             try {
