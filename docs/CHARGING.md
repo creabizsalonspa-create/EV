@@ -2,6 +2,8 @@
 
 This module exercises **simulated OCPP chargers against the separately running CitrineOS v2.1.0 service**. It does not operate physical equipment, prove hardware compatibility, or establish live charging/payment readiness.
 
+For a future authorized physical device pilot, use [OCPP Pilot Acceptance](OCPP_PILOT_ACCEPTANCE.md) as a **draft, unexecuted** safety, evidence, model/firmware matrix and rollback gate; it does not authorize a charger command.
+
 ## Reproduce
 
 From the repository root:
