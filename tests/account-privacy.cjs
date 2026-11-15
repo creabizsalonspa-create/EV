@@ -589,6 +589,12 @@ test("hidden browser tab wipes revealed private account copy and password inputs
   assert.equal(preview.textContent,"");
   assert.equal(inputs.find(x=>x.type==="password").value,"");
   assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
+  ui.show();
+  inputs.find(x=>x.type==="password").value="Entered after foreground";
+  inputs.find(x=>x.autocomplete==="one-time-code").value="654321";
+  ui.hide();
+  assert.equal(inputs.find(x=>x.type==="password").value,"");
+  assert.equal(inputs.find(x=>x.autocomplete==="one-time-code").value,"");
 });
 test("late private copy read cannot repopulate a hidden browser tab",async()=>{
   const ui=fixture();
