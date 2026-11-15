@@ -22,7 +22,7 @@ function harness(){
   if(path.includes("/ledger?"))return Promise.resolve({data:[{id:1,kind:"earn",points:10}],current_page:1,last_page:1,total:1});
   return Promise.reject(Error("unexpected "+path));
  };
- const window={EV_MESSAGES:{}},document={createElement:tag=>new Element(tag),documentElement:{lang:"en"}};
+ const window={EV_MESSAGES:{},addEventListener(){}},document={createElement:tag=>new Element(tag),documentElement:{lang:"en"}};
  const MutationObserver=class{observe(){} disconnect(){}};
  vm.runInNewContext(fs.readFileSync("services/business-api/public/loyalty.js","utf8"),{window,document,MutationObserver,AbortController,Intl,crypto:{randomUUID:()=>"fixed-id"}});
  window.mountLoyalty({container:root,api,ui:(tag,en)=>{const x=new Element(tag);x.textContent=en;return x;},actor:()=>current});
