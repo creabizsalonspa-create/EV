@@ -45,12 +45,14 @@ final class AdminSecurityDenialSummaryController extends Controller
                 '24h' => 24,
                 '7d' => 168,
             };
-            $from = now()->subHours($hours);
+            $asOf = now();
+            $from = $asOf->copy()->subHours($hours);
             $limit = 500;
 
             $query = DB::table('audit_events')
                 ->whereIn('action', self::ACTIONS)
                 ->where('created_at', '>=', $from)
+                ->where('created_at', '<=', $asOf)
                 ->orderByDesc('id')
                 ->limit($limit + 1);
             if (isset($v['actor_id'])) {
@@ -88,7 +90,7 @@ final class AdminSecurityDenialSummaryController extends Controller
             return response()->json([
                 'window' => $window,
                 'from' => $from->toISOString(),
-                'as_of' => now()->toISOString(),
+                'as_of' => $asOf->toISOString(),
                 'source' => 'existing_admin_mfa_denial_audit_only',
                 'observed_denials' => $visible->count(),
                 'per_action' => $actionCounts,
