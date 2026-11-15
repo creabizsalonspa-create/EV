@@ -267,4 +267,67 @@ class SettlementTest extends TestCase
         $this->postJson('/api/commercial/cases/'.$case['id'].'/resolve', ['outcome' => 'rejected', 'resolution' => 'Resolved'])->assertOk();
         $this->getJson('/settlement-test/commercial/vendors/'.$this->vendor->id.'/statement?currency=AED')->assertJsonPath('available_minor', 900);
     }
+    public function test_vendor_earnings_report_reuses_settlement_policy_and_refund_debt(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $path = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings?currency=AED';
+
+        $this->actingAs($this->vendor)->getJson($path)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.invoice_id', $invoice->id)
+            ->assertJsonPath('data.0.subtotal_minor', 1000)
+            ->assertJsonPath('data.0.commission_minor', 100)
+            ->assertJsonPath('data.0.vendor_allocated_minor', 900)
+            ->assertJsonPath('data.0.paid_minor', 1050)
+            ->assertJsonPath('data.0.available_minor', 900)
+            ->assertJsonPath('overall_available_minor', 900)
+            ->assertJsonPath('external_psp_or_bank_verified', false);
+
+        $settlement = $this->draft('earnings');
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.available_minor', 0)
+            ->assertJsonPath('data.0.pending_reserved_minor', 900);
+        $base = '/settlement-test/commercial/settlements/'.$settlement['id'];
+        $this->actingAs($this->admin)->postJson($base.'/approve')->assertOk();
+        $this->postJson($base.'/simulate-payout')->assertOk();
+        app(FinanceService::class)->refund(
+            $invoice, $this->admin->id, 525, 'earnings-refund', 'Credit after settlement'
+        );
+
+        $this->actingAs($this->vendor)->getJson($path)->assertOk()
+            ->assertJsonPath('data.0.refunded_minor', 525)
+            ->assertJsonPath('data.0.vendor_refunded_minor', 450)
+            ->assertJsonPath('data.0.completed_settlement_minor', 900)
+            ->assertJsonPath('data.0.pending_reserved_minor', 0)
+            ->assertJsonPath('data.0.available_minor', -450)
+            ->assertJsonPath('overall_available_minor', -450)
+            ->assertJsonPath('real_payout_enabled', false);
+        $this->assertDatabaseCount('finance_journals', 3);
+    }
+
+    public function test_earnings_export_is_page_bounded_currency_exact_and_tenant_private(): void
+    {
+        $invoice = $this->invoice();
+        $this->configure();
+        $base = '/settlement-test/commercial/vendors/'.$this->vendor->id.'/earnings';
+        $other = User::factory()->create(['role' => 'vendor']);
+        $this->actingAs($other)->getJson($base.'?currency=AED')->assertNotFound();
+        $this->get($base.'/export?currency=AED')->assertNotFound();
+        $this->actingAs($this->customer)->getJson($base.'?currency=AED')->assertNotFound();
+        $this->actingAs($this->vendor)->getJson($base)->assertUnprocessable();
+        $this->getJson($base.'?currency=AED&per_page=26')->assertUnprocessable();
+        $this->getJson($base.'?currency=AED&from=2027-01-02&to=2027-01-01')->assertUnprocessable();
+        $this->getJson($base.'?currency=AED&from=2035-01-01')->assertOk()->assertJsonCount(0, 'data');
+        $export = $this->get($base.'/export?currency=AED&per_page=1');
+        $export->assertOk()->assertHeader('Cache-Control', 'no-store, private');
+        $csv = $export->streamedContent();
+        $this->assertStringContainsString($invoice->number, $csv);
+        $this->assertStringContainsString('SIMULATED', $csv);
+        $this->actingAs($this->admin)->getJson($base.'?currency=AED')
+            ->assertOk()->assertJsonPath('data.0.invoice_id', $invoice->id);
+        $this->assertDatabaseCount('finance_journals', 2);
+    }
+
 }
