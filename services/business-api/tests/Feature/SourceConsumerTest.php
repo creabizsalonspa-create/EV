@@ -22,13 +22,13 @@ class SourceConsumerTest extends TestCase
 
     private const KEY = 'isolated-consumer-fixture-key-at-least-32';
 
-    private function link(): SessionLink
+    private function link(string $protocol = '2.0.1'): SessionLink
     {
         config(['csms.graphql_url' => 'http://127.0.0.1:8095/v1/graphql', 'csms.session_bridge_enabled' => true, 'csms.event_secret' => self::KEY, 'csms.graphql_secret' => self::KEY]);
         $vendor = User::factory()->create(['role' => 'vendor']);
         $customer = User::factory()->create();
         $station = Station::create(['vendor_id' => $vendor->id, 'name' => 'Consumer fixture', 'country' => 'AE', 'currency' => 'AED', 'timezone' => 'Asia/Dubai', 'latitude' => 25, 'longitude' => 55, 'source' => 'simulator', 'connector_type' => 'CCS2', 'power_kw' => 50]);
-        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-consumer', 'protocol' => '2.0.1', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('csms_bindings')->insert(['station_id' => $station->id, 'identifier' => 'ev-test-consumer', 'protocol' => $protocol, 'created_at' => now(), 'updated_at' => now()]);
         $booking = Reservation::create(['user_id' => $customer->id, 'station_id' => $station->id, 'starts_at' => now()->subMinute(), 'idempotency_key' => 'source-fixture']);
         app(SessionBridge::class)->start($booking, $customer->id);
 
@@ -60,7 +60,7 @@ class SourceConsumerTest extends TestCase
                 if (str_contains($query, 'ChargingStations')) {
                     $this->assertSame('EV-SIM-'.$link->charging_session_id, $request['variables']['tag']);
 
-                    return Http::response(['data' => ['ChargingStations' => [['id' => 8]], 'Authorizations' => [['id' => 9]]]]);
+                    return Http::response(['data' => ['ChargingStations' => [['id' => 8, 'protocol' => '2.0.1']], 'Authorizations' => [['id' => 9]]]]);
                 }
                 if (str_contains($query, 'Transactions')) {
                     $this->assertSame(['station' => 8, 'auth' => 9], $request['variables']);
@@ -140,7 +140,7 @@ class SourceConsumerTest extends TestCase
         Http::fake(function (Request $request) use (&$tx, &$row) {
             $query = $request['query'];
             if (str_contains($query, 'ChargingStations')) {
-                return Http::response(['data' => ['ChargingStations' => [['id' => 8]], 'Authorizations' => [['id' => 9]]]]);
+                return Http::response(['data' => ['ChargingStations' => [['id' => 8, 'protocol' => '2.0.1']], 'Authorizations' => [['id' => 9]]]]);
             }
             if (str_contains($query, 'Transactions')) {
                 return Http::response(['data' => ['Transactions' => [$tx]]]);
@@ -176,6 +176,79 @@ class SourceConsumerTest extends TestCase
             $this->assertSame(-1, $link->fresh()->last_sequence);
             $this->assertDatabaseCount('csms_inbox_events', 0);
         }
+    }
+
+    public static function protocolMismatchCases(): array
+    {
+        return [
+            'ocpp16_reports_201' => ['1.6', '2.0.1'],
+            'ocpp201_reports_16' => ['2.0.1', '1.6'],
+            'ocpp16_missing_source_protocol' => ['1.6', null],
+            'ocpp201_unrecognized_source_protocol' => ['2.0.1', 'OCPP2.0.1-unknown'],
+        ];
+    }
+
+    #[DataProvider('protocolMismatchCases')]
+    public function test_source_protocol_conflict_blocks_events_and_can_resume_only_after_corrected_source(string $protocol, ?string $reported): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->startOfSecond()->toIso8601String();
+        $transactionQueries = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($link, $at, &$reported, &$transactionQueries) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                $this->assertStringContainsString('{id protocol}', $query);
+
+                return Http::response(['data' => [
+                    'ChargingStations' => [['id' => 8, 'protocol' => $reported]],
+                    'Authorizations' => [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionQueries++;
+
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => 'source-protocol-fixture',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at,
+                    'endTime' => null,
+                    'isActive' => true,
+                    'totalKwh' => null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                return Http::response(['data' => ['MeterValues' => []]]);
+            }
+
+            $this->fail('Source protocol verification must not dispatch HTTP commands or external inbox requests.');
+        });
+
+        try {
+            app(SourceConsumer::class)->consume($link, true);
+            $this->fail('A mismatched or missing source protocol was accepted.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('protocol mismatch', $exception->getMessage());
+        }
+        $this->assertSame(0, $transactionQueries);
+        $this->assertSame(-1, $link->fresh()->last_sequence);
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('csms_inbox_events', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertSame('pending', DB::table('charger_commands')->value('status'));
+
+        // A fresh independently sourced protocol observation allows the same
+        // original session to continue without replaying the start command.
+        $reported = 'ocpp'.$protocol;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertSame(1, $transactionQueries);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+        $this->assertSame('source_observed', DB::table('charger_commands')->value('status'));
+        $this->assertDatabaseCount('charger_commands', 1);
     }
 
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
