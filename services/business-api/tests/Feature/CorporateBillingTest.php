@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\FleetReportController;
 use App\Models\ChargingSession;
 use App\Models\Finance\TariffVersion;
 use App\Models\Fleet;
@@ -9,13 +10,17 @@ use App\Models\Reservation;
 use App\Models\Station;
 use App\Models\User;
 use App\Services\Commercial\Payments\GatewayService;
+use App\Services\Enterprise\FleetReport;
 use App\Services\Finance\FinanceService;
+use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class CorporateBillingTest extends TestCase
@@ -253,5 +258,66 @@ class CorporateBillingTest extends TestCase
         app()->detectEnvironment(fn () => 'production');
         $this->postJson($this->url('statements/'.$s['id'].'/simulate-payment'), ['idempotency_key' => 'p'])->assertStatus(503);
         $this->assertDatabaseCount('finance_payments', 0);
+    }
+
+    public function test_fleet_report_only_counts_approved_shared_claims_and_does_not_mutate_finance(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-15T10:00:00Z'));
+        $a = $this->agreement();
+        $this->approved($a, $this->invoice());
+        $this->claim($a, $this->invoice()); // Pending claim is excluded.
+        $this->invoice(); // Personal invoice is not shared with the fleet.
+        $payments = DB::table('finance_payments')->count();
+        $url = '/api/fleets/'.$this->fleet->id.'/report?from=2026-11-15&through=2026-11-15';
+        $this->actingAs($this->owner)->getJson($url)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('approved_claims', 1)->assertJsonPath('groups.0.amount_minor', '1050')
+            ->assertJsonPath('period.from_utc', '2026-11-14T20:00:00+00:00')
+            ->assertJsonPath('physical_charging_verified', false);
+        $this->actingAs($this->driver)->getJson($url)->assertNotFound();
+        $this->actingAs(User::factory()->create())->getJson($url)->assertNotFound();
+        $this->assertDatabaseCount('finance_payments', $payments);
+        $this->assertDatabaseCount('corporate_statements', 0);
+    }
+
+    public function test_fleet_report_bounds_filters_and_neutralizes_csv_formulas(): void
+    {
+        $this->travelTo(Carbon::parse('2026-11-15T10:00:00Z'));
+        $a = $this->agreement();
+        $c = $this->approved($a, $this->invoice());
+        $base = '/api/fleets/'.$this->fleet->id.'/report';
+        $this->actingAs($this->owner)->getJson($base.'?from=2025-01-01&through=2026-11-15')->assertUnprocessable();
+        $this->getJson($base.'?from=2026-02-30&through=2026-11-15')->assertUnprocessable();
+        $this->getJson($base.'?from=2026-11-16&through=2026-11-15')->assertUnprocessable();
+        $this->getJson($base.'?from=2026-11-15&through=2026-11-15&cost_center_id=99999')->assertNotFound();
+        // Claim snapshots are immutable; a hostile historic fleet name must be safe in CSV.
+        $this->fleet->update(['name' => " \t=HYPERLINK(1)"]);
+        $response = $this->get($base.'?from=2026-11-15&through=2026-11-15&format=csv')->assertOk();
+        $this->assertStringContainsString("' \t=HYPERLINK(1)", $response->getContent());
+        $this->assertStringNotContainsString($this->driver->email, $response->getContent());
+        $this->getJson($base.'?from=2026-11-14&through=2026-11-14')->assertJsonPath('approved_claims', 0);
+        $this->actingAs($this->admin)->getJson($base.'?from=2026-11-15&through=2026-11-15')->assertOk();
+        $token = $this->admin->createToken('forbidden-admin-native')->plainTextToken;
+        $this->app['auth']->forgetGuards();
+        $this->withHeader('Authorization', 'Bearer '.$token)->getJson('/api/v1/fleets/'.$this->fleet->id.'/report?from=2026-11-15&through=2026-11-15')->assertForbidden();
+    }
+
+    public function test_native_owner_report_uses_current_credentials_and_cannot_cross_fleet(): void
+    {
+        $token = $this->owner->createToken('fleet-owner-report')->plainTextToken;
+        $this->app['auth']->forgetGuards();
+        $this->withHeader('Authorization', 'Bearer '.$token)->getJson('/api/v1/fleets/'.$this->fleet->id.'/report?from=2026-11-01&through=2026-11-15')->assertOk()->assertJsonPath('approved_claims', 0);
+        $other = Fleet::create(['owner_id' => $this->driver->id, 'name' => 'Not shared', 'country' => 'AE']);
+        $this->getJson('/api/v1/fleets/'.$other->id.'/report?from=2026-11-01&through=2026-11-15')->assertNotFound();
+        $snapshot = $this->owner->fresh();
+        DB::table('users')->where('id', $snapshot->id)->increment('auth_epoch');
+        $request = Request::create('/private-fleet-report', 'GET', ['from' => '2026-11-01', 'through' => '2026-11-15']);
+        $request->setUserResolver(fn () => $snapshot);
+        try {
+            app(FleetReportController::class)->show($request, $this->fleet, app(FleetReport::class));
+            $this->fail('A stale authenticated account snapshot must not read fleet claims.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
     }
 }

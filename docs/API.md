@@ -475,3 +475,24 @@ secrets. `OPERATIONAL_HEALTH_ENABLED=false` disables observations.
 The EN/AR Admin view refreshes explicitly, labels the snapshot time and clears
 private results on account/background changes. It offers no retry, delete,
 charger, payment or external-probe actions. Public health contracts are unchanged.
+
+
+### Private fleet operations report
+
+`GET /api/fleets/{fleet}/report` and native `/api/v1/fleets/{fleet}/report`
+require the current active fleet owner or protected web Admin (Admin personal
+access tokens remain forbidden). Required `from` and `through` are inclusive
+`YYYY-MM-DD` fleet-local dates, at most 366 days. Optional `cost_center_id` must
+belong to that fleet. Unknown regional timezone fails closed. Optional
+`format=csv` returns a private, formula-safe CSV; default JSON returns current
+inventory counts, applied local/UTC bounds, observation time, and historical
+cost-center/currency/precision groups from approved claims **submitted** during
+the selected interval. Approval is evaluated at read time; no unshared personal
+invoice or session history is queried. Inventory covers the entire current fleet
+and is independent of claim-period/cost-center filters. More than 2500 matching
+claims requires narrower filters, with no silent truncation. Amounts are exact
+unsigned decimal strings in minor units, separately grouped by precision and
+currency. Recorded claim totals are not balances, cash collections, refunds,
+settlement or proof of physical charging. No financial or charging record is
+created. Web downloads the displayed CSV snapshot; Flutter previews a selectable
+private CSV in memory and clears it on background/account change.
