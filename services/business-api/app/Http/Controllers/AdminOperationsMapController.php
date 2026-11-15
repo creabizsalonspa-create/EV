@@ -62,6 +62,18 @@ final class AdminOperationsMapController extends Controller
                     'availability' => 'unknown', 'physical_availability_verified' => false, 'remote_control' => false,
                 ])->toArray();
 
+            // This cross-company, private map is a deliberate Admin review.
+            // Keep only its bounded scope in audit, never coordinates,
+            // search text, vendor names, map contents or credentials.
+            $scope = isset($v['company_id']) ? 'company:'.$v['company_id']
+                : (isset($v['country']) ? 'country:'.$v['country'] : 'all');
+            DB::table('audit_events')->insert([
+                'actor_id' => $actor->id,
+                'action' => 'admin.private_list.operations_map_viewed',
+                'subject' => $scope,
+                'created_at' => now(),
+            ]);
+
             return response()->json($page + ['as_of' => now()->toISOString(), 'coordinate_scope' => 'valid_coordinates_only',
                 'recent_source_status' => $v['recent_source_status'] ?? null, 'source_max_age_seconds' => 300,
                 'scope' => 'platform_inventory_all_companies', 'charging_authority_granted' => false, 'payment_authority_granted' => false])
