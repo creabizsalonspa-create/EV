@@ -46,8 +46,8 @@ final class DiscoveryViewport
                 "CASE WHEN $lngText ~ $safeNumber THEN $lngText::double precision ELSE NULL END",
             ],
             'sqlite' => [
-                "discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.latitude'))",
-                "discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.longitude'))",
+                "CAST(discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.latitude')) AS REAL)",
+                "CAST(discovery_coordinate_number(json_extract(ocpi_records.normalized, '$.longitude')) AS REAL)",
             ],
             default => throw new \LogicException('Discovery viewport requires PostgreSQL or SQLite.'),
         };
