@@ -95,8 +95,8 @@ final class InvoiceReconciliationAudit
                 $debits += $debit;
                 $creditsSum += $credit;
             }
-            if ($lines->isEmpty() || $debits !== $creditsSum ||
-                $debits !== (int) $journal->amount_minor) {
+            if (($lines->isEmpty() && (int) $journal->amount_minor !== 0) ||
+                $debits !== $creditsSum || $debits !== (int) $journal->amount_minor) {
                 $flag('journal_unbalanced');
             }
             if ($journal->currency !== $invoice->currency) {

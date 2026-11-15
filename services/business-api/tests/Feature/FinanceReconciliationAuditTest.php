@@ -23,7 +23,7 @@ class FinanceReconciliationAuditTest extends TestCase
             ->group(base_path('routes/commercial_finance.php'));
     }
 
-    private function fixture(): array
+    private function fixture(int $rate = 100): array
     {
         $vendor = User::factory()->create(['role' => 'vendor']);
         $customer = User::factory()->create();
@@ -38,7 +38,7 @@ class FinanceReconciliationAuditTest extends TestCase
         ]);
         $session = ChargingSession::create([
             'reservation_id' => $reservation->id, 'status' => 'stopped', 'energy_wh' => 1000,
-            'rate_minor_per_kwh' => 100, 'currency' => 'AED', 'total_minor' => 100,
+            'rate_minor_per_kwh' => $rate, 'currency' => 'AED', 'total_minor' => $rate,
             'stopped_at' => now(),
         ]);
 
@@ -90,6 +90,16 @@ class FinanceReconciliationAuditTest extends TestCase
             ->getJson($this->url().'?per_page=1')->assertOk()
             ->assertJsonPath('total', 2)->assertJsonCount(1, 'data');
         $this->actingAs($foreignOwner)->getJson($this->url())->assertOk()->assertJsonPath('total', 1);
+    }
+
+    public function test_zero_value_invoice_does_not_require_artificial_ledger_lines(): void
+    {
+        [$vendor, $customer, $invoice] = $this->fixture(0);
+        $this->assertDatabaseCount('finance_entries', 0);
+        $this->actingAs($vendor)->getJson($this->url())->assertOk()
+            ->assertJsonPath('data.0.status', 'reconciled')
+            ->assertJsonPath('data.0.invoiced_minor', 0)
+            ->assertJsonPath('data.0.journal_count', 1);
     }
 
     public function test_orphan_journal_is_detected_without_mutating_financial_records(): void
