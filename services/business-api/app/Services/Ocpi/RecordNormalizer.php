@@ -15,8 +15,8 @@ class RecordNormalizer
         $rules = match ($module) {
             'locations' => ['publish' => 'required|boolean', 'name' => 'sometimes|string|max:255', 'address' => 'required|string|max:255', 'city' => 'required|string|max:255', 'country' => 'required|string|regex:/^[A-Z]{3}$/', 'coordinates' => 'required|array', 'coordinates.latitude' => 'required|numeric|between:-90,90', 'coordinates.longitude' => 'required|numeric|between:-180,180', 'evses' => 'sometimes|array|list|max:100', 'evses.*.uid' => 'required|string|max:64', 'evses.*.status' => 'required|in:AVAILABLE,BLOCKED,CHARGING,INOPERATIVE,OUTOFORDER,PLANNED,REMOVED,RESERVED,UNKNOWN', 'evses.*.connectors' => 'required|array|list|min:1|max:20', 'evses.*.connectors.*.id' => 'required|string|max:64', 'evses.*.connectors.*.standard' => 'required|string|max:64'],
             'tariffs' => ['currency' => 'required|string|regex:/^[A-Z]{3}$/', 'elements' => 'required|array|list|min:1|max:100', 'elements.*.price_components' => 'required|array|list|min:1|max:20', 'elements.*.price_components.*.type' => 'required|in:ENERGY,FLAT,PARKING_TIME,TIME', 'elements.*.price_components.*.price' => 'required|numeric|min:0|max:1000000', 'elements.*.price_components.*.step_size' => 'required|integer|min:1|max:1000000', 'elements.*.price_components.*.vat' => 'sometimes|numeric|between:0,100'],
-            'sessions' => ['start_date_time' => 'required|date', 'end_date_time' => 'required_if:status,COMPLETED|nullable|date|after_or_equal:start_date_time', 'kwh' => 'required|numeric|min:0|max:1000000', 'currency' => 'required|string|regex:/^[A-Z]{3}$/', 'status' => 'required|in:ACTIVE,COMPLETED,INVALID,PENDING,RESERVATION', 'location_id' => 'required|string|max:64', 'evse_uid' => 'required|string|max:64', 'connector_id' => 'required|string|max:64', 'total_cost' => 'sometimes|array', 'total_cost.excl_vat' => 'sometimes|numeric|min:0|max:1000000000', 'total_cost.incl_vat' => 'sometimes|numeric|min:0|max:1000000000'],
-            'cdrs' => ['credit' => 'sometimes|boolean', 'credit_reference_id' => 'required_if:credit,true|prohibited_unless:credit,true|string|max:64', 'session_id' => 'sometimes|nullable|string|max:64', 'start_date_time' => 'required|date', 'end_date_time' => 'required|date|after_or_equal:start_date_time', 'currency' => 'required|string|regex:/^[A-Z]{3}$/', 'total_energy' => 'required|numeric|min:0|max:1000000', 'total_time' => 'required|numeric|min:0|max:1000000', 'total_cost' => 'required|array', 'total_cost.excl_vat' => 'required|numeric|min:0|max:1000000000', 'total_cost.incl_vat' => 'sometimes|numeric|min:0|max:1000000000', 'cdr_location' => 'required|array', 'cdr_location.id' => 'required|string|max:64', 'cdr_location.evse_uid' => 'required|string|max:64', 'cdr_location.connector_id' => 'required|string|max:64'],
+            'sessions' => ['start_date_time' => 'required|date', 'end_date_time' => 'required_if:status,COMPLETED|nullable|date', 'kwh' => 'required|numeric|min:0|max:1000000', 'currency' => 'required|string|regex:/^[A-Z]{3}$/', 'status' => 'required|in:ACTIVE,COMPLETED,INVALID,PENDING,RESERVATION', 'location_id' => 'required|string|max:64', 'evse_uid' => 'required|string|max:64', 'connector_id' => 'required|string|max:64', 'total_cost' => 'sometimes|array', 'total_cost.excl_vat' => 'sometimes|numeric|min:0|max:1000000000', 'total_cost.incl_vat' => 'sometimes|numeric|min:0|max:1000000000'],
+            'cdrs' => ['credit' => 'sometimes|boolean', 'credit_reference_id' => 'required_if:credit,true|prohibited_unless:credit,true|string|max:64', 'session_id' => 'sometimes|nullable|string|max:64', 'start_date_time' => 'required|date', 'end_date_time' => 'required|date', 'currency' => 'required|string|regex:/^[A-Z]{3}$/', 'total_energy' => 'required|numeric|min:0|max:1000000', 'total_time' => 'required|numeric|min:0|max:1000000', 'total_cost' => 'required|array', 'total_cost.excl_vat' => 'required|numeric|min:0|max:1000000000', 'total_cost.incl_vat' => 'sometimes|numeric|min:0|max:1000000000', 'cdr_location' => 'required|array', 'cdr_location.id' => 'required|string|max:64', 'cdr_location.evse_uid' => 'required|string|max:64', 'cdr_location.connector_id' => 'required|string|max:64'],
             default => throw new OcpiException('Unsupported OCPI record module.'),
         };
         $validator = Validator::make($record, $common + $rules);
@@ -25,6 +25,7 @@ class RecordNormalizer
         }
         // OCPI 2.2.1 DateTime is UTC whether or not a trailing Z is present.
         // Numeric offsets, local-server dates and relative text are not peer UTC.
+        $utcInstants = [];
         foreach (['last_updated', 'start_date_time', 'end_date_time'] as $field) {
             if (! array_key_exists($field, $record) || $record[$field] === null) {
                 continue;
@@ -40,6 +41,13 @@ class RecordNormalizer
             if (! $instant || DateTimeImmutable::getLastErrors() !== false) {
                 throw new OcpiException('Invalid '.$module.' record fields: '.$field);
             }
+            $utcInstants[$field] = $instant;
+        }
+        // Laravel's generic after_or_equal uses the server timezone for a
+        // Z-free date. Compare the parsed OCPI UTC instants instead.
+        if (isset($utcInstants['start_date_time'], $utcInstants['end_date_time'])
+            && $utcInstants['end_date_time'] < $utcInstants['start_date_time']) {
+            throw new OcpiException('Invalid '.$module.' record fields: end_date_time');
         }
         if ($module === 'locations') {
             $uids = [];
