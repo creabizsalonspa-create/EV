@@ -282,7 +282,11 @@ class SourceConsumer
         // that do not contain an energy register. A truncated/reordered source
         // projection must not silently skip the original event after restart.
         $previousId = max(0, $link->source_meter_cursor);
-        $previousSourceAt = $link->last_event_at ?? $startedAt;
+        // An unacknowledged terminal inbox commit has already recorded the
+        // source transaction endTime as last_event_at. Its actual terminal
+        // meter sample may legitimately precede that endTime; replay must
+        // still be checked against the authenticated transaction window.
+        $previousSourceAt = $link->ended_at === null ? ($link->last_event_at ?? $startedAt) : $startedAt;
         foreach ($rows as $row) {
             if (! is_array($row) || ! is_int($row['id'] ?? null) || $row['id'] <= $previousId || $row['id'] > 1000000000 ||
                 ! is_string($row['timestamp'] ?? null) || ! is_array($row['sampledValue'] ?? null) ||
