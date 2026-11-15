@@ -98,6 +98,21 @@ class PartnerClient
         }
     }
 
+    /** OCPI envelopes have the same strict UTC DateTime contract as source records. */
+    private function validEnvelopeTimestamp(mixed $value): bool
+    {
+        if (! is_string($value)
+            || ! preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z?$/D', $value)) {
+            return false;
+        }
+        $format = '!Y-m-d\TH:i:s'
+            .(str_contains($value, '.') ? '.u' : '')
+            .(str_ends_with($value, 'Z') ? '\Z' : '');
+        $date = \DateTimeImmutable::createFromFormat($format, $value, new \DateTimeZone('UTC'));
+
+        return $date !== false && \DateTimeImmutable::getLastErrors() === false;
+    }
+
     private function get(OcpiProvider $provider, string $url): array
     {
         // An already dispatched read cannot be cancelled, but a revoked or superseded
@@ -125,7 +140,7 @@ class PartnerClient
             }
             $this->verifyTrace($response, $trace);
             $body = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
-            if (! is_array($body) || ($body['status_code'] ?? null) !== 1000 || ! array_key_exists('data', $body) || ! is_string($body['timestamp'] ?? null) || strtotime($body['timestamp']) === false) {
+            if (! is_array($body) || ($body['status_code'] ?? null) !== 1000 || ! array_key_exists('data', $body) || ! $this->validEnvelopeTimestamp($body['timestamp'] ?? null)) {
                 throw new OcpiException('Operator OCPI response was unsuccessful or malformed.');
             }
 
@@ -384,7 +399,7 @@ class PartnerClient
             }
             $this->verifyTrace($r, $trace);
             $response = json_decode($text, true, flags: JSON_THROW_ON_ERROR);
-            if (! is_array($response) || ($response['status_code'] ?? null) !== 1000 || ! is_string($response['timestamp'] ?? null) || strtotime($response['timestamp']) === false) {
+            if (! is_array($response) || ($response['status_code'] ?? null) !== 1000 || ! $this->validEnvelopeTimestamp($response['timestamp'] ?? null)) {
                 throw new OcpiException('Partner protocol outcome requires reconciliation.');
             }
             $this->assertCurrent($provider);
