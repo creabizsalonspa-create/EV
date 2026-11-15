@@ -95,3 +95,14 @@ test("late profile PATCH cannot overwrite another signed-in account or locale",a
     assert.equal(h.localeUpdates.length,0);
     assert.equal(form.submit.disabled,false);
 });
+
+test("starting a garage refresh immediately clears previously displayed private rows",async()=>{
+    const h=harness(),list=h.el("vehicle-list");
+    list.append({value:"Prior account vehicle"});
+    const pending=h.methods.garage();
+    assert.equal(list.children.length,0);
+    h.client.sessionEpoch++;
+    h.resolveRead(0,{data:[{id:1,name:"Previous",connector_type:"CCS2"}]});
+    await pending;
+    assert.equal(list.children.length,0);
+});
