@@ -187,7 +187,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
   bool enabled = false, mapReady = false;
   bool locating = false, foreground = true;
   String? locationError;
-  int locationGeneration = 0;
+  int locationGeneration = 0, mapGeneration = 0;
   double currentZoom = 11;
   final mapController = MapController();
   @override
@@ -349,6 +349,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
     // Only an explicit unified viewport search may open an empty map.
     // Standalone partner maps still require actual published point evidence.
     final exploratory = widget.allowViewportSearch && points.isEmpty;
+    final renderedMapGeneration = mapGeneration;
     final groups = clusterPublishedMapPoints(points, currentZoom);
     return Scaffold(
       appBar: AppBar(
@@ -383,7 +384,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if ((points.isNotEmpty || exploratory) && !enabled)
               FilledButton(
                 key: const Key('partner-map-enable'),
-                onPressed: () => setState(() { enabled = true; mapReady = false; }),
+                onPressed: () => setState(() { mapGeneration++; enabled = true; mapReady = false; currentZoom = points.isEmpty ? 2 : 11; }),
                 child: Text(exploratory
                     ?t('Enable discovery area map','تفعيل خريطة منطقة البحث')
                     :t('Enable report map','تفعيل خريطة التقارير')),
@@ -391,7 +392,7 @@ class _PartnerReportMapState extends State<PartnerReportMap>
             if (enabled)
               OutlinedButton(
                 key: const Key('partner-map-disable'),
-                onPressed: () => setState(() { enabled = false; mapReady = false; locationGeneration++; locating = false; locationError = null; }),
+                onPressed: () => setState(() { mapGeneration++; enabled = false; mapReady = false; locationGeneration++; locating = false; locationError = null; }),
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
             if (enabled && widget.allowViewportSearch)
@@ -450,14 +451,19 @@ class _PartnerReportMapState extends State<PartnerReportMap>
                     // attached its controller, including on short screens
                     // where the lazily built map sits below the button.
                     onMapReady: () {
+                      // A map from an earlier disable/reenable generation
+                      // cannot activate this map's viewport or GPS buttons.
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted && enabled && !mapReady) {
+                        if (mounted && enabled && !mapReady &&
+                            mapGeneration == renderedMapGeneration) {
                           setState(() => mapReady = true);
                         }
                       });
                     },
                     onPositionChanged: (camera, _) {
-                      if (mounted && (camera.zoom - currentZoom).abs() > 0.005) {
+                      if (mounted && enabled &&
+                          mapGeneration == renderedMapGeneration &&
+                          (camera.zoom - currentZoom).abs() > 0.005) {
                         setState(() => currentZoom = camera.zoom);
                       }
                     },
