@@ -60,6 +60,9 @@ require exactly one final invoice and zero extra commands after recovery.
 
 The signed inbox owns charging event idempotency, while the restartable
 source reader owns an independent monotonic `source_meter_cursor` checkpoint.
+Once the authenticated terminal event and its invoice commit, the reader
+short-circuits subsequent source polls; later persisted diagnostic/voltage rows
+must not re-open the immutable charging session or generate new invoices.
 Concurrent or delayed observers use a conditional database update: a stale
 worker may acknowledge an earlier non-energy source row but cannot write a
 smaller cursor after another worker has already committed a later page.
