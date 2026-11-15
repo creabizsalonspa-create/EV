@@ -9,6 +9,7 @@ use App\Http\Controllers\AdminAuditTrailController;
 use App\Http\Controllers\AdminKycQueueController;
 use App\Http\Controllers\AdminOperationalHealthController;
 use App\Http\Controllers\AdminOperationsMapController;
+use App\Http\Controllers\AdminOverviewController;
 use App\Http\Controllers\AdminOperatorRoleHistoryController;
 use App\Http\Controllers\AdminSecondFactorController;
 use App\Http\Controllers\AdminSessionController;
@@ -109,11 +110,8 @@ Route::get('/api/admin/accounts/{target}/moderations', [AdminAccountDirectoryCon
 
 Route::get('/api/admin/operator-role-changes', [AdminOperatorRoleHistoryController::class, 'index'])->middleware(['auth', 'throttle:platform-api']);
 
-Route::get('/api/admin/overview', function (Request $r) {
-    abort_unless($r->user()->role === 'admin', 403);
-
-    return response()->json(['users' => User::count(), 'stations' => Station::count(), 'reservations' => Reservation::count(), 'simulations' => ChargingSession::count(), 'audit_events' => DB::table('audit_events')->orderByDesc('id')->limit(50)->get()]);
-})->middleware(['auth', 'throttle:platform-api']);
+Route::get('/api/admin/overview', [AdminOverviewController::class, 'show'])
+    ->middleware(['auth', 'throttle:platform-api']);
 
 Route::get('/api/regions', [EnterpriseController::class, 'regions'])->middleware('throttle:catalog');
 Route::middleware(['auth', 'throttle:platform-api'])->group(function () {
