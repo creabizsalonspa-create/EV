@@ -125,7 +125,7 @@ void main() {
     await signIn(tester);
     final dynamic workspace = tester.state(find.byType(Workspace));
 
-    await selectAccountMenu(tester, 'Forget sign-in');
+    await selectAccountMenu(tester, 'Forget saved sign-in');
     await api.forgetStarted.future;
     workspace.expiredSession();
     await tester.pumpAndSettle();
