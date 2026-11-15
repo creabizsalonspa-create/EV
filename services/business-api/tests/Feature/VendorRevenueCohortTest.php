@@ -197,5 +197,4 @@ class VendorRevenueCohortTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 1);
         $this->assertDatabaseCount('finance_payments', 1);
     }
-
 }
