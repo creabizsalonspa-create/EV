@@ -129,7 +129,7 @@ class FaultReminderEscalator
                     || ! str_starts_with($binding->identifier, 'ev-test-')
                     || DB::table('csms_bindings')->where('vendor_charger_id', $charger->id)->count() !== 1
                     || DB::table('csms_bindings')->where('identifier', $binding->identifier)->count() !== 1
-                    || ! DB::table('users')->where('id', $company->owner_id)->where('role', 'vendor')->where('account_status', 'active')->exists()) {
+                    || ! DB::table('users')->where('id', $company->owner_id)->where('role', 'vendor')->exists()) {
                     return false;
                 }
                 $alert = DB::table('charging_fault_alerts')
@@ -265,6 +265,15 @@ class FaultReminderEscalator
                             $escalatedNow = true;
                         }
                     }
+                }
+                // Closure evidence and Admin oversight remain eligible even
+                // if the vendor is suspended. Suppress only the *new owner*
+                // reminder under the current owner row lock before inserting.
+                $owner = DB::table('users')->where('id', $company->owner_id)
+                    ->lockForUpdate()->first();
+                if (! $owner || $owner->role !== 'vendor'
+                    || $owner->account_status !== 'active') {
+                    return ['reminded' => false, 'escalated' => $escalatedNow];
                 }
                 $preference = DB::table('notification_preferences')
                     ->where('user_id', $company->owner_id)->lockForUpdate()->first();
