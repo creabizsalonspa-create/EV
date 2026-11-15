@@ -137,6 +137,57 @@ class ContinuousFaultObserverTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public static function invalidOcppObservations(): array
+    {
+        return [
+            'ocpp16_unknown_status' => ['1.6', 'connectorStatus', 'VendorFaultUnknown'],
+            'ocpp201_unknown_status' => ['2.0.1', 'connectorStatus', 'VendorFaultUnknown'],
+            'ocpp16_relative_clock' => ['1.6', 'timestamp', 'tomorrow'],
+            'ocpp201_relative_clock' => ['2.0.1', 'timestamp', 'tomorrow'],
+            'ocpp16_naive_clock' => ['1.6', 'timestamp', '2026-11-15 10:00:00'],
+            'ocpp201_naive_clock' => ['2.0.1', 'timestamp', '2026-11-15 10:00:00'],
+        ];
+    }
+
+    #[DataProvider('invalidOcppObservations')]
+    public function test_unknown_status_or_ambiguous_clock_requires_reconciliation_without_skipping_event(string $protocol, string $field, string $value): void
+    {
+        $fixture = $this->fixture($protocol);
+        $events = $this->events(1, 2);
+        $events[0][$field] = $value;
+        $this->source($fixture, $events, newest: 2);
+
+        try {
+            app(ContinuousFaultObserver::class)->observe($fixture['binding']);
+            $this->fail('Unsupported OCPP observation advanced the fault source cursor.');
+        } catch (HttpException $error) {
+            $this->assertSame(503, $error->getStatusCode());
+        }
+
+        $this->assertDatabaseHas('charging_fault_cursors', [
+            'last_event_id' => 0,
+            'state' => 'requires_review',
+        ]);
+        $this->assertDatabaseCount('charging_status_observations', 0);
+        $this->assertDatabaseCount('charging_fault_alerts', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.requires_review.simulated')->count());
+
+        // The same source ids may be admitted only after a corrected, fresh
+        // source read. A prior failed batch must not skip the original fault.
+        $this->source($fixture, $this->events(1, 2), newest: 2);
+        $result = app(ContinuousFaultObserver::class)->observe($fixture['binding']);
+        $this->assertSame('caught_up', $result['state']);
+        $this->assertSame(2, $result['events']);
+        $this->assertDatabaseHas('charging_fault_cursors', ['last_event_id' => 2]);
+        $this->assertDatabaseCount('charging_status_observations', 2);
+        $this->assertDatabaseCount('charging_fault_alerts', 1);
+        $this->assertSame(1, InboxNotification::where('kind', 'charging.monitor.resumed.simulated')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_empty_page_cannot_claim_catchup_when_source_has_newer_events(): void
     {
         $f = $this->fixture();
