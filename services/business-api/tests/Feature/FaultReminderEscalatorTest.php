@@ -557,6 +557,26 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_suspended_vendor_does_not_receive_new_fault_reminder_until_reactivated(): void
+    {
+        $f = $this->fixture();
+        $worker = app(FaultReminderEscalator::class);
+        DB::table('users')->where('id', $f['owner']->id)
+            ->update(['account_status' => 'suspended']);
+        $this->assertSame(0, $worker->scan()['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 0);
+        $this->assertDatabaseCount('inbox_notifications', 0);
+        // Reopening access is an explicit external account decision, not an
+        // automatic worker reactivation or an authenticated hardware action.
+        DB::table('users')->where('id', $f['owner']->id)
+            ->update(['account_status' => 'active']);
+        $this->assertSame(1, $worker->scan()['reminded']);
+        $this->assertSame(0, $worker->scan()['reminded']);
+        $this->assertDatabaseCount('charging_fault_reminders', 1);
+        $this->assertDatabaseCount('inbox_notifications', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_owner_can_suppress_repeat_reminder_but_original_fault_remains_available(): void
     {
         $f = $this->fixture();
