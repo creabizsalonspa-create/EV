@@ -863,17 +863,17 @@ class SourceConsumerTest extends TestCase
             if (str_contains($query, 'MeterValues')) {
                 $after = (int) ($request['variables']['after'] ?? -1);
 
-                return Http::response(['data' => ['MeterValues' =>
-                    $ended && $after === 0 ? [[
-                        'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
-                        'sampledValue' => [[
-                            'measurand' => 'Energy.Active.Import.Register',
-                            'value' => '3500',
-                            'context' => 'Transaction.End',
-                            'unitOfMeasure' => ['unit' => 'Wh'],
-                        ]],
-                    ]] : [],
-                ]]);
+                $samples = $ended && $after === 0 ? [[
+                    'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                    'sampledValue' => [[
+                        'measurand' => 'Energy.Active.Import.Register',
+                        'value' => '3500',
+                        'context' => 'Transaction.End',
+                        'unitOfMeasure' => ['unit' => 'Wh'],
+                    ]],
+                ]] : [];
+
+                return Http::response(['data' => ['MeterValues' => $samples]]);
             }
 
             $this->fail('A source identity check attempted unexpected outbound traffic.');
