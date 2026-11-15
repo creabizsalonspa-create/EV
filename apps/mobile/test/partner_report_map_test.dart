@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:creabiz_ev/partner_report_map.dart';
+import 'package:creabiz_ev/foreground_location.dart';
 
 class FakeMapTiles extends TileProvider {
   int requests = 0;
@@ -321,6 +323,110 @@ void main() {
     await tester.ensureVisible(action);
     expect(tester.widget<OutlinedButton>(action).onPressed,isNotNull,
       reason:'Fresh controller attachment must be required on each enable');
+    expect(tester.takeException(),isNull);
+  });
+
+  testWidgets('optional one-time GPS needs separate consent and map search after positioning', (tester) async {
+    final tiles=FakeMapTiles();
+    final submitted=<Map<String,String>>[];
+    var reads=0;
+    await tester.pumpWidget(MaterialApp(home:Builder(builder:(context)=>Scaffold(
+      body:FilledButton(key:const Key('open-geo-area'),onPressed:()async{
+        final result=await Navigator.of(context).push<Map<String,String>>(
+          MaterialPageRoute(builder:(_)=>PartnerReportMap(
+            points:const [],tileProvider:tiles,allowViewportSearch:true,
+            locationReader:()async{
+              reads++;
+              return const ForegroundFix(25.2,55.3,15);
+            },
+          )),
+        );
+        if(result!=null)submitted.add(result);
+      },child:const Text('Choose search area')),
+    ))));
+    await tester.tap(find.byKey(const Key('open-geo-area')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('unified-native-gps-once')),findsNothing);
+    expect(reads,0);expect(submitted,isEmpty);expect(tiles.requests,0);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    final gps=find.byKey(const Key('unified-native-gps-once'));
+    await tester.ensureVisible(gps);
+    expect(tester.widget<OutlinedButton>(gps).onPressed,isNotNull);
+    await tester.tap(gps);await tester.pumpAndSettle();
+    expect(find.textContaining('one foreground location only after permission'),findsOneWidget);
+    expect(reads,0,reason:'Opening consent dialog cannot collect GPS');
+    await tester.tap(find.text('Cancel'));await tester.pumpAndSettle();
+    expect(reads,0);expect(submitted,isEmpty);
+
+    await tester.tap(gps);await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unified-native-gps-consent')));
+    await tester.pumpAndSettle();
+    expect(reads,1);
+    expect(submitted,isEmpty,reason:'GPS may reposition tiles, not submit a search');
+    expect(find.byKey(const Key('unified-native-gps-error')),findsNothing);
+    final viewport=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(viewport);
+    await tester.tap(viewport);await tester.pumpAndSettle();
+    expect(submitted.length,1);
+    final bounds=submitted.single;
+    expect(double.parse(bounds['south']!),lessThan(25.2));
+    expect(double.parse(bounds['north']!),greaterThan(25.2));
+    expect(double.parse(bounds['west']!),lessThan(55.3));
+    expect(double.parse(bounds['east']!),greaterThan(55.3));
+    expect(tester.takeException(),isNull);
+  });
+
+  testWidgets('foreground GPS denial has an explicit localized manual-map fallback', (tester)async{
+    final tiles=FakeMapTiles();
+    var reads=0;
+    await tester.pumpWidget(MaterialApp(home:PartnerReportMap(
+      points:const [],tileProvider:tiles,allowViewportSearch:true,
+      locationReader:()async{
+        reads++;
+        throw const LocationLookupFailure('denied');
+      },
+    )));
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unified-native-gps-once')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unified-native-gps-consent')));
+    await tester.pumpAndSettle();
+    expect(reads,1);
+    expect(find.textContaining('Move the map manually'),findsOneWidget);
+    final action=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(action);
+    expect(tester.widget<OutlinedButton>(action).onPressed,isNotNull);
+    expect(tester.takeException(),isNull);
+  });
+
+  testWidgets('late one-time GPS callback cannot update a backgrounded map', (tester)async{
+    final pending=Completer<ForegroundFix>();
+    var reads=0;
+    await tester.pumpWidget(MaterialApp(home:PartnerReportMap(
+      points:const [],tileProvider:FakeMapTiles(),allowViewportSearch:true,
+      locationReader:(){
+        reads++;
+        return pending.future;
+      },
+    )));
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unified-native-gps-once')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unified-native-gps-consent')));
+    await tester.pump();
+    expect(reads,1);
+    expect(find.byKey(const Key('unified-native-gps-loading')),findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    pending.complete(const ForegroundFix(25.2,55.3,10));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('unified-native-gps-loading')),findsNothing);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('unified-native-gps-error')),findsNothing);
     expect(tester.takeException(),isNull);
   });
 }
