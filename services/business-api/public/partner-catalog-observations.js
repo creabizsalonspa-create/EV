@@ -39,7 +39,7 @@ window.EvPartnerCatalogObservations=(()=>{
    finally{if(active(n)){read.disabled=false;select.disabled=false;}}
   };
   select.onchange=erase;
-  root.append(text('p','Stored partner reports only. A recent receipt does not refresh an old source report. Publish flags, coordinate usability and connector lists do not prove geographic accuracy, live availability or charging compatibility. No upstream request, booking, command or payment is sent.','تقارير شريك مخزنة فقط. الاستلام الحديث لا يجعل تقرير المصدر القديم حديثاً. علامات النشر وصلاحية عرض الإحداثيات وقوائم الموصلات لا تثبت دقة الموقع أو التوفر الحي أو توافق الشحن. لا يُرسل طلب للشريك أو حجز أو أمر أو دفع.'),label,read,output);host.replaceChildren(root);observer=new MutationObserver(()=>{if(!root.isConnected)cleanup();});observer.observe(document.body,{childList:true,subtree:true});
+  root.append(text('p','Stored partner reports only. Age buckets describe observations, not the configured catalog policy. A recent receipt does not refresh an old source report. Publish flags, coordinate usability and connector lists do not prove geographic accuracy, live availability or charging compatibility. No upstream request, booking, command or payment is sent.','تقارير شريك مخزنة فقط. فئات العمر تصف الملاحظات وليست قرار سياسة الكتالوج المضبوطة. الاستلام الحديث لا يجعل تقرير المصدر القديم حديثاً. علامات النشر وصلاحية عرض الإحداثيات وقوائم الموصلات لا تثبت دقة الموقع أو التوفر الحي أو توافق الشحن. لا يُرسل طلب للشريك أو حجز أو أمر أو دفع.'),label,read,output);host.replaceChildren(root);observer=new MutationObserver(()=>{if(!root.isConnected)cleanup();});observer.observe(document.body,{childList:true,subtree:true});
  }
  return{open};
 })();

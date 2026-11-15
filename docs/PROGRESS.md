@@ -1,3 +1,23 @@
+# 15 November 2026 — combined catalog policy and browser security handoff
+
+Preserved current PR1204f2ea2e7 shared catalog policy and PR124d2c9ba77 offline
+source-matched dependency inventory alongside detailed stored catalog observations.
+Policy remains the single customer-facing age verdict; descriptive age histograms
+confer no eligibility. All parent commands, PostgreSQL filters, assets, API surfaces
+and localization values were checked during normal non-force merges.
+
+Actual browser acceptance exposed late private authorization replies and stale
+inbox controls around MFA session rotation. A scoped transition now fences older
+requests before mutation, prevents unrelated sends until settlement, adopts only
+proven current-account CSRF replies and rebuilds inbox controls through a read.
+No mutation is replayed; account replacement clears the transition safely.
+
+Focused combined PG94/1232, Flutter33 and seven-file analysis, PHP style759,19
+client/policy/inventory contracts (including two reproduced MFA races), actual
+Laravel EN/AR MFA/inbox/search/fleet/catalog workflows and delayed-session browser
+regressions passed. No complete historical QA replay. Latest exact-source hosted
+CI remains required before merge; original312 inventory/production gates remain.
+
 # 15 November 2026 — stored partner catalog monitoring (integration pending)
 
 Connected owner/Admin API, EN/AR web and vendor Flutter observations expose

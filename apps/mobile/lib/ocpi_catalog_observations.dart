@@ -229,8 +229,8 @@ class _CatalogObservationState extends State<OcpiCatalogObservationsView>
         children: [
           Text(
             t(
-              'Stored partner reports only. A recent receipt does not refresh an old source report. Publish flags, coordinates and connector lists do not prove geographic accuracy, live availability or charging compatibility. No upstream request, booking, command or payment is sent.',
-              'تقارير شريك مخزنة فقط. الاستلام الحديث لا يجعل تقرير المصدر القديم حديثاً. علامات النشر والإحداثيات وقوائم الموصلات لا تثبت دقة الموقع أو التوفر الحي أو توافق الشحن. لا يُرسل طلب للشريك أو حجز أو أمر أو دفع.',
+              'Stored partner reports only. Age buckets describe observations, not the configured catalog policy. A recent receipt does not refresh an old source report. Publish flags, coordinates and connector lists do not prove geographic accuracy, live availability or charging compatibility. No upstream request, booking, command or payment is sent.',
+              'تقارير شريك مخزنة فقط. فئات العمر تصف الملاحظات وليست قرار سياسة الكتالوج المضبوطة. الاستلام الحديث لا يجعل تقرير المصدر القديم حديثاً. علامات النشر والإحداثيات وقوائم الموصلات لا تثبت دقة الموقع أو التوفر الحي أو توافق الشحن. لا يُرسل طلب للشريك أو حجز أو أمر أو دفع.',
             ),
           ),
           DropdownButtonFormField<String>(

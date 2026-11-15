@@ -37,3 +37,27 @@ test('proven current-account MFA changes hand off rotated CSRF without replay',a
 test('late MFA token handoff cannot cross an account change',async()=>{
  const c=csrfFixture(null);let finish;c.fetch=()=>new Promise(resolve=>finish=resolve);const pending=c.invoke('account/second-factor/enable','POST',{});c.client.invalidateSession();c.user={id:8};finish({status:200,ok:true,json:async()=>({reauthentication_required:false,csrf_token:'b'.repeat(40)})});await assert.rejects(pending,{name:'SessionChangedError'});assert.equal(c.csrf,'a'.repeat(40));assert.equal(c.user.id,8);
 });
+
+test('successful MFA rotation fences earlier private responses without signing out the current browser',async()=>{
+ const c=csrfFixture(null);let finishOld;
+ c.fetch=url=>url.endsWith('/account/second-factor/enable')
+  ?Promise.resolve({status:200,ok:true,json:async()=>({reauthentication_required:false,csrf_token:'b'.repeat(40)})})
+  :new Promise(resolve=>finishOld=resolve);
+ const earlier=c.invoke('vehicles');earlier.catch(()=>{});
+ await c.invoke('account/second-factor/enable','POST',{});
+ finishOld({status:401,ok:false,json:async()=>({message:'Earlier session was revoked'})});
+ await assert.rejects(earlier,{name:'SessionChangedError'});
+ assert.equal(c.user.id,7);assert.equal(c.csrf,'b'.repeat(40));
+});
+
+test('MFA changes fence earlier failures before the response and block unrelated sends until settled',async()=>{
+ const c=csrfFixture(null);let finishOld,finishMfa,sent=0;
+ c.fetch=url=>{sent++;return new Promise(resolve=>{if(url.endsWith('/account/second-factor/enable'))finishMfa=resolve;else finishOld=resolve;});};
+ const earlier=c.invoke('vehicles');earlier.catch(()=>{});
+ const changing=c.invoke('account/second-factor/enable','POST',{});changing.catch(()=>{});
+ finishOld({status:401,ok:false,json:async()=>({message:'Earlier session was revoked'})});
+ await assert.rejects(earlier,{name:'SessionChangedError'});assert.equal(c.user.id,7);
+ await assert.rejects(c.invoke('charger-commands','POST',{}),{name:'SessionChangedError'});assert.equal(sent,2);
+ finishMfa({status:200,ok:true,json:async()=>({reauthentication_required:false,csrf_token:'b'.repeat(40)})});
+ await changing;assert.equal(c.user.id,7);assert.equal(c.client.securityChange,null);
+});

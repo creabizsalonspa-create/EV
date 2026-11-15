@@ -592,3 +592,11 @@ The private owner/Admin `GET /api/ocpi/providers/{provider}/sync-plans` response
 Successful browser authenticator enable/disable/recovery-code replacement responses include the newly rotated `csrf_token` alongside `reauthentication_required=false`, under private/no-store headers. The web API accepts this handoff only for those proven mutations in its current account context, without replay. Native responses require reauthentication and return no browser token. This preserves session/CSRF rotation while allowing the next legitimate browser action.
 
 The same validated policy also generates each available partner result's `catalog_age_policy` in unified search, partner search and saved places. English/Arabic web and Flutter views show its read-time state and explicitly unverified physical availability. Both source and receipt timestamps must be inside the configured limit; future/missing clocks stay unknown and exact expiry is stale. Private saved rows redact the policy after publication or provider authorization is withdrawn. Caller-selected source-age search filters remain separate from this server policy and never confer operational authority.
+
+
+Browser MFA mutations fence earlier private requests before session rotation and
+reject concurrent unrelated sends until the attempt settles. Only a successful,
+current-account MFA response may hand off its rotated CSRF token. A safe inbox
+read then rebuilds epoch-bound controls; it never acknowledges notices or retries
+a mutation. Logout/account replacement invalidates the pending transition, so an
+older completion cannot change the new account or its token.
