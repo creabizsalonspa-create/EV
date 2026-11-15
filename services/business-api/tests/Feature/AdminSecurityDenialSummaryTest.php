@@ -34,6 +34,7 @@ class AdminSecurityDenialSummaryTest extends TestCase
         $this->denial($other, 'admin.second_factor.recovery_denied', $secret, now()->toDateTimeString());
         $this->denial($admin, 'admin.second_factor.verify_denied', $secret, now()->toDateTimeString());
         $this->denial($admin, 'privacy.requested.access', $secret, now()->toDateTimeString());
+        $this->denial($admin, 'admin.second_factor.verify_denied', 'FUTURE-UNTRUSTED-AUDIT', now()->addMinutes(5)->toDateTimeString());
 
         $this->getJson('/api/admin/security-denials')->assertUnauthorized();
         $this->actingAs($vendor)->getJson('/api/admin/security-denials')->assertForbidden();
