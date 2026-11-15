@@ -220,6 +220,52 @@ class OcpiWindowedPullTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_read_reply_rejects_non_ocpi_envelope_dates_before_accepting_any_source_data(): void
+    {
+        $provider = $this->provider();
+        $timestamp = 'yesterday';
+        Http::fake(function () use (&$timestamp) {
+            return Http::response([
+                'status_code' => 1000,
+                'timestamp' => $timestamp,
+                'data' => [['id' => 'must-not-accept']],
+            ]);
+        });
+        foreach (['yesterday', '2025-02-30T08:00:00Z', '2025-03-10 08:00:00', '2025-03-10T08:00:00+00:00'] as $timestamp) {
+            try {
+                app(PartnerClient::class)->pull($provider, 'locations');
+                $this->fail('Invalid OCPI response envelope timestamp was trusted.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('malformed', $error->getMessage());
+            }
+        }
+        Http::assertSentCount(4);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_uncertain_sandbox_command_response_with_bad_envelope_date_is_never_replayed(): void
+    {
+        $provider = $this->provider();
+        config(['ocpi.test_commands_enabled' => true, 'ocpi.connections.windowed-read-fixture.test_commands' => true]);
+        $provider->update(['endpoints' => ['commands_receiver' => 'https://partner.example/commands']]);
+        Http::fake(fn () => Http::response([
+            'status_code' => 1000,
+            'timestamp' => 'yesterday',
+            'data' => ['result' => 'ACCEPTED', 'timeout' => 30],
+        ]));
+        try {
+            app(PartnerClient::class)->write(
+                $provider->fresh(), 'commands_receiver', 'POST', ['RESERVE_NOW'], ['reservation_id' => 'synthetic-only']
+            );
+            $this->fail('An invalid response timestamp certified a partner command.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('requires reconciliation', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_negotiated_endpoint_with_existing_date_window_cannot_be_overwritten(): void
     {
         $provider = $this->provider('https://partner.example/locations?date_from=2024-01-01T00%3A00%3A00Z');
