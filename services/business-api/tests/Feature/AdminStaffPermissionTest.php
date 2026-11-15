@@ -352,4 +352,23 @@ class AdminStaffPermissionTest extends TestCase
             'id' => $membership->id, 'status' => 'revoked', 'invitation_version' => 2,
         ]);
     }
+
+    public function test_private_grants_and_hold_history_recheck_current_admin(): void
+    {
+        [$admin, , , , $membership] = $this->fixture();
+        $this->actingAs($admin, 'web');
+        DB::table('users')->where('id', $admin->id)
+            ->update(['account_status' => 'suspended']);
+
+        $this->getJson('/api/admin/permission-grants')->assertForbidden();
+        $this->getJson('/api/admin/permission-grants/'.$membership->id.'/revocations')
+            ->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)
+            ->update(['account_status' => 'active', 'auth_epoch' => 1]);
+        $this->getJson('/api/admin/permission-grants')->assertStatus(409);
+        $this->getJson('/api/admin/permission-grants/'.$membership->id.'/revocations')
+            ->assertStatus(409);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
 }
