@@ -103,7 +103,7 @@ void main() {
       [double.nan,2,3,4], [2,double.infinity,3,4], [10,9,3,4],
       [1,2,5,5], [1,1,5,7], [10,10.00000001,5,7],
     ]) {
-      expect(discoveryViewportBounds(bounds[0],bounds[1],bounds[2],bounds[3]),isNull);
+      expect(discoveryViewportBounds(bounds[0].toDouble(),bounds[1].toDouble(),bounds[2].toDouble(),bounds[3].toDouble()),isNull);
     }
   });
 
