@@ -16,9 +16,16 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
   const requestedStationIds=[];page.on('request',r=>{const url=new URL(r.url());if(url.pathname==='/api/charging-operations/connectors'){assert.equal(r.method(),'GET');calls++;proof.requests=calls;requestedStationIds.push(url.searchParams.get('station_id'));proof.matchedStationScope.push(url.searchParams.get('station_id')===String(fixture.station_id));}});
   page.on('response',r=>{if(new URL(r.url()).pathname==='/api/charging-operations/connectors')proof.responseStatuses.push(r.status());});
   page.on('requestfailed',r=>{if(new URL(r.url()).pathname==='/api/charging-operations/connectors')
-    proof.transportFailures.push((r.failure()?.errorText||'unknown').slice(0,80));});
+    const failure=r.failure();const raw=typeof failure==='string'?failure:failure?.errorText||'';
+    proof.transportFailures.push(/^(?:net::ERR_[A-Z_]+|NS_ERROR_[A-Z_]+)$/.test(raw)?raw:'other_network_failure');});
   stage='web-en-navigate';await page.goto(client.base);
   stage='web-en-refresh';await page.locator('#commands-refresh').click();
+  // The dashboard draws the fleet read button before its separate command-list
+  // GET has finished. Do not compete with the still-active refresh transaction.
+  stage='web-en-history-complete';await page.waitForFunction(()=>{
+    const button=document.querySelector('#commands-refresh');
+    return button && !button.disabled;
+  });
   const root=page.locator('#charging-dashboard section');stage='web-en-form';await root.getByRole('button',{name:'Read connector snapshot',exact:true}).waitFor();
   stage='web-en-no-auto-request';assert.equal(calls,0);
   stage='web-en-station';await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));
@@ -36,6 +43,10 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
   stage='web-en-scope';assert.deepEqual(requestedStationIds,[String(fixture.station_id)]);
   stage='web-en-safety';assert.match(await root.textContent(),/No physical availability/);assert.equal(await root.getByRole('button',{name:/start|stop|reset/i}).count(),0);
   stage='web-ar-language';await page.locator('#language').click();await page.locator('#commands-refresh').click();
+  stage='web-ar-history-complete';await page.waitForFunction(()=>{
+    const button=document.querySelector('#commands-refresh');
+    return button && !button.disabled;
+  });
   stage='web-ar-station';await root.locator('input[name=fleet-station]').fill(String(fixture.station_id));
   // Explicitly re-apply the owned synthetic fixture after changing language.
   // A fresh dashboard widget is not expected to preserve an uncommitted form filter.
