@@ -464,7 +464,9 @@ function reservationForm(s, mapping = null) {
             notice(
                 "Simulation inventory reserved. No physical charger command was sent.",
             );
-            await bookings();
+            // The canonical list is newest first. Show the freshly created
+            // reservation rather than leaving the customer on an older page.
+            await bookings(1);
         } catch (e) {
             notice(e);
         } finally {
