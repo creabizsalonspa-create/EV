@@ -782,9 +782,23 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> discoverBatteryVehicle(int id) async {
+    final requestApi = api;
+    final owner = account;
+    if (id < 1 || requestApi == null || owner == null ||
+        owner.role != 'customer' || busy) return;
+    final generation = _performGeneration;
+    final session = requestApi.sessionFence();
     await perform(() async {
-      final values = await api!.request('vehicles/$id/battery-preferences');
-      if (mounted) discoverCompatible(values['connector_type'] as String);
+      final values = await requestApi.request('vehicles/$id/battery-preferences');
+      // Vehicle preferences are private to their original account. A late
+      // response must not change another customer's discovery filters.
+      if (!mounted ||
+          generation != _performGeneration ||
+          !identical(api, requestApi) ||
+          !session() ||
+          account?.id != owner.id ||
+          account?.role != owner.role) return;
+      discoverCompatible(values['connector_type'] as String);
     });
   }
 
