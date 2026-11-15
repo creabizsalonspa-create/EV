@@ -279,6 +279,10 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       if (lifecycle == null || lifecycle == AppLifecycleState.resumed)
         _consumeNavigation();
     });
+    // A native channel notification does not inherently schedule a Flutter
+    // frame. Ensure the foreground navigation signal is consumed even when
+    // no widget was otherwise about to rebuild.
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   Future<void> _consumeNavigation() async {
