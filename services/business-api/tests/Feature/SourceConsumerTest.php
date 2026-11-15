@@ -270,10 +270,11 @@ class SourceConsumerTest extends TestCase
         $link = $this->link($protocol);
         $at = now()->toImmutable()->startOfSecond();
         $sourceId = 8;
+        $transactionRowId = 10;
         $final = false;
         $transactionReads = 0;
         Http::preventStrayRequests();
-        Http::fake(function (Request $request) use ($link, $protocol, $at, &$sourceId, &$final, &$transactionReads) {
+        Http::fake(function (Request $request) use ($link, $protocol, $at, &$sourceId, &$transactionRowId, &$final, &$transactionReads) {
             $query = $request['query'];
             if (str_contains($query, 'ChargingStations')) {
                 return Http::response(['data' => [
@@ -284,7 +285,7 @@ class SourceConsumerTest extends TestCase
             if (str_contains($query, 'Transactions')) {
                 $transactionReads++;
                 return Http::response(['data' => ['Transactions' => [[
-                    'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'source-station-identity',
+                    'id' => $transactionRowId, 'transactionId' => $protocol === '1.6' ? '101' : 'source-station-identity',
                     'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000',
                     'startTime' => $at->toIso8601String(),
                     'endTime' => $final ? $at->addSeconds(2)->toIso8601String() : null,
@@ -308,6 +309,7 @@ class SourceConsumerTest extends TestCase
 
         $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
         $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(10, $link->fresh()->source_transaction_database_id);
         $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
         $this->assertDatabaseCount('csms_inbox_events', 1);
         $this->assertSame(1, $transactionReads);
@@ -328,9 +330,26 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('csms_inbox_events', 1);
         $this->assertDatabaseCount('charger_commands', 1);
 
-        // Independent confirmation of the original source identity permits
-        // finalization without replaying an uncertain charger command.
+        // Reusing the exact protocol transactionId under another persisted
+        // source row also cannot hijack the original canonical session.
         $sourceId = 8;
+        $transactionRowId = 11;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Changed source transaction row was accepted mid-session.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('source transaction row identity changed', $e->getMessage());
+        }
+        $this->assertSame(2, $transactionReads);
+        $this->assertSame(10, $link->fresh()->source_transaction_database_id);
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        // Independent confirmation of both original source row identities
+        // permits finalization without replaying an uncertain charger command.
+        $transactionRowId = 10;
         $final = true;
         $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
         $this->assertSame(1, $link->fresh()->source_meter_cursor);
@@ -377,6 +396,7 @@ class SourceConsumerTest extends TestCase
 
         $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
         $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(10, $link->fresh()->source_transaction_database_id);
         $this->assertSame(1, $transactionsRead);
         DB::table('csms_session_links')->where('id', $link->id)->update(['source_station_id' => null]);
 
@@ -388,6 +408,20 @@ class SourceConsumerTest extends TestCase
         }
         $this->assertSame(1, $transactionsRead);
         $this->assertNull($link->fresh()->source_station_id);
+        // Legacy started links also cannot adopt an unpinned source
+        // Transactions.id from a later upstream projection.
+        DB::table('csms_session_links')->where('id', $link->id)->update([
+            'source_station_id' => 8, 'source_transaction_database_id' => null,
+        ]);
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('Legacy started session adopted an unknown external transaction row.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('Legacy source transaction row identity', $e->getMessage());
+        }
+        $this->assertSame(2, $transactionsRead);
+        $this->assertNull($link->fresh()->source_transaction_database_id);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
         $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
         $this->assertDatabaseCount('finance_invoices', 0);
         $this->assertDatabaseCount('charger_commands', 1);
