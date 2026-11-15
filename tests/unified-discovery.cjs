@@ -276,3 +276,27 @@ test('recent presets are capped at five and empty filters have localized Arabic 
  assert.equal(panel.hidden,true);
  assert.equal(f.calls.length,8,'Clearing in-memory entries never calls an API');
 });
+
+
+test('account transition resets source and connector controls in addition to country and private search history',async()=>{
+ const f=fixture();
+ f.control.setContext({owner:'A',customer:true});
+ const selects=f.form.children.flatMap(node=>node.children).filter(node=>node.tag==='select');
+ const scope=selects.find(node=>node!==null&&node.name==='scope')||f.form.children[1].children.find(node=>node.tag==='select');
+ const plug=f.form.children.find(node=>node.tag==='label'&&node.textContent.includes('Connector')).children.find(node=>node.tag==='select');
+ const country=selects.find(node=>node.name==='country');
+ const age=selects.find(node=>node.name==='max_source_age_hours');
+ scope.value='partner';plug.value='CCS2';country.value='US';age.value='24';
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.root.children[7].hidden,false);
+ f.control.setContext({owner:'B',customer:true});
+ assert.equal(scope.value,'all');assert.equal(plug.value,'');
+ assert.equal(country.value,'');assert.equal(age.value,'');
+ assert.equal(f.root.children[7].hidden,true);
+ f.form.onsubmit({preventDefault(){}});await tick();
+ const params=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(params.get('scope'),'all');
+ assert.equal(params.get('connector'),'');
+ assert.equal(params.has('country'),false);
+ assert.equal(params.has('max_source_age_hours'),false);
+});
