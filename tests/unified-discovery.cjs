@@ -300,3 +300,21 @@ test('account transition resets source and connector controls in addition to cou
  assert.equal(params.has('country'),false);
  assert.equal(params.has('max_source_age_hours'),false);
 });
+
+
+test('same-account customer-to-vendor role change also clears query history and saved-only filter',async()=>{
+ const f=fixture();
+ f.control.setContext({owner:7,customer:true,favorite:async()=>true});
+ f.form.children[0].children.find(n=>n.tag==='input').value='Customer private';
+ const saved=f.form.children.flatMap(n=>n.children).find(n=>n.tag==='input'&&n.type==='checkbox');
+ saved.checked=true;
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(f.root.children[7].hidden,false);
+ assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'1');
+ f.control.setContext({owner:7,customer:false});
+ assert.equal(f.root.children[7].hidden,true);
+ assert.equal(saved.checked,false);
+ assert.equal(f.form.children[0].children.find(n=>n.tag==='input').value,'');
+ f.form.onsubmit({preventDefault(){}});await tick();
+ assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'0');
+});
