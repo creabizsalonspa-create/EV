@@ -247,6 +247,9 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
   @override
   Widget build(BuildContext context) {
     final points = widget.points;
+    // Only an explicit unified viewport search may open an empty map.
+    // Standalone partner maps still require actual published point evidence.
+    final exploratory = widget.allowViewportSearch && points.isEmpty;
     final groups = clusterPublishedMapPoints(points, currentZoom);
     return Scaffold(
       appBar: AppBar(
@@ -267,9 +270,15 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
               'فعّل بلاطات الخريطة صراحةً. ستتلقى OpenStreetMap عنوان الإنترنت والمنطقة المعروضة. لا يُطلب موقع الجهاز أو بحث جديد عن الشركاء.',
             )),
             if (points.isEmpty)
-              Text(t('No map-compatible coordinates on this page.',
-                  'لا توجد إحداثيات قابلة للعرض على الخريطة في هذه الصفحة.')),
-            if (points.isNotEmpty && !enabled)
+              Text(t(
+                exploratory
+                    ? 'No loaded map pins. Start from the neutral world view, move or zoom to an area, then explicitly press Search. The map centre is not your location or an inventory coverage claim.'
+                    : 'No map-compatible coordinates on this page.',
+                exploratory
+                    ? 'لا توجد علامات محملة على الخريطة. ابدأ من عرض العالم المحايد، ثم حرّك الخريطة أو كبّر المنطقة واضغط بحث صراحةً. مركز الخريطة ليس موقعك ولا دليلاً على تغطية المحطات.'
+                    : 'لا توجد إحداثيات قابلة للعرض على الخريطة في هذه الصفحة.',
+              )),
+            if ((points.isNotEmpty || exploratory) && !enabled)
               FilledButton(
                 key: const Key('partner-map-enable'),
                 onPressed: () => setState(() => enabled = true),
@@ -281,7 +290,7 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                 onPressed: () => setState(() => enabled = false),
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
-            if (enabled && widget.allowViewportSearch && points.isNotEmpty)
+            if (enabled && widget.allowViewportSearch)
               OutlinedButton.icon(
                 key: const Key('unified-native-viewport-search'),
                 icon: const Icon(Icons.search),
@@ -306,7 +315,7 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                   'البحث في مواقع المنصة والشركاء ضمن مساحة الخريطة',
                 )),
               ),
-            if (enabled && points.isNotEmpty)
+            if (enabled && (points.isNotEmpty || exploratory))
               SizedBox(
                 height: math.max(
                   320,
@@ -315,9 +324,13 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                 child: FlutterMap(
                   mapController: mapController,
                   options: MapOptions(
-                    initialCenter: LatLng(
-                        points.first.latitude, points.first.longitude),
-                    initialZoom: 11,
+                    // Initial neutral world view is only a viewport-editing
+                    // surface, never an invented station, GPS position or
+                    // proof that any chargers exist around (0, 0).
+                    initialCenter: points.isEmpty
+                        ? const LatLng(0, 0)
+                        : LatLng(points.first.latitude, points.first.longitude),
+                    initialZoom: points.isEmpty ? 2 : 11,
                     onPositionChanged: (camera, _) {
                       if (mounted && (camera.zoom - currentZoom).abs() > 0.005) {
                         setState(() => currentZoom = camera.zoom);
