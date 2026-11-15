@@ -130,6 +130,13 @@ class SourceConsumer
             throw new RuntimeException('Ambiguous source identity requires reconciliation.');
         }
         if (! $identity['ChargingStations'] || ! $identity['Authorizations']) {
+            // Provisioning can still be pending before the first signed start.
+            // Losing an authenticated station or authorization after that is
+            // an incident, not evidence that the running session completed.
+            if ($link->transaction_id !== null || $link->source_station_id !== null) {
+                throw new RuntimeException('Started source identity disappeared; reconciliation is required.');
+            }
+
             return 0;
         }
         // The source station, not the business binding alone, establishes the
