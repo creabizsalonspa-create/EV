@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
+use App\Services\Ocpi\OcpiMessageHeaders;
 use App\Services\Ocpi\SandboxRoaming;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -17,7 +18,9 @@ class OcpiRoamingProtocolController extends Controller
 {
     private function reply(mixed $data, int $code = 1000, int $http = 200)
     {
-        return response()->json(['status_code' => $code, 'timestamp' => now()->toISOString(), 'data' => $data], $http)->header('Cache-Control', 'private, no-store');
+        $ids = OcpiMessageHeaders::response(request());
+
+        return response()->json(['status_code' => $code, 'timestamp' => now()->toISOString(), 'data' => $data], $http)->header('Cache-Control', 'private, no-store')->header('X-Request-ID', $ids['X-Request-ID'])->header('X-Correlation-ID', $ids['X-Correlation-ID']);
     }
 
     private function peer(Request $r): array
