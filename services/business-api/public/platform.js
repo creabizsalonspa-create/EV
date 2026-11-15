@@ -122,6 +122,7 @@ function clearPrivateViews() {
     inboxPreferencesFor = null;
     inboxPage = 1;
     inboxGeneration++;
+    resetCustomerMutationState();
     fleetRequest?.abort();
     fleetRequest = null;
     fleetGeneration++;
@@ -1785,7 +1786,21 @@ async function batteryEditor(id, row) {
     row.append(box);
 }
 
-let garageGeneration = 0, vehicleCreatePending = false;
+let garageGeneration = 0, vehicleCreatePending = false,
+    vehicleCreateGeneration = 0, profileUpdateGeneration = 0,
+    profileUpdatePending = false;
+function resetCustomerMutationState() {
+    // Increment tokens before unlocking the new account's form. Late
+    // acknowledgements from the previous actor cannot release a newer write.
+    vehicleCreateGeneration++;
+    profileUpdateGeneration++;
+    vehicleCreatePending = false;
+    profileUpdatePending = false;
+    for (const id of ["vehicle-create", "profile-form"]) {
+        const submit = el(id).querySelector("button");
+        if (submit) submit.disabled = false;
+    }
+}
 async function garage() {
     const epoch = client.sessionEpoch, actor = user?.id;
     if (!actor) return;
@@ -1827,6 +1842,7 @@ el("vehicle-create").onsubmit = async (e) => {
     if (!user || vehicleCreatePending) return;
     const epoch = client.sessionEpoch, actor = user.id;
     const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const token = ++vehicleCreateGeneration;
     // The existing garage form uses the implicit submit type.
     const submit = e.target.querySelector("button");
     vehicleCreatePending = true;
@@ -1841,16 +1857,18 @@ el("vehicle-create").onsubmit = async (e) => {
     } catch (error) {
         if (active()) notice(error);
     } finally {
-        vehicleCreatePending = false;
-        if (submit?.isConnected) submit.disabled = false;
+        if (token === vehicleCreateGeneration) {
+            vehicleCreatePending = false;
+            if (submit?.isConnected) submit.disabled = false;
+        }
     }
 };
-let profileUpdatePending = false;
 el("profile-form").onsubmit = async (e) => {
     e.preventDefault();
     if (!user || profileUpdatePending) return;
     const epoch = client.sessionEpoch, actor = user.id;
     const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const token = ++profileUpdateGeneration;
     const submit = e.target.querySelector("button");
     profileUpdatePending = true;
     if (submit) submit.disabled = true;
@@ -1870,8 +1888,10 @@ el("profile-form").onsubmit = async (e) => {
     } catch (error) {
         if (active()) notice(error);
     } finally {
-        profileUpdatePending = false;
-        if (submit?.isConnected) submit.disabled = false;
+        if (token === profileUpdateGeneration) {
+            profileUpdatePending = false;
+            if (submit?.isConnected) submit.disabled = false;
+        }
     }
 };
 async function support() {
