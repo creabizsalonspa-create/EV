@@ -17,22 +17,26 @@ final class EmailHandoffHealth
     public function snapshot(): array
     {
         try {
-            $now = now('UTC');
-            $cutoff = $now->copy()->subMinutes(15);
-            $outbox = DB::table('notification_email_outbox');
+            // A failed read on PostgreSQL must roll back its own savepoint,
+            // not poison the caller's Admin/incident transaction.
+            return DB::transaction(function () {
+                $now = now('UTC');
+                $cutoff = $now->copy()->subMinutes(15);
+                $outbox = DB::table('notification_email_outbox');
 
-            return [
-                'state' => 'available',
-                'outcome_unknown' => (clone $outbox)->where('state', 'outcome_unknown')->count(),
-                'stale_claimed' => (clone $outbox)->where('state', 'claimed')
-                    ->where(fn ($query) => $query
-                        ->where('claimed_at', '<=', $cutoff)
-                        ->orWhere(fn ($missing) => $missing->whereNull('claimed_at')->where('created_at', '<=', $cutoff)))
-                    ->count(),
-                'age_threshold_seconds' => 900,
-                'delivery_confirmed' => false,
-                'automatic_retry' => false,
-            ];
+                return [
+                    'state' => 'available',
+                    'outcome_unknown' => (clone $outbox)->where('state', 'outcome_unknown')->count(),
+                    'stale_claimed' => (clone $outbox)->where('state', 'claimed')
+                        ->where(fn ($query) => $query
+                            ->where('claimed_at', '<=', $cutoff)
+                            ->orWhere(fn ($missing) => $missing->whereNull('claimed_at')->where('created_at', '<=', $cutoff)))
+                        ->count(),
+                    'age_threshold_seconds' => 900,
+                    'delivery_confirmed' => false,
+                    'automatic_retry' => false,
+                ];
+            });
         } catch (Throwable) {
             // Missing or inaccessible storage is unknown, never an empty outbox.
             return [
