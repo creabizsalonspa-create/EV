@@ -2459,9 +2459,19 @@ async function refreshInbox() {
         view.append(pages);
     }
 }
+let ticketDetailGeneration = 0;
 async function ticketDetail(id) {
-    const j = await api("support/" + id),
-        d = el("ticket-detail");
+    const epoch = client.sessionEpoch, actor = user?.id;
+    if (!actor) return;
+    const generation = ++ticketDetailGeneration;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id &&
+        generation === ticketDetailGeneration;
+    const d = el("ticket-detail");
+    d.replaceChildren();
+    const j = await api("support/" + id);
+    if (!active()) return;
+    if (!j?.ticket || !Array.isArray(j?.messages?.data))
+        throw Error("Unreadable support ticket.");
     d.replaceChildren(
         ui("h3", "{subject} · {status}", {
             subject: j.ticket.subject,
@@ -2490,6 +2500,7 @@ async function ticketDetail(id) {
         let pendingReply = null;
         f.onsubmit = async (e) => {
             e.preventDefault();
+            if (!active()) return;
             const payload = {
                 body: body.value,
                 internal: !!f.elements.internal?.checked,
@@ -2506,6 +2517,7 @@ async function ticketDetail(id) {
                     ...payload,
                     idempotency_key: pendingReply.key,
                 });
+                if (!active()) return;
                 pendingReply = null;
                 // The API accepted the message. If the subsequent refresh
                 // fails, do not leave the just-sent body ready to submit again.
@@ -2513,7 +2525,7 @@ async function ticketDetail(id) {
                 await support();
                 await ticketDetail(id);
             } catch (e) {
-                notice(e);
+                if (active()) notice(e);
             }
         };
         d.append(f);
@@ -2540,6 +2552,7 @@ async function ticketDetail(id) {
         let pendingStatus = null;
         f.onsubmit = async (e) => {
             e.preventDefault();
+            if (!active()) return;
             const payload = { status: select.value, reason: reason.value };
             const signature = JSON.stringify(payload);
             if (!pendingStatus || pendingStatus.signature !== signature) {
@@ -2553,12 +2566,13 @@ async function ticketDetail(id) {
                     ...payload,
                     idempotency_key: pendingStatus.key,
                 });
+                if (!active()) return;
                 pendingStatus = null;
                 reason.value = "";
                 await support();
                 await ticketDetail(id);
             } catch (e) {
-                notice(e);
+                if (active()) notice(e);
             }
         };
         d.append(f);
