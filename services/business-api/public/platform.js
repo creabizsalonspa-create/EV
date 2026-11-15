@@ -13,6 +13,10 @@ let reservationPage = 1,
     reservationGeneration = 0,
     reservationRequest = null,
     reservationOwner = null;
+let supportPage = 1,
+    supportGeneration = 0,
+    supportRequest = null,
+    supportOwner = null;
 let user = null,
     csrf = document.querySelector("meta[name=csrf-token]").content;
 const el = (id) => document.getElementById(id),
@@ -126,6 +130,12 @@ function clearPrivateViews() {
     reservationPage = 1;
     reservationOwner = null;
     el("reservation-list").removeAttribute("aria-busy");
+    supportRequest?.abort();
+    supportRequest = null;
+    supportGeneration++;
+    supportPage = 1;
+    supportOwner = null;
+    el("ticket-list").removeAttribute("aria-busy");
     riderWorkspace.clear();
     vendorWorkspace.clear();
     vehicleModelCatalog.clear();
@@ -1688,21 +1698,92 @@ el("profile-form").onsubmit = async (e) => {
         notice(e);
     }
 };
+async function refreshSupportTickets(page = supportPage) {
+    if (!user || !Number.isSafeInteger(page) || page < 1) return;
+    const owner = client.sessionEpoch + ":" + user.id + ":" + user.role;
+    if (supportOwner !== owner) {
+        supportOwner = owner;
+        supportPage = 1;
+        page = 1;
+    }
+    supportRequest?.abort();
+    const controller = new AbortController();
+    supportRequest = controller;
+    const generation = ++supportGeneration, epoch = client.sessionEpoch, actor = user.id;
+    const active = () => generation === supportGeneration &&
+        epoch === client.sessionEpoch && actor === user?.id &&
+        supportRequest === controller && !controller.signal.aborted;
+    const list = el("ticket-list");
+    list.setAttribute("aria-busy", "true");
+    list.replaceChildren(batteryNode("p", "Loading support tickets…", "جارٍ تحميل طلبات الدعم…"));
+    try {
+        const j = await api("support?page=" + page, "GET", undefined, controller.signal);
+        if (!active()) return;
+        if (!Array.isArray(j?.data) || !Number.isSafeInteger(j.current_page) ||
+            !Number.isSafeInteger(j.last_page) || !Number.isSafeInteger(j.total) ||
+            j.current_page !== page || j.last_page < 1 || j.total < 0)
+            throw new Error("Unrecognized support ticket response.");
+        if (page > j.last_page) {
+            await refreshSupportTickets(j.last_page);
+            return;
+        }
+        supportPage = page;
+        list.replaceChildren();
+        if (!j.data.length)
+            list.append(batteryNode("p", "No support tickets on this page.",
+                "لا توجد طلبات دعم في هذه الصفحة."));
+        for (const t of j.data) {
+            const b = ui("button", "#{id} · {subject} · {status}", {
+                id: t.id, subject: t.subject, status: { translate: t.status },
+            });
+            b.dataset.supportTicketId = String(t.id);
+            b.type = "button";
+            b.onclick = () => {
+                if (active()) void ticketDetail(t.id).catch((error) => {
+                    if (active()) notice(error);
+                });
+            };
+            list.append(b);
+        }
+        const pager = document.createElement("nav");
+        pager.className = "pagination";
+        pager.dataset.supportPagination = "true";
+        pager.setAttribute("aria-label", "Support ticket pages / صفحات طلبات الدعم");
+        pager.append(ui("span", "Page {page} of {last} · {total} records", {
+            page: j.current_page, last: j.last_page, total: j.total,
+        }));
+        for (const [key, en, ar, target, disabled] of [
+            ["previous", "Previous", "السابق", page - 1, page <= 1],
+            ["next", "Next", "التالي", page + 1, page >= j.last_page],
+            ["refresh", "Refresh", "تحديث", page, false],
+        ]) {
+            const button = batteryNode("button", en, ar);
+            button.type = "button";
+            button.dataset.supportPageAction = key;
+            button.disabled = disabled;
+            button.onclick = () => { if (active()) void refreshSupportTickets(target); };
+            pager.append(button);
+        }
+        list.append(pager);
+    } catch (error) {
+        if (!active()) return;
+        list.replaceChildren(batteryNode("p",
+            "Support tickets could not be loaded. Retry without resubmitting any request.",
+            "تعذر تحميل طلبات الدعم. أعد المحاولة دون إرسال طلب جديد."));
+        const retry = batteryNode("button", "Retry support tickets", "إعادة تحميل طلبات الدعم");
+        retry.type = "button";
+        retry.dataset.supportRetry = "true";
+        retry.onclick = () => { if (active()) void refreshSupportTickets(page); };
+        list.append(retry);
+    } finally {
+        if (active()) list.removeAttribute("aria-busy");
+    }
+}
 async function support() {
     const session = client.sessionEpoch, account = user?.id;
     if (!account) return;
-    const j = await api("support");
+    await refreshSupportTickets();
     if (session !== client.sessionEpoch || account !== user?.id) return;
-    el("ticket-list").replaceChildren();
-    for (const t of j.data) {
-        const b = ui("button", "#{id} · {subject} · {status}", {
-            id: t.id,
-            subject: t.subject,
-            status: { translate: t.status },
-        });
-        b.onclick = () => ticketDetail(t.id).catch((e) => notice(e));
-        el("ticket-list").append(b);
-    }
     if (inboxPreferencesFor !== account) {
         try {
             const prefs = await api("notifications/preferences");
@@ -2401,6 +2482,7 @@ el("support-create").onsubmit = async (e) => {
         }
         pendingTicketCreate = null;
         e.target.reset();
+        supportPage = 1;
         await support();
         await ticketDetail(t.id);
     } catch (e) {
