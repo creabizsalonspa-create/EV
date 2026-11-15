@@ -60,11 +60,13 @@ class EvApp extends StatefulWidget {
   State<EvApp> createState() => _EvAppState();
 }
 
-class _EvAppState extends State<EvApp> {
+class _EvAppState extends State<EvApp> with WidgetsBindingObserver {
   late final AppPreferences preferences;
+  bool _privacyHidden = false;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     registerVendorDocumentLicenses();
     preferences = widget.preferences ?? AppPreferences(DevicePreferenceStore());
     if (!preferences.ready) preferences.load();
@@ -75,17 +77,53 @@ class _EvAppState extends State<EvApp> {
     animation: preferences,
     builder: (context, _) => MaterialApp(
       title: 'Crea-Biz EV',
-      builder:
-          const bool.fromEnvironment('EV_LOCAL_DEMO') &&
-              !const bool.fromEnvironment('dart.vm.product') &&
-              !const bool.fromEnvironment('dart.vm.profile')
-          ? (context, child) => Column(
-              children: [
-                const LocalDemoNotice(),
-                Expanded(child: child ?? const SizedBox.shrink()),
-              ],
-            )
-          : null,
+      // The builder wraps Navigator, so all authenticated routes, dialogs and
+      // bottom sheets are covered rather than only the root Workspace.
+      builder: (context, child) {
+        final routeContent =
+            const bool.fromEnvironment('EV_LOCAL_DEMO') &&
+                !const bool.fromEnvironment('dart.vm.product') &&
+                !const bool.fromEnvironment('dart.vm.profile')
+            ? Column(
+                children: [
+                  const LocalDemoNotice(),
+                  Expanded(child: child ?? const SizedBox.shrink()),
+                ],
+              )
+            : child ?? const SizedBox.shrink();
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ExcludeSemantics(
+              key: const Key('privacy-content-semantics'),
+              excluding: _privacyHidden,
+              child: IgnorePointer(
+                key: const Key('privacy-content-input'),
+                ignoring: _privacyHidden,
+                child: routeContent,
+              ),
+            ),
+            if (_privacyHidden)
+              Positioned.fill(
+                child: ColoredBox(
+                  key: const Key('privacy-shield'),
+                  color: Colors.black,
+                  child: Center(
+                    child: Semantics(
+                      liveRegion: true,
+                      label: EvStrings.of(context).t('privacyScreenHidden'),
+                      child: const Icon(
+                        Icons.lock_outline,
+                        color: Colors.white,
+                        size: 56,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
 
       themeMode: preferences.theme,
       locale: preferences.locale,
@@ -123,7 +161,18 @@ class _EvAppState extends State<EvApp> {
     ),
   );
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Hide the frame before the OS can snapshot a private nested route.
+    // Preserve Navigator state; never infer that an inactive app is logged out.
+    final hidden = state != AppLifecycleState.resumed;
+    if (hidden == _privacyHidden || !mounted) return;
+    if (hidden) FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _privacyHidden = hidden);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (widget.preferences == null) preferences.dispose();
     super.dispose();
   }
