@@ -71,10 +71,9 @@ class RiderSourceProvisioner
         }, 3);
     }
 
-    public function publish(User $actor, VendorCompany $company, int $tokenId): array
+    private function verifiedAdapter(): string
     {
         abort_unless(config('csms.rider_enabled') && config('csms.session_bridge_enabled') && ! app()->environment('production') && strlen((string) config('csms.rider_client_secret')) >= 32, 503, 'Local rider source adapter is not configured.');
-        $this->currentPublication($actor, $company);
         $callback = (string) config('csms.rider_callback_url');
         abort_unless($callback === 'http://ev-business-api:8000/api/internal/rider-authorize', 503, 'Use the fixed local business callback for this simulator adapter.');
         $nonce = (string) Str::uuid();
@@ -85,6 +84,83 @@ class RiderSourceProvisioner
             abort(503, 'Source rider authorizer is not verified.');
         }
         abort_unless($cap->successful() && $cap->json('ready') === true && $cap->json('adapter_version') === 'creabiz-rider-v1' && $cap->json('tenant_id') === 1 && $cap->json('offline_fallback') === false && $cap->json('cache_seconds') === 0 && is_string($proof) && hash_equals(hash_hmac('sha256', "creabiz-rider-v1\n".$nonce, config('csms.rider_client_secret')), $proof), 503, 'Source rider authorizer is not verified.');
+
+        return $callback;
+    }
+
+    /** Called only in a short transaction, with User -> company -> token ordering. */
+    private function inactiveToken(User $actor, VendorCompany $company, int $tokenId, ?string $lease = null): RiderAccessToken
+    {
+        app(RiderActor::class)->check($actor);
+        $company = VendorCompany::whereKey($company->id)->lockForUpdate()->firstOrFail();
+        abort_unless(in_array($actor->role, ['vendor', 'admin'], true) && ($actor->role === 'admin' || $actor->id === $company->owner_id), 404);
+        app(VendorAccess::class)->operational($company);
+        $token = RiderAccessToken::whereKey($tokenId)->lockForUpdate()->firstOrFail();
+        abort_unless(DB::table('rider_charging_grants')->where('token_id', $token->id)->where('company_id', $company->id)->exists(), 404);
+        // A single-company withdrawal must never disable another company's active card.
+        abort_unless($token->revoked_at !== null || $token->expires_at->lte(now()), 409, 'Only globally revoked or expired tokens can retire their source registration.');
+        if ($lease !== null) {
+            abort_unless($token->provision_lease === $lease && $token->provision_lease_until?->isFuture(), 409, 'Source retirement lease changed or expired.');
+        }
+
+        return $token;
+    }
+
+    public function retire(User $actor, VendorCompany $company, int $tokenId): array
+    {
+        abort_unless(config('csms.rider_enabled') && config('csms.session_bridge_enabled') && ! app()->environment('production'), 503, 'Local rider source adapter is not configured.');
+        DB::transaction(fn () => $this->inactiveToken($actor, $company, $tokenId), 3);
+        $this->verifiedAdapter();
+        $lease = (string) Str::uuid();
+        $token = DB::transaction(function () use ($actor, $company, $tokenId, $lease) {
+            $token = $this->inactiveToken($actor, $company, $tokenId);
+            abort_if($token->provision_lease_until?->isFuture(), 409, 'Source inspection is already in progress.');
+            $token->update(['provision_lease' => $lease, 'provision_lease_until' => now()->addSeconds(60), 'provisioning_state' => 'retiring', 'provisioned_at' => null]);
+            app(RiderTokenRegistry::class)->event($token->id, null, $actor->id, 'source.retirement_requested');
+
+            return $token;
+        }, 3);
+        try {
+            $raw = Crypt::decryptString($token->token_ciphertext);
+            $source = $this->lookup($raw);
+            if ($source !== null) {
+                $this->owned($source, $token, $raw);
+                if (($source['status'] ?? null) !== 'Blocked') {
+                    DB::transaction(fn () => $this->inactiveToken($actor, $company, $tokenId, $lease), 3);
+                    $marker = [['additionalIdToken' => $token->source_registration_nonce, 'type' => 'CREABIZ_RIDER'], ['additionalIdToken' => $lease, 'type' => 'CREABIZ_LEASE']];
+                    $set = ['status' => 'Blocked', 'additionalInfo' => $marker, 'updatedAt' => now()->toISOString()];
+                    $result = $this->graph('mutation($id:Int!,$old:jsonb!,$set:Authorizations_set_input!){update_Authorizations(where:{id:{_eq:$id},tenantId:{_eq:1},additionalInfo:{_eq:$old}},_set:$set){affected_rows}}', ['id' => $source['id'], 'old' => $source['additionalInfo'], 'set' => $set]);
+                    abort_unless(($result['update_Authorizations']['affected_rows'] ?? null) === 1, 409, 'Source identity changed during retirement.');
+                    $source = $this->lookup($raw);
+                    abort_unless($source !== null, 409, 'Source retirement is not yet observable.');
+                    $this->owned($source, $token, $raw);
+                    abort_unless(($source['status'] ?? null) === 'Blocked' && count($source['additionalInfo']) === 2 && $this->marker($source['additionalInfo'][1], $marker[1]), 409, 'Source retirement requires inspection.');
+                }
+            }
+
+            return DB::transaction(function () use ($actor, $company, $tokenId, $lease, $source) {
+                $current = $this->inactiveToken($actor, $company, $tokenId, $lease);
+                $current->update(['provisioning_state' => 'retired', 'provisioned_at' => null, 'provision_lease' => null, 'provision_lease_until' => null]);
+                app(RiderTokenRegistry::class)->event($current->id, null, $actor->id, $source === null ? 'source.retired_absent' : 'source.retired');
+
+                return ['source_retirement_observed' => true, 'observed_at' => now()->toISOString(), 'source_record_absent' => $source === null, 'active_sessions_stopped' => false, 'hardware_verified' => false, 'evidence' => 'SIMULATED_SOURCE_SNAPSHOT'];
+            }, 3);
+        } catch (Throwable $error) {
+            DB::transaction(function () use ($token, $lease, $actor) {
+                $changed = RiderAccessToken::whereKey($token->id)->where('provision_lease', $lease)->update(['provisioning_state' => 'requires_inspection', 'provisioned_at' => null]);
+                if ($changed) {
+                    app(RiderTokenRegistry::class)->event($token->id, null, $actor->id, 'source.retirement_requires_inspection');
+                }
+            }, 3);
+            throw $error;
+        }
+    }
+
+    public function publish(User $actor, VendorCompany $company, int $tokenId): array
+    {
+        abort_unless(config('csms.rider_enabled') && config('csms.session_bridge_enabled') && ! app()->environment('production') && strlen((string) config('csms.rider_client_secret')) >= 32, 503, 'Local rider source adapter is not configured.');
+        $this->currentPublication($actor, $company);
+        $callback = $this->verifiedAdapter();
         $lease = (string) Str::uuid();
         $token = DB::transaction(function () use ($actor, $company, $tokenId, $lease) {
             app(RiderActor::class)->check($actor);

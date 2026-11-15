@@ -524,3 +524,28 @@ retries an uncertain publication automatically. Web and Flutter require explicit
 publication confirmation and explain this inspection state. All existing local
 adapter, real-time rider callback, no-offline-fallback, token privacy, source
 ownership/CAS and hardware-unverified boundaries remain required.
+
+
+### Explicit retirement of inactive test-source RFID registrations
+
+`POST /api/vendor-ops/companies/{company}/rider-tokens/{token}/retire-source`
+(and native `/api/v1/...`) lets the current owning vendor or protected web Admin
+inspect and retire an owned **globally revoked or expired** token registration.
+The operator must have an approved licensed company with an existing grant for
+that token. An otherwise active token cannot be retired merely because one
+company withdrew approval; this protects other companies sharing the registry.
+The local adapter/capability proof and no-offline-fallback gates remain required.
+
+A short leased claim precedes HTTP. The source identity/tenant/registry nonce is
+checked before a compare-and-set update to Blocked, followed by observed source
+verification and current-account/company/token/lease revalidation. Absent or
+already blocked identities require no source mutation. No source identity is
+created or deleted, no charging command is sent, no session is closed and no
+payment is processed. Account or source drift and uncertain transport leave
+requires_inspection without automatic retry. Customer activity records requested,
+blocked/absent observations or inspection-required events without raw identifiers.
+The operator list adds UTC ISO8601 `token_expires_at` for safe expiry presentation.
+Web/Flutter offer explicit confirmation and label retirement as a source snapshot,
+never physical charging-stop evidence. Response includes observation time,
+`source_retirement_observed`, `source_record_absent`, and false
+`active_sessions_stopped`/`hardware_verified`.

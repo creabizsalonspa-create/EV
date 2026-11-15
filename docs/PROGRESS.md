@@ -1,3 +1,20 @@
+# 15 November 2026 — explicit inactive RFID source retirement (pending integration)
+
+Added owner/protected Admin API, vendor web and Flutter confirmation/history for
+retiring globally revoked or expired test-source registrations. Scope checks
+require the current account, approved licensed company and existing grant; one
+company's withdrawal cannot retire an active shared token. Owned nonce/tenant,
+short lease and source compare-and-set protect the Blocked update; missing or
+already blocked rows need no source mutation. Unknown outcomes retain inspection
+and lease without replay. Source snapshots never stop sessions, delete records,
+create charging authority or touch payments. Existing local adapter gates remain.
+
+Focused PG33 tests/385 assertions; nine native confirmation/history cases and
+analysis passed; PHP style and browser syntax checked. Existing actual source
+browser workflow now checks cancellation, global revoke -> explicit retirement,
+observed receipt and false physical/session-stop flags. That hosted integration
+and mandatory CI remain required before merge. No inventory/production credit.
+
 # 15 November 2026 — connected fleet/RFID/customer security candidate
 
 Combined source preserves merged firmware/Admin operations, fleet reports, current

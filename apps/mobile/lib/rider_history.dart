@@ -134,6 +134,10 @@ class _RiderHistoryState extends State<RiderHistoryView>
     'grant.approved' => t('Operator approved access', 'وافق المشغل على الوصول'),
     'grant.rejected' => t('Operator rejected access', 'رفض المشغل الوصول'),
     'grant.revoked' => t('Operator revoked access', 'أبطل المشغل الوصول'),
+    'source.retirement_requested' => t('TEST source retirement requested', 'طُلب إنهاء التسجيل بمصدر الاختبار'),
+    'source.retired' => t('TEST source registration observed blocked', 'رُصد حظر التسجيل بمصدر الاختبار'),
+    'source.retired_absent' => t('TEST source registration observed absent', 'رُصد غياب التسجيل بمصدر الاختبار'),
+    'source.retirement_requires_inspection' => t('TEST source retirement requires inspection', 'إنهاء التسجيل بمصدر الاختبار يحتاج فحصاً'),
     'source.provisioned' => t(
       'TEST source authorization provisioned',
       'تم إعداد تفويض مصدر الاختبار',
