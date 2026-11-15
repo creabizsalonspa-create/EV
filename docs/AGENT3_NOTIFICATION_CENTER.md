@@ -417,7 +417,10 @@ Reactivating the approved recipient allows the existing unresolved source
 fixture to be reviewed on a later bounded scan. Vendor-owned simulator fault
 reminders likewise require a currently active Vendor under a locked user row;
 a suspended owner's new reminder is suppressed without deleting fault evidence
-or blocking an authorized Admin escalation/closure transition. Historical escalation closure
+or blocking an authorized Admin escalation/closure transition. The canonical
+`InboxNotification::visibleTo` SQL scope independently hides historical
+Admin-only simulator escalation notices while the recipient account is
+suspended, even when a caller already holds a stale authenticated model. Historical escalation closure
 records remain durable for audit; stale signed-in Admin snapshots now receive
 HTTP 409 from the protected notification APIs instead of an empty private
 inbox, and cannot acknowledge or reopen anything. No physical charger, email,
