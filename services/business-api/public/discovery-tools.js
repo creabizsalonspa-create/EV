@@ -206,6 +206,7 @@
     function install({ root, request, onPoint, getCentre, onRoute }) {
         let stations = [],
             stops = [],
+            requiredConnector = "",
             estimate = null,
             epoch = 0,
             routeAbort;
@@ -302,13 +303,41 @@
             routeAbort?.abort();
             estimate = null;
             routeState.replaceChildren();
-            preview.disabled = !routeConsent.checked || !routeAvailable;
+            preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
+            navigation.disabled = !compatibleStops();
             onRoute([]);
         }
         const origin = endpoint("Origin", "نقطة البداية", "origin"),
             destination = endpoint("Destination", "الوجهة", "destination");
         const ordered = document.createElement("ol"),
             choices = document.createElement("div");
+        const connectorFilter = document.createElement("select");
+        connectorFilter.name = "route_connector";
+        connectorFilter.id = "route-connector-filter";
+        const connectorField = document.createElement("label");
+        connectorField.append(
+            label("span", "Filter by advertised connector", "تصفية حسب الموصل المعلن"),
+            connectorFilter,
+        );
+        for (const [value, en, ar] of [
+            ["", "All advertised connectors", "كل الموصلات المعلنة"],
+            ["CCS2", "CCS2", "CCS2"],
+            ["Type2", "Type2", "Type2"],
+            ["CHAdeMO", "CHAdeMO", "CHAdeMO"],
+        ]) {
+            const option = label("option", en, ar);
+            option.value = value;
+            connectorFilter.append(option);
+        }
+        const mismatchWarning = label(
+            "p",
+            "Some selected stops use a different advertised connector. Remove them or change the filter before preview or navigation.",
+            "بعض التوقفات المحددة تستخدم موصلاً معلناً مختلفاً. أزلها أو غيّر التصفية قبل المعاينة أو الملاحة.",
+        );
+        mismatchWarning.setAttribute("role", "status");
+        mismatchWarning.hidden = true;
+        const compatibleStops = () => !requiredConnector ||
+            stops.every((stop) => stop.connector === requiredConnector);
         choices.className = "journey-stations";
         const routeConsent = document.createElement("input");
         routeConsent.type = "checkbox";
@@ -327,7 +356,7 @@
             "معاينة مسار المزود",
             async () => {
                 const points = readPoints();
-                if (!points || !routeConsent.checked || !routeAvailable) return;
+                if (!points || !compatibleStops() || !routeConsent.checked || !routeAvailable) return;
                 invalidate();
                 const current = ++epoch;
                 routeAbort = new AbortController();
@@ -412,7 +441,7 @@
                 } finally {
                     if (current === epoch)
                         preview.disabled =
-                            !routeConsent.checked || !routeAvailable;
+                            !routeConsent.checked || !routeAvailable || !compatibleStops();
                 }
             },
         );
@@ -423,7 +452,7 @@
             "فتح الملاحة بالتوقفات المحددة",
             () => {
                 const points = readPoints();
-                if (!points) return;
+                if (!points || !compatibleStops()) return;
                 if (
                     !confirm(
                         arabic()
@@ -446,6 +475,14 @@
             },
         );
         function readPoints() {
+            if (!compatibleStops()) {
+                routeState.replaceChildren(label(
+                    "span",
+                    "Selected stops have an incompatible advertised connector. Remove them before navigation.",
+                    "التوقفات المحددة لها موصل معلن غير مطابق. أزلها قبل الملاحة.",
+                ));
+                return null;
+            }
             const a = point(
                     origin.values.latitude.value,
                     origin.values.longitude.value,
@@ -473,6 +510,13 @@
                     name = document.createElement("strong");
                 name.textContent = stop.name;
                 const evidence = document.createElement("p");
+                if (requiredConnector && stop.connector !== requiredConnector) {
+                    evidence.append(label(
+                        "span",
+                        "Different advertised connector · ",
+                        "موصل معلن مختلف · ",
+                    ));
+                }
                 evidence.append(
                     document.createTextNode(`${stop.evidence} · `),
                     label("span", "Not reserved", "غير محجوز"),
@@ -496,6 +540,9 @@
                 ordered.append(li);
             }
             choices.replaceChildren();
+            mismatchWarning.hidden = compatibleStops();
+            navigation.disabled = !compatibleStops();
+            preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
             for (const station of stations) {
                 const p = point(station.latitude, station.longitude);
                 if (!p) continue;
@@ -505,7 +552,8 @@
                     name = document.createElement("span");
                 name.textContent = station.name;
                 add.disabled =
-                    stops.length >= 3 || stops.some((s) => s.id === station.id);
+                    stops.length >= 3 || stops.some((s) => s.id === station.id) ||
+                    (requiredConnector !== "" && station.connector_type !== requiredConnector);
                 const row = document.createElement("div");
                 row.append(name, add);
                 choices.append(row);
@@ -516,13 +564,15 @@
             if (
                 !p ||
                 stops.length >= 3 ||
-                stops.some((s) => s.id === station.id)
+                stops.some((s) => s.id === station.id) ||
+                (requiredConnector !== "" && station.connector_type !== requiredConnector)
             )
                 return;
             stops.push({
                 id: station.id,
                 name: station.name,
                 evidence: station.evidence,
+                connector: station.connector_type,
                 point: p,
             });
             journey.open = true;
@@ -553,6 +603,9 @@
             destination.fieldset,
             stopTitle,
             ordered,
+            connectorField,
+            label("p", "Published connector labels are not verified vehicle fit or live charger status.", "تسميات الموصلات المنشورة ليست تحققاً من توافق المركبة أو حالة الشاحن المباشرة."),
+            mismatchWarning,
             catalog,
             service,
             privacy,
@@ -560,6 +613,11 @@
             navigation,
             routeState,
         );
+        connectorFilter.onchange = () => {
+            requiredConnector = connectorFilter.value;
+            invalidate();
+            renderStops();
+        };
         form.onsubmit = (event) => event.preventDefault();
         journey.append(description, form);
         section.append(address, journey);
@@ -588,7 +646,7 @@
                     );
                 routeAvailable = c.routing;
                 service.hidden = c.routing;
-                preview.disabled = !routeConsent.checked || !routeAvailable;
+                preview.disabled = !routeConsent.checked || !routeAvailable || !compatibleStops();
                 privacy.hidden = !routeAvailable;
             } catch (_) {
                 search.root.hidden =
@@ -615,7 +673,11 @@
                 epoch++;
                 routeAbort?.abort();
                 stops = [];
+                requiredConnector = "";
+                connectorFilter.value = "";
                 estimate = null;
+                preview.disabled = true;
+                navigation.disabled = false;
                 for (const box of [origin, destination]) {
                     box.values.latitude.value = box.values.longitude.value = "";
                     box.addresses.clear();
