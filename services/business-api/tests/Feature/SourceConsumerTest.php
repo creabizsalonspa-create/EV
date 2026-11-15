@@ -283,10 +283,6 @@ class SourceConsumerTest extends TestCase
             }
             if (str_contains($query, 'Transactions')) {
                 $transactionReads++;
-                if ($remove === 'transaction') {
-                    return Http::response(['data' => ['Transactions' => []]]);
-                }
-
                 return Http::response(['data' => ['Transactions' => [[
                     'id' => 10, 'transactionId' => $protocol === '1.6' ? '101' : 'source-station-identity',
                     'remoteStartId' => $link->start_command_id, 'meterStart' => '1.000',
@@ -849,6 +845,9 @@ class SourceConsumerTest extends TestCase
             }
             if (str_contains($query, 'Transactions')) {
                 $transactionReads++;
+                if ($remove === 'transaction') {
+                    return Http::response(['data' => ['Transactions' => []]]);
+                }
 
                 return Http::response(['data' => ['Transactions' => [[
                     'id' => 10,
