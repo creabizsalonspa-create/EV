@@ -44,6 +44,19 @@ class SavedUnifiedApi extends UnifiedApi {
 }
 void roomy(WidgetTester tester){tester.view.physicalSize=const Size(1100,1800);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);}
 void main(){
+ testWidgets('changing accounts clears advanced search drafts and submitted fields',(tester)async{
+  roomy(tester);final first=UnifiedApi(),second=UnifiedApi();addTearDown(first.close);addTearDown(second.close);await tester.pumpWidget(app(first,(_){}));
+  await tester.enterText(find.byKey(const Key('unified-query')),'Private place');
+  await tester.ensureVisible(find.byType(ExpansionTile));await tester.tap(find.byType(ExpansionTile));await tester.pumpAndSettle();
+  final operator=find.byKey(const Key('unified-operator'));await tester.ensureVisible(operator);await tester.enterText(operator,'Private operator');
+  await tester.pumpWidget(app(second,(_){}));await tester.pumpAndSettle();
+  expect(tester.widget<TextField>(operator).controller!.text,isEmpty);
+  await tester.scrollUntilVisible(find.byKey(const Key('unified-query')),-300,scrollable:find.byType(Scrollable).first);
+  expect(tester.widget<TextField>(find.byKey(const Key('unified-query'))).controller!.text,isEmpty);
+  await tester.ensureVisible(find.byType(FilledButton));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+  expect(first.calls,isEmpty);expect(second.queries.single.containsKey('operator'),false);expect(second.queries.single['q'],'');
+ });
+
  for(final ar in [false,true]){
   testWidgets('advanced filters normalize rate digits and preserve submitted pagination ($ar)',(tester)async{
    roomy(tester);final api=UnifiedApi();addTearDown(api.close);await tester.pumpWidget(app(api,(_){},ar:ar));
