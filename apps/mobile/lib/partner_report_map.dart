@@ -253,8 +253,11 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
     final groups = clusterPublishedMapPoints(points, currentZoom);
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.points.any((p)=>p.platformCatalog) ? t('Published location map (not live)','خريطة المواقع المنشورة (ليست مباشرة)') : t('Partner report map (not live)',
-            'خريطة تقارير الشركاء (ليست مباشرة)')),
+        title: Text(exploratory
+          ? t('Choose discovery search area','اختر منطقة البحث على الخريطة')
+          : widget.points.any((p)=>p.platformCatalog)
+            ? t('Published location map (not live)','خريطة المواقع المنشورة (ليست مباشرة)')
+            : t('Partner report map (not live)','خريطة تقارير الشركاء (ليست مباشرة)')),
       ),
       body: SafeArea(
         child: ListView(
@@ -282,7 +285,9 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
               FilledButton(
                 key: const Key('partner-map-enable'),
                 onPressed: () => setState(() => enabled = true),
-                child: Text(t('Enable report map', 'تفعيل خريطة التقارير')),
+                child: Text(exploratory
+                    ?t('Enable discovery area map','تفعيل خريطة منطقة البحث')
+                    :t('Enable report map','تفعيل خريطة التقارير')),
               ),
             if (enabled)
               OutlinedButton(
