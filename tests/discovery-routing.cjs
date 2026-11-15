@@ -40,6 +40,7 @@ const fs = require("node:fs");
     let enabled = false,
       addressCalls = 0,
       routeBody = null,
+      routeCalls = 0,
       tiles = 0;
     await page.route("https://tile.openstreetmap.org/**", (r) => {
       tiles++;
@@ -59,6 +60,7 @@ const fs = require("node:fs");
       remote_control: false,
       reservable: false,
     }));
+    stations[3].connector_type = "Type2";
     // Unrelated distant results must not make a short selected journey
     // disappear at world zoom. This is a controlled catalog fixture.
     stations.push({...stations[0], id: 5, name: "Distant catalog fixture",
@@ -105,6 +107,7 @@ const fs = require("node:fs");
       });
     });
     await page.route("**/api/discovery/route", (r) => {
+      routeCalls++;
       routeBody = r.request().postDataJSON();
       assert.equal(routeBody.consent, true);
       assert.equal(routeBody.points.length, 5);
@@ -255,6 +258,26 @@ const fs = require("node:fs");
     await page.screenshot({
       path: "artifacts/discovery-routing/arabic-dark390.png",
     });
+    // Changing connector type is a local filter only. Already-selected stops
+    // stay visible and become a blocking conflict until explicitly removed.
+    const connectorFilter = journey.locator('[name="route_connector"]');
+    await connectorFilter.selectOption("Type2");
+    assert.equal(await connectorFilter.inputValue(), "Type2");
+    await journey.getByText("بعض التوقفات المحددة تستخدم موصلاً معلناً مختلفاً.", { exact: false }).waitFor();
+    assert(await journey.getByRole("button", { name: "معاينة مسار المزود", exact: true }).isDisabled());
+    assert(await journey.getByRole("button", { name: "فتح الملاحة بالتوقفات المحددة", exact: true }).isDisabled());
+    assert.equal(await journey.locator("ol li").count(), 3, "Filter must not silently remove stops");
+    assert.equal(routeCalls, 1, "Connector filter must not send route/provider requests");
+    for(let i=0;i<3;i++) {
+      await journey.locator("ol li").first().getByRole("button", { name: "إزالة التوقف", exact: true }).click();
+    }
+    assert.equal(await journey.locator("ol li").count(), 0);
+    assert(await journey.getByRole("button", { name: "فتح الملاحة بالتوقفات المحددة", exact: true }).isEnabled());
+    const addType2 = journey.getByRole("button", { name: "إضافة توقف شحن", exact: true }).nth(3);
+    assert(await addType2.isEnabled());
+    await addType2.click();
+    assert.equal(await journey.locator("ol li").count(),1);
+    assert.equal(routeCalls,1);
     await page.locator("#location-consent").check();
     await page
       .getByRole("button", { name: "استخدام موقعي مرة واحدة", exact: true })
@@ -270,6 +293,7 @@ const fs = require("node:fs");
       "",
     );
     assert.equal(await journey.locator("ol li").count(), 0);
+    assert.equal(await connectorFilter.inputValue(), "", "Session clear must also clear route connector");
     assert.equal(await field.locator("input[type=search]").inputValue(), "");
     assert.equal(
       await page.locator("#filters [name=latitude]").inputValue(),
