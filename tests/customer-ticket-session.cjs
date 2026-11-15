@@ -4,21 +4,24 @@ const fs = require("node:fs");
 const {test} = require("node:test");
 const src = fs.readFileSync("services/business-api/public/platform.js","utf8");
 const start = src.indexOf("let ticketDetailGeneration = 0;");
-const end = src.indexOf("let pendingTicketCreate = null;",start);
+const end = src.indexOf('el("verify-email").onclick',start);
 assert(start>=0 && end>start,"support ticket source boundary");
 const section = src.slice(start,end);
 function harness() {
     const client={sessionEpoch:1},user={id:7,role:"customer"};
     const root={children:[],replaceChildren(...items){this.children=items;},append(item){this.children.push(item);}};
-    const pending=[];
+    const pending=[], notices=[];
+    const form={disabled:false,isConnected:true};
+    const createForm={resetCount:0,querySelector:()=>form,reset(){this.resetCount++;}};
     const node=(tag,value)=>({tag,value,children:[],append(...items){this.children.push(...items);}});
-    const api=path=>new Promise(resolve=>pending.push({path,resolve}));
-    const env={client,user,api,el:()=>root,node,ui:node,
+    const api=(path,method,payload)=>new Promise(resolve=>pending.push({path,method,payload,resolve}));
+    const env={client,user,api,el:id=>id==="support-create"?createForm:root,node,ui:node,
         document:{createElement:tag=>node(tag)},
-        EvLocale:{attribute:()=>{}},notice:()=>{},
+        EvLocale:{attribute:()=>{}},notice:e=>notices.push(e),
+        FormData:class { *[Symbol.iterator](){yield ["subject","New case"];yield ["body","Help"]; } },
         crypto:{randomUUID:()=> "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}};
     const detail=new Function("env","with(env){"+section+"return ticketDetail;}")(env);
-    return {detail,client,user,root,pending};
+    return {detail,client,user,root,pending,notices,form,createForm};
 }
 const result=(subject)=>({ticket:{subject,status:"closed"},messages:{data:[{body:subject,internal:false}]}});
 test("late ticket response cannot expose previous customer's messages",async()=>{
@@ -36,4 +39,19 @@ test("newer ticket selection wins over an older delayed response",async()=>{
     assert.equal(h.root.children[0].children.length,0);
     assert.equal(h.root.children[1].value,"Current ticket");
     assert.equal(h.root.children.length,2);
+});
+
+test("ticket create is single-flight and old account confirmation cannot open a case",async()=>{
+    const h=harness(),event={preventDefault(){},target:h.createForm};
+    const first=h.createForm.onsubmit(event);
+    await h.createForm.onsubmit(event);
+    assert.equal(h.pending.length,1);
+    assert.equal(h.form.disabled,true);
+    assert.equal(h.pending[0].method,"POST");
+    h.client.sessionEpoch++;h.user.id=8;
+    h.pending[0].resolve({id:91});
+    await first;
+    assert.equal(h.createForm.resetCount,0);
+    assert.equal(h.root.children.length,0);
+    assert.equal(h.form.disabled,false);
 });
