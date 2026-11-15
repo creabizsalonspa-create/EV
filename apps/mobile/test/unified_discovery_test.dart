@@ -255,4 +255,28 @@ void main(){
    expect(tester.takeException(),isNull);
   });
  }
+
+ testWidgets('stale account epoch while empty map is open clears old discovery data without lookup',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();
+   final tiles=UnifiedFixtureTiles();
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('Stale booking action'),tileProvider:tiles,customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.calls,['GET discovery/search']);
+   expect(find.text('Synthetic catalog'),findsOneWidget);
+   final opener=find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(opener);await tester.tap(opener);await tester.pumpAndSettle();
+   expect(tiles.requests,0);
+   api.epoch++;
+   await tester.tap(find.byKey(const Key('partner-map-enable')));
+   await tester.pumpAndSettle();
+   final submit=find.byKey(const Key('unified-native-viewport-search'));
+   await tester.ensureVisible(submit);await tester.tap(submit);await tester.pumpAndSettle();
+   expect(api.calls.length,1,reason:'A stale map must never query under the new account');
+   expect(find.text('Synthetic catalog'),findsNothing,
+      reason:'Old customer location metadata must not survive epoch change');
+   expect(find.text('Account changed. Reopen search.'),findsOneWidget);
+   expect(tester.takeException(),isNull);
+ });
 }
