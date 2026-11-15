@@ -29,7 +29,7 @@ test('unified favorites use existing typed writers and refresh authoritative sav
  f.control.setContext({owner:1,customer:true,favorite:async(kind,id,desired)=>{const key=kind+':'+id;writes.push({key,desired});desired?saved.add(key):saved.delete(key);return desired;}});
  f.form.onsubmit({preventDefault(){}});await tick();let star=f.list.children[0].children.find(x=>x.dataset.favoriteKind);await star.onclick();assert.deepEqual(writes,[{key:'catalog:7',desired:true}]);assert.match(f.list.children[0].textContent,/Remove saved place/);
  star=f.list.children[1].children.find(x=>x.dataset.favoriteKind);await star.onclick();assert.equal(writes[1].key,'partner:7');assert.equal(saved.size,2);
- f.form.children[3].children.find(n=>n.tag==='input').checked=true;f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'1');
+ f.form.children.flatMap(n=>n.children).find(n=>n.tag==='input'&&n.type==='checkbox').checked=true;f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).get('saved_only'),'1');
  f.control.setContext({owner:2,customer:true,favorite:async()=>{throw Error('Unexpected write');}});assert.equal(f.list.children.length,0);
 });
 test('unknown preference outcomes require explicit refresh and late account replies do not reload',async()=>{
@@ -38,14 +38,15 @@ test('unknown preference outcomes require explicit refresh and late account repl
 });
 
 test('source-report selection sends an exact bounded status and clear removes it',async()=>{
- const f=fixture();f.form.children[4].children.find(n=>n.tag==='select').value='Available';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('recent_source_status'),'Available');f.control.clear();assert.equal(f.form.children[4].children.find(n=>n.tag==='select').value,'');
+ const f=fixture();f.form.children.flatMap(n=>n.children).find(n=>n.name==='recent_source_status').value='Available';f.form.onsubmit({preventDefault(){}});await tick();assert.equal(new URLSearchParams(f.calls[0][0].split('?')[1]).get('recent_source_status'),'Available');f.control.clear();assert.equal(f.form.children.flatMap(n=>n.children).find(n=>n.name==='recent_source_status').value,'');
 });
 
 test('locale application preserves nested search inputs, source dropdowns and private checkbox',async()=>{
  const f=fixture();f.form.onsubmit({preventDefault(){}});await tick();
  function apply(node){if(node.dataset.ar!==undefined&&node.textContent!==node.dataset.ar)node.textContent=node.dataset.ar;for(const child of node.children)apply(child);}
- apply(f.root);assert.match(f.root.children[3].textContent,/3 نتيجة منشورة/);assert(f.form.children[0].children.some(n=>n.tag==='input'));assert(f.form.children[1].children.some(n=>n.tag==='select'));assert(f.form.children[2].children.some(n=>n.tag==='select'));assert(f.form.children[3].children.some(n=>n.tag==='input'));
- if(f.form.children[4].tag==='label')assert(f.form.children[4].children.some(n=>n.tag==='select'));
+ apply(f.root);assert.match(f.root.children[3].textContent,/3 نتيجة منشورة/);assert(f.form.children[0].children.some(n=>n.tag==='input'));assert(f.form.children[1].children.some(n=>n.tag==='select'));assert(f.form.children[2].children.some(n=>n.tag==='select'));assert(f.form.children.flatMap(n=>n.children).some(n=>n.tag==='select'&&n.name==='country'));
+ assert(f.form.children.flatMap(n=>n.children).some(n=>n.tag==='input'&&n.type==='checkbox'));
+ assert(f.form.children.flatMap(n=>n.children).some(n=>n.tag==='select'&&n.name==='recent_source_status'));
 });
 
 for(const lang of ['en','ar'])test('partner catalog age stays explicit and unknown clocks never become fresh '+lang,async()=>{
@@ -103,4 +104,31 @@ test('explicit map rectangle search preserves pagination and resets on form or a
  f.form.onsubmit({preventDefault(){}});
  await tick();
  assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).has('west'),false);
+});
+
+
+for(const lang of ['en','ar'])test('supported market filter preserves source pagination, viewport intersection, and clears with identity '+lang,async()=>{
+ const f=fixture(lang), market=f.form.children.flatMap(n=>n.children).find(n=>n.name==='country');
+ assert(market, 'Accessible market filter must be present on both locales');
+ assert.equal(f.calls.length,0, 'Selection alone cannot query suppliers');
+ market.value='US';
+ f.form.onsubmit({preventDefault(){}});
+ await tick();
+ let args=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(args.get('country'),'US');
+ f.nav.children.find(n=>n.tag==='button').onclick();
+ await tick();
+ args=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(args.get('country'),'US');
+ assert.equal(args.get('page'),'2');
+ f.emit('unified-viewport-search',{south:24,north:26,west:54,east:56});
+ await tick();
+ args=new URLSearchParams(f.calls.at(-1)[0].split('?')[1]);
+ assert.equal(args.get('country'),'US');
+ assert.equal(args.get('south'),'24.000000');
+ f.control.clear();
+ assert.equal(market.value,'','Account reset must clear prior country');
+ f.form.onsubmit({preventDefault(){}});
+ await tick();
+ assert.equal(new URLSearchParams(f.calls.at(-1)[0].split('?')[1]).has('country'),false);
 });
