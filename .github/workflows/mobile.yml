@@ -300,6 +300,10 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: apps/mobile
         run: python3 tool/check-foreground-location-build.py android
+      - name: Verify compiled Android URL entrypoints
+        if: runner.os == 'Linux'
+        working-directory: apps/mobile
+        run: python3 -B tool/check_navigation_build.py android
       - name: Verify native inventory against local Laravel
         if: runner.os == 'Linux'
         shell: bash
@@ -314,6 +318,10 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: apps/mobile
         run: python3 tool/check-foreground-location-build.py ios
+      - name: Verify compiled iOS custom URL scheme
+        if: runner.os == 'macOS'
+        working-directory: apps/mobile
+        run: python3 -B tool/check_navigation_build.py ios
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
