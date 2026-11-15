@@ -208,4 +208,68 @@ void main(){
    expect(second.queries.single.containsKey('country'),false);
   });
  }
+
+ for(final ar in [false,true]){
+  testWidgets('native recent search filters restore privately without submitting and clear with identity ($ar)',(tester)async{
+   roomy(tester);
+   final first=UnifiedApi(),second=UnifiedApi();
+   addTearDown(first.close);addTearDown(second.close);
+   await tester.pumpWidget(app(first,(_){},ar:ar,customer:true));
+   final input=find.byKey(const Key('unified-query'));
+   await tester.enterText(input,'Private location');
+   final market=find.byKey(const Key('unified-country'));
+   await tester.ensureVisible(market);await tester.tap(market);await tester.pumpAndSettle();
+   await tester.tap(find.text(ar?'كندا':'Canada').last);await tester.pumpAndSettle();
+   final search=find.byType(FilledButton);
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(first.queries.length,1);
+   expect(first.queries.last['country'],'CA');
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   await tester.enterText(input,'Another location');
+   await tester.ensureVisible(market);await tester.tap(market);await tester.pumpAndSettle();
+   await tester.tap(find.text(ar?'الولايات المتحدة':'United States').last);await tester.pumpAndSettle();
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(first.queries.length,2);
+   final old=find.byKey(const Key('unified-recent-1'));
+   await tester.ensureVisible(old);await tester.tap(old);await tester.pumpAndSettle();
+   expect(first.queries.length,2,reason:'Restoring fields must not call API');
+   expect(tester.widget<TextField>(input).controller!.text,'Private location');
+   expect(tester.widget<DropdownButton<String>>(market).value,'CA');
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(first.queries.last['q'],'Private location');
+   expect(first.queries.last['country'],'CA');
+   expect(first.queries.length,3);
+   expect(find.byKey(const Key('unified-recent-2')),findsNothing,
+     reason:'Duplicate successful search must not grow the list');
+   final clear=find.byKey(const Key('unified-recent-clear'));
+   await tester.ensureVisible(clear);await tester.tap(clear);await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(first.queries.length,3,reason:'Clearing history cannot call API');
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   await tester.pumpWidget(app(second,(_){},ar:ar,customer:true));
+   await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   expect(tester.widget<TextField>(input).controller!.text,isEmpty);
+  });
+ }
+ testWidgets('native failed, backgrounded and account-expired searches do not preserve private history',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();addTearDown(api.close);
+   api.invalid=true;
+   await tester.pumpWidget(app(api,(_){},customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   api.invalid=false;
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsOneWidget);
+   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+   await tester.pump();
+   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+   await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+   api.epoch++;
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.byKey(const Key('unified-recent-0')),findsNothing);
+ });
 }
