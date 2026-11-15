@@ -9,6 +9,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -294,6 +295,46 @@ class AdminKycQueueTest extends TestCase
         $this->assertDatabaseMissing('audit_events', [
             'action' => 'vendor_ops.company.changes_requested',
             'subject' => (string) $company->id,
+        ]);
+    }
+
+    public function test_private_kyc_queue_rechecks_live_admin_authority_before_owner_data_or_audit(): void
+    {
+        $owner = User::factory()->create(['role' => 'vendor']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $company = $this->company($owner);
+        $this->actingAs($admin, 'web');
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'vendor']);
+        $this->getJson('/api/admin/kyc-queue')->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin', 'account_status' => 'suspended',
+        ]);
+        $this->getJson('/api/admin/kyc-queue')->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'account_status' => 'active', 'auth_epoch' => 1,
+        ]);
+        $this->getJson('/api/admin/kyc-queue')->assertStatus(409);
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'auth_epoch' => 0, 'password' => Hash::make('new-admin-password'),
+        ]);
+        $this->getJson('/api/admin/kyc-queue')->assertStatus(409);
+        $this->assertSame(0, DB::table('audit_events')
+            ->where('action', 'admin.private_list.kyc_viewed')->count());
+
+        $freshAdmin = User::factory()->create(['role' => 'admin']);
+        $result = $this->actingAs($freshAdmin, 'web')->getJson('/api/admin/kyc-queue')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.id', $company->id)
+            ->assertJsonPath('data.0.manual_review_required', true);
+        $result->assertJsonMissingPath('data.0.trade_license_number');
+        $this->assertDatabaseHas('audit_events', [
+            'actor_id' => $freshAdmin->id,
+            'action' => 'admin.private_list.kyc_viewed',
+            'subject' => 'status:submitted',
         ]);
     }
 }
