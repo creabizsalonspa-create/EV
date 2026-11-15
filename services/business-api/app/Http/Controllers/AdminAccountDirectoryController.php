@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\VendorOps\VendorCompany;
+use App\Security\AdminTransactionAuthority;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -128,6 +129,9 @@ class AdminAccountDirectoryController extends Controller
         abort_if($input['account_status'] === $input['expected_status'], 422, 'Choose a different moderation state.');
 
         return DB::transaction(function () use ($actor, $target, $input) {
+            // The request's authenticated User may predate a role, status or
+            // credential change. Lock current Admin authority first.
+            AdminTransactionAuthority::requireCurrent($actor);
             $account = User::whereKey($target->id)->lockForUpdate()->firstOrFail();
             // Revalidate role/status under lock; stale decisions must not
             // overwrite another review or disable an administrator.
