@@ -34,9 +34,11 @@ class OcpiRoamingProtocolController extends Controller
             abort_unless(strlen($r->getContent()) <= 65536, 413);
             $body = $r->json()->all();
             $result = $body['result'] ?? null;
-            abort_unless(in_array($result, ['ACCEPTED', 'REJECTED', 'EVSE_OCCUPIED', 'EVSE_INOPERATIVE', 'FAILED', 'NOT_SUPPORTED', 'TIMEOUT', 'UNKNOWN_SESSION'], true), 400);
-            $command = DB::table('ocpi_roaming_commands as c')->join('ocpi_roaming_orders as o', 'o.id', '=', 'c.order_id')->where('o.provider_id', $p->id)->where('c.callback_key', $key)->whereIn('c.action', ['START_SESSION', 'STOP_SESSION'])->select('c.*')->first();
+            abort_unless(in_array($result, ['ACCEPTED', 'REJECTED', 'EVSE_OCCUPIED', 'EVSE_INOPERATIVE', 'FAILED', 'NOT_SUPPORTED', 'TIMEOUT', 'UNKNOWN_SESSION', 'UNKNOWN_RESERVATION', 'CANCELED_RESERVATION'], true), 400);
+            $command = DB::table('ocpi_roaming_commands as c')->join('ocpi_roaming_orders as o', 'o.id', '=', 'c.order_id')->where('o.provider_id', $p->id)->where('c.callback_key', $key)->whereIn('c.action', ['START_SESSION', 'STOP_SESSION', 'RESERVE_NOW', 'CANCEL_RESERVATION'])->select('c.*')->first();
             abort_unless($command && $command->attempted_at, 404);
+            abort_unless($result !== 'CANCELED_RESERVATION' || $command->action === 'RESERVE_NOW', 400);
+            abort_unless($result !== 'UNKNOWN_RESERVATION' || $command->action === 'CANCEL_RESERVATION', 400);
             $hash = hash('sha256', json_encode($body, JSON_THROW_ON_ERROR));
             DB::transaction(function () use ($r, $p, $link, $command, $result, $hash) {
                 OcpiProvider::whereKey($p->id)->lockForUpdate()->firstOrFail();
@@ -46,6 +48,17 @@ class OcpiRoamingProtocolController extends Controller
                 $order = DB::table('ocpi_roaming_orders')->where('id', $command->order_id)->lockForUpdate()->firstOrFail();
                 app(SandboxRoaming::class)->current($order);
                 $row = DB::table('ocpi_roaming_commands')->where('id', $command->id)->lockForUpdate()->firstOrFail();
+                if ($result === 'CANCELED_RESERVATION') {
+                    abort_unless(($order->intent_kind ?? 'start') === 'reservation', 409);
+                    if ($order->reservation_cancel_hash !== null) {
+                        abort_unless(hash_equals($order->reservation_cancel_hash, $hash), 409);
+
+                        return;
+                    }
+                    DB::table('ocpi_roaming_orders')->where('id', $order->id)->update(['reservation_cancel_hash' => $hash, 'reservation_cancelled_at' => now(), 'token_revoked_at' => $order->token_revoked_at ?? now(), 'token_state' => $order->token_state === 'partner_revoked' ? 'partner_revoked' : 'local_revoked', 'updated_at' => now()]);
+
+                    return;
+                }
                 if ($row->callback_hash !== null) {
                     abort_unless(hash_equals($row->callback_hash, $hash), 409);
 
@@ -87,11 +100,11 @@ class OcpiRoamingProtocolController extends Controller
                 try {
                     $service->current($order, true);
                     $location = ($body['location_id'] ?? null) === $target['location_id'] && ($body['evse_uids'] ?? null) === [$target['evse_uid']];
-                    $start = DB::table('ocpi_roaming_commands')->where('order_id', $order->id)->where('action', 'START_SESSION')->whereNotNull('attempted_at')->whereNotIn('state', ['not_dispatched', 'partner_rejected'])->exists();
+                    $start = DB::table('ocpi_roaming_commands')->where('order_id', $order->id)->where('action', ($order->intent_kind ?? 'start') === 'reservation' ? 'RESERVE_NOW' : 'START_SESSION')->whereNotNull('attempted_at')->whereNotIn('state', ['not_dispatched', 'partner_rejected'])->exists();
                     if ($location && $start && $order->token_revoked_at === null && $order->state !== 'source_completed') {
                         if ($order->authorized_at !== null) {
                             $allowed = $order->authorization_request_key === $requestId && hash_equals($order->authorization_request_hash, $hash);
-                        } elseif (in_array($order->state, ['start_dispatching', 'start_accepted', 'start_outcome_unknown'], true)) {
+                        } elseif (in_array($order->state, ['start_dispatching', 'start_accepted', 'start_outcome_unknown', 'reservation_dispatching', 'reservation_accepted', 'reservation_outcome_unknown', 'source_reserved'], true)) {
                             $allowed = true;
                             DB::table('ocpi_roaming_orders')->where('id', $order->id)->update(['authorized_at' => now(), 'authorization_request_key' => $requestId, 'authorization_request_hash' => $hash, 'updated_at' => now()]);
                         }
@@ -121,7 +134,7 @@ class OcpiRoamingProtocolController extends Controller
             $valid = false;
             try {
                 app(SandboxRoaming::class)->current($order, true);
-                $valid = $order->token_revoked_at === null && $order->authorized_at === null && in_array($order->state, ['start_dispatching', 'start_accepted', 'start_outcome_unknown'], true);
+                $valid = $order->token_revoked_at === null && $order->authorized_at === null && in_array($order->state, ['start_dispatching', 'start_accepted', 'start_outcome_unknown', 'reservation_dispatching', 'reservation_accepted', 'reservation_outcome_unknown', 'source_reserved'], true);
             } catch (Throwable) {
             }
 
@@ -147,7 +160,7 @@ class OcpiRoamingProtocolController extends Controller
                 $valid = false;
                 try {
                     $service->current($order, true);
-                    $valid = $order->token_revoked_at === null && $order->authorized_at === null && in_array($order->state, ['start_dispatching', 'start_accepted', 'start_outcome_unknown'], true);
+                    $valid = $order->token_revoked_at === null && $order->authorized_at === null && in_array($order->state, ['start_dispatching', 'start_accepted', 'start_outcome_unknown', 'reservation_dispatching', 'reservation_accepted', 'reservation_outcome_unknown', 'source_reserved'], true);
                 } catch (Throwable) {
                 }$data[] = $service->token($order, $valid);
             }

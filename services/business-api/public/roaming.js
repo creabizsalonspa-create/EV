@@ -629,6 +629,30 @@ window.createRoamingWorkspace = ({
                 pager(history, report.observations, meterHistory);
             };
             button(card, 'Recorded source meter history', () => { historyThrough = null; return meterHistory(); });
+            if (row.intent_kind === "reservation") {
+                card.append(ui("p", "Reservation preauthorization notice"));
+                line(card, "Reservation expires", row.reservation_expires_at);
+                if (row.reservation_source_cancelled === true)
+                    card.append(ui("p", "Partner cancelled reservation"));
+                card.append(
+                    ui(
+                        "p",
+                        row.reservation_closed === true
+                            ? "Reservation source closure observed"
+                            : "Reservation capacity awaits source proof",
+                    ),
+                );
+                if (!providerId && row.can_cancel_reservation === true)
+                    button(card, "Cancel sandbox reservation", async () => {
+                        if (!confirm(EvLocale.text("Reservation cancel confirmation")))
+                            return;
+                        await mutate(
+                            `roaming/sandbox-orders/${row.id}/cancel-reservation`,
+                            "POST",
+                            { request_key: crypto.randomUUID(), consent: true },
+                        );
+                    }).disabled = !!roamingPending;
+            }
             if (row.start_consent_current === false && !["source_active", "source_completed"].includes(row.state))
                 card.append(ui("p", "Roaming start authorization revoked"));
             if (row.reported_cost)
@@ -790,6 +814,58 @@ window.createRoamingWorkspace = ({
                         );
                     };
                     panel.append(form);
+                    if (
+                        result.reservation_supported === true &&
+                        result.reservation_terms_version ===
+                            "sandbox-reservation-preauthorization-v1"
+                    ) {
+                        const reservation = document.createElement("form");
+                        reservation.dataset.sandboxReservation = "";
+                        reservation.append(
+                            ui("h4", "Sandbox reservation"),
+                            ui("p", "Reservation preauthorization notice"),
+                        );
+                        const duration = document.createElement("select");
+                        duration.name = "reservation-duration";
+                        for (const minutes of [5, 10, 15]) {
+                            const option = document.createElement("option");
+                            option.value = String(minutes);
+                            option.textContent = String(minutes);
+                            duration.append(option);
+                        }
+                        const durationLabel = ui("label", "Reservation minutes");
+                        durationLabel.append(duration);
+                        reservation.append(durationLabel);
+                        const approval = ui("label", "Reservation explicit consent"),
+                            checked = document.createElement("input");
+                        checked.type = "checkbox";
+                        checked.required = true;
+                        approval.prepend(checked);
+                        reservation.append(approval);
+                        const book = ui("button", "Reserve sandbox EVSE");
+                        book.type = "submit";
+                        reservation.append(book);
+                        reservation.onsubmit = async (event) => {
+                            event.preventDefault();
+                            if (!current() || !checked.checked || roamingPending) return;
+                            book.disabled = true;
+                            await mutate(
+                                `roaming/locations/${locationId}/sandbox-reservations`,
+                                "POST",
+                                {
+                                    request_key: crypto.randomUUID(),
+                                    evse_uid: offer.evse_uid,
+                                    connector_id: offer.connector_id,
+                                    tariff_id: offer.tariff_id,
+                                    offer_hash: offer.offer_hash,
+                                    terms_version: result.reservation_terms_version,
+                                    consent: true,
+                                    duration_minutes: Number(duration.value),
+                                },
+                            );
+                        };
+                        panel.append(reservation);
+                    }
                 }
                 if (!result.offers.length)
                     panel.append(ui("p", "No approved sandbox offers"));

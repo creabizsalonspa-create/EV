@@ -32,6 +32,8 @@ foreach ($metadata as $key => $connection) {
         'incoming_modules' => $connection['incoming_modules'] ?? [],
         'test_commands' => ($connection['test_commands'] ?? false) === true,
         'test_command_contract' => $connection['test_command_contract'] ?? null,
+        'test_reservations' => ($connection['test_reservations'] ?? false) === true,
+        'test_reservation_contract' => $connection['test_reservation_contract'] ?? null,
         'test_billing_contract' => $connection['test_billing_contract'] ?? null,
         'party_country' => $connection['party_country'] ?? null,
         'party_id' => $connection['party_id'] ?? null,

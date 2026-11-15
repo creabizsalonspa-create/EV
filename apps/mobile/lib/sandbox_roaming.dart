@@ -30,6 +30,8 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
   int generation = 0, page = 1;
   String? error;
   final Set<int> consents = {};
+  final Set<int> reservationConsents = {};
+  final Map<int, int> reservationMinutes = {};
   String tr(String en, String ar) =>
       Localizations.localeOf(context).languageCode == 'ar' ? ar : en;
   bool get operator => widget.providerId != null;
@@ -66,6 +68,8 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
       history = false;
       page = 1;
       consents.clear();
+      reservationConsents.clear();
+      reservationMinutes.clear();
       load();
     }
   }
@@ -78,6 +82,8 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
         background = true;
         data = null;
         consents.clear();
+        reservationConsents.clear();
+        reservationMinutes.clear();
         busy = false;
       });
     } else {
@@ -116,6 +122,8 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
     if (e is ApiException && [401, 403, 404, 419].contains(e.status)) {
       data = null;
       consents.clear();
+      reservationConsents.clear();
+      reservationMinutes.clear();
       if ([401, 419].contains(e.status)) {
         pendingPath = pendingMethod = null;
         pendingBody = null;
@@ -132,6 +140,8 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
       data = null;
       error = null;
       consents.clear();
+      reservationConsents.clear();
+      reservationMinutes.clear();
     });
     try {
       final result = await widget.api.request(
@@ -202,6 +212,8 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
       error = null;
       data = null;
       consents.clear();
+      reservationConsents.clear();
+      reservationMinutes.clear();
     });
     try {
       final row = await widget.api.request(target, method: method, body: body);
@@ -426,6 +438,71 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
                   ),
             child: Text(tr('Start sandbox roaming', 'بدء التجوال التجريبي')),
           ),
+          if (data?['reservation_supported'] == true &&
+              data?['reservation_terms_version'] ==
+                  'sandbox-reservation-preauthorization-v1') ...[
+            Text(
+              tr(
+                'Sandbox reservation preauthorizes this test token until expiry; the partner may report charging without a separate start request. Costs may be reported; no local invoice or payment. Physical charging is unverified.',
+                'يمنح الحجز التجريبي تفويضاً مسبقاً للرمز حتى الانتهاء؛ قد يبلغ الشريك عن الشحن دون طلب بدء منفصل. قد ترد تكلفة؛ لا توجد فاتورة أو دفعة محلية. لم يُتحقق من الشحن الفعلي.',
+              ),
+            ),
+            DropdownButtonFormField<int>(
+              initialValue: reservationMinutes[index] ?? 5,
+              decoration: InputDecoration(
+                labelText: tr('Reservation minutes', 'مدة الحجز بالدقائق'),
+              ),
+              items: [
+                for (final minutes in [5, 10, 15])
+                  DropdownMenuItem(value: minutes, child: Text('$minutes')),
+              ],
+              onChanged: busy || background || pendingPath != null
+                  ? null
+                  : (v) => setState(() => reservationMinutes[index] = v!),
+            ),
+            CheckboxListTile(
+              value: reservationConsents.contains(index),
+              onChanged: busy || background || pendingPath != null
+                  ? null
+                  : (v) => setState(() {
+                      if (v == true)
+                        reservationConsents.add(index);
+                      else
+                        reservationConsents.remove(index);
+                    }),
+              title: Text(
+                tr(
+                  'I consent to this test reservation, EVSE, tariff and time-bounded token preauthorization.',
+                  'أوافق على هذا الحجز التجريبي ووحدة الشحن والتعرفة والتفويض المسبق المحدد المدة.',
+                ),
+              ),
+            ),
+            FilledButton(
+              onPressed:
+                  busy ||
+                      background ||
+                      pendingPath != null ||
+                      !reservationConsents.contains(index)
+                  ? null
+                  : () => mutate(
+                      'roaming/locations/${widget.locationId}/sandbox-reservations',
+                      'POST',
+                      {
+                        'request_key': operationKey(),
+                        'evse_uid': offer['evse_uid'],
+                        'connector_id': offer['connector_id'],
+                        'tariff_id': offer['tariff_id'],
+                        'offer_hash': offer['offer_hash'],
+                        'terms_version': data!['reservation_terms_version'],
+                        'consent': true,
+                        'duration_minutes': reservationMinutes[index] ?? 5,
+                      },
+                    ),
+              child: Text(
+                tr('Reserve sandbox EVSE', 'حجز وحدة الشحن التجريبية'),
+              ),
+            ),
+          ],
         ],
       ),
     ),
@@ -441,7 +518,66 @@ class _SandboxRoamingState extends State<SandboxRoamingView>
             '${row['location_name']} · ${row['evse_uid']} / ${row['connector_id']}',
           ),
           Text('${tr('Order state', 'حالة الطلب')}: ${row['state']}'),
-          TextButton(onPressed: busy || background ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RoamingMeterHistoryView(api: widget.api, orderId: row['id'] as int, providerId: widget.providerId, onExpired: widget.onExpired))), child: Text(tr('Recorded source meter history', 'سجل قراءات عداد المصدر'))),
+          if (row['intent_kind'] == 'reservation') ...[
+            Text(
+              '${tr('Reservation expires', 'انتهاء الحجز')}: ${row['reservation_expires_at']}',
+            ),
+            Text(
+              row['reservation_closed'] == true
+                  ? tr(
+                      'Source closure observed; review a new offer.',
+                      'رُصد إغلاق المصدر؛ راجع عرضاً جديداً.',
+                    )
+                  : tr(
+                      'Capacity remains held until source evidence resolves this reservation.',
+                      'تظل السعة محجوزة حتى تحسم أدلة المصدر هذا الحجز.',
+                    ),
+            ),
+            if (row['reservation_source_cancelled'] == true)
+              Text(
+                tr(
+                  'Partner reported reservation cancellation',
+                  'أبلغ الشريك عن إلغاء الحجز',
+                ),
+              ),
+            if (!operator && row['can_cancel_reservation'] == true)
+              TextButton(
+                onPressed: busy || background || pendingPath != null
+                    ? null
+                    : () async {
+                        final agreed = await confirm(
+                          'Deactivate this token and cancel the reservation? This never stops active charging. Source proof is required before capacity is released.',
+                          'إلغاء تفويض الرمز والحجز؟ لا يوقف هذا الشحن النشط. يلزم دليل المصدر قبل تحرير السعة.',
+                        );
+                        if (!mounted || !agreed || background) return;
+                        await mutate(
+                          'roaming/sandbox-orders/${row['id']}/cancel-reservation',
+                          'POST',
+                          {'request_key': operationKey(), 'consent': true},
+                        );
+                      },
+                child: Text(
+                  tr('Cancel sandbox reservation', 'إلغاء الحجز التجريبي'),
+                ),
+              ),
+          ],
+          TextButton(
+            onPressed: busy || background
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => RoamingMeterHistoryView(
+                        api: widget.api,
+                        orderId: row['id'] as int,
+                        providerId: widget.providerId,
+                        onExpired: widget.onExpired,
+                      ),
+                    ),
+                  ),
+            child: Text(
+              tr('Recorded source meter history', 'سجل قراءات عداد المصدر'),
+            ),
+          ),
           if (row['start_consent_current'] == false &&
               !['source_active', 'source_completed'].contains(row['state']))
             Text(

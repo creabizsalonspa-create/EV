@@ -1,3 +1,9 @@
+# 15 November 2026 — connected sandbox reservations (integration pending)
+
+Implemented canonical OCPI RESERVE_NOW/CANCEL_RESERVATION with explicit, separate time-bounded token-preauthorization consent, shared EVSE holds, immutable one-shot commands, uncertain-response replay protection, source RESERVATION→ACTIVE→existing STOP/COMPLETED and source-backed unused-capacity closure. Original reserve/cancel notices remain distinct. Local timers/ACKs never prove release; reservation orders cannot enter energy-only TEST invoicing. EN/AR customer web/Flutter consent/duration/cancellation and private Vendor/Admin history are connected. No live provider/hardware/payment authority is enabled.
+
+Focused PostgreSQL authority/lifecycle/source/invoice regressions, Flutter consent/replay/cancel/operator tests, clean Flutter analysis and actual isolated Laravel browser/native reservation journeys are verified locally. New PostgreSQL and native connected cases are registered in mandatory CI; exact-source hosted checks and merge remain pending. PR129 source meter history was merged at28701c08 after all eight gates; source/merge trees match. Fixed312 inventory unchanged; no broad completion or production credit inferred.
+
 # 15 November 2026 — connected source meter history (integration pending)
 
 Canonical OCPI ingestion now retains accepted scalar meter observations atomically,
