@@ -2,7 +2,7 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.EV_CHROMIUM_PATH||undefined,args:['--no-sandbox']});try{
 for(const ar of [false,true]){
- const page=await browser.newPage();await page.setContent(`<html lang="${ar?'ar':'en'}"><body><section id="host"></section></body></html>`);await page.addScriptTag({path:'services/business-api/public/connector-fleet.js'});
+ const page=await browser.newPage();await page.setContent(`<html lang="${ar?'ar':'en'}"><body><section id="host"></section></body></html>`);await page.addScriptTag({path:'services/business-api/public/connector-freshness.js'});await page.addScriptTag({path:'services/business-api/public/connector-fleet.js'});
  await page.evaluate(()=>{
   window.viewer={id:1,role:'vendor'};window.reads=[];
   window.report=p=>({scope:'recorded_connector_fleet',as_of:'2026-11-15T12:00:00Z',evidence:'SIMULATED_SOURCE',physical_availability_verified:false,remote_control:false,billing_authority:false,connectors:{current_page:p,last_page:2,data:[{mapping_id:p,station_id:7,station_name:'<img src=x> private fleet',protocol:'1.6',inventory_eligible_at_read:true,status_freshness:{state:p===1?'recent':'stale',reported_status:p===1?'Faulted':null,evidence:'SIMULATED_SOURCE',physical_availability_verified:false}}]}});
@@ -10,7 +10,7 @@ for(const ar of [false,true]){
   render(async(path,method)=>{if(method!=='GET')throw Error('Unexpected write');reads.push(path);return report(Number(new URL(path,'https://example.test').searchParams.get('page')));});
  });
  const read=page.getByRole('button',{name:ar?'قراءة لقطة الموصلات':'Read connector snapshot',exact:true});assert.equal(await page.evaluate(()=>reads.length),0);
- await page.locator('input').fill('7');await read.click();await page.locator('article').waitFor();assert.equal(await page.locator('img').count(),0);assert.match(await page.locator('article').textContent(),/Faulted/);
+ await page.locator('input').fill('7');await read.click();await page.locator('article').waitFor();assert.equal(await page.locator('img').count(),0);assert.match(await page.locator('article').textContent(),ar?/عطل/:/Faulted/);
  await page.locator('input').fill('999');await page.getByRole('button',{name:ar?'التالي':'Next',exact:true}).click();await page.getByText(ar?'تقرير قديم؛ الحالة الحالية غير معروفة':'Stale report; current state unknown',{exact:true}).waitFor();assert.deepEqual(await page.evaluate(()=>reads),['charging-operations/connectors?page=1&station_id=7','charging-operations/connectors?page=2&station_id=7']);
  await page.evaluate(()=>render(async()=>({...report(1),remote_control:true})));await read.click();assert.equal(await page.locator('article').count(),0);
  await page.evaluate(()=>render(()=>new Promise(resolve=>window.finish=resolve)));await read.click();await page.evaluate(()=>{viewer={id:2,role:'vendor'};finish(report(1));});assert.equal(await page.locator('article').count(),0);

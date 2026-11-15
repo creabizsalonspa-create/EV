@@ -11,7 +11,7 @@ let stage='fixture';
   const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.name));
   let tiles=0;await page.route('https://tile.openstreetmap.org/**',route=>{tiles++;return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')});});
   stage='browser';await page.goto(process.env.EV_TEST_URL||'http://127.0.0.1:8000');
-  await page.locator('details').filter({has:page.locator('#unified-discovery')}).locator('summary').click();
+  await page.locator('details').filter({has:page.locator('#unified-discovery')}).locator(':scope > summary').click();
   const root=page.locator('#unified-discovery');await root.locator('input[name=unified-query]').fill(run);
   await root.locator('select[name=max_source_age_hours]').selectOption('24');
   stage='search';const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/discovery/search');await root.getByRole('button',{name:'Search all sources',exact:true}).click();const result=await response;assert.equal(new URL(result.url()).searchParams.get('max_source_age_hours'),'24','Selected age filter must reach the API');assert.equal(result.status(),200,'Authenticated discovery status');assert.equal((await result.json()).total,2,'Exactly the two run-scoped synthetic source records must match');

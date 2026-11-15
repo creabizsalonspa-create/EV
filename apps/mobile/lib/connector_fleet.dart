@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'connector_freshness.dart';
 
 class ConnectorFleetView extends StatefulWidget {
   final EvApi api;
@@ -218,7 +219,7 @@ class _ConnectorFleetState extends State<ConnectorFleetView>
                                 'المخزون غير متاح أو محظور للصيانة',
                               )
                             : row['status_freshness']['state'] == 'recent'
-                            ? '${t('Recent report at snapshot', 'تقرير حديث وقت اللقطة')}: ${row['status_freshness']['reported_status']}'
+                            ? '${t('Recent report at snapshot', 'تقرير حديث وقت اللقطة')}: ${connectorStatusLabel(row['status_freshness']['reported_status'] as String, Localizations.localeOf(context).languageCode == 'ar')}'
                             : row['status_freshness']['state'] == 'stale'
                             ? t(
                                 'Stale report; current state unknown',

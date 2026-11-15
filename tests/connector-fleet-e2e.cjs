@@ -19,7 +19,7 @@ let stage='fixture';
   await root.getByText('Recent report at snapshot: Available',{exact:true}).waitFor();assert.equal(await root.locator('article').count(),1);assert.equal(calls,1);
   assert.match(await root.textContent(),/No physical availability/);assert.equal(await root.getByRole('button',{name:/start|stop|reset/i}).count(),0);
   stage='web-ar';await page.locator('#language').click();await page.locator('#commands-refresh').click();
-  await root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true}).click();await root.getByText('تقرير حديث وقت اللقطة: Available',{exact:true}).waitFor();assert.equal(calls,2);
+  await root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true}).click();await root.getByText('تقرير حديث وقت اللقطة: متاح بحسب المصدر',{exact:true}).waitFor();assert.equal(calls,2);
   stage='background';await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
   assert.equal(await root.locator('article').count(),0);
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});assert.equal(calls,2);assert.equal(await root.locator('article').count(),0);

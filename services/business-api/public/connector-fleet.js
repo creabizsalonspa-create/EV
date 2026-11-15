@@ -56,7 +56,7 @@ window.renderConnectorFleetAction = (root, { api, actor }) => {
                 const f = row.status_freshness, card = document.createElement('article');
                 card.append(node('h4', `${row.station_name} · #${row.mapping_id}`), node('p', `${t('Protocol', 'البروتوكول')}: ${row.protocol ?? t('No qualified source', 'لا يوجد مصدر مؤهل')}`));
                 card.append(node('p', !row.inventory_eligible_at_read ? t('Inventory unavailable or maintenance blocked', 'المخزون غير متاح أو محظور للصيانة') :
-                    f.state === 'recent' ? t('Recent report at snapshot: ', 'تقرير حديث وقت اللقطة: ') + f.reported_status :
+                    f.state === 'recent' ? t('Recent report at snapshot: ', 'تقرير حديث وقت اللقطة: ') + (window.EvConnectorFreshness?.label(f.reported_status, document.documentElement.lang === 'ar') ?? f.reported_status) :
                     f.state === 'stale' ? t('Stale report; current state unknown', 'تقرير قديم؛ الحالة الحالية غير معروفة') : t('Source state unknown', 'حالة المصدر غير معروفة')));
                 if (f.observed_at) card.append(node('p', `${t('Source timestamp', 'وقت المصدر')}: ${f.observed_at}`));
                 panel.append(card);

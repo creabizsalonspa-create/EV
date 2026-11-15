@@ -1,3 +1,21 @@
+# 15 November 2026 — connected operations integration candidate PR128
+
+Combined source preserves PR125 catalog/MFA workflows, PR127 current-request
+OCPI stop/deactivation controls, new connector fleet monitoring and the existing
+PR126 advanced discovery filters (pinned3d49109b; remote branches preserved).
+A deterministic defect reproduced a same-second partner report disappearing:
+Carbon query bindings lost microseconds. Unified and partner source-age filters
+now preserve both exact bounds; one-microsecond future/out-of-window records
+remain excluded. SQLite24/496 and PostgreSQL24/496 passed this regression.
+
+Combined focused PostgreSQL69/1268, Flutter24, six-file analysis, PHP style11,
+14 unified web contracts and actual Laravel EN/AR fleet/advanced-search/MFA
+workflows passed. Nested advanced-filter summaries required a direct-child
+outer-section browser selector; all original business assertions remain.
+Mandatory exact-source hosted checks and main/source merge-tree equality are
+still required before integration. No source control/payment/deployment flags
+were enabled. Original312-feature scope and production acceptance unchanged.
+
 # 15 November 2026 — connected connector fleet observations (integration pending)
 
 Laravel, vendor/Admin EN/AR web and vendor Flutter now provide explicit paginated
