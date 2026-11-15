@@ -135,6 +135,57 @@ class EnterpriseTest extends TestCase
         $this->postJson('/api/fleets/'.$f->id.'/cost-centers', ['code' => 'OPS', 'name' => 'Operations'])->assertNotFound();
     }
 
+    public function test_customer_can_assign_owned_vehicle_from_second_paginated_garage_page(): void
+    {
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+        $fleet = Fleet::create([
+            'owner_id' => $owner->id,
+            'name' => 'Garage pagination fleet',
+            'country' => 'AE',
+        ]);
+        $center = CostCenter::create([
+            'fleet_id' => $fleet->id,
+            'code' => 'LONG',
+            'name' => 'Long garage',
+        ]);
+        $cars = [];
+        for ($i = 0; $i < 26; $i++) {
+            $cars[] = Vehicle::create([
+                'user_id' => $owner->id,
+                'name' => 'Private EV '.$i,
+                'connector_type' => 'CCS2',
+            ]);
+        }
+        $foreignCar = Vehicle::create([
+            'user_id' => $other->id,
+            'name' => 'Foreign EV',
+            'connector_type' => 'CCS2',
+        ]);
+
+        $this->actingAs($owner)->getJson('/api/vehicles?page=1')
+            ->assertOk()->assertJsonCount(25, 'data')
+            ->assertJsonPath('total', 26);
+        $this->getJson('/api/vehicles?page=2')
+            ->assertOk()->assertJsonPath('current_page', 2)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $cars[25]->id);
+        $this->postJson('/api/fleets/'.$fleet->id.'/vehicles', [
+            'vehicle_id' => $cars[25]->id,
+            'cost_center_id' => $center->id,
+        ])->assertCreated();
+        $this->getJson('/api/fleets/'.$fleet->id)
+            ->assertOk()
+            ->assertJsonPath('vehicles.0.vehicle_id', $cars[25]->id);
+        $this->postJson('/api/fleets/'.$fleet->id.'/vehicles', [
+            'vehicle_id' => $foreignCar->id,
+            'cost_center_id' => $center->id,
+        ])->assertNotFound();
+        $this->actingAs($other)->getJson('/api/vehicles?page=2')
+            ->assertOk()->assertJsonPath('total', 1)
+            ->assertJsonCount(0, 'data');
+    }
+
     public function test_vehicle_assignment_requires_own_vehicle_and_same_fleet_cost_center_and_revocation_removes_access(): void
     {
         $owner = User::factory()->create();
