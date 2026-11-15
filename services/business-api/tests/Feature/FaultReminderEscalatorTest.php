@@ -384,6 +384,33 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_suspended_admin_cannot_read_historical_simulator_escalation_from_old_session(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $this->assertSame(1, app(FaultReminderEscalator::class)->scan()['escalated']);
+        $id = InboxNotification::where('kind', 'charging.fault.escalated.simulated')
+            ->firstOrFail()->id;
+        $this->actingAs($admin)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 2);
+        DB::table('users')->where('id', $admin->id)
+            ->update(['account_status' => 'suspended']);
+        // Even a previously prepared query cannot display a private alert
+        // after account suspension; no recipient or metadata is disclosed.
+        $this->assertFalse(InboxNotification::visibleTo($admin)->whereKey($id)->exists());
+        $this->getJson('/api/notifications?category=charging')->assertStatus(409);
+        $this->postJson('/api/notifications/'.$id.'/read')->assertStatus(409);
+        $this->assertNull(InboxNotification::findOrFail($id)->read_at);
+        DB::table('users')->where('id', $admin->id)
+            ->update(['account_status' => 'active']);
+        $this->assertTrue(InboxNotification::visibleTo($admin)->whereKey($id)->exists());
+        $this->getJson('/api/notifications?category=charging')->assertOk();
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_escalation_closure_is_retained_during_admin_demotion_but_stays_private(): void
     {
         $f = $this->fixture();
