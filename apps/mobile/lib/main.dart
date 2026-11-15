@@ -1620,37 +1620,69 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
                     ),
                   );
                 } else if (value == 'verify') {
+                  final requestApi = api!;
+                  final owner = account!;
+                  final generation = _performGeneration;
+                  final session = requestApi.sessionFence();
+                  bool current() =>
+                      mounted &&
+                      generation == _performGeneration &&
+                      identical(api, requestApi) &&
+                      session() &&
+                      account?.id == owner.id &&
+                      account?.role == owner.role;
                   perform(() async {
-                    await api!.request(
+                    await requestApi.request(
                       'email/verification-notification',
                       method: 'POST',
                     );
-                    final current = await api!.request('me');
-                    if (mounted)
-                      setState(() {
-                        account = Account.fromJson(
-                          Map<String, dynamic>.from(current as Map),
-                        );
-                        message = account!.emailVerified
-                            ? 'emailVerified'
-                            : 'verificationRequested';
-                      });
+                    if (!current()) return;
+                    final updated = await requestApi.request('me');
+                    if (!current()) return;
+                    setState(() {
+                      account = Account.fromJson(
+                        Map<String, dynamic>.from(updated as Map),
+                      );
+                      message = account!.emailVerified
+                          ? 'emailVerified'
+                          : 'verificationRequested';
+                    });
                   });
                 } else if (value == 'forget') {
+                  final requestApi = api!;
+                  final owner = account!;
+                  final generation = _performGeneration;
                   perform(() async {
-                    await api!.forgetSession();
-                    if (mounted)
-                      setState(() {
-                        keepSignedIn = false;
-                        message = 'sessionForgotten';
-                      });
+                    await requestApi.forgetSession();
+                    // Forget rotates the API epoch by design. The account
+                    // generation and identity, not the pre-call epoch, fence
+                    // the completion against a newer login.
+                    if (!mounted ||
+                        generation != _performGeneration ||
+                        !identical(api, requestApi) ||
+                        account?.id != owner.id ||
+                        account?.role != owner.role) return;
+                    setState(() {
+                      keepSignedIn = false;
+                      message = 'sessionForgotten';
+                    });
                   });
                 } else {
+                  final requestApi = api!;
+                  final owner = account!;
+                  final generation = _performGeneration;
                   perform(() async {
                     try {
-                      await api!.signOut();
+                      await requestApi.signOut();
                     } finally {
-                      if (!api!.remembered) resetSession();
+                      // An old sign-out can finish after a new user logs in.
+                      // Never clear the newer account's authenticated view.
+                      if (mounted &&
+                          generation == _performGeneration &&
+                          identical(api, requestApi) &&
+                          account?.id == owner.id &&
+                          account?.role == owner.role &&
+                          !requestApi.remembered) resetSession();
                     }
                   });
                 }
