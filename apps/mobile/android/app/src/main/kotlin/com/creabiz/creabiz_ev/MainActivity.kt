@@ -2,6 +2,7 @@ package com.creabiz.creabiz_ev
 
 import android.content.Intent
 import android.net.Uri
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -31,6 +32,18 @@ class MainActivity : FlutterActivity() {
             } else result.notImplemented()
         }
         acceptReturn(intent)
+    }
+
+    // The OS may capture a task-switcher thumbnail while Flutter is paused.
+    // Keep screenshots enabled in the foreground; protect only inactive UI.
+    override fun onPause() {
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
     }
 
     override fun onNewIntent(intent: Intent) {
