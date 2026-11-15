@@ -325,10 +325,17 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> restoreSaved() async {
-    if (api?.canRemember != true) {
+    final requestApi = api;
+    if (requestApi?.canRemember != true) {
       _onNavigationAvailable(); // Discard cold links when signed out.
       return;
     }
+    final generation = _performGeneration;
+    bool current() =>
+        mounted &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        account == null;
     setState(() {
       busy = true;
       restoring = true;
@@ -336,25 +343,29 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       error = null;
     });
     try {
-      final user = await api!.restoreSession();
-      if (mounted)
+      final user = await requestApi!.restoreSession();
+      // Restoring a native cookie jar can outlive logout or a fresh login.
+      // Never publish its previous identity after the workspace was reset.
+      if (current())
         setState(() {
           account = user;
-          keepSignedIn = api!.remembered;
+          keepSignedIn = requestApi.remembered;
         });
     } catch (e) {
-      if (mounted)
+      if (current())
         setState(() {
           error = errorKey(e);
           restoreFailed = true;
         });
     } finally {
-      if (mounted)
+      if (mounted && generation == _performGeneration &&
+          identical(api, requestApi)) {
         setState(() {
           busy = false;
           restoring = false;
         });
-      _onNavigationAvailable();
+        _onNavigationAvailable();
+      }
     }
   }
 
@@ -368,6 +379,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     setState(() {
       account = null;
       busy = false;
+      restoring = false;
       keepSignedIn = false;
       restoreFailed = false;
       records = [];
