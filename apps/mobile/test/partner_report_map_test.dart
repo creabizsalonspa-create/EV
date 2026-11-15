@@ -261,4 +261,42 @@ void main() {
     expect(find.byType(FlutterMap),findsNothing);
     expect(tester.takeException(),isNull);
   });
+
+  test('map clusters respect wrapped screen distance at the antimeridian without inventing identity', () {
+    final west = PartnerMapPoint(
+      latitude: 0,longitude: 179.999,name: 'West edge',
+      platformCatalog: true,catalogEvidence: 'DISCOVERY_ONLY',
+    );
+    final east = PartnerMapPoint(
+      latitude: 0,longitude: -179.999,name: 'East edge',
+      providerLabel: 'Unverified partner',
+    );
+    final distant = PartnerMapPoint(
+      latitude: 0,longitude: -179.5,name: 'Not overlapping',
+    );
+    final groups=clusterPublishedMapPoints([west,east,distant],11);
+    expect(groups.length,2);
+    expect(groups.first.map((point)=>point.name).toList(),
+      ['West edge','East edge'],
+      reason:'Two actual source pins separated only by the map seam must cluster');
+    expect(groups.first.first.platformCatalog,true);
+    expect(groups.first.last.platformCatalog,false);
+    expect(groups.last.single.name,'Not overlapping');
+    final seam=clusterPublishedMapPoints([
+      const PartnerMapPoint(latitude:0,longitude:180,name:'Exactly 180'),
+      const PartnerMapPoint(latitude:0,longitude:-180,name:'Exactly -180'),
+    ],11);
+    expect(seam.length,1);
+    expect(seam.single.length,2);
+    expect(seam.single.first.longitude,180,
+      reason:'Cluster anchor is the first real coordinate; never invent a centroid');
+  });
+
+  test('latitude separation can prevent a false cluster even with matching longitude', () {
+    final points=<PartnerMapPoint>[
+      const PartnerMapPoint(latitude:25,longitude:55,name:'Source one'),
+      const PartnerMapPoint(latitude:25.2,longitude:55,name:'Source two'),
+    ];
+    expect(clusterPublishedMapPoints(points,11).length,2);
+  });
 }
