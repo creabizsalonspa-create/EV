@@ -299,4 +299,28 @@ void main() {
     ];
     expect(clusterPublishedMapPoints(points,11).length,2);
   });
+
+  testWidgets('empty map enable-disable-reenable resets attached controller state safely', (tester) async {
+    final tiles=FakeMapTiles();
+    await tester.pumpWidget(MaterialApp(home:PartnerReportMap(
+      points:const [],tileProvider:tiles,allowViewportSearch:true,
+    )));
+    expect(tiles.requests,0);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    final action=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(action);
+    expect(tester.widget<OutlinedButton>(action).onPressed,isNotNull);
+    await tester.tap(find.byKey(const Key('partner-map-disable')));
+    await tester.pumpAndSettle();
+    expect(find.byType(FlutterMap),findsNothing);
+    expect(action,findsNothing);
+    await tester.tap(find.byKey(const Key('partner-map-enable')));
+    await tester.pumpAndSettle();
+    expect(find.byType(FlutterMap),findsOneWidget);
+    await tester.ensureVisible(action);
+    expect(tester.widget<OutlinedButton>(action).onPressed,isNotNull,
+      reason:'Fresh controller attachment must be required on each enable');
+    expect(tester.takeException(),isNull);
+  });
 }
