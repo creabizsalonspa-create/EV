@@ -66,7 +66,11 @@ polls; later persisted diagnostic/voltage rows must not re-open the immutable
 charging session or generate new invoices. If the terminal signed inbox
 accepted the event but its reply was lost before the cursor advance, the reader
 replays the same authenticated terminal event identity once to reconcile the
-cursor, never to create another invoice or command.
+cursor, never to create another invoice or command. During this replay the
+terminal meter sample timestamp is validated against the authenticated
+transaction start/end window, not against the already-committed end-event
+`last_event_at`, because the terminal register may precede the recorded
+endTime. The signed inbox still enforces the original event identity/hash.
 Concurrent or delayed observers use a conditional database update: a stale
 worker may acknowledge an earlier non-energy source row but cannot write a
 smaller cursor after another worker has already committed a later page.
