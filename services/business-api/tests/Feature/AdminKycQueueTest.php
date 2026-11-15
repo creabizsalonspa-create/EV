@@ -3,9 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\User;
-use Carbon\CarbonImmutable;
 use App\Models\VendorOps\VendorCompany;
 use App\Models\VendorOps\VendorKycDocument;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -263,7 +263,6 @@ class AdminKycQueueTest extends TestCase
         ]);
     }
 
-
     public function test_kyc_review_rechecks_revoked_admin_identity_inside_transaction(): void
     {
         $owner = User::factory()->create(['role' => 'vendor']);
@@ -297,5 +296,4 @@ class AdminKycQueueTest extends TestCase
             'subject' => (string) $company->id,
         ]);
     }
-
 }
