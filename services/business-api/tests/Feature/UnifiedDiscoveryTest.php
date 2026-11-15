@@ -299,7 +299,7 @@ class UnifiedDiscoveryTest extends TestCase
     {
         $f = $this->fixtures();
         $f['record']->update(['normalized' => array_merge($f['record']->normalized, [
-            'latitude' => 25.1, 'longitude' => 55.1,
+            'latitude' => '25.1', 'longitude' => '55.1',
         ])]);
         $excluded = Station::create([
             'vendor_id' => $f['station']->vendor_id, 'name' => 'Outside view',
@@ -345,7 +345,7 @@ class UnifiedDiscoveryTest extends TestCase
         $f = $this->fixtures();
         $f['station']->update(['latitude' => 10, 'longitude' => -179.8]);
         $f['record']->update(['normalized' => array_merge($f['record']->normalized, [
-            'latitude' => 10.1, 'longitude' => 179.8,
+            'latitude' => '10.1', 'longitude' => '179.8',
         ])]);
         $other = Station::create([
             'vendor_id' => $f['station']->vendor_id, 'name' => 'Greenwich station',
@@ -360,6 +360,13 @@ class UnifiedDiscoveryTest extends TestCase
             'normalized' => ['name' => 'No coordinates', 'publish' => true, 'latitude' => null, 'longitude' => null],
             'source_updated_at' => now(), 'received_at' => now(),
         ]);
+        $malformed = OcpiRecord::create([
+            'ocpi_provider_id' => $f['provider']->id, 'module' => 'locations',
+            'country_code' => 'AE', 'party_id' => 'TST', 'external_id' => 'bad-coordinates',
+            'payload' => ['secret' => 'never project'], 'content_hash' => str_repeat('c', 64),
+            'normalized' => ['name' => 'Malformed location', 'publish' => true, 'latitude' => 'not-a-number', 'longitude' => '0'],
+            'source_updated_at' => now(), 'received_at' => now(),
+        ]);
         foreach (['/api/discovery/search', '/api/v1/discovery/search'] as $route) {
             $url = $route.'?south=9&north=11&west=179&east=-179';
             $response = $this->getJson($url)->assertOk()->assertJsonPath('total', 2);
@@ -368,6 +375,7 @@ class UnifiedDiscoveryTest extends TestCase
             ], array_column($response->json('data'), 'key'));
             $this->assertNotContains('catalog:'.$other->id, array_column($response->json('data'), 'key'));
             $this->assertNotContains('partner:'.$missing->id, array_column($response->json('data'), 'key'));
+            $this->assertNotContains('partner:'.$malformed->id, array_column($response->json('data'), 'key'));
             $this->getJson($route.'?south=9&north=11&west=-180&east=180')
                 ->assertJsonPath('total', 3);
             $this->getJson($route.'?south=9&north=11&west=-1&east=1')
