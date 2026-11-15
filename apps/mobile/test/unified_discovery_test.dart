@@ -343,4 +343,32 @@ void main(){
    expect(tester.takeException(),isNull);
   });
  }
+
+ testWidgets('Arabic recent filter captions stay localized for empty query and country',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_){},ar:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.calls.length,1);
+   final caption=find.textContaining('كل المواقع · كل الدول · كل المصادر المنشورة');
+   expect(caption,findsOneWidget);
+   final recent=find.byKey(const Key('unified-recent-0'));
+   await tester.ensureVisible(recent);await tester.tap(recent);await tester.pumpAndSettle();
+   expect(api.calls.length,1,reason:'Localized restore cannot submit search');
+ });
+ testWidgets('native successful recent filter presets retain at most five entries',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_){ }));
+   final input=find.byKey(const Key('unified-query'));
+   final search=find.byType(FilledButton);
+   for(var i=0;i<7;i++){
+     await tester.enterText(input,'Private session $i');
+     await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   }
+   expect(api.queries.length,7);
+   expect(find.byKey(const Key('unified-recent-4')),findsOneWidget);
+   expect(find.byKey(const Key('unified-recent-5')),findsNothing);
+   expect(find.textContaining('Private session 0'),findsNothing);
+ });
 }
