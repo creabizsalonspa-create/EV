@@ -6,6 +6,7 @@ use App\Models\OcpiProvider;
 use App\Models\User;
 use App\Services\Ocpi\CredentialExchange;
 use App\Services\Ocpi\SandboxRoaming;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -150,8 +151,15 @@ class OcpiRoamingProtocolController extends Controller
     {
         try {
             [$p,$link] = $this->peer($r);
-            $v = $r->validate(['offset' => 'sometimes|integer|min:0|max:100000', 'limit' => 'sometimes|integer|min:1|max:100', 'date_from' => 'sometimes|date', 'date_to' => 'sometimes|date|after_or_equal:date_from']);
-            $query = DB::table('ocpi_roaming_orders')->where('provider_id', $p->id)->where('provider_owner_id', $p->owner_id)->where('counterparty_hash', $link->configuration_hash)->when(isset($v['date_from']), fn ($q) => $q->where('updated_at', '>=', $v['date_from']))->when(isset($v['date_to']), fn ($q) => $q->where('updated_at', '<', $v['date_to']));
+            $v = $r->validate(['offset' => 'sometimes|integer|min:0|max:100000', 'limit' => 'sometimes|integer|min:1|max:100', 'date_from' => 'sometimes|date', 'date_to' => 'sometimes|date']);
+            // OCPI 2.2.1 token windows are inclusive from / exclusive to, and
+            // either bound is optional. Never compare raw ISO 8601 strings with
+            // UTC SQL timestamps: offsets and the T separator break SQLite
+            // lexicographic comparisons and produce inconsistent PostgreSQL reads.
+            $from = isset($v['date_from']) ? CarbonImmutable::parse($v['date_from'], 'UTC')->utc()->format('Y-m-d H:i:s.u') : null;
+            $to = isset($v['date_to']) ? CarbonImmutable::parse($v['date_to'], 'UTC')->utc()->format('Y-m-d H:i:s.u') : null;
+            abort_if($from !== null && $to !== null && $to < $from, 422);
+            $query = DB::table('ocpi_roaming_orders')->where('provider_id', $p->id)->where('provider_owner_id', $p->owner_id)->where('counterparty_hash', $link->configuration_hash)->when($from !== null, fn ($q) => $q->where('updated_at', '>=', $from))->when($to !== null, fn ($q) => $q->where('updated_at', '<', $to));
             $total = (clone $query)->count();
             $rows = $query->orderBy('id')->offset($v['offset'] ?? 0)->limit($v['limit'] ?? 25)->get();
             $service = app(SandboxRoaming::class);
