@@ -58,7 +58,7 @@ class EnterpriseTest extends TestCase
             ->assertJsonPath('last_page', 2)
             ->assertJsonCount(25, 'data')
             ->assertJsonPath('data.0.id', $foreignFleet->id)
-            ->assertHeader('Cache-Control', 'private, no-store');
+            ->assertHeader('Cache-Control', 'no-store, private');
         $page2 = $this->getJson('/api/fleets?page=2')
             ->assertOk()->assertJsonPath('total', 27)
             ->assertJsonPath('current_page', 2)
@@ -100,7 +100,7 @@ class EnterpriseTest extends TestCase
             ->assertJsonPath('last_page', 2)
             ->assertJsonCount(25, 'data')
             ->assertJsonPath('data.0.id', $invitationIds[25])
-            ->assertHeader('Cache-Control', 'private, no-store');
+            ->assertHeader('Cache-Control', 'no-store, private');
         $this->getJson('/api/fleet-invitations?page=2')
             ->assertOk()->assertJsonPath('current_page', 2)
             ->assertJsonCount(1, 'data')
