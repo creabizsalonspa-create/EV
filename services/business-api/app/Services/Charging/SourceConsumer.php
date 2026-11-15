@@ -91,6 +91,18 @@ class SourceConsumer
         $link->refresh();
     }
 
+    private function advanceCursor(SessionLink $link, int $sourceRowId): void
+    {
+        // A second observer may have already committed a later page while this
+        // worker was reading source rows. Never rewind its durable progress.
+        // The signed inbox independently rejects replayed or conflicting
+        // events, so this update does not invent transaction authority.
+        SessionLink::whereKey($link->id)
+            ->where('source_meter_cursor', '<', $sourceRowId)
+            ->update(['source_meter_cursor' => $sourceRowId]);
+        $link->refresh();
+    }
+
     public function consume(SessionLink $link, bool $localInbox = false): int
     {
         $this->localInbox = $localInbox;
@@ -258,7 +270,7 @@ class SourceConsumer
                 throw new RuntimeException('Ambiguous register requires reconciliation.');
             }
             if (! $samples || ($samples[0]['context'] ?? '') === 'Transaction.Begin') {
-                $link->update(['source_meter_cursor' => $row['id']]);
+                $this->advanceCursor($link, $row['id']);
 
                 continue;
             }
@@ -277,7 +289,7 @@ class SourceConsumer
                 throw new RuntimeException('Source sequence exceeds the inbox bound.');
             }
             $this->send($link, $tx, $ended ? 'ended' : 'meter', $row['id'], $meter, $ended ? $tx['endTime'] : $row['timestamp']);
-            $link->update(['source_meter_cursor' => $row['id']]);
+            $this->advanceCursor($link, $row['id']);
             $count++;
             if ($ended) {
                 break;
