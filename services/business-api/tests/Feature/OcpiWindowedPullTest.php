@@ -45,7 +45,7 @@ class OcpiWindowedPullTest extends TestCase
         Http::fake(function ($request) use (&$seen) {
             $seen[] = $request->url();
 
-            return Http::response($this->envelope([['id' => 'window-fixture']]));
+            return Http::response($this->envelope([['id' => 'window-fixture', 'last_updated' => '2025-03-10T08:15:00Z']]));
         });
 
         $records = app(PartnerClient::class)->pull($provider, 'locations', [
@@ -91,12 +91,12 @@ class OcpiWindowedPullTest extends TestCase
         Http::fake(function ($request) use (&$count) {
             $count++;
             if ($count === 1) {
-                return Http::response($this->envelope([['id' => 'one']]), 200, [
+                return Http::response($this->envelope([['id' => 'one', 'last_updated' => '2025-03-10T08:00:00']]), 200, [
                     'Link' => '<'.$request->url().'&page=2>; rel="next"',
                 ]);
             }
 
-            return Http::response($this->envelope([['id' => 'two']]));
+            return Http::response($this->envelope([['id' => 'two', 'last_updated' => '2025-03-10T08:29:59.999999Z']]));
         });
 
         $records = app(PartnerClient::class)->pull($provider, 'locations', [
@@ -120,7 +120,7 @@ class OcpiWindowedPullTest extends TestCase
                 'duplicate' => $base.'&date_from=2025-03-10T08%3A00%3A00.000000Z&page=2',
             };
 
-            return Http::response($this->envelope([['id' => 'only-first-page']]), 200, [
+            return Http::response($this->envelope([['id' => 'only-first-page', 'last_updated' => '2025-03-10T08:15:00Z']]), 200, [
                 'Link' => '<'.$link.'>; rel="next"',
             ]);
         });
@@ -146,7 +146,7 @@ class OcpiWindowedPullTest extends TestCase
             $first = $request->url().'&page=2';
             $second = $request->url().'&page=3';
 
-            return Http::response($this->envelope([['id' => 'candidate-only']]), 200, [
+            return Http::response($this->envelope([['id' => 'candidate-only', 'last_updated' => '2025-03-10T08:15:00Z']]), 200, [
                 'Link' => '<'.$first.'>; rel="next", <'.$second.'>; rel="next"',
             ]);
         });
@@ -161,6 +161,39 @@ class OcpiWindowedPullTest extends TestCase
         }
         Http::assertSentCount(1);
         $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_partner_out_of_range_or_unknown_timestamps_fail_before_partial_source_acceptance(): void
+    {
+        $provider = $this->provider();
+        $value = '2025-03-10T07:59:59Z';
+        Http::fake(function () use (&$value) {
+            return Http::response($this->envelope([[
+                'id' => 'unexpected-source',
+                'last_updated' => $value,
+            ]]));
+        });
+        foreach ([
+            '2025-03-10T07:59:59Z', // before inclusive lower
+            '2025-03-10T08:30:00Z', // exactly exclusive upper
+            '2025-03-10T08:30:01Z', // above upper
+            '2025-02-30T08:15:00Z', // invalid calendar
+            'yesterday', // not an OCPI DateTime
+            null, // missing trusted source timestamp
+        ] as $value) {
+            try {
+                app(PartnerClient::class)->pull($provider, 'locations', [
+                    'date_from' => '2025-03-10T08:00:00',
+                    'date_to' => '2025-03-10T08:30:00Z',
+                ]);
+                $this->fail('Partner source outside explicit date window was trusted.');
+            } catch (OcpiException $error) {
+                $this->assertStringContainsString('window', $error->getMessage());
+            }
+        }
+        Http::assertSentCount(6);
+        $this->assertDatabaseCount('ocpi_records', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
     }
 
     public function test_invalid_read_window_is_rejected_without_any_partner_request(): void
