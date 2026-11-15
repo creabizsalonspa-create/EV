@@ -429,4 +429,40 @@ void main() {
     expect(find.byKey(const Key('unified-native-gps-error')),findsNothing);
     expect(tester.takeException(),isNull);
   });
+
+  testWidgets('temporary inactive OS permission sheet does not discard consented foreground GPS fix',(tester)async{
+    final pending=Completer<ForegroundFix>();
+    final selected=<Map<String,String>>[];
+    await tester.pumpWidget(MaterialApp(home:Builder(builder:(context)=>Scaffold(
+      body:FilledButton(key:const Key('open-inactive-map'),onPressed:()async{
+        final result=await Navigator.of(context).push<Map<String,String>>(
+          MaterialPageRoute(builder:(_)=>PartnerReportMap(
+            points:const [],tileProvider:FakeMapTiles(),allowViewportSearch:true,
+            locationReader:()=>pending.future,
+          )),
+        );
+        if(result!=null)selected.add(result);
+      },child:const Text('Open explicit map')),
+    ))));
+    await tester.tap(find.byKey(const Key('open-inactive-map')));await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('partner-map-enable')));await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unified-native-gps-once')));await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('unified-native-gps-consent')));await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    pending.complete(const ForegroundFix(25.2,55.3,20));
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('unified-native-gps-error')),findsNothing);
+    expect(selected,isEmpty,reason:'Permission result may pan map, never search');
+    final search=find.byKey(const Key('unified-native-viewport-search'));
+    await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+    expect(selected.length,1);
+    expect(double.parse(selected.single['south']!),lessThan(25.2));
+    expect(double.parse(selected.single['north']!),greaterThan(25.2));
+    expect(double.parse(selected.single['west']!),lessThan(55.3));
+    expect(double.parse(selected.single['east']!),greaterThan(55.3));
+    expect(tester.takeException(),isNull);
+  });
 }
