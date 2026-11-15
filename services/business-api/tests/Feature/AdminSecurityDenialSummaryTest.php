@@ -44,14 +44,14 @@ class AdminSecurityDenialSummaryTest extends TestCase
             ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('window', '24h')
             ->assertJsonPath('observed_denials', 3)
-            ->assertJsonPath('per_action.admin.second_factor.verify_denied', 2)
-            ->assertJsonPath('per_action.admin.second_factor.recovery_denied', 1)
             ->assertJsonPath('top_actors.0.actor_id', $other->id)
             ->assertJsonPath('top_actors.0.observed_denials', 2)
             ->assertJsonPath('complete_for_selected_actions', true)
             ->assertJsonPath('suspicious_activity_verified', false)
             ->assertJsonPath('incident_confirmed', false)
             ->assertJsonPath('automated_action_taken', false);
+        $this->assertSame(2, $response->json('per_action')['admin.second_factor.verify_denied']);
+        $this->assertSame(1, $response->json('per_action')['admin.second_factor.recovery_denied']);
         $response->assertJsonMissingPath('top_actors.0.email')
             ->assertJsonMissingPath('top_actors.0.name');
         $this->assertStringNotContainsString($secret, $response->getContent());
