@@ -41,6 +41,25 @@ The successful protocol-run output is retained in `docs/evidence/charging-protoc
 
 These protocol tests do not by themselves establish Laravel-to-CSMS transaction correlation, event-inbox authenticity/deduplication, final business invoice/payment reconciliation, physical charger safety, complete OCPP conformance, diagnostics/firmware controls, or production operational resilience. The Laravel business bridge and its separate end-to-end evidence must be verified independently before claiming the entire customer/vendor charging-to-invoice workflow.
 
+## Immutable external source station identity
+
+The local OCPP source consumer now pins the independently authenticated
+CitrineOS `ChargingStations.id` onto the canonical session link before its
+first signed start event. The external station id is not a cross-database
+foreign key. Subsequent observations must match the original id **as well as**
+the existing OCPP connection name, protocol, source authorization, transaction,
+connector proof and signed inbox lineage. Reprovisioning a station with the
+same name and protocol under a different source row never splices energy into
+an existing session or issues a second start command.
+
+The new nullable source-id column does not fabricate historical identity:
+sessions already started without a pin require explicit reconciliation rather
+than adopting the current row. A new session without source transaction evidence
+does not pin an arbitrary upstream station. Both OCPP 1.6 and 2.0.1 have
+replacement, legacy-unpinned and resume-with-original-source regressions.
+This remains simulator-only evidence, not approved physical charger identity
+validation or production upstream registration.
+
 ## Bounded meter-source page integrity
 
 The restartable OCPP simulator source reader validates the complete Hasura
