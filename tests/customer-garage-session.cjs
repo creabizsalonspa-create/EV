@@ -15,7 +15,7 @@ function harness() {
             elements:{name:{value:""},locale:{value:""}},
             replaceChildren(...children){this.children=children;},
             append(...children){this.children.push(...children);},
-            querySelector(){return this.submit || null;}
+            querySelector(selector){return selector === "button" ? this.submit || null : null;}
         });
         return elements.get(id);
     };
