@@ -1,4 +1,12 @@
 window.EV_MESSAGES = {
+    "Retire inactive rider source": {en: "Retire inactive test-source registration", ar: "إنهاء تسجيل الرمز غير النشط بمصدر الاختبار"},
+    "Confirm inactive rider retirement": {en: "Inspect and block this globally revoked or expired token at the test source? This affects the shared token registration, does not stop active sessions and never processes payment. Uncertain outcomes require inspection; no automatic retry.", ar: "فحص وحظر الرمز المبطل عالمياً أو المنتهي بمصدر الاختبار؟ يؤثر هذا في تسجيل الرمز المشترك ولا يوقف الجلسات النشطة ولا يعالج دفعاً. النتيجة غير المؤكدة تحتاج فحصاً ولا تعاد تلقائياً."},
+    "Rider retirement snapshot disclaimer": {en: "Retirement records a source snapshot for a globally revoked or expired token. A single company's withdrawn approval cannot retire an active token. It does not prove physical charging stopped.", ar: "يسجل الإنهاء لقطة من المصدر لرمز مبطل عالمياً أو منتهٍ. لا يسمح سحب موافقة شركة واحدة بإنهاء رمز نشط. لا يثبت ذلك توقف الشحن الفعلي."},
+    "Rider activity source.retirement_requested": {en: "TEST source retirement requested", ar: "طُلب إنهاء التسجيل بمصدر الاختبار"},
+    "Rider activity source.retired": {en: "TEST source registration observed blocked", ar: "رُصد حظر التسجيل بمصدر الاختبار"},
+    "Rider activity source.retired_absent": {en: "TEST source registration observed absent", ar: "رُصد غياب التسجيل بمصدر الاختبار"},
+    "Rider activity source.retirement_requires_inspection": {en: "TEST source retirement requires inspection", ar: "إنهاء التسجيل بمصدر الاختبار يحتاج فحصاً"},
+
     "Authenticator enabled for your account. If this was not you, change your password and contact support.": {"en": "Authenticator enabled for your account. If this was not you, change your password and contact support.", "ar": "تم تفعيل تطبيق التحقق لحسابك. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم."},
     "Authenticator disabled for your account. If this was not you, change your password and contact support.": {"en": "Authenticator disabled for your account. If this was not you, change your password and contact support.", "ar": "تم تعطيل تطبيق التحقق لحسابك. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم."},
     "Authenticator recovery codes replaced. If this was not you, change your password and contact support.": {"en": "Authenticator recovery codes replaced. If this was not you, change your password and contact support.", "ar": "تم استبدال رموز استرداد تطبيق التحقق. إذا لم تفعل ذلك، غيّر كلمة المرور وتواصل مع الدعم."},

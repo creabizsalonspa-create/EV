@@ -16,3 +16,5 @@ Route::get('/vendor-ops/companies/{company}/rider-grants', [R::class, 'operatorR
 Route::get('/vendor-ops/companies/{company}/rider-grants/{grant}/activity', [R::class, 'grantActivity'])->where('grant', '[0-9]{1,18}');
 Route::post('/vendor-ops/companies/{company}/rider-grants/{grant}/review', [R::class, 'review'])->where('grant', '[0-9]{1,18}');
 Route::post('/vendor-ops/companies/{company}/rider-tokens/{token}/provision', [R::class, 'provision'])->where('token', '[0-9]{1,18}');
+
+Route::post('/vendor-ops/companies/{company}/rider-tokens/{token}/retire-source', [R::class, 'retireSource'])->where('token', '[0-9]{1,18}');

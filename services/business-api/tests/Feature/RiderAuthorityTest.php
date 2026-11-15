@@ -9,6 +9,7 @@ use App\Models\VendorOps\VendorCompany;
 use App\Services\Charging\RiderSourceProvisioner;
 use App\Services\Charging\RiderTokenRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -187,5 +188,98 @@ class RiderAuthorityTest extends TestCase
         $this->denied(fn () => app(RiderSourceProvisioner::class)->publish($f['owner'], $f['company'], $f['token']->id), 409);
         $this->assertSame(0, $state->writes);
         $this->assertSame('requires_inspection', $f['token']->fresh()->provisioning_state);
+    }
+
+    public function test_operator_can_retire_a_globally_revoked_source_registration_through_the_protected_route(): void
+    {
+        $f = $this->publication();
+        DB::table('rider_access_tokens')->where('id', $f['token']->id)->update(['revoked_at' => now()]);
+        $state = $this->source($f);
+        $state->row['status'] = 'Accepted';
+        $path = '/api/vendor-ops/companies/'.$f['company']->id.'/rider-tokens/'.$f['token']->id.'/retire-source';
+        $this->actingAs($f['owner'])->postJson($path)->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('source_retirement_observed', true)->assertJsonPath('source_record_absent', false)
+            ->assertJsonPath('active_sessions_stopped', false)->assertJsonPath('hardware_verified', false);
+        $this->assertSame(1, $state->writes);
+        $this->assertSame('Blocked', $state->row['status']);
+        $this->assertSame('retired', $f['token']->fresh()->provisioning_state);
+        $this->assertNull($f['token']->fresh()->provisioned_at);
+        $this->assertDatabaseHas('rider_authorization_events', ['token_id' => $f['token']->id, 'action' => 'source.retired']);
+        $this->assertDatabaseCount('csms_session_links', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
+    public function test_single_company_withdrawal_cannot_retire_an_otherwise_active_token(): void
+    {
+        $f = $this->publication();
+        DB::table('rider_charging_grants')->where('token_id', $f['token']->id)->update(['state' => 'revoked', 'revoked_at' => now()]);
+        $this->source($f);
+        $this->denied(fn () => app(RiderSourceProvisioner::class)->retire($f['owner'], $f['company'], $f['token']->id), 409);
+        Http::assertNothingSent();
+        $this->assertDatabaseMissing('rider_authorization_events', ['action' => 'source.retired']);
+    }
+
+    public function test_expired_source_identity_can_be_retired_but_foreign_ownership_is_never_modified(): void
+    {
+        $f = $this->publication();
+        DB::table('rider_access_tokens')->where('id', $f['token']->id)->update(['expires_at' => now()->subDay()]);
+        $state = $this->source($f);
+        $state->row['status'] = 'Accepted';
+        $state->row['additionalInfo'][0]['additionalIdToken'] = 'foreign-ownership-marker';
+        $this->denied(fn () => app(RiderSourceProvisioner::class)->retire($f['owner'], $f['company'], $f['token']->id), 409);
+        $this->assertSame(0, $state->writes);
+        $this->assertSame('requires_inspection', $f['token']->fresh()->provisioning_state);
+        $this->assertDatabaseHas('rider_authorization_events', ['action' => 'source.retirement_requires_inspection']);
+    }
+
+    public function test_absent_or_already_blocked_source_identity_needs_no_mutation(): void
+    {
+        $f = $this->publication();
+        DB::table('rider_access_tokens')->where('id', $f['token']->id)->update(['expires_at' => now()->subDay()]);
+        $state = $this->source($f);
+        $first = app(RiderSourceProvisioner::class)->retire($f['owner'], $f['company'], $f['token']->id);
+        $this->assertFalse($first['source_record_absent']);
+        $this->assertSame(0, $state->writes);
+        $state->row = null;
+        $second = app(RiderSourceProvisioner::class)->retire($f['owner'], $f['company'], $f['token']->id);
+        $this->assertTrue($second['source_record_absent']);
+        $this->assertSame(0, $state->writes);
+        $this->assertDatabaseHas('rider_authorization_events', ['action' => 'source.retired_absent']);
+    }
+
+    public function test_source_retirement_cannot_promote_a_result_after_account_revocation(): void
+    {
+        $f = $this->publication();
+        DB::table('rider_access_tokens')->where('id', $f['token']->id)->update(['revoked_at' => now()]);
+        $state = $this->source($f, function ($stage) use ($f) {
+            if ($stage === 'write') {
+                DB::table('users')->where('id', $f['owner']->id)->increment('auth_epoch');
+            }
+        });
+        $state->row['status'] = 'Accepted';
+        $this->denied(fn () => app(RiderSourceProvisioner::class)->retire($f['owner'], $f['company'], $f['token']->id), 409);
+        $this->assertSame(1, $state->writes);
+        $this->assertSame('requires_inspection', $f['token']->fresh()->provisioning_state);
+        $this->assertDatabaseMissing('rider_authorization_events', ['action' => 'source.retired']);
+    }
+
+    public function test_unknown_source_retirement_holds_its_lease_and_never_retries_the_write(): void
+    {
+        $f = $this->publication();
+        DB::table('rider_access_tokens')->where('id', $f['token']->id)->update(['revoked_at' => now()]);
+        $state = $this->source($f, function ($stage) {
+            if ($stage === 'write') {
+                throw new ConnectionException('Synthetic unknown source outcome');
+            }
+        });
+        $state->row['status'] = 'Accepted';
+        $this->denied(fn () => app(RiderSourceProvisioner::class)->retire($f['owner'], $f['company'], $f['token']->id), 503);
+        $this->assertSame(1, $state->writes);
+        $current = $f['token']->fresh();
+        $this->assertSame('requires_inspection', $current->provisioning_state);
+        $this->assertNotNull($current->provision_lease);
+        $this->denied(fn () => app(RiderSourceProvisioner::class)->retire($f['owner'], $f['company'], $f['token']->id), 409);
+        $this->assertSame(1, $state->writes);
+        $this->assertDatabaseMissing('rider_authorization_events', ['action' => 'source.retired']);
     }
 }

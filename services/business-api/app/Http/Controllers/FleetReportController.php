@@ -10,14 +10,47 @@ use Illuminate\Support\Facades\DB;
 
 final class FleetReportController extends Controller
 {
+    private function actor(Request $request): User
+    {
+        $snapshot = $request->user();
+        $current = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
+        abort_unless($current->account_status === 'active', 403);
+        abort_unless($snapshot->role === $current->role && (int) $snapshot->auth_epoch === (int) $current->auth_epoch && hash_equals((string) $snapshot->password, (string) $current->password), 409, 'Account credentials changed; authenticate again.');
+
+        return $current;
+    }
+
+    public function index(Request $request)
+    {
+        $v = $request->validate(['q' => 'nullable|string|max:80', 'country' => ['nullable', 'regex:/^[A-Z]{2}$/D'], 'page' => 'nullable|integer|between:1,1000000']);
+
+        return DB::transaction(function () use ($request, $v) {
+            $actor = $this->actor($request);
+            abort_unless($actor->role === 'admin', 403);
+            $query = Fleet::query()->select('id', 'name', 'country', 'created_at');
+            $text = trim($v['q'] ?? '');
+            if ($text !== '') {
+                $operator = match (DB::connection()->getDriverName()) {
+                    'pgsql' => 'ILIKE',
+                    'sqlite' => 'LIKE',
+                    default => throw new \LogicException('Unsupported fleet directory database.'),
+                };
+                $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text).'%';
+                $query->whereRaw("name $operator ? ESCAPE '!'", [$pattern]);
+            }
+            if (isset($v['country'])) {
+                $query->where('country', $v['country']);
+            }
+
+            return response()->json($query->orderBy('id')->paginate(25))->header('Cache-Control', 'private, no-store');
+        });
+    }
+
     public function show(Request $request, Fleet $fleet, FleetReport $reports)
     {
         $filters = $request->validate(['from' => 'required|date_format:Y-m-d', 'through' => 'required|date_format:Y-m-d', 'cost_center_id' => 'nullable|integer|min:1', 'format' => 'nullable|in:json,csv']);
         $data = DB::transaction(function () use ($request, $fleet, $reports, $filters) {
-            $snapshot = $request->user();
-            $current = User::whereKey($snapshot->id)->lockForUpdate()->firstOrFail();
-            abort_unless($current->account_status === 'active', 403);
-            abort_unless($snapshot->role === $current->role && (int) $snapshot->auth_epoch === (int) $current->auth_epoch && hash_equals((string) $snapshot->password, (string) $current->password), 409, 'Account credentials changed; authenticate again.');
+            $current = $this->actor($request);
             $locked = Fleet::whereKey($fleet->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->owner_id === $current->id || $current->role === 'admin', 404);
 

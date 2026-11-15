@@ -12,7 +12,7 @@ const{BusinessClient}=require('./helpers/business-client.cjs');let stage='fixtur
   for(const admin of [false,true]){
    const client=admin?await login(f.admin_email):owner;const context=await browser.newContext({viewport:{width:390,height:844}});await context.addCookies([...client.cookies].map(([name,value])=>({name,value,url:client.base})));const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.name));stage=admin?'admin-web':'owner-web';await page.goto(client.base);
    let root;
-   if(admin){const host=page.locator('#fleet-admin-report');await host.locator('input').fill(String(f.fleet_id));await host.getByRole('button',{name:'Open fleet reporting',exact:true}).click();root=host.locator(':scope > div').first();}
+   if(admin){const host=page.locator('#fleet-admin-report');await host.locator('input[type=search]').fill(f.fleet_name);await host.getByRole('button',{name:'Search fleets',exact:true}).click();await host.getByRole('button',{name:f.fleet_name,exact:true}).click();root=host.locator('[data-fleet-report-slot]');}
    else{await page.locator('#fleet-list').getByRole('button',{name:f.fleet_name,exact:true}).click();root=page.locator('#fleet-detail section').first();}
    stage=admin?'admin-read-en':'owner-read-en';await root.getByRole('button',{name:'Read fleet report',exact:true}).click();await root.getByText('Approved claims: 0',{exact:true}).waitFor();
    stage=admin?'admin-read-ar':'owner-read-ar';await page.locator('#language').click();await root.getByRole('button',{name:'قراءة تقرير الأسطول',exact:true}).click();await root.getByText('المطالبات المعتمدة: 0',{exact:true}).waitFor();assert.equal(await page.locator('html').getAttribute('dir'),'rtl');assert.deepEqual(errors,[]);await context.close();
