@@ -96,15 +96,16 @@ class OcpiIntegrationTest extends TestCase
     {
         $provider = $this->provider();
         $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
-        foreach (['partial', 'mismatch'] as $mode) {
-            Http::fake(function ($request) use ($mode) {
-                $headers = ['X-Request-ID' => $request->header('X-Request-ID')[0]];
-                if ($mode === 'mismatch') {
-                    $headers['X-Correlation-ID'] = 'not-the-request-correlation';
-                }
+        $mode = 'partial';
+        Http::fake(function ($request) use (&$mode) {
+            $headers = ['X-Request-ID' => $request->header('X-Request-ID')[0]];
+            if ($mode === 'mismatch') {
+                $headers['X-Correlation-ID'] = 'not-the-request-correlation';
+            }
 
-                return Http::response($this->envelope([$this->location()]), 200, $headers);
-            });
+            return Http::response($this->envelope([$this->location()]), 200, $headers);
+        });
+        foreach (['partial', 'mismatch'] as $mode) {
             try {
                 app(PartnerClient::class)->pull($provider->fresh(), 'locations');
                 $this->fail('An unverifiable OCPI read response was trusted.');
