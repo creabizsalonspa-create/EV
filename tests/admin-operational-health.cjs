@@ -41,6 +41,24 @@ test('Email handoff uncertainty is counted without rendering recipients or auto-
         assert.equal(calls.length,1);assert.equal(calls[0][1],'GET');assert.equal(nodes(f.root,'button').length,1);
     }
 });
+test('Long reserved jobs are bilingual read-only review signals, never auto-replayed',async()=>{
+    for(const ar of [false,true]){
+        const f=fixture(ar),d=report();
+        d.queue={state:'available',ready:0,reserved:1,delayed:0,failed:0,
+            oldest_ready_age_seconds:null,oldest_reserved_age_seconds:1900};
+        d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,
+            external_alert_delivery:false,production_recovery_verified:false,
+            scanner:{state:'recent',last_completed_at:'2026-11-15T12:00:00Z',max_age_seconds:150},
+            open:[{condition_key:'queue_reserved_stale',state:'open',opened_at:'2026-11-15T12:00:00Z'}],
+            recent_events:[]};
+        f.setActor({role:'admin'},async()=>d);click(f);await flush();
+        assert(f.root.textContent.includes(ar?'عمر أقدم مهمة محجوزة':'Oldest reserved job age'));
+        assert(f.root.textContent.includes(ar?'مهمة محجوزة':'Reserved queue job awaiting operator review'));
+        assert.equal(nodes(f.root,'button').length,1);
+        d.queue.oldest_reserved_age_seconds=-1;
+        click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
+    }
+});
 test('Overdue queued email receipts are localized and never imply external send',async()=>{
     for(const ar of [false,true]){
         const f=fixture(ar),d=report();

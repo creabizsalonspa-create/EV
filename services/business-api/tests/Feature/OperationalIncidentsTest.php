@@ -76,6 +76,41 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseCount('operational_incident_events', 6);
     }
 
+    public function test_old_reserved_job_opens_and_resolves_operator_only_incident_without_unlocking_work(): void
+    {
+        $health = app(OperationalHealth::class);
+        $scanner = app(OperationalIncidents::class);
+        $health->record('queue_worker');
+        $health->record('scheduler');
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        DB::table('jobs')->insert([
+            'queue' => 'default', 'payload' => 'PRIVATE-RESERVED-JOB-CONTENT',
+            'attempts' => 1, 'reserved_at' => now()->timestamp - 1900,
+            'available_at' => now()->timestamp - 1900,
+            'created_at' => now()->timestamp - 2000,
+        ]);
+        $this->assertSame(1, $health->report()['queue']['reserved']);
+        $this->assertSame(1900, $health->report()['queue']['oldest_reserved_age_seconds']);
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $this->assertSame('queue_reserved_stale', $scanner->summary()['open'][0]->condition_key);
+        $response = $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson('/api/admin/operational-health')->assertOk()
+            ->assertJsonPath('queue.oldest_reserved_age_seconds', 1900)
+            ->assertJsonPath('incidents.open.0.condition_key', 'queue_reserved_stale');
+        $this->assertStringNotContainsString('PRIVATE-RESERVED', $response->getContent());
+        $this->assertDatabaseHas('jobs', ['queue' => 'default', 'attempts' => 1,
+            'reserved_at' => now()->timestamp - 1900]);
+        DB::table('jobs')->where('queue', 'default')
+            ->update(['reserved_at' => now()->timestamp]);
+        $this->assertSame(1, $scanner->scan($health)['resolved']);
+        $this->assertSame([], $scanner->summary()['open']);
+        $this->assertDatabaseCount('operational_incident_events', 2);
+        $this->assertDatabaseCount('jobs', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_private_payloads_are_never_duplicated_into_incidents_and_no_work_is_retried(): void
     {
         $health = app(OperationalHealth::class);

@@ -163,6 +163,28 @@ class OperationalWatchdogTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_reserved_older_than_thirty_minutes_is_review_only_and_new_reservation_is_normal(): void
+    {
+        $health = app(OperationalHealth::class);
+        $health->record('queue_worker');
+        $health->record('scheduler');
+        app(OperationalIncidents::class)->scan($health);
+        DB::table('jobs')->insert(['queue' => 'default', 'payload' => 'SECRET-IN-RESERVED-JOB',
+            'attempts' => 1, 'reserved_at' => now()->timestamp - 1801,
+            'available_at' => now()->timestamp - 1850, 'created_at' => now()->timestamp - 1900]);
+        $probe = $this->probe();
+        $this->assertSame('needs_attention', $probe['status']);
+        $this->assertContains('queue_reserved_stale', $probe['signals']);
+        $this->assertStringNotContainsString('SECRET', json_encode($probe));
+        $this->assertSame(1, Artisan::call('operations:watchdog-check'));
+        $this->assertDatabaseHas('jobs', ['attempts' => 1,
+            'reserved_at' => now()->timestamp - 1801]);
+        DB::table('jobs')->update(['reserved_at' => now()->timestamp]);
+        $this->assertSame('observed_normal', $this->probe()['status']);
+        $this->assertDatabaseCount('jobs', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_unknown_email_and_incident_store_are_not_treated_as_normal(): void
     {
         $health = app(OperationalHealth::class);

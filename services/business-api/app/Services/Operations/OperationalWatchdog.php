@@ -38,7 +38,9 @@ final class OperationalWatchdog
             if (($queue['state'] ?? null) !== 'available'
                 || ! is_int($queue['ready'] ?? null)
                 || ! is_int($queue['failed'] ?? null)
-                || (($queue['ready'] ?? 0) > 0 && ! is_int($queue['oldest_ready_age_seconds'] ?? null))) {
+                || ! is_int($queue['reserved'] ?? null)
+                || (($queue['ready'] ?? 0) > 0 && ! is_int($queue['oldest_ready_age_seconds'] ?? null))
+                || (($queue['reserved'] ?? 0) > 0 && ! is_int($queue['oldest_reserved_age_seconds'] ?? null))) {
                 $signals[] = 'queue_metrics_unknown';
             } else {
                 if ($queue['failed'] > 0) {
@@ -46,6 +48,9 @@ final class OperationalWatchdog
                 }
                 if ($queue['ready'] >= 25 && $queue['oldest_ready_age_seconds'] >= 300) {
                     $signals[] = 'queue_backlog';
+                }
+                if ($queue['reserved'] > 0 && $queue['oldest_reserved_age_seconds'] >= 1800) {
+                    $signals[] = 'queue_reserved_stale';
                 }
             }
 

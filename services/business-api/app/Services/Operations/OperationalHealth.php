@@ -60,7 +60,7 @@ final class OperationalHealth
 
     private function metrics(CarbonImmutable $now): array
     {
-        $unknown = ['state' => 'unavailable', 'ready' => null, 'reserved' => null, 'delayed' => null, 'failed' => null, 'oldest_ready_age_seconds' => null];
+        $unknown = ['state' => 'unavailable', 'ready' => null, 'reserved' => null, 'delayed' => null, 'failed' => null, 'oldest_ready_age_seconds' => null, 'oldest_reserved_age_seconds' => null];
         $connection = (string) config('queue.default');
         $config = config('queue.connections.'.$connection, []);
         if (($config['driver'] ?? null) !== 'database') {
@@ -73,6 +73,8 @@ final class OperationalHealth
                 $jobs = $queueDatabase->table($config['table'] ?? 'jobs')->where('queue', $this->queueName());
                 $ready = (clone $jobs)->whereNull('reserved_at')->where('available_at', '<=', $now->getTimestamp());
                 $created = (clone $ready)->min('created_at');
+                $reserved = (clone $jobs)->whereNotNull('reserved_at');
+                $oldestReserved = (clone $reserved)->min('reserved_at');
                 $failed = null;
                 if (in_array(config('queue.failed.driver'), ['database', 'database-uuids'], true)) {
                     $failedDatabase = DB::connection(config('queue.failed.database'));
@@ -80,9 +82,11 @@ final class OperationalHealth
                         ->where('connection', $connection)->where('queue', $this->queueName())->count());
                 }
 
-                return ['state' => 'available', 'ready' => (clone $ready)->count(), 'reserved' => (clone $jobs)->whereNotNull('reserved_at')->count(),
+                return ['state' => 'available', 'ready' => (clone $ready)->count(), 'reserved' => (clone $reserved)->count(),
                     'delayed' => (clone $jobs)->whereNull('reserved_at')->where('available_at', '>', $now->getTimestamp())->count(), 'failed' => $failed,
-                    'oldest_ready_age_seconds' => $created !== null && (int) $created <= $now->getTimestamp() ? $now->getTimestamp() - (int) $created : null];
+                    'oldest_ready_age_seconds' => $created !== null && (int) $created <= $now->getTimestamp() ? $now->getTimestamp() - (int) $created : null,
+                    'oldest_reserved_age_seconds' => $oldestReserved !== null && (int) $oldestReserved <= $now->getTimestamp()
+                        ? $now->getTimestamp() - (int) $oldestReserved : null];
             });
         } catch (\Throwable) {
             return $unknown;
@@ -123,7 +127,7 @@ final class OperationalHealth
 
         return ['as_of' => $now->toISOString(), 'enabled' => $enabled, 'heartbeat_store_readable' => $readable, 'max_age_seconds' => 150,
             'scope' => 'default_queue_and_scheduler_observations', 'components' => $components,
-            'queue' => $enabled ? $this->metrics($now) : ['state' => 'disabled', 'ready' => null, 'reserved' => null, 'delayed' => null, 'failed' => null, 'oldest_ready_age_seconds' => null],
+            'queue' => $enabled ? $this->metrics($now) : ['state' => 'disabled', 'ready' => null, 'reserved' => null, 'delayed' => null, 'failed' => null, 'oldest_ready_age_seconds' => null, 'oldest_reserved_age_seconds' => null],
             'email_handoff' => app(EmailHandoffHealth::class)->snapshot(),
             'all_workers_verified' => false, 'job_success_verified' => false, 'charger_connectivity_verified' => false, 'production_readiness_verified' => false];
     }

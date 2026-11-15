@@ -88,7 +88,8 @@ class OperationalHealthTest extends TestCase
         }
         DB::table('failed_jobs')->insert(['uuid' => (string) Str::uuid(), 'connection' => 'database', 'queue' => 'default', 'payload' => 'PRIVATE-FAILED-PAYLOAD', 'exception' => 'PRIVATE-PROVIDER-SECRET', 'failed_at' => now()]);
         $this->actingAs(User::factory()->create(['role' => 'admin']));
-        $response = $this->getJson('/api/admin/operational-health')->assertOk()->assertJsonPath('queue.ready', 1)->assertJsonPath('queue.reserved', 1)->assertJsonPath('queue.delayed', 1)->assertJsonPath('queue.failed', 1)->assertJsonPath('queue.oldest_ready_age_seconds', 30);
+        $response = $this->getJson('/api/admin/operational-health')->assertOk()->assertJsonPath('queue.ready', 1)->assertJsonPath('queue.reserved', 1)->assertJsonPath('queue.delayed', 1)->assertJsonPath('queue.failed', 1)->assertJsonPath('queue.oldest_ready_age_seconds', 30)
+            ->assertJsonPath('queue.oldest_reserved_age_seconds', 0);
         $this->assertStringNotContainsString('PRIVATE', $response->getContent());
         $this->assertStringNotContainsString('foreign-private', $response->getContent());
         $this->assertDatabaseCount('jobs', 4);

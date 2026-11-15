@@ -69,3 +69,22 @@ The private read-only Admin EN/AR screen shows counts and a fixed incident label
 never any receipt ID, recipient, email body or provider token. Only separately
 authorized, human-reviewed work may resolve pending records; there is
 **no automatic retry**, SMS, push, SMTP or charger/payment side effect.
+
+## Reserved database jobs awaiting human review
+
+The default database queue can contain a *reserved* job even when another queue
+worker is still recording healthy process heartbeats. Monitoring now returns only
+the count of currently reserved jobs and the bounded `oldest_reserved_age_seconds`
+from the configured queue. A reservation older than 1,800 seconds triggers the
+fixed `queue_reserved_stale` incident and an independently supervised watchdog
+nonzero status. A missing, future-dated or unreadable reserved timestamp is
+**unknown**, never silently counted as a completed job. The Admin private EN/AR
+dashboard renders the aggregate age and the incident lifecycle without queue
+payloads, worker tokens, job exception messages or owner-private data.
+
+These observations do **not** confirm a job failed, prove all workers are idle,
+or authorize releasing the reservation, retrying an uncertain SMTP/charger/
+payment task, or changing an invoice. A later fresh reservation timestamp
+resolves the *local observation*, not the business outcome. Disposable SQLite
+tests and PostgreSQL independent-process scanner races check one open/resolve
+transition, immutable job records and zero charger/finance side effects.

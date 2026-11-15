@@ -7,7 +7,7 @@ window.EvAdminOperationalHealth = (() => {
     const plain = (tag, value) => {const e=document.createElement(tag);e.textContent=String(value);return e;};
     const states = {recent:['Recent observation at snapshot','ملاحظة حديثة عند القراءة'],stale:['Observation expired','انتهت صلاحية الملاحظة'],unknown:['Unknown','غير معروف'],disabled:['Monitoring disabled','المراقبة متوقفة']};
     const exact = x => Number.isSafeInteger(x) && x >= 0;
-    const incidentNames = {queue_worker_stale:['Queue worker observation expired','انتهت صلاحية ملاحظة عامل قائمة الانتظار'],scheduler_stale:['Scheduler observation expired','انتهت صلاحية ملاحظة المجدول'],queue_backlog:['Ready queue is backed up','تراكم المهام الجاهزة'],queue_failed_jobs:['Recorded queue failures','إخفاقات مسجلة في قائمة الانتظار'],email_handoff_uncertain:['Uncertain email handoff needs operator review','تسليم البريد الإلكتروني غير المؤكد يحتاج إلى مراجعة المشغل'],email_queue_backlog:['Email notices still queued past review threshold','تنبيهات البريد ما زالت قيد الانتظار بعد مهلة المراجعة']};
+    const incidentNames = {queue_worker_stale:['Queue worker observation expired','انتهت صلاحية ملاحظة عامل قائمة الانتظار'],scheduler_stale:['Scheduler observation expired','انتهت صلاحية ملاحظة المجدول'],queue_backlog:['Ready queue is backed up','تراكم المهام الجاهزة'],queue_failed_jobs:['Recorded queue failures','إخفاقات مسجلة في قائمة الانتظار'],queue_reserved_stale:['Reserved queue job awaiting operator review','مهمة محجوزة تنتظر مراجعة المشغل'],email_handoff_uncertain:['Uncertain email handoff needs operator review','تسليم البريد الإلكتروني غير المؤكد يحتاج إلى مراجعة المشغل'],email_queue_backlog:['Email notices still queued past review threshold','تنبيهات البريد ما زالت قيد الانتظار بعد مهلة المراجعة']};
     function erase() {sequence++;request?.abort();request=null;output?.replaceChildren();if(refresh)refresh.disabled=false;}
     function clear() {revision++;erase();api=null;root.replaceChildren();}
     function valid(d) {
@@ -18,9 +18,12 @@ window.EvAdminOperationalHealth = (() => {
         const keys=['ready','reserved','delayed','failed','oldest_ready_age_seconds'];
         if(!d.enabled&&(q.state!=='disabled'||!d.components.every(c=>c.state==='disabled')))return false;
         const validQueue=q.state==='available' ? keys.every(k=>q[k]===null||exact(q[k]))&&['ready','reserved','delayed'].every(k=>exact(q[k])) : keys.every(k=>q[k]===null);
+        if(q.oldest_reserved_age_seconds!==undefined && (q.state==='available'
+            ? q.oldest_reserved_age_seconds!==null&&!exact(q.oldest_reserved_age_seconds)
+            : q.oldest_reserved_age_seconds!==null))return false;
         const i=d.incidents;
         if(i!==undefined) {
-            if(!i || typeof i.store_readable!=='boolean' || typeof i.monitoring_enabled!=='boolean' || i.automatic_retry!==false || i.external_alert_delivery!==false || i.production_recovery_verified!==false || !Array.isArray(i.open) || !Array.isArray(i.recent_events) || i.open.length>6 || i.recent_events.length>20) return false;
+            if(!i || typeof i.store_readable!=='boolean' || typeof i.monitoring_enabled!=='boolean' || i.automatic_retry!==false || i.external_alert_delivery!==false || i.production_recovery_verified!==false || !Array.isArray(i.open) || !Array.isArray(i.recent_events) || i.open.length>7 || i.recent_events.length>20) return false;
             if(!i.open.every(v=>Object.hasOwn(incidentNames,v.condition_key)&&v.state==='open'&&typeof v.opened_at==='string'))return false;
             if(!i.recent_events.every(v=>exact(v.id)&&Object.hasOwn(incidentNames,v.condition_key)&&['opened','resolved'].includes(v.transition)&&typeof v.observed_at==='string'))return false;
             if(i.scanner!==undefined && (!i.scanner || !['recent','stale','unknown'].includes(i.scanner.state) || i.scanner.max_age_seconds!==150 ||
@@ -47,7 +50,7 @@ window.EvAdminOperationalHealth = (() => {
             for(const c of d.components){const card=document.createElement('article');const label=c.component==='queue_worker'?['Configured queue worker','عامل قائمة الانتظار المضبوطة']:['Scheduler process','عملية الجدولة'];card.append(n('h4',...label),n('p',...states[c.state]));if(c.observed_at!==null)card.append(plain('p',c.observed_at));output.append(card);}
             const q=d.queue;output.append(n('h4','Default queue snapshot','لقطة قائمة الانتظار الافتراضية'));
             if(q.state!=='available')output.append(n('p','Queue counts unavailable for this snapshot or transport. Unknown is not zero.','أعداد قائمة الانتظار غير متاحة لهذه اللقطة أو وسيلة النقل. المجهول ليس صفراً.'));
-            for(const [key,en,ar]of[['ready','Ready jobs','المهام الجاهزة'],['reserved','Reserved jobs','المهام المحجوزة'],['delayed','Delayed jobs','المهام المؤجلة'],['failed','Recorded failed jobs','المهام الفاشلة المسجلة'],['oldest_ready_age_seconds','Oldest ready job age (seconds)','عمر أقدم مهمة جاهزة (ثوانٍ)']]){const line=document.createElement('p');line.append(n('span',en+': ',ar+': '),q[key]===null?n('span','Unknown','غير معروف'):plain('span',q[key]));output.append(line);}
+            for(const [key,en,ar]of[['ready','Ready jobs','المهام الجاهزة'],['reserved','Reserved jobs','المهام المحجوزة'],['delayed','Delayed jobs','المهام المؤجلة'],['failed','Recorded failed jobs','المهام الفاشلة المسجلة'],['oldest_ready_age_seconds','Oldest ready job age (seconds)','عمر أقدم مهمة جاهزة (ثوانٍ)'],...(q.oldest_reserved_age_seconds!==undefined?[['oldest_reserved_age_seconds','Oldest reserved job age (seconds)','عمر أقدم مهمة محجوزة (ثوانٍ)']]:[])]){const line=document.createElement('p');line.append(n('span',en+': ',ar+': '),q[key]===null?n('span','Unknown','غير معروف'):plain('span',q[key]));output.append(line);}
             if(d.email_handoff) {
                 output.append(n('h4','Email handoff review (no automatic resend)','مراجعة تسليم البريد الإلكتروني (دون إعادة إرسال تلقائي)'));
                 const e=d.email_handoff;

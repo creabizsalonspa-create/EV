@@ -16,7 +16,7 @@ use Throwable;
  */
 final class OperationalIncidents
 {
-    private const KEYS = ['queue_worker_stale', 'scheduler_stale', 'queue_backlog', 'queue_failed_jobs', 'email_handoff_uncertain', 'email_queue_backlog'];
+    private const KEYS = ['queue_worker_stale', 'scheduler_stale', 'queue_backlog', 'queue_failed_jobs', 'queue_reserved_stale', 'email_handoff_uncertain', 'email_queue_backlog'];
 
     private const SCANNER_MAX_AGE_SECONDS = 150;
 
@@ -30,6 +30,8 @@ final class OperationalIncidents
         $ready = $available ? ($queue['ready'] ?? null) : null;
         $age = $available ? ($queue['oldest_ready_age_seconds'] ?? null) : null;
         $failed = $available ? ($queue['failed'] ?? null) : null;
+        $reserved = $available ? ($queue['reserved'] ?? null) : null;
+        $reservedAge = $available ? ($queue['oldest_reserved_age_seconds'] ?? null) : null;
         $email = $health['email_handoff'] ?? [];
         $emailReadable = ($email['state'] ?? null) === 'available';
         $unknown = $email['outcome_unknown'] ?? null;
@@ -43,6 +45,8 @@ final class OperationalIncidents
             'queue_backlog' => is_int($ready) && ($ready === 0 || is_int($age))
                 ? $ready >= 25 && $age >= 300 : null,
             'queue_failed_jobs' => is_int($failed) ? $failed > 0 : null,
+            'queue_reserved_stale' => is_int($reserved) && ($reserved === 0 || is_int($reservedAge))
+                ? $reserved > 0 && $reservedAge >= 1800 : null,
             'email_handoff_uncertain' => $emailReadable && is_int($unknown) && is_int($stale)
                 ? $unknown > 0 || $stale > 0 : null,
             'email_queue_backlog' => $emailReadable && is_int($overdue) ? $overdue > 0 : null,

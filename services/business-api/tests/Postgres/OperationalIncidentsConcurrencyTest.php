@@ -71,6 +71,31 @@ class OperationalIncidentsConcurrencyTest extends TestCase
         }
     }
 
+    public function test_parallel_scanners_record_one_stale_reserved_job_transition_and_one_recovery(): void
+    {
+        $health = app(OperationalHealth::class);
+        $this->assertTrue($health->record('queue_worker'));
+        $this->assertTrue($health->record('scheduler'));
+        DB::table('jobs')->insert([
+            'queue' => 'default', 'payload' => 'PRIVATE-COMPETING-JOB',
+            'attempts' => 1, 'reserved_at' => now()->timestamp - 2000,
+            'available_at' => now()->timestamp - 2000,
+            'created_at' => now()->timestamp - 2100,
+        ]);
+        $opened = $this->race();
+        $this->assertSame(1, array_sum(array_column($opened, 'opened')));
+        $this->assertDatabaseCount('operational_incident_events', 1);
+        $this->assertSame('queue_reserved_stale',
+            app(OperationalIncidents::class)->summary()['open'][0]->condition_key);
+        DB::table('jobs')->update(['reserved_at' => now()->timestamp]);
+        $resolved = $this->race();
+        $this->assertSame(1, array_sum(array_column($resolved, 'resolved')));
+        $this->assertDatabaseCount('operational_incident_events', 2);
+        $this->assertSame([], app(OperationalIncidents::class)->summary()['open']);
+        $this->assertDatabaseCount('jobs', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_independent_scanners_do_not_duplicate_open_or_recovery_transition(): void
     {
         $health = app(OperationalHealth::class);
