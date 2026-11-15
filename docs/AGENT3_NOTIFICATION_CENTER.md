@@ -425,3 +425,9 @@ records remain durable for audit; stale signed-in Admin snapshots now receive
 HTTP 409 from the protected notification APIs instead of an empty private
 inbox, and cannot acknowledge or reopen anything. No physical charger, email,
 SMS, push or live on-call provider is contacted.
+
+The two structured Vendor simulator fault/operational-case SQL visibility
+branches additionally require a currently **active** Vendor account (not just
+matching ownership and role). This blocks stale query builders from revealing
+historical charger, station, company and source metadata after suspension,
+without erasing incident evidence or taking a charger action.

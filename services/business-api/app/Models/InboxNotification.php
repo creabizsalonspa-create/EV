@@ -199,6 +199,7 @@ class InboxNotification extends Model
                                     })
                                     ->where('visible_company.owner_id', $actor->id)
                                     ->where('visible_vendor.role', 'vendor')
+                                    ->where('visible_vendor.account_status', 'active')
                                     ->where('visible_station.vendor_id', $actor->id)
                                     ->whereRaw("CAST(visible_station.id AS TEXT) = {$station}")
                                     ->whereRaw("CAST(visible_company.id AS TEXT) = {$company}")
@@ -221,6 +222,7 @@ class InboxNotification extends Model
                                     ->join('charging_operational_cases as visible_case',
                                         'visible_case.command_id', '=', 'visible_command.id')
                                     ->where('visible_vendor.role', 'vendor')
+                                    ->where('visible_vendor.account_status', 'active')
                                     ->where('visible_station.vendor_id', $actor->id)
                                     ->whereRaw("CAST(visible_station.id AS TEXT) = {$station}")
                                     ->whereRaw("CAST(visible_command.id AS TEXT) = {$command}")

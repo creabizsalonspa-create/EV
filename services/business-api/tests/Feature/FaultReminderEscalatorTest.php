@@ -610,6 +610,31 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_suspended_vendor_historical_fault_notice_is_hidden_at_sql_scope(): void
+    {
+        $f = $this->fixture();
+        $owner = $f['owner'];
+        $this->assertSame(1, app(FaultReminderEscalator::class)->scan()['reminded']);
+        $note = InboxNotification::where('kind', 'charging.fault.reminder.simulated')
+            ->firstOrFail();
+        $this->actingAs($owner)->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        // An account suspension changes the authoritative DB state without
+        // refreshing an already-held authenticated Vendor model snapshot.
+        DB::table('users')->where('id', $owner->id)
+            ->update(['account_status' => 'suspended']);
+        $this->assertFalse(InboxNotification::visibleTo($owner)->whereKey($note->id)->exists());
+        $this->getJson('/api/notifications?category=charging')->assertStatus(409);
+        $this->postJson('/api/notifications/'.$note->id.'/read')->assertStatus(409);
+        $this->assertNull($note->fresh()->read_at);
+        DB::table('users')->where('id', $owner->id)
+            ->update(['account_status' => 'active']);
+        $this->assertTrue(InboxNotification::visibleTo($owner)->whereKey($note->id)->exists());
+        $this->getJson('/api/notifications?category=charging')
+            ->assertOk()->assertJsonPath('total', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+    }
+
     public function test_suspended_vendor_does_not_receive_new_fault_reminder_until_reactivated(): void
     {
         $f = $this->fixture();
