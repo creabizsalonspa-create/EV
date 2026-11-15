@@ -34,7 +34,9 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   late bool Function() ownSession;
   String sourceStatus='',submittedSourceStatus='',sourceAge='',submittedSourceAge='';
   String scope='all',country='',connector='',submitted='',submittedScope='all',submittedCountry='',submittedConnector='';
-  int generation=0,page=1,last=1,total=0;
+  int generation=0,page=1,last=1,total=0,formEpoch=0;
+  bool rememberNextSearch=false;
+  final List<Map<String,String>> recentPresets=[];
   bool busy=false,foreground=true,savedOnly=false,submittedSaved=false,writing=false,uncertain=false;
   String? error;
   List<Map<String,dynamic>> rows=[];
@@ -44,13 +46,23 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
     foreground=state==AppLifecycleState.resumed;
-    if(!foreground){generation++;if(mounted)setState((){rows=[];busy=false;writing=false;uncertain=false;error=null;});}
+    if(!foreground){generation++;if(mounted)setState((){rows=[];recentPresets.clear();rememberNextSearch=false;busy=false;writing=false;uncertain=false;error=null;});}
   }
   @override
-  void didUpdateWidget(covariant UnifiedDiscoveryView old){super.didUpdateWidget(old);if(!identical(old.api,widget.api)){query.clear();for(final control in advanced.values){control.clear();}submittedAdvanced={};submittedViewport={};submitted='';submittedCountry='';country='';submittedSaved=false;savedOnly=false;ownSession=widget.api.sessionFence();generation++;rows=[];busy=false;writing=false;uncertain=false;error=null;}}
+  void didUpdateWidget(covariant UnifiedDiscoveryView old){super.didUpdateWidget(old);if(!identical(old.api,widget.api)){query.clear();for(final control in advanced.values){control.clear();}submittedAdvanced={};submittedViewport={};recentPresets.clear();rememberNextSearch=false;formEpoch++;submitted='';submittedCountry='';country='';submittedSaved=false;savedOnly=false;ownSession=widget.api.sessionFence();generation++;rows=[];busy=false;writing=false;uncertain=false;error=null;}}
   Future<void> load(int target)async{
     if(!foreground||writing)return;
-    if(!ownSession()){setState((){rows=[];busy=false;writing=false;error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');});return;}
+    if(!ownSession()){setState((){rows=[];recentPresets.clear();rememberNextSearch=false;busy=false;writing=false;error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');});return;}
+    // Only an explicitly submitted search is eligible for history.
+    // Pagination, map selections and favorite refresh never record history.
+    final remember=target==1 && rememberNextSearch && submittedViewport.isEmpty;
+    final snapshot=remember?<String,String>{
+      'q':submitted,'scope':submittedScope,'country':submittedCountry,
+      'connector':submittedConnector,'source_status':submittedSourceStatus,
+      'source_age':submittedSourceAge,'saved':submittedSaved?'1':'0',
+      for(final entry in submittedAdvanced.entries)'advanced_${entry.key}':entry.value,
+    }:null;
+    rememberNextSearch=false;
     final turn=++generation;final api=widget.api;final fence=api.sessionFence();
     bool active()=>mounted&&foreground&&turn==generation&&ownSession()&&fence();
     setState((){busy=true;uncertain=false;error=null;rows=[];});
@@ -65,9 +77,18 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
           if(row['key']!='catalog:${station.id}'||station.id<1)throw const FormatException('Invalid station identity');
         }else if(row['kind']!='partner'||row['location'] is! Map||row['record_id'] is! int||(row['record_id'] as int)<1||row['key']!='partner:${row['record_id']}'||row['availability']!='unknown'||row['reservable']!=false||row['remote_control']!=false){throw const FormatException('Invalid partner authority');}
       }
-      setState((){rows=parsed;page=data['current_page'];last=data['last_page'];total=data['total'];});
+      setState((){
+        rows=parsed;page=data['current_page'];last=data['last_page'];total=data['total'];
+        if(snapshot!=null){
+          bool same(Map<String,String> p)=>p.length==snapshot.length &&
+            p.entries.every((entry)=>snapshot[entry.key]==entry.value);
+          recentPresets.removeWhere(same);
+          recentPresets.insert(0,snapshot);
+          if(recentPresets.length>5)recentPresets.removeLast();
+        }
+      });
     }catch(_){if(active())setState(()=>error=tr('Search failed. Retry explicitly.','تعذر البحث. أعد المحاولة صراحةً.'));}
-    finally{if(mounted&&foreground&&turn==generation)setState((){busy=false;if(!ownSession()){rows=[];error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');}});}
+    finally{if(mounted&&foreground&&turn==generation)setState((){busy=false;if(!ownSession()){rows=[];recentPresets.clear();error=tr('Account changed. Reopen search.','تغير الحساب. أعد فتح البحث.');}});}
   }
   /// Only an explicit map action can submit this transient rectangle.
   /// Session/lifecycle revalidation prevents another account from inheriting
@@ -89,10 +110,29 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
     await load(1);
   }
 
+  // Restoring historical *form fields* cannot issue any request. Changing
+  // the ListView key remounts dropdowns with the restored initialValue.
+  void restoreRecent(Map<String,String> old){
+    if(!mounted||!foreground||busy||writing||!ownSession())return;
+    query.text=old['q']??'';
+    for(final field in advanced.entries) {
+      field.value.text=old['advanced_${field.key}']??'';
+    }
+    setState((){
+      scope=old['scope']??'all';country=old['country']??'';
+      connector=old['connector']??'';
+      sourceStatus=old['source_status']??'';sourceAge=old['source_age']??'';
+      savedOnly=widget.customer&&old['saved']=='1';
+      formEpoch++;
+      error=tr('Filters restored locally. Press Search to submit.',
+          'استُعيدت المرشحات محلياً. اضغط بحث لإرسالها.');
+    });
+  }
+
   @override
   Widget build(BuildContext context)=>Scaffold(
     appBar:AppBar(title:Text(tr('Search all sources','البحث في كل المصادر'))),
-    body:ListView(padding:const EdgeInsets.all(16),children:[
+    body:ListView(key:ValueKey('unified-form-$formEpoch'),padding:const EdgeInsets.all(16),children:[
       Text(tr('Search published platform and authorized partner records. Partner reports do not authorize booking, charging or payment. External provider lookups require separate consent.','البحث في سجلات المنصة والشركاء المصرح لهم. تقارير الشركاء لا تسمح بالحجز أو الشحن أو الدفع. تتطلب الاستعلامات الخارجية موافقة منفصلة.')),
       TextField(key:const Key('unified-query'),controller:query,maxLength:80,decoration:InputDecoration(labelText:tr('Name, address or operator','الاسم أو العنوان أو المشغل'))),
       DropdownButtonFormField<String>(initialValue:scope,decoration:InputDecoration(labelText:tr('Source','المصدر')),items:[for(final choice in [('all','All published sources','كل المصادر المنشورة'),('catalog','Platform catalog','كتالوج المنصة'),('partner','Authorized partner reports','تقارير الشركاء المصرح لهم')])DropdownMenuItem(value:choice.$1,child:Text(tr(choice.$2,choice.$3)))],onChanged:busy?null:(value)=>setState(()=>scope=value!)),
@@ -126,7 +166,22 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
           TextField(key:Key('unified-${field.$1}'),controller:advanced[field.$1],maxLength:field.$4,decoration:InputDecoration(labelText:tr(field.$2,field.$3))),
         Text(tr('Access, power and price filters exclude partner reports. Published station kW is catalog rated power, not measured live power. Price matches current simulated energy rates excluding tax, not a total-cost quote. Enter both rate and currency.','تستثني مرشحات الوصول والقدرة والسعر تقارير الشركاء. قدرة المحطة المنشورة وصف كتالوجي وليست قدرة فعلية مقاسة. يطابق السعر أسعار الطاقة المحاكاة الحالية دون الضريبة وليس عرضاً للتكلفة الإجمالية. أدخل السعر والعملة معاً.')),
       ]),
-      FilledButton(onPressed:busy||writing?null:(){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      FilledButton(onPressed:busy||writing?null:(){submittedAdvanced={};for(final field in advanced.entries){var value=field.value.text.trim();if(['max_rate_per_kwh','min_power_kw','max_power_kw'].contains(field.key))value=vendorDigits(value);if(field.key=='price_currency')value=value.toUpperCase();if(value.isNotEmpty)submittedAdvanced[field.key]=value;}submitted=query.text.trim();submittedScope=scope;submittedCountry=country;submittedConnector=connector;submittedSaved=savedOnly;submittedSourceStatus=sourceStatus;submittedSourceAge=sourceAge;submittedViewport={};rememberNextSearch=true;load(1);},child:Text(tr('Search all sources','البحث في كل المصادر'))),
+      if(recentPresets.isNotEmpty&&foreground&&ownSession())...[
+        Text(tr('Recent filters (this session only)','مرشحات حديثة (هذه الجلسة فقط)')),
+        Wrap(spacing:8,children:[
+          for(final entry in recentPresets.asMap().entries)
+            OutlinedButton(key:Key('unified-recent-${entry.key}'),
+              onPressed:busy||writing?null:()=>restoreRecent(entry.value),
+              child:Text(tr('Restore filters: ','استعادة المرشحات: ')+
+                [(entry.value['q']?.isNotEmpty==true?entry.value['q']!:'All locations'),
+                 (entry.value['country']?.isNotEmpty==true?entry.value['country']!:'all countries'),
+                 (entry.value['scope']??'all')].join(' · '))),
+        ]),
+        TextButton(key:const Key('unified-recent-clear'),
+          onPressed:busy||writing?null:()=>setState(recentPresets.clear),
+          child:Text(tr('Clear recent filters','مسح المرشحات الحديثة'))),
+      ],
       if(busy)const LinearProgressIndicator(),if(error!=null)Text(error!),
       Text(tr('$total published results','$total نتيجة منشورة')),
       if (mapPoints().isNotEmpty) OutlinedButton(key:const Key('unified-map-open'),onPressed:busy||writing?null:searchFromMap,child:Text(tr('Map these loaded results','عرض هذه النتائج المحملة على الخريطة'))),
