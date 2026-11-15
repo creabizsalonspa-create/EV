@@ -782,7 +782,13 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
         try {
             result = await request("redemptions/" + id);
             if (!alive() || epoch !== generation || !parent.isConnected) return;
-            if (!result?.reward || !Array.isArray(result.events))
+            if (!result?.reward || !result.redemption ||
+                !Array.isArray(result.events) ||
+                !Number.isSafeInteger(result.redemption.id) ||
+                result.redemption.id !== id ||
+                !Number.isSafeInteger(result.reward.id) ||
+                result.reward.id !== result.redemption.reward_id ||
+                (role !== "admin" && result.redemption.user_id !== owner))
                 throw Error("Unreadable reward decision history");
         } catch {
             if (alive() && epoch === generation && parent.isConnected)
