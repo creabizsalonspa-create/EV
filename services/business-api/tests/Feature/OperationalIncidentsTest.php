@@ -169,6 +169,22 @@ class OperationalIncidentsTest extends TestCase
         ]);
     }
 
+    public function test_missing_incident_store_is_unknown_without_breaking_admin_transaction(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        Schema::drop('operational_incident_states');
+        $response = $this->actingAs($admin)->getJson('/api/admin/operational-health')->assertOk()
+            ->assertJsonPath('incidents.store_readable', false)
+            ->assertJsonPath('incidents.automatic_retry', false)
+            ->assertJsonPath('incidents.open', []);
+        $this->assertStringNotContainsString('SQLSTATE', $response->getContent());
+        // The missing incident table cannot poison the caller's PostgreSQL
+        // transaction or trigger a queue/payment/charger action.
+        $this->assertSame(0, DB::table('jobs')->count());
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_only_authenticated_current_admin_can_read_timeline(): void
     {
         $url = '/api/admin/operational-health';

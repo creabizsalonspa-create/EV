@@ -16,6 +16,7 @@ use App\Services\Notifications\EmailNotices;
 use App\Services\Ocpi\ScheduledSync;
 use App\Services\Operations\OperationalHealth;
 use App\Services\Operations\OperationalIncidents;
+use App\Services\Operations\OperationalWatchdog;
 use App\Services\Privacy\AccountDataExport;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
@@ -285,3 +286,12 @@ Artisan::command('operations:scan-incidents', function () {
     }
 })->purpose('Record idempotent read-only operational incident transitions; no retries or external actions');
 Schedule::command('operations:scan-incidents')->everyMinute()->withoutOverlapping();
+
+Artisan::command('operations:watchdog-check', function () {
+    // Must be launched by a separately supervised host/external monitor.
+    // Never record a heartbeat from the probe: doing so would mask an outage.
+    $result = app(OperationalWatchdog::class)->check(app(OperationalHealth::class), app(OperationalIncidents::class));
+    $this->line(json_encode($result, JSON_THROW_ON_ERROR));
+
+    return $result['status'] === 'observed_normal' ? 0 : 1;
+})->purpose('Strict external watchdog probe; process observations only, no jobs/retries/alerts');

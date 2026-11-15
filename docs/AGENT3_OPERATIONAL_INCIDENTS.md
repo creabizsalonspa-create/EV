@@ -17,3 +17,16 @@ A stopped Laravel scheduler cannot detect its own outage; production requires a 
 ## Email handoff uncertainty review
 
 The same read-only Admin health report also counts `outcome_unknown` email receipts and `claimed` receipts older than 15 minutes, regardless of whether the separately approved email transport is active. A fifth incident condition, `email_handoff_uncertain`, opens once if either count is positive; an unavailable receipt table is **unknown**, not proof of zero. Existing receipt state and consent, user addresses, email bodies and mail transport are never changed by the scanner. There are no automatic replays or outgoing emails. An operator must investigate the original receipt using approved procedures before any corrective state change; `handed_off` still never means received by a mailbox. Synthetic tests, concurrent PostgreSQL tests and exact-source CI govern this monitoring addition.
+
+## Independent read-only watchdog entrypoint
+
+`php artisan operations:watchdog-check` is a one-shot, **read-only** probe with a fixed, sanitized JSON schema and exit code **0** only if both configured heartbeat observations are recent, the supported database queue has known/acceptable counts, email handoff receipt monitoring is readable with no unresolved unknown/stale claims, and the incident store is readable with no open incidents. Any stale, unknown, disabled, unsupported, failed, backed-up, or unreadable signal returns a fixed nonzero exit code. It does not create a heartbeat, scan/mutate incidents, inspect payloads, retry jobs, dispatch charger/payment commands or contact an external delivery provider. `observed_normal` is **not** production readiness or evidence of all workers, job execution success or physical charging.
+
+An approved external monitoring service may run this command as a **separately supervised process**, for example every minute with a bounded timeout, and alert on a nonzero exit code **or missing/late invocation**. **Do not** schedule this command using Laravel's own scheduler: a stopped scheduler cannot invoke it. Monitoring service, paging/SMTP/SMS routing, operator access and on-call response are **not provisioned by this change**; those require deployment approval and independently tested failover. The monitor must capture only the fixed status/signal codes, never application secrets or private receipts.
+
+Disposable validation:
+```bash
+php artisan test --filter='OperationalHealthTest|OperationalIncidentsTest|OperationalWatchdogTest'
+php artisan operations:watchdog-check
+```
+On a fresh database with no worker/scheduler observations, the watchdog intentionally exits with code 1, not success. After recording both real process observations, it can return observed normal for the scoped process signals; it must never be used as a self-proving heartbeat.

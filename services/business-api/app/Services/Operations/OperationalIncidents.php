@@ -106,7 +106,9 @@ final class OperationalIncidents
     public function summary(): array
     {
         try {
-            return [
+            // A missing incident table must abort only this nested savepoint,
+            // not poison the enclosing PostgreSQL Admin transaction.
+            return DB::transaction(fn () => [
                 'store_readable' => true,
                 'monitoring_enabled' => (bool) config('operational_health.enabled'),
                 'automatic_retry' => false,
@@ -116,7 +118,7 @@ final class OperationalIncidents
                     ->orderBy('condition_key')->get(['condition_key', 'state', 'opened_at', 'updated_at'])->toArray(),
                 'recent_events' => DB::table('operational_incident_events')->orderByDesc('id')->limit(20)
                     ->get(['id', 'condition_key', 'transition', 'observed_at'])->toArray(),
-            ];
+            ]);
         } catch (Throwable) {
             return ['store_readable' => false, 'monitoring_enabled' => (bool) config('operational_health.enabled'),
                 'automatic_retry' => false, 'external_alert_delivery' => false,
