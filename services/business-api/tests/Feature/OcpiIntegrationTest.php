@@ -96,16 +96,18 @@ class OcpiIntegrationTest extends TestCase
     {
         $provider = $this->provider();
         $provider->update(['version' => '2.2.1', 'endpoints' => ['locations' => 'https://partner.example/locations']]);
-        $mode = 'partial';
+        $mode = 'partial_request';
         Http::fake(function ($request) use (&$mode) {
-            $headers = ['X-Request-ID' => $request->header('X-Request-ID')[0]];
+            $headers = $mode === 'partial_correlation'
+                ? ['X-Correlation-ID' => $request->header('X-Correlation-ID')[0]]
+                : ['X-Request-ID' => $request->header('X-Request-ID')[0]];
             if ($mode === 'mismatch') {
                 $headers['X-Correlation-ID'] = 'not-the-request-correlation';
             }
 
             return Http::response($this->envelope([$this->location()]), 200, $headers);
         });
-        foreach (['partial', 'mismatch'] as $mode) {
+        foreach (['partial_request', 'partial_correlation', 'mismatch'] as $mode) {
             try {
                 app(PartnerClient::class)->pull($provider->fresh(), 'locations');
                 $this->fail('An unverifiable OCPI read response was trusted.');
@@ -114,8 +116,27 @@ class OcpiIntegrationTest extends TestCase
             }
         }
         // Each attempt is one read. No automatic replay or second-page access.
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
         $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
+    public function test_sandbox_write_accepts_matching_peer_trace_echo_once(): void
+    {
+        $provider = $this->provider();
+        config(['ocpi.test_commands_enabled' => true, 'ocpi.connections.contract-test.test_commands' => true]);
+        $provider->update(['version' => '2.2.1', 'endpoints' => ['commands_receiver' => 'https://partner.example/commands']]);
+        Http::fake(function ($request) {
+            return Http::response($this->envelope(['result' => 'ACCEPTED', 'timeout' => 30]), 200, [
+                'X-Request-ID' => $request->header('X-Request-ID')[0],
+                'X-Correlation-ID' => $request->header('X-Correlation-ID')[0],
+            ]);
+        });
+
+        $reply = app(PartnerClient::class)->write($provider->fresh(), 'commands_receiver', 'POST', ['RESERVE_NOW'], [
+            'reservation_id' => 'synthetic-not-real',
+        ]);
+        $this->assertSame('ACCEPTED', $reply['data']['result']);
+        Http::assertSentCount(1);
     }
 
     public function test_sandbox_write_rejects_wrong_trace_echo_without_replaying_unknown_command(): void
