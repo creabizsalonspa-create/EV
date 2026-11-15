@@ -180,7 +180,7 @@ class PartnerReportMap extends StatefulWidget {
 }
 
 class _PartnerReportMapState extends State<PartnerReportMap> {
-  bool enabled = false;
+  bool enabled = false, mapReady = false;
   double currentZoom = 11;
   final mapController = MapController();
   @override
@@ -305,7 +305,7 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
             if ((points.isNotEmpty || exploratory) && !enabled)
               FilledButton(
                 key: const Key('partner-map-enable'),
-                onPressed: () => setState(() => enabled = true),
+                onPressed: () => setState(() { enabled = true; mapReady = false; }),
                 child: Text(exploratory
                     ?t('Enable discovery area map','تفعيل خريطة منطقة البحث')
                     :t('Enable report map','تفعيل خريطة التقارير')),
@@ -313,14 +313,14 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
             if (enabled)
               OutlinedButton(
                 key: const Key('partner-map-disable'),
-                onPressed: () => setState(() => enabled = false),
+                onPressed: () => setState(() { enabled = false; mapReady = false; }),
                 child: Text(t('Disable report map', 'إيقاف خريطة التقارير')),
               ),
             if (enabled && widget.allowViewportSearch)
               OutlinedButton.icon(
                 key: const Key('unified-native-viewport-search'),
                 icon: const Icon(Icons.search),
-                onPressed: () {
+                onPressed: !mapReady ? null : () {
                   final box = mapController.camera.visibleBounds;
                   final bounds = discoveryViewportBounds(
                     box.south, box.north, box.west, box.east,
@@ -357,6 +357,14 @@ class _PartnerReportMapState extends State<PartnerReportMap> {
                         ? const LatLng(0, 0)
                         : LatLng(points.first.latitude, points.first.longitude),
                     initialZoom: points.isEmpty ? 2 : 11,
+                    // The area action is disabled until FlutterMap has
+                    // attached its controller, including on short screens
+                    // where the lazily built map sits below the button.
+                    onMapReady: () {
+                      if (mounted && enabled && !mapReady) {
+                        setState(() => mapReady = true);
+                      }
+                    },
                     onPositionChanged: (camera, _) {
                       if (mounted && (camera.zoom - currentZoom).abs() > 0.005) {
                         setState(() => currentZoom = camera.zoom);
