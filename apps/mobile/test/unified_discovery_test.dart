@@ -61,20 +61,27 @@ class SavedUnifiedApi extends UnifiedApi {
   }
 }
 class IncompleteMetadataApi extends UnifiedApi {
-  bool missingIdentity=false, missingPartnerMetadata=false;
+  bool missingIdentity=false, missingPartnerMetadata=false, forgedEvidence=false;
   @override
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}})async{
     final raw=Map<String,dynamic>.from(await super.request(path,method:method,body:body,query:query) as Map);
     final entries=List<Map<String,dynamic>>.from((raw['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)));
     if(entries.isNotEmpty&&entries[0]['kind']=='catalog'){
-      entries[0]={
-        'key':'catalog:7','kind':'catalog','station':{
-          if(!missingIdentity)'id':7,
-          'name':'<img src=x>',
-          'evidence':'SIMULATED','connector_type':'CCS2',
-          // No power metadata. Must remain a non-actionable catalog card.
-        },
-      };
+      entries[0]=forgedEvidence
+        ?{
+          'key':'catalog:7','kind':'catalog','station':{
+            ...Map<String,dynamic>.from(catalogRow()['station'] as Map),
+            'evidence':'LIVE_VERIFIED',
+          },
+        }
+        :{
+          'key':'catalog:7','kind':'catalog','station':{
+            if(!missingIdentity)'id':7,
+            'name':'<img src=x>',
+            'evidence':'SIMULATED','connector_type':'CCS2',
+            // No power metadata. Must remain a non-actionable catalog card.
+          },
+        };
     }
     if(missingPartnerMetadata&&entries.length>1&&entries[1]['kind']=='partner'){
       entries[1]={
@@ -422,5 +429,20 @@ void main(){
    await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
    expect(api.queries.last['saved_only'],'0');
    expect(api.queries.last['q'],'');
+ });
+
+ testWidgets('unrecognized live evidence with otherwise complete station metadata grants no native booking',(tester)async{
+   roomy(tester);
+   final api=IncompleteMetadataApi()..forgedEvidence=true;
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('Unsafe station handoff'),
+      customer:true));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(find.text('Synthetic catalog'),findsOneWidget);
+   expect(find.textContaining('details incomplete'),findsOneWidget);
+   expect(find.byKey(const ValueKey('unified-favorite-catalog:7')),findsNothing);
+   expect(find.text('View station and booking options'),findsNothing);
+   expect(find.text('Synthetic partner'),findsOneWidget);
+   expect(tester.takeException(),isNull);
  });
 }
