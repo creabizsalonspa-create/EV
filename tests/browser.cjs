@@ -419,6 +419,50 @@ function provisionTestRole(email, role) {
     await customer.page.evaluate(() => refreshSupportTickets(1));
     await customer.page.locator("#ticket-list [data-support-ticket-id='" + createdTicket.id + "']").waitFor();
 
+    // Customer messages also paginate server-side (50/page); older and newer
+    // messages remain readable without disclosing another ticket's notes.
+    const firstConversation = await customer.page.evaluate(
+      (id) => api("support/" + id + "?page=1"), createdTicket.id);
+    const conversationRoute = (url) =>
+      url.pathname === "/api/support/" + createdTicket.id &&
+      url.searchParams.has("page");
+    let messagesOutage = false;
+    await customer.page.route(conversationRoute, async (route) => {
+      if (messagesOutage) {
+        await route.fulfill({ status: 503, contentType: "application/json",
+          body: JSON.stringify({ message: "Synthetic messages outage" }) });
+        return;
+      }
+      const requested = Number(new URL(route.request().url()).searchParams.get("page"));
+      const data = requested === 2
+        ? [{ id: 900000004, body: "Synthetic last visible message",
+             internal: false }]
+        : firstConversation.messages.data;
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({
+          ticket: firstConversation.ticket,
+          messages: { data, current_page: requested, last_page: 2,
+            total: 51, next_page_url: null, prev_page_url: null },
+        }) });
+    });
+    await customer.page.evaluate((id) => ticketDetail(id), createdTicket.id);
+    assert.equal(await customer.page.locator(
+      "#ticket-detail [data-support-message-page-action=previous]").isDisabled(), true);
+    await customer.page.locator(
+      "#ticket-detail [data-support-message-page-action=next]").click();
+    await customer.page.getByText("Synthetic last visible message").waitFor();
+    assert.equal(await customer.page.locator(
+      "#ticket-detail [data-support-message-page-action=next]").isDisabled(), true);
+    messagesOutage = true;
+    await customer.page.evaluate((id) => ticketDetail(id, 2), createdTicket.id);
+    await customer.page.locator("#ticket-detail [data-support-message-retry]").waitFor();
+    assert.equal(await customer.page.getByText("Synthetic last visible message").count(), 0);
+    messagesOutage = false;
+    await customer.page.locator("#ticket-detail [data-support-message-retry]").click();
+    await customer.page.getByText("Synthetic last visible message").waitFor();
+    await customer.page.unroute(conversationRoute);
+    await customer.page.evaluate((id) => ticketDetail(id), createdTicket.id);
+
     // Distinct role principals avoid spending one actor's entire protected-read
     // budget on repeated full-workspace reloads. Production limits stay enabled.
     const admin = await account("Admin");
