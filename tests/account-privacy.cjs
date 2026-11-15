@@ -11,6 +11,7 @@ class Element {
     this.children = [];
     this.value = "";
     this.attributes = {};
+    this.style = {};
     this._text = "";
     this.disabled = false;
   }
