@@ -183,6 +183,14 @@ class SourceConsumer
             return 0;
         }
         $tx = $records[0];
+        $sourceTransactionDatabaseId = $tx['id'] ?? null;
+        if (! is_int($sourceTransactionDatabaseId) || $sourceTransactionDatabaseId <= 0 ||
+            ($link->source_transaction_database_id !== null && (int) $link->source_transaction_database_id !== $sourceTransactionDatabaseId)) {
+            throw new RuntimeException('Authenticated source transaction row identity changed; reconciliation is required.');
+        }
+        if ($link->source_transaction_database_id === null && $link->transaction_id !== null) {
+            throw new RuntimeException('Legacy source transaction row identity requires reconciliation.');
+        }
         $startedAt = SourceStatusTime::parse($tx['startTime'], 300);
         $endedAt = $tx['endTime'] === null ? null : SourceStatusTime::parse($tx['endTime'], 300);
         if ($endedAt && $endedAt->lt($startedAt)) {
@@ -223,17 +231,19 @@ class SourceConsumer
                 }
             }
         }
-        // Record authenticated external station identity once, before the
-        // first signed event. The external CitrineOS id cannot be inferred from
-        // a reused OCPP connection name or protocol on later observations.
-        DB::transaction(function () use ($link, $sourceStationId): void {
+        // Atomically pin both external row identifiers before the first
+        // signed event. A reused protocol transactionId or a reprovisioned
+        // station row cannot adopt an existing canonical charging session.
+        DB::transaction(function () use ($link, $sourceStationId, $sourceTransactionDatabaseId): void {
             $locked = SessionLink::whereKey($link->id)->lockForUpdate()->firstOrFail();
             if (($locked->source_station_id !== null && (int) $locked->source_station_id !== $sourceStationId) ||
-                ($locked->source_station_id === null && $locked->transaction_id !== null)) {
-                throw new RuntimeException('Source station identity requires reconciliation.');
+                ($locked->source_transaction_database_id !== null && (int) $locked->source_transaction_database_id !== $sourceTransactionDatabaseId) ||
+                (($locked->source_station_id === null || $locked->source_transaction_database_id === null) && $locked->transaction_id !== null)) {
+                throw new RuntimeException('Authenticated source row identity requires reconciliation.');
             }
-            if ($locked->source_station_id === null) {
+            if ($locked->source_station_id === null || $locked->source_transaction_database_id === null) {
                 $locked->source_station_id = $sourceStationId;
+                $locked->source_transaction_database_id = $sourceTransactionDatabaseId;
                 $locked->save();
             }
         });
