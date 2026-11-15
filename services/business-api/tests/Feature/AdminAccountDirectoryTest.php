@@ -181,6 +181,7 @@ class AdminAccountDirectoryTest extends TestCase
                 'owner_id' => $owner->id,
                 'legal_name' => $name,
                 'country' => 'AE',
+                'trade_license_number' => 'SYMBOL-'.(string) $owner->id,
                 'status' => 'submitted',
                 'license_expires_on' => now()->addYear()->toDateString(),
             ]);
