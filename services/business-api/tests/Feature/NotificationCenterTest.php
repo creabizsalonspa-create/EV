@@ -718,7 +718,8 @@ class NotificationCenterTest extends TestCase
         // Simulate an independent privileged role change while the browser
         // still holds the original authenticated vendor model snapshot.
         DB::table('users')->where('id', $vendor->id)->update(['role' => 'admin']);
-        foreach (['/api/notifications/summary', '/api/v1/notifications/summary',
+        foreach (['/api/notifications', '/api/v1/notifications',
+            '/api/notifications/summary', '/api/v1/notifications/summary',
             '/api/notifications/preferences', '/api/v1/notifications/preferences'] as $url) {
             $this->getJson($url)->assertStatus(409);
         }
@@ -731,7 +732,9 @@ class NotificationCenterTest extends TestCase
             $this->postJson($url, ['through_id' => $alreadyRead->id])->assertStatus(409);
         }
         foreach (['/api/notifications/'.$alreadyRead->id.'/unread',
-            '/api/v1/notifications/'.$alreadyRead->id.'/unread'] as $url) {
+            '/api/v1/notifications/'.$alreadyRead->id.'/unread',
+            '/api/notifications/'.$unread->id.'/read',
+            '/api/v1/notifications/'.$unread->id.'/read'] as $url) {
             $this->postJson($url)->assertStatus(409);
         }
         $this->assertDatabaseCount('notification_preferences', 0);
@@ -761,6 +764,7 @@ class NotificationCenterTest extends TestCase
                 ]),
                 $this->postJson('/api/notifications/read-through', ['through_id' => $read->id]),
                 $this->postJson('/api/notifications/'.$read->id.'/unread'),
+                $this->postJson('/api/notifications/'.$unread->id.'/read'),
             ] as $response) {
                 $this->assertContains($response->getStatusCode(), [401, 403, 409]);
             }
