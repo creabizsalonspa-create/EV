@@ -119,6 +119,7 @@ class SubscriptionChangePreviewTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_invoices', 1);
         $this->assertDatabaseCount('commercial_subscription_receipts', 1);
     }
+
     public function test_bearer_native_preview_is_same_scoped_read_only_quote_without_admin_token_access(): void
     {
         [$admin, $vendor, $basic, $pro, $id] = $this->scenario();
@@ -146,5 +147,4 @@ class SubscriptionChangePreviewTest extends TestCase
         $this->assertDatabaseCount('commercial_subscription_invoices', 1);
         $this->assertDatabaseCount('commercial_subscription_receipts', 1);
     }
-
 }
