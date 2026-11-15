@@ -162,8 +162,8 @@ class _EvAppState extends State<EvApp> with WidgetsBindingObserver {
   );
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Hide the frame before the OS can snapshot a private nested route.
-    // Preserve Navigator state; never infer that an inactive app is logged out.
+    // Hide the Flutter route tree on lifecycle notification; native launchers
+    // independently cover app-switcher transitions. Preserve Navigator state.
     final hidden = state != AppLifecycleState.resumed;
     if (hidden == _privacyHidden || !mounted) return;
     if (hidden) FocusManager.instance.primaryFocus?.unfocus();
