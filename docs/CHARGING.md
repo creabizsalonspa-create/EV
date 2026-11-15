@@ -41,6 +41,19 @@ The successful protocol-run output is retained in `docs/evidence/charging-protoc
 
 These protocol tests do not by themselves establish Laravel-to-CSMS transaction correlation, event-inbox authenticity/deduplication, final business invoice/payment reconciliation, physical charger safety, complete OCPP conformance, diagnostics/firmware controls, or production operational resilience. The Laravel business bridge and its separate end-to-end evidence must be verified independently before claiming the entire customer/vendor charging-to-invoice workflow.
 
+## Monotonic meter cursor under parallel workers
+
+The signed inbox owns charging event idempotency, while the restartable
+source reader owns an independent monotonic `source_meter_cursor` checkpoint.
+Concurrent or delayed observers use a conditional database update: a stale
+worker may acknowledge an earlier non-energy source row but cannot write a
+smaller cursor after another worker has already committed a later page.
+Refreshing the link after the conditional update uses the durable position on
+the next source poll; no second charger command or invoice is implied.
+Both OCPP protocol fixtures simulate a concurrently advanced cursor and
+verify that a late observer never rewinds it. This checks source checkpoint
+monotonicity, not live cross-process throughput or physical acceptance.
+
 ## Immutable external source station identity
 
 The local OCPP source consumer now pins the independently authenticated
