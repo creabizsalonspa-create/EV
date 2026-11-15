@@ -74,6 +74,16 @@ class SubscriptionController extends Controller
         return response()->json($s->summary($subscription));
     }
 
+    public function changePreview(Request $r, int $subscription, SubscriptionService $s)
+    {
+        // Authorize first, before resolving any target's commercial terms.
+        $s->access($r->user(), $subscription);
+        $v = $r->validate(['plan_id' => 'required|integer|between:1,999999999999999999']);
+
+        return response()->json($s->previewChange($r->user(), $subscription, (int) $v['plan_id']))
+            ->header('Cache-Control', 'private, no-store');
+    }
+
     public function change(Request $r, int $subscription, SubscriptionService $s)
     {
         $s->access($r->user(), $subscription);

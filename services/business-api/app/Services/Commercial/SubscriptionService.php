@@ -151,6 +151,54 @@ class SubscriptionService
         return $s;
     }
 
+    /**
+     * Share paid-cycle, audience and currency policy between preview and write.
+     * Neither checking nor quoting may create a financial record.
+     */
+    private function eligibleChangePlan(object $subscription, ?int $planId): object
+    {
+        abort_unless($subscription->status === 'active' && ! $subscription->cancel_at_period_end &&
+            CarbonImmutable::parse($subscription->period_end)->isFuture(), 409, 'Only a current paid subscription can schedule a plan change.');
+        abort_unless($planId !== null, 422, 'A target plan is required.');
+        $plan = $this->availablePlan($planId, User::findOrFail($subscription->user_id));
+        $current = $this->plan($subscription->plan_id);
+        abort_unless($plan->currency === $current->currency &&
+            (int) $plan->minor_units === (int) $current->minor_units, 409, 'Currency changes require a new subscription.');
+
+        return $plan;
+    }
+
+    /**
+     * Read-only, non-binding proposal for the next billing cycle.
+     * The existing subscription write rechecks all eligibility.
+     */
+    public function previewChange(User $actor, int $subscriptionId, int $targetPlanId): array
+    {
+        $subscription = $this->access($actor, $subscriptionId);
+        $plan = $this->eligibleChangePlan($subscription, $targetPlanId);
+        $tax = Money::multiplyDivide((int) $plan->price_minor, (int) $plan->tax_bps, 10000);
+
+        return [
+            'subscription_id' => (int) $subscription->id,
+            'current_plan_id' => (int) $subscription->plan_id,
+            'proposed_plan_id' => (int) $plan->id,
+            'proposed_plan_version' => (int) $plan->version,
+            'currency' => $plan->currency,
+            'minor_units' => (int) $plan->minor_units,
+            'interval' => $plan->interval,
+            'effective_at_utc' => CarbonImmutable::parse($subscription->period_end)->utc()->toIso8601String(),
+            'next_cycle_subtotal_minor' => (int) $plan->price_minor,
+            'next_cycle_tax_minor' => $tax,
+            'next_cycle_total_minor' => (int) $plan->price_minor + $tax,
+            'amount_due_now_minor' => 0,
+            'proration_supported' => false,
+            'next_cycle_invoice_issued' => false,
+            'quote_is_binding' => false,
+            'evidence' => 'SIMULATED_NEXT_CYCLE_PREVIEW',
+            'real_payment_processed' => false,
+        ];
+    }
+
     public function change(User $actor, int $id, string $action, ?int $planId, string $key): array
     {
         return DB::transaction(function () use ($actor, $id, $action, $planId, $key) {
@@ -163,10 +211,7 @@ class SubscriptionService
             }
             abort_if($s->status === 'cancelled', 409, 'Subscription is cancelled.');
             if ($action === 'change_plan') {
-                abort_unless($s->status === 'active' && ! $s->cancel_at_period_end && CarbonImmutable::parse($s->period_end)->isFuture(), 409, 'Only a current paid subscription can schedule a plan change.');
-                $p = $this->availablePlan($planId, User::findOrFail($s->user_id));
-                $current = $this->plan($s->plan_id);
-                abort_unless($p->currency === $current->currency && (int) $p->minor_units === (int) $current->minor_units, 409, 'Currency changes require a new subscription.');
+                $p = $this->eligibleChangePlan($s, $planId);
                 $update = ['next_plan_id' => $p->id];
             } elseif ($action === 'cancel_at_period_end') {
                 abort_unless($s->status === 'active', 409, 'No current paid period; cancel immediately instead.');

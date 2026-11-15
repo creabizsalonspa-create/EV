@@ -11,6 +11,7 @@ Route::patch('/commercial/plans/{plan}/availability', [S::class, 'availability']
 Route::get('/commercial/subscriptions', [S::class, 'index']);
 Route::post('/commercial/subscriptions', [S::class, 'subscribe']);
 Route::get('/commercial/subscriptions/{subscription}', [S::class, 'show'])->where('subscription', '[0-9]{1,18}');
+Route::get('/commercial/subscriptions/{subscription}/change-preview', [S::class, 'changePreview'])->where('subscription', '[0-9]{1,18}');
 Route::post('/commercial/subscriptions/{subscription}/change', [S::class, 'change'])->where('subscription', '[0-9]{1,18}');
 Route::post('/commercial/subscriptions/{subscription}/mock-payment', [S::class, 'mockPayment'])->where('subscription', '[0-9]{1,18}');
 Route::post('/commercial/subscriptions/{subscription}/renew', [S::class, 'renew'])->where('subscription', '[0-9]{1,18}');
