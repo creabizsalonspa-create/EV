@@ -265,6 +265,32 @@ class FaultReminderEscalatorTest extends TestCase
         $this->assertDatabaseCount('finance_invoices', 0);
     }
 
+    public function test_suspended_vendor_does_not_block_authenticated_admin_escalation_closure(): void
+    {
+        $f = $this->fixture();
+        $admin = User::factory()->create(['role' => 'admin']);
+        config(['csms.fault_escalation_admin_user_id' => $admin->id]);
+        DB::table('charging_status_observations')->where('id', $f['observation'])
+            ->update(['occurred_at' => now()->subMinutes(65)]);
+        $worker = app(FaultReminderEscalator::class);
+        $this->assertSame(1, $worker->scan()['escalated']);
+        DB::table('users')->where('id', $f['owner']->id)
+            ->update(['account_status' => 'suspended']);
+        DB::table('charging_fault_alerts')->where('id', $f['alert'])
+            ->update(['acknowledged_at' => now(), 'acknowledged_by' => $f['owner']->id]);
+        $this->assertSame(1, $worker->scan()['closed']);
+        $this->assertSame(0, $worker->scan()['closed']);
+        $this->assertDatabaseHas('charging_fault_admin_escalations', [
+            'alert_id' => $f['alert'], 'admin_user_id' => $admin->id,
+        ]);
+        $closed = InboxNotification::where('kind', 'charging.fault.escalation_closed.simulated')
+            ->firstOrFail();
+        $this->assertSame($admin->id, $closed->user_id);
+        $this->assertTrue($closed->metadata['admin_escalation_only']);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_invoices', 0);
+    }
+
     public function test_escalation_closes_once_on_operator_acknowledgment_without_claiming_repair(): void
     {
         $f = $this->fixture();
