@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const {test} = require("node:test");
 const src = fs.readFileSync("services/business-api/public/platform.js", "utf8");
 const begin = src.indexOf("let garageGeneration = 0");
-const end = src.indexOf('el("profile-form").onsubmit', begin);
+const end = src.indexOf('async function support()', begin);
 assert(begin >= 0 && end > begin, "customer garage source boundary");
 const code = src.slice(begin,end);
 function harness() {
@@ -21,11 +21,13 @@ function harness() {
     };
     const user = {id:7,role:"customer"};
     const client = {sessionEpoch:1};
-    let reads = [], create, requests = [], notices = [];
+    let reads = [], create, profile, requests = [], notices = [], localeUpdates = [];
     const api = (path,method) => {
         requests.push({path,method});
         if (path === "vehicles" && method === "POST")
             return new Promise(resolve => {create=resolve;});
+        if (path === "profile" && method === "PATCH")
+            return new Promise(resolve => {profile=resolve;});
         if (path === "vehicles")
             return new Promise(resolve => {reads.push(resolve);});
         throw Error("unexpected "+path);
@@ -37,11 +39,14 @@ function harness() {
         vehicleManualSoc:{renderGarage:()=>{}},
         document:{createElement:()=>({dataset:{}}),documentElement:{lang:"en"}},
         notice:e=>notices.push(e),
+        EvLocale:{set:value=>localeUpdates.push(value)},
+        identity:async()=>{},
         FormData:class {constructor(){} *[Symbol.iterator](){}}
     };
     const methods = new Function("env", "with(env){"+code+"return {garage};}")(env);
-    return {methods,el,client,user,requests,notices,
-        resolveRead:(index,value)=>reads[index](value),resolveCreate:()=>create()};
+    return {methods,el,client,user,requests,notices,localeUpdates,
+        resolveRead:(index,value)=>reads[index](value),
+        resolveCreate:()=>create(),resolveProfile:value=>profile(value)};
 }
 test("late garage response cannot render a previous customer's private vehicles",async()=>{
     const h=harness(),p=h.methods.garage();
@@ -71,5 +76,22 @@ test("vehicle create submits only once while pending and does not render after a
     h.resolveCreate();
     await first;
     assert.equal(h.requests.filter(x=>x.path==="vehicles" && !x.method).length,0);
+    assert.equal(form.submit.disabled,false);
+});
+
+test("late profile PATCH cannot overwrite another signed-in account or locale",async()=>{
+    const h=harness(),form=h.el("profile-form");
+    form.submit={disabled:false,isConnected:true};
+    const event={preventDefault(){},target:form};
+    const first=form.onsubmit(event);
+    await form.onsubmit(event);
+    assert.equal(h.requests.filter(x=>x.method==="PATCH").length,1);
+    assert.equal(form.submit.disabled,true);
+    h.client.sessionEpoch++;
+    h.user.id=8;
+    h.resolveProfile({id:7,name:"Old account",locale:"ar"});
+    await first;
+    assert.equal(h.user.id,8);
+    assert.equal(h.localeUpdates.length,0);
     assert.equal(form.submit.disabled,false);
 });
