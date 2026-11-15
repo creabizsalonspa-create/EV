@@ -193,7 +193,7 @@ class SourceConsumer
             $count++;
         }
         $rows = $this->graph('query($tx:Int!,$after:Int!){MeterValues(where:{tenantId:{_eq:1},transactionDatabaseId:{_eq:$tx},id:{_gt:$after}},order_by:{id:asc},limit:100){id timestamp sampledValue}}', ['tx' => $tx['id'], 'after' => max(0, $link->source_meter_cursor)])['MeterValues'] ?? null;
-        if (! is_array($rows) || count($rows) > 100) {
+        if (! is_array($rows) || ! array_is_list($rows) || count($rows) > 100) {
             throw new RuntimeException('Source meter page is missing or exceeds its limit.');
         }
         // Check the complete page before persisting any cursor, including rows
@@ -202,8 +202,14 @@ class SourceConsumer
         $previousId = max(0, $link->source_meter_cursor);
         foreach ($rows as $row) {
             if (! is_array($row) || ! is_int($row['id'] ?? null) || $row['id'] <= $previousId || $row['id'] > 1000000000 ||
-                ! is_string($row['timestamp'] ?? null) || ! is_array($row['sampledValue'] ?? null)) {
+                ! is_string($row['timestamp'] ?? null) || ! is_array($row['sampledValue'] ?? null) ||
+                ! array_is_list($row['sampledValue'])) {
                 throw new RuntimeException('Invalid source meter page requires reconciliation.');
+            }
+            foreach ($row['sampledValue'] as $sample) {
+                if (! is_array($sample)) {
+                    throw new RuntimeException('Invalid source sample requires reconciliation.');
+                }
             }
             SourceStatusTime::parse($row['timestamp'], 300);
             $previousId = $row['id'];
