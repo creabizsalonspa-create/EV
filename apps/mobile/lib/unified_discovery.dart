@@ -206,7 +206,7 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   List<PartnerMapPoint> mapPoints()=>[
     for(final row in rows)
       if(row['kind']=='catalog') PartnerMapPoint.fromPublishedCatalog(Map<String,dynamic>.from(row['station'] as Map))
-      else PartnerMapPoint.fromPublishedLocation(Map<String,dynamic>.from(row['location'] as Map),providerLabel:row['provider_label'] is String?row['provider_label'] as String:null),
+      else PartnerMapPoint.fromPublishedLocation(Map<String,dynamic>.from(row['location'] as Map),providerLabel: row['provider_label'] is String ? row['provider_label'] as String : null),
   ].whereType<PartnerMapPoint>().toList();
   Widget card(Map<String,dynamic> row){
     if(row['kind']=='catalog'){
