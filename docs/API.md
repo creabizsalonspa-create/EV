@@ -600,3 +600,26 @@ current-account MFA response may hand off its rotated CSRF token. A safe inbox
 read then rebuilds epoch-bound controls; it never acknowledges notices or retries
 a mutation. Logout/account replacement invalidates the pending transition, so an
 older completion cannot change the new account or its token.
+
+
+### Current-request roaming authority and explicit unsent deactivation
+
+Private roaming reads validate the captured request's role, password hash,
+security epoch and active status under the user lock; an old request cannot
+reload its user to acquire fresh authority. Provider operations history belongs
+to the current owner and the original order owner; protected Admin history
+remains available. Reassignment does not transfer previous customer records.
+Start/stop/revoke HTTP calls remain outside application database transactions.
+Stop validates the same actor and bound active source session again immediately
+before transport. A known pre-wire failure retains `not_dispatched` with no
+attempt marker: exact replay never resends, but a new explicit stop identity may
+be confirmed. Any attempted/transport/callback evidence continues to block an
+additional stop, even if a contradictory state claims `not_dispatched`.
+
+`can_complete_source_revocation` permits explicit customer confirmation of
+local authority deactivation that never reached source transport. Only immutable,
+hash-matching `valid=false` token bytes with no attempt/receipt/callback facts
+may be reused. Prepared, dispatching and unknown outcomes never retry. Web and
+Flutter show a separate completion action; cancel sends nothing. Local revoke
+and source token deactivation never imply that an active session stopped,
+release an active EVSE hold, or authorize billing/physical charging.

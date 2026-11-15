@@ -1,4 +1,5 @@
 window.EV_MESSAGES = {
+    "Complete sandbox source deactivation": {en: "Complete test-source token deactivation", ar: "إكمال إلغاء رمز مصدر الاختبار"},
     "Stored partner catalog observations": {en: "Stored partner catalog observations", ar: "ملاحظات كتالوج الشريك المخزنة"},
     "Retire inactive rider source": {en: "Retire inactive test-source registration", ar: "إنهاء تسجيل الرمز غير النشط بمصدر الاختبار"},
     "Confirm inactive rider retirement": {en: "Inspect and block this globally revoked or expired token at the test source? This affects the shared token registration, does not stop active sessions and never processes payment. Uncertain outcomes require inspection; no automatic retry.", ar: "فحص وحظر الرمز المبطل عالمياً أو المنتهي بمصدر الاختبار؟ يؤثر هذا في تسجيل الرمز المشترك ولا يوقف الجلسات النشطة ولا يعالج دفعاً. النتيجة غير المؤكدة تحتاج فحصاً ولا تعاد تلقائياً."},

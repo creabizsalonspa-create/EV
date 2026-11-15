@@ -650,8 +650,8 @@ window.createRoamingWorkspace = ({
                             { request_key: crypto.randomUUID() },
                         );
                     }).disabled = !!roamingPending;
-                if (row.can_revoke === true)
-                    button(card, "Revoke sandbox authority", async () => {
+                if (row.can_revoke === true || row.can_complete_source_revocation === true)
+                    button(card, row.can_complete_source_revocation === true ? "Complete sandbox source deactivation" : "Revoke sandbox authority", async () => {
                         if (
                             !confirm(
                                 EvLocale.text("Sandbox revoke confirmation"),

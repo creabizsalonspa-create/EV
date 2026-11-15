@@ -1,3 +1,19 @@
+# 15 November 2026 — current-request OCPI operations (integration pending)
+
+Connected Laravel, customer EN/AR web and Flutter preserve captured account
+security through private reads and stop/token-deactivation dispatch. Vendor
+history stays with the original provider owner after reassignment. Explicit
+confirmed completion is available only for immutable proven-unsent source token
+deactivation; unknown transport outcomes remain held without replay. A source
+stop never follows a stale account or changed session; exact identity replay
+never resends. No live command, financial record or production change.
+
+Focused PostgreSQL26/386, six Flutter cases, changed native analysis and real
+browser cancellation/confirmation/single-dispatch/logout controls passed. The
+new authority suite is included in mandatory PostgreSQL connector CI. Hosted
+exact-source validation and integration remain pending. Original312 scope and
+external hardware/partner/payment/store gates remain unchanged.
+
 # 15 November 2026 — combined catalog policy and browser security handoff
 
 Preserved current PR1204f2ea2e7 shared catalog policy and PR124d2c9ba77 offline
