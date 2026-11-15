@@ -29,7 +29,7 @@ final class UnifiedDiscoveryController extends Controller
         if (isset($v['max_source_age_hours'])) {
             // Partner source timestamps only: never a receipt-age or availability claim.
             $checkedAt = now();
-            $partner->whereBetween('source_updated_at', [$checkedAt->copy()->subHours((int) $v['max_source_age_hours']), $checkedAt]);
+            $partner->whereBetween('source_updated_at', [$checkedAt->copy()->subHours((int) $v['max_source_age_hours'])->format('Y-m-d H:i:s.u'), $checkedAt->format('Y-m-d H:i:s.u')]);
         }
         if ($request->boolean('saved_only')) {
             $catalog->whereIn('id', DB::table('station_favorites')->where('user_id', $customer)->select('station_id'));
