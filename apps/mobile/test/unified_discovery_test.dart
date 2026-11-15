@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:creabiz_ev/partner_report_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +14,7 @@ Map<String,dynamic> partnerRow()=>{'key':'partner:7','kind':'partner','record_id
 class UnifiedApi extends FixtureApi {
   Completer<dynamic>? pending;
   bool invalid=false;
+  bool mapFixtures=false;
   int epoch=0;
   @override
   bool Function() sessionFence(){final capture=epoch;return()=>capture==epoch;}
@@ -18,10 +22,25 @@ class UnifiedApi extends FixtureApi {
   Future<dynamic> request(String path,{String method='GET',Map<String,dynamic>? body,Map<String,String> query=const {}})async{
     calls.add('$method $path');queries.add(query);
     if(pending!=null)return pending!.future;
-    return {'data':int.parse(query['page']!)==1?[catalogRow(),{...partnerRow(),if(invalid)'reservable':true}]:[partnerRow()],'current_page':int.parse(query['page']!),'last_page':2,'total':3};
+    return {'data':int.parse(query['page']!)==1?[
+      if(mapFixtures) {...catalogRow(),'station':{...Map<String,dynamic>.from(catalogRow()['station'] as Map),'latitude':25.2,'longitude':55.3}}
+      else catalogRow(),
+      if(mapFixtures) {...partnerRow(),'location':{...Map<String,dynamic>.from(partnerRow()['location'] as Map),'latitude':'25.25','longitude':'55.35'}}
+      else {...partnerRow(),if(invalid)'reservable':true},
+    ]:[partnerRow()],'current_page':int.parse(query['page']!),'last_page':2,'total':3};
   }
 }
-Widget app(UnifiedApi api,ValueChanged<Station> onCatalog,{bool ar=false,bool customer=false})=>MaterialApp(locale:Locale(ar?'ar':'en'),supportedLocales:const[Locale('en'),Locale('ar')],localizationsDelegates:const[GlobalMaterialLocalizations.delegate,GlobalWidgetsLocalizations.delegate,GlobalCupertinoLocalizations.delegate],home:UnifiedDiscoveryView(api:api,onCatalog:onCatalog,customer:customer));
+class UnifiedFixtureTiles extends TileProvider {
+  int requests=0;
+  @override
+  ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
+    requests++;
+    return MemoryImage(base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+    ));
+  }
+}
+Widget app(UnifiedApi api,ValueChanged<Station> onCatalog,{bool ar=false,bool customer=false,TileProvider? tileProvider})=>MaterialApp(locale:Locale(ar?'ar':'en'),supportedLocales:const[Locale('en'),Locale('ar')],localizationsDelegates:const[GlobalMaterialLocalizations.delegate,GlobalWidgetsLocalizations.delegate,GlobalCupertinoLocalizations.delegate],home:UnifiedDiscoveryView(api:api,onCatalog:onCatalog,customer:customer,mapTileProvider:tileProvider));
 class SavedUnifiedApi extends UnifiedApi {
   final saved=<String>{};
   final writes=<String>[];
@@ -131,4 +150,38 @@ void main(){
   for(final state in [AppLifecycleState.hidden,AppLifecycleState.inactive,AppLifecycleState.resumed]){tester.binding.handleAppLifecycleStateChanged(state);}
   await tester.pumpAndSettle();expect(find.text('Synthetic partner'),findsNothing);expect(api.calls.length,1);
  });
+
+ for(final ar in [false,true]){
+  testWidgets('native opt-in map viewport search reuses authenticated query and pagination ($ar)',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi()..mapFixtures=true;
+   final tiles=UnifiedFixtureTiles();
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No navigation into booking'),ar:ar,tileProvider:tiles));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.length,1);
+   final open=find.byKey(const Key('unified-map-open'));
+   await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+   expect(api.queries.length,1,'Opening native map must not search');
+   expect(tiles.requests,0,'No tile access without separate opt-in');
+   expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
+   await tester.tap(find.byKey(const Key('partner-map-enable')));await tester.pumpAndSettle();
+   expect(api.queries.length,1,'Tiles do not transmit viewport to API');
+   final search=find.byKey(const Key('unified-native-viewport-search'));
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(api.queries.length,2);
+   final params=api.queries.last;
+   for(final key in ['south','north','west','east'])expect(double.tryParse(params[key]??''),isNotNull);
+   expect(double.parse(params['south']!),lessThan(25.2));
+   expect(double.parse(params['north']!),greaterThan(25.2));
+   expect(params['page'],'1');
+   expect(api.calls.every((path)=>path=='GET discovery/search'),true);
+   final next=find.text(ar?'التالي':'Next');
+   await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();
+   expect(api.queries.last['page'],'2');
+   expect(api.queries.last['west'],params['west']);
+   await tester.ensureVisible(find.byType(FilledButton));await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.last.containsKey('west'),false,'Ordinary explicit search must clear stale viewport');
+  });
+ }
 }
