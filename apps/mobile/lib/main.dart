@@ -326,7 +326,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   Future<void> restoreSaved() async {
     final requestApi = api;
-    if (requestApi?.canRemember != true) {
+    if (requestApi == null || !requestApi.canRemember) {
       _onNavigationAvailable(); // Discard cold links when signed out.
       return;
     }
@@ -343,7 +343,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
       error = null;
     });
     try {
-      final user = await requestApi!.restoreSession();
+      final user = await requestApi.restoreSession();
       // Restoring a native cookie jar can outlive logout or a fresh login.
       // Never publish its previous identity after the workspace was reset.
       if (current())
