@@ -308,7 +308,9 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
     // A shared external URL never supplies record IDs, credentials, payment
     // outcomes, commands, or an authorization decision.
-    if (target == 3 && owner.role != 'customer') return;
+    // These are the same six tabs available through ordinary navigation for
+    // either signed-in role. Individual screens still enforce role-scoped
+    // reads and customer-only actions independently of this route hint.
     Navigator.of(context).popUntil((route) => route.isFirst);
     _recordRequestGeneration++;
     setState(() {
@@ -694,20 +696,35 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   }
 
   Future<void> profile() async {
-    final values = await entry(s.t('profile'), {'name': account!.name});
-    if (values == null || !mounted) return;
+    final requestApi = api;
+    final owner = account;
+    if (requestApi == null || owner == null || busy) return;
+    final session = requestApi.sessionFence();
+    final generation = _performGeneration;
+    final values = await entry(s.t('profile'), {'name': owner.name});
+    // The dialog can outlive the identity that opened it.
+    bool current() =>
+        mounted &&
+        generation == _performGeneration &&
+        identical(api, requestApi) &&
+        session() &&
+        account?.id == owner.id &&
+        account?.role == owner.role;
+    if (values == null || !current()) return;
     await perform(() async {
-      final updated = await api!.request(
+      final updated = await requestApi.request(
         'profile',
         method: 'PATCH',
         body: {...values, 'locale': widget.preferences.locale.languageCode},
       );
-      if (mounted)
-        setState(
-          () => account = Account.fromJson(
-            Map<String, dynamic>.from(updated as Map),
-          ),
-        );
+      // A delayed PATCH response must not repopulate a revoked session,
+      // including a rapid logout and re-login to the same account.
+      if (!current()) return;
+      setState(
+        () => account = Account.fromJson(
+          Map<String, dynamic>.from(updated as Map),
+        ),
+      );
     });
   }
 
