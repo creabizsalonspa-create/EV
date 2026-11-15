@@ -80,14 +80,16 @@ class PartnerClient
     /** Reject contradictory peer tracing without breaking previously approved headerless sandbox fixtures. */
     private function verifyTrace(Response $response, array $sent): void
     {
-        $request = $response->header('X-Request-ID');
-        $correlation = $response->header('X-Correlation-ID');
-        if ($request === null && $correlation === null) {
+        $headers = $response->toPsrResponse();
+        $hasRequest = $headers->hasHeader('X-Request-ID');
+        $hasCorrelation = $headers->hasHeader('X-Correlation-ID');
+        if (! $hasRequest && ! $hasCorrelation) {
+            // Some existing approved sandbox fixtures predate echoed trace IDs.
             return;
         }
-        if (! is_string($request) || ! is_string($correlation)
-            || ! hash_equals($sent['X-Request-ID'], $request)
-            || ! hash_equals($sent['X-Correlation-ID'], $correlation)) {
+        if (! $hasRequest || ! $hasCorrelation
+            || ! hash_equals($sent['X-Request-ID'], $headers->getHeaderLine('X-Request-ID'))
+            || ! hash_equals($sent['X-Correlation-ID'], $headers->getHeaderLine('X-Correlation-ID'))) {
             throw new OcpiException('Operator OCPI tracing headers disagreed with this request.');
         }
     }
