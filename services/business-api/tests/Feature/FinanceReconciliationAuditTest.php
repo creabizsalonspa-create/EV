@@ -58,7 +58,7 @@ class FinanceReconciliationAuditTest extends TestCase
         $finance->refund($invoice, $vendor->id, 40, 'audit-refund', 'Review refund');
         $before = DB::table('finance_journals')->count();
         $this->actingAs($vendor)->getJson($this->url())->assertOk()
-            ->assertHeader('Cache-Control', 'private, no-store')
+            ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('data.0.status', 'reconciled')
             ->assertJsonPath('data.0.issues', [])
             ->assertJsonPath('data.0.invoiced_minor', 100)
@@ -82,7 +82,7 @@ class FinanceReconciliationAuditTest extends TestCase
         $this->getJson($this->url().'?per_page=26')->assertUnprocessable();
         $this->getJson($this->url().'?from=2027-10-02&to=2027-10-01')->assertUnprocessable();
         $csv = $this->get($this->url().'/export?per_page=1');
-        $csv->assertOk()->assertHeader('Cache-Control', 'private, no-store');
+        $csv->assertOk()->assertHeader('Cache-Control', 'no-store, private');
         $body = $csv->streamedContent();
         $this->assertStringContainsString($invoice->number, $body);
         $this->assertStringNotContainsString($foreignInvoice->number, $body);
