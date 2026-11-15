@@ -2,6 +2,7 @@
 
 namespace App\Services\Operations;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -16,6 +17,8 @@ use Throwable;
 final class OperationalIncidents
 {
     private const KEYS = ['queue_worker_stale', 'scheduler_stale', 'queue_backlog', 'queue_failed_jobs', 'email_handoff_uncertain'];
+
+    private const SCANNER_MAX_AGE_SECONDS = 150;
 
     private function conditions(array $health): array
     {
@@ -98,6 +101,11 @@ final class OperationalIncidents
                 $result[$present ? 'opened' : 'resolved']++;
             }
 
+            // Only a fully completed, committed scan refreshes scanner liveness.
+            // A separately supervised watchdog never writes this timestamp.
+            DB::table('operational_incident_scan_locks')->where('id', 1)
+                ->update(['last_completed_at' => $now]);
+
             return $result;
         }, 3);
     }
@@ -114,6 +122,7 @@ final class OperationalIncidents
                 'automatic_retry' => false,
                 'external_alert_delivery' => false,
                 'production_recovery_verified' => false,
+                'scanner' => $this->scannerSnapshot(),
                 'open' => DB::table('operational_incident_states')->where('state', 'open')
                     ->orderBy('condition_key')->get(['condition_key', 'state', 'opened_at', 'updated_at'])->toArray(),
                 'recent_events' => DB::table('operational_incident_events')->orderByDesc('id')->limit(20)
@@ -122,7 +131,36 @@ final class OperationalIncidents
         } catch (Throwable) {
             return ['store_readable' => false, 'monitoring_enabled' => (bool) config('operational_health.enabled'),
                 'automatic_retry' => false, 'external_alert_delivery' => false,
-                'production_recovery_verified' => false, 'open' => [], 'recent_events' => []];
+                'production_recovery_verified' => false, 'scanner' => $this->unknownScanner(),
+                'open' => [], 'recent_events' => []];
         }
+    }
+
+    private function unknownScanner(): array
+    {
+        return ['state' => 'unknown', 'last_completed_at' => null,
+            'max_age_seconds' => self::SCANNER_MAX_AGE_SECONDS];
+    }
+
+    /** Liveness of committed scan cycles, never proof that every metric was known. */
+    private function scannerSnapshot(): array
+    {
+        $row = DB::table('operational_incident_scan_locks')->where('id', 1)->first(['last_completed_at']);
+        if (! $row || $row->last_completed_at === null) {
+            return $this->unknownScanner();
+        }
+        try {
+            $observed = CarbonImmutable::parse($row->last_completed_at, 'UTC');
+            $now = CarbonImmutable::now('UTC');
+            if ($observed->lte($now)) {
+                return ['state' => $observed->gt($now->subSeconds(self::SCANNER_MAX_AGE_SECONDS)) ? 'recent' : 'stale',
+                    'last_completed_at' => $observed->toISOString(),
+                    'max_age_seconds' => self::SCANNER_MAX_AGE_SECONDS];
+            }
+        } catch (Throwable) {
+            // Future or malformed evidence must not imply a healthy scanner.
+        }
+
+        return $this->unknownScanner();
     }
 }
