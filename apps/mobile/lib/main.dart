@@ -44,6 +44,7 @@ import 'vendor_inventory.dart';
 import 'vendor_company.dart' show registerVendorDocumentLicenses;
 import 'session_vault.dart';
 import 'rider_access.dart';
+import 'navigation_links.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -248,6 +249,8 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    NativeNavigationBridge.pending.addListener(_onNavigationAvailable);
+    NativeNavigationBridge.start();
     if (widget.initialApi != null) {
       api = widget.initialApi;
       restoreSaved();
@@ -267,8 +270,48 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
     }
   }
 
+  void _onNavigationAvailable() {
+    // Navigation must wait until Flutter has mounted the Navigator, restored
+    // identity and returned to the foreground.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || restoring) return;
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (lifecycle == null || lifecycle == AppLifecycleState.resumed)
+        _consumeNavigation();
+    });
+  }
+
+  Future<void> _consumeNavigation() async {
+    final requestApi = api;
+    final owner = account;
+    final fence = requestApi?.sessionFence();
+    final target = await NativeNavigationBridge.consume();
+    if (!mounted || target == null || owner == null || busy ||
+        !identical(api, requestApi) || fence == null || !fence() ||
+        account?.id != owner.id || account?.role != owner.role ||
+        !['customer', 'vendor'].contains(owner.role)) return;
+
+    // A shared external URL never supplies record IDs, credentials, payment
+    // outcomes, commands, or an authorization decision.
+    if (target == 3 && owner.role != 'customer') return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    _recordRequestGeneration++;
+    setState(() {
+      tab = target;
+      records = [];
+      recordPage = recordLast = 1;
+      recordTotal = 0;
+      error = null;
+      message = null;
+    });
+    if (target == 1 || target == 3) perform(load);
+  }
+
   Future<void> restoreSaved() async {
-    if (api?.canRemember != true) return;
+    if (api?.canRemember != true) {
+      _onNavigationAvailable(); // Discard cold links when signed out.
+      return;
+    }
     setState(() {
       busy = true;
       restoring = true;
@@ -294,6 +337,7 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
           busy = false;
           restoring = false;
         });
+      _onNavigationAvailable();
     }
   }
 
@@ -1704,12 +1748,18 @@ class _WorkspaceState extends State<Workspace> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) { secondFactorCode.clear(); password.clear(); }
+    if (state != AppLifecycleState.resumed) {
+      secondFactorCode.clear();
+      password.clear();
+    } else {
+      _onNavigationAvailable();
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    NativeNavigationBridge.pending.removeListener(_onNavigationAvailable);
     secondFactorCode.dispose();
     email.dispose();
     password.dispose();
