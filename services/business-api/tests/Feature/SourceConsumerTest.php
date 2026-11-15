@@ -811,6 +811,99 @@ class SourceConsumerTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 1);
     }
 
+    public static function vanishedSourceIdentities(): array
+    {
+        return [
+            'ocpp16_station_removed' => ['1.6', 'station'],
+            'ocpp16_authorization_removed' => ['1.6', 'authorization'],
+            'ocpp201_station_removed' => ['2.0.1', 'station'],
+            'ocpp201_authorization_removed' => ['2.0.1', 'authorization'],
+        ];
+    }
+
+    #[DataProvider('vanishedSourceIdentities')]
+    public function test_started_session_requires_review_if_authenticated_source_identity_disappears(string $protocol, string $missing): void
+    {
+        $link = $this->link($protocol);
+        $at = now()->toImmutable()->startOfSecond();
+        $remove = null;
+        $ended = false;
+        $transactionReads = 0;
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) use ($protocol, $link, $at, &$remove, &$ended, &$transactionReads) {
+            $query = $request['query'];
+            if (str_contains($query, 'ChargingStations')) {
+                return Http::response(['data' => [
+                    'ChargingStations' => $remove === 'station' ? [] : [['id' => 8, 'protocol' => $protocol]],
+                    'Authorizations' => $remove === 'authorization' ? [] : [['id' => 9]],
+                ]]);
+            }
+            if (str_contains($query, 'Transactions')) {
+                $transactionReads++;
+
+                return Http::response(['data' => ['Transactions' => [[
+                    'id' => 10,
+                    'transactionId' => $protocol === '1.6' ? '101' : 'disappeared-source-fixture',
+                    'remoteStartId' => $link->start_command_id,
+                    'meterStart' => '1.000',
+                    'startTime' => $at->toIso8601String(),
+                    'endTime' => $ended ? $at->addSeconds(2)->toIso8601String() : null,
+                    'isActive' => ! $ended,
+                    'totalKwh' => $ended ? '2.500' : null,
+                ]]]]);
+            }
+            if (str_contains($query, 'MeterValues')) {
+                $after = (int) ($request['variables']['after'] ?? -1);
+
+                return Http::response(['data' => ['MeterValues' =>
+                    $ended && $after === 0 ? [[
+                        'id' => 1, 'timestamp' => $at->addSeconds(2)->toIso8601String(),
+                        'sampledValue' => [[
+                            'measurand' => 'Energy.Active.Import.Register',
+                            'value' => '3500',
+                            'context' => 'Transaction.End',
+                            'unitOfMeasure' => ['unit' => 'Wh'],
+                        ]],
+                    ]] : [],
+                ]]);
+            }
+
+            $this->fail('A source identity check attempted unexpected outbound traffic.');
+        });
+
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link, true));
+        $this->assertSame('charging', DB::table('charging_sessions')->value('status'));
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertSame(1, $transactionReads);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $remove = $missing;
+        try {
+            app(SourceConsumer::class)->consume($link->fresh(), true);
+            $this->fail('A started session silently accepted a vanished source identity.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('identity disappeared', $e->getMessage());
+        }
+        $this->assertSame(1, $transactionReads);
+        $this->assertSame(0, $link->fresh()->source_meter_cursor);
+        $this->assertSame(8, $link->fresh()->source_station_id);
+        $this->assertDatabaseCount('csms_inbox_events', 1);
+        $this->assertDatabaseCount('finance_invoices', 0);
+        $this->assertDatabaseCount('charger_commands', 1);
+
+        $remove = null;
+        $ended = true;
+        $this->assertSame(1, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseHas('charging_sessions', [
+            'id' => $link->charging_session_id,
+            'status' => 'stopped',
+            'energy_wh' => 2500,
+        ]);
+        $this->assertDatabaseCount('finance_invoices', 1);
+        $this->assertDatabaseCount('charger_commands', 1);
+        $this->assertSame(0, app(SourceConsumer::class)->consume($link->fresh(), true));
+        $this->assertDatabaseCount('finance_invoices', 1);
+    }
+
     public function test_meter_units_are_exact_and_unsupported_precision_is_not_rounded(): void
     {
         $this->assertSame(2500, SourceConsumer::wh('2.500000', 'kWh'));
