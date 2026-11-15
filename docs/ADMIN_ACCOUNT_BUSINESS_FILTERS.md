@@ -10,6 +10,8 @@ feature.
 - `company_country`: uppercase ISO alpha-2 country code.
 - `company_status`: draft/submitted/approved/rejected/changes_requested/suspended.
 
+The legal-name filter matches a case-insensitive **literal** substring; SQL `%`, `_`, and `!` are escaped as data rather than treated as wildcards. This is implemented for the project's supported SQLite and PostgreSQL databases using parameter binding.
+
 These filters combine with the existing role/account_status/verified/q filters
 and are applied inside **one correlated EXISTS subquery** against
 `vendor_companies.owner_id = users.id`, before the stable 25-item account
