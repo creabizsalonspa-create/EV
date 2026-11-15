@@ -320,4 +320,37 @@ class AdminStaffPermissionTest extends TestCase
         $this->actingAs($admin)->getJson($history)->assertOk()
             ->assertJsonPath('total', 0);
     }
+
+    public function test_admin_staff_holds_and_releases_revalidate_fresh_identity_under_lock(): void
+    {
+        [$admin, , , , $membership] = $this->fixture();
+        $revoke = '/api/admin/permission-grants/'.$membership->id.'/revoke';
+        $release = '/api/admin/permission-grants/'.$membership->id.'/release';
+        $this->actingAs($admin, 'web');
+
+        DB::table('users')->where('id', $admin->id)->update(['role' => 'customer']);
+        $this->postJson($revoke, $this->payload())->assertForbidden();
+
+        DB::table('users')->where('id', $admin->id)->update([
+            'role' => 'admin',
+            'auth_epoch' => 1,
+        ]);
+        $this->postJson($revoke, $this->payload())->assertStatus(409);
+        $this->assertDatabaseCount('admin_permission_revocations', 0);
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $membership->id, 'status' => 'active', 'invitation_version' => 1,
+        ]);
+
+        DB::table('users')->where('id', $admin->id)->update(['auth_epoch' => 0]);
+        $this->postJson($revoke, $this->payload())->assertOk();
+
+        DB::table('users')->where('id', $admin->id)->update(['auth_epoch' => 1]);
+        $this->postJson($release, $this->payload(2))->assertStatus(409);
+        $this->assertDatabaseCount('admin_permission_revocations', 1);
+        $this->assertNotNull($membership->fresh()->admin_revoked_at);
+        $this->assertDatabaseHas('vendor_company_staff', [
+            'id' => $membership->id, 'status' => 'revoked', 'invitation_version' => 2,
+        ]);
+    }
+
 }
