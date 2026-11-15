@@ -1843,19 +1843,33 @@ el("vehicle-create").onsubmit = async (e) => {
         if (submit?.isConnected) submit.disabled = false;
     }
 };
+let profileUpdatePending = false;
 el("profile-form").onsubmit = async (e) => {
     e.preventDefault();
+    if (!user || profileUpdatePending) return;
+    const epoch = client.sessionEpoch, actor = user.id;
+    const active = () => epoch === client.sessionEpoch && actor === user?.id;
+    const submit = e.target.querySelector("button");
+    profileUpdatePending = true;
+    if (submit) submit.disabled = true;
     try {
-        user = await api(
+        const updated = await api(
             "profile",
             "PATCH",
             Object.fromEntries(new FormData(e.target)),
         );
+        // A previous account's PATCH must never overwrite a newer login,
+        // even if the server completed it after the user switched accounts.
+        if (!active()) return;
+        user = updated;
         EvLocale.set(user.locale);
         notice("Profile updated.");
         await identity();
-    } catch (e) {
-        notice(e);
+    } catch (error) {
+        if (active()) notice(error);
+    } finally {
+        profileUpdatePending = false;
+        if (submit?.isConnected) submit.disabled = false;
     }
 };
 async function support() {
