@@ -163,6 +163,45 @@ class OperationalIncidentsTest extends TestCase
         $this->assertDatabaseCount('finance_payments', 0);
     }
 
+    public function test_email_digest_queued_too_long_opens_review_without_sending_or_replaying(): void
+    {
+        $health = app(OperationalHealth::class);
+        $scanner = app(OperationalIncidents::class);
+        $user = User::factory()->create();
+        $receipt = (string) Str::uuid();
+        DB::table('notification_email_outbox')->insert([
+            'id' => $receipt, 'user_id' => $user->id, 'after_notification_id' => 0,
+            'through_notification_id' => 1, 'consent_revision' => 1,
+            'recipient_hash' => hash('sha256', $user->email),
+            'configuration_hash' => str_repeat('e', 64),
+            'state' => 'queued', 'evidence' => 'SIMULATED_EMAIL_HANDOFF',
+            'created_at' => now()->subMinutes(17), 'updated_at' => now()->subMinutes(17),
+        ]);
+        $metrics = $health->report()['email_handoff'];
+        $this->assertSame(1, $metrics['overdue_queued']);
+        $this->assertSame(0, $metrics['outcome_unknown']);
+        $this->assertSame(0, $metrics['stale_claimed']);
+        $this->assertSame(1, $scanner->scan($health)['opened']);
+        $this->assertSame('email_queue_backlog', $scanner->summary()['open'][0]->condition_key);
+        $this->assertSame(0, $scanner->scan($health)['opened']);
+        $this->assertDatabaseHas('notification_email_outbox', ['id' => $receipt, 'state' => 'queued']);
+        $this->assertDatabaseCount('operational_incident_events', 1);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+        $response = $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson('/api/admin/operational-health')->assertOk()
+            ->assertJsonPath('email_handoff.overdue_queued', 1)
+            ->assertJsonPath('incidents.open.0.condition_key', 'email_queue_backlog');
+        $this->assertStringNotContainsString($receipt, $response->getContent());
+        $this->assertStringNotContainsString($user->email, $response->getContent());
+        // Synthetic explicit operator resolution, never an automated resend.
+        DB::table('notification_email_outbox')->where('id', $receipt)
+            ->update(['state' => 'cancelled', 'updated_at' => now()]);
+        $this->assertSame(1, $scanner->scan($health)['resolved']);
+        $this->assertSame([], $scanner->summary()['open']);
+        $this->assertDatabaseCount('operational_incident_events', 2);
+    }
+
     public function test_missing_email_receipt_store_does_not_falsely_resolve_existing_alert(): void
     {
         $scanner = app(OperationalIncidents::class);

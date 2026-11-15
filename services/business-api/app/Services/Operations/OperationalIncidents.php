@@ -16,7 +16,7 @@ use Throwable;
  */
 final class OperationalIncidents
 {
-    private const KEYS = ['queue_worker_stale', 'scheduler_stale', 'queue_backlog', 'queue_failed_jobs', 'email_handoff_uncertain'];
+    private const KEYS = ['queue_worker_stale', 'scheduler_stale', 'queue_backlog', 'queue_failed_jobs', 'email_handoff_uncertain', 'email_queue_backlog'];
 
     private const SCANNER_MAX_AGE_SECONDS = 150;
 
@@ -34,6 +34,7 @@ final class OperationalIncidents
         $emailReadable = ($email['state'] ?? null) === 'available';
         $unknown = $email['outcome_unknown'] ?? null;
         $stale = $email['stale_claimed'] ?? null;
+        $overdue = $email['overdue_queued'] ?? null;
 
         return [
             'queue_worker_stale' => in_array($worker, ['recent', 'stale'], true) ? $worker === 'stale' : null,
@@ -44,6 +45,7 @@ final class OperationalIncidents
             'queue_failed_jobs' => is_int($failed) ? $failed > 0 : null,
             'email_handoff_uncertain' => $emailReadable && is_int($unknown) && is_int($stale)
                 ? $unknown > 0 || $stale > 0 : null,
+            'email_queue_backlog' => $emailReadable && is_int($overdue) ? $overdue > 0 : null,
         ];
     }
 

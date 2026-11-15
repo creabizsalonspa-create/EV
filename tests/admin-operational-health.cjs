@@ -41,6 +41,23 @@ test('Email handoff uncertainty is counted without rendering recipients or auto-
         assert.equal(calls.length,1);assert.equal(calls[0][1],'GET');assert.equal(nodes(f.root,'button').length,1);
     }
 });
+test('Overdue queued email receipts are localized and never imply external send',async()=>{
+    for(const ar of [false,true]){
+        const f=fixture(ar),d=report();
+        d.email_handoff={state:'available',outcome_unknown:0,stale_claimed:0,overdue_queued:2,
+            age_threshold_seconds:900,delivery_confirmed:false,automatic_retry:false};
+        d.incidents={store_readable:true,monitoring_enabled:true,automatic_retry:false,external_alert_delivery:false,
+            production_recovery_verified:false,scanner:{state:'recent',last_completed_at:'2026-11-15T12:00:00Z',max_age_seconds:150},
+            open:[{condition_key:'email_queue_backlog',state:'open',opened_at:'2026-11-15T12:00:00Z'}],
+            recent_events:[{id:9,condition_key:'email_queue_backlog',transition:'opened',observed_at:'2026-11-15T12:00:00Z'}]};
+        f.setActor({role:'admin'},async()=>d);click(f);await flush();
+        assert(f.root.textContent.includes(ar?'انتظار لأكثر من 15 دقيقة':'Queued for more than 15 minutes'));
+        assert(f.root.textContent.includes(ar?'تنبيهات البريد':'Email notices still queued'));
+        assert.equal(nodes(f.root,'button').length,1);
+        d.email_handoff.state='unavailable';d.email_handoff.overdue_queued=2;
+        click(f);await flush();assert(f.root.textContent.includes(ar?'تعذر تحميل':'could not load'));
+    }
+});
 test('Untrusted email handoff metrics and fabricated delivery claims fail closed',async()=>{
     for(const mutate of [d=>d.email_handoff.delivery_confirmed=true,d=>d.email_handoff.stale_claimed=-1,d=>{d.email_handoff.state='unavailable';}]){
         const f=fixture(),d=report();d.email_handoff={state:'available',outcome_unknown:0,stale_claimed:0,age_threshold_seconds:900,delivery_confirmed:false,automatic_retry:false};

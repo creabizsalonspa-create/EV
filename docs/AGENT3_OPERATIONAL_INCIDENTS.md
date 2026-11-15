@@ -53,3 +53,19 @@ Disposable checks: `php artisan test --filter='OperationalWatchdogTest|Operation
 `node --test tests/admin-operational-health.cjs`, and disposable PostgreSQL
 concurrency checks. This is a separately reviewable **stacked branch**;
 merge PR #133 before integrating this follow-up.
+
+## Overdue queued email receipts (review only)
+
+Read-only email handoff monitoring also counts receipts still `queued` after 15
+minutes. This is not a sent-email claim, an SMTP delivery attempt or a command
+to replay. The existing `notification_email_outbox(state,created_at)` index
+bounds the count without selecting recipients, addresses, bodies or private
+outbox identifiers. An overdue queued receipt records an idempotent
+`email_queue_backlog` incident transition and causes the independent watchdog
+to emit `email_queue_overdue` with a nonzero exit status. Unknown or missing
+receipt storage must fail closed, not become an invented count of zero.
+
+The private read-only Admin EN/AR screen shows counts and a fixed incident label,
+never any receipt ID, recipient, email body or provider token. Only separately
+authorized, human-reviewed work may resolve pending records; there is
+**no automatic retry**, SMS, push, SMTP or charger/payment side effect.

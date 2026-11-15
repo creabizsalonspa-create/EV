@@ -136,6 +136,33 @@ class OperationalWatchdogTest extends TestCase
         $this->assertDatabaseCount('charger_commands', 0);
     }
 
+    public function test_stale_queued_email_claims_fail_closed_without_retrying_delivery(): void
+    {
+        $health = app(OperationalHealth::class);
+        $health->record('queue_worker');
+        $health->record('scheduler');
+        app(OperationalIncidents::class)->scan($health);
+        $user = User::factory()->create();
+        $id = (string) Str::uuid();
+        DB::table('notification_email_outbox')->insert([
+            'id' => $id, 'user_id' => $user->id, 'after_notification_id' => 0,
+            'through_notification_id' => 1, 'consent_revision' => 1,
+            'recipient_hash' => hash('sha256', $user->email),
+            'configuration_hash' => str_repeat('d', 64),
+            'state' => 'queued', 'evidence' => 'SIMULATED_EMAIL_HANDOFF',
+            'created_at' => now()->subMinutes(16), 'updated_at' => now()->subMinutes(16),
+        ]);
+        $result = $this->probe();
+        $this->assertSame('needs_attention', $result['status']);
+        $this->assertContains('email_queue_overdue', $result['signals']);
+        $this->assertSame(1, Artisan::call('operations:watchdog-check'));
+        $this->assertStringNotContainsString($id, json_encode($result));
+        $this->assertStringNotContainsString($user->email, json_encode($result));
+        $this->assertDatabaseHas('notification_email_outbox', ['id' => $id, 'state' => 'queued']);
+        $this->assertDatabaseCount('charger_commands', 0);
+        $this->assertDatabaseCount('finance_payments', 0);
+    }
+
     public function test_unknown_email_and_incident_store_are_not_treated_as_normal(): void
     {
         $health = app(OperationalHealth::class);
