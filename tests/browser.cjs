@@ -347,8 +347,9 @@ function provisionTestRole(email, role) {
       .filter({ hasText: "Browser fleet " + run })
       .waitFor();
     assert.equal(
-      await outsider.page.locator("#vehicle-list").textContent(),
-      "",
+      await outsider.page.locator("#vehicle-list > div").count(),
+      0,
+      "a fleet invitation never exposes another account's vehicle rows",
     );
     await customer.page
       .locator('#fleet-detail input[data-i18n-aria="Cost center code"]')
