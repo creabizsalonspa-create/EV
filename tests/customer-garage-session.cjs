@@ -11,7 +11,9 @@ function harness() {
     const elements = new Map();
     const el = id => {
         if (!elements.has(id)) elements.set(id,{
-            children:[],replaceChildren(...children){this.children=children;},
+            children:[],
+            elements:{name:{value:""},locale:{value:""}},
+            replaceChildren(...children){this.children=children;},
             append(...children){this.children.push(...children);},
             querySelector(){return this.submit || null;}
         });
