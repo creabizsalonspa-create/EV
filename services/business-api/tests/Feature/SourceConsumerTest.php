@@ -417,7 +417,7 @@ class SourceConsumerTest extends TestCase
         try {
             app(SourceConsumer::class)->consume($link, true);
             $this->fail('Invalid source page was accepted or skipped.');
-        } catch (RuntimeException|\Symfony\Component\HttpKernel\Exception\HttpException) {
+        } catch (RuntimeException) {
             $this->assertSame(0, $link->fresh()->source_meter_cursor);
             $this->assertDatabaseCount('finance_invoices', 0);
             $this->assertDatabaseCount('charger_commands', 1);
