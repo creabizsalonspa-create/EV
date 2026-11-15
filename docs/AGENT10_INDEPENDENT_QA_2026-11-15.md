@@ -1,5 +1,23 @@
 # Agent 10 — Independent QA and delivery-readiness checkpoint
 
+## 16 November 2026 continuation — replaces stale source-status claims below
+
+**Latest integrated source:** `48f136d750689b3fccb93727748006428a3912bb` (Agent 4 merged OCPP #131); the original 42 categories / 312 atoms remain **186 coded, 185 tested/merged, 0 production accepted**, category weighted 58.20% / 57.81% / 57.81% / 0%. Source and raw counts must be rechecked after the next integration merge.
+
+**Exact-hosted QA evidence:** PR #138 head `918fae8f756c89f5fa23984fc28da3ffd9c438e7` [run 43768301891](https://github.com/creabizsalonspa-create/EV/actions/runs/43768301891) completed with **four passing jobs** (staging-image, connector-postgres, finance-postgres, CSMS recovery), one failed `business-platform` job at `npm run test:web-session`, and skipped recovery acceptance. The failure was `connector_fleet` stage `web-en-read` / `TimeoutError`: one connector request was observed, but no matching scoped HTTP response reached the test's waiter. No assertion of the root cause is justified without distinguishing wrong scope from request cancellation. The following QA commit instruments safe request-scope booleans, status codes and abort/network labels while **retaining exact-station, English/Arabic result, no duplicate reads, and no physical-command assertions**. Its own full CI requires a fresh verdict.
+
+**Hosted staging proof:** The staging-image job on run 43768301891 explicitly passed all **21 Agent 10 tests** (11 locked coverage tests, six exact-source Platform/Native metadata tests, four strict-JSON tests). These certify only the synthetic/offline constraints those tests assert. The historical Platform/Native green runs at older source `28701c...` are not validation of current QA head, native signing, or private staging.
+
+**Current peer PR context:** #130 OCPI, #142 OCPP, #133 notifications, #135/#139/#140 Admin and #137 discovery have passing exact-head hosted checks at this review; older failed heads noted below have been superseded. #132 finance and #134 Flutter still have red business-platform checks at their reviewed heads. None can increase *merged* completion credit until Agent 4 integrates and validates the actual combined source.
+
+**QA outputs:** [312-atom uncredited scope ledger](AGENT10_UNCREDITED_SCOPE_2026-11-16.md), [full-platform acceptance matrix](AGENT10_E2E_ACCEPTANCE_MATRIX.md), [read-only CI-source metadata gate and usage](AGENT10_CI_SOURCE_GATE_2026-11-16.md), fixed-denominator auditor and strict JSON hostile-input parser. A non-boolean or forged production-ready field is not live acceptance. This report never confers authorization to operate physical chargers or process live payments.
+
+**External gates remain UNVERIFIED:** physical OCPP 1.6/2.0.1 charger pilot and operator control, licensed live OCPI partner, activated PSP/bank/legal invoice rules, authorized private staging backup/restore/rollback, independent security/performance/accessibility assessment, signed Android/iOS store releases. **Customer delivery ready: NO.**
+
+---
+
+
+
 Date: 2026-11-15 (Asia/Dubai). **STATUS: INCOMPLETE — CONTINUE REQUIRED.** This is a GitHub-hosted-evidence review and a new offline acceptance auditor; it is not a live runtime, charger, merchant, partner or mobile signing test.
 
 ## Source and coverage

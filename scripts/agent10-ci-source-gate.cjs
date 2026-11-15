@@ -94,7 +94,10 @@ function verifySnapshot(snapshot, sourceSha) {
   assert.ok(typeof sourceSha === 'string' && SHA40.test(sourceSha), 'Exact Git source SHA required');
   assert.equal(snapshot?.schema,'ev-agent10-cross-workflow-ci-snapshot-v1','Unexpected CI evidence schema');
   for (const key of ['production_ready','customer_delivery_ready','production_accepted','store_signed']) {
-    assert.notEqual(snapshot[key], true, 'Untrusted CI metadata claims live/release acceptance');
+    // Explicit acceptance assertions must be literal false; coercible strings,
+    // numbers and null are ambiguous, not independent live approval.
+    if (Object.hasOwn(snapshot, key))
+      assert.equal(snapshot[key], false, 'Untrusted CI metadata claims live/release acceptance');
   }
   const platform = verifyWorkflow('platform', snapshot.platform, sourceSha);
   const native = verifyWorkflow('native', snapshot.native, sourceSha);

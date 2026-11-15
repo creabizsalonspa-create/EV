@@ -2,7 +2,7 @@
 const {execFileSync}=require('node:child_process'),{randomBytes}=require('node:crypto'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 const {BusinessClient}=require('./helpers/business-client.cjs');
 let stage='fixture';
-const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null};
+const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null,matchedStationScope:[],responseStatuses:[],transportFailures:[]};
 (async()=>{
  const run=randomBytes(4).toString('hex'),password=randomBytes(24).toString('hex')+'Aa9!';
  const fixture=JSON.parse(execFileSync(process.env.EV_TEST_PHP_RUNNER||'./scripts/php',['tests/Fixtures/unified-discovery.php',run,password],{encoding:'utf8'}));
@@ -13,7 +13,10 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
  try {
   const context=await browser.newContext({viewport:{width:390,height:844}});await context.addCookies([...client.cookies].map(([name,value])=>({name,value,url:client.base})));
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.name));let calls=0;
-  const requestedStationIds=[];page.on('request',r=>{const url=new URL(r.url());if(url.pathname==='/api/charging-operations/connectors'){assert.equal(r.method(),'GET');calls++;proof.requests=calls;requestedStationIds.push(url.searchParams.get('station_id'));}});
+  const requestedStationIds=[];page.on('request',r=>{const url=new URL(r.url());if(url.pathname==='/api/charging-operations/connectors'){assert.equal(r.method(),'GET');calls++;proof.requests=calls;requestedStationIds.push(url.searchParams.get('station_id'));proof.matchedStationScope.push(url.searchParams.get('station_id')===String(fixture.station_id));}});
+  page.on('response',r=>{if(new URL(r.url()).pathname==='/api/charging-operations/connectors')proof.responseStatuses.push(r.status());});
+  page.on('requestfailed',r=>{if(new URL(r.url()).pathname==='/api/charging-operations/connectors')
+    proof.transportFailures.push((r.failure()?.errorText||'unknown').slice(0,80));});
   stage='web-en-navigate';await page.goto(client.base);
   stage='web-en-refresh';await page.locator('#commands-refresh').click();
   const root=page.locator('#charging-dashboard section');stage='web-en-form';await root.getByRole('button',{name:'Read connector snapshot',exact:true}).waitFor();
@@ -22,11 +25,11 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
   stage='web-en-read';const englishResponse=page.waitForResponse(r=>{
     const url=new URL(r.url());
     return url.pathname==='/api/charging-operations/connectors' &&
-      url.searchParams.get('station_id')===String(fixture.station_id) &&
       r.request().method()==='GET';
   });
   await root.getByRole('button',{name:'Read connector snapshot',exact:true}).click();
   const englishScoped=await englishResponse;proof.englishResponse=englishScoped.status();
+  stage='web-en-scope-response';assert.equal(new URL(englishScoped.url()).searchParams.get('station_id'),String(fixture.station_id));
   stage='web-en-response';assert.equal(englishScoped.status(),200);
   stage='web-en-result';await root.getByText('Recent report at snapshot: Available',{exact:true}).waitFor();
   stage='web-en-count';assert.equal(await root.locator('article').count(),1);assert.equal(calls,1);
@@ -40,11 +43,11 @@ const proof={phase:'fixture',requests:0,englishResponse:null,arabicResponse:null
   const arabicResponse = page.waitForResponse(r=>{
     const url=new URL(r.url());
     return url.pathname==='/api/charging-operations/connectors' &&
-      url.searchParams.get('station_id')===String(fixture.station_id) &&
       r.request().method()==='GET';
   });
   await root.getByRole('button',{name:'قراءة لقطة الموصلات',exact:true}).click();
   const scopedResponse = await arabicResponse;
+  stage='web-ar-scope-response';assert.equal(new URL(scopedResponse.url()).searchParams.get('station_id'),String(fixture.station_id));
   stage='web-ar-response';proof.arabicResponse=scopedResponse.status();assert.equal(scopedResponse.status(),200);
   const snapshot=await scopedResponse.json();
   assert.equal(snapshot.scope,'recorded_connector_fleet');
