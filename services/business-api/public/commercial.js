@@ -1223,7 +1223,7 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                         );
                 }
                 if (subscription.status === "cancelled") return;
-                form(
+                const changePlanForm = form(
                     content,
                     [
                         {
@@ -1273,6 +1273,83 @@ window.createCommercialWorkspace = ({ root, api: clientApi, ui }) => {
                             },
                         );
                         await load();
+                    },
+                );
+                const preview = document.createElement("section");
+                preview.dataset.subscriptionChangePreview = String(subscription.id);
+                content.append(preview);
+                const invalidatePreview = () => preview.replaceChildren();
+                changePlanForm.addEventListener("input", invalidatePreview);
+                changePlanForm.addEventListener("change", invalidatePreview);
+                button(
+                    content,
+                    "Preview next cycle charges",
+                    "معاينة رسوم دورة الاشتراك القادمة",
+                    async () => {
+                        const selection = new FormData(changePlanForm);
+                        if (selection.get("action") !== "change_plan")
+                            throw Error("Select Change next cycle plan before preview.");
+                        const planId = Number(selection.get("plan_id"));
+                        if (!Number.isSafeInteger(planId) || planId < 1)
+                            throw Error("Select a valid next-cycle plan.");
+                        const quote = await api(
+                            "commercial/subscriptions/" + subscription.id +
+                                "/change-preview?plan_id=" + planId,
+                            "GET",
+                            undefined,
+                            controller.signal,
+                        );
+                        if (current !== epoch || !preview.isConnected) return;
+                        if (
+                            Number(quote.subscription_id) !== Number(subscription.id) ||
+                            Number(quote.proposed_plan_id) !== planId ||
+                            quote.amount_due_now_minor !== 0 ||
+                            quote.proration_supported !== false ||
+                            quote.quote_is_binding !== false ||
+                            quote.real_payment_processed !== false
+                        )
+                            throw Error("Unsafe plan-change quote response.");
+                        preview.replaceChildren(
+                            translated(
+                                "h4",
+                                "Non-binding next cycle preview",
+                                "معاينة غير ملزمة للدورة القادمة",
+                            ),
+                            text(
+                                "p",
+                                money(
+                                    quote.next_cycle_subtotal_minor,
+                                    quote.currency,
+                                    quote.minor_units,
+                                ) + " · Next cycle base / سعر الدورة القادمة",
+                            ),
+                            text(
+                                "p",
+                                money(
+                                    quote.next_cycle_tax_minor,
+                                    quote.currency,
+                                    quote.minor_units,
+                                ) + " · Estimated tax / الضريبة المتوقعة",
+                            ),
+                            text(
+                                "strong",
+                                money(
+                                    quote.next_cycle_total_minor,
+                                    quote.currency,
+                                    quote.minor_units,
+                                ) + " · Next cycle total / إجمالي الدورة القادمة",
+                            ),
+                            text(
+                                "p",
+                                String(quote.effective_at_utc) +
+                                    " · Effective at UTC / يبدأ بتوقيت UTC",
+                            ),
+                            translated(
+                                "p",
+                                "Due now: zero. No proration, new invoice, entitlement change or payment occurs until a separate approved action.",
+                                "المستحق الآن: صفر. لا تتم تسوية نسبية أو إصدار فاتورة أو تغيير مزايا أو دفع إلا بإجراء منفصل معتمد.",
+                            ),
+                        );
                     },
                 );
                 button(
