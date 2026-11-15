@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\CommercialFinanceController as C;
 use App\Http\Controllers\FinanceReconciliationAuditController as Audit;
+use App\Http\Controllers\FinanceApprovalQueueController as Approvals;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/finance/report', [C::class, 'report']);
+Route::get('/finance/approval-queue', [Approvals::class, 'index']);
 Route::get('/finance/reconciliation-audit', [Audit::class, 'index']);
 Route::get('/finance/reconciliation-audit/export', [Audit::class, 'export']);
 Route::get('/finance/refund-requests', [C::class, 'requests']);
