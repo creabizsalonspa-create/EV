@@ -25,6 +25,8 @@ class InactivePrivacySourceTests(unittest.TestCase):
         self.assertIn("window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)", paused)
         self.assertIn("super.onPause()", paused)
         self.assertIn("window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)", resumed)
+        self.assertIn("if (clearPrivacyFlagOnResume)", resumed)
+        self.assertIn("clearPrivacyFlagOnResume =", paused)
         self.assertIn("super.onResume()", resumed)
         self.assertNotIn("clearFlags", paused)
 
