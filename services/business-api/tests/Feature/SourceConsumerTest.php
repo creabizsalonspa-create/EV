@@ -408,7 +408,11 @@ class SourceConsumerTest extends TestCase
                 ]]]]);
             }
             if (str_contains($query, 'MeterValues')) {
-                return Http::response(['data' => ['MeterValues' => $rows]]);
+                // A real source query filters id > the durable cursor. After
+                // finalization, replaying old rows would violate that contract.
+                $after = (int) ($request['variables']['after'] ?? 0);
+
+                return Http::response(['data' => ['MeterValues' => $after > 0 ? [] : $rows]]);
             }
 
             $this->fail('Source reader attempted an unauthorized network operation.');
