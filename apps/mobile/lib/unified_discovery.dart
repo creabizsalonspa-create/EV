@@ -18,6 +18,16 @@ String partnerCatalogAgeLabel(Map<String,dynamic> row, bool ar) {
       : 'Reported catalog age at search: $age min${stale ? ' · over 24 hours old' : ''}';
 }
 
+/// A partial published location can be shown as read-only evidence but cannot
+/// create a booking or favorite action that depends on absent connector data.
+bool completePublishedStation(Map<String,dynamic> station) =>
+  station['id'] is int && (station['id'] as int)>0 &&
+  station['name'] is String && (station['name'] as String).trim().isNotEmpty &&
+  station['evidence'] is String && (station['evidence'] as String).trim().isNotEmpty &&
+  ['CCS2','Type2','CHAdeMO'].contains(station['connector_type']) &&
+  station['power_kw'] is int && (station['power_kw'] as int)>=1 &&
+  (station['power_kw'] as int)<=1000;
+
 class UnifiedDiscoveryView extends StatefulWidget {
   final EvApi api;
   final ValueChanged<Station> onCatalog;
@@ -73,8 +83,12 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
       final parsed=(data['data'] as List).map((row)=>Map<String,dynamic>.from(row as Map)).toList();
       for(final row in parsed){
         if(row['kind']=='catalog'){
-          final station=Station.fromJson(Map<String,dynamic>.from(row['station'] as Map));
-          if(row['key']!='catalog:${station.id}'||station.id<1)throw const FormatException('Invalid station identity');
+          if(row['station'] is! Map)throw const FormatException('Invalid catalog payload');
+          final raw=Map<String,dynamic>.from(row['station'] as Map);
+          final id=raw['id'];
+          if(id is! int||id<1||row['key']!='catalog:$id')throw const FormatException('Invalid station identity');
+          // Noncritical metadata may be incomplete. Keep the identity in the
+          // read-only catalog, but never construct Station or a booking link.
         }else if(row['kind']!='partner'||row['location'] is! Map||row['record_id'] is! int||(row['record_id'] as int)<1||row['key']!='partner:${row['record_id']}'||row['availability']!='unknown'||row['reservable']!=false||row['remote_control']!=false){throw const FormatException('Invalid partner authority');}
       }
       setState((){
@@ -196,7 +210,21 @@ class _UnifiedDiscoveryViewState extends State<UnifiedDiscoveryView> with Widget
   ].whereType<PartnerMapPoint>().toList();
   Widget card(Map<String,dynamic> row){
     if(row['kind']=='catalog'){
-      final station=Station.fromJson(Map<String,dynamic>.from(row['station'] as Map));
+      final raw=Map<String,dynamic>.from(row['station'] as Map);
+      if(!completePublishedStation(raw)){
+        final rawName=raw['name'];
+        final label=rawName is String&&rawName.trim().isNotEmpty
+            ?rawName:tr('Unnamed platform station','محطة منصة بلا اسم');
+        return Card(key:ValueKey(row['key']),child:Padding(
+          padding:const EdgeInsets.all(12),
+          child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(label),
+            Text(tr('Published station details incomplete. Booking and saved-place actions are unavailable until catalog metadata is corrected.',
+              'بيانات المحطة المنشورة غير مكتملة. لا تتوفر إجراءات الحجز أو الحفظ حتى تصحيح بيانات الكتالوج.')),
+          ]),
+        ));
+      }
+      final station=Station.fromJson(raw);
       return Card(key:ValueKey(row['key']),child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(station.name),if(widget.customer)favoriteButton(row),Text(tr('Platform catalog · ${station.source}','كتالوج المنصة · ${station.source}')),TextButton(onPressed:foreground&&ownSession()?()=>widget.onCatalog(station):null,child:Text(tr('View station and booking options','عرض المحطة وخيارات الحجز')))])));
     }
     final location=Map<String,dynamic>.from(row['location'] as Map);
