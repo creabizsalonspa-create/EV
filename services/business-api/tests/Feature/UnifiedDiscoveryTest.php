@@ -461,10 +461,17 @@ class UnifiedDiscoveryTest extends TestCase
             ] as $country => $expected) {
                 $reply = $this->getJson($route.'?country='.$country)->assertOk()
                     ->assertJsonPath('total', $country === 'AE' ? 28 : 2);
-                // The unfiltered AE market deliberately contains 26 additional stations.
+                // The AE fixtures span two pages: out-of-country US/CA
+                // records must not consume page slots in their own searches.
+                $allKeys = array_column($reply->json('data'), 'key');
+                if ($country === 'AE') {
+                    $reply->assertJsonPath('last_page', 2);
+                    $second = $this->getJson($route.'?country=AE&page=2')->assertOk()->assertJsonPath('total', 28);
+                    $allKeys = array_merge($allKeys, array_column($second->json('data'), 'key'));
+                }
                 $this->assertEqualsCanonicalizing(
                     $expected,
-                    array_values(array_intersect($expected, array_column($reply->json('data'), 'key')))
+                    array_values(array_intersect($expected, $allKeys))
                 );
                 if ($country !== 'AE') {
                     $reply->assertJsonCount(2, 'data')->assertJsonPath('last_page', 1);
