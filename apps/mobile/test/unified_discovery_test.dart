@@ -208,4 +208,51 @@ void main(){
    expect(second.queries.single.containsKey('country'),false);
   });
  }
+
+ for(final ar in [false,true]){
+  testWidgets('empty native discovery page can explicitly select map viewport without source/GPS inference ($ar)',(tester)async{
+   roomy(tester);
+   final api=UnifiedApi();
+   final tiles=UnifiedFixtureTiles();
+   addTearDown(api.close);
+   await tester.pumpWidget(app(api,(_)=>fail('No implicit station booking'),ar:ar,tileProvider:tiles));
+   expect(api.calls,isEmpty,reason:'Opening an empty catalog does not search');
+   final open=find.byKey(const Key('unified-map-open'));
+   expect(open,findsOneWidget);
+   await tester.ensureVisible(open);await tester.tap(open);await tester.pumpAndSettle();
+   expect(api.calls,isEmpty,reason:'Map opening never contacts the catalog or a provider');
+   expect(tiles.requests,0,reason:'No tile access until explicit opt in');
+   expect(find.byKey(const Key('unified-native-viewport-search')),findsNothing);
+   expect(find.textContaining(ar?'عرض العالم المحايد':'neutral world view'),findsOneWidget);
+
+   await tester.tap(find.byKey(const Key('partner-map-enable')));
+   await tester.pumpAndSettle();
+   expect(tiles.requests,greaterThan(0));
+   expect(api.calls,isEmpty,reason:'Map tile enable is not a catalog search');
+   final search=find.byKey(const Key('unified-native-viewport-search'));
+   await tester.ensureVisible(search);await tester.tap(search);await tester.pumpAndSettle();
+   expect(api.calls,['GET discovery/search']);
+   final bounds=api.queries.single;
+   for(final key in ['south','north','west','east'])expect(double.tryParse(bounds[key]??''),isNotNull);
+   expect(bounds['page'],'1');
+   expect(bounds['scope'],'all');
+   expect(bounds.containsKey('latitude'),false);
+   expect(bounds.containsKey('longitude'),false);
+   expect(bounds.containsKey('radius_km'),false);
+   expect(find.text('Synthetic catalog'),findsOneWidget);
+   expect(find.byKey(const Key('unified-map-open')),findsOneWidget);
+
+   final next=find.text(ar?'التالي':'Next');
+   await tester.ensureVisible(next);await tester.tap(next);await tester.pumpAndSettle();
+   expect(api.queries.length,2);
+   expect(api.queries.last['page'],'2');
+   expect(api.queries.last['west'],bounds['west']);
+
+   await tester.ensureVisible(find.byType(FilledButton));
+   await tester.tap(find.byType(FilledButton));await tester.pumpAndSettle();
+   expect(api.queries.last.containsKey('west'),false,
+      reason:'Ordinary search must clear user-submitted empty-map rectangle');
+   expect(tester.takeException(),isNull);
+  });
+ }
 }
