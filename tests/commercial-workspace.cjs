@@ -175,6 +175,14 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     assert.equal(quote.proposed_plan_id, proposedPlan);
     assert.equal(quote.amount_due_now_minor, 0);
     assert.equal(quote.proration_supported, false);
+    assert.equal(quote.comparison_is_proration, false);
+    assert(Number.isSafeInteger(quote.current_plan_list_total_minor));
+    assert(["month", "year"].includes(quote.current_plan_interval));
+    assert.equal(typeof quote.cycles_comparable, "boolean");
+    if (quote.cycles_comparable)
+      assert(Number.isSafeInteger(quote.nominal_plan_list_difference_minor));
+    else
+      assert.equal(quote.nominal_plan_list_difference_minor, null);
     assert.equal(quote.quote_is_binding, false);
     assert.equal(quote.real_payment_processed, false);
     await root.locator(
@@ -183,6 +191,14 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     assert.match(await root.locator(
       '[data-subscription-change-preview="' + subscriptionId + '"]',
     ).innerText(), /Due now: zero/);
+    const pricePane = await root.locator(
+      '[data-subscription-change-preview="' + subscriptionId + '"]',
+    ).innerText();
+    assert.match(pricePane, /Current published list/);
+    assert.match(
+      pricePane,
+      quote.cycles_comparable ? /Nominal list difference/ : /Different billing intervals/,
+    );
     await root
       .getByRole("button", { name: "Load recovery records", exact: true })
       .click();
