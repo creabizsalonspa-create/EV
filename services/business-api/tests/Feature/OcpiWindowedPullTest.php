@@ -139,6 +139,30 @@ class OcpiWindowedPullTest extends TestCase
         $this->assertDatabaseCount('ocpi_records', 0);
     }
 
+    public function test_duplicate_partner_next_links_fail_closed_before_any_second_get(): void
+    {
+        $provider = $this->provider();
+        Http::fake(function ($request) {
+            $first = $request->url().'&page=2';
+            $second = $request->url().'&page=3';
+
+            return Http::response($this->envelope([['id' => 'candidate-only']]), 200, [
+                'Link' => '<'.$first.'>; rel="next", <'.$second.'>; rel="next"',
+            ]);
+        });
+        try {
+            app(PartnerClient::class)->pull($provider, 'locations', [
+                'date_from' => '2025-03-10T08:00:00Z',
+                'date_to' => '2025-03-10T08:30:00Z',
+            ]);
+            $this->fail('A source reply with competing next-page links was accepted.');
+        } catch (OcpiException $error) {
+            $this->assertStringContainsString('Ambiguous partner pagination links', $error->getMessage());
+        }
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('ocpi_records', 0);
+    }
+
     public function test_invalid_read_window_is_rejected_without_any_partner_request(): void
     {
         $provider = $this->provider();
