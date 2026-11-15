@@ -173,6 +173,13 @@ class SourceConsumer
             throw new RuntimeException('Multiple source transactions require reconciliation.');
         }
         if (! $records || $records[0]['meterStart'] === null || ! $records[0]['startTime']) {
+            // Initial provisioning can be incomplete. Once source start was
+            // signed, disappearing/incomplete transaction evidence must never
+            // be mistaken for a healthy empty poll or a completed session.
+            if ($link->transaction_id !== null) {
+                throw new RuntimeException('Started source transaction missing or incomplete; reconciliation is required.');
+            }
+
             return 0;
         }
         $tx = $records[0];
