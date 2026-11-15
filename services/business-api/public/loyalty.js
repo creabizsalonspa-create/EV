@@ -923,8 +923,25 @@ window.mountLoyalty = ({ container, api, ui, actor }) => {
             );
             if (!alive() || epoch !== generation) return;
             if (!["account", "ledger", "policies", "rewards", "redemptions"].includes(kind) ||
-                !result || (kind !== "account" && !Array.isArray(result.data)))
-                throw Error("Unreadable loyalty response");
+                !result) throw Error("Unreadable loyalty response");
+            if (kind === "account") {
+                // Only present a verified own-account noncash ledger summary.
+                // Never render malformed figures as "undefined" points.
+                if (result.user_id !== owner ||
+                    result.unit !== "NON_MONETARY_POINTS" ||
+                    result.evidence !== "TEST_PROMOTIONAL_ECONOMICS" ||
+                    result.cash_value !== false || result.transferable !== false ||
+                    !["balance_points", "spendable_points",
+                        "pending_reconciliation_points", "qualified_lifetime_points"]
+                        .every(key => Number.isSafeInteger(result[key])))
+                    throw Error("Unreadable account points");
+            } else if (!Array.isArray(result.data) ||
+                !Number.isSafeInteger(result.current_page) ||
+                !Number.isSafeInteger(result.last_page) ||
+                result.current_page < 1 || result.last_page < 1 ||
+                result.current_page > result.last_page ||
+                !Number.isSafeInteger(result.total) || result.total < 0)
+                throw Error("Unreadable loyalty page");
             content.replaceChildren();
             const nav = node("nav");
             nav.className = "finance-pagination";
